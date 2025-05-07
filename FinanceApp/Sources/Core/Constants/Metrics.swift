@@ -1,0 +1,32 @@
+//
+//  Metrics.swift
+//  FinanceApp
+//
+//  Created by Arthur Rios on 07/05/25.
+//
+
+import Foundation
+import UIKit
+
+enum Metrics {
+    // Spacing
+    static let spacing1: CGFloat = 4
+    static let spacing2: CGFloat = 8
+    static let spacing3: CGFloat = 12
+    static let spacing4: CGFloat = 16
+    static let spacing5: CGFloat = 20
+    static let spacing6: CGFloat = 24
+    static let spacing7: CGFloat = 28
+    static let spacing8: CGFloat = 32
+    static let spacing9: CGFloat = 36
+    static let spacing10: CGFloat = 40
+    static let spacing11: CGFloat = 44
+    static let spacing12: CGFloat = 48
+
+    // Component Sizes
+    static let buttonHeight: CGFloat = 48
+    static let inputHeight: CGFloat = 48
+    static let loginHeroHeight: CGFloat = 240
+    static let profileImageSize: CGFloat = 40
+    static let headerHeight: CGFloat = 136
+}
