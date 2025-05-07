@@ -15,6 +15,7 @@ class SplashView: UIView {
     let logoImageView: UIImageView = {
         let imageView = UIImageView(image: UIImage(named: "appLogo"))
         imageView.contentMode = .scaleAspectFit
+        imageView.alpha = 0
         imageView.translatesAutoresizingMaskIntoConstraints = false
         return imageView
     }()

@@ -9,6 +9,7 @@ import Foundation
 import UIKit
 
 final class SplashViewController: UIViewController {
+    let viewModel = SplashViewModel()
     let contentView: SplashView
     public weak var flowDelegate: SplashFlowDelegate?
     
@@ -32,9 +33,24 @@ final class SplashViewController: UIViewController {
         self.navigationController?.isNavigationBarHidden = true
         
         setupConstraints()
+        
+        startAnimation()
     }
     
     private func setupConstraints() {
         setupContentViewToBounds(contentView: contentView, respectingSafeArea: false)
+    }
+    
+    private func startAnimation() {
+        
+        viewModel.performInitialAnimation { [weak self] in
+            guard let self else { return }
+            
+            UIView.animate(withDuration: 1, animations: {
+                self.contentView.logoImageView.alpha = 1
+            }, completion: { _ in
+                self.viewModel.onAnimationFinished?()
+            })
+        }
     }
 }
