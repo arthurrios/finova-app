@@ -27,9 +27,22 @@ class AppFlowController {
 
 // MARK: - Splash
 extension AppFlowController: SplashFlowDelegate {
-    func didFinishSplashFlow() {
+    func navigateToLogin() {
+        let loginViewController = viewControllersFactory.makeLoginViewController(flowDelegate: self)
+        loginViewController.modalPresentationStyle = .overCurrentContext
+        loginViewController.modalTransitionStyle = .crossDissolve
+        navigationController?.present(loginViewController, animated: false) {
+            loginViewController.animateShow()
+        }
     }
     
-    func navigateToDashboardFlow() {
+    func navigateToDashboard() {
+        //
+    }
+}
+
+extension AppFlowController: LoginFlowDelegate {
+    func sendLoginData(name: String, email: String, password: String) {
+        //
     }
 }

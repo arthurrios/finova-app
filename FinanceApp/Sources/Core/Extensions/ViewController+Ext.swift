@@ -14,15 +14,15 @@ extension UIViewController {
         contentView.translatesAutoresizingMaskIntoConstraints = false
         
         let top    = respectingSafeArea ? view.safeAreaLayoutGuide.topAnchor    : view.topAnchor
-        let bottom = respectingSafeArea ? view.safeAreaLayoutGuide.bottomAnchor : view.bottomAnchor
+        let bottom = view.bottomAnchor
         let lead   = respectingSafeArea ? view.safeAreaLayoutGuide.leadingAnchor: view.leadingAnchor
-        let trail  = view.trailingAnchor
+        let trail  = respectingSafeArea ? view.safeAreaLayoutGuide.trailingAnchor: view.trailingAnchor
         
         NSLayoutConstraint.activate([
-            contentView.topAnchor.constraint(equalTo:    top),
+            contentView.topAnchor.constraint(equalTo: top),
             contentView.bottomAnchor.constraint(equalTo: bottom),
-            contentView.leadingAnchor.constraint(equalTo:lead),
-            contentView.trailingAnchor.constraint(equalTo:trail)
+            contentView.leadingAnchor.constraint(equalTo: lead),
+            contentView.trailingAnchor.constraint(equalTo: trail)
         ])
     }
 }

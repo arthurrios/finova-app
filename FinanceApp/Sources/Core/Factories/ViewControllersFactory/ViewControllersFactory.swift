@@ -15,4 +15,9 @@ final class ViewControllersFactory: ViewControllersFactoryProtocol {
         return viewController
     }
     
+    func makeLoginViewController(flowDelegate: LoginFlowDelegate) -> LoginViewController {
+        let contentView = LoginView()
+        let viewController = LoginViewController(contentView: contentView, flowDelegate: flowDelegate)
+        return viewController
+    }
 }

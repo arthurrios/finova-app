@@ -20,6 +20,8 @@ class SplashView: UIView {
         return imageView
     }()
     
+    let loginImageView = LogoGraphic()
+    
     override init(frame: CGRect) {
         super.init(frame: frame)
         layer.insertSublayer(gradientLayer, at: 0)
@@ -36,7 +38,10 @@ class SplashView: UIView {
     }
     
     private func setupView() {
+        loginImageView.alpha = 0
+        loginImageView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(logoImageView)
+        addSubview(loginImageView)
         
         setupConstraints()
     }
@@ -44,7 +49,10 @@ class SplashView: UIView {
     private func setupConstraints() {
         NSLayoutConstraint.activate([
             logoImageView.centerXAnchor.constraint(equalTo: centerXAnchor),
-            logoImageView.centerYAnchor.constraint(equalTo: centerYAnchor),
+            logoImageView.centerYAnchor.constraint(equalTo: centerYAnchor, constant: -Metrics.spacing6),
+            
+            loginImageView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Metrics.spacing3),
+            loginImageView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Metrics.spacing3),
         ])
     }
 }

@@ -28,19 +28,36 @@ final class SplashViewController: UIViewController {
         setup()
     }
     
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        let gradientLayer = Colors.gradientBlack
+        gradientLayer.frame = view.bounds
+        view.layer.insertSublayer(gradientLayer, at: 0)
+    }
+
+    
     private func setup() {
         self.view.addSubview(contentView)
         self.navigationController?.isNavigationBarHidden = true
         
-        setupConstraints()
-        
+        buildHierarchy()
+
         startAnimation()
     }
     
-    private func setupConstraints() {
-        setupContentViewToBounds(contentView: contentView, respectingSafeArea: false)
+    private func buildHierarchy() {
+        setupContentViewToBounds(contentView: contentView)
     }
     
+    @objc
+    private func navigateToLogin() {
+        self.flowDelegate?.navigateToLogin()
+    }
+}
+
+
+// MARK: - Animations
+extension SplashViewController {
     private func startAnimation() {
         
         viewModel.performInitialAnimation { [weak self] in
@@ -49,8 +66,21 @@ final class SplashViewController: UIViewController {
             UIView.animate(withDuration: 1, animations: {
                 self.contentView.logoImageView.alpha = 1
             }, completion: { _ in
-                self.viewModel.onAnimationFinished?()
+                self.animateLogoUp()
             })
         }
+    }
+    
+    private func animateLogoUp() {
+        UIView.animate(withDuration: 1, delay: 0, options: [.curveEaseOut], animations: {
+            self.contentView.logoImageView.transform = self.contentView.logoImageView.transform.translatedBy(x: 0, y: -200)
+            self.contentView.logoImageView.transform = self.contentView.logoImageView.transform.scaledBy(x: 1.15, y: 1.15)
+        }, completion: { _ in
+            UIView.animate(withDuration: 0.8, animations: {
+                self.contentView.loginImageView.alpha = 1
+            }, completion: { _ in
+                self.navigateToLogin()
+            })
+        })
     }
 }

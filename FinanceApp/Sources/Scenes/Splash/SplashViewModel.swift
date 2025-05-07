@@ -8,8 +8,6 @@
 import Foundation
 
 final class SplashViewModel {
-    var onAnimationFinished: (() -> Void)?
-    
     func performInitialAnimation(completion: @escaping () -> Void) {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
             completion()

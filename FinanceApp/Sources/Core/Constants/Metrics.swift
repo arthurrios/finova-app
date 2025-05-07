@@ -26,7 +26,7 @@ enum Metrics {
     // Component Sizes
     static let buttonHeight: CGFloat = 48
     static let inputHeight: CGFloat = 48
-    static let loginHeroHeight: CGFloat = 240
+    static let loginHeroHeight: CGFloat = 360
     static let profileImageSize: CGFloat = 40
     static let headerHeight: CGFloat = 136
 }
