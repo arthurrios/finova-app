@@ -34,10 +34,12 @@ extension AppFlowController: SplashFlowDelegate {
         navigationController?.present(loginViewController, animated: false) {
             loginViewController.animateShow()
         }
-    }
-    
-    func navigateToDashboard() {
-        //
+        
+        func navigateToDashboard() {
+            self.navigationController?.dismiss(animated: false)
+            let dashboardViewController = viewControllersFactory.makeDashboardViewController(flowDelegate: self)
+            self.navigationController?.pushViewController(dashboardViewController, animated: true)
+        }
     }
 }
 
@@ -45,4 +47,14 @@ extension AppFlowController: LoginFlowDelegate {
     func sendLoginData(name: String, email: String, password: String) {
         //
     }
+    
+    func navigateToDashboard() {
+        self.navigationController?.dismiss(animated: false)
+        let dashboardViewController = viewControllersFactory.makeDashboardViewController(flowDelegate: self)
+        self.navigationController?.pushViewController(dashboardViewController, animated: true)
+    }
+}
+
+extension AppFlowController: DashboardFlowDelegate {
+    
 }

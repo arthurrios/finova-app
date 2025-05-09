@@ -10,6 +10,10 @@
 
 "login.welcome.title" = "Boas vindas!";
 "login.welcome.subtitle" = "Pronto para organizar suas finanças? Acesse agora";
+"login.alert.title" = "Salvar accesso";
+"login.alert.subtitle" = "Deseja se manter conectado, ";
+"login.alert.ok" = "Salvar";
+"login.alert.cancel" = "Não";
 
 /*  MARK: - INPUTS */
 

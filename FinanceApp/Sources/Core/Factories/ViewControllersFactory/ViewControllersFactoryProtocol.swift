@@ -9,4 +9,5 @@ import Foundation
 protocol ViewControllersFactoryProtocol: AnyObject {
     func makeSplashViewController(flowDelegate: SplashFlowDelegate) -> SplashViewController
     func makeLoginViewController(flowDelegate: LoginFlowDelegate) -> LoginViewController
+    func makeDashboardViewController(flowDelegate: DashboardFlowDelegate) -> DashboardViewController
 }

@@ -9,7 +9,7 @@ import Foundation
 import UIKit
 
 final class LoginView: UIView {
-    public weak var delegate: LoginFlowDelegate?
+    public weak var delegate: LoginViewDelegate?
 
     let containerView: UIView = {
         let view = UIView()
@@ -65,6 +65,8 @@ final class LoginView: UIView {
     
     private func setupView() {
         loginImageView.translatesAutoresizingMaskIntoConstraints = false
+        button.addTarget(self, action: #selector(handleLoginButtonTapped), for: .touchUpInside)
+
         backgroundColor = Colors.gray100
         addSubview(loginImageView)
         addSubview(containerView)
@@ -125,6 +127,14 @@ final class LoginView: UIView {
         nameTextField.textField.delegate = self
         emailTextField.textField.delegate = self
         passwordTextField.textField.delegate = self
+    }
+    
+    @objc
+    private func handleLoginButtonTapped() {
+        let name = nameTextField.textField.text ?? ""
+        let email = emailTextField.textField.text ?? ""
+        let password = passwordTextField.textField.text ?? ""
+        delegate?.sendLoginData(name: name, email: email, password: password)
     }
 }
 

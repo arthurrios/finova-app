@@ -35,6 +35,15 @@ final class SplashViewController: UIViewController {
         gradientLayer.frame = view.bounds
         view.layer.insertSublayer(gradientLayer, at: 0)
     }
+    
+    private func decideNavigationFlow() {
+        if let user = UserDefaultsManager.getUser(), user.isUserSaved ?? false {
+            print("user saved -> navigate to dashboard")
+            flowDelegate?.navigateToDashboard()
+        } else {
+            animateLogoUp()
+        }
+    }
 
     
     private func setup() {
@@ -68,7 +77,7 @@ extension SplashViewController {
             UIView.animate(withDuration: 1, animations: {
                 self.contentView.logoImageView.alpha = 1
             }, completion: { _ in
-                self.animateLogoUp()
+                self.decideNavigationFlow()
             })
         }
     }

@@ -10,10 +10,12 @@ import UIKit
 
 final class LoginViewController: UIViewController {
     let contentView: LoginView
+    let viewModel: LoginViewModel
     public weak var flowDelegate: LoginFlowDelegate?
     
-    init(contentView: LoginView, flowDelegate: LoginFlowDelegate) {
+    init(contentView: LoginView, viewModel: LoginViewModel, flowDelegate: LoginFlowDelegate) {
         self.contentView = contentView
+        self.viewModel = viewModel
         self.flowDelegate = flowDelegate
         super.init(nibName: nil, bundle: nil)
     }
@@ -24,7 +26,9 @@ final class LoginViewController: UIViewController {
     
     override func viewDidLoad() {
         super.viewDidLoad()
+        contentView.delegate = self
         setup()
+        bindViewModel()
     }
     
     override func viewWillAppear(_ animated: Bool) {
@@ -36,11 +40,33 @@ final class LoginViewController: UIViewController {
         super.viewWillDisappear(animated)
         stopKeyboardObservers()
     }
+    
+    private func bindViewModel() {
+        viewModel.successResult = { [weak self] (userName, userEmail) in
+            self?.presentSaveLoginAlert(name: userName, email: userEmail)
+        }
+    }
+    
+    private func presentSaveLoginAlert(name: String, email: String) {
+        let alertController = UIAlertController(title: "login.alert.title".localized, message: "login.alert.subtitle".localized + "\(name)?", preferredStyle: .alert)
+        let okAction = UIAlertAction(title: "login.alert.ok".localized, style: .default) { _ in
+            let user = User(name: name, email: email, isUserSaved: true)
+            UserDefaultsManager.saveUser(user: user)
+            self.flowDelegate?.navigateToDashboard()
+        }
+        
+        let cancelAction = UIAlertAction(title: "login.alert.cancel".localized, style: .cancel) { _ in
+            self.flowDelegate?.navigateToDashboard()
+        }
+        
+        alertController.addAction(okAction)
+        alertController.addAction(cancelAction)
+        present(alertController, animated: true)
+    }
 
     
     private func setup() {
         view.addSubview(contentView)
-        view.backgroundColor = Colors.gray100
         buildHierarchy()
     }
     
@@ -57,5 +83,11 @@ final class LoginViewController: UIViewController {
         }) { _ in
             completion?()
         }
+    }
+}
+
+extension LoginViewController: LoginViewDelegate {
+    func sendLoginData(name: String, email: String, password: String) {
+        viewModel.authenticate(userName: name, userEmail: email, password: password)
     }
 }

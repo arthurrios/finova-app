@@ -123,6 +123,7 @@ class Input: UIView {
             configurePasswordInput()
         case .email:
             textField.autocapitalizationType = .none
+            textField.autocorrectionType = .no
         case .some(.normal):
             break
         case .none:
