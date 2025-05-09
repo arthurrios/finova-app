@@ -35,6 +35,7 @@ final class DashboardViewController: UIViewController {
     
     private func setup() {
         view.addSubview(contentView)
+        contentView.configure(userName: UserDefaultsManager.getUser()!.name)
         buildHierarchy()
     }
     

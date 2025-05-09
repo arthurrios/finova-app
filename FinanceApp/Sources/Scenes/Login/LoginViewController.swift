@@ -67,6 +67,8 @@ final class LoginViewController: UIViewController {
         }
         
         let cancelAction = UIAlertAction(title: "login.alert.cancel".localized, style: .cancel) { _ in
+            let user = User(name: name, email: email, isUserSaved: false)
+            UserDefaultsManager.saveUser(user: user)
             self.flowDelegate?.navigateToDashboard()
         }
         
