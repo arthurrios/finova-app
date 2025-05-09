@@ -26,6 +26,16 @@ final class LoginViewController: UIViewController {
         super.viewDidLoad()
         setup()
     }
+    
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        startKeyboardObservers()
+    }
+    
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        stopKeyboardObservers()
+    }
 
     
     private func setup() {
@@ -39,10 +49,11 @@ final class LoginViewController: UIViewController {
         setupContentViewToBounds(contentView: contentView)
     }
     
+    
     func animateShow(completion: (() -> Void)? = nil) {
         self.view.layoutIfNeeded()
-        UIView.animate(withDuration: 2, animations: {
-            self.contentView.loginImageView.alpha = 1
+        UIView.animate(withDuration: 1, animations: {
+            self.contentView.containerView.alpha = 1
         }) { _ in
             completion?()
         }

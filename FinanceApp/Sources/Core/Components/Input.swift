@@ -73,7 +73,7 @@ class Input: UIView {
     }
     
     // MARK: - Subviews & State
-    private let textField: UITextField = {
+    let textField: UITextField = {
         let textField = UITextField()
         
         textField.borderStyle = .none

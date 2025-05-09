@@ -9,10 +9,12 @@ import Foundation
 import UIKit
 
 final class LoginView: UIView {
-    
+    public weak var delegate: LoginFlowDelegate?
+
     let containerView: UIView = {
         let view = UIView()
         view.directionalLayoutMargins = NSDirectionalEdgeInsets(top: Metrics.spacing10, leading: Metrics.spacing8, bottom: 0, trailing: Metrics.spacing8)
+        view.layer.opacity = 0
         view.translatesAutoresizingMaskIntoConstraints = false
         return view
     }()
@@ -54,6 +56,7 @@ final class LoginView: UIView {
     override init (frame: CGRect) {
         super.init(frame: frame)
         setupView()
+        setupDelegates()
     }
     
     required init?(coder: NSCoder) {
@@ -116,5 +119,18 @@ final class LoginView: UIView {
             button.leadingAnchor.constraint(equalTo: separator.leadingAnchor),
             button.trailingAnchor.constraint(equalTo: separator.trailingAnchor)
         ])
+    }
+    
+    private func setupDelegates() {
+        nameTextField.textField.delegate = self
+        emailTextField.textField.delegate = self
+        passwordTextField.textField.delegate = self
+    }
+}
+
+extension LoginView: UITextFieldDelegate {
+    func textFieldShouldReturn(_ textField: UITextField) -> Bool {
+        textField.resignFirstResponder()
+        return true
     }
 }
