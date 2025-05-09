@@ -191,6 +191,16 @@ class Input: UIView {
         textField.addTarget(self,
                             action: #selector(textDidChange),
                             for: .editingChanged)
+        
+        textField.addTarget(self,
+                            action: #selector(clearErrorOnTyping),
+                            for: .editingChanged)
+    }
+    
+    @objc
+    private func clearErrorOnTyping() {
+        guard isError else { return }
+        setError(false)
     }
 
     @objc

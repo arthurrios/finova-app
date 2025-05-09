@@ -10,6 +10,8 @@ import UIKit
 
 final class LoginView: UIView {
     public weak var delegate: LoginViewDelegate?
+    
+    @IBOutlet private var inputFields: [Input]!
 
     let containerView: UIView = {
         let view = UIView()
@@ -131,6 +133,14 @@ final class LoginView: UIView {
     
     @objc
     private func handleLoginButtonTapped() {
+        let inputs = [nameTextField, emailTextField, passwordTextField]
+
+        let invalids = inputs.filter { !$0.textField.hasText }
+
+        invalids.forEach { $0.setError(true) }
+
+        guard invalids.isEmpty else { return }
+        
         let name = nameTextField.textField.text ?? ""
         let email = emailTextField.textField.text ?? ""
         let password = passwordTextField.textField.text ?? ""

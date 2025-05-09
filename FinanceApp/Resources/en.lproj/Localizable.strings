@@ -14,6 +14,10 @@
 "login.alert.subtitle" = "Deseja se manter conectado, ";
 "login.alert.ok" = "Salvar";
 "login.alert.cancel" = "Não";
+"login.error.title" = "Erro";
+"login.error.tryAgain" = "Tentar novamente";
+"login.error.message.invalidCredentials" = "Credenciais inválidas.";
+"login.error.message.unexpectedError" = "Ocorreu um erro inesperado. Tente novamente mais tarde.";
 
 /*  MARK: - INPUTS */
 
