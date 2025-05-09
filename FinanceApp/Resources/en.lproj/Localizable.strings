@@ -1,0 +1,22 @@
+/* 
+  Localizable.strings
+  FinanceApp
+
+  Created by Arthur Rios on 08/05/25.
+  
+*/
+
+/* MARK: - LOGIN Screen */
+
+"login.welcome.title" = "Boas vindas!";
+"login.welcome.subtitle" = "Pronto para organizar suas finanças? Acesse agora";
+
+/*  MARK: - INPUTS */
+
+"input.name" = "Nome";
+"input.email" = "E-mail";
+"input.password" = "Senha";
+
+/* MARK: - BUTTON LABELS */
+
+"login.button" = "Entrar";

@@ -34,8 +34,10 @@ class LogoGraphic: UIView {
     
     private func setupConstraints() {
         NSLayoutConstraint.activate([
+            loginImageView.topAnchor.constraint(equalTo: topAnchor),
             loginImageView.leadingAnchor.constraint(equalTo: leadingAnchor),
             loginImageView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            loginImageView.bottomAnchor.constraint(equalTo: bottomAnchor),
             loginImageView.heightAnchor.constraint(equalToConstant: Metrics.loginHeroHeight),
         ])
     }
