@@ -33,6 +33,7 @@ final class DashboardViewController: UIViewController {
         contentView.delegate = self
         setup()
         checkForExistingData()
+        setBudgetValues()
     }
     
     private func setup() {
@@ -53,6 +54,10 @@ final class DashboardViewController: UIViewController {
         if let userImage = UserDefaultsManager.loadProfileImage() {
             contentView.avatar.userImage = userImage
         }
+    }
+    
+    private func setBudgetValues() {
+        contentView.monthBudgetCardView.configure(month: "Maio", availableValue: 125698, usedValue: 294302, budgetLimit: 420000)
     }
 }
 

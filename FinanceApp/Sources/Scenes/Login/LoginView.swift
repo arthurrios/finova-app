@@ -49,6 +49,7 @@ final class LoginView: UIView {
     let separator: UIView = {
         let view = UIView()
         view.backgroundColor = Colors.gray300
+        view.heightAnchor.constraint(equalToConstant: 1).isActive = true
         view.translatesAutoresizingMaskIntoConstraints = false
         return view
     }()
@@ -117,7 +118,6 @@ final class LoginView: UIView {
             separator.topAnchor.constraint(equalTo: passwordTextField.bottomAnchor, constant: Metrics.spacing7),
             separator.leadingAnchor.constraint(equalTo: passwordTextField.leadingAnchor),
             separator.trailingAnchor.constraint(equalTo: passwordTextField.trailingAnchor),
-            separator.heightAnchor.constraint(equalToConstant: 1),
             
             button.topAnchor.constraint(equalTo: separator.bottomAnchor, constant: Metrics.spacing7),
             button.leadingAnchor.constraint(equalTo: separator.leadingAnchor),

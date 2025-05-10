@@ -55,6 +55,16 @@ final class DashboardView: UIView {
         return btn
     }()
     
+    private let contentBackgroundView: UIView = {
+        let view = UIView()
+        view.directionalLayoutMargins = NSDirectionalEdgeInsets(top: Metrics.spacing4, leading: Metrics.spacing4, bottom: 0, trailing: Metrics.spacing4)
+        
+        view.translatesAutoresizingMaskIntoConstraints = false
+        return view
+    }()
+    
+    let monthBudgetCardView = MonthBudgetCard()
+    
     override init (frame: CGRect) {
         super.init(frame: frame)
         setupView()
@@ -75,11 +85,14 @@ final class DashboardView: UIView {
         backgroundColor = Colors.gray200
         
         addSubview(headerContainerView)
+        addSubview(contentBackgroundView)
         headerContainerView.addSubview(headerItemsView)
         headerItemsView.addSubview(avatar)
         headerItemsView.addSubview(welcomeTitleLabel)
         headerItemsView.addSubview(welcomeSubtitleLabel)
         headerItemsView.addSubview(logoutButton)
+        
+        contentBackgroundView.addSubview(monthBudgetCardView)
         
         logoutButton.addTarget(self,
                                action: #selector(logoutTapped),
@@ -126,7 +139,16 @@ final class DashboardView: UIView {
             logoutButton.centerYAnchor.constraint(equalTo: avatar.centerYAnchor),
             logoutButton.trailingAnchor.constraint(equalTo: headerItemsView.layoutMarginsGuide.trailingAnchor),
             logoutButton.heightAnchor.constraint(equalToConstant: Metrics.logoutButtonSize),
-            logoutButton.widthAnchor.constraint(equalToConstant: Metrics.logoutButtonSize)
+            logoutButton.widthAnchor.constraint(equalToConstant: Metrics.logoutButtonSize),
+            
+            contentBackgroundView.topAnchor.constraint(equalTo: headerContainerView.bottomAnchor),
+            contentBackgroundView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            contentBackgroundView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            contentBackgroundView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            
+            monthBudgetCardView.topAnchor.constraint(equalTo: contentBackgroundView.layoutMarginsGuide.topAnchor),
+            monthBudgetCardView.leadingAnchor.constraint(equalTo: contentBackgroundView.layoutMarginsGuide.leadingAnchor),
+            monthBudgetCardView.trailingAnchor.constraint(equalTo: contentBackgroundView.layoutMarginsGuide.trailingAnchor),
         ])
     }
 }

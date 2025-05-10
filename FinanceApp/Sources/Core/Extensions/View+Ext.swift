@@ -28,4 +28,17 @@ extension UIView {
             trailingAnchor.constraint(equalTo: superview.trailingAnchor, constant: -trailing).isActive = true
         }
     }
+    
+    func pinToSuperview(with insets: UIEdgeInsets = .zero) {
+            guard let superview = self.superview else {
+                fatalError("pinToSuperview(): no superview for \(self)")
+            }
+            translatesAutoresizingMaskIntoConstraints = false
+            NSLayoutConstraint.activate([
+                topAnchor.constraint(equalTo: superview.topAnchor, constant: insets.top),
+                leadingAnchor.constraint(equalTo: superview.leadingAnchor, constant: insets.left),
+                trailingAnchor.constraint(equalTo: superview.trailingAnchor, constant: -insets.right),
+                bottomAnchor.constraint(equalTo: superview.bottomAnchor, constant: -insets.bottom)
+            ])
+        }
 }
