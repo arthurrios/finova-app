@@ -47,6 +47,14 @@ final class DashboardView: UIView {
         return label
     }()
     
+    private let logoutButton: UIButton = {
+        let btn = UIButton(type: .system)
+        btn.setImage(UIImage(named: "logout"), for: .normal)
+        btn.tintColor = Colors.gray500
+        btn.translatesAutoresizingMaskIntoConstraints = false
+        return btn
+    }()
+    
     override init (frame: CGRect) {
         super.init(frame: frame)
         setupView()
@@ -70,8 +78,17 @@ final class DashboardView: UIView {
         headerItemsView.addSubview(avatar)
         headerItemsView.addSubview(welcomeTitleLabel)
         headerItemsView.addSubview(welcomeSubtitleLabel)
+        headerItemsView.addSubview(logoutButton)
+        
+        logoutButton.addTarget(self,
+                               action: #selector(logoutTapped),
+                               for: .touchUpInside)
         
         setupConstraints()
+    }
+    
+    @objc private func logoutTapped() {
+        delegate?.logout()
     }
     
     private func setupConstraints() {
@@ -93,6 +110,11 @@ final class DashboardView: UIView {
             
             welcomeSubtitleLabel.topAnchor.constraint(equalTo: welcomeTitleLabel.bottomAnchor, constant: Metrics.spacing1),
             welcomeSubtitleLabel.leadingAnchor.constraint(equalTo: welcomeTitleLabel.leadingAnchor),
+            
+            logoutButton.centerYAnchor.constraint(equalTo: avatar.centerYAnchor),
+            logoutButton.trailingAnchor.constraint(equalTo: headerItemsView.layoutMarginsGuide.trailingAnchor),
+            logoutButton.heightAnchor.constraint(equalToConstant: Metrics.logoutButtonSize),
+            logoutButton.widthAnchor.constraint(equalToConstant: Metrics.logoutButtonSize)
         ])
     }
 }

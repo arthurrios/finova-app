@@ -30,6 +30,7 @@ final class DashboardViewController: UIViewController {
     
     override func viewDidLoad() {
         super.viewDidLoad()
+        contentView.delegate = self
         setup()
     }
     
@@ -41,5 +42,16 @@ final class DashboardViewController: UIViewController {
     
     private func buildHierarchy() {
         setupContentViewToBounds(contentView: contentView, respectingSafeArea: false)
+    }
+}
+
+extension DashboardViewController: DashboardViewDelegate {
+    func didTapAddTransaction() {
+//
+    }
+    
+    func logout() {
+        UserDefaultsManager.removeUser()
+        self.flowDelegate.logout()
     }
 }

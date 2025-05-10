@@ -9,4 +9,5 @@ import Foundation
 
 public protocol DashboardViewDelegate: AnyObject {
     func didTapAddTransaction()
+    func logout()
 }

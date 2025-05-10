@@ -14,13 +14,13 @@ class AppFlowController {
     private let viewControllersFactory: ViewControllersFactoryProtocol
     // MARK: - init
     public init() {
-        self.viewControllersFactory = ViewControllersFactory()
+        viewControllersFactory = ViewControllersFactory()
     }
     
     // MARK: - startFlow
     func startFlow() -> UINavigationController? {
-        let startViewController = viewControllersFactory.makeSplashViewController(flowDelegate: self)
-        self.navigationController = UINavigationController(rootViewController: startViewController)
+        let viewController = viewControllersFactory.makeSplashViewController(flowDelegate: self)
+        navigationController = UINavigationController(rootViewController: viewController)
         return navigationController
     }
 }
@@ -28,17 +28,17 @@ class AppFlowController {
 // MARK: - Splash
 extension AppFlowController: SplashFlowDelegate {
     func navigateToLogin() {
-        let loginViewController = viewControllersFactory.makeLoginViewController(flowDelegate: self)
-        loginViewController.modalPresentationStyle = .overCurrentContext
-        loginViewController.modalTransitionStyle = .crossDissolve
-        navigationController?.present(loginViewController, animated: false) {
-            loginViewController.animateShow()
+        let viewController = viewControllersFactory.makeLoginViewController(flowDelegate: self)
+        viewController.modalPresentationStyle = .overCurrentContext
+        viewController.modalTransitionStyle = .crossDissolve
+        navigationController?.present(viewController, animated: false) {
+            viewController.animateShow()
         }
         
         func navigateToDashboard() {
-            self.navigationController?.dismiss(animated: false)
-            let dashboardViewController = viewControllersFactory.makeDashboardViewController(flowDelegate: self)
-            self.navigationController?.pushViewController(dashboardViewController, animated: true)
+            navigationController?.dismiss(animated: false)
+            let viewController = viewControllersFactory.makeDashboardViewController(flowDelegate: self)
+            navigationController?.pushViewController(viewController, animated: true)
         }
     }
 }
@@ -49,12 +49,28 @@ extension AppFlowController: LoginFlowDelegate {
     }
     
     func navigateToDashboard() {
-        self.navigationController?.dismiss(animated: false)
+        navigationController?.dismiss(animated: false)
         let dashboardViewController = viewControllersFactory.makeDashboardViewController(flowDelegate: self)
-        self.navigationController?.pushViewController(dashboardViewController, animated: true)
+        navigationController?.pushViewController(dashboardViewController, animated: true)
     }
 }
 
 extension AppFlowController: DashboardFlowDelegate {
-    
+    func logout() {
+        navigationController?.dismiss(animated: false)
+
+        let viewController = viewControllersFactory.makeLoginViewController(flowDelegate: self)
+        
+        let t = CATransition()
+        t.duration = 0.3
+        t.type = .push
+        t.subtype = .fromLeft
+        t.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+
+        navigationController?.setNavigationBarHidden(true, animated: false)
+        navigationController?.view.backgroundColor = Colors.gray100
+        UIApplication.shared.delegate?.window??.backgroundColor = Colors.gray100
+        navigationController?.view.layer.add(t, forKey: kCATransition)
+        navigationController?.pushViewController(viewController, animated: false)
+    }
 }
