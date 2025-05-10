@@ -98,7 +98,7 @@ final class DashboardView: UIView {
     
     @objc
     private func handleProfileImageTap() {
-        print("Tapped")
+        delegate?.didTapProfileImage()
     }
     
     private func setupConstraints() {

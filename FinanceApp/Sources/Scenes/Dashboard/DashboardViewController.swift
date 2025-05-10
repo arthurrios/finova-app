@@ -46,12 +46,42 @@ final class DashboardViewController: UIViewController {
 }
 
 extension DashboardViewController: DashboardViewDelegate {
+    func didTapProfileImage() {
+        selectProfileImage()
+    }
+    
     func didTapAddTransaction() {
 //
     }
     
+    
+    
     func logout() {
         UserDefaultsManager.removeUser()
         self.flowDelegate.logout()
+    }
+}
+
+extension DashboardViewController: UIImagePickerControllerDelegate, UINavigationControllerDelegate {
+    private func selectProfileImage() {
+        let imagePicker = UIImagePickerController()
+        imagePicker.delegate = self
+        imagePicker.sourceType = .photoLibrary
+        imagePicker.allowsEditing = true
+        present(imagePicker, animated: true, completion: nil)
+    }
+    
+    internal func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey : Any]) {
+        if let editedImage = info[UIImagePickerController.InfoKey.editedImage] as? UIImage {
+            contentView.avatar.userImage = editedImage
+        } else if let originalImage = info[.originalImage] as? UIImage? {
+            contentView.avatar.userImage = originalImage
+        }
+        
+        dismiss(animated: true)
+    }
+    
+    func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
+        dismiss(animated: true)
     }
 }

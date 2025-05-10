@@ -10,7 +10,9 @@ import UIKit
 
 class Avatar: UIView {
     
-    var userImage: UIImage?
+    var userImage: UIImage? {
+         didSet { updateAvatarView() }
+     }
     
     let userImageView: UIImageView = {
         let imageView = UIImageView()
@@ -44,15 +46,6 @@ class Avatar: UIView {
         fatalError("init(coder:) has not been implemented")
     }
     
-    private func setupUserImage() {
-        if userImage != nil {
-            userImageView.image = userImage
-            addSubview(userImageView)
-        } else {
-            addSubview(userIconView)
-        }
-    }
-    
     private func setupView() {
         layer.borderWidth = 1
         backgroundColor = Colors.gray300
@@ -65,6 +58,9 @@ class Avatar: UIView {
     }
     
     private func setupConstraints() {
+        subviews.forEach { $0.removeFromSuperview() }
+              NSLayoutConstraint.deactivate(constraints)
+        
         NSLayoutConstraint.activate([
             widthAnchor.constraint(equalToConstant: Metrics.profileImageSize),
             heightAnchor.constraint(equalToConstant: Metrics.profileImageSize)
@@ -90,6 +86,16 @@ class Avatar: UIView {
                 userIconView.heightAnchor.constraint(equalToConstant: Metrics.profileIconSize)
             ])
         }
+    }
+    
+    private func updateAvatarView() {
+        subviews.forEach { $0.removeFromSuperview() }
+        NSLayoutConstraint.deactivate(constraints)
+        
+        setupConstraints()
+        
+        setNeedsLayout()
+        layoutIfNeeded()
     }
     
     override func layoutSubviews() {
