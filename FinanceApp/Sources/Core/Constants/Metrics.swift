@@ -30,5 +30,6 @@ enum Metrics {
     static let inputIconSize: CGFloat = 20
     static let loginHeroHeight: CGFloat = 360
     static let profileImageSize: CGFloat = 40
+    static let profileIconSize: CGFloat = 20
     static let headerHeight: CGFloat = 136
 }

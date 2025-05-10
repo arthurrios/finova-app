@@ -26,6 +26,8 @@ class Avatar: UIView {
         let imageView = UIImageView()
         imageView.clipsToBounds = true
         imageView.contentMode = .scaleAspectFit
+        imageView.heightAnchor.constraint(equalToConstant: Metrics.profileIconSize).isActive = true
+        imageView.widthAnchor.constraint(equalToConstant: Metrics.profileIconSize).isActive = true
         imageView.image = UIImage(named: "user")
         imageView.tintColor = Colors.gray500
         imageView.translatesAutoresizingMaskIntoConstraints = false
@@ -56,21 +58,38 @@ class Avatar: UIView {
         backgroundColor = Colors.gray300
         layer.borderColor = Colors.gray700.cgColor
         layer.masksToBounds = true
+        isUserInteractionEnabled = true
         translatesAutoresizingMaskIntoConstraints = false
         
-        heightAnchor.constraint(equalToConstant: Metrics.profileImageSize).isActive = true
-        widthAnchor.constraint(equalToConstant: Metrics.profileImageSize).isActive = true
-        
-        setupUserImage()
         setupConstraints()
     }
     
     private func setupConstraints() {
-        let item = userImage != nil ? userImageView : userIconView
+        NSLayoutConstraint.activate([
+            widthAnchor.constraint(equalToConstant: Metrics.profileImageSize),
+            heightAnchor.constraint(equalToConstant: Metrics.profileImageSize)
+        ])
+        
+        if let img = userImage {
+            userImageView.image = img
+            addSubview(userImageView)
+            
             NSLayoutConstraint.activate([
-                item.centerXAnchor.constraint(equalTo: centerXAnchor),
-                item.centerYAnchor.constraint(equalTo: centerYAnchor),
+                userImageView.topAnchor.constraint(equalTo: topAnchor),
+                userImageView.bottomAnchor.constraint(equalTo: bottomAnchor),
+                userImageView.leadingAnchor.constraint(equalTo: leadingAnchor),
+                userImageView.trailingAnchor.constraint(equalTo: trailingAnchor)
             ])
+        } else {
+            addSubview(userIconView)
+            
+            NSLayoutConstraint.activate([
+                userIconView.centerXAnchor.constraint(equalTo: centerXAnchor),
+                userIconView.centerYAnchor.constraint(equalTo: centerYAnchor),
+                userIconView.widthAnchor.constraint(equalToConstant: Metrics.profileIconSize),
+                userIconView.heightAnchor.constraint(equalToConstant: Metrics.profileIconSize)
+            ])
+        }
     }
     
     override func layoutSubviews() {

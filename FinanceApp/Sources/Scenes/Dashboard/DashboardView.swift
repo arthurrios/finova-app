@@ -72,7 +72,6 @@ final class DashboardView: UIView {
     private func setupView() {
         backgroundColor = Colors.gray200
         
-        
         addSubview(headerContainerView)
         headerContainerView.addSubview(headerItemsView)
         headerItemsView.addSubview(avatar)
@@ -85,10 +84,21 @@ final class DashboardView: UIView {
                                for: .touchUpInside)
         
         setupConstraints()
+        setupImageGesture()
     }
     
     @objc private func logoutTapped() {
         delegate?.logout()
+    }
+    
+    private func setupImageGesture() {
+        let tapGestureRecognizer = UITapGestureRecognizer(target: self, action: #selector(handleProfileImageTap))
+        avatar.addGestureRecognizer(tapGestureRecognizer)
+    }
+    
+    @objc
+    private func handleProfileImageTap() {
+        print("Tapped")
     }
     
     private func setupConstraints() {
