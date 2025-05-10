@@ -64,9 +64,11 @@ final class DashboardView: UIView {
         fatalError("init(coder:) has not been implemented")
     }
     
-    public func configure(userName: String) {
+    public func configure(userName: String, profileImage: UIImage) {
         welcomeTitleLabel.text = "dashboard.welcomeTitle".localized + "\(userName)!"
         welcomeTitleLabel.applyStyle()
+        
+        avatar.userImage = profileImage
     }
     
     private func setupView() {

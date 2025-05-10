@@ -32,16 +32,27 @@ final class DashboardViewController: UIViewController {
         super.viewDidLoad()
         contentView.delegate = self
         setup()
+        checkForExistingData()
     }
     
     private func setup() {
         view.addSubview(contentView)
-        contentView.configure(userName: UserDefaultsManager.getUser()!.name)
         buildHierarchy()
     }
     
     private func buildHierarchy() {
         setupContentViewToBounds(contentView: contentView, respectingSafeArea: false)
+    }
+    
+    private func checkForExistingData() {
+        if let user = UserDefaultsManager.getUser() {
+            contentView.welcomeTitleLabel.text = "dashboard.welcomeTitle".localized + "\(user.name)!"
+            contentView.welcomeTitleLabel.applyStyle()
+        }
+        
+        if let userImage = UserDefaultsManager.loadProfileImage() {
+            contentView.avatar.userImage = userImage
+        }
     }
 }
 
@@ -74,8 +85,10 @@ extension DashboardViewController: UIImagePickerControllerDelegate, UINavigation
     internal func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey : Any]) {
         if let editedImage = info[UIImagePickerController.InfoKey.editedImage] as? UIImage {
             contentView.avatar.userImage = editedImage
-        } else if let originalImage = info[.originalImage] as? UIImage? {
+            UserDefaultsManager.saveProfileImage(image: editedImage)
+        } else if let originalImage = info[.originalImage] as? UIImage {
             contentView.avatar.userImage = originalImage
+            UserDefaultsManager.saveProfileImage(image: originalImage)
         }
         
         dismiss(animated: true)
