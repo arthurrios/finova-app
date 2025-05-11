@@ -104,6 +104,13 @@ class MonthBudgetCard: UIView {
         return imageView
     }()
 
+    private let progressBar: UIProgressView = {
+        let progressBar = UIProgressView(progressViewStyle: .bar)
+        progressBar.progressViewStyle = .bar
+        progressBar.trackTintColor = Colors.gray600
+        progressBar.progressTintColor = Colors.mainMagenta
+        return progressBar
+    }()
     
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -134,8 +141,10 @@ class MonthBudgetCard: UIView {
         
         if budgetLimit == nil {
             limitBudgetValueLabel.isHidden = true
+            progressBar.isHidden = true
         } else {
             limitBudgetValueLabel.text = budgetLimit?.currencyString
+            progressBar.progress = Float(availableValue!) / Float(budgetLimit!)
             infinitySymbol.isHidden = true
         }
         
@@ -154,10 +163,23 @@ class MonthBudgetCard: UIView {
         mainStackView.setCustomSpacing(Metrics.spacing4, after: headerHorizontalStackView)
         mainStackView.setCustomSpacing(Metrics.spacing3, after: separator)
         mainStackView.setCustomSpacing(Metrics.spacing5, after: availableBudgetStackView)
+        
+        setupProgressBar()
+    }
+    
+    private func setupProgressBar() {
+        addSubview(progressBar)
+        progressBar.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            progressBar.bottomAnchor.constraint(equalTo: bottomAnchor),
+            progressBar.leadingAnchor.constraint(equalTo: leadingAnchor),
+            progressBar.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor),
+        ])
     }
     
     override func layoutSubviews() {
         super.layoutSubviews()
         gradientLayer.frame = bounds
+        progressBar.roundRightCornersFixedHeight(Metrics.spacing2)
     }
 }
