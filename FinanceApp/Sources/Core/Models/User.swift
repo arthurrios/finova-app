@@ -10,6 +10,6 @@ import Foundation
 struct User: Codable {
     let name: String
     let email: String
-    var isUserSaved: Bool? = false
-    var hasFaceIdEnabled: Bool? = false
+    var isUserSaved: Bool = false
+    var hasFaceIdEnabled: Bool = false
 }

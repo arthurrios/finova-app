@@ -52,7 +52,7 @@ class MonthBudgetCard: UIView {
     private let availableBudgetTextLabel: UILabel = {
         let label = UILabel()
         label.font = Fonts.textSM.font
-        label.text = "Orçamento disponível"
+        label.text = "monthCard.availableBudget".localized
         label.textColor = Colors.gray400
         return label
     }()
@@ -64,12 +64,12 @@ class MonthBudgetCard: UIView {
         return label
     }()
     
-    private let defineBudgetButton = Button(variant: .outlined, label: "Definir orçamento")
+    private let defineBudgetButton = Button(variant: .outlined, label: "monthCard.defineBudget".localized)
     
     private let usedBudgetTextLabel: UILabel = {
         let label = UILabel()
         label.font = Fonts.textXS.font
-        label.text = "Usado"
+        label.text = "monthCard.usedBudget".localized
         label.textColor = Colors.gray400
         return label
     }()
@@ -84,7 +84,7 @@ class MonthBudgetCard: UIView {
     private let limitBudgetTextLabel: UILabel = {
         let label = UILabel()
         label.font = Fonts.textXS.font
-        label.text = "Limite"
+        label.text = "monthCard.limitBudget".localized
         label.textColor = Colors.gray400
         return label
     }()
@@ -125,30 +125,44 @@ class MonthBudgetCard: UIView {
         fatalError("init(coder:) has not been implemented")
     }
     
-    func configure(month: String,
-                   availableValue: Int? = nil,
-                   usedValue: Int,
-                   budgetLimit: Int? = nil) {
-        monthLabel.text = month
-        availableBudgetValueLabel.text = availableValue?.currencyString
-        usedBudgetValueLabel.text = usedValue.currencyString
+    func configure(data: MonthBudgetCardType) {
+        monthLabel.text = data.month
+        monthLabel.applyStyle()
         
-        if availableValue == nil {
-            availableBudgetValueLabel.isHidden = true
-        } else {
+        if let availableValue = data.availableValue {
+            availableBudgetValueLabel.text = availableValue.currencyString
+            availableBudgetValueLabel.isHidden = false
             defineBudgetButton.isHidden = true
+        } else {
+            availableBudgetValueLabel.isHidden = true
+            defineBudgetButton.isHidden = false
         }
         
-        if budgetLimit == nil {
+        usedBudgetValueLabel.text = data.usedValue.currencyString
+        
+        if let budgetLimit = data.budgetLimit {
+            limitBudgetValueLabel.text = budgetLimit.currencyString
+            limitBudgetValueLabel.isHidden = false
+            infinitySymbol.isHidden = true
+            progressBar.isHidden = false
+            
+            if let availableValue = data.availableValue, budgetLimit != 0 {
+                progressBar.setProgress(Float(availableValue) / Float(budgetLimit), animated: true)
+                if availableValue < 0 {
+                    progressBar.progress = 1
+                    progressBar.progressTintColor = Colors.mainRed
+                }
+            } else {
+                progressBar.progress = 0
+            }
+            
+        } else {
+            availableBudgetValueLabel.isHidden = true
+            defineBudgetButton.isHidden = false
             limitBudgetValueLabel.isHidden = true
             progressBar.isHidden = true
-        } else {
-            limitBudgetValueLabel.text = budgetLimit?.currencyString
-            progressBar.progress = Float(availableValue!) / Float(budgetLimit!)
-            infinitySymbol.isHidden = true
+            infinitySymbol.isHidden = false
         }
-        
-        monthLabel.applyStyle()
     }
     
     private func setupView() {

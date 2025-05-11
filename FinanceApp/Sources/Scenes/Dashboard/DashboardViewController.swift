@@ -57,7 +57,7 @@ final class DashboardViewController: UIViewController {
     }
     
     private func setBudgetValues() {
-        contentView.monthBudgetCardView.configure(month: "Maio", availableValue: 125698, usedValue: 294302, budgetLimit: 420000)
+        contentView.monthBudgetCardView.configure(data: (MonthBudgetCardType(month: "May", usedValue: 294302, budgetLimit: 420000, availableValue: 125698)))
     }
 }
 
