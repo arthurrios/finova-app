@@ -11,6 +11,8 @@ import UIKit
 final class DashboardView: UIView {
     public weak var delegate: DashboardViewDelegate?
     
+    private var viewModel: DashboardViewModel!
+    
     let headerContainerView: UIView = {
         let view = UIView()
         view.backgroundColor = Colors.gray100
@@ -53,6 +55,18 @@ final class DashboardView: UIView {
         btn.tintColor = Colors.gray500
         btn.translatesAutoresizingMaskIntoConstraints = false
         return btn
+    }()
+    
+    private let monthCarousel: UICollectionView = {
+        let layout = UICollectionViewFlowLayout()
+        layout.scrollDirection = .horizontal
+        layout.minimumLineSpacing = 0
+        let collectionView = UICollectionView(frame: .zero, collectionViewLayout: layout)
+        collectionView.isPagingEnabled = true
+        collectionView.backgroundColor = .clear
+        collectionView.showsHorizontalScrollIndicator = false
+        collectionView.translatesAutoresizingMaskIntoConstraints = false
+        return collectionView
     }()
     
     private let contentBackgroundView: UIView = {
