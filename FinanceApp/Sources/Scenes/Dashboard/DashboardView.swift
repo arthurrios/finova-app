@@ -8,7 +8,7 @@
 import Foundation
 import UIKit
 
-final class DashboardView: UIView {
+final class DashboardView: UIView, MonthSelectorDelegate {
     public weak var delegate: DashboardViewDelegate?
     
     private var viewModel: DashboardViewModel!
@@ -57,6 +57,13 @@ final class DashboardView: UIView {
         return btn
     }()
     
+    internal lazy var monthSelectorView: MonthSelectorView = {
+        let sel = MonthSelectorView(months: [])
+        sel.heightAnchor.constraint(equalToConstant: Metrics.spacing5).isActive = true
+        sel.translatesAutoresizingMaskIntoConstraints = false
+        return sel
+    }()
+    
     internal let monthCarousel: UICollectionView = {
         let layout = UICollectionViewFlowLayout()
         let collectionView = UICollectionView(frame: .zero, collectionViewLayout: layout)
@@ -67,6 +74,7 @@ final class DashboardView: UIView {
     override init (frame: CGRect) {
         super.init(frame: frame)
         setupView()
+        addMonthSelector()
     }
     
     required init?(coder: NSCoder) {
@@ -84,18 +92,28 @@ final class DashboardView: UIView {
         backgroundColor = Colors.gray200
         
         addSubview(headerContainerView)
+        addSubview(monthSelectorView)
         headerContainerView.addSubview(headerItemsView)
         headerItemsView.addSubview(avatar)
         headerItemsView.addSubview(welcomeTitleLabel)
         headerItemsView.addSubview(welcomeSubtitleLabel)
         headerItemsView.addSubview(logoutButton)
-                
+        
         logoutButton.addTarget(self,
                                action: #selector(logoutTapped),
                                for: .touchUpInside)
         
         setupConstraints()
         setupImageGesture()
+    }
+    
+    private func addMonthSelector() {
+        addSubview(monthSelectorView)
+        NSLayoutConstraint.activate([
+            monthSelectorView.topAnchor.constraint(equalTo: headerContainerView.bottomAnchor, constant: Metrics.spacing5),
+            monthSelectorView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Metrics.spacing4),
+            monthSelectorView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Metrics.spacing4),
+        ])
     }
     
     @objc private func logoutTapped() {
@@ -139,3 +157,4 @@ final class DashboardView: UIView {
         ])
     }
 }
+

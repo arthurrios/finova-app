@@ -28,6 +28,7 @@ class MonthCarouselCell: UICollectionViewCell {
     private func setupViews() {
         monthCard.translatesAutoresizingMaskIntoConstraints = false
         transactionTable.translatesAutoresizingMaskIntoConstraints = false
+        translatesAutoresizingMaskIntoConstraints = false
         
         contentView.addSubview(monthCard)
         contentView.addSubview(transactionTable)

@@ -41,8 +41,9 @@ final class DashboardViewModel {
             let key = DateFormatter.keyFormatter.string(from: date)
             let budget = budgets[key]
             let used = spendings[key] ?? 0
+            let month = DateFormatter.monthFormatter.string(from: date)
             return MonthBudgetCardType(date: date,
-                                       month: DateFormatter.monthFormatter.string(from: date), usedValue: used, budgetLimit: budget)
+                                       month: "month.\(month.lowercased())".localized, usedValue: used, budgetLimit: budget)
         }
     }
 }
