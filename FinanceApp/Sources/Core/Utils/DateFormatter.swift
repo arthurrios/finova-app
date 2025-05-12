@@ -19,7 +19,7 @@ extension DateFormatter {
     
     static let monthFormatter: DateFormatter = {
         let formatter = DateFormatter()
-        formatter.dateFormat = "MMM"
+        formatter.dateFormat = "MMM".localized
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.timeZone = TimeZone(secondsFromGMT: 0)
         return formatter
