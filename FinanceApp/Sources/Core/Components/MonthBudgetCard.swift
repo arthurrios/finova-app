@@ -126,7 +126,7 @@ class MonthBudgetCard: UIView {
     }
     
     func configure(data: MonthBudgetCardType) {
-        monthLabel.text = data.month
+        monthLabel.text = data.month + "/" + DateFormatter.yearFormatter.string(from: data.date)
         monthLabel.applyStyle()
         
         if let availableValue = data.availableValue {
