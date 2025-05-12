@@ -31,13 +31,18 @@ final class DashboardViewController: UIViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         contentView.delegate = self
+        
+        view.addSubview(contentView)
+        contentView.frame = view.bounds
+        contentView.bind(viewModel: viewModel)
+
         setup()
+        
         checkForExistingData()
-        setBudgetValues()
     }
     
     private func setup() {
-        view.addSubview(contentView)
+        contentView.setupCarousel()
         buildHierarchy()
     }
     
@@ -54,10 +59,6 @@ final class DashboardViewController: UIViewController {
         if let userImage = UserDefaultsManager.loadProfileImage() {
             contentView.avatar.userImage = userImage
         }
-    }
-    
-    private func setBudgetValues() {
-        contentView.monthBudgetCardView.configure(data: (MonthBudgetCardType(month: "May", usedValue: 294302, budgetLimit: 420000, availableValue: 125698)))
     }
 }
 

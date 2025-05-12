@@ -37,11 +37,12 @@ final class DashboardViewModel {
             }
         
         return monthRange.compactMap { offset in
-            guard let date = calendar.date(byAdding: .month, value: offset, to: today) else { return nil }
+            let date = calendar.date(byAdding: .month, value: offset, to: today)!
             let key = DateFormatter.keyFormatter.string(from: date)
             let budget = budgets[key]
             let used = spendings[key] ?? 0
-            return MonthBudgetCardType(month: DateFormatter.monthFormatter.string(from: date), usedValue: used, budgetLimit: budget)
+            return MonthBudgetCardType(date: date,
+                                       month: DateFormatter.monthFormatter.string(from: date), usedValue: used, budgetLimit: budget)
         }
     }
 }
