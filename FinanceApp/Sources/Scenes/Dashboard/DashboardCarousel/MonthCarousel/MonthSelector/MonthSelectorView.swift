@@ -9,6 +9,18 @@ import Foundation
 import UIKit
 
 class MonthSelectorView: UIView {
+    
+    weak var delegate: MonthSelectorDelegate?
+    
+    var months: [String] = [] {
+        didSet {
+            collectionView.reloadData()
+            scrollToMonth(at: selectedIndex, animated: true)
+        }
+    }
+    
+    private(set) var selectedIndex: Int = 0
+    
     private let leftButton: UIButton = {
         let button = UIButton(type: .system)
         button.setImage(UIImage(named: "chevronLeft"), for: .normal)
@@ -29,34 +41,24 @@ class MonthSelectorView: UIView {
         return button
     }()
     
-    private let scrollView: UIScrollView = {
-        let scrollView = UIScrollView()
-        scrollView.showsHorizontalScrollIndicator = false
-        scrollView.isPagingEnabled = false
-        scrollView.translatesAutoresizingMaskIntoConstraints = false
-        return scrollView
+    internal lazy var collectionView: UICollectionView = {
+        let layout = UICollectionViewFlowLayout()
+        layout.scrollDirection = .horizontal
+        layout.minimumInteritemSpacing = Metrics.spacing2
+        layout.minimumLineSpacing = Metrics.spacing2
+        let collectionView = UICollectionView(frame: .zero, collectionViewLayout: layout)
+        collectionView.showsHorizontalScrollIndicator = false
+        collectionView.backgroundColor = .clear
+        collectionView.translatesAutoresizingMaskIntoConstraints = false
+        collectionView.register(MonthCell.self, forCellWithReuseIdentifier: MonthCell.reuseID)
+        collectionView.dataSource = self
+        collectionView.delegate = self
+        return collectionView
     }()
-    
-    private var monthKeys: [String] = []
-    private var monthsButtons: [UIButton] = []
-    internal var months: [String] = []
-    weak var delegate: MonthSelectorDelegate?
     
     override init(frame: CGRect) {
         super.init(frame: frame)
         setupViews()
-    }
-    
-    convenience init(months: [String]) {
-        self.init(frame: .zero)
-        setupMonths()
-    }
-    
-    func configure(keys: [String], months: [String]) {
-        guard keys.count == months.count else { return }
-        self.monthKeys = keys
-        self.months = months
-        setNeedsLayout()
     }
     
     required init?(coder: NSCoder) {
@@ -66,7 +68,7 @@ class MonthSelectorView: UIView {
     private func setupViews() {
         addSubview(leftButton)
         addSubview(rightButton)
-        addSubview(scrollView)
+        addSubview(collectionView)
         leftButton.addTarget(self, action: #selector(prevTapped), for: .touchUpInside)
         rightButton.addTarget(self, action: #selector(nextTapped), for: .touchUpInside)
         
@@ -80,66 +82,61 @@ class MonthSelectorView: UIView {
             rightButton.trailingAnchor.constraint(equalTo: trailingAnchor),
             rightButton.centerYAnchor.constraint(equalTo: centerYAnchor),
             
-            scrollView.leadingAnchor.constraint(equalTo: leftButton.trailingAnchor),
-            scrollView.trailingAnchor.constraint(equalTo: rightButton.leadingAnchor),
-            scrollView.topAnchor.constraint(equalTo: topAnchor),
-            scrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            collectionView.leadingAnchor.constraint(equalTo: leftButton.trailingAnchor),
+            collectionView.trailingAnchor.constraint(equalTo: rightButton.leadingAnchor),
+            collectionView.topAnchor.constraint(equalTo: topAnchor),
+            collectionView.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
     }
     
-    func setupMonths() {
-        monthsButtons.forEach { $0.removeFromSuperview() }
-        monthsButtons = []
-        
-        var x: CGFloat = 0
-        let buttonWidth: CGFloat = 60
-        let height = bounds.height
-        
-        for (index, month) in months.enumerated() {
-            let btn = UIButton(type: .system)
-            btn.setTitle(month, for: .normal)
-            btn.tag = index
-            btn.frame = CGRect(x: x, y: 0, width: buttonWidth, height: height)
-            btn.addTarget(self, action: #selector(monthTapped(_:)), for: .touchUpInside)
-            scrollView.addSubview(btn)
-            monthsButtons.append(btn)
-            x += buttonWidth
-        }
-        scrollView.contentSize = CGSize(width: x, height: height)
+    func configure(months: [String], selectedIndex: Int = 0) {
+        self.selectedIndex = selectedIndex
+        self.months = months
     }
     
-    override func layoutSubviews() {
-      super.layoutSubviews()
-      setupMonths()
+    func scrollToMonth(at index: Int, animated: Bool = true) {
+        guard index >= 0, index < months.count else { return }
+        selectedIndex = index
+        let indexPath = IndexPath(item: index, section: 0)
+        collectionView.selectItem(at: indexPath,
+                                  animated: true,
+                                  scrollPosition: .centeredHorizontally)
+        collectionView.scrollToItem(at: indexPath, at: .centeredHorizontally, animated: animated)
     }
     
     @objc
     private func prevTapped() {
+        let prev = max(0, selectedIndex - 1)
+        scrollToMonth(at: prev, animated: true)
         delegate?.didTapPrev()
     }
     
     @objc
     private func nextTapped() {
+        let next = min(months.count - 1, selectedIndex + 1)
+        scrollToMonth(at: next, animated: true)
         delegate?.didTapNext()
-    }
-    
-    @objc
-    private func monthTapped(_ sender: UIButton) {
-        let key = monthKeys[sender.tag]
-        delegate?.didSelectMonth(withKey: key, at: sender.tag)
     }
 }
 
-extension MonthSelectorView {
-    func scrollToMonth(at index: Int, animated: Bool = true) {
-        guard index >= 0, index < monthsButtons.count else { return }
-        let btn = monthsButtons[index]
+extension MonthSelectorView: UICollectionViewDataSource, UICollectionViewDelegateFlowLayout {
+    func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int {
+        return months.count
+    }
+    
+    func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
+        guard let cell = collectionView.dequeueReusableCell(withReuseIdentifier: "MonthCell", for: indexPath) as? MonthCell else { return UICollectionViewCell() }
         
-        let centerX = (btn.frame.midX) - (bounds.width / 2.15)
-        let maxOffsetX = scrollView.contentSize.width - scrollView.bounds.width
-        let clampedX = max(0, min(centerX, maxOffsetX))
-        scrollView.setContentOffset(CGPoint(x: clampedX, y: 0), animated: animated)
-        
-        monthsButtons.forEach { $0.alpha = ($0.tag == index ? 1 : 0.5) }
+        cell.configure(title: months[indexPath.item])
+        return cell
+    }
+    
+    func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
+        scrollToMonth(at: indexPath.item, animated: true)
+        delegate?.didSelectMonth(at: indexPath.item)
+    }
+    
+    func collectionView(_ collectionView: UICollectionView, layout collectionViewLayout: UICollectionViewLayout, sizeForItemAt indexPath: IndexPath) -> CGSize {
+        return CGSize(width: 56, height: bounds.height)
     }
 }

@@ -10,5 +10,5 @@ import Foundation
 protocol MonthSelectorDelegate: AnyObject {
     func didTapPrev()
     func didTapNext()
-    func didSelectMonth(withKey key: String, at index: Int)
+    func didSelectMonth(at index: Int)
 }

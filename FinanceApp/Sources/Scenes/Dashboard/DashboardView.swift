@@ -8,7 +8,7 @@
 import Foundation
 import UIKit
 
-final class DashboardView: UIView, MonthSelectorDelegate {
+final class DashboardView: UIView {
     public weak var delegate: DashboardViewDelegate?
     
     private var viewModel: DashboardViewModel!
@@ -57,9 +57,9 @@ final class DashboardView: UIView, MonthSelectorDelegate {
         return btn
     }()
     
-    internal lazy var monthSelectorView: MonthSelectorView = {
-        let sel = MonthSelectorView(months: [])
-        sel.heightAnchor.constraint(equalToConstant: Metrics.spacing5).isActive = true
+    lazy var monthSelectorView: MonthSelectorView = {
+        let sel = MonthSelectorView()
+        sel.heightAnchor.constraint(equalToConstant: Metrics.spacing8).isActive = true
         sel.translatesAutoresizingMaskIntoConstraints = false
         return sel
     }()
@@ -76,7 +76,7 @@ final class DashboardView: UIView, MonthSelectorDelegate {
         setupView()
         addMonthSelector()
     }
-    
+        
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
@@ -157,4 +157,3 @@ final class DashboardView: UIView, MonthSelectorDelegate {
         ])
     }
 }
-

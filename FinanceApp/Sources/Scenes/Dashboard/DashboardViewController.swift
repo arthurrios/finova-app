@@ -24,6 +24,13 @@ final class DashboardViewController: UIViewController {
         super.init(nibName: nil, bundle: nil)
     }
     
+    private var currentIndex: Int = 0 {
+      didSet {
+        currentIndex = min(max(currentIndex, 0), viewModel.loadMonthlyCards().count - 1)
+        scrollCarousel(to: currentIndex)
+      }
+    }
+    
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
@@ -37,6 +44,7 @@ final class DashboardViewController: UIViewController {
         contentView.bind(viewModel: viewModel)
 
         setup()
+        setupDelegates()
         
         checkForExistingData()
     }
@@ -44,6 +52,10 @@ final class DashboardViewController: UIViewController {
     private func setup() {
         contentView.setupCarousel()
         buildHierarchy()
+    }
+    
+    private func setupDelegates() {
+        contentView.monthSelectorView.delegate = self
     }
     
     private func buildHierarchy() {
@@ -102,5 +114,30 @@ extension DashboardViewController: UIImagePickerControllerDelegate, UINavigation
     
     func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
         dismiss(animated: true)
+    }
+}
+
+extension DashboardViewController: MonthSelectorDelegate {
+    func didTapPrev() {
+        scrollCarousel(to: currentIndex - 1)
+    }
+    
+    func didTapNext() {
+        scrollCarousel(to: currentIndex + 1)
+    }
+    
+    func didSelectMonth(at index: Int) {
+        scrollCarousel(to: index)
+    }
+    
+    private var currentCarouselIndex: Int {
+        contentView.monthCarousel.indexPathsForVisibleItems.first?.item ?? 0
+    }
+    
+    private func scrollCarousel(to newIndex: Int, animated: Bool = true) {
+        let clamped = min(max(newIndex, 0), viewModel.loadMonthlyCards().count - 1)
+        let ip = IndexPath(item: clamped, section: 0)
+        contentView.monthCarousel.scrollToItem(at: ip, at: .centeredHorizontally, animated: true)
+        contentView.monthSelectorView.scrollToMonth(at: newIndex, animated: animated)
     }
 }

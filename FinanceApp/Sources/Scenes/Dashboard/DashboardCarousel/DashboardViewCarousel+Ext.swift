@@ -29,16 +29,11 @@ extension DashboardView {
         carouselData = viewModel.loadMonthlyCards()
         allTransactions = viewModel.transactionRepo.fetchTransactions()
         
-        let monthTitles = carouselData.map { $0.month }
-        let keys = carouselData.map { DateFormatter.keyFormatter.string(from: $0.date) }
-                
-        monthSelectorView.configure(keys: keys, months: monthTitles)
-        
-        monthSelectorView.delegate = self
-        
         setupCarousel()
+        setupMonthSelector()
+        setupIndexes()
     }
-        
+    
     func setupCarousel() {
         monthCarousel.dataSource = self
         monthCarousel.delegate = self
@@ -52,7 +47,7 @@ extension DashboardView {
         
         monthCarousel.isPagingEnabled = true
         monthCarousel.backgroundColor = .clear
-        monthCarousel.isScrollEnabled = false
+        monthCarousel.isScrollEnabled = true
         monthCarousel.showsHorizontalScrollIndicator = false
         
         monthCarousel.register(MonthCarouselCell.self, forCellWithReuseIdentifier: MonthCarouselCell.reuseID)
@@ -69,14 +64,22 @@ extension DashboardView {
         }
         monthCarousel.reloadData()
         monthCarousel.layoutIfNeeded()
-                
+    }
+    
+    private func setupMonthSelector() {
+        let monthTitles = carouselData.map { $0.month }
+        monthSelectorView.configure(months: monthTitles)
+    }
+    
+    private func setupIndexes() {
         let todayKey = DateFormatter.keyFormatter.string(from: Date())
-
+        
         if let currentIndex = carouselData.firstIndex(where: {
             DateFormatter.keyFormatter.string(from: $0.date) == todayKey
         }) {
-          let ip = IndexPath(item: currentIndex, section: 0)
-          monthCarousel.scrollToItem(at: ip, at: .centeredHorizontally, animated: false)
+            let ip = IndexPath(item: currentIndex, section: 0)
+            monthCarousel.scrollToItem(at: ip, at: .centeredHorizontally, animated: false)
+            monthSelectorView.collectionView.scrollToItem(at: ip, at: .centeredHorizontally, animated: true)
         }
     }
 }
@@ -98,7 +101,9 @@ extension DashboardView: UICollectionViewDataSource, UICollectionViewDelegateFlo
     
     func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
         let model = carouselData[indexPath.item]
-        let date = Calendar.current.date(byAdding: .month, value: indexPath.item - carouselData.count / 2, to: Date())!
+        guard let date = Calendar.current.date(byAdding: .month, value: indexPath.item - carouselData.count / 2, to: Date()) else {
+            return UICollectionViewCell()
+        }
         
         let key = DateFormatter.keyFormatter.string(from: date)
         let txs = allTransactions.filter { tx in
@@ -115,30 +120,5 @@ extension DashboardView: UICollectionViewDataSource, UICollectionViewDelegateFlo
     
     func collectionView(_ collectionView: UICollectionView, layout collectionViewLayout: UICollectionViewLayout, sizeForItemAt indexPath: IndexPath) -> CGSize {
         return CGSize(width: collectionView.bounds.width, height: collectionView.bounds.height)
-    }
-}
-
-extension DashboardView {
-    func didTapPrev() {
-        scrollCarousel(to: currentCarouselIndex - 1)
-    }
-    
-    func didTapNext() {
-        scrollCarousel(to: currentCarouselIndex + 1)
-    }
-    
-    func didSelectMonth(withKey key: String, at index: Int) {
-        scrollCarousel(to: index)
-    }
-    
-    private var currentCarouselIndex: Int {
-        monthCarousel.indexPathsForVisibleItems.first?.item ?? 0
-    }
-    
-    private func scrollCarousel(to newIndex: Int) {
-        let clamped = min(max(newIndex, 0), carouselData.count - 1)
-        let ip = IndexPath(item: clamped, section: 0)
-        monthCarousel.scrollToItem(at: ip, at: .centeredHorizontally, animated: true)
-        monthSelectorView.scrollToMonth(at: newIndex)
     }
 }
