@@ -20,6 +20,20 @@ final class DashboardViewModel {
         self.monthRange = monthRange
     }
     
+    var currentMonthIndex: Int {
+        let today = Date()
+        let components = calendar.dateComponents([.year, .month], from: today)
+        
+        let allDates = monthRange.map { offset in
+            calendar.date(byAdding: .month, value: offset, to: today)!
+        }
+        
+        return allDates.firstIndex {
+            let dComp = calendar.dateComponents([.year, .month], from: $0)
+            return dComp.year == components.year && dComp.month == components.month
+        } ?? monthRange.lowerBound
+    }
+    
     func loadMonthlyCards() -> [MonthBudgetCardType] {
         let today = Date()
         

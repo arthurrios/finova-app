@@ -15,7 +15,6 @@ class MonthSelectorView: UIView {
     var months: [String] = [] {
         didSet {
             collectionView.reloadData()
-            scrollToMonth(at: selectedIndex, animated: true)
         }
     }
     
@@ -106,15 +105,11 @@ class MonthSelectorView: UIView {
     
     @objc
     private func prevTapped() {
-        let prev = max(0, selectedIndex - 1)
-        scrollToMonth(at: prev, animated: true)
         delegate?.didTapPrev()
     }
     
     @objc
     private func nextTapped() {
-        let next = min(months.count - 1, selectedIndex + 1)
-        scrollToMonth(at: next, animated: true)
         delegate?.didTapNext()
     }
 }
@@ -132,7 +127,6 @@ extension MonthSelectorView: UICollectionViewDataSource, UICollectionViewDelegat
     }
     
     func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
-        scrollToMonth(at: indexPath.item, animated: true)
         delegate?.didSelectMonth(at: indexPath.item)
     }
     

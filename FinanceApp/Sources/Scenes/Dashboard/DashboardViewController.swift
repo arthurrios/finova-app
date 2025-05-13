@@ -12,6 +12,7 @@ final class DashboardViewController: UIViewController {
     let contentView: DashboardView
     let viewModel: DashboardViewModel
     let flowDelegate: DashboardFlowDelegate
+    private var monthlyCards: [MonthBudgetCardType] = []
     
     init(
         contentView: DashboardView,
@@ -24,25 +25,23 @@ final class DashboardViewController: UIViewController {
         super.init(nibName: nil, bundle: nil)
     }
     
-    private var currentIndex: Int = 0 {
-      didSet {
-        currentIndex = min(max(currentIndex, 0), viewModel.loadMonthlyCards().count - 1)
-        scrollCarousel(to: currentIndex)
-      }
-    }
-    
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
     
     override func viewDidLoad() {
         super.viewDidLoad()
-        contentView.delegate = self
+        
+        monthlyCards = viewModel.loadMonthlyCards()
+        let txs = viewModel.transactionRepo.fetchTransactions()
+        
+        contentView.carouselData = monthlyCards
+        contentView.allTransactions = txs
+        contentView.currentMonthIndex = viewModel.currentMonthIndex
         
         view.addSubview(contentView)
         contentView.frame = view.bounds
-        contentView.bind(viewModel: viewModel)
-
+        
         setup()
         setupDelegates()
         
@@ -50,11 +49,12 @@ final class DashboardViewController: UIViewController {
     }
     
     private func setup() {
-        contentView.setupCarousel()
+        contentView.reloadData()
         buildHierarchy()
     }
     
     private func setupDelegates() {
+        contentView.delegate = self
         contentView.monthSelectorView.delegate = self
     }
     
@@ -80,7 +80,7 @@ extension DashboardViewController: DashboardViewDelegate {
     }
     
     func didTapAddTransaction() {
-//
+        //
     }
     
     
@@ -119,25 +119,24 @@ extension DashboardViewController: UIImagePickerControllerDelegate, UINavigation
 
 extension DashboardViewController: MonthSelectorDelegate {
     func didTapPrev() {
-        scrollCarousel(to: currentIndex - 1)
+        scrollCarousel(to: contentView.monthSelectorView.selectedIndex - 1)
     }
     
     func didTapNext() {
-        scrollCarousel(to: currentIndex + 1)
+        scrollCarousel(to: contentView.monthSelectorView.selectedIndex + 1)
     }
     
     func didSelectMonth(at index: Int) {
         scrollCarousel(to: index)
     }
     
-    private var currentCarouselIndex: Int {
-        contentView.monthCarousel.indexPathsForVisibleItems.first?.item ?? 0
-    }
-    
     private func scrollCarousel(to newIndex: Int, animated: Bool = true) {
-        let clamped = min(max(newIndex, 0), viewModel.loadMonthlyCards().count - 1)
+        let clamped = min(max(newIndex, 0), monthlyCards.count - 1)
         let ip = IndexPath(item: clamped, section: 0)
-        contentView.monthCarousel.scrollToItem(at: ip, at: .centeredHorizontally, animated: true)
-        contentView.monthSelectorView.scrollToMonth(at: newIndex, animated: animated)
+        
+        DispatchQueue.main.async {
+            self.contentView.monthCarousel.scrollToItem(at: ip, at: .centeredHorizontally, animated: true)
+            self.contentView.monthSelectorView.scrollToMonth(at: clamped, animated: animated)
+        }
     }
 }
