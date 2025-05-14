@@ -75,7 +75,6 @@ final class DashboardView: UIView {
     override init (frame: CGRect) {
         super.init(frame: frame)
         setupView()
-        addMonthSelector()
     }
     
     required init?(coder: NSCoder) {
@@ -93,7 +92,6 @@ final class DashboardView: UIView {
         backgroundColor = Colors.gray200
         
         addSubview(headerContainerView)
-        addSubview(monthSelectorView)
         headerContainerView.addSubview(headerItemsView)
         headerItemsView.addSubview(avatar)
         headerItemsView.addSubview(welcomeTitleLabel)
@@ -104,17 +102,10 @@ final class DashboardView: UIView {
                                action: #selector(logoutTapped),
                                for: .touchUpInside)
         
+        addSubview(monthSelectorView)
+        
         setupConstraints()
         setupImageGesture()
-    }
-    
-    private func addMonthSelector() {
-        addSubview(monthSelectorView)
-        NSLayoutConstraint.activate([
-            monthSelectorView.topAnchor.constraint(equalTo: headerContainerView.bottomAnchor, constant: Metrics.spacing5),
-            monthSelectorView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Metrics.spacing4),
-            monthSelectorView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Metrics.spacing4),
-        ])
     }
     
     @objc private func logoutTapped() {
@@ -155,6 +146,10 @@ final class DashboardView: UIView {
             logoutButton.trailingAnchor.constraint(equalTo: headerItemsView.layoutMarginsGuide.trailingAnchor),
             logoutButton.heightAnchor.constraint(equalToConstant: Metrics.logoutButtonSize),
             logoutButton.widthAnchor.constraint(equalToConstant: Metrics.logoutButtonSize),
+            
+            monthSelectorView.topAnchor.constraint(equalTo: headerContainerView.bottomAnchor, constant: Metrics.spacing5),
+            monthSelectorView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Metrics.spacing4),
+            monthSelectorView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Metrics.spacing4),
         ])
     }
 }
@@ -175,28 +170,23 @@ extension DashboardView {
         if let flow = monthCarousel.collectionViewLayout as? UICollectionViewFlowLayout {
             flow.scrollDirection = .horizontal
             flow.minimumLineSpacing = 0
-            flow.itemSize = bounds.size
         }
         
         monthCarousel.isPagingEnabled = true
         monthCarousel.backgroundColor = .clear
-        monthCarousel.isScrollEnabled = false
+        monthCarousel.isScrollEnabled = true
         monthCarousel.showsHorizontalScrollIndicator = false
         
         monthCarousel.register(MonthCarouselCell.self, forCellWithReuseIdentifier: MonthCarouselCell.reuseID)
         
-        if monthCarousel.superview == nil {
-            addSubview(monthCarousel)
-            monthCarousel.translatesAutoresizingMaskIntoConstraints = false
-            NSLayoutConstraint.activate([
-                monthCarousel.topAnchor.constraint(equalTo: monthSelectorView.bottomAnchor, constant: Metrics.spacing4),
-                monthCarousel.leadingAnchor.constraint(equalTo: leadingAnchor),
-                monthCarousel.trailingAnchor.constraint(equalTo: trailingAnchor),
-                monthCarousel.bottomAnchor.constraint(equalTo: safeAreaLayoutGuide.bottomAnchor)
-            ])
-        }
-        monthCarousel.reloadData()
-        monthCarousel.layoutIfNeeded()
+        addSubview(monthCarousel)
+        monthCarousel.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            monthCarousel.topAnchor.constraint(equalTo: monthSelectorView.bottomAnchor),
+            monthCarousel.leadingAnchor.constraint(equalTo: leadingAnchor),
+            monthCarousel.trailingAnchor.constraint(equalTo: trailingAnchor),
+            monthCarousel.bottomAnchor.constraint(equalTo: safeAreaLayoutGuide.bottomAnchor)
+        ])
     }
     
     private func setupMonthSelector() {
@@ -219,17 +209,7 @@ extension DashboardView {
     }
 }
 
-extension DashboardView {
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        if let flow = monthCarousel.collectionViewLayout as? UICollectionViewFlowLayout {
-            flow.itemSize = monthCarousel.bounds.size
-        }
-        monthCarousel.collectionViewLayout.invalidateLayout()
-    }
-}
-
-extension DashboardView: UICollectionViewDataSource, UICollectionViewDelegateFlowLayout {
+extension DashboardView: UICollectionViewDataSource, UICollectionViewDelegateFlowLayout, UIScrollViewDelegate {
     func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int {
         return self.carouselData.count
     }
@@ -255,5 +235,18 @@ extension DashboardView: UICollectionViewDataSource, UICollectionViewDelegateFlo
     
     func collectionView(_ collectionView: UICollectionView, layout collectionViewLayout: UICollectionViewLayout, sizeForItemAt indexPath: IndexPath) -> CGSize {
         return CGSize(width: collectionView.bounds.width, height: collectionView.bounds.height)
+    }
+    
+    func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
+        let pageWidth = scrollView.frame.width
+        let currentPage = Int(floor((scrollView.contentOffset.x - pageWidth / 2) / pageWidth) + 1)
+        
+        if currentPage >= 0 && currentPage < carouselData.count {
+            monthSelectorView.scrollToMonth(at: currentPage, animated: true)
+        }
+    }
+    
+    func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
+        scrollViewDidEndDecelerating(scrollView)
     }
 }

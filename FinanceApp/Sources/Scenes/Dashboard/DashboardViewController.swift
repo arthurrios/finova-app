@@ -46,6 +46,9 @@ final class DashboardViewController: UIViewController {
         setupDelegates()
         
         checkForExistingData()
+        
+        view.layoutIfNeeded()
+        contentView.reloadData()
     }
     
     private func setup() {
@@ -133,9 +136,9 @@ extension DashboardViewController: MonthSelectorDelegate {
     private func scrollCarousel(to newIndex: Int, animated: Bool = true) {
         let clamped = min(max(newIndex, 0), monthlyCards.count - 1)
         let ip = IndexPath(item: clamped, section: 0)
-        
-        DispatchQueue.main.async {
-            self.contentView.monthCarousel.scrollToItem(at: ip, at: .centeredHorizontally, animated: true)
+                
+        contentView.monthCarousel.performBatchUpdates({}) { _ in
+            self.contentView.monthCarousel.scrollToItem(at: ip, at: .centeredHorizontally, animated: animated)
             self.contentView.monthSelectorView.scrollToMonth(at: clamped, animated: animated)
         }
     }
