@@ -13,8 +13,22 @@ class MonthCarouselCell: UICollectionViewCell {
     static let reuseID = "MonthCarouselCell"
     
     private let monthCard = MonthBudgetCard()
-    private let transactionTable = UITableView()
     private var transactions: [Transaction] = []
+    
+    let transactionTableView: UITableView = {
+        let tableView = UITableView()
+        tableView.backgroundColor = Colors.gray100
+        tableView.layer.borderWidth = 1
+        tableView.layer.borderColor = Colors.gray300.cgColor
+        tableView.layer.cornerRadius = CornerRadius.extraLarge
+        tableView.layer.maskedCorners = [.layerMinXMaxYCorner, .layerMaxXMaxYCorner]
+        tableView.separatorStyle = .singleLine
+        tableView.clipsToBounds = true
+        tableView.separatorColor = Colors.gray300
+        tableView.isScrollEnabled = false
+        tableView.translatesAutoresizingMaskIntoConstraints = false
+        return tableView
+    }()
     
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -27,13 +41,14 @@ class MonthCarouselCell: UICollectionViewCell {
     
     private func setupViews() {
         monthCard.translatesAutoresizingMaskIntoConstraints = false
-        transactionTable.translatesAutoresizingMaskIntoConstraints = false
         
         contentView.addSubview(monthCard)
-//        contentView.addSubview(transactionTable)
+        contentView.addSubview(transactionTableView)
         
-        transactionTable.dataSource = self
-        transactionTable.register(UITableViewCell.self, forCellReuseIdentifier: "Cell")
+        transactionTableView.frame = contentView.bounds
+        transactionTableView.register(TransactionCell.self, forCellReuseIdentifier: TransactionCell.reuseID)
+        transactionTableView.dataSource = self
+        transactionTableView.delegate   = self
         
         setupConstraints()
     }
@@ -43,33 +58,46 @@ class MonthCarouselCell: UICollectionViewCell {
             monthCard.topAnchor.constraint(equalTo: contentView.topAnchor, constant: Metrics.spacing4),
             monthCard.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: Metrics.spacing4),
             monthCard.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -Metrics.spacing4),
-//
-//            transactionTable.topAnchor.constraint(equalTo: monthCard.bottomAnchor, constant: Metrics.spacing4),
-//            transactionTable.leadingAnchor.constraint(equalTo: monthCard.leadingAnchor),
-//            transactionTable.trailingAnchor.constraint(equalTo: monthCard.trailingAnchor),
-//            transactionTable.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -Metrics.spacing12)
+            
+            transactionTableView.topAnchor.constraint(equalTo: monthCard.bottomAnchor, constant: Metrics.spacing4),
+            transactionTableView.leadingAnchor.constraint(equalTo: monthCard.leadingAnchor),
+            transactionTableView.trailingAnchor.constraint(equalTo: monthCard.trailingAnchor),
+            transactionTableView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -Metrics.spacing12)
         ])
     }
     
     func configure(with model: MonthBudgetCardType, transactions: [Transaction]) {
         monthCard.configure(data: model)
         self.transactions = transactions
-        transactionTable.reloadData()
-//        transactionTable.backgroundView?.isHidden = !transactions.isEmpty
+        transactionTableView.reloadData()
+        
+        let rowHeight: CGFloat = 67
+        let tableHeight = CGFloat(transactions.count) * rowHeight
+        
+        if let existingHeightConstraint = transactionTableView.constraints.first(where: { $0.firstAttribute == .height }) {
+            existingHeightConstraint.constant = tableHeight
+        } else {
+            transactionTableView.heightAnchor.constraint(equalToConstant: tableHeight).isActive = true
+        }
+        transactionTableView.isHidden = transactions.isEmpty
     }
 }
 
-extension MonthCarouselCell: UITableViewDataSource {
-    func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
+extension MonthCarouselCell: UITableViewDataSource, UITableViewDelegate {
+    func tableView(_ tv: UITableView, numberOfRowsInSection section: Int) -> Int {
         return transactions.count
     }
-    
-    func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-        let cell = transactionTable.dequeueReusableCell(withIdentifier: "Cell", for: indexPath)
-        let tx = transactions[indexPath.row]
-        let amountStr = tx.amount.currencyString
-        cell.textLabel?.text = "\(tx.date.description) - \(amountStr)"
-        cell.imageView?.image = UIImage(systemName: "chevron.right")
+    func tableView(_ tv: UITableView, cellForRowAt ip: IndexPath) -> UITableViewCell {
+        let cell = tv.dequeueReusableCell(withIdentifier: TransactionCell.reuseID, for: ip) as! TransactionCell
+        let tx = transactions[ip.row]
+        cell.configure(
+          category: tx.category,
+          title:    tx.title,
+          date:     tx.date,
+          value:    tx.amount,
+          transactionType: tx.type
+        )
         return cell
     }
+    func tableView(_ tv: UITableView, heightForRowAt ip: IndexPath) -> CGFloat { 67 }
 }

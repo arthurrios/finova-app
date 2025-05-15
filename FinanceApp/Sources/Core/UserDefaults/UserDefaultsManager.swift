@@ -11,6 +11,7 @@ import UIKit
 class UserDefaultsManager {
     private static let userKey = "userKey"
     private static let profileImageKey = "profileImageKey"
+    private static let currentMonthIndex = "currentMonthIndexKey"
     
     static func saveUser(user: User) {
         let encoder = JSONEncoder()
@@ -46,5 +47,13 @@ class UserDefaultsManager {
     static func removeUser() {
         UserDefaults.standard.removeObject(forKey: userKey)
         UserDefaults.standard.synchronize()
+    }
+    
+    static func getCurrentMonthIndex() -> Int {
+        return UserDefaults.standard.integer(forKey: currentMonthIndex)
+    }
+    
+    static func setCurrentMonthIndex(_ index: Int) {
+        UserDefaults.standard.set(index, forKey: currentMonthIndex)
     }
 }

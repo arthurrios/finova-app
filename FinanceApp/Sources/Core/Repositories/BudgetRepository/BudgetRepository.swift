@@ -10,7 +10,7 @@ import Foundation
 final class BudgetRepository: BudgetRepositoryProtocol {
     let entries: [(String, Int)] = [
         ("2025-03-01", 2000_00),
-        ("2025-05-01", 420_000_00)
+        ("2025-05-01", 5000_00)
     ]
     
     func fetchBudgets() -> [BudgetEntry] {
