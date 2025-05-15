@@ -49,9 +49,6 @@ class MonthSelectorView: UIView {
         collectionView.showsHorizontalScrollIndicator = false
         collectionView.backgroundColor = .clear
         collectionView.translatesAutoresizingMaskIntoConstraints = false
-        collectionView.register(MonthCell.self, forCellWithReuseIdentifier: MonthCell.reuseID)
-        collectionView.dataSource = self
-        collectionView.delegate = self
         return collectionView
     }()
     
@@ -130,7 +127,9 @@ extension MonthSelectorView: UICollectionViewDataSource, UICollectionViewDelegat
         delegate?.didSelectMonth(at: indexPath.item)
     }
     
+    // Size is determined by DashboardViewController's UICollectionViewDelegateFlowLayout implementation
+    // to ensure exactly 5 cells are visible at once
     func collectionView(_ collectionView: UICollectionView, layout collectionViewLayout: UICollectionViewLayout, sizeForItemAt indexPath: IndexPath) -> CGSize {
-        return CGSize(width: 56, height: bounds.height)
+        return CGSize(width: 0, height: bounds.height) // Width will be overridden by DashboardViewController
     }
 }

@@ -43,7 +43,7 @@ class MonthCarouselCell: UICollectionViewCell {
             monthCard.topAnchor.constraint(equalTo: contentView.topAnchor, constant: Metrics.spacing4),
             monthCard.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: Metrics.spacing4),
             monthCard.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -Metrics.spacing4),
-//            
+//
 //            transactionTable.topAnchor.constraint(equalTo: monthCard.bottomAnchor, constant: Metrics.spacing4),
 //            transactionTable.leadingAnchor.constraint(equalTo: monthCard.leadingAnchor),
 //            transactionTable.trailingAnchor.constraint(equalTo: monthCard.trailingAnchor),

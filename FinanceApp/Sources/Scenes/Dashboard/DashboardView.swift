@@ -10,9 +10,6 @@ import UIKit
 
 final class DashboardView: UIView {
     public weak var delegate: DashboardViewDelegate?
-    public var carouselData: [MonthBudgetCardType] = []
-    public var allTransactions: [Transaction] = []
-    public var currentMonthIndex: Int = 0
     
     let headerContainerView: UIView = {
         let view = UIView()
@@ -65,9 +62,15 @@ final class DashboardView: UIView {
         return sel
     }()
     
-    internal let monthCarousel: UICollectionView = {
+    lazy var monthCarousel: UICollectionView = {
         let layout = UICollectionViewFlowLayout()
+        layout.scrollDirection = .horizontal
+        layout.minimumLineSpacing = 0
+        
         let collectionView = UICollectionView(frame: .zero, collectionViewLayout: layout)
+        collectionView.isPagingEnabled = true
+        collectionView.backgroundColor = .clear
+        collectionView.showsHorizontalScrollIndicator = false
         collectionView.translatesAutoresizingMaskIntoConstraints = false
         return collectionView
     }()
@@ -75,6 +78,7 @@ final class DashboardView: UIView {
     override init (frame: CGRect) {
         super.init(frame: frame)
         setupView()
+        setupLayout()
     }
     
     required init?(coder: NSCoder) {
@@ -102,27 +106,14 @@ final class DashboardView: UIView {
                                action: #selector(logoutTapped),
                                for: .touchUpInside)
         
-        addSubview(monthSelectorView)
-        
-        setupConstraints()
         setupImageGesture()
     }
     
-    @objc private func logoutTapped() {
-        delegate?.logout()
-    }
-    
-    private func setupImageGesture() {
-        let tapGestureRecognizer = UITapGestureRecognizer(target: self, action: #selector(handleProfileImageTap))
-        avatar.addGestureRecognizer(tapGestureRecognizer)
-    }
-    
-    @objc
-    private func handleProfileImageTap() {
-        delegate?.didTapProfileImage()
-    }
-    
-    private func setupConstraints() {
+    private func setupLayout() {
+        addSubview(monthSelectorView)
+        
+        addSubview(monthCarousel)
+        
         NSLayoutConstraint.activate([
             headerContainerView.topAnchor.constraint(equalTo: topAnchor),
             headerContainerView.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -150,38 +141,7 @@ final class DashboardView: UIView {
             monthSelectorView.topAnchor.constraint(equalTo: headerContainerView.bottomAnchor, constant: Metrics.spacing5),
             monthSelectorView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Metrics.spacing4),
             monthSelectorView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Metrics.spacing4),
-        ])
-    }
-}
-
-extension DashboardView {
-    
-    func reloadData() {
-        setupCarousel()
-        setupMonthSelector()
-        setupIndexes()
-    }
-    
-    func setupCarousel() {
-        monthCarousel.dataSource = self
-        monthCarousel.delegate = self
-        
-        monthCarousel.collectionViewLayout.invalidateLayout()
-        if let flow = monthCarousel.collectionViewLayout as? UICollectionViewFlowLayout {
-            flow.scrollDirection = .horizontal
-            flow.minimumLineSpacing = 0
-        }
-        
-        monthCarousel.isPagingEnabled = true
-        monthCarousel.backgroundColor = .clear
-        monthCarousel.isScrollEnabled = true
-        monthCarousel.showsHorizontalScrollIndicator = false
-        
-        monthCarousel.register(MonthCarouselCell.self, forCellWithReuseIdentifier: MonthCarouselCell.reuseID)
-        
-        addSubview(monthCarousel)
-        monthCarousel.translatesAutoresizingMaskIntoConstraints = false
-        NSLayoutConstraint.activate([
+            
             monthCarousel.topAnchor.constraint(equalTo: monthSelectorView.bottomAnchor),
             monthCarousel.leadingAnchor.constraint(equalTo: leadingAnchor),
             monthCarousel.trailingAnchor.constraint(equalTo: trailingAnchor),
@@ -189,64 +149,17 @@ extension DashboardView {
         ])
     }
     
-    private func setupMonthSelector() {
-        let monthTitles = carouselData.map { $0.month }
-        let initial = currentMonthIndex
-        monthSelectorView.configure(months: monthTitles, selectedIndex: initial)
-        monthSelectorView.layoutIfNeeded()
-        monthSelectorView.scrollToMonth(at: initial, animated: false)
+    @objc private func logoutTapped() {
+        delegate?.logout()
     }
     
-    private func setupIndexes() {
-        let todayKey = DateFormatter.keyFormatter.string(from: Date())
-        
-        if let currentIndex = carouselData.firstIndex(where: {
-            DateFormatter.keyFormatter.string(from: $0.date) == todayKey
-        }) {
-            let ip = IndexPath(item: currentIndex, section: 0)
-            monthCarousel.scrollToItem(at: ip, at: .centeredHorizontally, animated: false)
-        }
-    }
-}
-
-extension DashboardView: UICollectionViewDataSource, UICollectionViewDelegateFlowLayout, UIScrollViewDelegate {
-    func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int {
-        return self.carouselData.count
+    private func setupImageGesture() {
+        let tapGestureRecognizer = UITapGestureRecognizer(target: self, action: #selector(handleProfileImageTap))
+        avatar.addGestureRecognizer(tapGestureRecognizer)
     }
     
-    func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
-        let model = carouselData[indexPath.item]
-        guard let date = Calendar.current.date(byAdding: .month, value: indexPath.item - carouselData.count / 2, to: Date()) else {
-            return UICollectionViewCell()
-        }
-        
-        let key = DateFormatter.keyFormatter.string(from: date)
-        let txs = allTransactions.filter { tx in
-            DateFormatter.keyFormatter.string(from: tx.date) == key
-        }
-        
-        guard let cell = collectionView.dequeueReusableCell(withReuseIdentifier: MonthCarouselCell.reuseID, for: indexPath) as? MonthCarouselCell else {
-            fatalError("Could not dequeue cell")
-        }
-        
-        cell.configure(with: model, transactions: txs)
-        return cell
-    }
-    
-    func collectionView(_ collectionView: UICollectionView, layout collectionViewLayout: UICollectionViewLayout, sizeForItemAt indexPath: IndexPath) -> CGSize {
-        return CGSize(width: collectionView.bounds.width, height: collectionView.bounds.height)
-    }
-    
-    func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
-        let pageWidth = scrollView.frame.width
-        let currentPage = Int(floor((scrollView.contentOffset.x - pageWidth / 2) / pageWidth) + 1)
-        
-        if currentPage >= 0 && currentPage < carouselData.count {
-            monthSelectorView.scrollToMonth(at: currentPage, animated: true)
-        }
-    }
-    
-    func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
-        scrollViewDidEndDecelerating(scrollView)
+    @objc
+    private func handleProfileImageTap() {
+        delegate?.didTapProfileImage()
     }
 }
