@@ -30,7 +30,7 @@ class MonthCarouselCell: UICollectionViewCell {
         transactionTable.translatesAutoresizingMaskIntoConstraints = false
         
         contentView.addSubview(monthCard)
-        contentView.addSubview(transactionTable)
+//        contentView.addSubview(transactionTable)
         
         transactionTable.dataSource = self
         transactionTable.register(UITableViewCell.self, forCellReuseIdentifier: "Cell")
@@ -43,10 +43,11 @@ class MonthCarouselCell: UICollectionViewCell {
             monthCard.topAnchor.constraint(equalTo: contentView.topAnchor, constant: Metrics.spacing4),
             monthCard.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: Metrics.spacing4),
             monthCard.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -Metrics.spacing4),
-            
-            transactionTable.topAnchor.constraint(equalTo: monthCard.bottomAnchor, constant: Metrics.spacing4),
-            transactionTable.leadingAnchor.constraint(equalTo: monthCard.leadingAnchor),
-            transactionTable.trailingAnchor.constraint(equalTo: monthCard.trailingAnchor),
+//
+//            transactionTable.topAnchor.constraint(equalTo: monthCard.bottomAnchor, constant: Metrics.spacing4),
+//            transactionTable.leadingAnchor.constraint(equalTo: monthCard.leadingAnchor),
+//            transactionTable.trailingAnchor.constraint(equalTo: monthCard.trailingAnchor),
+//            transactionTable.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -Metrics.spacing12)
         ])
     }
     

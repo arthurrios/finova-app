@@ -11,8 +11,6 @@ import UIKit
 final class DashboardView: UIView {
     public weak var delegate: DashboardViewDelegate?
     
-    private var viewModel: DashboardViewModel!
-    
     let headerContainerView: UIView = {
         let view = UIView()
         view.backgroundColor = Colors.gray100
@@ -57,9 +55,22 @@ final class DashboardView: UIView {
         return btn
     }()
     
-    internal let monthCarousel: UICollectionView = {
+    lazy var monthSelectorView: MonthSelectorView = {
+        let sel = MonthSelectorView()
+        sel.heightAnchor.constraint(equalToConstant: Metrics.spacing8).isActive = true
+        sel.translatesAutoresizingMaskIntoConstraints = false
+        return sel
+    }()
+    
+    lazy var monthCarousel: UICollectionView = {
         let layout = UICollectionViewFlowLayout()
+        layout.scrollDirection = .horizontal
+        layout.minimumLineSpacing = 0
+        
         let collectionView = UICollectionView(frame: .zero, collectionViewLayout: layout)
+        collectionView.isPagingEnabled = true
+        collectionView.backgroundColor = .clear
+        collectionView.showsHorizontalScrollIndicator = false
         collectionView.translatesAutoresizingMaskIntoConstraints = false
         return collectionView
     }()
@@ -67,6 +78,7 @@ final class DashboardView: UIView {
     override init (frame: CGRect) {
         super.init(frame: frame)
         setupView()
+        setupLayout()
     }
     
     required init?(coder: NSCoder) {
@@ -89,30 +101,19 @@ final class DashboardView: UIView {
         headerItemsView.addSubview(welcomeTitleLabel)
         headerItemsView.addSubview(welcomeSubtitleLabel)
         headerItemsView.addSubview(logoutButton)
-                
+        
         logoutButton.addTarget(self,
                                action: #selector(logoutTapped),
                                for: .touchUpInside)
         
-        setupConstraints()
         setupImageGesture()
     }
     
-    @objc private func logoutTapped() {
-        delegate?.logout()
-    }
-    
-    private func setupImageGesture() {
-        let tapGestureRecognizer = UITapGestureRecognizer(target: self, action: #selector(handleProfileImageTap))
-        avatar.addGestureRecognizer(tapGestureRecognizer)
-    }
-    
-    @objc
-    private func handleProfileImageTap() {
-        delegate?.didTapProfileImage()
-    }
-    
-    private func setupConstraints() {
+    private func setupLayout() {
+        addSubview(monthSelectorView)
+        
+        addSubview(monthCarousel)
+        
         NSLayoutConstraint.activate([
             headerContainerView.topAnchor.constraint(equalTo: topAnchor),
             headerContainerView.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -136,6 +137,29 @@ final class DashboardView: UIView {
             logoutButton.trailingAnchor.constraint(equalTo: headerItemsView.layoutMarginsGuide.trailingAnchor),
             logoutButton.heightAnchor.constraint(equalToConstant: Metrics.logoutButtonSize),
             logoutButton.widthAnchor.constraint(equalToConstant: Metrics.logoutButtonSize),
+            
+            monthSelectorView.topAnchor.constraint(equalTo: headerContainerView.bottomAnchor, constant: Metrics.spacing5),
+            monthSelectorView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Metrics.spacing4),
+            monthSelectorView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Metrics.spacing4),
+            
+            monthCarousel.topAnchor.constraint(equalTo: monthSelectorView.bottomAnchor),
+            monthCarousel.leadingAnchor.constraint(equalTo: leadingAnchor),
+            monthCarousel.trailingAnchor.constraint(equalTo: trailingAnchor),
+            monthCarousel.bottomAnchor.constraint(equalTo: safeAreaLayoutGuide.bottomAnchor)
         ])
+    }
+    
+    @objc private func logoutTapped() {
+        delegate?.logout()
+    }
+    
+    private func setupImageGesture() {
+        let tapGestureRecognizer = UITapGestureRecognizer(target: self, action: #selector(handleProfileImageTap))
+        avatar.addGestureRecognizer(tapGestureRecognizer)
+    }
+    
+    @objc
+    private func handleProfileImageTap() {
+        delegate?.didTapProfileImage()
     }
 }
