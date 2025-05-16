@@ -483,13 +483,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Available budget"
+            "value" : "Available balance"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Orçamento disponível"
+            "value" : "Saldo disponível"
           }
         }
       }
