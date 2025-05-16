@@ -1,0 +1,6 @@
+framework module ShimmerView {
+  umbrella header "ShimmerView-umbrella.h"
+
+  export *
+  module * { export * }
+}
