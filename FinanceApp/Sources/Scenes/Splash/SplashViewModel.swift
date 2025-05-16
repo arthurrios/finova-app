@@ -21,6 +21,10 @@ final class SplashViewModel {
         }
     }
     
+    func saveInitialDate() {
+        UserDefaultsManager.setCurrentMonthIndex(currentMonthIndex)
+    }
+    
     var currentMonthIndex: Int {
         let today = Date()
         let components = calendar.dateComponents([.year, .month], from: today)

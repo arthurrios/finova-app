@@ -70,6 +70,8 @@ final class SplashViewController: UIViewController {
 extension SplashViewController {
     private func startAnimation() {
         
+        viewModel.saveInitialDate()
+        
         viewModel.performInitialAnimation { [weak self] in
             guard let self else { return }
             

@@ -25,6 +25,7 @@ final class DashboardViewController: UIViewController {
         self.viewModel = viewModel
         self.syncedViewModel = SyncedCollectionsViewModel()
         self.flowDelegate = flowDelegate
+        self.syncedViewModel.saveInitialDate()
         self.todayMonthIndex = UserDefaultsManager.getCurrentMonthIndex()
         self.isLoadingInitialData = true
         super.init(nibName: nil, bundle: nil)

@@ -56,6 +56,24 @@ final class SyncedCollectionsViewModel {
         }
     }
     
+    func saveInitialDate() {
+        UserDefaultsManager.setCurrentMonthIndex(currentMonthIndex)
+    }
+    
+    var currentMonthIndex: Int {
+        let today = Date()
+        let components = calendar.dateComponents([.year, .month], from: today)
+        
+        let allDates = monthRange.map { offset in
+            calendar.date(byAdding: .month, value: offset, to: today)!
+        }
+        
+        return allDates.firstIndex {
+            let dComp = calendar.dateComponents([.year, .month], from: $0)
+            return dComp.year == components.year && dComp.month == components.month
+        } ?? monthRange.lowerBound
+    }
+    
     private func updateAvailableValueForCurrentMonth() {
         guard !monthData.isEmpty, selectedIndex < monthData.count else { return }
         
