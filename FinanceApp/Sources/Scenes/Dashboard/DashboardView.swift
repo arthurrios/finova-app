@@ -7,6 +7,7 @@
 
 import Foundation
 import UIKit
+import ShimmerView
 
 final class DashboardView: UIView {
     public weak var delegate: DashboardViewDelegate?
@@ -68,6 +69,7 @@ final class DashboardView: UIView {
         layout.minimumLineSpacing = 0
         
         let collectionView = UICollectionView(frame: .zero, collectionViewLayout: layout)
+        collectionView.isHidden = true
         collectionView.isPagingEnabled = true
         collectionView.backgroundColor = .clear
         collectionView.showsHorizontalScrollIndicator = false
@@ -104,6 +106,32 @@ final class DashboardView: UIView {
         return btn
     }()
     
+    let monthCardShimmerView: ShimmerView = {
+        let style = ShimmerViewStyle(baseColor: Colors.gray700, highlightColor: Colors.gray400, duration: 1.2, interval: 0.4, effectSpan: .points(120), effectAngle: 0 * CGFloat.pi)
+        
+        let view = ShimmerView()
+        view.style = style
+        view.layer.cornerRadius = CornerRadius.extraLarge
+        view.clipsToBounds = true
+        view.startAnimating()
+        view.translatesAutoresizingMaskIntoConstraints = false
+        return view
+    }()
+    
+    let transactionsTableShimmerView: ShimmerView = {
+        let style = ShimmerViewStyle(baseColor: Colors.gray100, highlightColor: .white, duration: 1.2, interval: 0.4, effectSpan: .points(120), effectAngle: 0 * CGFloat.pi)
+        
+        let view = ShimmerView()
+        view.style = style
+        view.layer.borderColor = Colors.gray300.cgColor
+        view.layer.borderWidth = 1
+        view.layer.cornerRadius = CornerRadius.extraLarge
+        view.clipsToBounds = true
+        view.startAnimating()
+        view.translatesAutoresizingMaskIntoConstraints = false
+        return view
+    }()
+    
     override init (frame: CGRect) {
         super.init(frame: frame)
         setupView()
@@ -131,6 +159,11 @@ final class DashboardView: UIView {
         headerItemsView.addSubview(welcomeSubtitleLabel)
         headerItemsView.addSubview(logoutButton)
         addSubview(addTransactionButton)
+        addSubview(monthCardShimmerView)
+        addSubview(transactionsTableShimmerView)
+        
+        addSubview(monthSelectorView)
+        addSubview(monthCarousel)
         
         bringSubviewToFront(addTransactionButton)
         
@@ -146,10 +179,7 @@ final class DashboardView: UIView {
     }
     
     private func setupLayout() {
-        addSubview(monthSelectorView)
-        addSubview(monthCarousel)
-        
-        bringSubviewToFront(addTransactionButton)
+
         
         NSLayoutConstraint.activate([
             headerContainerView.topAnchor.constraint(equalTo: topAnchor),
@@ -184,11 +214,28 @@ final class DashboardView: UIView {
             monthCarousel.trailingAnchor.constraint(equalTo: trailingAnchor),
             monthCarousel.bottomAnchor.constraint(equalTo: safeAreaLayoutGuide.bottomAnchor),
             
+            monthCardShimmerView.topAnchor.constraint(equalTo: monthSelectorView.bottomAnchor, constant: Metrics.spacing5),
+            monthCardShimmerView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Metrics.spacing4),
+            monthCardShimmerView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Metrics.spacing4),
+            monthCardShimmerView.heightAnchor.constraint(equalToConstant: Metrics.monthCardShimmerHeight),
+            
+            transactionsTableShimmerView.topAnchor.constraint(equalTo: monthCardShimmerView.bottomAnchor, constant: Metrics.spacing4),
+            transactionsTableShimmerView.leadingAnchor.constraint(equalTo: monthCardShimmerView.leadingAnchor),
+            transactionsTableShimmerView.trailingAnchor.constraint(equalTo: monthCardShimmerView.trailingAnchor),
+            transactionsTableShimmerView.bottomAnchor.constraint(equalTo: safeAreaLayoutGuide.bottomAnchor),
+            
             addTransactionButton.centerXAnchor.constraint(equalTo: centerXAnchor),
             addTransactionButton.bottomAnchor.constraint(equalTo: safeAreaLayoutGuide.bottomAnchor),
             addTransactionButton.heightAnchor.constraint(equalToConstant: Metrics.addButtonSize),
             addTransactionButton.widthAnchor.constraint(equalToConstant: Metrics.addButtonSize)
         ])
+    }
+    
+    func hideShimmerViewsAndShowOriginals() {
+        monthCardShimmerView.isHidden = true
+        transactionsTableShimmerView.isHidden = true
+        
+        monthCarousel.isHidden = false
     }
     
     @objc private func logoutTapped() {

@@ -16,6 +16,10 @@ final class TransactionRepository: TransactionRepositoryProtocol {
             Transaction(title: "Energy bill", category: .billing, amount: 243_72, type: .outcome, date: DateFormatter.yyyyMMdd.date(from: "2025-05-05")!),
             Transaction(title: "Rent", category: .homeMaintenance, amount: 2240_00, type: .outcome, date: DateFormatter.yyyyMMdd.date(from: "2025-05-05")!),
             Transaction(title: "Salary", category: .salary, amount: 5000_00, type: .income, date: DateFormatter.yyyyMMdd.date(from: "2025-05-05")!),
+            Transaction(title: "Salary", category: .salary, amount: 5000_00, type: .income, date: DateFormatter.yyyyMMdd.date(from: "2025-05-05")!),
+            Transaction(title: "Salary", category: .salary, amount: 5000_00, type: .income, date: DateFormatter.yyyyMMdd.date(from: "2025-05-05")!),
+            Transaction(title: "Salary", category: .salary, amount: 5000_00, type: .income, date: DateFormatter.yyyyMMdd.date(from: "2025-05-05")!),
+            Transaction(title: "Salary", category: .salary, amount: 5000_00, type: .income, date: DateFormatter.yyyyMMdd.date(from: "2025-05-05")!),
         ]
     }
 }

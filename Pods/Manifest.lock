@@ -46,9 +46,11 @@ PODS:
     - GoogleUtilities/Privacy
   - GTMSessionFetcher/Core (4.2.0)
   - RecaptchaInterop (100.0.0)
+  - ShimmerView (0.5.0)
 
 DEPENDENCIES:
   - Firebase/Auth
+  - ShimmerView
 
 SPEC REPOS:
   trunk:
@@ -62,6 +64,7 @@ SPEC REPOS:
     - GoogleUtilities
     - GTMSessionFetcher
     - RecaptchaInterop
+    - ShimmerView
 
 SPEC CHECKSUMS:
   Firebase: a64bf6a8546e6eab54f1c715cd6151f39d2329f4
@@ -74,7 +77,8 @@ SPEC CHECKSUMS:
   GoogleUtilities: 26a3abef001b6533cf678d3eb38fd3f614b7872d
   GTMSessionFetcher: 4cb0aa086996858328a1fca61f9bfe81cfdfdfa9
   RecaptchaInterop: 7d1a4a01a6b2cb1610a47ef3f85f0c411434cb21
+  ShimmerView: ffde81304d8fb29127cbce492d14430dca288ebb
 
-PODFILE CHECKSUM: b9220c6d517273ff82d9551b25b445c3d9c8bd91
+PODFILE CHECKSUM: 076f00055dbc9e8469afaf59dae6e03a235859b7
 
 COCOAPODS: 1.16.2
