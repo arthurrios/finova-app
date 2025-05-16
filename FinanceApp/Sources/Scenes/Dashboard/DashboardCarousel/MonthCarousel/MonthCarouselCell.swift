@@ -249,6 +249,7 @@ extension MonthCarouselCell: UITableViewDataSource, UITableViewDelegate {
     func tableView(_ tv: UITableView, numberOfRowsInSection section: Int) -> Int {
         return transactions.count
     }
+    
     func tableView(_ tv: UITableView, cellForRowAt ip: IndexPath) -> UITableViewCell {
         let cell = tv.dequeueReusableCell(withIdentifier: TransactionCell.reuseID, for: ip) as! TransactionCell
         let tx = transactions[ip.row]
@@ -259,7 +260,15 @@ extension MonthCarouselCell: UITableViewDataSource, UITableViewDelegate {
             value:    tx.amount,
             transactionType: tx.type
         )
+        
+        cell.selectionStyle = .none
+        
         return cell
     }
+    
     func tableView(_ tv: UITableView, heightForRowAt ip: IndexPath) -> CGFloat { 67 }
+    
+    func tableView(_ tableView: UITableView, willSelectRowAt indexPath: IndexPath) -> IndexPath? {
+        return nil
+    }
 }
