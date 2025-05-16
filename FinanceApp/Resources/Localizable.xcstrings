@@ -545,6 +545,23 @@
         }
       }
     },
+    "transactions.emptyState.description" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "You have not yet recorded expenses or income this month"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Você ainda não registrou despesas ou receitas neste mês"
+          }
+        }
+      }
+    },
     "transactions.header.title" : {
       "extractionState" : "manual",
       "localizations" : {

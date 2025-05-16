@@ -22,6 +22,11 @@ enum Metrics {
     static let spacing10: CGFloat = 40
     static let spacing11: CGFloat = 44
     static let spacing12: CGFloat = 48
+    static let spacing13: CGFloat = 52
+    static let spacing14: CGFloat = 56
+    static let spacing15: CGFloat = 60
+    static let spacing16: CGFloat = 64
+    static let spacing17: CGFloat = 68
 
     // Component Sizes
     static let buttonHeight: CGFloat = 48
@@ -32,4 +37,5 @@ enum Metrics {
     static let profileImageSize: CGFloat = 40
     static let profileIconSize: CGFloat = 20
     static let headerHeight: CGFloat = 136
+    static let tableEmptyViewHeight: CGFloat = 68
 }

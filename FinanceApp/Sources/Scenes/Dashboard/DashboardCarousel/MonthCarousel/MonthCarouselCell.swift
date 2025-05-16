@@ -15,7 +15,7 @@ class MonthCarouselCell: UICollectionViewCell {
     private let monthCard = MonthBudgetCard()
     private var transactions: [Transaction] = []
     
-    let tableHeaderView: UIStackView = {
+    private let tableHeaderView: UIStackView = {
         let stackView = UIStackView()
         stackView.axis = .horizontal
         stackView.alignment = .center
@@ -30,7 +30,7 @@ class MonthCarouselCell: UICollectionViewCell {
         return stackView
     }()
     
-    let tableHeaderTitleLabel: UILabel = {
+    private let tableHeaderTitleLabel: UILabel = {
         let label = UILabel()
         label.fontStyle = Fonts.title2XS
         label.textColor = Colors.gray500
@@ -41,7 +41,7 @@ class MonthCarouselCell: UICollectionViewCell {
         return label
     }()
     
-    let transactionsNumberContainerView: UIStackView = {
+    private let transactionsNumberContainerView: UIStackView = {
         let stackView = UIStackView()
         stackView.axis = .horizontal
         stackView.distribution = .fillEqually
@@ -55,7 +55,7 @@ class MonthCarouselCell: UICollectionViewCell {
         return stackView
     }()
     
-    let transactionNumberLabel: UILabel = {
+    private let transactionNumberLabel: UILabel = {
         let label = UILabel()
         label.font = Fonts.titleXS.font
         label.textColor = Colors.gray600
@@ -64,7 +64,38 @@ class MonthCarouselCell: UICollectionViewCell {
         return label
     }()
     
-    let transactionTableView: UITableView = {
+    private let emptyStateView: UIView = {
+        let view = UIView()
+        view.backgroundColor = Colors.gray100
+        view.layer.borderWidth = 1
+        view.layer.borderColor = Colors.gray300.cgColor
+        view.layer.cornerRadius = CornerRadius.extraLarge
+        view.layer.maskedCorners = [.layerMinXMaxYCorner, .layerMaxXMaxYCorner]
+        view.isHidden = true
+        view.translatesAutoresizingMaskIntoConstraints = false
+        return view
+    }()
+    
+    private let emptyStateIconImageView: UIImageView = {
+        let imageView = UIImageView()
+        imageView.image = UIImage(named: "iconBilling")
+        imageView.tintColor = Colors.gray400
+        imageView.contentMode = .scaleAspectFit
+        imageView.translatesAutoresizingMaskIntoConstraints = false
+        return imageView
+    }()
+    
+    private let emptyStateDescriptionLabel: UILabel = {
+        let label = UILabel()
+        label.font = Fonts.textXS.font
+        label.textColor = Colors.gray500
+        label.numberOfLines = 0
+        label.text = "transactions.emptyState.description".localized
+        label.translatesAutoresizingMaskIntoConstraints = false
+        return label
+    }()
+    
+    private let transactionTableView: UITableView = {
         let tableView = UITableView()
         tableView.backgroundColor = Colors.gray100
         tableView.layer.borderWidth = 1
@@ -98,6 +129,9 @@ class MonthCarouselCell: UICollectionViewCell {
         tableHeaderView.addArrangedSubview(tableHeaderTitleLabel)
         tableHeaderView.addArrangedSubview(transactionsNumberContainerView)
         transactionsNumberContainerView.addArrangedSubview(transactionNumberLabel)
+        contentView.addSubview(emptyStateView)
+        emptyStateView.addSubview(emptyStateIconImageView)
+        emptyStateView.addSubview(emptyStateDescriptionLabel)
         
         transactionTableView.frame = contentView.bounds
         transactionTableView.register(TransactionCell.self, forCellReuseIdentifier: TransactionCell.reuseID)
@@ -120,6 +154,20 @@ class MonthCarouselCell: UICollectionViewCell {
             transactionTableView.topAnchor.constraint(equalTo: tableHeaderView.bottomAnchor),
             transactionTableView.leadingAnchor.constraint(equalTo: monthCard.leadingAnchor),
             transactionTableView.trailingAnchor.constraint(equalTo: monthCard.trailingAnchor),
+            
+            emptyStateView.topAnchor.constraint(equalTo: tableHeaderView.bottomAnchor),
+            emptyStateView.leadingAnchor.constraint(equalTo: monthCard.leadingAnchor),
+            emptyStateView.trailingAnchor.constraint(equalTo: monthCard.trailingAnchor),
+            emptyStateView.heightAnchor.constraint(equalToConstant: Metrics.tableEmptyViewHeight),
+            
+            emptyStateIconImageView.leadingAnchor.constraint(equalTo: emptyStateView.leadingAnchor, constant: Metrics.spacing5),
+            emptyStateIconImageView.centerYAnchor.constraint(equalTo: emptyStateView.centerYAnchor),
+            emptyStateIconImageView.heightAnchor.constraint(equalToConstant: Metrics.spacing8),
+            emptyStateIconImageView.widthAnchor.constraint(equalToConstant: Metrics.spacing8),
+            
+            emptyStateDescriptionLabel.leadingAnchor.constraint(equalTo: emptyStateIconImageView.trailingAnchor, constant: Metrics.spacing5),
+            emptyStateDescriptionLabel.trailingAnchor.constraint(equalTo: emptyStateView.trailingAnchor, constant: -Metrics.spacing4),
+            emptyStateDescriptionLabel.centerYAnchor.constraint(equalTo: emptyStateView.centerYAnchor),
         ])
     }
     
@@ -130,15 +178,24 @@ class MonthCarouselCell: UICollectionViewCell {
         
         self.transactionNumberLabel.text = "\(transactions.count)"
         
-        let rowHeight: CGFloat = 67
-        let tableHeight = CGFloat(transactions.count) * rowHeight
-        
-        if let existingHeightConstraint = transactionTableView.constraints.first(where: { $0.firstAttribute == .height }) {
-            existingHeightConstraint.constant = tableHeight
+        if transactions.isEmpty {
+            transactionTableView.isHidden = true
+            emptyStateView.isHidden = false
         } else {
-            transactionTableView.heightAnchor.constraint(equalToConstant: tableHeight).isActive = true
+            transactionTableView.isHidden = false
+            emptyStateView.isHidden = true
+            transactionTableView.reloadData()
+            
+            let rowHeight: CGFloat = 67
+            let tableHeight = CGFloat(transactions.count) * rowHeight
+            
+            if let existingHeightConstraint = transactionTableView.constraints.first(where: { $0.firstAttribute == .height }) {
+                existingHeightConstraint.constant = tableHeight
+            } else {
+                transactionTableView.heightAnchor.constraint(equalToConstant: tableHeight).isActive = true
+            }
         }
-        transactionTableView.isHidden = transactions.isEmpty
+
     }
     
     private func addBordersExceptBottom(to view: UIView, color: UIColor, width: CGFloat = 1.0) {

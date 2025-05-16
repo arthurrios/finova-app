@@ -148,7 +148,7 @@ class MonthBudgetCard: UIView {
             
             if let availableValue = data.availableValue, budgetLimit != 0 {
                 progressBar.setProgress(Float(data.usedValue) / Float(budgetLimit), animated: true)
-                if availableValue < 0 {
+                if availableValue < 0, data.usedValue >= budgetLimit {
                     progressBar.progress = 1
                     progressBar.progressTintColor = Colors.mainRed
                 }
