@@ -8,7 +8,7 @@
 import Foundation
 import UIKit
 
-struct Fonts {
+public struct Fonts {
     let size: CGFloat
     let weight: UIFont.Weight?
     let lineHeight: CGFloat?
@@ -59,6 +59,7 @@ struct Fonts {
     static let titleXS = Fonts(size: 12, weight: .bold, textCasing: .uppercase)
     static let title2XS = Fonts(size: 10, weight: .bold, textCasing: .uppercase)
     static let textSM = Fonts(size: 14)
+    static let textSMBold = Fonts(size: 14, weight: .bold)
     static let textXS = Fonts(size: 12)
     static let input = Fonts(size: 16, lineHeight: 24)
     static let buttonMD = Fonts(size: 16, weight: .bold, lineHeight: 24)

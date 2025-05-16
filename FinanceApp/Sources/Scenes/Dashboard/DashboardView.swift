@@ -75,6 +75,35 @@ final class DashboardView: UIView {
         return collectionView
     }()
     
+    private let addTransactionButton: UIButton = {
+        let btn = UIButton(type: .system)
+        
+        if let originalImage = UIImage(named: "plus") {
+            let newSize = CGSize(width: 24, height: 24)
+            UIGraphicsBeginImageContextWithOptions(newSize, false, 0.0)
+            originalImage.draw(in: CGRect(origin: .zero, size: newSize))
+            let resizedImage = UIGraphicsGetImageFromCurrentImageContext()
+            UIGraphicsEndImageContext()
+            
+            btn.setImage(resizedImage, for: .normal)
+        }
+        
+        btn.tintColor = Colors.gray100
+        btn.backgroundColor = Colors.gray700
+        
+        btn.imageView?.contentMode = .center
+        
+        btn.layer.shadowColor = UIColor.black.cgColor
+        btn.layer.shadowOffset = CGSize(width: 0, height: 4)
+        btn.layer.shadowOpacity = 0.25
+        btn.layer.shadowRadius = 4
+        btn.layer.shouldRasterize = true
+        btn.layer.rasterizationScale = UIScreen.main.scale
+        
+        btn.translatesAutoresizingMaskIntoConstraints = false
+        return btn
+    }()
+    
     override init (frame: CGRect) {
         super.init(frame: frame)
         setupView()
@@ -101,18 +130,26 @@ final class DashboardView: UIView {
         headerItemsView.addSubview(welcomeTitleLabel)
         headerItemsView.addSubview(welcomeSubtitleLabel)
         headerItemsView.addSubview(logoutButton)
+        addSubview(addTransactionButton)
+        
+        bringSubviewToFront(addTransactionButton)
         
         logoutButton.addTarget(self,
                                action: #selector(logoutTapped),
                                for: .touchUpInside)
+        
+        addTransactionButton.addTarget(self,
+                                       action: #selector(handleTapAddButton),
+                                       for: .touchUpInside)
         
         setupImageGesture()
     }
     
     private func setupLayout() {
         addSubview(monthSelectorView)
-        
         addSubview(monthCarousel)
+        
+        bringSubviewToFront(addTransactionButton)
         
         NSLayoutConstraint.activate([
             headerContainerView.topAnchor.constraint(equalTo: topAnchor),
@@ -145,7 +182,12 @@ final class DashboardView: UIView {
             monthCarousel.topAnchor.constraint(equalTo: monthSelectorView.bottomAnchor),
             monthCarousel.leadingAnchor.constraint(equalTo: leadingAnchor),
             monthCarousel.trailingAnchor.constraint(equalTo: trailingAnchor),
-            monthCarousel.bottomAnchor.constraint(equalTo: safeAreaLayoutGuide.bottomAnchor)
+            monthCarousel.bottomAnchor.constraint(equalTo: safeAreaLayoutGuide.bottomAnchor),
+            
+            addTransactionButton.centerXAnchor.constraint(equalTo: centerXAnchor),
+            addTransactionButton.bottomAnchor.constraint(equalTo: safeAreaLayoutGuide.bottomAnchor),
+            addTransactionButton.heightAnchor.constraint(equalToConstant: Metrics.addButtonSize),
+            addTransactionButton.widthAnchor.constraint(equalToConstant: Metrics.addButtonSize)
         ])
     }
     
@@ -161,5 +203,21 @@ final class DashboardView: UIView {
     @objc
     private func handleProfileImageTap() {
         delegate?.didTapProfileImage()
+    }
+    
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        
+        addTransactionButton.layer.cornerRadius = Metrics.addButtonSize / 2
+        
+        addTransactionButton.layer.shadowPath = UIBezierPath(
+            roundedRect: addTransactionButton.bounds,
+            cornerRadius: addTransactionButton.layer.cornerRadius
+        ).cgPath
+    }
+    
+    @objc
+    private func handleTapAddButton() {
+        delegate?.didTapAddTransaction()
     }
 }

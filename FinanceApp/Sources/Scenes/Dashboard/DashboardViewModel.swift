@@ -20,20 +20,6 @@ final class DashboardViewModel {
         self.monthRange = monthRange
     }
     
-    var currentMonthIndex: Int {
-        let today = Date()
-        let components = calendar.dateComponents([.year, .month], from: today)
-        
-        let allDates = monthRange.map { offset in
-            calendar.date(byAdding: .month, value: offset, to: today)!
-        }
-        
-        return allDates.firstIndex {
-            let dComp = calendar.dateComponents([.year, .month], from: $0)
-            return dComp.year == components.year && dComp.month == components.month
-        } ?? monthRange.lowerBound
-    }
-    
     func loadMonthlyCards() -> [MonthBudgetCardType] {
         let today = Date()
         
@@ -57,7 +43,10 @@ final class DashboardViewModel {
             let used = spendings[key] ?? 0
             let month = DateFormatter.monthFormatter.string(from: date)
             return MonthBudgetCardType(date: date,
-                                       month: "month.\(month.lowercased())".localized, usedValue: used, budgetLimit: budget)
+                                       month: "month.\(month.lowercased())".localized, 
+                                       usedValue: used, 
+                                       budgetLimit: budget, 
+                                       availableValue: 0) // Initial value will be updated by SyncedCollectionsViewModel
         }
     }
 }

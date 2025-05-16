@@ -21,10 +21,10 @@ enum TransactionType: String {
 }
 
 enum TransactionCategory: String, CaseIterable {
+    case market = "Market"
     case meals = "Meals"
     case gifts = "Gifts"
     case billing = "Billing"
-    case rent = "Rent"
     case salary = "Salary"
     case utilities = "Utilities"
     case entertainment = "Entertainment"

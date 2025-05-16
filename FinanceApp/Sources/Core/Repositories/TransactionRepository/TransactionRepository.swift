@@ -11,10 +11,11 @@ final class TransactionRepository: TransactionRepositoryProtocol {
     
     func fetchTransactions() -> [Transaction] {
         return [
-            Transaction(title: "Groceries", category: .groceries, amount: 1200_00, type: .outcome, date: DateFormatter.yyyyMMdd.date(from: "2025-03-15")!),
-            Transaction(title: "Salary", category: .salary, amount: 3000_00, type: .income, date: DateFormatter.yyyyMMdd.date(from: "2025-03-01")!),
-            Transaction(title: "Rent", category: .rent, amount: 1500_00, type: .outcome, date: DateFormatter.yyyyMMdd.date(from: "2025-05-05")!),
-            Transaction(title: "Utilities", category: .utilities, amount: 94302_00, type: .outcome, date: DateFormatter.yyyyMMdd.date(from: "2025-05-10")!)
+            Transaction(title: "Market", category: .market, amount: 450_67, type: .outcome, date: DateFormatter.yyyyMMdd.date(from: "2025-05-08")!),
+            Transaction(title: "Birthday gift", category: .gifts, amount: 89_90, type: .outcome, date: DateFormatter.yyyyMMdd.date(from: "2025-05-06")!),
+            Transaction(title: "Energy bill", category: .billing, amount: 243_72, type: .outcome, date: DateFormatter.yyyyMMdd.date(from: "2025-05-05")!),
+            Transaction(title: "Rent", category: .homeMaintenance, amount: 2240_00, type: .outcome, date: DateFormatter.yyyyMMdd.date(from: "2025-05-05")!),
+            Transaction(title: "Salary", category: .salary, amount: 5000_00, type: .income, date: DateFormatter.yyyyMMdd.date(from: "2025-05-05")!),
         ]
     }
 }

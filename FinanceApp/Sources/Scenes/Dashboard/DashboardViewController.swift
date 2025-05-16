@@ -12,6 +12,7 @@ final class DashboardViewController: UIViewController {
     let contentView: DashboardView
     let viewModel: DashboardViewModel
     let syncedViewModel: SyncedCollectionsViewModel
+    var todayMonthIndex: Int
     weak var flowDelegate: DashboardFlowDelegate?
     
     init(
@@ -23,6 +24,7 @@ final class DashboardViewController: UIViewController {
         self.viewModel = viewModel
         self.syncedViewModel = SyncedCollectionsViewModel()
         self.flowDelegate = flowDelegate
+        self.todayMonthIndex = UserDefaultsManager.getCurrentMonthIndex()
         super.init(nibName: nil, bundle: nil)
     }
     
@@ -42,23 +44,13 @@ final class DashboardViewController: UIViewController {
     private func setup() {
         view.addSubview(contentView)
         buildHierarchy()
-        syncedViewModel.delegate = self
+        
         contentView.delegate = self
+        syncedViewModel.delegate = self
     }
     
     private func buildHierarchy() {
         setupContentViewToBounds(contentView: contentView, respectingSafeArea: false)
-    }
-    
-    private func setupCollectionViews() {
-        contentView.monthSelectorView.collectionView.delegate = self
-        contentView.monthSelectorView.collectionView.dataSource = self
-        contentView.monthSelectorView.collectionView.register(MonthCell.self, forCellWithReuseIdentifier: MonthCell.reuseID)
-        contentView.monthSelectorView.delegate = self
-        
-        contentView.monthCarousel.delegate = self
-        contentView.monthCarousel.dataSource = self
-        contentView.monthCarousel.register(MonthCarouselCell.self, forCellWithReuseIdentifier: MonthCarouselCell.reuseID)
     }
     
     private func loadData() {
@@ -71,22 +63,31 @@ final class DashboardViewController: UIViewController {
             contentView.avatar.userImage = userImage
         }
         
-        let monthData = viewModel.loadMonthlyCards()
         let transactions = viewModel.transactionRepo.fetchTransactions()
+        let monthData = viewModel.loadMonthlyCards()
         
         syncedViewModel.setMonthData(monthData)
         syncedViewModel.setTransactions(transactions)
+    }
+    
+    private func setupCollectionViews() {
+        contentView.monthSelectorView.collectionView.delegate = self
+        contentView.monthSelectorView.collectionView.dataSource = self
+        contentView.monthSelectorView.collectionView.register(MonthCell.self, forCellWithReuseIdentifier: MonthCell.reuseID)
+        contentView.monthSelectorView.delegate = self
         
-        let today = Date()
-        let todayKey = DateFormatter.keyFormatter.string(from: today)
-        if let currentIndex = syncedViewModel.monthData.firstIndex(where: {
-            DateFormatter.keyFormatter.string(from: $0.date) == todayKey
-        }) {
-            syncedViewModel.selectMonth(at: currentIndex)
-            DispatchQueue.main.async {
-                self.didUpdateSelectedIndex(currentIndex, animated: false)
-            }
-        }
+        contentView.monthCarousel.delegate = self
+        contentView.monthCarousel.dataSource = self
+        contentView.monthCarousel.register(MonthCarouselCell.self, forCellWithReuseIdentifier: MonthCarouselCell.reuseID)
+        
+        let monthTitles = syncedViewModel.getMonths()
+        contentView.monthSelectorView.configure(months: monthTitles, selectedIndex: syncedViewModel.selectedIndex)
+        
+        
+        syncedViewModel.selectMonth(at: todayMonthIndex)
+        
+        contentView.monthSelectorView.layoutIfNeeded()
+        contentView.monthCarousel.layoutIfNeeded()
     }
 }
 
@@ -96,7 +97,7 @@ extension DashboardViewController: DashboardViewDelegate {
     }
     
     func didTapAddTransaction() {
-        //
+        print("Add transaction tapped")
     }
     
     func logout() {
@@ -164,6 +165,7 @@ extension DashboardViewController: UICollectionViewDataSource {
             }
             
             cell.configure(with: model, transactions: txs)
+            
             return cell
         } else {
             guard let cell = collectionView.dequeueReusableCell(withReuseIdentifier: MonthCell.reuseID, for: indexPath) as? MonthCell else {
@@ -190,6 +192,7 @@ extension DashboardViewController: UICollectionViewDelegateFlowLayout {
         if collectionView == contentView.monthCarousel {
             return CGSize(width: collectionView.bounds.width, height: collectionView.bounds.height)
         } else if collectionView == contentView.monthSelectorView.collectionView {
+            
             let spacing = (collectionView.collectionViewLayout as? UICollectionViewFlowLayout)?.minimumInteritemSpacing ?? 0
             let totalSpacing = spacing * 4
             let availableWidth = collectionView.bounds.width - totalSpacing
@@ -224,7 +227,9 @@ extension DashboardViewController: SyncedCollectionsViewModelDelegate {
         let ip = IndexPath(item: index, section: 0)
         
         contentView.monthCarousel.performBatchUpdates({}) { _ in
-            self.contentView.monthCarousel.scrollToItem(at: ip, at: .centeredHorizontally, animated: animated)
+            self.contentView.monthSelectorView.layoutIfNeeded()
+            self.contentView.monthCarousel.scrollToItem(at: ip, at: .centeredHorizontally, animated: true)
+            
             self.contentView.monthSelectorView.scrollToMonth(at: index, animated: animated)
         }
     }
@@ -234,6 +239,21 @@ extension DashboardViewController: SyncedCollectionsViewModelDelegate {
         
         contentView.monthSelectorView.configure(months: data.map { $0.month }, selectedIndex: currentSelectedIndex)
         contentView.monthCarousel.reloadData()
+        
+        if currentSelectedIndex == 0 && data.count > 0 {
+            DispatchQueue.main.async {
+                let todayKey = DateFormatter.keyFormatter.string(from: Date())
+                if let currentIndex = self.syncedViewModel.monthData.firstIndex(where: {
+                    DateFormatter.keyFormatter.string(from: $0.date) == todayKey
+                }) {
+                    self.syncedViewModel.selectMonth(at: currentIndex, animated: false)
+                }
+            }
+        } else if currentSelectedIndex > 0 {
+            DispatchQueue.main.async {
+                self.syncedViewModel.selectMonth(at: currentSelectedIndex, animated: false)
+            }
+        }
     }
     
     func didUpdateTransactions(_ transactions: [Transaction]) {
