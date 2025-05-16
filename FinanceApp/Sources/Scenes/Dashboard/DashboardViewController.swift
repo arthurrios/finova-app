@@ -97,7 +97,7 @@ extension DashboardViewController: DashboardViewDelegate {
     }
     
     func didTapAddTransaction() {
-        //
+        print("Add transaction tapped")
     }
     
     func logout() {
