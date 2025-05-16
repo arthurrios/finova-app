@@ -105,7 +105,8 @@ class MonthCarouselCell: UICollectionViewCell {
         tableView.separatorStyle = .singleLine
         tableView.clipsToBounds = true
         tableView.separatorColor = Colors.gray300
-        tableView.isScrollEnabled = false
+        tableView.isScrollEnabled = true
+        tableView.showsVerticalScrollIndicator = false
         tableView.translatesAutoresizingMaskIntoConstraints = false
         return tableView
     }()
@@ -154,6 +155,7 @@ class MonthCarouselCell: UICollectionViewCell {
             transactionTableView.topAnchor.constraint(equalTo: tableHeaderView.bottomAnchor),
             transactionTableView.leadingAnchor.constraint(equalTo: monthCard.leadingAnchor),
             transactionTableView.trailingAnchor.constraint(equalTo: monthCard.trailingAnchor),
+            transactionTableView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
             
             emptyStateView.topAnchor.constraint(equalTo: tableHeaderView.bottomAnchor),
             emptyStateView.leadingAnchor.constraint(equalTo: monthCard.leadingAnchor),
@@ -185,15 +187,6 @@ class MonthCarouselCell: UICollectionViewCell {
             transactionTableView.isHidden = false
             emptyStateView.isHidden = true
             transactionTableView.reloadData()
-            
-            let rowHeight: CGFloat = 67
-            let tableHeight = CGFloat(transactions.count) * rowHeight
-            
-            if let existingHeightConstraint = transactionTableView.constraints.first(where: { $0.firstAttribute == .height }) {
-                existingHeightConstraint.constant = tableHeight
-            } else {
-                transactionTableView.heightAnchor.constraint(equalToConstant: tableHeight).isActive = true
-            }
         }
 
     }
