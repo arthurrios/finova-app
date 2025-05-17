@@ -19,7 +19,8 @@ class AppFlowController {
     
     // MARK: - startFlow
     func startFlow() -> UINavigationController? {
-        let viewController = viewControllersFactory.makeSplashViewController(flowDelegate: self)
+//        let viewController = viewControllersFactory.makeSplashViewController(flowDelegate: self)
+        let viewController = viewControllersFactory.makeBudgetsViewController(flowDelegate: self)
         navigationController = UINavigationController(rootViewController: viewController)
         return navigationController
     }
@@ -44,10 +45,6 @@ extension AppFlowController: SplashFlowDelegate {
 }
 
 extension AppFlowController: LoginFlowDelegate {
-    func sendLoginData(name: String, email: String, password: String) {
-        //
-    }
-    
     func navigateToDashboard() {
         navigationController?.dismiss(animated: false)
         let dashboardViewController = viewControllersFactory.makeDashboardViewController(flowDelegate: self)
@@ -56,9 +53,15 @@ extension AppFlowController: LoginFlowDelegate {
 }
 
 extension AppFlowController: DashboardFlowDelegate {
+    func navigateToBudgets() {
+        navigationController?.dismiss(animated: false)
+        let dashboardViewController = viewControllersFactory.makeBudgetsViewController(flowDelegate: self)
+        navigationController?.pushViewController(dashboardViewController, animated: true)
+    }
+    
     func logout() {
         navigationController?.dismiss(animated: false)
-
+        
         let viewController = viewControllersFactory.makeLoginViewController(flowDelegate: self)
         
         let t = CATransition()
@@ -66,11 +69,17 @@ extension AppFlowController: DashboardFlowDelegate {
         t.type = .push
         t.subtype = .fromLeft
         t.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-
+        
         navigationController?.setNavigationBarHidden(true, animated: false)
         navigationController?.view.backgroundColor = Colors.gray100
         UIApplication.shared.delegate?.window??.backgroundColor = Colors.gray100
         navigationController?.view.layer.add(t, forKey: kCATransition)
         navigationController?.pushViewController(viewController, animated: false)
+    }
+}
+
+extension AppFlowController: BudgetsFlowDelegate {
+    func navBackToDashboard() {
+        navigationController?.popViewController(animated: true)
     }
 }

@@ -27,4 +27,11 @@ final class ViewControllersFactory: ViewControllersFactoryProtocol {
         let viewController = DashboardViewController(contentView: contentView, viewModel: viewModel, flowDelegate: flowDelegate)
         return viewController
     }
+    
+    func makeBudgetsViewController(flowDelegate: any BudgetsFlowDelegate) -> BudgetsViewController {
+        let contentView = BudgetsView()
+        let viewModel = BudgetsViewModel()
+        let viewController = BudgetsViewController(contentView: contentView, viewModel: viewModel, flowDelegate: flowDelegate)
+        return viewController
+    }
 }

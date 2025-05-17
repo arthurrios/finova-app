@@ -32,6 +32,7 @@ enum Metrics {
     static let buttonHeight: CGFloat = 48
     static let inputHeight: CGFloat = 48
     static let logoutButtonSize: CGFloat = 24
+    static let backButtonSize: CGFloat = 24
     static let inputIconSize: CGFloat = 20
     static let loginHeroHeight: CGFloat = 360
     static let profileImageSize: CGFloat = 40
