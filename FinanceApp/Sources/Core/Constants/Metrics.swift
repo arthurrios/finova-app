@@ -38,6 +38,7 @@ enum Metrics {
     static let profileImageSize: CGFloat = 40
     static let profileIconSize: CGFloat = 20
     static let headerHeight: CGFloat = 136
+    static let cardHeaderHeight: CGFloat = 44
     static let tableEmptyViewHeight: CGFloat = 68
     static let addButtonSize: CGFloat = 48
     static let monthCardShimmerHeight: CGFloat = 214

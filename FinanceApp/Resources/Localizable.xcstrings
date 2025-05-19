@@ -35,6 +35,23 @@
         }
       }
     },
+    "budgets.new.header.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "New budget"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Novo orçamento"
+          }
+        }
+      }
+    },
     "dashboard.welcomeSubtitle" : {
       "extractionState" : "manual",
       "localizations" : {
