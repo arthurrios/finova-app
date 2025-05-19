@@ -160,7 +160,7 @@ class Input: UIView {
             datePickerStyle = style
             configureDateInput(style: style)
         case .currency:
-//            configureCurrencyInput()
+            //            configureCurrencyInput()
             break
         case .some(.normal):
             break
@@ -235,13 +235,25 @@ class Input: UIView {
                             for: .editingChanged)
     }
     
+    // MARK: - Date Input
+    
     private func configureDateInput(style: DatePickerStyle) {
-        let picker = UIDatePicker()
-        picker.datePickerMode = .date
-        picker.preferredDatePickerStyle = .wheels
-        picker.locale = Locale.current
-        picker.addTarget(self, action: #selector(dateChanged(_:)), for: .valueChanged)
-        datePicker = picker
+        switch style {
+        case .monthYear:
+            let picker = UIPickerView()
+            picker.dataSource = self
+            picker.delegate = self
+            datePicker = nil
+            textField.inputView = picker
+        case .fullDate:
+            let picker = UIDatePicker()
+            picker.datePickerMode = .date
+            picker.preferredDatePickerStyle = .wheels
+            picker.locale = Locale.current
+            picker.addTarget(self, action: #selector(dateChanged(_:)), for: .valueChanged)
+            datePicker = picker
+            textField.inputView = picker
+        }
         
         let toolbar = UIToolbar()
         toolbar.sizeToFit()
@@ -251,9 +263,32 @@ class Input: UIView {
         )
         toolbar.setItems([.flexibleSpace(), done], animated: false)
         
-        textField.inputView = picker
         textField.inputAccessoryView = toolbar
         textField.tintColor = .clear
+    }
+    
+    private let calendar = Calendar.current
+    private let currentYear  = Calendar.current.component(.year, from: Date())
+    private let currentMonth = Calendar.current.component(.month, from: Date())
+    
+    private lazy var allMonths: [String] = {
+        DateFormatter().monthSymbols ?? []
+    }()
+    
+    private lazy var years: [Int] = {
+        let range = currentYear...currentYear+5
+        return Array(range)
+    }()
+    
+    private var selectedMonth = Calendar.current.component(.month, from: Date())
+    private var selectedYear = Calendar.current.component(.year, from: Date())
+    
+    private func monthOptionsCount() -> Int {
+        if selectedYear == currentYear {
+            return allMonths.count - (currentMonth - 1)
+        } else {
+            return allMonths.count
+        }
     }
     
     @objc
@@ -263,17 +298,23 @@ class Input: UIView {
     
     @objc
     private func dateDoneTapped() {
-        guard let date = dateValue ?? datePicker?.date else { return }
-        
-        let formatted: String
         switch datePickerStyle {
         case .monthYear:
-            formatted = DateFormatter.monthYearFormatter.string(from: date)
+            if dateValue == nil {
+                var comps = DateComponents()
+                comps.month = selectedMonth
+                comps.year  = selectedYear
+                dateValue = Calendar.current.date(from: comps)
+            }
+            
+            if let date = dateValue {
+                textField.text = DateFormatter.monthYearFormatter.string(from: date)
+            }
         case .fullDate:
-            formatted = DateFormatter.fullDateFormatter.string(from: date)
+            guard let date = dateValue ?? datePicker?.date else { return }
+            textField.text = DateFormatter.fullDateFormatter.string(from: date)
         }
         
-        textField.text = formatted
         textField.sendActions(for: .editingChanged)
         textField.resignFirstResponder()
         updateAppearance()
@@ -312,5 +353,59 @@ class Input: UIView {
         layer.borderColor      = borderColor.cgColor
         iconImageView.tintColor = iconColor
         textField.tintColor     = cursorColor
+    }
+}
+
+extension Input: UIPickerViewDataSource, UIPickerViewDelegate {
+    func numberOfComponents(in pickerView: UIPickerView) -> Int { 2 }
+    
+    func pickerView(_ pickerView: UIPickerView, numberOfRowsInComponent component: Int) -> Int {
+        switch component {
+        case 0:
+            return monthOptionsCount()
+        case 1:
+            return years.count
+        default:
+            return 0
+        }
+    }
+    
+    func pickerView(_ pickerView: UIPickerView, titleForRow row: Int, forComponent component: Int) -> String? {
+        switch component {
+        case 0:
+            let index = (selectedYear == currentYear) ? (currentMonth - 1 + row) : row
+            return allMonths[index]
+        case 1:
+            return String(years[row])
+        default:
+            return nil
+        }
+    }
+    
+    func pickerView(_ pickerView: UIPickerView, didSelectRow row: Int, inComponent component: Int) {
+        switch component {
+        case 1:
+            selectedYear = years[row]
+            if selectedYear == currentYear && selectedMonth < currentMonth {
+                selectedMonth = currentMonth
+            }
+            pickerView.reloadComponent(0)
+            
+        case 0:
+            selectedMonth = (selectedYear == currentYear)
+            ? (currentMonth + row)
+            : (row + 1)
+        default:
+            break
+        }
+        
+        var comps = DateComponents()
+        comps.month = selectedMonth
+        comps.year = selectedYear
+        dateValue = Calendar.current.date(from: comps)
+        
+        if let date = dateValue {
+            textField.text = DateFormatter.monthFormatter.string(from: date)
+        }
     }
 }
