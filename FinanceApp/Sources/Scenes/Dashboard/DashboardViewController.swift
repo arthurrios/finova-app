@@ -43,15 +43,6 @@ final class DashboardViewController: UIViewController {
         setupCollectionViews()
     }
     
-    override func viewDidAppear(_ animated: Bool) {
-        super.viewDidAppear(animated)
-        
-        if isLoadingInitialData {
-            contentView.hideShimmerViewsAndShowOriginals()
-            isLoadingInitialData = false
-        }
-    }
-    
     private func setup() {
         view.addSubview(contentView)
         buildHierarchy()
@@ -94,16 +85,6 @@ final class DashboardViewController: UIViewController {
         let monthTitles = syncedViewModel.getMonths()
         contentView.monthSelectorView.configure(months: monthTitles, selectedIndex: syncedViewModel.selectedIndex)
         
-        let ip = IndexPath(item: todayMonthIndex, section: 0)
-        
-        self.contentView.monthSelectorView.collectionView.scrollToItem(at: ip, at: .centeredHorizontally, animated: false)
-
-        self.contentView.monthCarousel.scrollToItem(
-            at: ip,
-            at: .centeredHorizontally,
-            animated: false
-        )
-                
         contentView.monthSelectorView.layoutIfNeeded()
         contentView.monthCarousel.layoutIfNeeded()
     }
@@ -242,41 +223,24 @@ extension DashboardViewController: UIScrollViewDelegate {
 
 extension DashboardViewController: SyncedCollectionsViewModelDelegate {
     func didUpdateSelectedIndex(_ index: Int, animated: Bool) {
-         let ip = IndexPath(item: index, section: 0)
-
-         if isLoadingInitialData {
-
-             contentView.monthCarousel.performBatchUpdates(nil) { _ in
-                 self.contentView.monthCarousel.scrollToItem(
-                     at: ip,
-                     at: .centeredHorizontally,
-                     animated: true
-                 )
-                 self.contentView.monthSelectorView.scrollToMonth(
-                     at: index,
-                     animated: animated
-                 )
-                 
-                 DispatchQueue.main.async {
-                     self.contentView.hideShimmerViewsAndShowOriginals()
-                     self.isLoadingInitialData = false
-                 }
-             }
-
-         }
-         else {
-             contentView.monthCarousel.performBatchUpdates(nil) { _ in
-                 self.contentView.monthCarousel.scrollToItem(
-                     at: ip,
-                     at: .centeredHorizontally,
-                     animated: animated
-                 )
-                 self.contentView.monthSelectorView.scrollToMonth(
-                     at: index,
-                     animated: animated
-                 )
-             }
-         }
+        let ip = IndexPath(item: index, section: 0)
+        
+        contentView.monthCarousel.performBatchUpdates(nil) { _ in
+            self.contentView.monthCarousel.scrollToItem(
+                at: ip,
+                at: .centeredHorizontally,
+                animated: animated
+            )
+            self.contentView.monthSelectorView.scrollToMonth(
+                at: index,
+                animated: animated
+            )
+            
+            DispatchQueue.main.async {
+                self.contentView.hideShimmerViewsAndShowOriginals()
+                self.isLoadingInitialData = false
+            }
+        }
     }
     
     func didUpdateMonthData(_ data: [MonthBudgetCardType]) {
@@ -291,12 +255,12 @@ extension DashboardViewController: SyncedCollectionsViewModelDelegate {
                 if let currentIndex = self.syncedViewModel.monthData.firstIndex(where: {
                     DateFormatter.keyFormatter.string(from: $0.date) == todayKey
                 }) {
-                    self.syncedViewModel.selectMonth(at: currentIndex, animated: false)
+                    self.syncedViewModel.selectMonth(at: currentIndex, animated: !self.isLoadingInitialData)
                 }
             }
         } else if currentSelectedIndex > 0 {
             DispatchQueue.main.async {
-                self.syncedViewModel.selectMonth(at: currentSelectedIndex, animated: false)
+                self.syncedViewModel.selectMonth(at: currentSelectedIndex, animated: !self.isLoadingInitialData)
             }
         }
     }
