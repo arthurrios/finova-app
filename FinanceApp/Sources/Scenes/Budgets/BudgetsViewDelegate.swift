@@ -8,6 +8,6 @@
 import Foundation
 
 public protocol BudgetsViewDelegate: AnyObject {
-    func didTapAddBudgetButton()
+    func didTapAddBudgetButton(monthYearDate: String, budgetAmount: Int)
     func didTapBackButton()
 }

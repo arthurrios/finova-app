@@ -93,9 +93,9 @@ final class BudgetsView: UIView {
         return stackView
     }()
     
-    private let dateInput = Input(type: .date(style: .monthYear), placeholder: "00/0000", icon: UIImage(named: "calendar"), iconPosition: .left)
+    private let dateInput = Input(type: .date(style: .monthYear), placeholder: "00/0000", icon: UIImage(named: "calendar"))
     
-    private let budgetValueInput = Input(placeholder: "0,00")
+    private let budgetValueInput = Input(type: .currency, placeholder: "0,00")
     
     private let addButton = Button(label: "budgets.button.add".localized)
     
@@ -122,6 +122,7 @@ final class BudgetsView: UIView {
         cardContentView.addSubview(addButton)
         
         backButton.addTarget(self, action: #selector(didTapBackButton), for: .touchUpInside)
+        addButton.addTarget(self, action: #selector(didTapAddBudgetButton), for: .touchUpInside)
         
         setupConstraints()
     }
@@ -156,5 +157,20 @@ final class BudgetsView: UIView {
     @objc
     private func didTapBackButton() {
         delegate?.didTapBackButton()
+    }
+    
+    @objc
+    private func didTapAddBudgetButton() {
+        let inputs = [dateInput, budgetValueInput]
+
+        let invalids = inputs.filter { !$0.textField.hasText }
+
+        invalids.forEach { $0.setError(true) }
+
+        guard invalids.isEmpty else { return }
+        
+        let date = dateInput.textField.text ?? ""
+        let budget = budgetValueInput.centsValue
+        delegate?.didTapAddBudgetButton(monthYearDate: date, budgetAmount: budget)
     }
 }

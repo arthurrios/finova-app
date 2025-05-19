@@ -23,11 +23,10 @@ final class DashboardViewModel {
     func loadMonthlyCards() -> [MonthBudgetCardType] {
         let today = Date()
         
-        let budgets = budgetRepo.fetchBudgets().reduce(into: [String: Int]()) { acc, entry in
-            let date = Date(timeIntervalSince1970: entry.monthTimestamp)
-            let key = DateFormatter.keyFormatter.string(from: date)
-            acc[key] = entry.budget
-        }
+        let budgets = budgetRepo.fetchBudgets()
+            .reduce(into: [String: Int]()) { acc, entry in
+                acc[entry.monthKey] = entry.budget
+            }
         
         let spendings = transactionRepo.fetchTransactions()
             .filter { $0.type == .outcome }
@@ -42,6 +41,7 @@ final class DashboardViewModel {
             let budget = budgets[key]
             let used = spendings[key] ?? 0
             let month = DateFormatter.monthFormatter.string(from: date)
+            
             return MonthBudgetCardType(date: date,
                                        month: "month.\(month.lowercased())".localized, 
                                        usedValue: used, 

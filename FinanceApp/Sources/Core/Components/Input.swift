@@ -67,6 +67,8 @@ class Input: UIView {
     private var datePicker: UIDatePicker?
     private var datePickerStyle: DatePickerStyle = .monthYear
     public private(set) var dateValue: Date?
+    private var textFieldLeadingConstraint: NSLayoutConstraint?
+    public private(set) var centsValue: Int = 0
     
     init(type: InputTextFieldType? = .normal, placeholder: String, icon: UIImage? = nil, iconPosition: IconPosition? = nil) {
         self.placeholder = placeholder
@@ -140,6 +142,15 @@ class Input: UIView {
         iconImageView.addGestureRecognizer(tap)
     }
     
+    private let prefixLabel: UILabel = {
+        let label = UILabel()
+        label.font = Fonts.titleMD.font
+        label.setContentHuggingPriority(.required, for: .horizontal)
+        label.setContentCompressionResistancePriority(.required, for: .horizontal)
+        label.translatesAutoresizingMaskIntoConstraints = false
+        return label
+    }()
+    
     @objc
     private func toggleSecureEntry() {
         textField.isSecureTextEntry.toggle()
@@ -160,7 +171,7 @@ class Input: UIView {
             datePickerStyle = style
             configureDateInput(style: style)
         case .currency:
-            //            configureCurrencyInput()
+            configureCurrencyInput()
             break
         case .some(.normal):
             break
@@ -186,34 +197,90 @@ class Input: UIView {
         addSubview(textField)
         addSubview(iconImageView)
         
+        if case .currency = type {
+            addSubview(prefixLabel)
+        }
+        
         setupConstraints()
+    }
+    
+    private var effectiveIconPosition: IconPosition? {
+        switch type {
+        case .date, .currency:
+            return .left
+        default:
+            return iconPosition
+        }
     }
     
     private func setupConstraints() {
         NSLayoutConstraint.activate([
-            iconImageView.widthAnchor.constraint(equalToConstant: Defaults.iconSize),
-            iconImageView.heightAnchor.constraint(equalToConstant: Defaults.iconSize),
-            iconImageView.centerYAnchor.constraint(equalTo: centerYAnchor),
+        iconImageView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Defaults.horizontalPadding),
             
-            textField.topAnchor.constraint(equalTo: topAnchor, constant: Defaults.verticalPadding),
-            textField.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -Defaults.verticalPadding),
+          iconImageView.widthAnchor.constraint(equalToConstant: Defaults.iconSize),
+          iconImageView.heightAnchor.constraint(equalToConstant: Defaults.iconSize),
+          iconImageView.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
-        
-        switch iconPosition {
-        case .left:
-            iconImageView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Metrics.spacing4).isActive = true
-            textField.leadingAnchor.constraint(equalTo: iconImageView.trailingAnchor, constant: Metrics.spacing2).isActive = true
-            textField.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Defaults.horizontalPadding).isActive = true
-        case .right:
-            iconImageView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Metrics.spacing4).isActive = true
-            textField.trailingAnchor.constraint(equalTo: iconImageView.leadingAnchor, constant: -Metrics.spacing2).isActive = true
-            textField.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Defaults.horizontalPadding).isActive = true
-        case .none:
-            textField.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Defaults.horizontalPadding).isActive = true
-            textField.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Defaults.horizontalPadding).isActive = true
-            break
+
+        if case .currency = type {
+          NSLayoutConstraint.activate([
+            prefixLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Defaults.horizontalPadding),
+            prefixLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+          ])
+        }
+
+        let leadingAnchorOwner: NSLayoutXAxisAnchor
+        let leadingConstant: CGFloat
+
+        switch type {
+        case .currency:
+          leadingAnchorOwner = prefixLabel.trailingAnchor
+          leadingConstant   = Metrics.spacing2
+
+        case .date:
+          if effectiveIconPosition == .left {
+            leadingAnchorOwner = iconImageView.trailingAnchor
+            leadingConstant   = Metrics.spacing2
+          } else {
+            leadingAnchorOwner = leadingAnchor
+            leadingConstant   = Defaults.horizontalPadding
+          }
+
+        default:
+          if effectiveIconPosition == .left {
+            leadingAnchorOwner = iconImageView.trailingAnchor
+            leadingConstant   = Metrics.spacing2
+          } else {
+            leadingAnchorOwner = leadingAnchor
+            leadingConstant   = Defaults.horizontalPadding
+          }
+        }
+
+        textFieldLeadingConstraint = textField.leadingAnchor.constraint(
+            equalTo: leadingAnchorOwner,
+            constant: leadingConstant
+        )
+
+        NSLayoutConstraint.activate([
+          textFieldLeadingConstraint!,
+          textField.topAnchor.constraint(equalTo: topAnchor, constant: Defaults.verticalPadding),
+          textField.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -Defaults.verticalPadding),
+          textField.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Defaults.horizontalPadding),
+        ])
+
+        if effectiveIconPosition == .right {
+          iconImageView.trailingAnchor.constraint(
+              equalTo: trailingAnchor,
+              constant: -Metrics.spacing4
+          ).isActive = true
+          textField.trailingAnchor.constraint(
+              equalTo: iconImageView.leadingAnchor,
+              constant: -Metrics.spacing2
+          ).isActive = true
         }
     }
+
+
     
     private func addObservers() {
         let events: [UIControl.Event] = [
@@ -235,7 +302,7 @@ class Input: UIView {
                             for: .editingChanged)
     }
     
-    // MARK: - Date Input
+    // MARK: - Date
     
     private func configureDateInput(style: DatePickerStyle) {
         switch style {
@@ -336,6 +403,34 @@ class Input: UIView {
     }
     
     @objc
+    private func currencyTextChanged() {
+        guard let raw = textField.text else { return }
+        let digits = raw
+          .compactMap { $0.wholeNumberValue }
+          .map(String.init)
+          .joined()
+        let intValue = Int(digits) ?? 0
+        centsValue = intValue
+        
+        let code = AppConfig.currencyCode
+        let frac = CurrencyUtils.fractionDigits(for: code)
+        
+        let divisor = pow(Decimal(10), frac)
+        
+        let amountDecimal = Decimal(intValue) / divisor
+        
+        let amountNumber = NSDecimalNumber(decimal: amountDecimal)
+        
+        let decFmt = NumberFormatter()
+        decFmt.numberStyle             = .decimal
+        decFmt.minimumFractionDigits   = frac
+        decFmt.maximumFractionDigits   = frac
+        decFmt.locale                  = Locale.current
+        
+        textField.text = decFmt.string(from: amountNumber) ?? ""
+    }
+    
+    @objc
     private func updateAppearance() {
         let isFocused = textField.isFirstResponder
         
@@ -407,5 +502,25 @@ extension Input: UIPickerViewDataSource, UIPickerViewDelegate {
         if let date = dateValue {
             textField.text = DateFormatter.monthFormatter.string(from: date)
         }
+    }
+}
+
+extension Input: UITextFieldDelegate {
+    // MARK: - Currency
+    
+    private func configureCurrencyInput() {
+        let code = AppConfig.currencyCode
+        let fmt  = NumberFormatter()
+        fmt.numberStyle  = .currency
+        fmt.currencyCode = code
+        let symbol = fmt.currencySymbol ?? code
+
+        prefixLabel.text      = symbol
+        prefixLabel.font      = Fonts.input.font
+        prefixLabel.textColor = Defaults.iconColor
+        
+        textField.keyboardType = .numberPad
+        textField.delegate     = self
+        textField.addTarget(self, action: #selector(currencyTextChanged), for: .editingChanged)
     }
 }

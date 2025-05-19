@@ -43,11 +43,13 @@ final class BudgetsViewController: UIViewController {
 }
 
 extension BudgetsViewController: BudgetsViewDelegate {
+    func didTapAddBudgetButton(monthYearDate: String, budgetAmount: Int) {
+        print(monthYearDate, budgetAmount)
+    }
+    
     func didTapBackButton() {
         flowDelegate?.navBackToDashboard()
     }
     
-    func didTapAddBudgetButton() {
-        //
-    }
+
 }
