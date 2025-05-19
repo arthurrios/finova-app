@@ -14,11 +14,40 @@ class Input: UIView {
         case left, right
     }
     
+    enum DatePickerStyle {
+        case monthYear, fullDate
+    }
+    
+    enum InputTextFieldType: Equatable {
+        case normal
+        case password
+        case email
+        case date(style: DatePickerStyle)
+        case currency
+        
+        static func == (lhs: InputTextFieldType, rhs: InputTextFieldType) -> Bool {
+            switch (lhs, rhs) {
+            case (.normal, .normal):
+                return true
+            case (.password, .password):
+                return true
+            case (.email, .email):
+                return true
+            case (.currency, .currency):
+                return true
+            case let (.date(style1), .date(style2)):
+                return style1 == style2
+            default:
+                return false
+            }
+        }
+    }
+    
     // MARK: - Public Properties
     var placeholder: String
     var icon: UIImage?
     var iconPosition: IconPosition?
-
+    
     
     // MARK: - Private Defaults
     private struct Defaults {
@@ -35,6 +64,9 @@ class Input: UIView {
     }
     
     private let type: InputTextFieldType?
+    private var datePicker: UIDatePicker?
+    private var datePickerStyle: DatePickerStyle = .monthYear
+    public private(set) var dateValue: Date?
     
     init(type: InputTextFieldType? = .normal, placeholder: String, icon: UIImage? = nil, iconPosition: IconPosition? = nil) {
         self.placeholder = placeholder
@@ -107,7 +139,7 @@ class Input: UIView {
         let tap = UITapGestureRecognizer(target: self, action: #selector(toggleSecureEntry))
         iconImageView.addGestureRecognizer(tap)
     }
-   
+    
     @objc
     private func toggleSecureEntry() {
         textField.isSecureTextEntry.toggle()
@@ -124,6 +156,12 @@ class Input: UIView {
         case .email:
             textField.autocapitalizationType = .none
             textField.autocorrectionType = .no
+        case .date(let style):
+            datePickerStyle = style
+            configureDateInput(style: style)
+        case .currency:
+//            configureCurrencyInput()
+            break
         case .some(.normal):
             break
         case .none:
@@ -197,18 +235,62 @@ class Input: UIView {
                             for: .editingChanged)
     }
     
+    private func configureDateInput(style: DatePickerStyle) {
+        let picker = UIDatePicker()
+        picker.datePickerMode = .date
+        picker.preferredDatePickerStyle = .wheels
+        picker.locale = Locale.current
+        picker.addTarget(self, action: #selector(dateChanged(_:)), for: .valueChanged)
+        datePicker = picker
+        
+        let toolbar = UIToolbar()
+        toolbar.sizeToFit()
+        
+        let done = UIBarButtonItem(
+            barButtonSystemItem: .done, target: self, action: #selector(dateDoneTapped)
+        )
+        toolbar.setItems([.flexibleSpace(), done], animated: false)
+        
+        textField.inputView = picker
+        textField.inputAccessoryView = toolbar
+        textField.tintColor = .clear
+    }
+    
+    @objc
+    private func dateChanged(_ picker: UIDatePicker) {
+        dateValue = picker.date
+    }
+    
+    @objc
+    private func dateDoneTapped() {
+        guard let date = dateValue ?? datePicker?.date else { return }
+        
+        let formatted: String
+        switch datePickerStyle {
+        case .monthYear:
+            formatted = DateFormatter.monthYearFormatter.string(from: date)
+        case .fullDate:
+            formatted = DateFormatter.fullDateFormatter.string(from: date)
+        }
+        
+        textField.text = formatted
+        textField.sendActions(for: .editingChanged)
+        textField.resignFirstResponder()
+        updateAppearance()
+    }
+    
     @objc
     private func clearErrorOnTyping() {
         guard isError else { return }
         setError(false)
     }
-
+    
     @objc
     private func textDidChange() {
-        if type == .email {
-            textField.enableEmailValidation { isValid in
-                isValid ? self.setError(false) : self.setError(true)
-            }
+        guard type == .email else { return }
+        
+        textField.enableEmailValidation { [weak self] isValid in
+            self?.setError(!isValid)
         }
     }
     

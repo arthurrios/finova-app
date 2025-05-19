@@ -93,7 +93,7 @@ final class BudgetsView: UIView {
         return stackView
     }()
     
-    private let dateInput = Input(placeholder: "00/0000", icon: UIImage(named: "calendar"), iconPosition: .left)
+    private let dateInput = Input(type: .date(style: .monthYear), placeholder: "00/0000", icon: UIImage(named: "calendar"), iconPosition: .left)
     
     private let budgetValueInput = Input(placeholder: "0,00")
     

@@ -17,6 +17,18 @@ extension DateFormatter {
         return formatter
     }()
     
+    static let monthYearFormatter: DateFormatter = {
+      let fmt = DateFormatter()
+      fmt.dateFormat = DateFormatter.dateFormat(
+        fromTemplate: "MM/yyyy",
+        options: 0,
+        locale: Locale.current
+      )
+      fmt.locale = Locale.current
+      fmt.timeZone = TimeZone.current
+      return fmt
+    }()
+    
     static let fullDateFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateStyle = .short
