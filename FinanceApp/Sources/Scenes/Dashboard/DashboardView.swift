@@ -58,7 +58,7 @@ final class DashboardView: UIView {
     
     lazy var monthSelectorView: MonthSelectorView = {
         let sel = MonthSelectorView()
-        sel.isHidden = true
+        sel.layer.opacity = 0
         sel.heightAnchor.constraint(equalToConstant: Metrics.spacing8).isActive = true
         sel.translatesAutoresizingMaskIntoConstraints = false
         return sel
@@ -70,7 +70,7 @@ final class DashboardView: UIView {
         layout.minimumLineSpacing = 0
         
         let collectionView = UICollectionView(frame: .zero, collectionViewLayout: layout)
-        collectionView.isHidden = true
+        collectionView.layer.opacity = 0
         collectionView.isPagingEnabled = true
         collectionView.backgroundColor = .clear
         collectionView.showsHorizontalScrollIndicator = false
@@ -229,7 +229,7 @@ final class DashboardView: UIView {
             monthSelectorShimmerView.topAnchor.constraint(equalTo: headerContainerView.bottomAnchor, constant: Metrics.spacing5),
             monthSelectorShimmerView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Metrics.spacing4),
             monthSelectorShimmerView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Metrics.spacing4),
-            monthSelectorShimmerView.heightAnchor.constraint(equalToConstant: 20),
+            monthSelectorShimmerView.heightAnchor.constraint(equalToConstant: Metrics.spacing8),
             
             monthCardShimmerView.topAnchor.constraint(equalTo: monthSelectorView.bottomAnchor, constant: Metrics.spacing5),
             monthCardShimmerView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Metrics.spacing4),
@@ -249,12 +249,13 @@ final class DashboardView: UIView {
     }
     
     func hideShimmerViewsAndShowOriginals() {
-        monthCardShimmerView.isHidden = true
-        transactionsTableShimmerView.isHidden = true
-        monthSelectorShimmerView.isHidden = true
-        
-        monthSelectorView.isHidden = false
-        monthCarousel.isHidden = false
+        UIView.animate(withDuration: 0.3, animations: {
+            self.monthCardShimmerView.layer.opacity = 0
+            self.monthSelectorShimmerView.layer.opacity = 0
+            self.transactionsTableShimmerView.layer.opacity = 0
+            self.monthSelectorView.layer.opacity = 1
+            self.monthCarousel.layer.opacity = 1
+        })
     }
     
     @objc private func logoutTapped() {
