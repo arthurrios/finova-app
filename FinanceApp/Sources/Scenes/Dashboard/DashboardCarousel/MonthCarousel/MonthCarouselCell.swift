@@ -194,27 +194,30 @@ class MonthCarouselCell: UICollectionViewCell {
     private func addBordersExceptBottom(to view: UIView, color: UIColor, width: CGFloat = 1.0) {
         view.layer.sublayers?.removeAll(where: { $0.name == "customBorder" })
         
-        let path = UIBezierPath()
+        let bounds = view.bounds
         let cornerRadius = view.layer.cornerRadius
         
-        path.move(to: CGPoint(x: 0, y: view.bounds.height))
+        let path = UIBezierPath()
+        
+        path.move(to: CGPoint(x: 0, y: bounds.height))
         
         path.addLine(to: CGPoint(x: 0, y: cornerRadius))
+        
         path.addArc(withCenter: CGPoint(x: cornerRadius, y: cornerRadius),
                     radius: cornerRadius,
                     startAngle: .pi,
                     endAngle: 3 * .pi / 2,
                     clockwise: true)
         
-        path.addLine(to: CGPoint(x: view.bounds.width - cornerRadius, y: 0))
+        path.addLine(to: CGPoint(x: bounds.width - cornerRadius, y: 0))
         
-        path.addArc(withCenter: CGPoint(x: view.bounds.width - cornerRadius, y: cornerRadius),
+        path.addArc(withCenter: CGPoint(x: bounds.width - cornerRadius, y: cornerRadius),
                     radius: cornerRadius,
                     startAngle: 3 * .pi / 2,
                     endAngle: 0,
                     clockwise: true)
         
-        path.addLine(to: CGPoint(x: view.bounds.width, y: view.bounds.height))
+        path.addLine(to: CGPoint(x: bounds.width, y: bounds.height))
         
         let borderLayer = CAShapeLayer()
         borderLayer.name = "customBorder"
@@ -222,7 +225,7 @@ class MonthCarouselCell: UICollectionViewCell {
         borderLayer.fillColor = UIColor.clear.cgColor
         borderLayer.strokeColor = color.cgColor
         borderLayer.lineWidth = width
-        borderLayer.frame = view.bounds
+        borderLayer.frame = bounds
         
         view.layer.addSublayer(borderLayer)
     }
@@ -230,10 +233,15 @@ class MonthCarouselCell: UICollectionViewCell {
     override func layoutSubviews() {
         super.layoutSubviews()
         
+        transactionsNumberContainerView.layoutIfNeeded()
+        
         let size = min(transactionsNumberContainerView.bounds.width, transactionsNumberContainerView.bounds.height)
         transactionsNumberContainerView.layer.cornerRadius = size / 2
         
+        transactionsNumberContainerView.clipsToBounds = true
+        
         tableHeaderView.layer.sublayers?.removeAll(where: { $0 is CAShapeLayer })
+        tableHeaderView.layoutIfNeeded()
         addBordersExceptBottom(to: tableHeaderView, color: Colors.gray300)
     }
 }
