@@ -33,7 +33,7 @@ final class SyncedCollectionsViewModel {
     }
     
     // MARK: - Public Methods
-    func setMonthData(_ data: [MonthBudgetCardType]) {
+    func setMonthData(_ data: [MonthBudgetCardType], isInitialLoading: Bool = false) {
         monthData = data
         updateAvailableValueForCurrentMonth()
         delegate?.didUpdateMonthData(data)

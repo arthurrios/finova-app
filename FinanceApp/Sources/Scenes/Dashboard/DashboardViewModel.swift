@@ -46,7 +46,7 @@ final class DashboardViewModel {
                                        month: "month.\(month.lowercased())".localized, 
                                        usedValue: used, 
                                        budgetLimit: budget, 
-                                       availableValue: 0) // Initial value will be updated by SyncedCollectionsViewModel
+                                       availableValue: 0)
         }
     }
 }

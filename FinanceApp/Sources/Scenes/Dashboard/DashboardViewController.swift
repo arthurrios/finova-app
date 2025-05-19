@@ -41,7 +41,15 @@ final class DashboardViewController: UIViewController {
         contentView.frame = view.bounds
         loadData()
         setupCollectionViews()
-        view.layoutIfNeeded()
+    }
+    
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        
+        if isLoadingInitialData {
+            contentView.hideShimmerViewsAndShowOriginals()
+            isLoadingInitialData = false
+        }
     }
     
     private func setup() {
@@ -86,9 +94,16 @@ final class DashboardViewController: UIViewController {
         let monthTitles = syncedViewModel.getMonths()
         contentView.monthSelectorView.configure(months: monthTitles, selectedIndex: syncedViewModel.selectedIndex)
         
+        let ip = IndexPath(item: todayMonthIndex, section: 0)
         
-        syncedViewModel.selectMonth(at: todayMonthIndex)
-        
+        self.contentView.monthSelectorView.collectionView.scrollToItem(at: ip, at: .centeredHorizontally, animated: false)
+
+        self.contentView.monthCarousel.scrollToItem(
+            at: ip,
+            at: .centeredHorizontally,
+            animated: false
+        )
+                
         contentView.monthSelectorView.layoutIfNeeded()
         contentView.monthCarousel.layoutIfNeeded()
     }
@@ -229,35 +244,27 @@ extension DashboardViewController: SyncedCollectionsViewModelDelegate {
     func didUpdateSelectedIndex(_ index: Int, animated: Bool) {
          let ip = IndexPath(item: index, section: 0)
 
-         // If it’s our initial load, wrap in a CATransaction to know exactly
-         // when the scrolling animation and layout are done.
          if isLoadingInitialData {
-             CATransaction.begin()
-             CATransaction.setCompletionBlock { [weak self] in
-                 guard let self = self else { return }
-                 // show the real content
-                 self.contentView.hideShimmerViewsAndShowOriginals()
-                 self.isLoadingInitialData = false
-             }
 
              contentView.monthCarousel.performBatchUpdates(nil) { _ in
-                 // scroll the carousel
                  self.contentView.monthCarousel.scrollToItem(
                      at: ip,
                      at: .centeredHorizontally,
                      animated: true
                  )
-                 // update the month selector highlight
                  self.contentView.monthSelectorView.scrollToMonth(
                      at: index,
                      animated: animated
                  )
+                 
+                 DispatchQueue.main.async {
+                     self.contentView.hideShimmerViewsAndShowOriginals()
+                     self.isLoadingInitialData = false
+                 }
              }
 
-             CATransaction.commit()
          }
          else {
-             // all subsequent updates can just run normally
              contentView.monthCarousel.performBatchUpdates(nil) { _ in
                  self.contentView.monthCarousel.scrollToItem(
                      at: ip,

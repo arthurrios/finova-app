@@ -58,6 +58,7 @@ final class DashboardView: UIView {
     
     lazy var monthSelectorView: MonthSelectorView = {
         let sel = MonthSelectorView()
+        sel.isHidden = true
         sel.heightAnchor.constraint(equalToConstant: Metrics.spacing8).isActive = true
         sel.translatesAutoresizingMaskIntoConstraints = false
         return sel
@@ -104,6 +105,18 @@ final class DashboardView: UIView {
         
         btn.translatesAutoresizingMaskIntoConstraints = false
         return btn
+    }()
+    
+    let monthSelectorShimmerView: ShimmerView = {
+        let style = ShimmerViewStyle(baseColor: Colors.gray100, highlightColor: .white, duration: 1.2, interval: 0.4, effectSpan: .points(120), effectAngle: 0 * CGFloat.pi)
+        
+        let view = ShimmerView()
+        view.style = style
+        view.layer.cornerRadius = CornerRadius.extraLarge
+        view.clipsToBounds = true
+        view.startAnimating()
+        view.translatesAutoresizingMaskIntoConstraints = false
+        return view
     }()
     
     let monthCardShimmerView: ShimmerView = {
@@ -161,6 +174,7 @@ final class DashboardView: UIView {
         addSubview(addTransactionButton)
         addSubview(monthCardShimmerView)
         addSubview(transactionsTableShimmerView)
+        addSubview(monthSelectorShimmerView)
         
         addSubview(monthSelectorView)
         addSubview(monthCarousel)
@@ -179,8 +193,6 @@ final class DashboardView: UIView {
     }
     
     private func setupLayout() {
-
-        
         NSLayoutConstraint.activate([
             headerContainerView.topAnchor.constraint(equalTo: topAnchor),
             headerContainerView.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -214,6 +226,11 @@ final class DashboardView: UIView {
             monthCarousel.trailingAnchor.constraint(equalTo: trailingAnchor),
             monthCarousel.bottomAnchor.constraint(equalTo: safeAreaLayoutGuide.bottomAnchor),
             
+            monthSelectorShimmerView.topAnchor.constraint(equalTo: headerContainerView.bottomAnchor, constant: Metrics.spacing5),
+            monthSelectorShimmerView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Metrics.spacing4),
+            monthSelectorShimmerView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Metrics.spacing4),
+            monthSelectorShimmerView.heightAnchor.constraint(equalToConstant: 20),
+            
             monthCardShimmerView.topAnchor.constraint(equalTo: monthSelectorView.bottomAnchor, constant: Metrics.spacing5),
             monthCardShimmerView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Metrics.spacing4),
             monthCardShimmerView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Metrics.spacing4),
@@ -234,7 +251,9 @@ final class DashboardView: UIView {
     func hideShimmerViewsAndShowOriginals() {
         monthCardShimmerView.isHidden = true
         transactionsTableShimmerView.isHidden = true
+        monthSelectorShimmerView.isHidden = true
         
+        monthSelectorView.isHidden = false
         monthCarousel.isHidden = false
     }
     
