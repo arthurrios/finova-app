@@ -43,4 +43,7 @@ enum Metrics {
     static let addButtonSize: CGFloat = 48
     static let monthCardShimmerHeight: CGFloat = 214
     static let transactionsTableShimmerHeight: CGFloat = 385
+    
+    // MARK: - Budgets Screen
+    static let newBudgetContentContainerHeight: CGFloat = 158
 }

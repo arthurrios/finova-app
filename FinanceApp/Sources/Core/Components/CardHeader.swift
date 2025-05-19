@@ -97,6 +97,7 @@ class CardHeader: UIView {
             cardHeaderStackView.topAnchor.constraint(equalTo: topAnchor),
             cardHeaderStackView.leadingAnchor.constraint(equalTo: leadingAnchor),
             cardHeaderStackView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            cardHeaderStackView.bottomAnchor.constraint(equalTo: bottomAnchor),
             cardHeaderStackView.heightAnchor.constraint(equalToConstant: Metrics.cardHeaderHeight),
         ])
     }

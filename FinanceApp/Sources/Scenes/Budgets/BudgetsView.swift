@@ -72,6 +72,33 @@ final class BudgetsView: UIView {
     
     private let newBudgetCardHeaderView = CardHeader(headerTitle: "budgets.new.header.title".localized)
     
+    private lazy var cardContentView: UIStackView = {
+        let stackView = UIStackView(axis: .vertical, spacing: Metrics.spacing4, arrangedSubviews: [inputStackView, addButton])
+        stackView.layoutMargins = UIEdgeInsets(top: Metrics.spacing5, left: Metrics.spacing5, bottom: Metrics.spacing5, right: Metrics.spacing5)
+        stackView.isLayoutMarginsRelativeArrangement = true
+        stackView.distribution = .fill
+        stackView.backgroundColor = Colors.gray100
+        stackView.layer.borderWidth = 1
+        stackView.layer.borderColor = Colors.gray300.cgColor
+        stackView.layer.cornerRadius = CornerRadius.extraLarge
+        stackView.layer.maskedCorners = [.layerMinXMaxYCorner, .layerMaxXMaxYCorner]
+        stackView.clipsToBounds = true
+        stackView.translatesAutoresizingMaskIntoConstraints = false
+        return stackView
+    }()
+    
+    private lazy var inputStackView: UIStackView = {
+        let stackView = UIStackView(axis: .horizontal, spacing: Metrics.spacing3, arrangedSubviews: [dateInput, budgetValueInput])
+        stackView.distribution = .fillEqually
+        return stackView
+    }()
+    
+    private let dateInput = Input(placeholder: "00/0000", icon: UIImage(named: "calendar"), iconPosition: .left)
+    
+    private let budgetValueInput = Input(placeholder: "0,00")
+    
+    private let addButton = Button(label: "budgets.button.add".localized)
+    
     override init(frame: CGRect) {
         super.init(frame: .zero)
         setupView()
@@ -90,6 +117,9 @@ final class BudgetsView: UIView {
         headerItemsView.addSubview(headerTextStackView)
         
         addSubview(newBudgetCardHeaderView)
+        addSubview(cardContentView)
+        cardContentView.addSubview(inputStackView)
+        cardContentView.addSubview(addButton)
         
         backButton.addTarget(self, action: #selector(didTapBackButton), for: .touchUpInside)
         
@@ -116,6 +146,10 @@ final class BudgetsView: UIView {
             newBudgetCardHeaderView.topAnchor.constraint(equalTo: headerContainerView.bottomAnchor, constant: Metrics.spacing4),
             newBudgetCardHeaderView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Metrics.spacing4),
             newBudgetCardHeaderView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Metrics.spacing4),
+            
+            cardContentView.topAnchor.constraint(equalTo: newBudgetCardHeaderView.bottomAnchor),
+            cardContentView.leadingAnchor.constraint(equalTo: newBudgetCardHeaderView.leadingAnchor),
+            cardContentView.trailingAnchor.constraint(equalTo: newBudgetCardHeaderView.trailingAnchor),
         ])
     }
     
