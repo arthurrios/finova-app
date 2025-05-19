@@ -41,7 +41,6 @@ final class DashboardViewController: UIViewController {
         contentView.frame = view.bounds
         loadData()
         setupCollectionViews()
-        view.layoutIfNeeded()
     }
     
     private func setup() {
@@ -85,9 +84,6 @@ final class DashboardViewController: UIViewController {
         
         let monthTitles = syncedViewModel.getMonths()
         contentView.monthSelectorView.configure(months: monthTitles, selectedIndex: syncedViewModel.selectedIndex)
-        
-        
-        syncedViewModel.selectMonth(at: todayMonthIndex)
         
         contentView.monthSelectorView.layoutIfNeeded()
         contentView.monthCarousel.layoutIfNeeded()
@@ -227,49 +223,24 @@ extension DashboardViewController: UIScrollViewDelegate {
 
 extension DashboardViewController: SyncedCollectionsViewModelDelegate {
     func didUpdateSelectedIndex(_ index: Int, animated: Bool) {
-         let ip = IndexPath(item: index, section: 0)
-
-         // If it’s our initial load, wrap in a CATransaction to know exactly
-         // when the scrolling animation and layout are done.
-         if isLoadingInitialData {
-             CATransaction.begin()
-             CATransaction.setCompletionBlock { [weak self] in
-                 guard let self = self else { return }
-                 // show the real content
-                 self.contentView.hideShimmerViewsAndShowOriginals()
-                 self.isLoadingInitialData = false
-             }
-
-             contentView.monthCarousel.performBatchUpdates(nil) { _ in
-                 // scroll the carousel
-                 self.contentView.monthCarousel.scrollToItem(
-                     at: ip,
-                     at: .centeredHorizontally,
-                     animated: true
-                 )
-                 // update the month selector highlight
-                 self.contentView.monthSelectorView.scrollToMonth(
-                     at: index,
-                     animated: animated
-                 )
-             }
-
-             CATransaction.commit()
-         }
-         else {
-             // all subsequent updates can just run normally
-             contentView.monthCarousel.performBatchUpdates(nil) { _ in
-                 self.contentView.monthCarousel.scrollToItem(
-                     at: ip,
-                     at: .centeredHorizontally,
-                     animated: animated
-                 )
-                 self.contentView.monthSelectorView.scrollToMonth(
-                     at: index,
-                     animated: animated
-                 )
-             }
-         }
+        let ip = IndexPath(item: index, section: 0)
+        
+        contentView.monthCarousel.performBatchUpdates(nil) { _ in
+            self.contentView.monthCarousel.scrollToItem(
+                at: ip,
+                at: .centeredHorizontally,
+                animated: animated
+            )
+            self.contentView.monthSelectorView.scrollToMonth(
+                at: index,
+                animated: animated
+            )
+            
+            DispatchQueue.main.async {
+                self.contentView.hideShimmerViewsAndShowOriginals()
+                self.isLoadingInitialData = false
+            }
+        }
     }
     
     func didUpdateMonthData(_ data: [MonthBudgetCardType]) {
@@ -284,12 +255,12 @@ extension DashboardViewController: SyncedCollectionsViewModelDelegate {
                 if let currentIndex = self.syncedViewModel.monthData.firstIndex(where: {
                     DateFormatter.keyFormatter.string(from: $0.date) == todayKey
                 }) {
-                    self.syncedViewModel.selectMonth(at: currentIndex, animated: false)
+                    self.syncedViewModel.selectMonth(at: currentIndex, animated: !self.isLoadingInitialData)
                 }
             }
         } else if currentSelectedIndex > 0 {
             DispatchQueue.main.async {
-                self.syncedViewModel.selectMonth(at: currentSelectedIndex, animated: false)
+                self.syncedViewModel.selectMonth(at: currentSelectedIndex, animated: !self.isLoadingInitialData)
             }
         }
     }
