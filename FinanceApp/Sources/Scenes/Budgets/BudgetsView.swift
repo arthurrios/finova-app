@@ -21,7 +21,7 @@ final class BudgetsView: UIView {
     
     let headerItemsView: UIView = {
         let view = UIView()
-        view.directionalLayoutMargins = NSDirectionalEdgeInsets(top: Metrics.spacing3, leading: Metrics.spacing5, bottom: Metrics.spacing6, trailing: Metrics.spacing5)
+        view.directionalLayoutMargins = NSDirectionalEdgeInsets(top: Metrics.spacing4, leading: Metrics.spacing5, bottom: Metrics.spacing5, trailing: Metrics.spacing5)
         view.translatesAutoresizingMaskIntoConstraints = false
         return view
     }()
@@ -30,10 +30,20 @@ final class BudgetsView: UIView {
     
     private let backButton: UIButton = {
         let button = UIButton(type: .system)
-        button.setImage(UIImage(named: "chevronLeft"), for: .normal)
+        
+        if let originalImage = UIImage(named: "chevronLeft") {
+            let size = CGSize(width: Metrics.backButtonSize, height: Metrics.backButtonSize)
+            UIGraphicsBeginImageContextWithOptions(size, false, 0.0)
+            originalImage.draw(in: CGRect(origin: .zero, size: size))
+            let resizedImage = UIGraphicsGetImageFromCurrentImageContext()
+            UIGraphicsEndImageContext()
+            
+            button.setImage(resizedImage, for: .normal)
+        } else {
+            button.setImage(UIImage(named: "chevronLeft"), for: .normal)
+        }
+        
         button.imageView?.contentMode = .scaleAspectFit
-        button.heightAnchor.constraint(equalToConstant: Metrics.backButtonSize).isActive = true
-        button.widthAnchor.constraint(equalToConstant: Metrics.backButtonSize).isActive = true
         button.tintColor = Colors.gray500
         button.translatesAutoresizingMaskIntoConstraints = false
         return button
@@ -75,6 +85,9 @@ final class BudgetsView: UIView {
         addSubview(headerContainerView)
         headerContainerView.addSubview(headerItemsView)
         headerItemsView.addSubview(backButton)
+        headerItemsView.addSubview(headerTextStackView)
+        
+        backButton.addTarget(self, action: #selector(didTapBackButton), for: .touchUpInside)
         
         setupConstraints()
     }
@@ -86,12 +99,20 @@ final class BudgetsView: UIView {
             headerContainerView.trailingAnchor.constraint(equalTo: trailingAnchor),
             
             headerItemsView.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor),
-            headerItemsView.leadingAnchor.constraint(equalTo: headerContainerView.leadingAnchor, constant: Metrics.spacing5),
+            headerItemsView.leadingAnchor.constraint(equalTo: headerContainerView.leadingAnchor),
             headerItemsView.trailingAnchor.constraint(equalTo: headerContainerView.trailingAnchor),
             headerItemsView.bottomAnchor.constraint(equalTo: headerContainerView.bottomAnchor),
             
             backButton.topAnchor.constraint(equalTo: headerItemsView.layoutMarginsGuide.topAnchor),
             backButton.leadingAnchor.constraint(equalTo: headerItemsView.layoutMarginsGuide.leadingAnchor),
+            
+            headerTextStackView.leadingAnchor.constraint(equalTo: backButton.trailingAnchor, constant: Metrics.spacing4),
+            headerTextStackView.centerYAnchor.constraint(equalTo: backButton.centerYAnchor),
         ])
+    }
+    
+    @objc
+    private func didTapBackButton() {
+        delegate?.didTapBackButton()
     }
 }

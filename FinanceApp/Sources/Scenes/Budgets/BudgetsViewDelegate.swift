@@ -9,4 +9,5 @@ import Foundation
 
 public protocol BudgetsViewDelegate: AnyObject {
     func didTapAddBudgetButton()
+    func didTapBackButton()
 }
