@@ -216,71 +216,60 @@ class Input: UIView {
     private func setupConstraints() {
         NSLayoutConstraint.activate([
             heightAnchor.constraint(equalToConstant: Metrics.inputHeight),
-            
-        iconImageView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Defaults.horizontalPadding),
-            
-          iconImageView.widthAnchor.constraint(equalToConstant: Defaults.iconSize),
-          iconImageView.heightAnchor.constraint(equalToConstant: Defaults.iconSize),
-          iconImageView.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
 
+        iconImageView.setContentHuggingPriority(.required, for: .horizontal)
+        iconImageView.setContentCompressionResistancePriority(.required, for: .horizontal)
+        NSLayoutConstraint.activate([
+            iconImageView.widthAnchor.constraint(equalToConstant: Defaults.iconSize),
+            iconImageView.heightAnchor.constraint(equalToConstant: Defaults.iconSize),
+            iconImageView.centerYAnchor.constraint(equalTo: centerYAnchor),
+        ])
+        
         if case .currency = type {
-          NSLayoutConstraint.activate([
-            prefixLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Defaults.horizontalPadding),
-            prefixLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
-          ])
+            prefixLabel.setContentHuggingPriority(.required, for: .horizontal)
+            prefixLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
+            NSLayoutConstraint.activate([
+                prefixLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Defaults.horizontalPadding),
+                prefixLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+                
+                textField.leadingAnchor.constraint(equalTo: prefixLabel.trailingAnchor, constant: Metrics.spacing2),
+                textField.centerYAnchor.constraint(equalTo: centerYAnchor),
+                textField.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Defaults.horizontalPadding),
+            ])
+            return
         }
-
-        let leadingAnchorOwner: NSLayoutXAxisAnchor
-        let leadingConstant: CGFloat
-
-        switch type {
-        case .currency:
-          leadingAnchorOwner = prefixLabel.trailingAnchor
-          leadingConstant   = Metrics.spacing2
-
-        case .date:
-          if effectiveIconPosition == .left {
-            leadingAnchorOwner = iconImageView.trailingAnchor
-            leadingConstant   = Metrics.spacing2
-          } else {
-            leadingAnchorOwner = leadingAnchor
-            leadingConstant   = Defaults.horizontalPadding
-          }
-
-        default:
-          if effectiveIconPosition == .left {
-            leadingAnchorOwner = iconImageView.trailingAnchor
-            leadingConstant   = Metrics.spacing2
-          } else {
-            leadingAnchorOwner = leadingAnchor
-            leadingConstant   = Defaults.horizontalPadding
-          }
-        }
-
-        textFieldLeadingConstraint = textField.leadingAnchor.constraint(
-            equalTo: leadingAnchorOwner,
-            constant: leadingConstant
-        )
 
         NSLayoutConstraint.activate([
-          textFieldLeadingConstraint!,
-          textField.topAnchor.constraint(equalTo: topAnchor, constant: Defaults.verticalPadding),
-          textField.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -Defaults.verticalPadding),
-          textField.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Defaults.horizontalPadding),
+            textField.topAnchor.constraint(equalTo: topAnchor, constant: Defaults.verticalPadding),
+            textField.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -Defaults.verticalPadding),
         ])
 
-        if effectiveIconPosition == .right {
-          iconImageView.trailingAnchor.constraint(
-              equalTo: trailingAnchor,
-              constant: -Metrics.spacing4
-          ).isActive = true
-          textField.trailingAnchor.constraint(
-              equalTo: iconImageView.leadingAnchor,
-              constant: -Metrics.spacing2
-          ).isActive = true
+        switch effectiveIconPosition {
+        case .left:
+            NSLayoutConstraint.activate([
+                iconImageView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Defaults.horizontalPadding),
+
+                textField.leadingAnchor.constraint(equalTo: iconImageView.trailingAnchor, constant: Metrics.spacing2),
+                textField.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Defaults.horizontalPadding),
+            ])
+
+        case .right:
+            NSLayoutConstraint.activate([
+                iconImageView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Metrics.spacing4),
+
+                textField.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Defaults.horizontalPadding),
+                textField.trailingAnchor.constraint(equalTo: iconImageView.leadingAnchor, constant: -Metrics.spacing2),
+            ])
+
+        case .none:
+            NSLayoutConstraint.activate([
+                textField.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Defaults.horizontalPadding),
+                textField.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Defaults.horizontalPadding),
+            ])
         }
     }
+
 
 
     

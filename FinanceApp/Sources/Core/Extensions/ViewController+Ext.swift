@@ -29,44 +29,57 @@ extension UIViewController {
 
 extension UIViewController {
     func startKeyboardObservers() {
-            NotificationCenter.default.addObserver(
-                self,
-                selector: #selector(keyboardWillShow(notification:)),
-                name: UIResponder.keyboardWillShowNotification,
-                object: nil
-            )
-            NotificationCenter.default.addObserver(
-                self,
-                selector: #selector(keyboardWillHide(notification:)),
-                name: UIResponder.keyboardWillHideNotification,
-                object: nil
-            )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(keyboardWillShow(notification:)),
+            name: UIResponder.keyboardWillShowNotification,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(keyboardWillHide(notification:)),
+            name: UIResponder.keyboardWillHideNotification,
+            object: nil
+        )
+    }
+    
+    func stopKeyboardObservers() {
+        NotificationCenter.default.removeObserver(
+            self,
+            name: UIResponder.keyboardWillShowNotification,
+            object: nil
+        )
+        NotificationCenter.default.removeObserver(
+            self,
+            name: UIResponder.keyboardWillHideNotification,
+            object: nil
+        )
+    }
+    
+    func hideKeyboardWhenTappedAround() {
+        let tap = UITapGestureRecognizer(
+            target: self,
+            action: #selector(UIViewController.dismissKeyboard)
+        )
+        tap.cancelsTouchesInView = false
+        view.addGestureRecognizer(tap)
+    }
+    
+    @objc private func dismissKeyboard() {
+        view.endEditing(true)
+    }
+    
+    @objc private func keyboardWillShow(notification: Notification) {
+        guard let keyboardFrame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else { return }
+        let shift = keyboardFrame.height / 2
+        UIView.animate(withDuration: 1) {
+            self.view.frame.origin.y = -shift
         }
-
-        func stopKeyboardObservers() {
-            NotificationCenter.default.removeObserver(
-                self,
-                name: UIResponder.keyboardWillShowNotification,
-                object: nil
-            )
-            NotificationCenter.default.removeObserver(
-                self,
-                name: UIResponder.keyboardWillHideNotification,
-                object: nil
-            )
+    }
+    
+    @objc private func keyboardWillHide(notification: Notification) {
+        UIView.animate(withDuration: 1) {
+            self.view.frame.origin.y = 0
         }
-
-        @objc private func keyboardWillShow(notification: Notification) {
-            guard let keyboardFrame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else { return }
-            let shift = keyboardFrame.height / 2
-            UIView.animate(withDuration: 0.3) {
-                self.view.frame.origin.y = -shift
-            }
-        }
-
-        @objc private func keyboardWillHide(notification: Notification) {
-            UIView.animate(withDuration: 0.3) {
-                self.view.frame.origin.y = 0
-            }
-        }
+    }
 }

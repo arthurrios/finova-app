@@ -28,6 +28,7 @@ final class LoginViewController: UIViewController {
         super.viewDidLoad()
         contentView.delegate = self
         setup()
+        hideKeyboardWhenTappedAround()
         bindViewModel()
     }
     
