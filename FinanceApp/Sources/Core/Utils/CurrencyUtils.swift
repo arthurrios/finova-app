@@ -14,7 +14,7 @@ public struct CurrencyUtils {
         "USD": 2, "EUR": 2, "JPY": 0, "TND": 3
     ]
     
-    private static func fractionDigits(for currencyCode: String) -> Int {
+    static func fractionDigits(for currencyCode: String) -> Int {
         var digits: Int32 = 0
         
         CFNumberFormatterGetDecimalInfoForCurrencyCode(currencyCode as CFString, &digits, nil)

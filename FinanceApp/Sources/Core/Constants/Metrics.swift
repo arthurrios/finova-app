@@ -32,13 +32,18 @@ enum Metrics {
     static let buttonHeight: CGFloat = 48
     static let inputHeight: CGFloat = 48
     static let logoutButtonSize: CGFloat = 24
+    static let backButtonSize: CGFloat = 24
     static let inputIconSize: CGFloat = 20
     static let loginHeroHeight: CGFloat = 360
     static let profileImageSize: CGFloat = 40
     static let profileIconSize: CGFloat = 20
     static let headerHeight: CGFloat = 136
+    static let cardHeaderHeight: CGFloat = 44
     static let tableEmptyViewHeight: CGFloat = 68
     static let addButtonSize: CGFloat = 48
     static let monthCardShimmerHeight: CGFloat = 214
     static let transactionsTableShimmerHeight: CGFloat = 385
+    
+    // MARK: - Budgets Screen
+    static let newBudgetContentContainerHeight: CGFloat = 158
 }

@@ -158,6 +158,8 @@ extension DashboardViewController: UICollectionViewDataSource {
                 fatalError("Could not dequeue cell")
             }
             
+            cell.monthCard.delegate = self
+
             let key = DateFormatter.keyFormatter.string(from: model.date)
             let txs = syncedViewModel.allTransactions.filter { tx in
                 DateFormatter.keyFormatter.string(from: tx.date) == key
@@ -267,5 +269,15 @@ extension DashboardViewController: SyncedCollectionsViewModelDelegate {
     
     func didUpdateTransactions(_ transactions: [Transaction]) {
         contentView.monthCarousel.reloadData()
+    }
+}
+
+extension DashboardViewController: MonthBudgetCardDelegate {
+    func didTapConfigButton() {
+        flowDelegate?.navigateToBudgets(date: nil)
+    }
+    
+    func didTapDefineBudgetButton(budgetDate: Date) {
+        flowDelegate?.navigateToBudgets(date: budgetDate)
     }
 }

@@ -8,39 +8,27 @@
 import Foundation
 import UIKit
 
-final class TransactionCell: UITableViewCell {
-    static let reuseID = "TransactionCell"
+final class BudgetsCell: UITableViewCell {
+    static let reuseID = "BudgetsCell"
     
     private let iconView: UIImageView = {
         let imageView = UIImageView()
-        imageView.tintColor = Colors.mainMagenta
+        imageView.image = UIImage(named: "calendar")
+        imageView.tintColor = Colors.gray700
         imageView.contentMode = .scaleAspectFit
         imageView.translatesAutoresizingMaskIntoConstraints = false
         return imageView
     }()
     
-    private let iconContainerView: UIView = {
-        let view = UIView()
-        view.layer.cornerRadius = CornerRadius.medium
-        view.backgroundColor = Colors.gray200
-        view.layer.borderColor = Colors.gray300.cgColor
-        view.layer.borderWidth = 1
-        view.layer.masksToBounds = true
-        view.heightAnchor.constraint(equalToConstant: Metrics.spacing8).isActive = true
-        view.widthAnchor.constraint(equalToConstant: Metrics.spacing8).isActive = true
-        view.translatesAutoresizingMaskIntoConstraints = false
-        return view
-    }()
-    
     private let titleStackView: UIStackView = {
         let stackView = UIStackView()
-        stackView.axis = .vertical
-        stackView.spacing = Metrics.spacing1
+        stackView.axis = .horizontal
+        stackView.spacing = 6
         stackView.translatesAutoresizingMaskIntoConstraints = false
         return stackView
     }()
     
-    private let titleLabel: UILabel = {
+    private let monthLabel: UILabel = {
         let label = UILabel()
         label.font = Fonts.textSMBold.font
         label.numberOfLines = 0
@@ -49,10 +37,10 @@ final class TransactionCell: UITableViewCell {
         return label
     }()
     
-    private let dateLabel: UILabel = {
+    private let yearLabel: UILabel = {
         let label = UILabel()
         label.font = Fonts.textXS.font
-        label.textColor = Colors.gray500
+        label.textColor = Colors.gray600
         label.translatesAutoresizingMaskIntoConstraints = false
         return label
     }()
@@ -71,15 +59,6 @@ final class TransactionCell: UITableViewCell {
         label.textColor = Colors.gray700
         label.translatesAutoresizingMaskIntoConstraints = false
         return label
-    }()
-    
-    private let transactionTypeIconView: UIImageView = {
-        let imageView = UIImageView()
-        imageView.heightAnchor.constraint(equalToConstant: 14).isActive = true
-        imageView.widthAnchor.constraint(equalToConstant: 14).isActive = true
-        imageView.contentMode = .scaleAspectFit
-        imageView.translatesAutoresizingMaskIntoConstraints = false
-        return imageView
     }()
     
     private let trashIconView: UIImageView = {
@@ -105,14 +84,13 @@ final class TransactionCell: UITableViewCell {
     private func setupView() {
         contentView.backgroundColor = Colors.gray100
         
-        contentView.addSubview(iconContainerView)
-        iconContainerView.addSubview(iconView)
+        contentView.addSubview(iconView)
         contentView.addSubview(titleStackView)
-        titleStackView.addArrangedSubview(titleLabel)
-        titleStackView.addArrangedSubview(dateLabel)
+        titleStackView.addArrangedSubview(monthLabel)
+        titleStackView.addArrangedSubview(yearLabel)
         contentView.addSubview(valueStackView)
         valueStackView.addArrangedSubview(valueLabel)
-        valueStackView.addArrangedSubview(transactionTypeIconView)
+
         contentView.addSubview(trashIconView)
         
         setupConstraints()
@@ -120,15 +98,12 @@ final class TransactionCell: UITableViewCell {
     
     private func setupConstraints() {
         NSLayoutConstraint.activate([
-            iconContainerView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: Metrics.spacing5),
-            iconContainerView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            
-            iconView.centerXAnchor.constraint(equalTo: iconContainerView.centerXAnchor),
-            iconView.centerYAnchor.constraint(equalTo: iconContainerView.centerYAnchor),
+            iconView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: Metrics.spacing5),
+            iconView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
             iconView.widthAnchor.constraint(equalToConstant: Metrics.spacing5),
             iconView.heightAnchor.constraint(equalToConstant: Metrics.spacing5),
             
-            titleStackView.leadingAnchor.constraint(equalTo: iconContainerView.trailingAnchor, constant: Metrics.spacing4),
+            titleStackView.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: Metrics.spacing3),
             titleStackView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
             
             trashIconView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -Metrics.spacing5),
@@ -139,22 +114,52 @@ final class TransactionCell: UITableViewCell {
         ])
     }
     
-    func configure(category: TransactionCategory, title: String, date: Date, value: Int, transactionType: TransactionType) {
-        self.titleLabel.text = title
-        self.dateLabel.text = DateFormatter.fullDateFormatter.string(from: date)
+    func configure(date: Date, value: Int) {
+        let month = DateFormatter.monthFormatter.string(from: date)
+        let year = DateFormatter.yearFormatter.string(from: date)
+
+        monthLabel.text = month
+        yearLabel.text = year
         
         let symbolFont = Fonts.textXS.font
         self.valueLabel.attributedText = value.currencyAttributedString(symbolFont: symbolFont, font: Fonts.titleMD)
         self.valueLabel.accessibilityLabel = value.currencyString
         
-        self.iconView.image = UIImage(named: category.iconName)
+        let isPreviousMonth = isPastMonth(date: date)
+        applyStyleForDate(isPreviousMonth: isPreviousMonth)
+    }
+    
+    private func isPastMonth(date: Date) -> Bool {
+        let calendar = Calendar.current
+        let currentDate = Date()
         
-        if transactionType == .income {
-            self.transactionTypeIconView.image = UIImage(named: "arrowUp")
-            self.transactionTypeIconView.tintColor = Colors.mainGreen
+        let currentMonth = calendar.component(.month, from: currentDate)
+        let currentYear = calendar.component(.year, from: currentDate)
+        
+        let dateMonth = calendar.component(.month, from: date)
+        let dateYear = calendar.component(.year, from: date)
+        
+        if dateYear < currentYear {
+            return true
+        } else if dateYear == currentYear && dateMonth < currentMonth {
+            return true
+        }
+        
+        return false
+    }
+    
+    private func applyStyleForDate(isPreviousMonth: Bool) {
+        if isPreviousMonth {
+            monthLabel.textColor = Colors.gray400
+            yearLabel.textColor = Colors.gray400
+            valueLabel.textColor = Colors.gray400
+            iconView.tintColor = Colors.gray400
+            trashIconView.isHidden = true
         } else {
-            self.transactionTypeIconView.image = UIImage(named: "arrowDown")
-            self.transactionTypeIconView.tintColor = Colors.mainRed
+            monthLabel.textColor = Colors.gray700
+            yearLabel.textColor = Colors.gray600
+            valueLabel.textColor = Colors.gray700
+            iconView.tintColor = Colors.gray700
         }
     }
 }

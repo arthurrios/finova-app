@@ -8,6 +8,11 @@
 import Foundation
 
 struct BudgetEntry {
-    let monthTimestamp: TimeInterval
+    let monthKey: String
+    let budget: Int
+}
+
+struct BudgetModel {
+    let date: Date
     let budget: Int
 }
