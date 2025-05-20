@@ -125,27 +125,8 @@ final class BudgetsCell: UITableViewCell {
         self.valueLabel.attributedText = value.currencyAttributedString(symbolFont: symbolFont, font: Fonts.titleMD)
         self.valueLabel.accessibilityLabel = value.currencyString
         
-        let isPreviousMonth = isPastMonth(date: date)
+        let isPreviousMonth = DateUtils.isPastMonth(date: date)
         applyStyleForDate(isPreviousMonth: isPreviousMonth)
-    }
-    
-    private func isPastMonth(date: Date) -> Bool {
-        let calendar = Calendar.current
-        let currentDate = Date()
-        
-        let currentMonth = calendar.component(.month, from: currentDate)
-        let currentYear = calendar.component(.year, from: currentDate)
-        
-        let dateMonth = calendar.component(.month, from: date)
-        let dateYear = calendar.component(.year, from: date)
-        
-        if dateYear < currentYear {
-            return true
-        } else if dateYear == currentYear && dateMonth < currentMonth {
-            return true
-        }
-        
-        return false
     }
     
     private func applyStyleForDate(isPreviousMonth: Bool) {

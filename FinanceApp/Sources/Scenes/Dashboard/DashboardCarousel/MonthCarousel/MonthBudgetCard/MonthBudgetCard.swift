@@ -180,6 +180,17 @@ class MonthBudgetCard: UIView {
             limitBudgetValueLabel.isHidden = true
             progressBar.isHidden = true
             infinitySymbol.isHidden = false
+            
+            let isPreviousMonth = DateUtils.isPastMonth(date: data.date)
+            applyButtonStyle(isPreviousMonth: isPreviousMonth)
+        }
+    }
+    
+    private func applyButtonStyle(isPreviousMonth: Bool) {
+        if isPreviousMonth {
+            defineBudgetButton.variant = .outlinedDisabled
+        } else {
+            defineBudgetButton.variant = .outlined
         }
     }
     
