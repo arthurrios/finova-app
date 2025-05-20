@@ -55,10 +55,16 @@ extension DateFormatter {
     }()
     
     static let keyFormatter: DateFormatter = {
+      let df = DateFormatter()
+      df.locale = Locale(identifier: "en_US_POSIX")
+      df.timeZone = TimeZone(secondsFromGMT: 0)
+      df.dateFormat = "yyyy-MM"
+      return df
+    }()
+    
+    static let keyToDate: DateFormatter = {
         let formatter = DateFormatter()
-        formatter.setLocalizedDateFormatFromTemplate("yyyy-MM")
-        formatter.locale = Locale.current
-        formatter.timeZone = TimeZone.current
+        formatter.dateFormat = "yyyy-MM"
         return formatter
     }()
 }

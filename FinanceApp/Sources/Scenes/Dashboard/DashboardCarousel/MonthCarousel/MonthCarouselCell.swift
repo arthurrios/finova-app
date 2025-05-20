@@ -9,10 +9,9 @@ import Foundation
 import UIKit
 
 class MonthCarouselCell: UICollectionViewCell {
-    
     static let reuseID = "MonthCarouselCell"
     
-    private let monthCard = MonthBudgetCard()
+    let monthCard = MonthBudgetCard()
     private var transactions: [Transaction] = []
     
     private let tableHeaderView: UIStackView = {
@@ -103,6 +102,7 @@ class MonthCarouselCell: UICollectionViewCell {
         tableView.layer.cornerRadius = CornerRadius.extraLarge
         tableView.layer.maskedCorners = [.layerMinXMaxYCorner, .layerMaxXMaxYCorner]
         tableView.separatorStyle = .singleLine
+        tableView.separatorInset = UIEdgeInsets.zero
         tableView.clipsToBounds = true
         tableView.separatorColor = Colors.gray300
         tableView.isScrollEnabled = true

@@ -215,6 +215,8 @@ class Input: UIView {
     
     private func setupConstraints() {
         NSLayoutConstraint.activate([
+            heightAnchor.constraint(equalToConstant: Metrics.inputHeight),
+            
         iconImageView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Defaults.horizontalPadding),
             
           iconImageView.widthAnchor.constraint(equalToConstant: Defaults.iconSize),

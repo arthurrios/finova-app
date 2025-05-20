@@ -11,6 +11,9 @@ import UIKit
 final class BudgetsView: UIView {
     public weak var delegate: BudgetsViewDelegate?
     
+    private var tableHeightConstraint: NSLayoutConstraint?
+    private var budgets: [BudgetModel] = []
+    
     private let headerContainerView: UIView = {
         let view = UIView()
         view.backgroundColor = Colors.gray100
@@ -90,6 +93,7 @@ final class BudgetsView: UIView {
     private lazy var inputStackView: UIStackView = {
         let stackView = UIStackView(axis: .horizontal, spacing: Metrics.spacing3, arrangedSubviews: [dateInput, budgetValueInput])
         stackView.distribution = .fillEqually
+        stackView.heightAnchor.constraint(equalToConstant: Metrics.inputHeight).isActive = true
         return stackView
     }()
     
@@ -97,7 +101,57 @@ final class BudgetsView: UIView {
     
     private let budgetValueInput = Input(type: .currency, placeholder: "0,00")
     
-    private let addButton = Button(label: "budgets.button.add".localized)
+    private let addButton = Button(label: "budgets.button.add.title".localized)
+    
+    private let budgetsTableHeaderView = CardHeader(headerTitle: "budgets.table.header.title".localized)
+    
+    let budgetsTableView: UITableView = {
+        let tableView = UITableView()
+        tableView.backgroundColor = Colors.gray100
+        tableView.layer.borderWidth = 1
+        tableView.layer.borderColor = Colors.gray300.cgColor
+        tableView.layer.cornerRadius = CornerRadius.extraLarge
+        tableView.layer.maskedCorners = [.layerMinXMaxYCorner, .layerMaxXMaxYCorner]
+        tableView.separatorStyle = .singleLine
+        tableView.separatorInset = UIEdgeInsets.zero
+        tableView.clipsToBounds = true
+        tableView.separatorColor = Colors.gray300
+        tableView.isScrollEnabled = true
+        tableView.showsVerticalScrollIndicator = false
+        tableView.translatesAutoresizingMaskIntoConstraints = false
+        return tableView
+    }()
+    
+    private let emptyStateView: UIView = {
+        let view = UIView()
+        view.backgroundColor = Colors.gray100
+        view.layer.borderWidth = 1
+        view.layer.borderColor = Colors.gray300.cgColor
+        view.layer.cornerRadius = CornerRadius.extraLarge
+        view.layer.maskedCorners = [.layerMinXMaxYCorner, .layerMaxXMaxYCorner]
+        view.isHidden = true
+        view.translatesAutoresizingMaskIntoConstraints = false
+        return view
+    }()
+    
+    private let emptyStateIconImageView: UIImageView = {
+        let imageView = UIImageView()
+        imageView.image = UIImage(named: "iconBilling")
+        imageView.tintColor = Colors.gray400
+        imageView.contentMode = .scaleAspectFit
+        imageView.translatesAutoresizingMaskIntoConstraints = false
+        return imageView
+    }()
+    
+    private let emptyStateDescriptionLabel: UILabel = {
+        let label = UILabel()
+        label.font = Fonts.textXS.font
+        label.textColor = Colors.gray500
+        label.numberOfLines = 0
+        label.text = "budgets.emptyState.description".localized
+        label.translatesAutoresizingMaskIntoConstraints = false
+        return label
+    }()
     
     override init(frame: CGRect) {
         super.init(frame: .zero)
@@ -120,6 +174,13 @@ final class BudgetsView: UIView {
         addSubview(cardContentView)
         cardContentView.addSubview(inputStackView)
         cardContentView.addSubview(addButton)
+        
+        addSubview(budgetsTableHeaderView)
+        addSubview(budgetsTableView)
+        
+        addSubview(emptyStateView)
+        emptyStateView.addSubview(emptyStateIconImageView)
+        emptyStateView.addSubview(emptyStateDescriptionLabel)
         
         backButton.addTarget(self, action: #selector(didTapBackButton), for: .touchUpInside)
         addButton.addTarget(self, action: #selector(didTapAddBudgetButton), for: .touchUpInside)
@@ -151,7 +212,51 @@ final class BudgetsView: UIView {
             cardContentView.topAnchor.constraint(equalTo: newBudgetCardHeaderView.bottomAnchor),
             cardContentView.leadingAnchor.constraint(equalTo: newBudgetCardHeaderView.leadingAnchor),
             cardContentView.trailingAnchor.constraint(equalTo: newBudgetCardHeaderView.trailingAnchor),
+        
+            budgetsTableHeaderView.topAnchor.constraint(equalTo: cardContentView.bottomAnchor, constant: Metrics.spacing4),
+            budgetsTableHeaderView.leadingAnchor.constraint(equalTo: cardContentView.leadingAnchor),
+            budgetsTableHeaderView.trailingAnchor.constraint(equalTo: cardContentView.trailingAnchor),
+            
+            budgetsTableView.topAnchor.constraint(equalTo: budgetsTableHeaderView.bottomAnchor),
+            budgetsTableView.leadingAnchor.constraint(equalTo: cardContentView.leadingAnchor),
+            budgetsTableView.trailingAnchor.constraint(equalTo: cardContentView.trailingAnchor),
+            budgetsTableView.bottomAnchor.constraint(lessThanOrEqualTo: safeAreaLayoutGuide.bottomAnchor, constant: -Metrics.spacing8),
+            
+            emptyStateView.topAnchor.constraint(equalTo: budgetsTableHeaderView.bottomAnchor),
+            emptyStateView.leadingAnchor.constraint(equalTo: cardContentView.leadingAnchor),
+            emptyStateView.trailingAnchor.constraint(equalTo: cardContentView.trailingAnchor),
+            emptyStateView.heightAnchor.constraint(equalToConstant: Metrics.tableEmptyViewHeight),
+            
+            emptyStateIconImageView.leadingAnchor.constraint(equalTo: emptyStateView.leadingAnchor, constant: Metrics.spacing5),
+            emptyStateIconImageView.centerYAnchor.constraint(equalTo: emptyStateView.centerYAnchor),
+            emptyStateIconImageView.heightAnchor.constraint(equalToConstant: Metrics.spacing8),
+            emptyStateIconImageView.widthAnchor.constraint(equalToConstant: Metrics.spacing8),
+            
+            emptyStateDescriptionLabel.leadingAnchor.constraint(equalTo: emptyStateIconImageView.trailingAnchor, constant: Metrics.spacing5),
+            emptyStateDescriptionLabel.trailingAnchor.constraint(equalTo: emptyStateView.trailingAnchor, constant: -Metrics.spacing4),
+            emptyStateDescriptionLabel.centerYAnchor.constraint(equalTo: emptyStateView.centerYAnchor),
         ])
+    }
+    
+    func updateUI(with budgets: [BudgetModel], selectedDate: Date?) {
+        self.budgets = budgets
+        
+        if let selectedDate = selectedDate {
+            self.dateInput.text = DateFormatter.monthYearFormatter.string(from: selectedDate)
+        }
+        
+        if budgets.isEmpty {
+            budgetsTableView.isHidden = true
+            emptyStateView.isHidden = false
+        } else {
+            budgetsTableView.isHidden = false
+            emptyStateView.isHidden = true
+            budgetsTableView.reloadData()
+        }
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
     }
     
     @objc

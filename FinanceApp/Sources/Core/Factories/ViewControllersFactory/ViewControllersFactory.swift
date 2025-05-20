@@ -21,16 +21,16 @@ final class ViewControllersFactory: ViewControllersFactoryProtocol {
         return viewController
     }
     
-    func makeDashboardViewController(flowDelegate: any DashboardFlowDelegate) -> DashboardViewController {
+    func makeDashboardViewController(flowDelegate: DashboardFlowDelegate) -> DashboardViewController {
         let contentView = DashboardView()
         let viewModel = DashboardViewModel()
         let viewController = DashboardViewController(contentView: contentView, viewModel: viewModel, flowDelegate: flowDelegate)
         return viewController
     }
     
-    func makeBudgetsViewController(flowDelegate: any BudgetsFlowDelegate) -> BudgetsViewController {
+    func makeBudgetsViewController(flowDelegate: BudgetsFlowDelegate, date: Date?) -> BudgetsViewController {
         let contentView = BudgetsView()
-        let viewModel = BudgetsViewModel()
+        let viewModel = BudgetsViewModel(initialDate: date)
         let viewController = BudgetsViewController(contentView: contentView, viewModel: viewModel, flowDelegate: flowDelegate)
         return viewController
     }

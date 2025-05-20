@@ -11,3 +11,8 @@ struct BudgetEntry {
     let monthKey: String
     let budget: Int
 }
+
+struct BudgetModel {
+    let date: Date
+    let budget: Int
+}

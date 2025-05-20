@@ -19,8 +19,7 @@ class AppFlowController {
     
     // MARK: - startFlow
     func startFlow() -> UINavigationController? {
-//        let viewController = viewControllersFactory.makeSplashViewController(flowDelegate: self)
-        let viewController = viewControllersFactory.makeBudgetsViewController(flowDelegate: self)
+        let viewController = viewControllersFactory.makeSplashViewController(flowDelegate: self)
         navigationController = UINavigationController(rootViewController: viewController)
         return navigationController
     }
@@ -53,10 +52,10 @@ extension AppFlowController: LoginFlowDelegate {
 }
 
 extension AppFlowController: DashboardFlowDelegate {
-    func navigateToBudgets() {
+    func navigateToBudgets(date: Date?) {
         navigationController?.dismiss(animated: false)
-        let dashboardViewController = viewControllersFactory.makeBudgetsViewController(flowDelegate: self)
-        navigationController?.pushViewController(dashboardViewController, animated: true)
+        let budgetsViewController = viewControllersFactory.makeBudgetsViewController(flowDelegate: self, date: date)
+        navigationController?.pushViewController(budgetsViewController, animated: true)
     }
     
     func logout() {

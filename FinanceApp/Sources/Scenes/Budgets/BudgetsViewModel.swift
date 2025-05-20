@@ -10,12 +10,19 @@ import Foundation
 final class BudgetsViewModel {
     let budgetRepo: BudgetRepository
     private let calendar = Calendar.current
-        
-    init(budgetRepo: BudgetRepository = BudgetRepository()) { // 3 years
+    let selectedDate: Date?
+    
+    init(budgetRepo: BudgetRepository = BudgetRepository(), initialDate: Date? = nil) {
         self.budgetRepo = budgetRepo
+        selectedDate = initialDate
     }
     
-    func loadMonthTableViewData() -> [String] {
-        return []
+    func loadMonthTableViewData() -> [BudgetModel] {
+        let budgets = budgetRepo.fetchBudgets()
+        
+        return budgets.map { entry in
+            let date = Date(entry.monthKey)
+            return BudgetModel(date: date, budget: entry.budget)
+        }
     }
 }

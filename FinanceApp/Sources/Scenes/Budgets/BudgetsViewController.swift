@@ -13,6 +13,9 @@ final class BudgetsViewController: UIViewController {
     let viewModel: BudgetsViewModel
     public weak var flowDelegate: BudgetsFlowDelegate?
     
+    private var tableHeightConstraint: NSLayoutConstraint?
+    private var budgetsData: [BudgetModel] = []
+    
     init(contentView: BudgetsView, viewModel: BudgetsViewModel, flowDelegate: BudgetsFlowDelegate? = nil) {
         self.contentView = contentView
         self.viewModel = viewModel
@@ -35,10 +38,55 @@ final class BudgetsViewController: UIViewController {
         navigationController?.setNavigationBarHidden(true, animated: false)
         view.addSubview(contentView)
         buildHierarchy()
+        
+        loadData()
+        setupTable()
+    }
+    
+    private func loadData() {
+        budgetsData = viewModel.loadMonthTableViewData()
+        
+        contentView.updateUI(with: budgetsData, selectedDate: viewModel.selectedDate)
+        
+        budgetsData.sort { (budget1, budget2) -> Bool in
+            return budget1.date > budget2.date
+        }
+        
+        if !budgetsData.isEmpty {
+            DispatchQueue.main.async { [weak self] in
+                self?.updateTableHeight()
+            }
+        }
+    }
+    
+    private func setupTable() {
+        contentView.budgetsTableView.register(BudgetsCell.self, forCellReuseIdentifier: BudgetsCell.reuseID)
+        contentView.budgetsTableView.dataSource = self
+        contentView.budgetsTableView.delegate = self
+    }
+    
+    private func updateTableHeight() {
+        let numberOfRows = tableView(contentView.budgetsTableView, numberOfRowsInSection: 0)
+        let rowHeight = tableView(contentView.budgetsTableView, heightForRowAt: IndexPath(row: 0, section: 0))
+        let totalHeight = CGFloat(numberOfRows) * rowHeight
+        
+        let separatorHeight = CGFloat(max(0, numberOfRows - 1)) * 1.0
+        
+        if tableHeightConstraint == nil {
+            tableHeightConstraint = contentView.budgetsTableView.heightAnchor.constraint(equalToConstant: totalHeight + separatorHeight)
+            tableHeightConstraint?.isActive = true
+        } else {
+            tableHeightConstraint?.constant = totalHeight + separatorHeight
+        }
     }
     
     private func buildHierarchy() {
         setupContentViewToBounds(contentView: contentView, respectingSafeArea: false)
+    }
+    
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        updateTableHeight()
     }
 }
 
@@ -50,6 +98,37 @@ extension BudgetsViewController: BudgetsViewDelegate {
     func didTapBackButton() {
         flowDelegate?.navBackToDashboard()
     }
-    
+}
 
+
+extension BudgetsViewController: UITableViewDataSource, UITableViewDelegate {
+    func tableView(_ tv: UITableView, numberOfRowsInSection section: Int) -> Int {
+        return budgetsData.count
+    }
+    
+    func tableView(_ tv: UITableView, cellForRowAt ip: IndexPath) -> UITableViewCell {
+        let cell = tv.dequeueReusableCell(withIdentifier: BudgetsCell.reuseID, for: ip) as! BudgetsCell
+                
+        let budgetModel = budgetsData[ip.row]
+        cell.configure(date: budgetModel.date, value: budgetModel.budget)
+        
+        cell.selectionStyle = .none
+        
+        return cell
+    }
+    
+    private func parseDateString(_ dateString: String) -> Date {
+        
+        if let date = DateFormatter.keyToDate.date(from: dateString) {
+            return date
+        }
+        
+        return Date()
+    }
+    
+    func tableView(_ tv: UITableView, heightForRowAt ip: IndexPath) -> CGFloat { 52 }
+    
+    func tableView(_ tableView: UITableView, willSelectRowAt indexPath: IndexPath) -> IndexPath? {
+        return nil
+    }
 }

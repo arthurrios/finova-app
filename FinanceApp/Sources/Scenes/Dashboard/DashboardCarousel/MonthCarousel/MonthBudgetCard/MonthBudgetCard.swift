@@ -9,12 +9,16 @@ import Foundation
 import UIKit
 
 class MonthBudgetCard: UIView {
+    weak var delegate: MonthBudgetCardDelegate?
+    private var budgetDate: Date?
     
     private let gradientLayer = Colors.gradientBlack
     
     private lazy var mainStackView = UIStackView(axis: .vertical, arrangedSubviews: [headerHorizontalStackView, separator, availableBudgetStackView, footerStackView])
     
-    private lazy var headerHorizontalStackView = UIStackView(axis: .horizontal, arrangedSubviews: [monthLabel, configIcon])
+    private lazy var headerHorizontalStackView = UIStackView(axis: .horizontal, arrangedSubviews: [headerDateStackView, configIcon])
+    
+    private lazy var headerDateStackView = UIStackView(axis: .horizontal, spacing: Metrics.spacing2, alignment: .center, arrangedSubviews: [monthLabel, yearLabel])
     
     private lazy var availableBudgetStackView = UIStackView(axis: .vertical, spacing: Metrics.spacing3, arrangedSubviews: [availableBudgetTextLabel, availableBudgetValueLabel, defineBudgetButton])
     
@@ -28,6 +32,15 @@ class MonthBudgetCard: UIView {
         let label = UILabel()
         label.fontStyle = Fonts.titleSM
         label.textColor = Colors.gray100
+        label.setContentHuggingPriority(.defaultHigh, for: .horizontal)
+        label.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
+        return label
+    }()
+    
+    private let yearLabel: UILabel = {
+        let label = UILabel()
+        label.font = Fonts.titleXS.font
+        label.textColor = Colors.gray400
         return label
     }()
     
@@ -119,6 +132,7 @@ class MonthBudgetCard: UIView {
         layer.masksToBounds = true
         
         setupView()
+        setupGestureRecognizers()
     }
     
     required init?(coder: NSCoder) {
@@ -126,8 +140,12 @@ class MonthBudgetCard: UIView {
     }
     
     func configure(data: MonthBudgetCardType) {
-        monthLabel.text = data.month + "/" + DateFormatter.yearFormatter.string(from: data.date)
+        budgetDate = data.date
+                
+        monthLabel.text = data.month
         monthLabel.applyStyle()
+        
+        yearLabel.text = "/ " + DateFormatter.yearFormatter.string(from: data.date)
         
         if let availableValue = data.availableValue {
             availableBudgetValueLabel.text = availableValue.currencyString
@@ -189,6 +207,24 @@ class MonthBudgetCard: UIView {
             progressBar.leadingAnchor.constraint(equalTo: leadingAnchor),
             progressBar.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor),
         ])
+    }
+    
+    private func setupGestureRecognizers() {
+        let configTapGesture = UITapGestureRecognizer(target: self, action: #selector(handleConfigTapGesture))
+        configIcon.addGestureRecognizer(configTapGesture)
+        
+        defineBudgetButton.addTarget(self, action: #selector(defineBudgetButtonTapped), for: .touchUpInside)
+    }
+    
+    @objc
+    private func handleConfigTapGesture() {
+        delegate?.didTapConfigButton()
+    }
+    
+    @objc
+    private func defineBudgetButtonTapped() {
+        guard let budgetDate else { return }
+        delegate?.didTapDefineBudgetButton(budgetDate: budgetDate)
     }
     
     override func layoutSubviews() {
