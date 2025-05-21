@@ -46,4 +46,7 @@ enum Metrics {
     
     // MARK: - Budgets Screen
     static let newBudgetContentContainerHeight: CGFloat = 158
+    
+    // MARK: - Add Transaction Screen
+    static let arrowSize: CGFloat = 16
 }

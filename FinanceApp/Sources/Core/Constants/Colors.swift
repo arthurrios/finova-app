@@ -16,6 +16,9 @@ enum Colors {
     static let lowMagenta = UIColor(red: 220/255, green: 84/255, blue: 222/255, alpha: 0.05)
     static let opaqueWhite = UIColor(red: 249/255, green: 251/255, blue: 249/255, alpha: 0.05)
     
+    static let lightGreen = UIColor(red: 31/255, green: 163/255, blue: 66/255, alpha: 0.05)
+    static let lightRed = UIColor(red: 217/255, green: 58/255, blue: 74/255, alpha: 0.05)
+
     static let gray100 = UIColor(hex: "#F9FBF9")
     static let gray200 = UIColor(hex: "#EFF0EF")
     static let gray300 = UIColor(hex: "#E5E6E5")

@@ -34,12 +34,12 @@ extension AppFlowController: SplashFlowDelegate {
         navigationController?.present(viewController, animated: false) {
             viewController.animateShow()
         }
-        
-        func navigateToDashboard() {
-            navigationController?.dismiss(animated: false)
-            let viewController = viewControllersFactory.makeDashboardViewController(flowDelegate: self)
-            navigationController?.pushViewController(viewController, animated: true)
-        }
+    }
+    
+    func navigateToDirectlyToDashboard() {
+        navigationController?.dismiss(animated: false)
+        let viewController = viewControllersFactory.makeDashboardViewController(flowDelegate: self)
+        navigationController?.pushViewController(viewController, animated: true)
     }
 }
 
@@ -52,6 +52,15 @@ extension AppFlowController: LoginFlowDelegate {
 }
 
 extension AppFlowController: DashboardFlowDelegate {
+    func openAddTransactionModal() {
+        let viewController = viewControllersFactory.makeAddTransactionModalViewController(flowDelegate: self)
+        viewController.modalPresentationStyle = .overCurrentContext
+        viewController.modalTransitionStyle = .crossDissolve
+        navigationController?.present(viewController, animated: false) {
+            viewController.animateShow()
+        }
+    }
+    
     func navigateToBudgets(date: Date?) {
         navigationController?.dismiss(animated: false)
         let budgetsViewController = viewControllersFactory.makeBudgetsViewController(flowDelegate: self, date: date)
@@ -80,5 +89,11 @@ extension AppFlowController: DashboardFlowDelegate {
 extension AppFlowController: BudgetsFlowDelegate {
     func navBackToDashboard() {
         navigationController?.popViewController(animated: true)
+    }
+}
+
+extension AppFlowController: AddTransactionModalFlowDelegate {
+    func closeModal() {
+        //
     }
 }

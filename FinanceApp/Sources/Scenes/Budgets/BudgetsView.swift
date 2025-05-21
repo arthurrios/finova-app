@@ -136,7 +136,7 @@ final class BudgetsView: UIView {
     
     private let emptyStateIconImageView: UIImageView = {
         let imageView = UIImageView()
-        imageView.image = UIImage(named: "iconBilling")
+        imageView.image = UIImage(named: "iconBankSlip")
         imageView.tintColor = Colors.gray400
         imageView.contentMode = .scaleAspectFit
         imageView.translatesAutoresizingMaskIntoConstraints = false

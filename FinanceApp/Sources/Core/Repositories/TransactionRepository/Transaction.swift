@@ -15,41 +15,42 @@ struct Transaction {
     let date: Date
 }
 
-enum TransactionType: String {
-    case income
-    case outcome
-}
-
 enum TransactionCategory: String, CaseIterable {
-    case market = "Market"
-    case meals = "Meals"
-    case gifts = "Gifts"
-    case billing = "Billing"
-    case salary = "Salary"
-    case utilities = "Utilities"
-    case entertainment = "Entertainment"
-    case transportation = "Transportation"
-    case healthcare = "Healthcare"
-    case subscriptions = "Subscriptions"
-    case education = "Education"
-    case travel = "Travel"
-    case groceries = "Groceries"
-    case insurance = "Insurance"
-    case savings = "Savings"
-    case investments = "Investments"
-    case taxes = "Taxes"
-    case loans = "Loans"
-    case donations = "Donations"
-    case miscellaneous = "Miscellaneous"
-    case clothing = "Clothing"
-    case personalCare = "Personal Care"
-    case homeMaintenance = "Home Maintenance"
-    case communication = "Communication"
-    case fitness = "Fitness"
-    
+    case market = "category.market"
+    case meals = "category.meals"
+    case gifts = "category.gifts"
+    case salary = "category.salary"
+    case utilities = "category.utilities"
+    case entertainment = "category.entertainment"
+    case transportation = "category.transportation"
+    case healthcare = "category.healthcare"
+    case subscriptions = "category.subscriptions"
+    case education = "category.education"
+    case travel = "category.travel"
+    case groceries = "category.groceries"
+    case insurance = "category.insurance"
+    case savings = "category.savings"
+    case investments = "category.investments"
+    case taxes = "category.taxes"
+    case loans = "category.loans"
+    case donations = "category.donations"
+    case miscellaneous = "category.miscellaneous"
+    case clothing = "category.clothing"
+    case personalCare = "category.personalCare"
+    case homeMaintenance = "category.homeMaintenance"
+    case communication = "category.communication"
+    case fitness = "category.fitness"
+    case debit = "category.debit"
+    case credit = "category.credit"
+    case bankSlip = "category.bankSlip"
+
     var iconName: String {
         let caseName = String(describing: self)
         return "icon" + caseName.prefix(1).uppercased() + caseName.dropFirst()
+    }
+
+    var description: String {
+        return self.rawValue.localized
     }
     
     static var allValues: [String] {

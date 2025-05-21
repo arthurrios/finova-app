@@ -96,7 +96,7 @@ extension DashboardViewController: DashboardViewDelegate {
     }
     
     func didTapAddTransaction() {
-        print("Add transaction tapped")
+        self.flowDelegate?.openAddTransactionModal()
     }
     
     func logout() {

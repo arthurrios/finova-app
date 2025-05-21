@@ -13,5 +13,6 @@ enum CornerRadius {
     static let medium: CGFloat = 6
     static let large: CGFloat = 8
     static let extraLarge: CGFloat = 12
+    static let bottomSheet: CGFloat = 20
 }
 

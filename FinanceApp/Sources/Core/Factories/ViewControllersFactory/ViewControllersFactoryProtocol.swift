@@ -11,4 +11,5 @@ protocol ViewControllersFactoryProtocol: AnyObject {
     func makeLoginViewController(flowDelegate: LoginFlowDelegate) -> LoginViewController
     func makeDashboardViewController(flowDelegate: DashboardFlowDelegate) -> DashboardViewController
     func makeBudgetsViewController(flowDelegate: BudgetsFlowDelegate, date: Date?) -> BudgetsViewController
+    func makeAddTransactionModalViewController(flowDelegate: AddTransactionModalFlowDelegate) -> AddTransactionModalViewController
 }

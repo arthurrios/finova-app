@@ -24,6 +24,7 @@ class Input: UIView {
         case email
         case date(style: DatePickerStyle)
         case currency
+        case picker(values: [String])
         
         static func == (lhs: InputTextFieldType, rhs: InputTextFieldType) -> Bool {
             switch (lhs, rhs) {
@@ -47,6 +48,8 @@ class Input: UIView {
     var placeholder: String
     var icon: UIImage?
     var iconPosition: IconPosition?
+    
+    var pickerDescriptions: [String]?
     
     
     // MARK: - Private Defaults
@@ -173,6 +176,10 @@ class Input: UIView {
         case .currency:
             configureCurrencyInput()
             break
+        case .picker(let values):
+            configurePickerInput(values: values)
+            pickerDescriptions = values.map { $0.description }
+            break
         case .some(.normal):
             break
         case .none:
@@ -217,7 +224,7 @@ class Input: UIView {
         NSLayoutConstraint.activate([
             heightAnchor.constraint(equalToConstant: Metrics.inputHeight),
         ])
-
+        
         iconImageView.setContentHuggingPriority(.required, for: .horizontal)
         iconImageView.setContentCompressionResistancePriority(.required, for: .horizontal)
         NSLayoutConstraint.activate([
@@ -239,29 +246,29 @@ class Input: UIView {
             ])
             return
         }
-
+        
         NSLayoutConstraint.activate([
             textField.topAnchor.constraint(equalTo: topAnchor, constant: Defaults.verticalPadding),
             textField.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -Defaults.verticalPadding),
         ])
-
+        
         switch effectiveIconPosition {
         case .left:
             NSLayoutConstraint.activate([
                 iconImageView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Defaults.horizontalPadding),
-
+                
                 textField.leadingAnchor.constraint(equalTo: iconImageView.trailingAnchor, constant: Metrics.spacing2),
                 textField.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Defaults.horizontalPadding),
             ])
-
+            
         case .right:
             NSLayoutConstraint.activate([
                 iconImageView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Metrics.spacing4),
-
+                
                 textField.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Defaults.horizontalPadding),
                 textField.trailingAnchor.constraint(equalTo: iconImageView.leadingAnchor, constant: -Metrics.spacing2),
             ])
-
+            
         case .none:
             NSLayoutConstraint.activate([
                 textField.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Defaults.horizontalPadding),
@@ -269,9 +276,9 @@ class Input: UIView {
             ])
         }
     }
-
-
-
+    
+    
+    
     
     private func addObservers() {
         let events: [UIControl.Event] = [
@@ -339,6 +346,8 @@ class Input: UIView {
     }()
     
     private var selectedMonth = Calendar.current.component(.month, from: Date())
+    private var pickerValues: [String]?
+    private var selectedPickerIndex: Int = 0
     private var selectedYear = Calendar.current.component(.year, from: Date())
     
     private func monthOptionsCount() -> Int {
@@ -378,6 +387,34 @@ class Input: UIView {
         updateAppearance()
     }
     
+    private func configurePickerInput(values: [String]) {
+        let picker = UIPickerView()
+        picker.dataSource = self
+        picker.delegate = self
+        self.pickerValues = values
+        textField.inputView = picker
+        
+        let toolbar = UIToolbar()
+        toolbar.sizeToFit()
+        
+        let done = UIBarButtonItem(
+            barButtonSystemItem: .done, target: self, action: #selector(pickerDoneTapped)
+        )
+        toolbar.setItems([.flexibleSpace(), done], animated: false)
+        
+        textField.inputAccessoryView = toolbar
+        textField.tintColor = .clear
+    }
+    
+    @objc private func pickerDoneTapped() {
+        if let selected = pickerValues?[selectedPickerIndex] {
+            textField.text = selected
+        }
+        setError(false)
+        textField.resignFirstResponder()
+        updateAppearance()
+    }
+    
     @objc
     private func clearErrorOnTyping() {
         guard isError else { return }
@@ -397,9 +434,9 @@ class Input: UIView {
     private func currencyTextChanged() {
         guard let raw = textField.text else { return }
         let digits = raw
-          .compactMap { $0.wholeNumberValue }
-          .map(String.init)
-          .joined()
+            .compactMap { $0.wholeNumberValue }
+            .map(String.init)
+            .joined()
         let intValue = Int(digits) ?? 0
         centsValue = intValue
         
@@ -442,10 +479,21 @@ class Input: UIView {
     }
 }
 
+
 extension Input: UIPickerViewDataSource, UIPickerViewDelegate {
-    func numberOfComponents(in pickerView: UIPickerView) -> Int { 2 }
+    func numberOfComponents(in pickerView: UIPickerView) -> Int {
+        if case .picker = type {
+            return 1
+        } else if case .date(let style) = type {
+            return style == .monthYear ? 2 : 3
+        }
+        return 1
+    }
     
     func pickerView(_ pickerView: UIPickerView, numberOfRowsInComponent component: Int) -> Int {
+        if pickerValues != nil {
+            return pickerValues?.count ?? 0
+        }
         switch component {
         case 0:
             return monthOptionsCount()
@@ -457,6 +505,9 @@ extension Input: UIPickerViewDataSource, UIPickerViewDelegate {
     }
     
     func pickerView(_ pickerView: UIPickerView, titleForRow row: Int, forComponent component: Int) -> String? {
+        if pickerValues != nil {
+            return pickerValues?[row]
+        }
         switch component {
         case 0:
             let index = (selectedYear == currentYear) ? (currentMonth - 1 + row) : row
@@ -469,6 +520,10 @@ extension Input: UIPickerViewDataSource, UIPickerViewDelegate {
     }
     
     func pickerView(_ pickerView: UIPickerView, didSelectRow row: Int, inComponent component: Int) {
+        if pickerValues != nil {
+            selectedPickerIndex = row
+            return
+        }
         switch component {
         case 1:
             selectedYear = years[row]
@@ -484,7 +539,7 @@ extension Input: UIPickerViewDataSource, UIPickerViewDelegate {
         default:
             break
         }
-        
+                
         var comps = DateComponents()
         comps.month = selectedMonth
         comps.year = selectedYear
@@ -505,7 +560,7 @@ extension Input: UITextFieldDelegate {
         fmt.numberStyle  = .currency
         fmt.currencyCode = code
         let symbol = fmt.currencySymbol ?? code
-
+        
         prefixLabel.text      = symbol
         prefixLabel.font      = Fonts.input.font
         prefixLabel.textColor = Defaults.iconColor

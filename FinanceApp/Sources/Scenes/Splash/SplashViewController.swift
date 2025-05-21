@@ -38,7 +38,7 @@ final class SplashViewController: UIViewController {
     
     private func decideNavigationFlow() {
         if let user = UserDefaultsManager.getUser(), user.isUserSaved {
-            flowDelegate?.navigateToDashboard()
+            flowDelegate?.navigateToDirectlyToDashboard()
         } else {
             animateLogoUp()
         }

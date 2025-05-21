@@ -29,7 +29,7 @@ final class DashboardViewModel {
         }
                 
         let spendings = transactionRepo.fetchTransactions()
-            .filter { $0.type == .outcome }
+            .filter { $0.type == .expense }
             .reduce(into: [String: Int]()) { acc, tx in
                 let key = DateFormatter.keyFormatter.string(from: tx.date)
                 acc[key, default: 0] += tx.amount

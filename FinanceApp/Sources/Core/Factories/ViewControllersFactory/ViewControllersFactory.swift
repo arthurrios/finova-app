@@ -8,6 +8,13 @@
 import Foundation
 
 final class ViewControllersFactory: ViewControllersFactoryProtocol {
+    func makeAddTransactionModalViewController(flowDelegate: any AddTransactionModalFlowDelegate) -> AddTransactionModalViewController {
+        let contentView = AddTransactionModalView()
+        let viewModel = AddTransactionModalViewModel()
+        let viewController = AddTransactionModalViewController(contentView: contentView, flowDelegate: flowDelegate, viewModel: viewModel)
+        return viewController
+    }
+    
     func makeSplashViewController(flowDelegate: SplashFlowDelegate) -> SplashViewController {
         let contentView = SplashView()
         let viewController = SplashViewController(contentView: contentView, flowDelegate: flowDelegate)
