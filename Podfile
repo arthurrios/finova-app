@@ -8,5 +8,5 @@ target 'FinanceApp' do
   # Pods for FinanceApp
   pod 'Firebase/Auth'
   pod 'ShimmerView'
-
+  pod 'SQLite.swift'
 end

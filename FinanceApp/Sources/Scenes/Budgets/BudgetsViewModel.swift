@@ -9,20 +9,45 @@ import Foundation
 
 final class BudgetsViewModel {
     let budgetRepo: BudgetRepository
-    private let calendar = Calendar.current
     let selectedDate: Date?
+    
+    enum BudgetError: Error {
+        case invalidDateFormat
+        case budgetAlreadyExists
+    }
     
     init(budgetRepo: BudgetRepository = BudgetRepository(), initialDate: Date? = nil) {
         self.budgetRepo = budgetRepo
         selectedDate = initialDate
     }
     
-    func loadMonthTableViewData() -> [BudgetModel] {
-        let budgets = budgetRepo.fetchBudgets()
+    func loadMonthTableViewData() -> [DisplayBudgetModel] {
+        return budgetRepo.fetchBudgets().map { entry in
+            let date = Date(timeIntervalSince1970: TimeInterval(entry.monthDate))
+            return DisplayBudgetModel(date: date, amount: entry.amount)
+        }
+    }
+    
+    func addBudget(amount: Int, monthYearDate: String) -> Result<Void, Error> {
+        guard let date = DateFormatter.monthYearFormatter.date(from: monthYearDate) else {
+            return .failure(BudgetError.invalidDateFormat)
+        }
         
-        return budgets.map { entry in
-            let date = Date(entry.monthKey)
-            return BudgetModel(date: date, budget: entry.budget)
+        let anchor = date.monthAnchor
+        let model = BudgetModel(monthDate: anchor, amount: amount)
+        
+        do {
+            if budgetRepo.exists(monthDate: anchor) {
+                print("Erro")
+                return .failure(BudgetError.budgetAlreadyExists)
+            } else {
+                try budgetRepo.insert(budget: model)
+            }
+            print("Sucesso")
+            return .success(())
+        } catch {
+            print("Erro", error)
+            return .failure(error)
         }
     }
 }

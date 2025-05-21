@@ -12,7 +12,7 @@ final class BudgetsView: UIView {
     public weak var delegate: BudgetsViewDelegate?
     
     private var tableHeightConstraint: NSLayoutConstraint?
-    private var budgets: [BudgetModel] = []
+    private var budgets: [DisplayBudgetModel] = []
     
     private let headerContainerView: UIView = {
         let view = UIView()
@@ -238,7 +238,7 @@ final class BudgetsView: UIView {
         ])
     }
     
-    func updateUI(with budgets: [BudgetModel], selectedDate: Date?) {
+    func updateUI(with budgets: [DisplayBudgetModel], selectedDate: Date?) {
         self.budgets = budgets
         
         if let selectedDate = selectedDate {

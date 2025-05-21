@@ -395,6 +395,7 @@ class Input: UIView {
         textField.inputView = picker
         
         let toolbar = UIToolbar()
+        toolbar.translatesAutoresizingMaskIntoConstraints = false
         toolbar.sizeToFit()
         
         let done = UIBarButtonItem(

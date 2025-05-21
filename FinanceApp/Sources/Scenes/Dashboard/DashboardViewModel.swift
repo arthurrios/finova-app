@@ -24,8 +24,11 @@ final class DashboardViewModel {
         let today = Date()
         
         let budgetsArray = budgetRepo.fetchBudgets()
+        
         let budgetsByKey = budgetsArray.reduce(into: [String: Int]()) { acc, entry in
-            acc[entry.monthKey] = entry.budget
+            let date = Date(timeIntervalSince1970: TimeInterval(entry.monthDate))
+            let key = DateFormatter.keyFormatter.string(from: date)
+            acc[key] = entry.amount
         }
                 
         let spendings = transactionRepo.fetchTransactions()

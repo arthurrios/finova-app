@@ -13,6 +13,11 @@ struct BudgetEntry {
 }
 
 struct BudgetModel {
+    let monthDate: Int
+    let amount: Int
+}
+
+struct DisplayBudgetModel {
     let date: Date
-    let budget: Int
+    let amount: Int
 }

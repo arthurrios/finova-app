@@ -47,10 +47,14 @@ PODS:
   - GTMSessionFetcher/Core (4.2.0)
   - RecaptchaInterop (100.0.0)
   - ShimmerView (0.5.0)
+  - SQLite.swift (0.15.3):
+    - SQLite.swift/standard (= 0.15.3)
+  - SQLite.swift/standard (0.15.3)
 
 DEPENDENCIES:
   - Firebase/Auth
   - ShimmerView
+  - SQLite.swift
 
 SPEC REPOS:
   trunk:
@@ -65,6 +69,7 @@ SPEC REPOS:
     - GTMSessionFetcher
     - RecaptchaInterop
     - ShimmerView
+    - SQLite.swift
 
 SPEC CHECKSUMS:
   Firebase: a64bf6a8546e6eab54f1c715cd6151f39d2329f4
@@ -78,7 +83,8 @@ SPEC CHECKSUMS:
   GTMSessionFetcher: 4cb0aa086996858328a1fca61f9bfe81cfdfdfa9
   RecaptchaInterop: 7d1a4a01a6b2cb1610a47ef3f85f0c411434cb21
   ShimmerView: ffde81304d8fb29127cbce492d14430dca288ebb
+  SQLite.swift: 8d054987f02728cc912b0eb5a9659650573a65a2
 
-PODFILE CHECKSUM: 076f00055dbc9e8469afaf59dae6e03a235859b7
+PODFILE CHECKSUM: 7188a7a1a4909cc85b62e1842f83ce3b3417e553
 
 COCOAPODS: 1.16.2

@@ -8,21 +8,25 @@
 import Foundation
 
 final class BudgetRepository: BudgetRepositoryProtocol {
-    let entries: [(String, Int)] = [
-        ("2024-08", 5000_00),
-        ("2024-09", 5000_00),
-        ("2024-10", 5000_00),
-        ("2024-11", 5000_00),
-        ("2024-12", 5000_00),
-        ("2025-01", 5000_00),
-        ("2025-02", 5000_00),
-        ("2025-03", 5000_00),
-        ("2025-05", 5000_00),
-    ]
+    private let db = DBHelper.shared
     
-    func fetchBudgets() -> [BudgetEntry] {
-        return entries.map { (monthKey, budget) in
-            BudgetEntry(monthKey: monthKey, budget: budget)
-        }
+    func insert(budget: BudgetModel) throws {
+        try db.insertBudget(monthDate: budget.monthDate, amount: budget.amount)
+    }
+    
+    func update(budget: BudgetModel) throws {
+        //
+    }
+    
+    func delete(monthDate: Int) throws {
+        try db.deleteBudget(monthDate: monthDate)
+    }
+    
+    func fetchBudgets() -> [BudgetModel] {
+        (try? db.getBudgets()) ?? []
+    }
+    
+    func exists(monthDate: Int) -> Bool {
+        (try? db.exists(monthDate: monthDate)) ?? false
     }
 }

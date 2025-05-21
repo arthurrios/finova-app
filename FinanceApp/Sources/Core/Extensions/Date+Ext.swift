@@ -18,4 +18,12 @@ extension Date {
             self = Date()
         }
     }
+    
+    var monthAnchor: Int {
+      var cal = Calendar(identifier: .gregorian)
+      cal.timeZone = TimeZone(abbreviation: "UTC")!
+      let comps = cal.dateComponents([.year, .month], from: self)
+      let firstOfMonth = cal.date(from: comps)!
+      return Int(firstOfMonth.timeIntervalSince1970)
+    }
 }

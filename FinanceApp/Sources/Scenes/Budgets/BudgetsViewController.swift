@@ -14,7 +14,7 @@ final class BudgetsViewController: UIViewController {
     public weak var flowDelegate: BudgetsFlowDelegate?
     
     private var tableHeightConstraint: NSLayoutConstraint?
-    private var budgetsData: [BudgetModel] = []
+    private var budgetsData: [DisplayBudgetModel] = []
     
     init(contentView: BudgetsView, viewModel: BudgetsViewModel, flowDelegate: BudgetsFlowDelegate? = nil) {
         self.contentView = contentView
@@ -99,7 +99,7 @@ final class BudgetsViewController: UIViewController {
 
 extension BudgetsViewController: BudgetsViewDelegate {
     func didTapAddBudgetButton(monthYearDate: String, budgetAmount: Int) {
-        print(monthYearDate, budgetAmount)
+        viewModel.addBudget(amount: budgetAmount, monthYearDate: monthYearDate)
     }
     
     func didTapBackButton() {
@@ -117,8 +117,7 @@ extension BudgetsViewController: UITableViewDataSource, UITableViewDelegate {
         let cell = tv.dequeueReusableCell(withIdentifier: BudgetsCell.reuseID, for: ip) as! BudgetsCell
                 
         let budgetModel = budgetsData[ip.row]
-        cell.configure(date: budgetModel.date, value: budgetModel.budget)
-        
+        cell.configure(date: budgetModel.date, value: budgetModel.amount)
         cell.selectionStyle = .none
         
         return cell

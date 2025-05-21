@@ -8,5 +8,9 @@
 import Foundation
 
 protocol BudgetRepositoryProtocol {
-    func fetchBudgets() -> [BudgetEntry]
+    func fetchBudgets() -> [BudgetModel]
+    func exists(monthDate: Int) -> Bool
+    func insert(budget: BudgetModel) throws
+    func update(budget: BudgetModel) throws
+    func delete(monthDate: Int) throws
 }
