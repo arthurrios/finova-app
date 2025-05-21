@@ -38,15 +38,12 @@ final class BudgetsViewModel {
         
         do {
             if budgetRepo.exists(monthDate: anchor) {
-                print("Erro")
                 return .failure(BudgetError.budgetAlreadyExists)
             } else {
                 try budgetRepo.insert(budget: model)
             }
-            print("Sucesso")
             return .success(())
         } catch {
-            print("Erro", error)
             return .failure(error)
         }
     }

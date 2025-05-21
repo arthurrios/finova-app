@@ -9,21 +9,23 @@ import Foundation
 
 public struct DateUtils {
     public static func isPastMonth(date: Date) -> Bool {
-        let calendar = Calendar.current
-        let currentDate = Date()
+        var utcCal = Calendar(identifier: .gregorian)
+        utcCal.timeZone = TimeZone(secondsFromGMT: 0)!
         
-        let currentMonth = calendar.component(.month, from: currentDate)
-        let currentYear = calendar.component(.year, from: currentDate)
+        let now = Date()
+        let currentComp = utcCal.dateComponents([.year, .month], from: now)
+        let targetComp  = utcCal.dateComponents([.year, .month], from: date)
         
-        let dateMonth = calendar.component(.month, from: date)
-        let dateYear = calendar.component(.year, from: date)
-        
-        if dateYear < currentYear {
-            return true
-        } else if dateYear == currentYear && dateMonth < currentMonth {
-            return true
+        guard let cY = currentComp.year,
+              let cM = currentComp.month,
+              let dY = targetComp.year,
+              let dM = targetComp.month
+        else {
+            return false
         }
         
+        if dY < cY { return true }
+        if dY == cY && dM < cM { return true }
         return false
     }
 }

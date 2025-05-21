@@ -68,7 +68,7 @@ final class BudgetsViewController: UIViewController {
     
     
     private func updateTableHeight() {
-        let rowHeight: CGFloat = 67
+        let rowHeight: CGFloat = 52
         let separatorHeight = CGFloat(max(0, budgetsData.count - 1)) * 1.0
         let contentHeight   = CGFloat(budgetsData.count) * rowHeight + separatorHeight
         
@@ -99,9 +99,43 @@ final class BudgetsViewController: UIViewController {
 
 extension BudgetsViewController: BudgetsViewDelegate {
     func didTapAddBudgetButton(monthYearDate: String, budgetAmount: Int) {
-        viewModel.addBudget(amount: budgetAmount, monthYearDate: monthYearDate)
+        let result = viewModel.addBudget(
+            amount: budgetAmount,
+            monthYearDate: monthYearDate
+        )
+        
+        switch result {
+        case .success:
+            loadData()
+            contentView.budgetsTableView.reloadData()
+        case .failure(let error):
+            
+            let message: String
+            switch error {
+            case BudgetsViewModel.BudgetError.invalidDateFormat:
+                message = "budgets.error.invalidDate".localized
+            case
+                BudgetsViewModel.BudgetError.budgetAlreadyExists:
+                message = "budgets.error.budgetAlreadyExists".localized
+            case DBError.openDatabaseFailed:
+                message = "budgets.error.dbOpenFailed".localized
+            case DBError.prepareFailed(message: let msg):
+                message = msg.isEmpty ? "budgets.error.dbPrepareFailed".localized : msg
+            default:
+                message = error.localizedDescription
+            }
+            
+            
+            let alertController = UIAlertController(title: "alert.error.title".localized, message: message, preferredStyle: .alert)
+            let retryAction = UIAlertAction(title: "alert.error.ok".localized, style: .default)
+            alertController.addAction(retryAction)
+            
+            DispatchQueue.main.async {
+                self.present(alertController, animated: true)
+            }
+        }
     }
-    
+        
     func didTapBackButton() {
         flowDelegate?.navBackToDashboard()
     }
@@ -115,7 +149,7 @@ extension BudgetsViewController: UITableViewDataSource, UITableViewDelegate {
     
     func tableView(_ tv: UITableView, cellForRowAt ip: IndexPath) -> UITableViewCell {
         let cell = tv.dequeueReusableCell(withIdentifier: BudgetsCell.reuseID, for: ip) as! BudgetsCell
-                
+        
         let budgetModel = budgetsData[ip.row]
         cell.configure(date: budgetModel.date, value: budgetModel.amount)
         cell.selectionStyle = .none

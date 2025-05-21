@@ -222,6 +222,74 @@
         }
       }
     },
+    "budgets.error.budgetAlreadyExists" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Budget for selected month already exists."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Já existe orçamento para o mês selecionado."
+          }
+        }
+      }
+    },
+    "budgets.error.dbOpenFailed" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Please enter a valid month/year (MM/yyyy)."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Insira um mês/ano válido (MM/yyyy)."
+          }
+        }
+      }
+    },
+    "budgets.error.dbPrepareFailed" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Couldn't open the database. Please try again later."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Não foi possível abrir o banco de dados. Tente novamente mais tarde."
+          }
+        }
+      }
+    },
+    "budgets.error.invalidDate" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "An internal database error occurred."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ocorreu um erro interno do banco de dados."
+          }
+        }
+      }
+    },
     "budgets.header.subtitle" : {
       "extractionState" : "manual",
       "localizations" : {
