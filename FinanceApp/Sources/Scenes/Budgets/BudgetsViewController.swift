@@ -66,19 +66,25 @@ final class BudgetsViewController: UIViewController {
         contentView.budgetsTableView.delegate = self
     }
     
+    
     private func updateTableHeight() {
-        let numberOfRows = tableView(contentView.budgetsTableView, numberOfRowsInSection: 0)
-        let rowHeight = tableView(contentView.budgetsTableView, heightForRowAt: IndexPath(row: 0, section: 0))
-        let totalHeight = CGFloat(numberOfRows) * rowHeight
+        let rowHeight: CGFloat = 67
+        let separatorHeight = CGFloat(max(0, budgetsData.count - 1)) * 1.0
+        let contentHeight   = CGFloat(budgetsData.count) * rowHeight + separatorHeight
         
-        let separatorHeight = CGFloat(max(0, numberOfRows - 1)) * 1.0
+        let maxTableHeight: CGFloat = Metrics.budgetsTableHeight
+        let finalHeight = min(contentHeight, maxTableHeight)
         
         if tableHeightConstraint == nil {
-            tableHeightConstraint = contentView.budgetsTableView.heightAnchor.constraint(equalToConstant: totalHeight + separatorHeight)
+            tableHeightConstraint = contentView.budgetsTableView.heightAnchor.constraint(equalToConstant: finalHeight)
             tableHeightConstraint?.isActive = true
         } else {
-            tableHeightConstraint?.constant = totalHeight + separatorHeight
+            tableHeightConstraint?.constant = finalHeight
         }
+        
+        contentView.budgetsTableView.isScrollEnabled = (contentHeight > maxTableHeight)
+        
+        view.layoutIfNeeded()
     }
     
     private func buildHierarchy() {
