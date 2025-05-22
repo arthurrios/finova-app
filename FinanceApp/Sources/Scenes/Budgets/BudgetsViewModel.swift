@@ -63,4 +63,20 @@ final class BudgetsViewModel {
             return .failure(error)
         }
     }
+    
+    func deleteBudget(monthYearDate: String) -> Result<Void, Error> {
+        guard let date = DateFormatter.monthYearFormatter.date(from: monthYearDate) else {
+            return .failure(BudgetError.invalidDateFormat)
+        }
+        
+        let anchor = date.monthAnchor
+        
+        do {
+            try budgetRepo.delete(monthDate: anchor)
+            
+            return .success(())
+        } catch {
+            return .failure(error)
+        }
+    }
 }

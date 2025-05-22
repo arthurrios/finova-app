@@ -18,15 +18,15 @@ extension DateFormatter {
     }()
     
     static let monthYearFormatter: DateFormatter = {
-      let fmt = DateFormatter()
-      fmt.dateFormat = DateFormatter.dateFormat(
-        fromTemplate: "MM/yyyy",
-        options: 0,
-        locale: Locale.current
-      )
-      fmt.locale = Locale.current
-      fmt.timeZone = TimeZone.current
-      return fmt
+        let fmt = DateFormatter()
+        fmt.dateFormat = DateFormatter.dateFormat(
+            fromTemplate: "MM/yyyy",
+            options: 0,
+            locale: Locale.current
+        )
+        fmt.locale = Locale.current
+        fmt.timeZone = TimeZone(secondsFromGMT: 0)
+        return fmt
     }()
     
     static let fullDateFormatter: DateFormatter = {

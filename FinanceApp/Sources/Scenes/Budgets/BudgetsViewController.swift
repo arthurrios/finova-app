@@ -175,33 +175,53 @@ extension BudgetsViewController: BudgetsViewDelegate {
 }
 
     
-    extension BudgetsViewController: UITableViewDataSource, UITableViewDelegate {
-        func tableView(_ tv: UITableView, numberOfRowsInSection section: Int) -> Int {
-            return budgetsData.count
-        }
+extension BudgetsViewController: UITableViewDataSource, UITableViewDelegate, BudgetsCellDelegate {
+    func budgetCellDidRequestDelete(_ cell: BudgetsCell) {
+        guard let ip = contentView.budgetsTableView.indexPath(for: cell) else { return }
+        let model = budgetsData[ip.row]
         
-        func tableView(_ tv: UITableView, cellForRowAt ip: IndexPath) -> UITableViewCell {
-            let cell = tv.dequeueReusableCell(withIdentifier: BudgetsCell.reuseID, for: ip) as! BudgetsCell
-            
-            let budgetModel = budgetsData[ip.row]
-            cell.configure(date: budgetModel.date, value: budgetModel.amount)
-            cell.selectionStyle = .none
-            
-            return cell
-        }
+        let monthDate = DateFormatter.monthYearFormatter.string(from: model.date)
         
-        private func parseDateString(_ dateString: String) -> Date {
-            
-            if let date = DateFormatter.keyToDate.date(from: dateString) {
-                return date
-            }
-            
-            return Date()
-        }
         
-        func tableView(_ tv: UITableView, heightForRowAt ip: IndexPath) -> CGFloat { 52 }
-        
-        func tableView(_ tableView: UITableView, willSelectRowAt indexPath: IndexPath) -> IndexPath? {
-            return nil
+        switch viewModel.deleteBudget(monthYearDate: monthDate) {
+        case .success:
+            budgetsData.remove(at: ip.row)
+            contentView.budgetsTableView.deleteRows(at: [ip], with: .automatic)
+            updateTableHeight()
+            contentView.toggleEmptyState(budgetsData.isEmpty)
+        case .failure(let error):
+            showErrorAlert(error: error)
         }
     }
+    
+    func tableView(_ tv: UITableView, numberOfRowsInSection section: Int) -> Int {
+        return budgetsData.count
+    }
+    
+    func tableView(_ tv: UITableView, cellForRowAt ip: IndexPath) -> UITableViewCell {
+        let cell = tv.dequeueReusableCell(withIdentifier: BudgetsCell.reuseID, for: ip) as! BudgetsCell
+        
+        cell.delegate = self
+        
+        let budgetModel = budgetsData[ip.row]
+        cell.configure(date: budgetModel.date, value: budgetModel.amount)
+        cell.selectionStyle = .none
+        
+        return cell
+    }
+    
+    private func parseDateString(_ dateString: String) -> Date {
+        
+        if let date = DateFormatter.keyToDate.date(from: dateString) {
+            return date
+        }
+        
+        return Date()
+    }
+    
+    func tableView(_ tv: UITableView, heightForRowAt ip: IndexPath) -> CGFloat { 52 }
+    
+    func tableView(_ tableView: UITableView, willSelectRowAt indexPath: IndexPath) -> IndexPath? {
+        return nil
+    }
+}

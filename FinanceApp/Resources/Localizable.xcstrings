@@ -936,6 +936,23 @@
         }
       }
     },
+    "delete.action.label" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remove"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remover"
+          }
+        }
+      }
+    },
     "input.email" : {
       "extractionState" : "manual",
       "localizations" : {

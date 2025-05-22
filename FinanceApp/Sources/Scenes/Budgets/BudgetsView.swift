@@ -259,6 +259,11 @@ final class BudgetsView: UIView {
         dateInput.textField.text = ""
         budgetValueInput.textField.text = ""
     }
+    
+    func toggleEmptyState(_ show: Bool) {
+        budgetsTableView.isHidden = show
+        emptyStateView.isHidden = !show
+    }
 
     override func layoutSubviews() {
         super.layoutSubviews()
