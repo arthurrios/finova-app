@@ -14,6 +14,7 @@ final class DashboardViewController: UIViewController {
     let syncedViewModel: SyncedCollectionsViewModel
     var todayMonthIndex: Int
     var isLoadingInitialData: Bool
+    private var needsRefresh = false
     weak var flowDelegate: DashboardFlowDelegate?
     
     init(
@@ -38,9 +39,17 @@ final class DashboardViewController: UIViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         setup()
-        contentView.frame = view.bounds
         loadData()
+        contentView.frame = view.bounds
         setupCollectionViews()
+    }
+    
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        viewModel.refreshMonthlyCards()
+        let monthData = viewModel.loadMonthlyCards()
+        syncedViewModel.setMonthData(monthData)
+        syncedViewModel.setTransactions(viewModel.transactionRepo.fetchTransactions())
     }
     
     private func setup() {
@@ -211,7 +220,6 @@ extension DashboardViewController: UIScrollViewDelegate {
         if scrollView == contentView.monthCarousel {
             let pageWidth = scrollView.frame.width
             let currentPage = Int(floor((scrollView.contentOffset.x - pageWidth / 2) / pageWidth) + 1)
-            
             if currentPage >= 0 && currentPage < syncedViewModel.monthData.count {
                 syncedViewModel.selectMonth(at: currentPage, animated: true)
             }

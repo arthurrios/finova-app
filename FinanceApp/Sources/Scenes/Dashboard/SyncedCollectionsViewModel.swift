@@ -35,13 +35,11 @@ final class SyncedCollectionsViewModel {
     // MARK: - Public Methods
     func setMonthData(_ data: [MonthBudgetCardType]) {
         monthData = data
-        updateAvailableValueForCurrentMonth()
         delegate?.didUpdateMonthData(data)
     }
     
     func setTransactions(_ transactions: [Transaction]) {
         allTransactions = transactions
-        updateAvailableValueForCurrentMonth()
         delegate?.didUpdateTransactions(transactions)
     }
     
@@ -49,7 +47,6 @@ final class SyncedCollectionsViewModel {
         let clampedIndex = min(max(index, 0), monthRange.count - 1)
         if clampedIndex != selectedIndex {
             selectedIndex = clampedIndex
-            updateAvailableValueForCurrentMonth()
             DispatchQueue.main.async {
                 self.delegate?.didUpdateSelectedIndex(clampedIndex, animated: animated)
             }
@@ -74,14 +71,26 @@ final class SyncedCollectionsViewModel {
         } ?? monthRange.lowerBound
     }
     
-    private func updateAvailableValueForCurrentMonth() {
-        guard !monthData.isEmpty, selectedIndex < monthData.count else { return }
-        
-        let availableValue = sumMonthTransactions()
+    private func updateAvailableValuesForAllMonths() {
+        guard !monthData.isEmpty else { return }
+
         var updatedMonthData = monthData
-        updatedMonthData[selectedIndex].availableValue = availableValue
+
+        for index in 0..<updatedMonthData.count {
+            let dateKey = DateFormatter.keyFormatter.string(from: updatedMonthData[index].date)
+
+            let total = allTransactions
+                .filter { DateFormatter.keyFormatter.string(from: $0.date) == dateKey }
+                .reduce(0) { result, transaction in
+                    transaction.type == .income ? result + transaction.amount : result - transaction.amount
+                }
+
+            updatedMonthData[index].availableValue = total
+        }
+
         monthData = updatedMonthData
     }
+
     
     func moveToNextMonth(animated: Bool = true) {
         selectMonth(at: selectedIndex + 1, animated: animated)

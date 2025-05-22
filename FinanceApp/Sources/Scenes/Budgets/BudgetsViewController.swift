@@ -108,6 +108,7 @@ extension BudgetsViewController: BudgetsViewDelegate {
         case .success:
             loadData()
             contentView.budgetsTableView.reloadData()
+            contentView.clearTextFields()
         case .failure(let error):
             
             let message: String

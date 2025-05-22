@@ -254,6 +254,11 @@ final class BudgetsView: UIView {
             budgetsTableView.reloadData()
         }
     }
+    
+    func clearTextFields() {
+        dateInput.textField.text = ""
+        budgetValueInput.textField.text = ""
+    }
 
     override func layoutSubviews() {
         super.layoutSubviews()

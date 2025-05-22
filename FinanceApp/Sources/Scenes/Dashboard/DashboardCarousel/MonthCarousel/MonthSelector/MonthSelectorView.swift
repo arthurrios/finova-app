@@ -15,6 +15,10 @@ class MonthSelectorView: UIView {
     var months: [String] = [] {
         didSet {
             collectionView.reloadData()
+            DispatchQueue.main.async { [weak self] in
+                guard let self = self else { return }
+                self.selectCell(at: self.selectedIndex, animated: false)
+            }
         }
     }
     
@@ -88,6 +92,11 @@ class MonthSelectorView: UIView {
     func configure(months: [String], selectedIndex: Int = 0) {
         self.selectedIndex = selectedIndex
         self.months = months
+        
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            self.selectCell(at: selectedIndex, animated: false)
+        }
     }
     
     func scrollToMonth(at index: Int, animated: Bool = true) {
@@ -98,6 +107,16 @@ class MonthSelectorView: UIView {
                                   animated: true,
                                   scrollPosition: .centeredHorizontally)
         collectionView.scrollToItem(at: indexPath, at: .centeredHorizontally, animated: animated)
+    }
+    
+    private func selectCell(at index: Int, animated: Bool) {
+        let indexPath = IndexPath(item: index, section: 0)
+        collectionView.selectItem(at: indexPath,
+                                  animated: animated,
+                                  scrollPosition: .centeredHorizontally)
+        collectionView.scrollToItem(at: indexPath,
+                                    at: .centeredHorizontally,
+                                    animated: animated)
     }
     
     @objc
@@ -127,9 +146,7 @@ extension MonthSelectorView: UICollectionViewDataSource, UICollectionViewDelegat
         delegate?.didSelectMonth(at: indexPath.item)
     }
     
-    // Size is determined by DashboardViewController's UICollectionViewDelegateFlowLayout implementation
-    // to ensure exactly 5 cells are visible at once
     func collectionView(_ collectionView: UICollectionView, layout collectionViewLayout: UICollectionViewLayout, sizeForItemAt indexPath: IndexPath) -> CGSize {
-        return CGSize(width: 0, height: bounds.height) // Width will be overridden by DashboardViewController
+        return CGSize(width: 0, height: bounds.height)
     }
 }

@@ -93,7 +93,5 @@ extension AppFlowController: BudgetsFlowDelegate {
 }
 
 extension AppFlowController: AddTransactionModalFlowDelegate {
-    func closeModal() {
-        //
-    }
+
 }
