@@ -8,7 +8,7 @@
 import Foundation
 
 public protocol AddTransactionModalViewDelegate: AnyObject {
-    func handleError(message: String)
+    func handleError(title: String, message: String)
     func sendTransactionData(title: String, amount: Int, date: String, category: String, transactionType: String)
     func closeModal()
 }

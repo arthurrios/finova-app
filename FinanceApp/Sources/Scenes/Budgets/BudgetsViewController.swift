@@ -117,7 +117,7 @@ extension BudgetsViewController: BudgetsViewDelegate {
                 message = "budgets.error.invalidDate".localized
             case
                 BudgetsViewModel.BudgetError.budgetAlreadyExists:
-                message = "budgets.error.budgetAlreadyExists".localized
+                message = "budgets.alert.budgetAlreadyExists.description".localized
             case DBError.openDatabaseFailed:
                 message = "budgets.error.dbOpenFailed".localized
             case DBError.prepareFailed(message: let msg):
@@ -127,7 +127,7 @@ extension BudgetsViewController: BudgetsViewDelegate {
             }
             
             
-            let alertController = UIAlertController(title: "alert.error.title".localized, message: message, preferredStyle: .alert)
+            let alertController = UIAlertController(title: "budgets.alert.title".localized, message: message, preferredStyle: .alert)
             let retryAction = UIAlertAction(title: "alert.error.ok".localized, style: .default)
             alertController.addAction(retryAction)
             

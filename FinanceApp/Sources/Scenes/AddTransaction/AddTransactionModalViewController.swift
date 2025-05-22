@@ -89,8 +89,8 @@ final class AddTransactionModalViewController: UIViewController {
 }
 
 extension AddTransactionModalViewController: AddTransactionModalViewDelegate, TransactionTypeSelectorDelegate {
-    func handleError(message: String) {
-        let alertController = UIAlertController(title: "alert.error.title".localized, message: message, preferredStyle: .alert)
+    func handleError(title: String, message: String) {
+        let alertController = UIAlertController(title: title, message: message, preferredStyle: .alert)
         let retryAction = UIAlertAction(title: "alert.error.ok".localized, style: .default)
         alertController.addAction(retryAction)
         self.present(alertController, animated: true)

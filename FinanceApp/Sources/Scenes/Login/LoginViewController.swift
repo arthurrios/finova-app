@@ -49,13 +49,13 @@ final class LoginViewController: UIViewController {
             self?.presentSaveLoginAlert(name: userName, email: userEmail)
         }
         
-        viewModel.errorResult = { [weak self] error in
-            self?.presentErrorAlert(message: error)
+        viewModel.errorResult = { [weak self] title, message in
+            self?.presentErrorAlert(title: title, message: message)
         }
     }
     
-    private func presentErrorAlert(message: String) {
-        let alertController = UIAlertController(title: "login.error.title".localized, message: message, preferredStyle: .alert)
+    private func presentErrorAlert(title: String, message: String) {
+        let alertController = UIAlertController(title: title, message: message, preferredStyle: .alert)
         let retryAction = UIAlertAction(title: "login.error.tryAgain".localized, style: .default)
         alertController.addAction(retryAction)
         self.present(alertController, animated: true)

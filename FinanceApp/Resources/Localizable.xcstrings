@@ -1,6 +1,40 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "addTransactionModal.alert.transactionType.description" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Transaction type must be of income or expense"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A transação precisa ser ou do tipo entrada ou saída"
+          }
+        }
+      }
+    },
+    "addTransactionModal.alert.transactionType.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Invalid transaction type"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tipo de transação inválida"
+          }
+        }
+      }
+    },
     "addTransactionModal.button.save" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -14,23 +48,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Salvar"
-          }
-        }
-      }
-    },
-    "addTransactionModal.error.transactionType" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Please select a type of Income or Expense"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Por favor selecione um tipo de Entrada ou Saída"
           }
         }
       }
@@ -188,19 +205,53 @@
         }
       }
     },
+    "budgets.alert.budgetAlreadyExists.description" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Budget for selected month already exists."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Já existe orçamento para o mês selecionado."
+          }
+        }
+      }
+    },
+    "budgets.alert.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Budget"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Orçamento"
+          }
+        }
+      }
+    },
     "budgets.button.add.title" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Register"
+            "value" : "Save"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Adicionar"
+            "value" : "Salvar"
           }
         }
       }
@@ -218,23 +269,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Você ainda não registrou nenhum orçamento"
-          }
-        }
-      }
-    },
-    "budgets.error.budgetAlreadyExists" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Budget for selected month already exists."
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Já existe orçamento para o mês selecionado."
           }
         }
       }
@@ -987,36 +1021,36 @@
         }
       }
     },
-    "login.error.message.invalidCredentials" : {
+    "login.error.invalidCredentials.description" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Invalid credentials."
+            "value" : "Provide valid credentials"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Credenciais inválidas."
+            "value" : "Insira credenciais válidas"
           }
         }
       }
     },
-    "login.error.message.unexpectedError" : {
+    "login.error.invalidCredentials.title" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "An unexpected error occurred. Please try again later."
+            "value" : "Invalid Credentials"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ocorreu um erro inesperado. Tente novamente mais tarde."
+            "value" : "Credenciais Inválidas"
           }
         }
       }
@@ -1051,6 +1085,40 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Tentar novamente"
+          }
+        }
+      }
+    },
+    "login.error.unexpectedError.message" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "An unexpected error occurred. Please try again later."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ocorreu um erro inesperado. Tente novamente mais tarde."
+          }
+        }
+      }
+    },
+    "login.error.unexpectedError.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unexpected Error"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Erro Inesperado"
           }
         }
       }

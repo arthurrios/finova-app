@@ -118,7 +118,7 @@ final class AddTransactionModalView: UIView {
         guard invalids.isEmpty else { return }
         
         if isTransactionTypeError {
-            delegate?.handleError(message: "addTransactionModal.error.transactionType".localized)
+            delegate?.handleError(title: "addTransactionModal.alert.transactionType.title".localized, message: "addTransactionModal.alert.transactionType.description".localized)
         }
         
         let title = transactionTitleTextField.textField.text ?? ""
