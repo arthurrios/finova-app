@@ -78,6 +78,26 @@ class DBHelper {
         }
     }
     
+    func updateBudget(monthDate: Int, amount: Int) throws {
+        let updateQuery = "UPDATE Budgets SET amount = ? WHERE month_date = ?;"
+        var statement: OpaquePointer?
+        
+        guard sqlite3_prepare_v2(db, updateQuery, -1, &statement, nil) == SQLITE_OK else {
+            let msg = String(cString: sqlite3_errmsg(db))
+            throw DBError.prepareFailed(message: msg)
+        }
+        
+        defer { sqlite3_finalize(statement) }
+        
+        sqlite3_bind_int64(statement, 1, Int64(amount))
+        sqlite3_bind_int64(statement, 2, Int64(monthDate))
+        
+        guard sqlite3_step(statement) == SQLITE_DONE else {
+            let msg = String(cString: sqlite3_errmsg(db))
+            throw DBError.stepFailed(message: msg)
+        }
+    }
+    
     func getBudgets() throws -> [BudgetModel] {
         let getBudgetsQuery = "SELECT month_date, amount FROM Budgets;"
         var statement: OpaquePointer?

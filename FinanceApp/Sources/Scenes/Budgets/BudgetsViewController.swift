@@ -91,6 +91,31 @@ final class BudgetsViewController: UIViewController {
         setupContentViewToBounds(contentView: contentView, respectingSafeArea: false)
     }
     
+    private func showErrorAlert(error: Error) {
+        let message: String
+        switch error {
+        case BudgetsViewModel.BudgetError.invalidDateFormat:
+            message = "budgets.error.invalidDate".localized
+        case DBError.openDatabaseFailed:
+            message = "budgets.error.dbOpenFailed".localized
+        case DBError.prepareFailed(let msg):
+            message = msg.isEmpty ? "budgets.error.dbPrepareFailed".localized : msg
+        default:
+            message = error.localizedDescription
+        }
+        
+        let alertController = UIAlertController(
+            title: "alert.error.title".localized,
+            message: message,
+            preferredStyle: .alert
+        )
+        alertController.addAction(UIAlertAction(title: "alert.error.ok".localized, style: .default))
+        
+        DispatchQueue.main.async {
+            self.present(alertController, animated: true)
+        }
+    }
+    
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         updateTableHeight()
@@ -111,65 +136,72 @@ extension BudgetsViewController: BudgetsViewDelegate {
             contentView.clearTextFields()
         case .failure(let error):
             
-            let message: String
             switch error {
-            case BudgetsViewModel.BudgetError.invalidDateFormat:
-                message = "budgets.error.invalidDate".localized
             case
                 BudgetsViewModel.BudgetError.budgetAlreadyExists:
-                message = "budgets.alert.budgetAlreadyExists.description".localized
-            case DBError.openDatabaseFailed:
-                message = "budgets.error.dbOpenFailed".localized
-            case DBError.prepareFailed(message: let msg):
-                message = msg.isEmpty ? "budgets.error.dbPrepareFailed".localized : msg
+                let alertController = UIAlertController(title: "budgets.alert.budgetAlreadyExists.title".localized, message: "budgets.alert.budgetAlreadyExists.description".localized, preferredStyle: .alert)
+                
+                let overwriteAction = UIAlertAction(title: "alert.update.confirm".localized, style: .default) { _ in
+                    let updateResult = self.viewModel.forceUpdateBudget(amount: budgetAmount, monthYearDate: monthYearDate)
+                    
+                    switch updateResult {
+                    case .success:
+                        self.loadData()
+                        self.contentView.budgetsTableView.reloadData()
+                        self.contentView.clearTextFields()
+                    case .failure(let updateError):
+                        self.showErrorAlert(error: updateError)
+                    }
+                }
+                
+                let cancelAction = UIAlertAction(title: "alert.cancel".localized, style: .cancel)
+                
+                alertController.addAction(overwriteAction)
+                alertController.addAction(cancelAction)
+                
+                DispatchQueue.main.async {
+                    self.present(alertController, animated: true)
+                }
+                return
             default:
-                message = error.localizedDescription
-            }
-            
-            
-            let alertController = UIAlertController(title: "budgets.alert.title".localized, message: message, preferredStyle: .alert)
-            let retryAction = UIAlertAction(title: "alert.error.ok".localized, style: .default)
-            alertController.addAction(retryAction)
-            
-            DispatchQueue.main.async {
-                self.present(alertController, animated: true)
+                break
             }
         }
     }
-        
+    
     func didTapBackButton() {
         flowDelegate?.navBackToDashboard()
     }
 }
 
-
-extension BudgetsViewController: UITableViewDataSource, UITableViewDelegate {
-    func tableView(_ tv: UITableView, numberOfRowsInSection section: Int) -> Int {
-        return budgetsData.count
-    }
     
-    func tableView(_ tv: UITableView, cellForRowAt ip: IndexPath) -> UITableViewCell {
-        let cell = tv.dequeueReusableCell(withIdentifier: BudgetsCell.reuseID, for: ip) as! BudgetsCell
-        
-        let budgetModel = budgetsData[ip.row]
-        cell.configure(date: budgetModel.date, value: budgetModel.amount)
-        cell.selectionStyle = .none
-        
-        return cell
-    }
-    
-    private func parseDateString(_ dateString: String) -> Date {
-        
-        if let date = DateFormatter.keyToDate.date(from: dateString) {
-            return date
+    extension BudgetsViewController: UITableViewDataSource, UITableViewDelegate {
+        func tableView(_ tv: UITableView, numberOfRowsInSection section: Int) -> Int {
+            return budgetsData.count
         }
         
-        return Date()
+        func tableView(_ tv: UITableView, cellForRowAt ip: IndexPath) -> UITableViewCell {
+            let cell = tv.dequeueReusableCell(withIdentifier: BudgetsCell.reuseID, for: ip) as! BudgetsCell
+            
+            let budgetModel = budgetsData[ip.row]
+            cell.configure(date: budgetModel.date, value: budgetModel.amount)
+            cell.selectionStyle = .none
+            
+            return cell
+        }
+        
+        private func parseDateString(_ dateString: String) -> Date {
+            
+            if let date = DateFormatter.keyToDate.date(from: dateString) {
+                return date
+            }
+            
+            return Date()
+        }
+        
+        func tableView(_ tv: UITableView, heightForRowAt ip: IndexPath) -> CGFloat { 52 }
+        
+        func tableView(_ tableView: UITableView, willSelectRowAt indexPath: IndexPath) -> IndexPath? {
+            return nil
+        }
     }
-    
-    func tableView(_ tv: UITableView, heightForRowAt ip: IndexPath) -> CGFloat { 52 }
-    
-    func tableView(_ tableView: UITableView, willSelectRowAt indexPath: IndexPath) -> IndexPath? {
-        return nil
-    }
-}

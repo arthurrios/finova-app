@@ -171,6 +171,23 @@
         }
       }
     },
+    "alert.cancel" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cancel"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cancelar"
+          }
+        }
+      }
+    },
     "alert.error.ok" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -194,13 +211,30 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Error"
+            "value" : "Alert"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Erro"
+            "value" : "Alerta"
+          }
+        }
+      }
+    },
+    "alert.update.confirm" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Update"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Atualizar"
           }
         }
       }
@@ -211,13 +245,30 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Budget for selected month already exists."
+            "value" : "Do you wish to update the selected month’s budget?"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Já existe orçamento para o mês selecionado."
+            "value" : "Você deseja atualizar o orçamento para o mês selecionado?"
+          }
+        }
+      }
+    },
+    "budgets.alert.budgetAlreadyExists.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Budget already exists"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Orçamento já existe"
           }
         }
       }

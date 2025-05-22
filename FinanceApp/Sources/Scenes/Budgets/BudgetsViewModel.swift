@@ -47,4 +47,20 @@ final class BudgetsViewModel {
             return .failure(error)
         }
     }
+    
+    func forceUpdateBudget(amount: Int, monthYearDate: String) -> Result<Void, Error> {
+        guard let date = DateFormatter.monthYearFormatter.date(from: monthYearDate) else {
+            return .failure(BudgetError.invalidDateFormat)
+        }
+        
+        let anchor = date.monthAnchor
+        let model = BudgetModel(monthDate: anchor, amount: amount)
+        
+        do {
+            try budgetRepo.update(budget: model)
+            return .success(())
+        } catch {
+            return .failure(error)
+        }
+    }
 }

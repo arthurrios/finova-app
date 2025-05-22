@@ -15,7 +15,7 @@ final class BudgetRepository: BudgetRepositoryProtocol {
     }
     
     func update(budget: BudgetModel) throws {
-        //
+        try db.updateBudget(monthDate: budget.monthDate, amount: budget.amount)
     }
     
     func delete(monthDate: Int) throws {
