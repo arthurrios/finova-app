@@ -46,7 +46,6 @@ final class DashboardViewController: UIViewController {
     
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
-        viewModel.refreshMonthlyCards()
         let monthData = viewModel.loadMonthlyCards()
         syncedViewModel.setMonthData(monthData)
         syncedViewModel.setTransactions(viewModel.transactionRepo.fetchTransactions())

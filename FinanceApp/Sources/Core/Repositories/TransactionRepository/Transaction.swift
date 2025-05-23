@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import UIKit
 
 struct Transaction {
     let title: String
@@ -46,7 +47,13 @@ enum TransactionCategory: String, CaseIterable {
 
     var iconName: String {
         let caseName = String(describing: self)
-        return "icon" + caseName.prefix(1).uppercased() + caseName.dropFirst()
+        let generatedIconName = "icon" + caseName.prefix(1).uppercased() + caseName.dropFirst()
+        
+        if UIImage(named: generatedIconName) != nil {
+            return generatedIconName
+        } else {
+            return "iconDollar"
+        }
     }
 
     var description: String {
