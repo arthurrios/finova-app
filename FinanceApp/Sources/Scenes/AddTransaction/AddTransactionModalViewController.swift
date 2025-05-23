@@ -30,6 +30,7 @@ final class AddTransactionModalViewController: UIViewController {
         contentView.delegate = self
         contentView.incomeSelectorButton.delegate = self
         contentView.expenseSelectorButton.delegate = self
+                
         setupView()
     }
     
@@ -97,7 +98,28 @@ extension AddTransactionModalViewController: AddTransactionModalViewDelegate, Tr
     }
     
     func sendTransactionData(title: String, amount: Int, date: String, category: String, transactionType: String) {
-        viewModel.addTransaction(title: title, amount: amount, date: date, category: category, transactionType: transactionType)
+        print(category)
+        let result = viewModel.addTransaction(title: title, amount: amount, dateString: date, categoryKey: category, typeRaw: transactionType)
+        
+        switch result {
+        case .success:
+            dismissModal()
+            flowDelegate?.didAddTransaction()
+        case .failure(let error):
+            print(error)
+            let message: String
+            switch error {
+            case AddTransactionModalViewModel.TransactionError.invalidDateFormat:
+                message = "alert.error.invalidDateFormat".localized
+            case AddTransactionModalViewModel.TransactionError.invalidCategory:
+                message = "alert.error.invalidCategory".localized
+            case AddTransactionModalViewModel.TransactionError.invalidType:
+                message = "alert.error.invalidTransactionType".localized
+            default:
+                message = "alert.error.defaultMessage".localized
+            }
+            handleError(title: "alert.error.title".localized, message: message)
+        }
     }
     
     func transactionTypeSelectorDidSelect(_ selector: TransactionTypeSelector) {

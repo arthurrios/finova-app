@@ -188,6 +188,74 @@
         }
       }
     },
+    "alert.error.defaultMessage" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "An internal database error occurred"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ocorreu um erro interno de banco de dados"
+          }
+        }
+      }
+    },
+    "alert.error.invalidCategory" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Please select a valid category"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Selecione uma categoria válida"
+          }
+        }
+      }
+    },
+    "alert.error.invalidDateFormat" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Please input a valid date format (00/00/0000)"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Digite uma data válida (00/00/0000)"
+          }
+        }
+      }
+    },
+    "alert.error.invalidTransactionType" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Please select a valid transaction type"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Selecione um tipo de válido"
+          }
+        }
+      }
+    },
     "alert.error.ok" : {
       "extractionState" : "manual",
       "localizations" : {

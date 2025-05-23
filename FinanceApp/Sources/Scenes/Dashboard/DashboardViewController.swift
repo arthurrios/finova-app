@@ -63,7 +63,7 @@ final class DashboardViewController: UIViewController {
         setupContentViewToBounds(contentView: contentView, respectingSafeArea: false)
     }
     
-    private func loadData() {
+    func loadData() {
         if let user = UserDefaultsManager.getUser() {
             contentView.welcomeTitleLabel.text = "dashboard.welcomeTitle".localized + "\(user.name)!"
             contentView.welcomeTitleLabel.applyStyle()
@@ -170,7 +170,9 @@ extension DashboardViewController: UICollectionViewDataSource {
 
             let key = DateFormatter.keyFormatter.string(from: model.date)
             let txs = syncedViewModel.allTransactions.filter { tx in
-                DateFormatter.keyFormatter.string(from: tx.date) == key
+                let txDate = Date(timeIntervalSince1970: TimeInterval(tx.dateTimestamp))
+                let txKey  = DateFormatter.keyFormatter.string(from: txDate)
+                return txKey == key
             }
             
             cell.configure(with: model, transactions: txs)

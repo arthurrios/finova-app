@@ -93,5 +93,13 @@ extension AppFlowController: BudgetsFlowDelegate {
 }
 
 extension AppFlowController: AddTransactionModalFlowDelegate {
-
+    func didAddTransaction() {
+        navigationController?.dismiss(animated: false)
+        if let dashboardViewController = self.navigationController?
+            .viewControllers
+            .compactMap({ $0 as? DashboardViewController })
+            .last {
+            dashboardViewController.loadData()
+        }
+    }
 }

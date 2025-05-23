@@ -9,4 +9,5 @@ import Foundation
 
 protocol TransactionRepositoryProtocol {
     func fetchTransactions() -> [Transaction]
+    func insertTransaction(_ transaction: TransactionModel) throws
 }

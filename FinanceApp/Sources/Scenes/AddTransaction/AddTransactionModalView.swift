@@ -11,6 +11,8 @@ import UIKit
 final class AddTransactionModalView: UIView {
     weak var delegate: AddTransactionModalViewDelegate?
     
+    let categoryOptions = TransactionCategory.allCases
+
     private lazy var contentStackView: UIStackView = {
         let sv = UIStackView(axis: .vertical, spacing: Metrics.spacing7, distribution: .fill, arrangedSubviews: [headerStackView, inputStackView, transactionButtonsStackView, separator, saveButton])
         sv.directionalLayoutMargins = NSDirectionalEdgeInsets(top: Metrics.spacing10, leading: Metrics.spacing8, bottom: Metrics.spacing4, trailing: Metrics.spacing8)
@@ -51,7 +53,7 @@ final class AddTransactionModalView: UIView {
     }()
     
     private let transactionTitleTextField = Input(placeholder: "addTransactionModal.input.transactionTitle".localized)
-    private let categoryPickerView = Input(type: .picker(values: TransactionCategory.allCases.map { $0.description }), placeholder: "addTransactionModal.input.category".localized, icon: UIImage(named: "tag"), iconPosition: .left)
+    let categoryPickerView = Input(type: .picker(values: TransactionCategory.allCases.map { $0.key }), placeholder: "addTransactionModal.input.category".localized, icon: UIImage(named: "tag"), iconPosition: .left)
     
     private let moneyTextField = Input(type: .currency, placeholder: "0,00")
     
@@ -124,8 +126,17 @@ final class AddTransactionModalView: UIView {
         let title = transactionTitleTextField.textField.text ?? ""
         let amount = moneyTextField.centsValue
         let date = dateTextField.textField.text ?? ""
-        let category = categoryPickerView.textField.text ?? ""
-        let transactionType = incomeSelectorButton.variant == .selected ? "Income" : "Expense"
-        delegate?.sendTransactionData(title: title, amount: amount, date: date, category: category, transactionType: transactionType)
+        let rawValues    = categoryPickerView.pickerValues ?? []
+        let selectedRow  = categoryPickerView.selectedPickerIndex
+        let categoryKey  = rawValues.indices.contains(selectedRow)
+        ? rawValues[selectedRow]
+        : ""
+        
+        let typeEnum: TransactionType = incomeSelectorButton.variant == .selected
+            ? .income
+            : .expense
+        let typeKey = String(describing: typeEnum)
+        
+        delegate?.sendTransactionData(title: title, amount: amount, date: date, category: categoryKey, transactionType: typeKey)
     }
 }
