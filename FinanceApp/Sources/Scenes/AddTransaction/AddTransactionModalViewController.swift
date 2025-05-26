@@ -98,7 +98,6 @@ extension AddTransactionModalViewController: AddTransactionModalViewDelegate, Tr
     }
     
     func sendTransactionData(title: String, amount: Int, date: String, category: String, transactionType: String) {
-        print(category)
         let result = viewModel.addTransaction(title: title, amount: amount, dateString: date, categoryKey: category, typeRaw: transactionType)
         
         switch result {
@@ -106,7 +105,6 @@ extension AddTransactionModalViewController: AddTransactionModalViewDelegate, Tr
             dismissModal()
             flowDelegate?.didAddTransaction()
         case .failure(let error):
-            print(error)
             let message: String
             switch error {
             case AddTransactionModalViewModel.TransactionError.invalidDateFormat:

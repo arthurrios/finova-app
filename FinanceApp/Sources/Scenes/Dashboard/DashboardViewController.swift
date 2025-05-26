@@ -15,6 +15,7 @@ final class DashboardViewController: UIViewController {
     var todayMonthIndex: Int
     var isLoadingInitialData: Bool
     private var needsRefresh = false
+    private var transactions: [Transaction] = []
     weak var flowDelegate: DashboardFlowDelegate?
     
     init(
@@ -73,7 +74,8 @@ final class DashboardViewController: UIViewController {
             contentView.avatar.userImage = userImage
         }
         
-        let transactions = viewModel.transactionRepo.fetchTransactions()
+        transactions = viewModel.transactionRepo.fetchTransactions()
+                
         let monthData = viewModel.loadMonthlyCards()
         
         syncedViewModel.setMonthData(monthData)
@@ -173,6 +175,8 @@ extension DashboardViewController: UICollectionViewDataSource {
                 let txDate = Date(timeIntervalSince1970: TimeInterval(tx.dateTimestamp))
                 let txKey  = DateFormatter.keyFormatter.string(from: txDate)
                 return txKey == key
+            }.sorted { (tx1, tx2) -> Bool in
+                return tx1.date > tx2.date
             }
             
             cell.configure(with: model, transactions: txs)

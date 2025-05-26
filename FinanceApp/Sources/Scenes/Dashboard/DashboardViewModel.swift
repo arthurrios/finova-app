@@ -29,7 +29,6 @@ final class DashboardViewModel {
         }
         
         let allTxs = transactionRepo.fetchTransactions()
-        print(allTxs)
         
         let expensesByAnchor = allTxs
             .filter { $0.type == .expense }

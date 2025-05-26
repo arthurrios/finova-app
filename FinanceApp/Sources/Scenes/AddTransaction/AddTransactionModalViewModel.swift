@@ -35,7 +35,7 @@ final class AddTransactionModalViewModel {
         }
 
         guard let type = TransactionType.allCases
-                .first(where: { $0.key == typeRaw })
+                .first(where: { String(describing: $0) == typeRaw })
         else {
             return .failure(TransactionError.invalidType)
         }
