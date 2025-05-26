@@ -23,60 +23,56 @@ final class DashboardViewModel {
     func loadMonthlyCards() -> [MonthBudgetCardType] {
         let today = Date()
         
-        let budgetsArray = budgetRepo.fetchBudgets()
-        
-        let budgetsByKey = budgetsArray.reduce(into: [String: Int]()) { acc, entry in
-            let date = Date(timeIntervalSince1970: TimeInterval(entry.monthDate))
-            let key = DateFormatter.keyFormatter.string(from: date)
-            acc[key] = entry.amount
+        let budgetsByAnchor: [Int: Int] = budgetRepo.fetchBudgets()
+            .reduce(into: [:]) { acc, entry in
+                acc[entry.monthDate] = entry.amount
         }
         
-        let transactions = transactionRepo.fetchTransactions()
+        let allTxs = transactionRepo.fetchTransactions()
         
-        let expenses = transactions
+        let expensesByAnchor = allTxs
             .filter { $0.type == .expense }
-            .reduce(into: [String: Int]()) { acc, tx in
-                let key = DateFormatter.keyFormatter.string(from: tx.date)
-                acc[key, default: 0] += tx.amount
+            .reduce(into: [:]) { acc, tx in
+                acc[tx.budgetMonthDate, default: 0] += tx.amount
             }
         
-        let incomes = transactions
+        let incomesByAnchor = allTxs
             .filter { $0.type == .income }
-            .reduce(into: [String: Int]()) { acc, tx in
-                let key = DateFormatter.keyFormatter.string(from: tx.date)
-                acc[key, default: 0] += tx.amount
+            .reduce(into: [:]) { acc, tx in
+                acc[tx.budgetMonthDate, default: 0] += tx.amount
             }
         
-        let sortedMonths = monthRange.map { offset in
-            calendar.date(byAdding: .month, value: offset, to: today)!
+        let anchors = monthRange.map { offset in
+            let dt = calendar.date(byAdding: .month, value: offset, to: today)!
+            return dt.monthAnchor
         }.sorted()
         
-        var runningAvailable = [String: Int]()
+        var runningBalance = [Int: Int]()
         var previousAvailable = 0
         
-        return sortedMonths.compactMap { date in
-            let key = DateFormatter.keyFormatter.string(from: date)
+        let cards: [MonthBudgetCardType] = anchors.compactMap { anchor in
+            let date = Date(timeIntervalSince1970: TimeInterval(anchor))
             let month = DateFormatter.monthFormatter.string(from: date)
             
-            let expense = expenses[key] ?? 0
-            let income = incomes[key] ?? 0
-            let budgetLimit = budgetsByKey[key]
+            let expense = expensesByAnchor[anchor] ?? 0
+            let income = incomesByAnchor[anchor] ?? 0
+            let budgetLimit = budgetsByAnchor[anchor]
             
+            let net = income - expense
+            let available = previousAvailable + net
             
-            let currentMonthBalance = income - expense
-            let available: Int?
+            previousAvailable = available
+            runningBalance[anchor] = available
             
-            available = previousAvailable + currentMonthBalance
-            
-            previousAvailable = available ?? previousAvailable + currentMonthBalance
-            runningAvailable[key] = previousAvailable
-            
-            return MonthBudgetCardType(date: date,
-                                       month: "month.\(month.lowercased())".localized,
-                                       usedValue: expense,
-                                       budgetLimit: budgetLimit,
-                                       availableValue: available
+            return MonthBudgetCardType(
+                date: date,
+                month: "month.\(month.lowercased())".localized,
+                usedValue: expense,
+                budgetLimit: budgetLimit,
+                availableValue: available
             )
-        }.sorted { $0.date < $1.date }
+        }
+        
+        return cards.sorted { $0.date < $1.date }
     }
 }

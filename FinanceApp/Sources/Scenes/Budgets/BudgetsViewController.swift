@@ -220,8 +220,4 @@ extension BudgetsViewController: UITableViewDataSource, UITableViewDelegate, Bud
     }
     
     func tableView(_ tv: UITableView, heightForRowAt ip: IndexPath) -> CGFloat { 52 }
-    
-    func tableView(_ tableView: UITableView, willSelectRowAt indexPath: IndexPath) -> IndexPath? {
-        return nil
-    }
 }

@@ -15,6 +15,7 @@ final class DashboardViewController: UIViewController {
     var todayMonthIndex: Int
     var isLoadingInitialData: Bool
     private var needsRefresh = false
+    private var transactions: [Transaction] = []
     weak var flowDelegate: DashboardFlowDelegate?
     
     init(
@@ -63,7 +64,7 @@ final class DashboardViewController: UIViewController {
         setupContentViewToBounds(contentView: contentView, respectingSafeArea: false)
     }
     
-    private func loadData() {
+    func loadData() {
         if let user = UserDefaultsManager.getUser() {
             contentView.welcomeTitleLabel.text = "dashboard.welcomeTitle".localized + "\(user.name)!"
             contentView.welcomeTitleLabel.applyStyle()
@@ -73,7 +74,8 @@ final class DashboardViewController: UIViewController {
             contentView.avatar.userImage = userImage
         }
         
-        let transactions = viewModel.transactionRepo.fetchTransactions()
+        transactions = viewModel.transactionRepo.fetchTransactions()
+                
         let monthData = viewModel.loadMonthlyCards()
         
         syncedViewModel.setMonthData(monthData)
@@ -170,7 +172,11 @@ extension DashboardViewController: UICollectionViewDataSource {
 
             let key = DateFormatter.keyFormatter.string(from: model.date)
             let txs = syncedViewModel.allTransactions.filter { tx in
-                DateFormatter.keyFormatter.string(from: tx.date) == key
+                let txDate = Date(timeIntervalSince1970: TimeInterval(tx.dateTimestamp))
+                let txKey  = DateFormatter.keyFormatter.string(from: txDate)
+                return txKey == key
+            }.sorted { (tx1, tx2) -> Bool in
+                return tx1.date > tx2.date
             }
             
             cell.configure(with: model, transactions: txs)

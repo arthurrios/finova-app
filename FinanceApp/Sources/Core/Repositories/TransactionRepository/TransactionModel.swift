@@ -9,11 +9,25 @@ import Foundation
 import UIKit
 
 struct Transaction {
+    var date: Date {
+        Date(timeIntervalSince1970: TimeInterval(dateTimestamp))
+    }
+    
     let title: String
     let category: TransactionCategory
     let amount: Int
     let type: TransactionType
-    let date: Date
+    let dateTimestamp: Int
+    let budgetMonthDate: Int
+}
+
+struct TransactionModel {
+    let title: String
+    let category: String
+    let amount: Int
+    let type: String
+    let dateTimestamp: Int
+    let budgetMonthDate: Int
 }
 
 enum TransactionCategory: String, CaseIterable {
@@ -54,6 +68,10 @@ enum TransactionCategory: String, CaseIterable {
         } else {
             return "iconDollar"
         }
+    }
+    
+    var key: String {
+        String(describing: self)
     }
 
     var description: String {

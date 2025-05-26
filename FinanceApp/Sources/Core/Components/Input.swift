@@ -47,9 +47,9 @@ class Input: UIView {
     // MARK: - Public Properties
     var placeholder: String
     var icon: UIImage?
-    var iconPosition: IconPosition?
-    
+    var iconPosition: IconPosition?    
     var pickerDescriptions: [String]?
+    var categoryOptions: [TransactionCategory]?
     
     
     // MARK: - Private Defaults
@@ -346,8 +346,8 @@ class Input: UIView {
     }()
     
     private var selectedMonth = Calendar.current.component(.month, from: Date())
-    private var pickerValues: [String]?
-    private var selectedPickerIndex: Int = 0
+    var pickerValues: [String]?
+    var selectedPickerIndex: Int = 0
     private var selectedYear = Calendar.current.component(.year, from: Date())
     
     private func monthOptionsCount() -> Int {
@@ -408,13 +408,25 @@ class Input: UIView {
     }
     
     @objc private func pickerDoneTapped() {
-        if let selected = pickerValues?[selectedPickerIndex] {
-            textField.text = selected
+        if let rawValues = pickerValues {
+            let raw = rawValues[selectedPickerIndex]
+
+            if let cat = TransactionCategory.allCases.first(where: { $0.key == raw }) {
+                textField.text = cat.description
+            } else {
+                let human = raw
+                    .replacingOccurrences(of: "(?<=[a-z])([A-Z])",
+                                          with: " $1",
+                                          options: .regularExpression)
+                    .capitalized
+                textField.text = human
+            }
         }
         setError(false)
         textField.resignFirstResponder()
         updateAppearance()
     }
+
     
     @objc
     private func clearErrorOnTyping() {
@@ -506,9 +518,14 @@ extension Input: UIPickerViewDataSource, UIPickerViewDelegate {
     }
     
     func pickerView(_ pickerView: UIPickerView, titleForRow row: Int, forComponent component: Int) -> String? {
-        if pickerValues != nil {
-            return pickerValues?[row]
+        if let rawValues = pickerValues {
+            let key = rawValues[row]
+            if let cat = TransactionCategory.allCases.first(where: { $0.key == key }) {
+                return cat.description
+            }
+            return key.capitalized
         }
+
         switch component {
         case 0:
             let index = (selectedYear == currentYear) ? (currentMonth - 1 + row) : row
@@ -521,10 +538,22 @@ extension Input: UIPickerViewDataSource, UIPickerViewDelegate {
     }
     
     func pickerView(_ pickerView: UIPickerView, didSelectRow row: Int, inComponent component: Int) {
-        if pickerValues != nil {
-            selectedPickerIndex = row
-            return
-        }
+        if let rawValues = pickerValues {
+                selectedPickerIndex = row
+                let key = rawValues[row]
+
+                if let categoryEnum = TransactionCategory.allCases.first(where: { $0.key == key }) {
+                    textField.text = categoryEnum.description
+                } else {
+                    let human = key
+                        .replacingOccurrences(of: "(?<=[a-z])([A-Z])",
+                                              with: " $1",
+                                              options: .regularExpression)
+                        .capitalized
+                    textField.text = human
+                }
+                return
+            }
         switch component {
         case 1:
             selectedYear = years[row]
@@ -540,7 +569,7 @@ extension Input: UIPickerViewDataSource, UIPickerViewDelegate {
         default:
             break
         }
-                
+        
         var comps = DateComponents()
         comps.month = selectedMonth
         comps.year = selectedYear
