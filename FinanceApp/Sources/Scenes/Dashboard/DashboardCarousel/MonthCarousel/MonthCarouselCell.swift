@@ -95,7 +95,7 @@ class MonthCarouselCell: UICollectionViewCell {
         return label
     }()
     
-    let transactionTableView: UITableView = {
+    lazy var transactionTableView: UITableView = {
         let tableView = UITableView()
         tableView.backgroundColor = Colors.gray100
         tableView.layer.borderWidth = 1
@@ -115,37 +115,10 @@ class MonthCarouselCell: UICollectionViewCell {
     override init(frame: CGRect) {
         super.init(frame: frame)
         setupViews()
-        setupTable()
     }
     
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
-    }
-    
-    private func setupTable() {
-        transactionTableView.register(TransactionCell.self, forCellReuseIdentifier: TransactionCell.reuseID)
-        transactionTableView.dataSource = self
-        transactionTableView.delegate   = self
-    }
-    
-    private func updateTableHeight() {
-        let rowHeight: CGFloat = 67
-        let separatorHeight = CGFloat(max(0, transactions.count - 1)) * 1.0
-        let contentHeight   = CGFloat(transactions.count) * rowHeight + separatorHeight
-        
-        let maxTableHeight: CGFloat = Metrics.transactionsTableHeight
-        let finalHeight = min(contentHeight, maxTableHeight)
-        
-        if tableHeightConstraint == nil {
-            tableHeightConstraint = transactionTableView.heightAnchor.constraint(equalToConstant: finalHeight)
-            tableHeightConstraint?.isActive = true
-        } else {
-            tableHeightConstraint?.constant = finalHeight
-        }
-        
-        transactionTableView.isScrollEnabled = (contentHeight > maxTableHeight)
-        
-        self.layoutIfNeeded()
     }
     
     private func setupViews() {
@@ -161,8 +134,6 @@ class MonthCarouselCell: UICollectionViewCell {
         contentView.addSubview(emptyStateView)
         emptyStateView.addSubview(emptyStateIconImageView)
         emptyStateView.addSubview(emptyStateDescriptionLabel)
-        
-        transactionTableView.frame = contentView.bounds
         
         setupConstraints()
     }
@@ -180,7 +151,6 @@ class MonthCarouselCell: UICollectionViewCell {
             transactionTableView.topAnchor.constraint(equalTo: tableHeaderView.bottomAnchor),
             transactionTableView.leadingAnchor.constraint(equalTo: monthCard.leadingAnchor),
             transactionTableView.trailingAnchor.constraint(equalTo: monthCard.trailingAnchor),
-            transactionTableView.bottomAnchor.constraint(lessThanOrEqualTo: safeAreaLayoutGuide.bottomAnchor, constant: -Metrics.spacing8),
 
             emptyStateView.topAnchor.constraint(equalTo: tableHeaderView.bottomAnchor),
             emptyStateView.leadingAnchor.constraint(equalTo: monthCard.leadingAnchor),
@@ -206,16 +176,33 @@ class MonthCarouselCell: UICollectionViewCell {
         if transactions.isEmpty {
             transactionTableView.isHidden = true
             emptyStateView.isHidden = false
-            DispatchQueue.main.async { [weak self] in
-                self?.updateTableHeight()
-            }
         } else {
             transactionTableView.isHidden = false
             emptyStateView.isHidden = true
-            DispatchQueue.main.async { [weak self] in
-                self?.updateTableHeight()
-            }
         }
+        
+        updateTableHeight(with: transactions.count)
+    }
+    
+    func updateTableHeight(with rowCount: Int) {
+        let rowHeight: CGFloat = 67
+        let separatorHeight = CGFloat(max(0, rowCount - 1)) * 1.0
+        let contentHeight = CGFloat(rowCount) * rowHeight + separatorHeight
+
+        let maxTableHeight: CGFloat = Metrics.transactionsTableHeight
+        let finalHeight = min(contentHeight, maxTableHeight)
+
+        if let c = tableHeightConstraint {
+            c.constant = finalHeight
+        } else {
+            tableHeightConstraint = transactionTableView
+                .heightAnchor
+                .constraint(equalToConstant: finalHeight)
+            tableHeightConstraint?.isActive = true
+        }
+
+        transactionTableView.isScrollEnabled = (contentHeight > maxTableHeight)
+        layoutIfNeeded()
     }
 
     private func addBordersExceptBottom(to view: UIView, color: UIColor, width: CGFloat = 1.0) {
@@ -270,41 +257,5 @@ class MonthCarouselCell: UICollectionViewCell {
         tableHeaderView.layer.sublayers?.removeAll(where: { $0 is CAShapeLayer })
         tableHeaderView.layoutIfNeeded()
         addBordersExceptBottom(to: tableHeaderView, color: Colors.gray300)
-        
-        updateTableHeight()
-    }
-}
-
-extension MonthCarouselCell: UITableViewDataSource, UITableViewDelegate {
-    func tableView(_ tv: UITableView, numberOfRowsInSection section: Int) -> Int {
-        if !transactions.isEmpty {
-            DispatchQueue.main.async { [weak self] in
-                self?.updateTableHeight()
-            }
-        }
-        
-        return transactions.count
-    }
-    
-    func tableView(_ tv: UITableView, cellForRowAt ip: IndexPath) -> UITableViewCell {
-        let cell = tv.dequeueReusableCell(withIdentifier: TransactionCell.reuseID, for: ip) as! TransactionCell
-        let tx = transactions[ip.row]
-        cell.configure(
-            category: tx.category,
-            title:    tx.title,
-            date:     tx.date,
-            value:    tx.amount,
-            transactionType: tx.type
-        )
-        
-        cell.selectionStyle = .none
-        
-        return cell
-    }
-    
-    func tableView(_ tv: UITableView, heightForRowAt ip: IndexPath) -> CGFloat { 67 }
-    
-    func tableView(_ tableView: UITableView, willSelectRowAt indexPath: IndexPath) -> IndexPath? {
-        return nil
     }
 }

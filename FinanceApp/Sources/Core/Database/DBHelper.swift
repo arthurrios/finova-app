@@ -271,5 +271,24 @@ class DBHelper {
         }
         return results
     }
+    
+    func deleteTransaction(id: Int) throws {
+        let deleteTransactionQuery = "DELETE FROM Transactions WHERE id = ?;"
+        var statement: OpaquePointer?
+        
+        guard sqlite3_prepare_v2(db, deleteTransactionQuery, -1, &statement, nil) == SQLITE_OK else {
+            let msg = String(cString: sqlite3_errmsg(db))
+            throw DBError.prepareFailed(message: msg)
+        }
+        
+        defer { sqlite3_finalize(statement) }
+        
+        sqlite3_bind_int64(statement, 1, Int64(id))
+        
+        guard sqlite3_step(statement) == SQLITE_DONE else {
+            let msg = String(cString: sqlite3_errmsg(db))
+            throw DBError.stepFailed(message: msg)
+        }
+    }
 }
 

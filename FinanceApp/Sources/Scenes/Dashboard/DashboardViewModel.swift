@@ -75,4 +75,13 @@ final class DashboardViewModel {
         
         return cards.sorted { $0.date < $1.date }
     }
+    
+    func deleteTransaction(id: Int) -> Result<Void, Error> {
+        do {
+            try transactionRepo.delete(id: id)
+            return .success(())
+        } catch {
+            return .failure(error)
+        }
+    }
 }

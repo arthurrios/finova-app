@@ -17,4 +17,8 @@ final class TransactionRepository: TransactionRepositoryProtocol {
     func insertTransaction(_ transaction: TransactionModel) throws {
         try? db.insertTransaction(transaction)
     }
+    
+    func delete(id: Int) throws {
+        try db.deleteTransaction(id: id)
+    }
 }

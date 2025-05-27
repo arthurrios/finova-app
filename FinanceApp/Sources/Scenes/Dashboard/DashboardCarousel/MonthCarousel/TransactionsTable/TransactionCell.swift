@@ -8,8 +8,10 @@
 import Foundation
 import UIKit
 
-final class TransactionCell: UITableViewCell {
+final public class TransactionCell: UITableViewCell {
     static let reuseID = "TransactionCell"
+    
+    weak var delegate: TransactionCellDelegate?
     
     private let iconView: UIImageView = {
         let imageView = UIImageView()
@@ -93,6 +95,34 @@ final class TransactionCell: UITableViewCell {
         return imageView
     }()
     
+    private let actionContainerView: UIView = {
+        let view = UIView()
+        view.backgroundColor = Colors.mainMagenta
+        view.translatesAutoresizingMaskIntoConstraints = false
+        return view
+    }()
+    
+    private let actionIconView: UIImageView = {
+        let imageView = UIImageView()
+        imageView.image = UIImage(named: "trash")
+        imageView.tintColor = Colors.gray100
+        imageView.contentMode = .scaleAspectFit
+        imageView.translatesAutoresizingMaskIntoConstraints = false
+        return imageView
+    }()
+    
+    private let actionLabel: UILabel = {
+        let label = UILabel()
+        label.font = Fonts.buttonSM.font
+        label.textColor = Colors.gray100
+        label.text = "delete.action.label".localized
+        label.translatesAutoresizingMaskIntoConstraints = false
+        return label
+    }()
+    
+    private var actionContainerWidthConstraint: NSLayoutConstraint!
+    private var panStartX: CGFloat = 0
+    
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
         setupView()
@@ -115,6 +145,10 @@ final class TransactionCell: UITableViewCell {
         valueStackView.addArrangedSubview(transactionTypeIconView)
         contentView.addSubview(trashIconView)
         
+        contentView.addSubview(actionContainerView)
+        actionContainerView.addSubview(actionIconView)
+        actionContainerView.addSubview(actionLabel)
+        
         setupConstraints()
     }
     
@@ -136,7 +170,23 @@ final class TransactionCell: UITableViewCell {
             
             valueStackView.trailingAnchor.constraint(equalTo: trashIconView.leadingAnchor, constant: -Metrics.spacing3),
             valueStackView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+            
+            actionContainerView.topAnchor.constraint(equalTo: contentView.topAnchor),
+            actionContainerView.leadingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            actionContainerView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
+            
+            actionIconView.leadingAnchor.constraint(equalTo: actionContainerView.leadingAnchor, constant: Metrics.spacing6),
+            actionIconView.centerYAnchor.constraint(equalTo: actionContainerView.centerYAnchor),
+            actionIconView.heightAnchor.constraint(equalToConstant: Metrics.spacing5),
+            actionIconView.widthAnchor.constraint(equalToConstant: Metrics.spacing5),
+            
+            actionLabel.leadingAnchor.constraint(equalTo: actionIconView.trailingAnchor, constant: Metrics.spacing3),
+            actionLabel.centerYAnchor.constraint(equalTo: actionContainerView.centerYAnchor)
         ])
+        
+        
+        actionContainerWidthConstraint = actionContainerView.widthAnchor.constraint(equalTo: contentView.widthAnchor)
+        actionContainerWidthConstraint.isActive = true
     }
     
     func configure(category: TransactionCategory, title: String, date: Date, value: Int, transactionType: TransactionType) {
@@ -156,5 +206,13 @@ final class TransactionCell: UITableViewCell {
             self.transactionTypeIconView.image = UIImage(named: "arrowDown")
             self.transactionTypeIconView.tintColor = Colors.mainRed
         }
+    }
+    
+    public override func gestureRecognizerShouldBegin(_ gr: UIGestureRecognizer) -> Bool {
+        guard let pan = gr as? UIPanGestureRecognizer else {
+            return true
+        }
+        let v = pan.velocity(in: contentView)
+        return abs(v.x) > abs(v.y)
     }
 }

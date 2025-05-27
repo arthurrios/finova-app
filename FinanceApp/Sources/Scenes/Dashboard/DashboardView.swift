@@ -75,6 +75,7 @@ final class DashboardView: UIView {
         collectionView.backgroundColor = .clear
         collectionView.showsHorizontalScrollIndicator = false
         collectionView.translatesAutoresizingMaskIntoConstraints = false
+        collectionView.isDirectionalLockEnabled = true
         return collectionView
     }()
     
