@@ -105,6 +105,23 @@ final class DashboardViewController: UIViewController {
         contentView.monthSelectorView.layoutIfNeeded()
         contentView.monthCarousel.layoutIfNeeded()
     }
+    
+    private func showErrorAlert(error: Error) {
+        let message: String
+
+            message = error.localizedDescription
+        
+        let alertController = UIAlertController(
+            title: "alert.error.title".localized,
+            message: message,
+            preferredStyle: .alert
+        )
+        alertController.addAction(UIAlertAction(title: "alert.error.ok".localized, style: .default))
+        
+        DispatchQueue.main.async {
+            self.present(alertController, animated: true)
+        }
+    }
 }
 
 extension DashboardViewController: DashboardViewDelegate {
@@ -196,6 +213,7 @@ extension DashboardViewController: UICollectionViewDataSource {
             }
                         
             cell.tag = indexPath.item
+            cell.transactions = txs
             cell.configure(with: model, transactions: txs)
             
             return cell
@@ -363,24 +381,7 @@ extension DashboardViewController: MonthBudgetCardDelegate {
 }
 
 // MARK: - Transaction Table View Management
-extension DashboardViewController: UITableViewDataSource, UITableViewDelegate, TransactionCellDelegate {
-    func transactionCellDidRequestDelete(_ cell: TransactionCell) {
-        guard let currentCell = currentCell,
-              let indexPath = currentCell.transactionTableView.indexPath(for: cell) else { return }
-        let model = currentCellTransactions[indexPath.row]
-        
-        // TODO: Implement transaction deletion logic
-        // Example implementation:
-        // switch viewModel.deleteTransaction(model) {
-        // case .success:
-        //     currentCellTransactions.remove(at: indexPath.row)
-        //     currentCell.transactionTableView.deleteRows(at: [indexPath], with: .automatic)
-        //     currentCell.updateTableHeight()
-        //     currentCell.toggleEmptyState(currentCellTransactions.isEmpty)
-        // case .failure(let error):
-        //     showErrorAlert(error: error)
-        // }
-    }
+extension DashboardViewController: UITableViewDataSource, UITableViewDelegate{
     
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
         guard
@@ -427,12 +428,32 @@ extension DashboardViewController: UITableViewDataSource, UITableViewDelegate, T
             value:           tx.amount,
             transactionType: tx.type
         )
-        cell.delegate = self
+        
+        cell.onDelete = { [weak self] in
+            guard let self = self else { return }
+            switch self.viewModel.deleteTransaction(id: tx.id) {
+            case .success():
+                self.syncedViewModel.removeTransaction(withId: tx.id)
+                
+                self.currentCell?.transactions.remove(at: indexPath.row)
+                self.currentCell?.transactionTableView.beginUpdates()
+                self.currentCell?.transactionTableView.deleteRows(at: [indexPath], with: .automatic)
+                self.currentCell?.transactionTableView.endUpdates()
+                
+                let newCount = self.currentCell?.transactions.count ?? 0
+                self.currentCell?.updateTableHeight(txsCount: newCount)
+                self.currentCell?.toggleEmptyState(newCount == 0)
+                loadData()
+            case .failure(let error):
+                print(error)
+            }
+            
+        }
         cell.selectionStyle = .none
         
         return cell
     }
-    
+        
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
         return 67
     }

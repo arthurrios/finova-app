@@ -182,7 +182,6 @@ extension BudgetsViewController: UITableViewDataSource, UITableViewDelegate, Bud
         
         let monthDate = DateFormatter.monthYearFormatter.string(from: model.date)
         
-        
         switch viewModel.deleteBudget(monthYearDate: monthDate) {
         case .success:
             budgetsData.remove(at: ip.row)

@@ -12,7 +12,7 @@ struct Transaction {
     var date: Date {
         Date(timeIntervalSince1970: TimeInterval(dateTimestamp))
     }
-    
+    let id: Int
     let title: String
     let category: TransactionCategory
     let amount: Int

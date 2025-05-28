@@ -225,7 +225,7 @@ class DBHelper {
     }
     
     func getTransactions() throws -> [Transaction] {
-        let getTransactionsQuery = "SELECT title, category, type, amount, date, budget_month_date FROM Transactions;"
+        let getTransactionsQuery = "SELECT id, title, category, type, amount, date, budget_month_date FROM Transactions;"
         var statement: OpaquePointer?
         
         guard sqlite3_prepare_v2(db, getTransactionsQuery, -1, &statement, nil) == SQLITE_OK else {
@@ -238,12 +238,13 @@ class DBHelper {
         var results: [Transaction] = []
         
         while sqlite3_step(statement) == SQLITE_ROW {
-            let title      = String(cString: sqlite3_column_text(statement, 0))
-            let catKey    = String(cString: sqlite3_column_text(statement, 1))
-            let typeKey   = String(cString: sqlite3_column_text(statement, 2))
-            let amount     = Int(sqlite3_column_int64(statement, 3))
-            let ts         = Int(sqlite3_column_int64(statement, 4))
-            let monthAnchor = Int(sqlite3_column_int64(statement, 5))
+            let id        = Int(sqlite3_column_int64(statement, 0))
+            let title      = String(cString: sqlite3_column_text(statement, 1))
+            let catKey    = String(cString: sqlite3_column_text(statement, 2))
+            let typeKey   = String(cString: sqlite3_column_text(statement, 3))
+            let amount     = Int(sqlite3_column_int64(statement, 4))
+            let ts         = Int(sqlite3_column_int64(statement, 5))
+            let monthAnchor = Int(sqlite3_column_int64(statement, 6))
             
             guard let txCategory = TransactionCategory.allCases
                 .first(where: { $0.key == catKey })
@@ -260,6 +261,7 @@ class DBHelper {
             }
             
             let tx = Transaction(
+                id:               id,
                 title:            title,
                 category:         txCategory,
                 amount:           amount,

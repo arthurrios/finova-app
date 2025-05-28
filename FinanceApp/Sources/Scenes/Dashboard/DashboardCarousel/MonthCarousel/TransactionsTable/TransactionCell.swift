@@ -10,8 +10,8 @@ import UIKit
 
 final public class TransactionCell: UITableViewCell {
     static let reuseID = "TransactionCell"
-    
-    weak var delegate: TransactionCellDelegate?
+        
+    var onDelete: (() -> Void)?
     
     private let iconView: UIImageView = {
         let imageView = UIImageView()
@@ -227,30 +227,33 @@ final public class TransactionCell: UITableViewCell {
     private func handlePan(_ gesture: UIPanGestureRecognizer) {
         let translationX = gesture.translation(in: contentView).x
         let fullWidth = contentView.bounds.width
-        
+
         switch gesture.state {
         case .began:
             panStartX = contentView.frame.origin.x
-            
+
         case .changed:
             let rawX = panStartX + translationX
             let clampedX = max(-fullWidth, min(0, rawX))
             contentView.frame.origin.x = clampedX
-            
+
         case .ended, .cancelled:
-            let shouldOpen = contentView.frame.origin.x < -fullWidth / 2
+            let finalX = contentView.frame.origin.x
+            let shouldOpen = abs(finalX) >= fullWidth * 0.5
+
             UIView.animate(withDuration: 0.2, animations: {
                 self.contentView.frame.origin.x = shouldOpen ? -fullWidth : 0
             }, completion: { _ in
-                if shouldOpen && self.contentView.frame.origin.x <= -fullWidth + 0.1 {
-                    self.delegate?.transactionCellDidRequestDelete(self)
+                if shouldOpen {
+                    self.onDelete?()
                 }
             })
-            
+
         default:
             break
         }
     }
+
 }
 
 extension TransactionCell {

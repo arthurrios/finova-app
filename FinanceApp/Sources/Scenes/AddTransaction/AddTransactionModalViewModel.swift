@@ -53,7 +53,6 @@ final class AddTransactionModalViewModel {
         
         do {
             try transactionRepo.insertTransaction(model)
-            print(#function, "Transaction added successfully")
             return .success(())
         } catch {
             return .failure(error)

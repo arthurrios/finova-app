@@ -12,7 +12,7 @@ class MonthCarouselCell: UICollectionViewCell {
     static let reuseID = "MonthCarouselCell"
     
     let monthCard = MonthBudgetCard()
-    private var transactions: [Transaction] = []
+    var transactions: [Transaction] = []
     private var tableHeightConstraint: NSLayoutConstraint?
     
     private let tableHeaderView: UIStackView = {
@@ -180,13 +180,13 @@ class MonthCarouselCell: UICollectionViewCell {
             emptyStateView.isHidden = true
         }
         
-        updateTableHeight(txs: transactions)
+        updateTableHeight(txsCount: transactions.count)
     }
     
-    private func updateTableHeight(txs: [Transaction]) {
+    func updateTableHeight(txsCount: Int) {
         let rowHeight: CGFloat = 67
-        let separatorHeight = CGFloat(max(0, txs.count - 1)) * 1.0
-        let contentHeight   = CGFloat(txs.count) * rowHeight + separatorHeight
+        let separatorHeight = CGFloat(max(0, txsCount - 1)) * 1.0
+        let contentHeight   = CGFloat(txsCount) * rowHeight + separatorHeight
         
         let maxTableHeight: CGFloat = Metrics.transactionsTableHeight
         let finalHeight = min(contentHeight, maxTableHeight)
@@ -204,6 +204,10 @@ class MonthCarouselCell: UICollectionViewCell {
         layoutIfNeeded()
     }
     
+    func toggleEmptyState(_ show: Bool) {
+        transactionTableView.isHidden = show
+        emptyStateView.isHidden = !show
+    }
     
     private func addBordersExceptBottom(to view: UIView, color: UIColor, width: CGFloat = 1.0) {
         view.layer.sublayers?.removeAll(where: { $0.name == "customBorder" })

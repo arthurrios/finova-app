@@ -135,4 +135,9 @@ final class SyncedCollectionsViewModel {
         guard !monthData.isEmpty, selectedIndex < monthData.count else { return nil }
         return monthData[selectedIndex]
     }
+    
+    func removeTransaction(withId id: Int) {
+        allTransactions.removeAll { $0.id == id }
+        delegate?.didUpdateTransactions(allTransactions)
+    }
 }
