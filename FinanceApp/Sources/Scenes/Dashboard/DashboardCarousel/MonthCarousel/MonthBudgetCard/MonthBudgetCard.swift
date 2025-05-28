@@ -141,12 +141,12 @@ class MonthBudgetCard: UIView {
     
     func configure(data: MonthBudgetCardType) {
         budgetDate = data.date
-                
         monthLabel.text = data.month
         monthLabel.applyStyle()
-        
         yearLabel.text = "/ " + DateFormatter.yearFormatter.string(from: data.date)
-        
+
+        usedBudgetValueLabel.text = data.usedValue.currencyString
+
         if let availableValue = data.availableValue {
             availableBudgetValueLabel.text = availableValue.currencyString
             availableBudgetValueLabel.isHidden = false
@@ -155,35 +155,45 @@ class MonthBudgetCard: UIView {
             availableBudgetValueLabel.isHidden = true
             defineBudgetButton.isHidden = false
         }
-        
-        usedBudgetValueLabel.text = data.usedValue.currencyString
-        
-        if let budgetLimit = data.budgetLimit {
-            limitBudgetValueLabel.text = budgetLimit.currencyString
-            limitBudgetValueLabel.isHidden = false
-            infinitySymbol.isHidden = true
-            progressBar.isHidden = false
-            
-            if let availableValue = data.availableValue, budgetLimit != 0 {
-                progressBar.setProgress(Float(data.usedValue) / Float(budgetLimit), animated: true)
-                if availableValue < 0, data.usedValue >= budgetLimit {
-                    progressBar.progress = 1
-                    progressBar.progressTintColor = Colors.mainRed
-                }
-            } else {
-                progressBar.progress = 0
-            }
-            
-        } else {
-            availableBudgetValueLabel.isHidden = true
-            defineBudgetButton.isHidden = false
+
+        updateLimitSection(with: data)
+    }
+
+    private func updateLimitSection(with data: MonthBudgetCardType) {
+        guard let budgetLimit = data.budgetLimit, budgetLimit > 0 else {
             limitBudgetValueLabel.isHidden = true
             progressBar.isHidden = true
             infinitySymbol.isHidden = false
-            
+            defineBudgetButton.isHidden = false
+            availableBudgetValueLabel.isHidden = true
+
             let isPreviousMonth = DateUtils.isPastMonth(date: data.date)
             applyButtonStyle(isPreviousMonth: isPreviousMonth)
+            return
         }
+
+        limitBudgetValueLabel.text = budgetLimit.currencyString
+        limitBudgetValueLabel.isHidden = false
+        infinitySymbol.isHidden = true
+        progressBar.isHidden = false
+        defineBudgetButton.isHidden = true
+
+        let rawFraction = Float(data.usedValue) / Float(budgetLimit)
+        let clampedFraction = min(max(rawFraction, 0), 1)
+
+        let availableValue = data.availableValue ?? (budgetLimit - data.usedValue)
+        let isAlertState = data.usedValue > budgetLimit || availableValue < 0
+
+        DispatchQueue.main.async {
+            self.progressBar.setProgress(clampedFraction, animated: true)
+            self.progressBar.progressTintColor = isAlertState
+                ? Colors.mainRed
+                : Colors.mainMagenta
+        }
+    }
+
+    func refresh(with data: MonthBudgetCardType) {
+        updateLimitSection(with: data)
     }
     
     private func applyButtonStyle(isPreviousMonth: Bool) {

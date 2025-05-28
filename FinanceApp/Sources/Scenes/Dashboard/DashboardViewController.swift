@@ -84,6 +84,8 @@ final class DashboardViewController: UIViewController {
         
         syncedViewModel.setMonthData(monthData)
         syncedViewModel.setTransactions(transactions)
+        
+        contentView.monthCarousel.layoutIfNeeded()
     }
 
     
