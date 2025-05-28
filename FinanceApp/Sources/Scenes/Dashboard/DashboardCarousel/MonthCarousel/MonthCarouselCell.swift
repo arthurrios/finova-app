@@ -149,6 +149,7 @@ class MonthCarouselCell: UICollectionViewCell {
             transactionTableView.topAnchor.constraint(equalTo: tableHeaderView.bottomAnchor),
             transactionTableView.leadingAnchor.constraint(equalTo: monthCard.leadingAnchor),
             transactionTableView.trailingAnchor.constraint(equalTo: monthCard.trailingAnchor),
+            transactionTableView.bottomAnchor.constraint(lessThanOrEqualTo: contentView.bottomAnchor, constant: -Metrics.spacing4),
             
             emptyStateView.topAnchor.constraint(equalTo: tableHeaderView.bottomAnchor),
             emptyStateView.leadingAnchor.constraint(equalTo: monthCard.leadingAnchor),
@@ -179,26 +180,30 @@ class MonthCarouselCell: UICollectionViewCell {
             emptyStateView.isHidden = true
         }
         
-        updateTableHeight(with: transactions.count)
+        updateTableHeight(txs: transactions)
     }
     
-    func updateTableHeight(with rowCount: Int) {
+    private func updateTableHeight(txs: [Transaction]) {
         let rowHeight: CGFloat = 67
-        let separatorHeight = CGFloat(max(0, rowCount - 1)) * 1.0
-        let contentHeight = CGFloat(rowCount) * rowHeight + separatorHeight
+        let separatorHeight = CGFloat(max(0, txs.count - 1)) * 1.0
+        let contentHeight   = CGFloat(txs.count) * rowHeight + separatorHeight
         
-        if let c = tableHeightConstraint {
-            c.constant = contentHeight
-        } else {
-            tableHeightConstraint = transactionTableView
-                .heightAnchor
-                .constraint(equalToConstant: contentHeight)
+        let maxTableHeight: CGFloat = Metrics.transactionsTableHeight
+        let finalHeight = min(contentHeight, maxTableHeight)
+        
+        if tableHeightConstraint == nil {
+            tableHeightConstraint = transactionTableView.heightAnchor.constraint(equalToConstant: finalHeight)
             tableHeightConstraint?.isActive = true
+        } else {
+            tableHeightConstraint?.constant = finalHeight
         }
         
-        transactionTableView.isScrollEnabled = false
+        transactionTableView.isScrollEnabled = (contentHeight > maxTableHeight)
+        transactionTableView.showsVerticalScrollIndicator = false
+        
         layoutIfNeeded()
     }
+    
     
     private func addBordersExceptBottom(to view: UIView, color: UIColor, width: CGFloat = 1.0) {
         view.layer.sublayers?.removeAll(where: { $0.name == "customBorder" })

@@ -18,6 +18,7 @@ final class DashboardViewController: UIViewController {
     private var transactions: [Transaction] = []
     private var currentCellTransactions: [Transaction] = []
     private var transactionsByMonth: [Int: [Transaction]] = [:]
+
     private var currentCell: MonthCarouselCell?
     weak var flowDelegate: DashboardFlowDelegate?
     
@@ -84,6 +85,7 @@ final class DashboardViewController: UIViewController {
         syncedViewModel.setMonthData(monthData)
         syncedViewModel.setTransactions(transactions)
     }
+
     
     private func setupCollectionViews() {
         contentView.monthSelectorView.collectionView.delegate = self
@@ -97,6 +99,8 @@ final class DashboardViewController: UIViewController {
         
         let monthTitles = syncedViewModel.getMonths()
         contentView.monthSelectorView.configure(months: monthTitles, selectedIndex: syncedViewModel.selectedIndex)
+        
+        contentView.monthCarousel.reloadData()
         
         contentView.monthSelectorView.layoutIfNeeded()
         contentView.monthCarousel.layoutIfNeeded()
@@ -190,7 +194,7 @@ extension DashboardViewController: UICollectionViewDataSource {
                 currentCellTransactions = txs
                 currentCell = cell
             }
-            
+                        
             cell.tag = indexPath.item
             cell.configure(with: model, transactions: txs)
             
@@ -240,12 +244,10 @@ extension DashboardViewController: UIScrollViewDelegate {
             let page = Int(floor((scrollView.contentOffset.x - pageWidth / 2) / pageWidth) + 1)
             syncedViewModel.selectMonth(at: page, animated: true)
             
-            // Update the current cell and transactions when scrolling ends
             if let visibleCells = contentView.monthCarousel.visibleCells as? [MonthCarouselCell],
                let firstCell = visibleCells.first {
                 currentCell = firstCell
                 
-                // Update current transactions based on the visible cell
                 let index = firstCell.tag
                 if index < syncedViewModel.monthData.count {
                     let model = syncedViewModel.monthData[index]
@@ -308,8 +310,9 @@ extension DashboardViewController: SyncedCollectionsViewModelDelegate {
         let currentSelectedIndex = syncedViewModel.selectedIndex
         
         contentView.monthSelectorView.configure(months: data.map { $0.month }, selectedIndex: currentSelectedIndex)
-        contentView.monthCarousel.reloadData()
-        
+        DispatchQueue.main.async {
+            self.contentView.monthCarousel.reloadData()
+        }
         if currentSelectedIndex == 0 && data.count > 0 {
             DispatchQueue.main.async {
                 let todayKey = DateFormatter.keyFormatter.string(from: Date())
@@ -327,8 +330,9 @@ extension DashboardViewController: SyncedCollectionsViewModelDelegate {
     }
     
     func didUpdateTransactions(_ transactions: [Transaction]) {
-        contentView.monthCarousel.reloadData()
-        
+        DispatchQueue.main.async {
+            self.contentView.monthCarousel.reloadData()
+        }
         if currentCell != nil {
             let index = syncedViewModel.selectedIndex
             if index < syncedViewModel.monthData.count {
@@ -345,14 +349,6 @@ extension DashboardViewController: SyncedCollectionsViewModelDelegate {
             }
         }
     }
-}
-
-extension DashboardViewController: MonthCarouselCellDelegate {
-  func monthCarouselCell(_ cell: MonthCarouselCell, didUpdateHeight height: CGFloat) {
-    if cell == currentCell {
-      contentView.updateMonthCarouselHeight(height)
-    }
-  }
 }
 
 

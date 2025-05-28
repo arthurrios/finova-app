@@ -42,11 +42,10 @@ enum Metrics {
     static let tableEmptyViewHeight: CGFloat = 68
     static let addButtonSize: CGFloat = 48
     static let monthCardShimmerHeight: CGFloat = 214
-    static let transactionsTableHeight: CGFloat = 315
     static let budgetsTableHeight: CGFloat = 400
     
     // MARK: - Dashboard Screen
-    static let defaultCarouselHeight: CGFloat = 400
+    static let transactionsTableHeight: CGFloat = 330
     
     // MARK: - Budgets Screen
     static let newBudgetContentContainerHeight: CGFloat = 158
