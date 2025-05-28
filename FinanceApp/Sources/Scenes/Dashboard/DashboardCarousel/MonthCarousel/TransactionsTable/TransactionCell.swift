@@ -45,7 +45,8 @@ final public class TransactionCell: UITableViewCell {
     private let titleLabel: UILabel = {
         let label = UILabel()
         label.font = Fonts.textSMBold.font
-        label.numberOfLines = 0
+        label.numberOfLines = 1
+        label.lineBreakMode = .byTruncatingTail
         label.textColor = Colors.gray700
         label.translatesAutoresizingMaskIntoConstraints = false
         return label
@@ -135,6 +136,7 @@ final public class TransactionCell: UITableViewCell {
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
         setupView()
+        
         contentView.addGestureRecognizer(panGR)
     }
     
@@ -171,6 +173,24 @@ final public class TransactionCell: UITableViewCell {
     }
     
     private func setupConstraints() {
+        valueLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
+        valueLabel.setContentHuggingPriority(.required, for: .horizontal)
+        valueStackView.setContentCompressionResistancePriority(.required, for: .horizontal)
+        valueStackView.setContentHuggingPriority(.required, for: .horizontal)
+        
+        trashIconView.setContentHuggingPriority(.required, for: .horizontal)
+        trashIconView.setContentCompressionResistancePriority(.required, for: .horizontal)
+        
+        titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        titleLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        titleStackView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        titleStackView.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        
+        let titleToValue = titleStackView.trailingAnchor
+            .constraint(equalTo: valueStackView.leadingAnchor,
+                        constant: -Metrics.spacing4)
+        titleToValue.priority = .defaultHigh
+        
         NSLayoutConstraint.activate([
             iconContainerView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: Metrics.spacing5),
             iconContainerView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
@@ -182,9 +202,11 @@ final public class TransactionCell: UITableViewCell {
             
             titleStackView.leadingAnchor.constraint(equalTo: iconContainerView.trailingAnchor, constant: Metrics.spacing4),
             titleStackView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+            titleToValue,
             
             trashIconView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -Metrics.spacing5),
             trashIconView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+            trashIconView.widthAnchor.constraint(equalToConstant: Metrics.spacing4),
             
             valueStackView.trailingAnchor.constraint(equalTo: trashIconView.leadingAnchor, constant: -Metrics.spacing3),
             valueStackView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
