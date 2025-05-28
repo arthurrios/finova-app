@@ -120,12 +120,27 @@ final public class TransactionCell: UITableViewCell {
         return label
     }()
     
-    private var actionContainerWidthConstraint: NSLayoutConstraint!
+    private var actionWidthConstraint: NSLayoutConstraint!
     private var panStartX: CGFloat = 0
+    
+    private lazy var panGR: UIPanGestureRecognizer = {
+        let g = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
+        g.delegate = self
+        g.cancelsTouchesInView = false
+        g.delaysTouchesBegan = false
+        g.delaysTouchesEnded = false
+        return g
+    }()
     
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
         setupView()
+        contentView.addGestureRecognizer(panGR)
+    }
+    
+    public override func prepareForReuse() {
+        super.prepareForReuse()
+        contentView.transform = .identity
     }
     
     required init?(coder: NSCoder) {
@@ -148,6 +163,9 @@ final public class TransactionCell: UITableViewCell {
         contentView.addSubview(actionContainerView)
         actionContainerView.addSubview(actionIconView)
         actionContainerView.addSubview(actionLabel)
+        
+        actionWidthConstraint = actionContainerView.widthAnchor
+            .constraint(equalTo: contentView.widthAnchor)
         
         setupConstraints()
     }
@@ -174,6 +192,7 @@ final public class TransactionCell: UITableViewCell {
             actionContainerView.topAnchor.constraint(equalTo: contentView.topAnchor),
             actionContainerView.leadingAnchor.constraint(equalTo: contentView.trailingAnchor),
             actionContainerView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
+            actionWidthConstraint,
             
             actionIconView.leadingAnchor.constraint(equalTo: actionContainerView.leadingAnchor, constant: Metrics.spacing6),
             actionIconView.centerYAnchor.constraint(equalTo: actionContainerView.centerYAnchor),
@@ -183,10 +202,6 @@ final public class TransactionCell: UITableViewCell {
             actionLabel.leadingAnchor.constraint(equalTo: actionIconView.trailingAnchor, constant: Metrics.spacing3),
             actionLabel.centerYAnchor.constraint(equalTo: actionContainerView.centerYAnchor)
         ])
-        
-        
-        actionContainerWidthConstraint = actionContainerView.widthAnchor.constraint(equalTo: contentView.widthAnchor)
-        actionContainerWidthConstraint.isActive = true
     }
     
     func configure(category: TransactionCategory, title: String, date: Date, value: Int, transactionType: TransactionType) {
@@ -208,11 +223,62 @@ final public class TransactionCell: UITableViewCell {
         }
     }
     
-    public override func gestureRecognizerShouldBegin(_ gr: UIGestureRecognizer) -> Bool {
-        guard let pan = gr as? UIPanGestureRecognizer else {
-            return true
+    @objc
+    private func handlePan(_ gesture: UIPanGestureRecognizer) {
+        let translationX = gesture.translation(in: contentView).x
+        let fullWidth = contentView.bounds.width
+        
+        switch gesture.state {
+        case .began:
+            panStartX = contentView.frame.origin.x
+            
+        case .changed:
+            let rawX = panStartX + translationX
+            let clampedX = max(-fullWidth, min(0, rawX))
+            contentView.frame.origin.x = clampedX
+            
+        case .ended, .cancelled:
+            let shouldOpen = contentView.frame.origin.x < -fullWidth / 2
+            UIView.animate(withDuration: 0.2, animations: {
+                self.contentView.frame.origin.x = shouldOpen ? -fullWidth : 0
+            }, completion: { _ in
+                if shouldOpen && self.contentView.frame.origin.x <= -fullWidth + 0.1 {
+                    self.delegate?.transactionCellDidRequestDelete(self)
+                }
+            })
+            
+        default:
+            break
         }
-        let v = pan.velocity(in: contentView)
-        return abs(v.x) > abs(v.y)
+    }
+}
+
+extension TransactionCell {
+    public override func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
+                                  shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
+      guard gestureRecognizer === panGR,
+            let otherPan = otherGestureRecognizer as? UIPanGestureRecognizer else {
+        return false
+      }
+
+      let vel = otherPan.velocity(in: contentView)
+      return abs(vel.y) > abs(vel.x)
+    }
+    
+    public override func gestureRecognizerShouldBegin(_ gr: UIGestureRecognizer) -> Bool {
+      guard let pan = gr as? UIPanGestureRecognizer else { return true }
+      let v = pan.velocity(in: contentView)
+      return abs(v.x) > abs(v.y)
+    }
+    
+    public override func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
+                                  shouldBeRequiredToFailBy otherGestureRecognizer: UIGestureRecognizer) -> Bool {
+      guard gestureRecognizer === panGR,
+            let otherPan = otherGestureRecognizer as? UIPanGestureRecognizer else {
+        return false
+      }
+      let vel = otherPan.velocity(in: contentView)
+
+      return abs(vel.y) > abs(vel.x)
     }
 }

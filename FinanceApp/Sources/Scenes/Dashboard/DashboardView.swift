@@ -11,6 +11,8 @@ import ShimmerView
 
 final class DashboardView: UIView {
     public weak var delegate: DashboardViewDelegate?
+    public var monthCarouselHeightConstraint: NSLayoutConstraint?
+    var latestCarouselHeight: CGFloat = Metrics.defaultCarouselHeight
     
     let headerContainerView: UIView = {
         let view = UIView()
@@ -58,7 +60,7 @@ final class DashboardView: UIView {
     
     lazy var monthSelectorView: MonthSelectorView = {
         let sel = MonthSelectorView()
-        sel.layer.opacity = 0
+        sel.alpha = 0
         sel.heightAnchor.constraint(equalToConstant: Metrics.spacing8).isActive = true
         sel.translatesAutoresizingMaskIntoConstraints = false
         return sel
@@ -70,7 +72,7 @@ final class DashboardView: UIView {
         layout.minimumLineSpacing = 0
         
         let collectionView = UICollectionView(frame: .zero, collectionViewLayout: layout)
-        collectionView.layer.opacity = 0
+        collectionView.alpha = 0
         collectionView.isPagingEnabled = true
         collectionView.backgroundColor = .clear
         collectionView.showsHorizontalScrollIndicator = false
@@ -146,6 +148,13 @@ final class DashboardView: UIView {
         return view
     }()
     
+    let scrollView: UIScrollView = {
+        let scrollView = UIScrollView()
+        scrollView.showsVerticalScrollIndicator = false
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
+        return scrollView
+    }()
+    
     override init (frame: CGRect) {
         super.init(frame: frame)
         setupView()
@@ -172,13 +181,17 @@ final class DashboardView: UIView {
         headerItemsView.addSubview(welcomeTitleLabel)
         headerItemsView.addSubview(welcomeSubtitleLabel)
         headerItemsView.addSubview(logoutButton)
-        addSubview(addTransactionButton)
-        addSubview(monthCardShimmerView)
-        addSubview(transactionsTableShimmerView)
-        addSubview(monthSelectorShimmerView)
         
-        addSubview(monthSelectorView)
-        addSubview(monthCarousel)
+        addSubview(scrollView)
+        
+        scrollView.addSubview(monthSelectorShimmerView)
+        scrollView.addSubview(monthCardShimmerView)
+        scrollView.addSubview(transactionsTableShimmerView)
+
+        scrollView.addSubview(monthSelectorView)
+        scrollView.addSubview(monthCarousel)
+        
+        addSubview(addTransactionButton)
         
         bringSubviewToFront(addTransactionButton)
         
@@ -218,46 +231,99 @@ final class DashboardView: UIView {
             logoutButton.heightAnchor.constraint(equalToConstant: Metrics.logoutButtonSize),
             logoutButton.widthAnchor.constraint(equalToConstant: Metrics.logoutButtonSize),
             
-            monthSelectorView.topAnchor.constraint(equalTo: headerContainerView.bottomAnchor, constant: Metrics.spacing5),
-            monthSelectorView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Metrics.spacing4),
-            monthSelectorView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Metrics.spacing4),
+            scrollView.topAnchor.constraint(equalTo: headerContainerView.bottomAnchor),
+            scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            
+            monthSelectorView.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor, constant: Metrics.spacing5),
+            monthSelectorView.leadingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.leadingAnchor, constant: Metrics.spacing4),
+            monthSelectorView.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor, constant: -Metrics.spacing4),
+            monthSelectorView.widthAnchor.constraint(equalTo: scrollView.contentLayoutGuide.widthAnchor, constant: -2 * Metrics.spacing4),
             
             monthCarousel.topAnchor.constraint(equalTo: monthSelectorView.bottomAnchor),
-            monthCarousel.leadingAnchor.constraint(equalTo: leadingAnchor),
-            monthCarousel.trailingAnchor.constraint(equalTo: trailingAnchor),
-            monthCarousel.bottomAnchor.constraint(equalTo: safeAreaLayoutGuide.bottomAnchor),
+            monthCarousel.leadingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.leadingAnchor),
+            monthCarousel.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor),
+            monthCarousel.widthAnchor.constraint(equalTo: scrollView.widthAnchor),
+            monthCarousel.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor, constant: -Metrics.spacing4),
             
             monthSelectorShimmerView.topAnchor.constraint(equalTo: headerContainerView.bottomAnchor, constant: Metrics.spacing5),
-            monthSelectorShimmerView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Metrics.spacing4),
-            monthSelectorShimmerView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Metrics.spacing4),
+            monthSelectorShimmerView.leadingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.leadingAnchor, constant: Metrics.spacing4),
+            monthSelectorShimmerView.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor, constant: -Metrics.spacing4),
             monthSelectorShimmerView.heightAnchor.constraint(equalToConstant: Metrics.spacing8),
             
             monthCardShimmerView.topAnchor.constraint(equalTo: monthSelectorView.bottomAnchor, constant: Metrics.spacing5),
-            monthCardShimmerView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Metrics.spacing4),
-            monthCardShimmerView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Metrics.spacing4),
+            monthCardShimmerView.leadingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.leadingAnchor, constant: Metrics.spacing4),
+            monthCardShimmerView.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor, constant: -Metrics.spacing4),
             monthCardShimmerView.heightAnchor.constraint(equalToConstant: Metrics.monthCardShimmerHeight),
             
             transactionsTableShimmerView.topAnchor.constraint(equalTo: monthCardShimmerView.bottomAnchor, constant: Metrics.spacing4),
-            transactionsTableShimmerView.leadingAnchor.constraint(equalTo: monthCardShimmerView.leadingAnchor),
-            transactionsTableShimmerView.trailingAnchor.constraint(equalTo: monthCardShimmerView.trailingAnchor),
-            transactionsTableShimmerView.bottomAnchor.constraint(equalTo: safeAreaLayoutGuide.bottomAnchor),
+            transactionsTableShimmerView.leadingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.leadingAnchor, constant: Metrics.spacing4),
+            transactionsTableShimmerView.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor, constant: -Metrics.spacing4),
+            transactionsTableShimmerView.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor),
             
             addTransactionButton.centerXAnchor.constraint(equalTo: centerXAnchor),
             addTransactionButton.bottomAnchor.constraint(equalTo: safeAreaLayoutGuide.bottomAnchor),
             addTransactionButton.heightAnchor.constraint(equalToConstant: Metrics.addButtonSize),
             addTransactionButton.widthAnchor.constraint(equalToConstant: Metrics.addButtonSize)
         ])
+        
+        monthCarouselHeightConstraint = monthCarousel
+            .heightAnchor
+            .constraint(equalToConstant: Metrics.defaultCarouselHeight)
+        monthCarouselHeightConstraint?.isActive = true
     }
     
-    func hideShimmerViewsAndShowOriginals() {
-        UIView.animate(withDuration: 0.3, animations: {
-            self.monthCardShimmerView.layer.opacity = 0
-            self.monthSelectorShimmerView.layer.opacity = 0
-            self.transactionsTableShimmerView.layer.opacity = 0
-            self.monthSelectorView.layer.opacity = 1
-            self.monthCarousel.layer.opacity = 1
-        })
+    func updateMonthCarouselHeight(_ height: CGFloat) {
+        latestCarouselHeight = height
+        
+        monthCarouselHeightConstraint?.constant = height
+        
+        setNeedsLayout()
     }
+
+    func hideShimmerViewsAndShowOriginals() {
+      UIView.animate(withDuration: 0.3, animations: {
+        self.monthSelectorShimmerView.alpha        = 0
+        self.monthCardShimmerView.alpha           = 0
+        self.transactionsTableShimmerView.alpha   = 0
+
+        self.monthSelectorView.alpha              = 1
+        self.monthCarousel.alpha                  = 1
+      }, completion: { _ in
+        self.monthSelectorShimmerView.removeFromSuperview()
+        self.monthCardShimmerView.removeFromSuperview()
+        self.transactionsTableShimmerView.removeFromSuperview()
+
+        self.bringSubviewToFront(self.scrollView)
+        self.bringSubviewToFront(self.addTransactionButton)
+        
+        // Force layout update to ensure proper sizing
+        self.setNeedsLayout()
+        self.layoutIfNeeded()
+        
+        // Update scroll view content size to fill screen
+        self.updateScrollViewContentSize()
+      })
+    }
+    
+    // Add a method to ensure scroll view content fills the screen
+    private func updateScrollViewContentSize() {
+        // Calculate the minimum content height needed to fill the screen
+        let minContentHeight = bounds.height - headerContainerView.bounds.height
+        
+        // Get the current content height based on the carousel
+        let currentContentHeight = monthCarousel.frame.maxY + Metrics.spacing4
+        
+        // Use the larger of the two values to ensure content fills the screen
+        let contentHeight = max(minContentHeight, currentContentHeight)
+        
+        // Set the content size
+        if scrollView.contentSize.height < contentHeight {
+            scrollView.contentSize.height = contentHeight
+        }
+    }
+    
     
     @objc private func logoutTapped() {
         delegate?.logout()
@@ -276,12 +342,13 @@ final class DashboardView: UIView {
     override func layoutSubviews() {
         super.layoutSubviews()
         
-        addTransactionButton.layer.cornerRadius = Metrics.addButtonSize / 2
+        // Update scroll view content size when layout changes
+        updateScrollViewContentSize()
         
-        addTransactionButton.layer.shadowPath = UIBezierPath(
-            roundedRect: addTransactionButton.bounds,
-            cornerRadius: addTransactionButton.layer.cornerRadius
-        ).cgPath
+        // Ensure the add transaction button has the correct corner radius
+        addTransactionButton.layer.cornerRadius = addTransactionButton.bounds.height / 2
+        
+        addTransactionButton.layer.shadowPath = UIBezierPath(roundedRect: addTransactionButton.bounds, cornerRadius: addTransactionButton.layer.cornerRadius).cgPath
     }
     
     @objc

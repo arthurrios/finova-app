@@ -41,4 +41,8 @@ extension UIView {
                 bottomAnchor.constraint(equalTo: superview.bottomAnchor, constant: -insets.bottom)
             ])
         }
+    
+    func superview<T: UIView>(of type: T.Type) -> T? {
+      return next as? T ?? superview?.superview(of: T.self)
+    }
 }

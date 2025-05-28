@@ -106,8 +106,6 @@ class MonthCarouselCell: UICollectionViewCell {
         tableView.separatorInset = UIEdgeInsets.zero
         tableView.clipsToBounds = true
         tableView.separatorColor = Colors.gray300
-        tableView.isScrollEnabled = true
-        tableView.showsVerticalScrollIndicator = false
         tableView.translatesAutoresizingMaskIntoConstraints = false
         return tableView
     }()
@@ -151,7 +149,7 @@ class MonthCarouselCell: UICollectionViewCell {
             transactionTableView.topAnchor.constraint(equalTo: tableHeaderView.bottomAnchor),
             transactionTableView.leadingAnchor.constraint(equalTo: monthCard.leadingAnchor),
             transactionTableView.trailingAnchor.constraint(equalTo: monthCard.trailingAnchor),
-
+            
             emptyStateView.topAnchor.constraint(equalTo: tableHeaderView.bottomAnchor),
             emptyStateView.leadingAnchor.constraint(equalTo: monthCard.leadingAnchor),
             emptyStateView.trailingAnchor.constraint(equalTo: monthCard.trailingAnchor),
@@ -188,23 +186,20 @@ class MonthCarouselCell: UICollectionViewCell {
         let rowHeight: CGFloat = 67
         let separatorHeight = CGFloat(max(0, rowCount - 1)) * 1.0
         let contentHeight = CGFloat(rowCount) * rowHeight + separatorHeight
-
-        let maxTableHeight: CGFloat = Metrics.transactionsTableHeight
-        let finalHeight = min(contentHeight, maxTableHeight)
-
+        
         if let c = tableHeightConstraint {
-            c.constant = finalHeight
+            c.constant = contentHeight
         } else {
             tableHeightConstraint = transactionTableView
                 .heightAnchor
-                .constraint(equalToConstant: finalHeight)
+                .constraint(equalToConstant: contentHeight)
             tableHeightConstraint?.isActive = true
         }
-
-        transactionTableView.isScrollEnabled = (contentHeight > maxTableHeight)
+        
+        transactionTableView.isScrollEnabled = false
         layoutIfNeeded()
     }
-
+    
     private func addBordersExceptBottom(to view: UIView, color: UIColor, width: CGFloat = 1.0) {
         view.layer.sublayers?.removeAll(where: { $0.name == "customBorder" })
         
