@@ -275,7 +275,6 @@ final public class TransactionCell: UITableViewCell {
             break
         }
     }
-
 }
 
 extension TransactionCell {

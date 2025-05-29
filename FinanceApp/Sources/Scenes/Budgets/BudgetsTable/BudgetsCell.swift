@@ -169,7 +169,7 @@ public class BudgetsCell: UITableViewCell {
         let month = DateFormatter.monthFormatter.string(from: date)
         let year = DateFormatter.yearFormatter.string(from: date)
 
-        monthLabel.text = month
+        monthLabel.text = "month.\(month.lowercased()).ext".localized
         yearLabel.text = year
         
         let symbolFont = Fonts.textXS.font

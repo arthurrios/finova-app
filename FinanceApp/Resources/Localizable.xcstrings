@@ -1344,6 +1344,23 @@
         }
       }
     },
+    "month.apr.ext" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "April"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Abril"
+          }
+        }
+      }
+    },
     "month.aug" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1357,6 +1374,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ago"
+          }
+        }
+      }
+    },
+    "month.aug.ext" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "August"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Agosto"
           }
         }
       }
@@ -1378,6 +1412,23 @@
         }
       }
     },
+    "month.dec.ext" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "December"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dezembro"
+          }
+        }
+      }
+    },
     "month.feb" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1391,6 +1442,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Fev"
+          }
+        }
+      }
+    },
+    "month.feb.ext" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "February"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fevereiro"
           }
         }
       }
@@ -1412,6 +1480,23 @@
         }
       }
     },
+    "month.jan.ext" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "January"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Janeiro"
+          }
+        }
+      }
+    },
     "month.jul" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1425,6 +1510,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Jul"
+          }
+        }
+      }
+    },
+    "month.jul.ext" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "July"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Julho"
           }
         }
       }
@@ -1446,6 +1548,23 @@
         }
       }
     },
+    "month.jun.ext" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "June"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Junho"
+          }
+        }
+      }
+    },
     "month.mar" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1463,7 +1582,41 @@
         }
       }
     },
+    "month.mar.ext" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "March"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Março"
+          }
+        }
+      }
+    },
     "month.may" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "May"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Maio"
+          }
+        }
+      }
+    },
+    "month.may.ext" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
@@ -1497,6 +1650,23 @@
         }
       }
     },
+    "month.nov.ext" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "November"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Novembro"
+          }
+        }
+      }
+    },
     "month.oct" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1514,6 +1684,23 @@
         }
       }
     },
+    "month.oct.ext" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "October"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Outubro"
+          }
+        }
+      }
+    },
     "month.sep" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1527,6 +1714,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Set"
+          }
+        }
+      }
+    },
+    "month.sep.ext" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "September"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Setembro"
           }
         }
       }
