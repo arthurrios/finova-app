@@ -19,6 +19,23 @@
         }
       }
     },
+    "NSFaceIDUsageDescription" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "We need permission to use FaceID for authentication"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Precisamos de sua permissão para usar FaceID para autenticação"
+          }
+        }
+      }
+    },
     "NSUserTrackingDescription" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -43,7 +60,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "new",
-            "value" : ""
+            "value" : "We need permission to notify you about your transactions"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Precisamos de sua permissão para notificar sobre suas transações"
           }
         }
       }

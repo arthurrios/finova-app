@@ -7,6 +7,7 @@
 
 import Foundation
 import UIKit
+import LocalAuthentication
 
 final class LoginViewController: UIViewController {
     let contentView: LoginView
@@ -64,9 +65,7 @@ final class LoginViewController: UIViewController {
     private func presentSaveLoginAlert(name: String, email: String) {
         let alertController = UIAlertController(title: "login.alert.title".localized, message: "login.alert.subtitle".localized + "\(name)?", preferredStyle: .alert)
         let okAction = UIAlertAction(title: "login.alert.ok".localized, style: .default) { _ in
-            let user = User(name: name, email: email, isUserSaved: true)
-            UserDefaultsManager.saveUser(user: user)
-            self.flowDelegate?.navigateToDashboard()
+            self.askEnableFaceID(name: name, email: email)
         }
         
         let cancelAction = UIAlertAction(title: "login.alert.cancel".localized, style: .cancel) { _ in
@@ -78,6 +77,37 @@ final class LoginViewController: UIViewController {
         alertController.addAction(okAction)
         alertController.addAction(cancelAction)
         present(alertController, animated: true)
+    }
+    
+    private func askEnableFaceID(name: String, email: String) {
+        let context = LAContext()
+        var error: NSError?
+        
+        let supportsBiometrics = context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &error)
+        
+        if supportsBiometrics {
+            let alertController = UIAlertController(title: "faceid.alert.title".localized, message: "faceid.alert.subtitle".localized, preferredStyle: .alert)
+            
+            let yesAction = UIAlertAction(title: "yes".localized, style: .default) { _ in
+                let user = User(name: name, email: email, isUserSaved: true, hasFaceIdEnabled: true)
+                UserDefaultsManager.saveUser(user: user)
+                self.flowDelegate?.navigateToDashboard()
+            }
+            
+            let noAction = UIAlertAction(title: "no".localized, style: .cancel) { _ in
+                let user = User(name: name, email: email, isUserSaved: true, hasFaceIdEnabled: false)
+                UserDefaultsManager.saveUser(user: user)
+                self.flowDelegate?.navigateToDashboard()
+            }
+            
+            alertController.addAction(yesAction)
+            alertController.addAction(noAction)
+            present(alertController, animated: true)
+        } else {
+            let user = User(name: name, email: email, isUserSaved: true, hasFaceIdEnabled: false)
+            UserDefaultsManager.saveUser(user: user)
+            flowDelegate?.navigateToDashboard()
+        }
     }
 
     
