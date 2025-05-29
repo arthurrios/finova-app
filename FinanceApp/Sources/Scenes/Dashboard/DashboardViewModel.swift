@@ -85,7 +85,6 @@ final class DashboardViewModel {
             
             let notifID = "transaction_\(id)"
             notificationCenter.removePendingNotificationRequests(withIdentifiers: [notifID])
-            printPendingNotifications()
             return .success(())
         } catch {
             return .failure(error)
@@ -129,8 +128,6 @@ final class DashboardViewModel {
                 print("Error scheduling notification: \(error)")
             }
         }
-        
-        printPendingNotifications()
     }
     
     private func printPendingNotifications() {
