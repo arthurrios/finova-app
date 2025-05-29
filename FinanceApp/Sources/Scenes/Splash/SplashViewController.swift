@@ -123,10 +123,14 @@ extension SplashViewController {
                     if success {
                         self.flowDelegate?.navigateToDirectlyToDashboard()
                     } else {
+                        self.gradientLayer.removeFromSuperlayer()
                         self.navigateToLogin()
                     }
                 }
             }
+        } else {
+            gradientLayer.removeFromSuperlayer()
+            navigateToLogin()
         }
     }
 }
