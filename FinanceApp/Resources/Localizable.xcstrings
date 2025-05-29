@@ -1503,13 +1503,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Available balance"
+            "value" : "Final balance"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Saldo disponível"
+            "value" : "Saldo final"
           }
         }
       }
@@ -1561,6 +1561,74 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Usado"
+          }
+        }
+      }
+    },
+    "notification.transaction.body.expense" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ of “%@\""
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ de “%@”"
+          }
+        }
+      }
+    },
+    "notification.transaction.body.income" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ of “%@”"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ de \"%@”"
+          }
+        }
+      }
+    },
+    "notification.transaction.title.expense" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Upcoming debit"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Débito agendado"
+          }
+        }
+      }
+    },
+    "notification.transaction.title.income" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Upcoming credit"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Crédito agendado"
           }
         }
       }
