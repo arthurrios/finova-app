@@ -28,6 +28,20 @@ extension UIViewController {
 }
 
 extension UIViewController {
+    func showConfirmation(
+      title: String,
+      message: String,
+      okTitle: String = "alert.ok".localized,
+      cancelTitle: String = "alert.cancel".localized,
+      onOk: @escaping () -> Void = {},
+      onCancel: @escaping () -> Void = {}
+    ) {
+      let alert = UIAlertController(title: title, message: message, preferredStyle: .alert)
+      alert.addAction(.init(title: okTitle, style: .destructive) { _ in onOk() })
+      alert.addAction(.init(title: cancelTitle, style: .cancel)   { _ in onCancel() })
+      DispatchQueue.main.async { self.present(alert, animated: true) }
+    }
+    
     func startKeyboardObservers() {
         NotificationCenter.default.addObserver(
             self,

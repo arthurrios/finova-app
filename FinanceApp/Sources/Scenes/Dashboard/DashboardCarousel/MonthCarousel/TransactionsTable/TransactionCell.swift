@@ -10,8 +10,8 @@ import UIKit
 
 final public class TransactionCell: UITableViewCell {
     static let reuseID = "TransactionCell"
-        
-    var onDelete: (() -> Void)?
+    
+    var onDelete: ((_ completion: @escaping (Bool) -> Void) -> Void)?
     
     private let iconView: UIImageView = {
         let imageView = UIImageView()
@@ -136,7 +136,8 @@ final public class TransactionCell: UITableViewCell {
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
         setupView()
-        
+        clipsToBounds = false
+        contentView.clipsToBounds = false
         contentView.addGestureRecognizer(panGR)
     }
     
@@ -247,30 +248,33 @@ final public class TransactionCell: UITableViewCell {
     
     @objc
     private func handlePan(_ gesture: UIPanGestureRecognizer) {
-        let translationX = gesture.translation(in: contentView).x
         let fullWidth = contentView.bounds.width
-
+        let translationX = gesture.translation(in: self).x
+        
         switch gesture.state {
         case .began:
             panStartX = contentView.frame.origin.x
-
+            
         case .changed:
             let rawX = panStartX + translationX
-            let clampedX = max(-fullWidth, min(0, rawX))
-            contentView.frame.origin.x = clampedX
-
+            contentView.frame.origin.x = max(-fullWidth, min(0, rawX))
+            
         case .ended, .cancelled:
-            let finalX = contentView.frame.origin.x
-            let shouldOpen = abs(finalX) >= fullWidth * 0.5
+            let shouldOpen = contentView.frame.origin.x < -fullWidth / 3
 
             UIView.animate(withDuration: 0.2, animations: {
                 self.contentView.frame.origin.x = shouldOpen ? -fullWidth : 0
             }, completion: { _ in
-                if shouldOpen {
-                    self.onDelete?()
+                guard shouldOpen else { return }
+                
+                self.onDelete? { didDelete in
+                    guard !didDelete else { return }
+                    UIView.animate(withDuration: 0.2) {
+                        self.contentView.frame.origin.x = 0
+                    }
                 }
             })
-
+            
         default:
             break
         }

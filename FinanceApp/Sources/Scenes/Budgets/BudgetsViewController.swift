@@ -109,7 +109,7 @@ final class BudgetsViewController: UIViewController {
             message: message,
             preferredStyle: .alert
         )
-        alertController.addAction(UIAlertAction(title: "alert.error.ok".localized, style: .default))
+        alertController.addAction(UIAlertAction(title: "alert.ok".localized, style: .default))
         
         DispatchQueue.main.async {
             self.present(alertController, animated: true)
@@ -174,22 +174,29 @@ extension BudgetsViewController: BudgetsViewDelegate {
     }
 }
 
-    
+
 extension BudgetsViewController: UITableViewDataSource, UITableViewDelegate, BudgetsCellDelegate {
-    func budgetCellDidRequestDelete(_ cell: BudgetsCell) {
+    func budgetCellDidRequestDelete(_ cell: BudgetsCell, completion: @escaping (Bool) -> Void) {
         guard let ip = contentView.budgetsTableView.indexPath(for: cell) else { return }
         let model = budgetsData[ip.row]
         
         let monthDate = DateFormatter.monthYearFormatter.string(from: model.date)
         
-        switch viewModel.deleteBudget(monthYearDate: monthDate) {
-        case .success:
-            budgetsData.remove(at: ip.row)
-            contentView.budgetsTableView.deleteRows(at: [ip], with: .automatic)
-            updateTableHeight()
-            contentView.toggleEmptyState(budgetsData.isEmpty)
-        case .failure(let error):
-            showErrorAlert(error: error)
+        showConfirmation(title: "budget.delete.title".localized, message: "delete.confirmation".localized, okTitle: "alert.delete".localized) {
+            switch self.viewModel.deleteBudget(monthYearDate: monthDate) {
+            case .success:
+                self.budgetsData.remove(at: ip.row)
+                self.contentView.budgetsTableView.deleteRows(at: [ip], with: .automatic)
+                self.updateTableHeight()
+                self.contentView.toggleEmptyState(self.budgetsData.isEmpty)
+                
+                completion(true)
+            case .failure(let error):
+                self.showErrorAlert(error: error)
+                completion(false)
+            }
+        } onCancel: {
+            completion(false)
         }
     }
     

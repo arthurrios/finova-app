@@ -215,12 +215,19 @@ public class BudgetsCell: UITableViewCell {
             contentView.frame.origin.x = clampedX
             
         case .ended, .cancelled:
-            let shouldOpen = contentView.frame.origin.x < -fullWidth / 2
+            let shouldOpen = contentView.frame.origin.x < -fullWidth / 3
             UIView.animate(withDuration: 0.2, animations: {
                 self.contentView.frame.origin.x = shouldOpen ? -fullWidth : 0
             }, completion: { _ in
                 if shouldOpen && self.contentView.frame.origin.x <= -fullWidth + 0.1 {
-                    self.delegate?.budgetCellDidRequestDelete(self)
+                    self.delegate?.budgetCellDidRequestDelete(self) { [weak self] didDelete in
+                        guard let self = self else { return }
+                        
+                        guard !didDelete else { return }
+                        UIView.animate(withDuration: 0.2) {
+                            self.contentView.frame.origin.x = 0
+                        }
+                    }
                 }
             })
             

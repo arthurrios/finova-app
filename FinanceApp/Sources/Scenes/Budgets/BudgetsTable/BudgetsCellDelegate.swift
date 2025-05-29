@@ -8,5 +8,5 @@
 import Foundation
 
 public protocol BudgetsCellDelegate: AnyObject {
-    func budgetCellDidRequestDelete(_ cell: BudgetsCell)
+    func budgetCellDidRequestDelete(_ cell: BudgetsCell, completion: @escaping (Bool) -> Void)
 }

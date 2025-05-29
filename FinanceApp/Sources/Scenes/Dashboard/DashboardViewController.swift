@@ -108,23 +108,6 @@ final class DashboardViewController: UIViewController {
         contentView.monthSelectorView.layoutIfNeeded()
         contentView.monthCarousel.layoutIfNeeded()
     }
-    
-    private func showErrorAlert(error: Error) {
-        let message: String
-
-            message = error.localizedDescription
-        
-        let alertController = UIAlertController(
-            title: "alert.error.title".localized,
-            message: message,
-            preferredStyle: .alert
-        )
-        alertController.addAction(UIAlertAction(title: "alert.error.ok".localized, style: .default))
-        
-        DispatchQueue.main.async {
-            self.present(alertController, animated: true)
-        }
-    }
 }
 
 extension DashboardViewController: DashboardViewDelegate {
@@ -432,25 +415,31 @@ extension DashboardViewController: UITableViewDataSource, UITableViewDelegate{
             transactionType: tx.type
         )
         
-        cell.onDelete = { [weak self] in
+        cell.onDelete = { [weak self] completion in
             guard let self = self else { return }
-            switch self.viewModel.deleteTransaction(id: tx.id) {
-            case .success():
-                self.syncedViewModel.removeTransaction(withId: tx.id)
-                
-                self.currentCell?.transactions.remove(at: indexPath.row)
-                self.currentCell?.transactionTableView.beginUpdates()
-                self.currentCell?.transactionTableView.deleteRows(at: [indexPath], with: .automatic)
-                self.currentCell?.transactionTableView.endUpdates()
-                
-                let newCount = self.currentCell?.transactions.count ?? 0
-                self.currentCell?.updateTableHeight(txsCount: newCount)
-                self.currentCell?.toggleEmptyState(newCount == 0)
-                loadData()
-            case .failure(let error):
-                print(error)
-            }
             
+            showConfirmation(title: "transaction.delete.title".localized, message: "delete.confirmation".localized, okTitle: "alert.delete".localized) {
+                switch self.viewModel.deleteTransaction(id: tx.id) {
+                case .success():
+                    self.syncedViewModel.removeTransaction(withId: tx.id)
+                    
+                    self.currentCell?.transactions.remove(at: indexPath.row)
+                    self.currentCell?.transactionTableView.beginUpdates()
+                    self.currentCell?.transactionTableView.deleteRows(at: [indexPath], with: .automatic)
+                    self.currentCell?.transactionTableView.endUpdates()
+                    
+                    let newCount = self.currentCell?.transactions.count ?? 0
+                    self.currentCell?.updateTableHeight(txsCount: newCount)
+                    self.currentCell?.toggleEmptyState(newCount == 0)
+                    self.loadData()
+                    completion(true)
+                case .failure(let error):
+                    print(error)
+                    completion(false)
+                }
+            } onCancel: {
+                completion(false)
+            }
         }
         cell.selectionStyle = .none
         
