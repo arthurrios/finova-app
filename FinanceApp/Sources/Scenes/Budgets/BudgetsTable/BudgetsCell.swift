@@ -185,6 +185,11 @@ public class BudgetsCell: UITableViewCell {
         contentView.addGestureRecognizer(pan)
     }
     
+    public override func prepareForReuse() {
+        super.prepareForReuse()
+        contentView.frame.origin.x = 0
+    }
+    
     private func applyStyleForDate(isPreviousMonth: Bool) {
         if isPreviousMonth {
             monthLabel.textColor = Colors.gray400
@@ -197,6 +202,7 @@ public class BudgetsCell: UITableViewCell {
             yearLabel.textColor = Colors.gray600
             valueLabel.textColor = Colors.gray700
             iconView.tintColor = Colors.gray700
+            trashIconView.isHidden = false
         }
     }
     

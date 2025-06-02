@@ -310,6 +310,7 @@ class Input: UIView {
             picker.delegate = self
             datePicker = nil
             textField.inputView = picker
+            textField.addTarget(self, action: #selector(commitMonthYear), for: .editingDidEnd)
         case .fullDate:
             let picker = UIDatePicker()
             picker.datePickerMode = .date
@@ -358,25 +359,32 @@ class Input: UIView {
         }
     }
     
+    @objc private func commitMonthYear() {
+        guard datePickerStyle == .monthYear,
+              let picker = textField.inputView as? UIPickerView else { return }
+        let monthRow = picker.selectedRow(inComponent: 0)
+        let yearRow = picker.selectedRow(inComponent: 1)
+        let month = (selectedYear == currentYear) ? (currentMonth + monthRow) : (monthRow + 1)
+        let year = years[yearRow]
+        dateValue = calendar.date(from: DateComponents(year: year, month: month))
+        if let date = dateValue {
+            textField.text = DateFormatter.monthYearFormatter.string(from: date)
+            textField.sendActions(for: .editingChanged)
+        }
+    }
+    
     @objc
     private func dateChanged(_ picker: UIDatePicker) {
         dateValue = picker.date
+        textField.text = DateFormatter.fullDateFormatter.string(from: picker.date)
+        textField.sendActions(for: .editingChanged)
     }
     
     @objc
     private func dateDoneTapped() {
         switch datePickerStyle {
         case .monthYear:
-            if dateValue == nil {
-                var comps = DateComponents()
-                comps.month = selectedMonth
-                comps.year  = selectedYear
-                dateValue = Calendar.current.date(from: comps)
-            }
-            
-            if let date = dateValue {
-                textField.text = DateFormatter.monthYearFormatter.string(from: date)
-            }
+            commitMonthYear()
         case .fullDate:
             guard let date = dateValue ?? datePicker?.date else { return }
             textField.text = DateFormatter.fullDateFormatter.string(from: date)
@@ -423,6 +431,7 @@ class Input: UIView {
             }
         }
         setError(false)
+        textField.sendActions(for: .editingChanged)
         textField.resignFirstResponder()
         updateAppearance()
     }

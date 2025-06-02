@@ -83,6 +83,7 @@ extension AppFlowController: DashboardFlowDelegate {
         UIApplication.shared.delegate?.window??.backgroundColor = Colors.gray100
         navigationController?.view.layer.add(t, forKey: kCATransition)
         navigationController?.pushViewController(viewController, animated: false)
+        viewController.contentView.containerView.alpha = 1
     }
 }
 

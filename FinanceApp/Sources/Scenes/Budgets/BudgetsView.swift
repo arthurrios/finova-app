@@ -156,10 +156,27 @@ final class BudgetsView: UIView {
     override init(frame: CGRect) {
         super.init(frame: .zero)
         setupView()
+        
+        dateInput.textField.delegate = self
+        
+        let tap = UITapGestureRecognizer(target: self, action: #selector(dismissPicker))
+        tap.cancelsTouchesInView = false
+        addGestureRecognizer(tap)
+        
+        if let picker = dateInput.textField.inputView as? UIDatePicker {
+            picker.addTarget(self,
+                             action: #selector(pickerValueChanged(_:)),
+                             for: .valueChanged)
+        }
     }
     
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+    
+    @objc
+    private func dismissPicker() {
+        endEditing(true)
     }
     
     private func setupView() {
@@ -287,5 +304,19 @@ final class BudgetsView: UIView {
         let date = dateInput.textField.text ?? ""
         let budget = budgetValueInput.centsValue
         delegate?.didTapAddBudgetButton(monthYearDate: date, budgetAmount: budget)
+    }
+}
+
+extension BudgetsView: UITextFieldDelegate {
+    func textFieldDidEndEditing(_ textField: UITextField) {
+        guard textField == dateInput.textField,
+              let picker = textField.inputView as? UIDatePicker else { return }
+
+        let formatted = DateFormatter.monthYearFormatter.string(from: picker.date)
+        textField.text = formatted
+    }
+    
+    @objc private func pickerValueChanged(_ picker: UIDatePicker) {
+        dateInput.textField.text = DateFormatter.monthYearFormatter.string(from: picker.date)
     }
 }
