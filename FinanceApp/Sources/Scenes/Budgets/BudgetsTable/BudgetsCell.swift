@@ -12,6 +12,7 @@ public class BudgetsCell: UITableViewCell {
     weak var delegate: BudgetsCellDelegate?
     
     static let reuseID = "BudgetsCell"
+    var isPreviousMonth: Bool = false
         
     private let iconView: UIImageView = {
         let imageView = UIImageView()
@@ -176,7 +177,7 @@ public class BudgetsCell: UITableViewCell {
         self.valueLabel.attributedText = value.currencyAttributedString(symbolFont: symbolFont, font: Fonts.titleMD)
         self.valueLabel.accessibilityLabel = value.currencyString
         
-        let isPreviousMonth = DateUtils.isPastMonth(date: date)
+        isPreviousMonth = DateUtils.isPastMonth(date: date)
         applyStyleForDate(isPreviousMonth: isPreviousMonth)
     }
     
@@ -208,6 +209,8 @@ public class BudgetsCell: UITableViewCell {
     
     @objc
     private func handlePan(_ gesture: UIPanGestureRecognizer) {
+        guard !isPreviousMonth else { return }
+        
         let translationX = gesture.translation(in: self).x
         let fullWidth    = contentView.bounds.width
         
