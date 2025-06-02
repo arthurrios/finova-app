@@ -36,7 +36,6 @@ final class LoginViewController: UIViewController {
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         navigationController?.setNavigationBarHidden(true, animated: false)
-        contentView.containerView.alpha = 1
         startKeyboardObservers()
     }
     
@@ -124,11 +123,9 @@ final class LoginViewController: UIViewController {
     
     func animateShow(completion: (() -> Void)? = nil) {
         contentView.layoutIfNeeded()
-        UIView.animate(withDuration: 1, animations: {
+        UIView.animate(withDuration: 0.7, animations: {
             self.contentView.containerView.alpha = 1
-        }) { _ in
-            completion?()
-        }
+        })
     }
 }
 
