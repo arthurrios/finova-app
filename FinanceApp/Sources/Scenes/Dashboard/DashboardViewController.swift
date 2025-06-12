@@ -419,9 +419,10 @@ extension DashboardViewController: UITableViewDataSource, UITableViewDelegate{
             guard let self = self else { return }
             
             showConfirmation(title: "transaction.delete.title".localized, message: "delete.confirmation".localized, okTitle: "alert.delete".localized) {
-                switch self.viewModel.deleteTransaction(id: tx.id) {
+                
+                switch self.viewModel.deleteTransaction(id: tx.id!) {
                 case .success():
-                    self.syncedViewModel.removeTransaction(withId: tx.id)
+                    self.syncedViewModel.removeTransaction(withId: tx.id!)
                     
                     self.currentCell?.transactions.remove(at: indexPath.row)
                     self.currentCell?.transactionTableView.beginUpdates()

@@ -22,3 +22,24 @@ final class TransactionRepository: TransactionRepositoryProtocol {
         try db.deleteTransaction(id: id)
     }
 }
+
+extension TransactionRepository {
+    func fetchRecurringTransactions() -> [Transaction] {
+        return fetchTransactions().filter { $0.isRecurring == true }
+    }
+    
+    func fetchTransactionInstancesForRecurring(_ recurringId: Int) -> [Transaction] {
+        return fetchTransactions().filter { $0.parentTransactionId == recurringId }
+    }
+    
+    func fetchAllRecurringInstances() -> [Transaction] {
+
+        return fetchTransactions().filter { $0.parentTransactionId != nil }
+    }
+    
+    func insertTransactionAndGetId(_ transaction: TransactionModel) throws -> Int {
+        try insertTransaction(transaction)
+
+        return 0
+    }
+}

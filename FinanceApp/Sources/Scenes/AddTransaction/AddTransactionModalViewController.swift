@@ -98,27 +98,42 @@ extension AddTransactionModalViewController: AddTransactionModalViewDelegate, Tr
     }
     
     func sendTransactionData(title: String, amount: Int, date: String, category: String, transactionType: String) {
-        let result = viewModel.addTransaction(title: title, amount: amount, dateString: date, categoryKey: category, typeRaw: transactionType)
-        
-        switch result {
-        case .success:
-            dismissModal()
-            flowDelegate?.didAddTransaction()
-        case .failure(let error):
-            let message: String
-            switch error {
-            case AddTransactionModalViewModel.TransactionError.invalidDateFormat:
-                message = "alert.error.invalidDateFormat".localized
-            case AddTransactionModalViewModel.TransactionError.invalidCategory:
-                message = "alert.error.invalidCategory".localized
-            case AddTransactionModalViewModel.TransactionError.invalidType:
-                message = "alert.error.invalidTransactionType".localized
-            default:
-                message = "alert.error.defaultMessage".localized
-            }
-            handleError(title: "alert.error.title".localized, message: message)
-        }
+        let result = viewModel.addTransaction(
+            title: title,
+            amount: amount,
+            dateString: date,
+            categoryKey: category,
+            typeRaw: transactionType)
+       
+        handleTransactionResult(result)
     }
+    
+    func sendTransactionDataWithRecurring(title: String, amount: Int, date: String, category: String, transactionType: String) {
+        let result = viewModel.
+    }
+    
+    private func handleTransactionResult(_ result: Result<Void, Error>) {
+            switch result {
+            case .success:
+                dismissModal()
+                flowDelegate?.didAddTransaction()
+            case .failure(let error):
+                let message: String
+                switch error {
+                case TransactionError.invalidDateFormat:
+                    message = "alert.error.invalidDateFormat".localized
+                case TransactionError.invalidCategory:
+                    message = "alert.error.invalidCategory".localized
+                case TransactionError.invalidType:
+                    message = "alert.error.invalidTransactionType".localized
+                case TransactionError.invalidInstallmentCount:
+                    message = "alert.error.invalidInstallmentCount".localized
+                default:
+                    message = "alert.error.defaultMessage".localized
+                }
+                handleError(title: "alert.error.title".localized, message: message)
+            }
+        }
     
     func transactionTypeSelectorDidSelect(_ selector: TransactionTypeSelector) {
         if selector.variant == .selected {

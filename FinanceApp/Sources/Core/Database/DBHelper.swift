@@ -23,6 +23,7 @@ class DBHelper {
         try? openDatabase()
         try? createBudgetsTable()
         try? createTransactionsTable()
+        try? migrateTransactionsTable()
     }
     
     
@@ -165,22 +166,33 @@ class DBHelper {
     private func createTransactionsTable() throws {
         let createTransactionsTableQuery = """
             CREATE TABLE IF NOT EXISTS Transactions (
-                id                INTEGER PRIMARY KEY AUTOINCREMENT,
-                title             TEXT NOT NULL,
-                category          TEXT NOT NULL,
-                type              TEXT NOT NULL,
-                amount            INTEGER NOT NULL,
-                date              INTEGER NOT NULL,
-                budget_month_date INTEGER,
+                id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+                title                 TEXT NOT NULL,
+                category              TEXT NOT NULL,
+                type                  TEXT NOT NULL,
+                amount                INTEGER NOT NULL,
+                date                  INTEGER NOT NULL,
+                budget_month_date     INTEGER,
+                is_recurring          INTEGER DEFAULT 0,
+                has_installments      INTEGER DEFAULT 0,
+                parent_transaction_id INTEGER,
+                installment_number    INTEGER,
+                total_installments    INTEGER,
+                original_amount       INTEGER,
                 FOREIGN KEY(budget_month_date)
                     REFERENCES Budgets(month_date)
                     ON UPDATE CASCADE
                     ON DELETE SET NULL
+                FOREIGN KEY(parent_transaction_id)
+                    REFERENCES Transactions(id)
+                    ON DELETE CASCADE
             );
             
             CREATE INDEX IF NOT EXISTS idx_tx_date              ON Transactions(date);
             CREATE INDEX IF NOT EXISTS idx_tx_category          ON Transactions(category);
             CREATE INDEX IF NOT EXISTS idx_tx_budget_month_date ON Transactions(budget_month_date);
+            CREATE INDEX IF NOT EXISTS idx_tx_parent_id         ON Transactions(parent_transaction_id);
+            CREATE INDEX IF NOT EXISTS idx_tx_recurring         ON Transactions(is_recurring);
             """
         
         var statement: OpaquePointer?
@@ -198,8 +210,75 @@ class DBHelper {
         }
     }
     
+    private func migrateTransactionsTable() throws {
+        let checkQuery = "PRAGMA table_info(Transactions);"
+        var statement: OpaquePointer?
+        
+        guard sqlite3_prepare_v2(db, checkQuery, -1, &statement, nil) == SQLITE_OK else {
+            let msg = String(cString: sqlite3_errmsg(db))
+            throw DBError.prepareFailed(message: msg)
+        }
+        
+        defer { sqlite3_finalize(statement) }
+        
+        var existingColumns: Set<String> = []
+        while sqlite3_step(statement) == SQLITE_ROW {
+            let columnName = String(cString: sqlite3_column_text(statement, 1))
+            existingColumns.insert(columnName)
+        }
+        
+        let requiredColumns = [
+            "is_recurring",
+            "has_installments",
+            "parent_transaction_id",
+            "installment_number",
+            "total_installments",
+            "original_amount"
+        ]
+        
+        let missingColumns = requiredColumns.filter { !existingColumns.contains($0) }
+        
+        if !missingColumns.isEmpty {
+            try addNewColumns(missingColumns)
+        }
+    }
+    
+    private func addNewColumns(_ columns: [String]) throws {
+        let alterQueries = [
+            "is_recurring": "ALTER TABLE Transactions ADD COLUMN is_recurring INTEGER DEFAULT 0;",
+            "has_installments": "ALTER TABLE Transactions ADD COLUMN has_installments INTEGER DEFAULT 0;",
+            "parent_transaction_id": "ALTER TABLE Transactions ADD COLUMN parent_transaction_id INTEGER;",
+            "installment_number": "ALTER TABLE Transactions ADD COLUMN installment_number INTEGER;",
+            "total_installments": "ALTER TABLE Transactions ADD COLUMN total_installments INTEGER;",
+            "original_amount": "ALTER TABLE Transactions ADD COLUMN original_amount INTEGER;"
+        ]
+        
+        for column in columns {
+            guard let query = alterQueries[column] else { continue }
+            
+            var statement: OpaquePointer?
+            
+            guard sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK else {
+                let msg = String(cString: sqlite3_errmsg(db))
+                throw DBError.prepareFailed(message: msg)
+            }
+            
+            defer { sqlite3_finalize(statement) }
+            
+            guard sqlite3_step(statement) == SQLITE_DONE else {
+                let msg = String(cString: sqlite3_errmsg(db))
+                throw DBError.stepFailed(message: msg)
+            }
+        }
+    }
+    
     func insertTransaction(_ transaction: TransactionModel) throws {
-        let insertQuery = "INSERT INTO Transactions (title, category, type, amount, date, budget_month_date) VALUES (?, ?, ?, ?, ?, ?);"
+        let insertQuery = """
+            INSERT INTO Transactions (
+                title, category, type, amount, date, budget_month_date, is_recurring, has_installments, parent_transaction_id, installment_number, total_installments, original_amount
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+        """
+        
         var statement: OpaquePointer?
         
         guard sqlite3_prepare_v2(db, insertQuery, -1, &statement, nil) == SQLITE_OK else {
@@ -211,12 +290,48 @@ class DBHelper {
         
         let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
         
-        sqlite3_bind_text(statement, 1, transaction.title, -1, transient)
-        sqlite3_bind_text(statement, 2, transaction.category, -1, transient)
-        sqlite3_bind_text(statement, 3, transaction.type, -1, transient)
-        sqlite3_bind_int64(statement, 4, Int64(transaction.amount))
-        sqlite3_bind_int64(statement, 5, Int64(transaction.dateTimestamp))
-        sqlite3_bind_int64(statement, 6, Int64(transaction.budgetMonthDate))
+        sqlite3_bind_text(statement, 1, transaction.data.title, -1, transient)
+        sqlite3_bind_text(statement, 2, transaction.data.category, -1, transient)
+        sqlite3_bind_text(statement, 3, transaction.data.type, -1, transient)
+        sqlite3_bind_int64(statement, 4, Int64(transaction.data.amount))
+        sqlite3_bind_int64(statement, 5, Int64(transaction.data.dateTimestamp))
+        sqlite3_bind_int64(statement, 6, Int64(transaction.data.budgetMonthDate))
+        
+        if let isRecurring = transaction.data.isRecurring {
+            sqlite3_bind_int(statement, 7, isRecurring ? 1 : 0)
+        } else {
+            sqlite3_bind_null(statement, 7)
+        }
+        
+        if let hasInstallments = transaction.data.hasInstallments {
+            sqlite3_bind_int(statement, 8, hasInstallments ? 1 : 0)
+        } else {
+            sqlite3_bind_null(statement, 8)
+        }
+        
+        if let parentId = transaction.data.parentTransactionId {
+            sqlite3_bind_int64(statement, 9, Int64(parentId))
+        } else {
+            sqlite3_bind_null(statement, 9)
+        }
+        
+        if let installmentNumber = transaction.data.installmentNumber {
+            sqlite3_bind_int(statement, 10, Int32(installmentNumber))
+        } else {
+            sqlite3_bind_null(statement, 10)
+        }
+        
+        if let totalInstallments = transaction.data.totalInstallments {
+            sqlite3_bind_int(statement, 11, Int32(totalInstallments))
+        } else {
+            sqlite3_bind_null(statement, 11)
+        }
+        
+        if let originalAmount = transaction.data.originalAmount {
+            sqlite3_bind_int64(statement, 12, Int64(originalAmount))
+        } else {
+            sqlite3_bind_null(statement, 12)
+        }
         
         guard sqlite3_step(statement) == SQLITE_DONE else {
             let msg = String(cString: sqlite3_errmsg(db))
@@ -225,7 +340,23 @@ class DBHelper {
     }
     
     func getTransactions() throws -> [Transaction] {
-        let getTransactionsQuery = "SELECT id, title, category, type, amount, date, budget_month_date FROM Transactions;"
+        let getTransactionsQuery = """
+            SELECT
+              id,
+              title,
+              category,
+              type,
+              amount,
+              date,
+              budget_month_date,
+              is_recurring,
+              has_installments,
+              parent_transaction_id,
+              installment_number,
+              total_installments,
+              original_amount
+            FROM Transactions;
+            """
         var statement: OpaquePointer?
         
         guard sqlite3_prepare_v2(db, getTransactionsQuery, -1, &statement, nil) == SQLITE_OK else {
@@ -246,6 +377,48 @@ class DBHelper {
             let ts         = Int(sqlite3_column_int64(statement, 5))
             let monthAnchor = Int(sqlite3_column_int64(statement, 6))
             
+            let isRecurring: Bool? = {
+               if sqlite3_column_type(statement, 7) == SQLITE_NULL {
+                    return nil
+               }
+               return sqlite3_column_int(statement, 7) == 1
+            }()
+            
+            let hasInstallments: Bool? = {
+                if sqlite3_column_type(statement, 8) == SQLITE_NULL {
+                    return nil
+                }
+                return sqlite3_column_int(statement, 8) == 1
+            }()
+            
+            let parentTransactionId: Int? = {
+                if sqlite3_column_type(statement, 9) == SQLITE_NULL {
+                    return nil
+                }
+                return Int(sqlite3_column_int64(statement, 9))
+            }()
+            
+            let installmentNumber: Int? = {
+                if sqlite3_column_type(statement, 10) == SQLITE_NULL {
+                    return nil
+                }
+                return Int(sqlite3_column_int64(statement, 10))
+            }()
+            
+            let totalInstallments: Int? = {
+                if sqlite3_column_type(statement, 11) == SQLITE_NULL {
+                    return nil
+                }
+               return Int(sqlite3_column_int64(statement, 11))
+            }()
+            
+            let originalAmount: Int? = {
+                if sqlite3_column_type(statement, 12) == SQLITE_NULL {
+                    return nil
+                }
+                return Int(sqlite3_column_int64(statement, 12))
+            }()
+            
             guard let txCategory = TransactionCategory.allCases
                 .first(where: { $0.key == catKey })
             else {
@@ -260,16 +433,30 @@ class DBHelper {
                 continue
             }
             
-            let tx = Transaction(
-                id:               id,
-                title:            title,
-                category:         txCategory,
-                amount:           amount,
-                type:             txType,
-                dateTimestamp:    ts,
-                budgetMonthDate:  monthAnchor
+            let dbData = DBTransactionData(
+                id: id,
+                title: title,
+                amount: amount,
+                dateTimestamp: ts,
+                budgetMonthDate: monthAnchor,
+                isRecurring: isRecurring,
+                hasInstallments: hasInstallments,
+                parentTransactionId: parentTransactionId,
+                installmentNumber: installmentNumber,
+                totalInstallments: totalInstallments,
+                originalAmount: originalAmount,
+                category: catKey,
+                type: typeKey
             )
-            results.append(tx)
+            
+            do {
+                let uiData = try UITransactionData(from: dbData)
+                let tx = Transaction(data: uiData)
+                results.append(tx)
+            } catch {
+                print("⚠️ Failed to convert transaction data:", error)
+                continue
+            }
         }
         return results
     }
@@ -292,5 +479,88 @@ class DBHelper {
             throw DBError.stepFailed(message: msg)
         }
     }
+    
+    func getRecurringTransactions() throws -> [Transaction] {
+           let query = """
+               SELECT
+                 id, title, category, type, amount, date, budget_month_date,
+                 is_recurring, has_installments, parent_transaction_id,
+                 installment_number, total_installments, original_amount
+               FROM Transactions 
+               WHERE is_recurring = 1;
+               """
+           
+           return try executeTransactionQuery(query)
+       }
+       
+       func getInstallmentTransactions(parentId: Int) throws -> [Transaction] {
+           let query = """
+               SELECT
+                 id, title, category, type, amount, date, budget_month_date,
+                 is_recurring, has_installments, parent_transaction_id,
+                 installment_number, total_installments, original_amount
+               FROM Transactions 
+               WHERE parent_transaction_id = ?
+               ORDER BY installment_number ASC;
+               """
+           
+           return try executeTransactionQuery(query, bindValues: [parentId])
+       }
+       
+    private func executeTransactionQuery(_ query: String, bindValues: [Int] = []) throws -> [Transaction] {
+        var statement: OpaquePointer?
+        
+        guard sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK else {
+            let msg = String(cString: sqlite3_errmsg(db))
+            throw DBError.prepareFailed(message: msg)
+        }
+        
+        defer { sqlite3_finalize(statement) }
+        
+        for (index, value) in bindValues.enumerated() {
+            sqlite3_bind_int64(statement, Int32(index + 1), Int64(value))
+        }
+        
+        var results: [Transaction] = []
+        
+        while sqlite3_step(statement) == SQLITE_ROW {
+            let id = Int(sqlite3_column_int64(statement, 0))
+            let title = String(cString: sqlite3_column_text(statement, 1))
+            let catKey = String(cString: sqlite3_column_text(statement, 2))
+            let typeKey = String(cString: sqlite3_column_text(statement, 3))
+            let amount = Int(sqlite3_column_int64(statement, 4))
+            let ts = Int(sqlite3_column_int64(statement, 5))
+            let monthAnchor = Int(sqlite3_column_int64(statement, 6))
+            
+            let isRecurring: Bool? = sqlite3_column_type(statement, 7) == SQLITE_NULL ? nil : (sqlite3_column_int(statement, 7) == 1)
+            let hasInstallments: Bool? = sqlite3_column_type(statement, 8) == SQLITE_NULL ? nil : (sqlite3_column_int(statement, 8) == 1)
+            let parentTransactionId: Int? = sqlite3_column_type(statement, 9) == SQLITE_NULL ? nil : Int(sqlite3_column_int64(statement, 9))
+            let installmentNumber: Int? = sqlite3_column_type(statement, 10) == SQLITE_NULL ? nil : Int(sqlite3_column_int64(statement, 10))
+            let totalInstallments: Int? = sqlite3_column_type(statement, 11) == SQLITE_NULL ? nil : Int(sqlite3_column_int64(statement, 11))
+            let originalAmount: Int? = sqlite3_column_type(statement, 12) == SQLITE_NULL ? nil : Int(sqlite3_column_int64(statement, 12))
+            
+            guard let txCategory = TransactionCategory.allCases.first(where: { $0.key == catKey }),
+                  let txType = TransactionType.allCases.first(where: { String(describing: $0) == typeKey }) else {
+                continue
+            }
+            
+            let dbData = DBTransactionData(
+                id: id, title: title, amount: amount, dateTimestamp: ts, budgetMonthDate: monthAnchor,
+                isRecurring: isRecurring, hasInstallments: hasInstallments, parentTransactionId: parentTransactionId,
+                installmentNumber: installmentNumber, totalInstallments: totalInstallments, originalAmount: originalAmount,
+                category: catKey, type: typeKey
+            )
+            
+            do {
+                let uiData = try UITransactionData(from: dbData)
+                results.append(Transaction(data: uiData))
+            } catch {
+                print("⚠️ Failed to convert transaction data:", error)
+            }
+        }
+        
+        return results
+    }
 }
+
 
