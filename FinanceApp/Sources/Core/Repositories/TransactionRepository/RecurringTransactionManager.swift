@@ -203,4 +203,45 @@ final class RecurringTransactionManager {
       }
     }
   }
+
+  func cleanupInstallmentTransactionsFromDate(
+    parentTransactionId: Int,
+    selectedTransactionDate: Date,
+    cleanupOption: RecurringCleanupOption
+  ) {
+    let allTransactions = transactionRepo.fetchTransactions()
+    let installmentInstances = allTransactions.filter {
+      $0.parentTransactionId == parentTransactionId
+    }
+
+    for instance in installmentInstances {
+      let shouldDelete: Bool
+
+      switch cleanupOption {
+      case .all:
+        shouldDelete = true
+      case .futureOnly:
+        shouldDelete = instance.date >= selectedTransactionDate
+      }
+
+      if shouldDelete, let instanceId = instance.id {
+        do {
+          try transactionRepo.delete(id: instanceId)
+
+          let notifID = "transaction_\(instanceId)"
+          notificationCenter.removePendingNotificationRequests(withIdentifiers: [notifID])
+        } catch {
+          print("Error deleting installment instance: \(error)")
+        }
+      }
+    }
+
+    if cleanupOption == .all {
+      do {
+        try transactionRepo.delete(id: parentTransactionId)
+      } catch {
+        print("Error deleting parent installment transaction: \(error)")
+      }
+    }
+  }
 }

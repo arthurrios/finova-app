@@ -109,13 +109,13 @@ final class AddTransactionModalViewModel {
         }
         
         guard let category = TransactionCategory.allCases
-                .first(where: { $0.key == categoryKey })
+            .first(where: { $0.key == categoryKey })
         else {
             return .failure(TransactionError.invalidCategory)
         }
-
+        
         guard let type = TransactionType.allCases
-                .first(where: { String(describing: $0) == typeRaw })
+            .first(where: { String(describing: $0) == typeRaw })
         else {
             return .failure(TransactionError.invalidType)
         }
@@ -124,10 +124,12 @@ final class AddTransactionModalViewModel {
         let remainder = totalAmount % totalInstallments
         
         do {
+            // Create a placeholder parent (NOT visible in UI)
+            // This is used only for linking installments together
             let parentModel = TransactionModel(
-                title: title,
+                title: "\(title) - Installment Parent", // Mark it clearly as parent
                 category: category.key,
-                amount: totalAmount,
+                amount: 0, // Zero amount so it doesn't affect totals
                 type: type.key,
                 dateTimestamp: Int(startDate.timeIntervalSince1970),
                 budgetMonthDate: startDate.monthAnchor,
@@ -143,17 +145,17 @@ final class AddTransactionModalViewModel {
                 let installmentAmount = installmentNumber == 1 ? amountPerInstallment + remainder : amountPerInstallment
                 
                 let installmentModel = TransactionModel(
-                     title: title,
-                     category: category.key,
-                     amount: installmentAmount,
-                     type: type.key,
-                     dateTimestamp: Int(installmentDate.timeIntervalSince1970),
-                     budgetMonthDate: installmentDate.monthAnchor,
-                     parentTransactionId: parentId,
-                     originalAmount: totalAmount,
-                     installmentNumber: installmentNumber,
-                     totalInstallments: totalInstallments
-                 )
+                    title: title,
+                    category: category.key,
+                    amount: installmentAmount,
+                    type: type.key,
+                    dateTimestamp: Int(installmentDate.timeIntervalSince1970),
+                    budgetMonthDate: installmentDate.monthAnchor,
+                    parentTransactionId: parentId,
+                    originalAmount: totalAmount,
+                    installmentNumber: installmentNumber,
+                    totalInstallments: totalInstallments
+                )
                 
                 try transactionRepo.insertTransaction(installmentModel)
             }

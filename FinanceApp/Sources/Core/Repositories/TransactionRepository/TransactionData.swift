@@ -35,3 +35,28 @@ enum TransactionError: Error, Equatable {
   case parentTransactionNotFound
   case concurrentModificationError
 }
+
+enum TransactionMode: Int, CaseIterable {
+  case normal = 0
+  case recurring = 1
+  case installments = 2
+
+  var title: String {
+    switch self {
+    case .normal:
+      return "transactionMode.normal.title".localized
+    case .recurring:
+      return "transactionMode.recurring.title".localized
+    case .installments:
+      return "transactionMode.installments.title".localized
+    }
+  }
+}
+
+enum TransactionComplexityType {
+  case simple
+  case recurringParent
+  case recurringInstance
+  case installmentParent
+  case installmentInstance
+}
