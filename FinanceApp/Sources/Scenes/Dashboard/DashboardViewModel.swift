@@ -190,6 +190,12 @@ final class DashboardViewModel {
         }
     }
     
+    func isRecurringTransaction(id: Int) -> Bool {
+        return transactionRepo.fetchTransactions()
+            .first(where: { $0.id == id })?
+            .parentTransactionId != nil
+    }
+    
     private func printPendingNotifications() {
         notificationCenter.getPendingNotificationRequests { requests in
             for request in requests {
