@@ -10,6 +10,7 @@ import Foundation
 final class AddTransactionModalViewModel {
     private let transactionRepo: TransactionRepository
     private let recurringManager: RecurringTransactionManager
+    private let carouselRange: ClosedRange<Int> = -12...24
     
     init(transactionRepo: TransactionRepository = TransactionRepository()) {
         self.transactionRepo = transactionRepo
@@ -58,10 +59,14 @@ final class AddTransactionModalViewModel {
             )
             
             do {
-                try transactionRepo.insertTransaction(model)
+                let insertedId = try transactionRepo.insertTransactionAndGetId(model)
+                try transactionRepo.updateParentTransactionId(transactionId: insertedId, parentId: insertedId)
                 
-                let monthRange: ClosedRange<Int> = 0...24
-                recurringManager.generateRecurringTransactionsForRange(monthRange)
+                recurringManager.generateRecurringTransactionsForRange(
+                    carouselRange,
+                    referenceDate: Date(),
+                    transactionStartDate: date
+                )
                 
                 return .success(())
             } catch {

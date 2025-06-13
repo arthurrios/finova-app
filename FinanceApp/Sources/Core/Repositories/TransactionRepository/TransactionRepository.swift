@@ -15,7 +15,7 @@ final class TransactionRepository: TransactionRepositoryProtocol {
     }
     
     func insertTransaction(_ transaction: TransactionModel) throws {
-        try? db.insertTransaction(transaction)
+        let _ = try db.insertTransaction(transaction)
     }
     
     func delete(id: Int) throws {
@@ -38,8 +38,10 @@ extension TransactionRepository {
     }
     
     func insertTransactionAndGetId(_ transaction: TransactionModel) throws -> Int {
-        try insertTransaction(transaction)
-
-        return 0
+        return try db.insertTransaction(transaction)
+    }
+    
+    func updateParentTransactionId(transactionId: Int, parentId: Int) throws {
+        try db.updateTransactionParentId(transactionId: transactionId, parentId: parentId)
     }
 }

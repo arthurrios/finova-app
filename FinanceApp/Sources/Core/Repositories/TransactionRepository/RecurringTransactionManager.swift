@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import NotificationCenter
 
 enum RecurringCleanupOption {
     case all
@@ -15,20 +16,35 @@ enum RecurringCleanupOption {
 final class RecurringTransactionManager {
     private let transactionRepo: TransactionRepository
     private let calendar = Calendar.current
+    private let notificationCenter = UNUserNotificationCenter.current()
     
     init(transactionRepo: TransactionRepository = TransactionRepository()) {
         self.transactionRepo = transactionRepo
     }
     
-    func generateRecurringTransactionsForRange(_ monthRange: ClosedRange<Int>, referenceDate: Date = Date()) {
+    func generateRecurringTransactionsForRange(
+        _ monthRange: ClosedRange<Int>,
+        referenceDate: Date = Date(),
+        transactionStartDate: Date? = nil
+    ) {
         let recurringTransactions = transactionRepo.fetchRecurringTransactions()
         
         for recurringTx in recurringTransactions {
-            generateInstancesForTransaction(recurringTx, in: monthRange, referenceDate: referenceDate)
+            generateInstancesForTransaction(
+                recurringTx,
+                in: monthRange,
+                referenceDate: referenceDate,
+                transactionStartDate: transactionStartDate
+            )
         }
     }
     
-    func generateInstancesForTransaction(_ recurringTx: Transaction, in monthRange: ClosedRange<Int>, referenceDate: Date) {
+    func generateInstancesForTransaction(
+        _ recurringTx: Transaction,
+        in monthRange: ClosedRange<Int>,
+        referenceDate: Date,
+        transactionStartDate: Date? = nil
+    ) {
         guard let recurringTxId = recurringTx.id else { return }
         
         let existingInstances = transactionRepo.fetchTransactionInstancesForRecurring(recurringTxId)
@@ -42,7 +58,14 @@ final class RecurringTransactionManager {
                     
             if existingAnchors.contains(targetAnchor) { continue }
             
-            if targetAnchor > recurringStartAnchor {
+            let effectiveStartAnchor: Int
+            if let startDate = transactionStartDate {
+                effectiveStartAnchor = startDate.monthAnchor
+            } else {
+                effectiveStartAnchor = recurringStartAnchor
+            }
+            
+            if targetAnchor >= effectiveStartAnchor {
                 let originalDate = Date(timeIntervalSince1970: TimeInterval(recurringTx.dateTimestamp))
                 let originalDay = calendar.component(.day, from: originalDate)
                 
@@ -120,5 +143,48 @@ final class RecurringTransactionManager {
         onCleanupChoiceNeeded: @escaping (RecurringCleanupOption) -> Void
     ) {
         onCleanupChoiceNeeded(.futureOnly)
+    }
+    
+    func cleanupRecurringInstancesFromDate(
+        parentTransactionId: Int,
+        selectedTransactionDate: Date,
+        cleanupOption: RecurringCleanupOption
+    ) {
+        let selectedAnchor = selectedTransactionDate.monthAnchor
+        let allInstances = transactionRepo.fetchAllRecurringInstances()
+        
+        let relatedInstances = allInstances.filter {
+            $0.parentTransactionId == parentTransactionId
+        }
+        
+        for instance in relatedInstances {
+            let shouldDelete: Bool
+            
+            switch cleanupOption {
+            case .all:
+                shouldDelete = true
+            case .futureOnly:
+                shouldDelete = instance.budgetMonthDate >= selectedAnchor
+            }
+            
+            if shouldDelete, let instanceId = instance.id {
+                do {
+                    try transactionRepo.delete(id: instanceId)
+                    
+                    let notifID = "transaction_\(instanceId)"
+                    notificationCenter.removePendingNotificationRequests(withIdentifiers: [notifID])
+                } catch {
+                    print("Error deleting recurring instance: \(error)")
+                }
+            }
+        }
+        
+        if cleanupOption == .all {
+            do {
+                try transactionRepo.delete(id: parentTransactionId)
+            } catch {
+                print("Error deleting parent recurring transaction: \(error)")
+            }
+        }
     }
 }

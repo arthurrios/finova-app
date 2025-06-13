@@ -6,21 +6,29 @@
 //
 
 import Foundation
-import UserNotifications
 import SwiftUICore
+import UserNotifications
 
 final class DashboardViewModel {
     let budgetRepo: BudgetRepository
     let transactionRepo: TransactionRepository
+    private let recurringManager: RecurringTransactionManager
     private let calendar = Calendar.current
     
     private let monthRange: ClosedRange<Int>
     private let notificationCenter = UNUserNotificationCenter.current()
     
-    init(budgetRepo: BudgetRepository = BudgetRepository(), transactionRepo: TransactionRepository = TransactionRepository(), monthRange: ClosedRange<Int> = -12...24) { // 3 years
+    var onCleanupChoiceNeeded: ((RecurringCleanupOption) -> Void)?
+    
+    init(
+        budgetRepo: BudgetRepository = BudgetRepository(),
+        transactionRepo: TransactionRepository = TransactionRepository(),
+        monthRange: ClosedRange<Int> = -12...24
+    ) {  // 3 years
         self.budgetRepo = budgetRepo
         self.transactionRepo = transactionRepo
         self.monthRange = monthRange
+        self.recurringManager = RecurringTransactionManager(transactionRepo: transactionRepo)
     }
     
     func loadMonthlyCards() -> [MonthBudgetCardType] {
@@ -29,17 +37,19 @@ final class DashboardViewModel {
         let budgetsByAnchor: [Int: Int] = budgetRepo.fetchBudgets()
             .reduce(into: [:]) { acc, entry in
                 acc[entry.monthDate] = entry.amount
-        }
+            }
         
         let allTxs = transactionRepo.fetchTransactions()
         
-        let expensesByAnchor = allTxs
+        let expensesByAnchor =
+        allTxs
             .filter { $0.type == .expense }
             .reduce(into: [:]) { acc, tx in
                 acc[tx.budgetMonthDate, default: 0] += tx.amount
             }
         
-        let incomesByAnchor = allTxs
+        let incomesByAnchor =
+        allTxs
             .filter { $0.type == .income }
             .reduce(into: [:]) { acc, tx in
                 acc[tx.budgetMonthDate, default: 0] += tx.amount
@@ -79,6 +89,28 @@ final class DashboardViewModel {
         return cards.sorted { $0.date < $1.date }
     }
     
+    func cleanupRecurringTransactionsWithUserPrompt(
+        onCleanupNeeded: @escaping (@escaping (RecurringCleanupOption) -> Void) -> Void
+    ) {
+        onCleanupNeeded { [weak self] cleanupOption in
+            self?.updateRecurringTransactionsWithCleanupChoice(cleanupOption: cleanupOption)
+        }
+    }
+    
+    private func updateRecurringTransactions() {
+        recurringManager.generateRecurringTransactionsForRange(0...24)
+        recurringManager.cleanupRecurringInstancesOutsideRange(
+            monthRange, referenceDate: Date(), cleanupOption: .futureOnly)
+    }
+    
+    func updateRecurringTransactionsWithCleanupChoice(
+        cleanupOption: RecurringCleanupOption = .futureOnly
+    ) {
+        recurringManager.generateRecurringTransactionsForRange(monthRange)
+        recurringManager.cleanupRecurringInstancesOutsideRange(
+            monthRange, referenceDate: Date(), cleanupOption: cleanupOption)
+    }
+    
     func deleteTransaction(id: Int) -> Result<Void, Error> {
         do {
             try transactionRepo.delete(id: id)
@@ -88,6 +120,31 @@ final class DashboardViewModel {
             return .success(())
         } catch {
             return .failure(error)
+        }
+    }
+    
+    func deleteRecurringTransaction(
+        transactionId: Int,
+        selectedTransactionDate: Date,
+        cleanupOption: RecurringCleanupOption,
+        completion: @escaping (Result<Void, Error>) -> Void
+    ) {
+        do {
+            guard let selectedTransaction = transactionRepo.fetchTransactions().first(where: { $0.id == transactionId }),
+                    let parentTransactionId = selectedTransaction.parentTransactionId else {
+                completion(.failure(TransactionError.transactionNotFound))
+                return
+            }
+            
+            recurringManager.cleanupRecurringInstancesFromDate(
+                parentTransactionId: parentTransactionId,
+                selectedTransactionDate: selectedTransactionDate,
+                cleanupOption: cleanupOption
+            )
+            
+            completion(.success(()))
+        } catch {
+            completion(.failure(error))
         }
     }
     
@@ -101,7 +158,7 @@ final class DashboardViewModel {
     }
     
     private func scheduleNotification(for tx: Transaction) {
-        let id = "transaction_\(tx.id)"
+        let id = "transaction_\(String(describing: tx.id))"
         
         var comps = calendar.dateComponents([.year, .month, .day], from: tx.date)
         comps.hour = 8
@@ -109,9 +166,12 @@ final class DashboardViewModel {
         
         let trigger = UNCalendarNotificationTrigger(dateMatching: comps, repeats: false)
         
-        let titleKey = tx.type == .income ? "notification.transaction.title.income" : "notification.transaction.title.expense"
-        let bodyKey = tx.type == .income ? "notification.transaction.body.income" : "notification.transaction.body.expense"
-        
+        let titleKey =
+        tx.type == .income
+        ? "notification.transaction.title.income" : "notification.transaction.title.expense"
+        let bodyKey =
+        tx.type == .income
+        ? "notification.transaction.body.income" : "notification.transaction.body.expense"
         
         let amountString = tx.amount.currencyString
         let title = titleKey.localized
@@ -134,7 +194,7 @@ final class DashboardViewModel {
         notificationCenter.getPendingNotificationRequests { requests in
             for request in requests {
                 let title = request.content.title
-                let body  = request.content.body
+                let body = request.content.body
                 print("🔔 Pending — title: \(title), body: \(body)")
             }
         }

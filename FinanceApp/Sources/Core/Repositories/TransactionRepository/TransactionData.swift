@@ -30,4 +30,8 @@ enum TransactionError: Error {
     case invalidType
     case invalidInstallmentCount
     case databaseError
+    case transactionNotFound
+    case notARecurringTransaction
+    case parentTransactionNotFound
+    case concurrentModificationError
 }

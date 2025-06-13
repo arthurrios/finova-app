@@ -272,7 +272,7 @@ class DBHelper {
         }
     }
     
-    func insertTransaction(_ transaction: TransactionModel) throws {
+    func insertTransaction(_ transaction: TransactionModel) throws -> Int {
         let insertQuery = """
             INSERT INTO Transactions (
                 title, category, type, amount, date, budget_month_date, is_recurring, has_installments, parent_transaction_id, installment_number, total_installments, original_amount
@@ -337,6 +337,8 @@ class DBHelper {
             let msg = String(cString: sqlite3_errmsg(db))
             throw DBError.stepFailed(message: msg)
         }
+        
+        return Int(sqlite3_last_insert_rowid(db))
     }
     
     func getTransactions() throws -> [Transaction] {
@@ -378,10 +380,10 @@ class DBHelper {
             let monthAnchor = Int(sqlite3_column_int64(statement, 6))
             
             let isRecurring: Bool? = {
-               if sqlite3_column_type(statement, 7) == SQLITE_NULL {
+                if sqlite3_column_type(statement, 7) == SQLITE_NULL {
                     return nil
-               }
-               return sqlite3_column_int(statement, 7) == 1
+                }
+                return sqlite3_column_int(statement, 7) == 1
             }()
             
             let hasInstallments: Bool? = {
@@ -409,7 +411,7 @@ class DBHelper {
                 if sqlite3_column_type(statement, 11) == SQLITE_NULL {
                     return nil
                 }
-               return Int(sqlite3_column_int64(statement, 11))
+                return Int(sqlite3_column_int64(statement, 11))
             }()
             
             let originalAmount: Int? = {
@@ -419,19 +421,19 @@ class DBHelper {
                 return Int(sqlite3_column_int64(statement, 12))
             }()
             
-            guard let txCategory = TransactionCategory.allCases
-                .first(where: { $0.key == catKey })
-            else {
-                print("⚠️ Unknown category key:", catKey)
-                continue
-            }
-            
-            guard let txType = TransactionType.allCases
-                .first(where: { String(describing: $0) == typeKey })
-            else {
-                print("⚠️ Unknown transaction type key:", typeKey)
-                continue
-            }
+            //            guard let txCategory = TransactionCategory.allCases
+            //                .first(where: { $0.key == catKey })
+            //            else {
+            //                print("⚠️ Unknown category key:", catKey)
+            //                continue
+            //            }
+            //
+            //            guard let txType = TransactionType.allCases
+            //                .first(where: { String(describing: $0) == typeKey })
+            //            else {
+            //                print("⚠️ Unknown transaction type key:", typeKey)
+            //                continue
+            //            }
             
             let dbData = DBTransactionData(
                 id: id,
@@ -481,7 +483,7 @@ class DBHelper {
     }
     
     func getRecurringTransactions() throws -> [Transaction] {
-           let query = """
+        let query = """
                SELECT
                  id, title, category, type, amount, date, budget_month_date,
                  is_recurring, has_installments, parent_transaction_id,
@@ -489,12 +491,12 @@ class DBHelper {
                FROM Transactions 
                WHERE is_recurring = 1;
                """
-           
-           return try executeTransactionQuery(query)
-       }
-       
-       func getInstallmentTransactions(parentId: Int) throws -> [Transaction] {
-           let query = """
+        
+        return try executeTransactionQuery(query)
+    }
+    
+    func getInstallmentTransactions(parentId: Int) throws -> [Transaction] {
+        let query = """
                SELECT
                  id, title, category, type, amount, date, budget_month_date,
                  is_recurring, has_installments, parent_transaction_id,
@@ -503,10 +505,10 @@ class DBHelper {
                WHERE parent_transaction_id = ?
                ORDER BY installment_number ASC;
                """
-           
-           return try executeTransactionQuery(query, bindValues: [parentId])
-       }
-       
+        
+        return try executeTransactionQuery(query, bindValues: [parentId])
+    }
+    
     private func executeTransactionQuery(_ query: String, bindValues: [Int] = []) throws -> [Transaction] {
         var statement: OpaquePointer?
         
@@ -539,10 +541,10 @@ class DBHelper {
             let totalInstallments: Int? = sqlite3_column_type(statement, 11) == SQLITE_NULL ? nil : Int(sqlite3_column_int64(statement, 11))
             let originalAmount: Int? = sqlite3_column_type(statement, 12) == SQLITE_NULL ? nil : Int(sqlite3_column_int64(statement, 12))
             
-            guard let txCategory = TransactionCategory.allCases.first(where: { $0.key == catKey }),
-                  let txType = TransactionType.allCases.first(where: { String(describing: $0) == typeKey }) else {
-                continue
-            }
+            //            guard let txCategory = TransactionCategory.allCases.first(where: { $0.key == catKey }),
+            //                  let txType = TransactionType.allCases.first(where: { String(describing: $0) == typeKey }) else {
+            //                continue
+            //            }
             
             let dbData = DBTransactionData(
                 id: id, title: title, amount: amount, dateTimestamp: ts, budgetMonthDate: monthAnchor,
@@ -560,6 +562,26 @@ class DBHelper {
         }
         
         return results
+    }
+    
+    func updateTransactionParentId(transactionId: Int, parentId: Int) throws {
+        let updateQuery = "UPDATE Transactions SET parent_transaction_id = ? WHERE id = ?;"
+        var statement: OpaquePointer?
+        
+        guard sqlite3_prepare_v2(db, updateQuery, -1, &statement, nil) == SQLITE_OK else {
+            let msg = String(cString: sqlite3_errmsg(db))
+            throw DBError.prepareFailed(message: msg)
+        }
+        
+        defer { sqlite3_finalize(statement) }
+        
+        sqlite3_bind_int64(statement, 1, Int64(parentId))
+        sqlite3_bind_int64(statement, 2, Int64(transactionId))
+        
+        guard sqlite3_step(statement) == SQLITE_DONE else {
+            let msg = String(cString: sqlite3_errmsg(db))
+            throw DBError.stepFailed(message: msg)
+        }
     }
 }
 

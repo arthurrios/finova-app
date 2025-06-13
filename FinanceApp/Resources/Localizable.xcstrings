@@ -1939,6 +1939,18 @@
         }
       }
     },
+    "recurring.cleanup.all" : {
+      "extractionState" : "manual"
+    },
+    "recurring.cleanup.future" : {
+      "extractionState" : "manual"
+    },
+    "recurring.cleanup.message" : {
+      "extractionState" : "manual"
+    },
+    "recurring.cleanup.title" : {
+      "extractionState" : "manual"
+    },
     "transaction.delete.title" : {
       "extractionState" : "manual",
       "localizations" : {

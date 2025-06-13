@@ -13,7 +13,10 @@ final class AddTransactionModalViewController: UIViewController {
     let contentView: AddTransactionModalView
     weak var flowDelegate: AddTransactionModalFlowDelegate?
     
-    init(contentView: AddTransactionModalView, flowDelegate: AddTransactionModalFlowDelegate, viewModel: AddTransactionModalViewModel) {
+    init(
+        contentView: AddTransactionModalView, flowDelegate: AddTransactionModalFlowDelegate,
+        viewModel: AddTransactionModalViewModel
+    ) {
         self.contentView = contentView
         self.flowDelegate = flowDelegate
         self.viewModel = viewModel
@@ -26,11 +29,11 @@ final class AddTransactionModalViewController: UIViewController {
     
     override func viewDidLoad() {
         super.viewDidLoad()
-         
+        
         contentView.delegate = self
         contentView.incomeSelectorButton.delegate = self
         contentView.expenseSelectorButton.delegate = self
-                
+        
         setupView()
     }
     
@@ -66,7 +69,8 @@ final class AddTransactionModalViewController: UIViewController {
             contentView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
         ])
         
-        contentView.heightAnchor.constraint(equalTo: view.heightAnchor, multiplier: 0.56).isActive = true
+        contentView.heightAnchor.constraint(equalTo: view.heightAnchor, multiplier: 0.56).isActive =
+        true
     }
     
     private func setupGesture(viewTapped: UIView) {
@@ -82,14 +86,18 @@ final class AddTransactionModalViewController: UIViewController {
     func animateShow() {
         view.layoutIfNeeded()
         contentView.transform = CGAffineTransform(translationX: 0, y: contentView.frame.height)
-        UIView.animate(withDuration: 0.3, animations: {
-            self.contentView.transform = .identity
-            self.view.layoutIfNeeded()
-        })
+        UIView.animate(
+            withDuration: 0.3,
+            animations: {
+                self.contentView.transform = .identity
+                self.view.layoutIfNeeded()
+            })
     }
 }
 
-extension AddTransactionModalViewController: AddTransactionModalViewDelegate, TransactionTypeSelectorDelegate {
+extension AddTransactionModalViewController: AddTransactionModalViewDelegate,
+                                             TransactionTypeSelectorDelegate
+{
     func handleError(title: String, message: String) {
         let alertController = UIAlertController(title: title, message: message, preferredStyle: .alert)
         let retryAction = UIAlertAction(title: "alert.ok".localized, style: .default)
@@ -97,43 +105,56 @@ extension AddTransactionModalViewController: AddTransactionModalViewDelegate, Tr
         self.present(alertController, animated: true)
     }
     
-    func sendTransactionData(title: String, amount: Int, date: String, category: String, transactionType: String) {
+    func sendTransactionData(
+        title: String, amount: Int, date: String, category: String, transactionType: String
+    ) {
         let result = viewModel.addTransaction(
             title: title,
             amount: amount,
             dateString: date,
             categoryKey: category,
             typeRaw: transactionType)
-       
+        
         handleTransactionResult(result)
     }
     
-    func sendTransactionDataWithRecurring(title: String, amount: Int, date: String, category: String, transactionType: String) {
-        let result = viewModel.
+    func sendTransactionDataWithRecurring(
+        title: String, amount: Int, date: String, category: String, transactionType: String
+    ) {
+        let result = viewModel.addTransaction(
+            title: title,
+            amount: amount,
+            dateString: date,
+            categoryKey: category,
+            typeRaw: transactionType,
+            isRecurring: true,
+        )
+        
+        handleTransactionResult(result)
     }
     
     private func handleTransactionResult(_ result: Result<Void, Error>) {
-            switch result {
-            case .success:
-                dismissModal()
-                flowDelegate?.didAddTransaction()
-            case .failure(let error):
-                let message: String
-                switch error {
-                case TransactionError.invalidDateFormat:
-                    message = "alert.error.invalidDateFormat".localized
-                case TransactionError.invalidCategory:
-                    message = "alert.error.invalidCategory".localized
-                case TransactionError.invalidType:
-                    message = "alert.error.invalidTransactionType".localized
-                case TransactionError.invalidInstallmentCount:
-                    message = "alert.error.invalidInstallmentCount".localized
-                default:
-                    message = "alert.error.defaultMessage".localized
-                }
-                handleError(title: "alert.error.title".localized, message: message)
+        switch result {
+        case .success:
+            dismissModal()
+            flowDelegate?.didAddTransaction()
+        case .failure(let error):
+            let message: String
+            switch error {
+            case TransactionError.invalidDateFormat:
+                message = "alert.error.invalidDateFormat".localized
+            case TransactionError.invalidCategory:
+                message = "alert.error.invalidCategory".localized
+            case TransactionError.invalidType:
+                message = "alert.error.invalidTransactionType".localized
+            case TransactionError.invalidInstallmentCount:
+                message = "alert.error.invalidInstallmentCount".localized
+            default:
+                message = "alert.error.defaultMessage".localized
             }
+            handleError(title: "alert.error.title".localized, message: message)
         }
+    }
     
     func transactionTypeSelectorDidSelect(_ selector: TransactionTypeSelector) {
         if selector.variant == .selected {

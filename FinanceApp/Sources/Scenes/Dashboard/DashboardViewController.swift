@@ -18,7 +18,7 @@ final class DashboardViewController: UIViewController {
     private var transactions: [Transaction] = []
     private var currentCellTransactions: [Transaction] = []
     private var transactionsByMonth: [Int: [Transaction]] = [:]
-
+    
     private var currentCell: MonthCarouselCell?
     weak var flowDelegate: DashboardFlowDelegate?
     
@@ -79,7 +79,7 @@ final class DashboardViewController: UIViewController {
         }
         
         transactions = viewModel.transactionRepo.fetchTransactions()
-                
+        
         let monthData = viewModel.loadMonthlyCards()
         
         syncedViewModel.setMonthData(monthData)
@@ -88,20 +88,22 @@ final class DashboardViewController: UIViewController {
         
         contentView.monthCarousel.layoutIfNeeded()
     }
-
     
     private func setupCollectionViews() {
         contentView.monthSelectorView.collectionView.delegate = self
         contentView.monthSelectorView.collectionView.dataSource = self
-        contentView.monthSelectorView.collectionView.register(MonthCell.self, forCellWithReuseIdentifier: MonthCell.reuseID)
+        contentView.monthSelectorView.collectionView.register(
+            MonthCell.self, forCellWithReuseIdentifier: MonthCell.reuseID)
         contentView.monthSelectorView.delegate = self
         
         contentView.monthCarousel.delegate = self
         contentView.monthCarousel.dataSource = self
-        contentView.monthCarousel.register(MonthCarouselCell.self, forCellWithReuseIdentifier: MonthCarouselCell.reuseID)
+        contentView.monthCarousel.register(
+            MonthCarouselCell.self, forCellWithReuseIdentifier: MonthCarouselCell.reuseID)
         
         let monthTitles = syncedViewModel.getMonths()
-        contentView.monthSelectorView.configure(months: monthTitles, selectedIndex: syncedViewModel.selectedIndex)
+        contentView.monthSelectorView.configure(
+            months: monthTitles, selectedIndex: syncedViewModel.selectedIndex)
         
         contentView.monthCarousel.reloadData()
         
@@ -134,7 +136,10 @@ extension DashboardViewController: UIImagePickerControllerDelegate, UINavigation
         present(imagePicker, animated: true, completion: nil)
     }
     
-    internal func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey : Any]) {
+    internal func imagePickerController(
+        _ picker: UIImagePickerController,
+        didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]
+    ) {
         if let editedImage = info[UIImagePickerController.InfoKey.editedImage] as? UIImage {
             contentView.avatar.userImage = editedImage
             UserDefaultsManager.saveProfileImage(image: editedImage)
@@ -166,15 +171,22 @@ extension DashboardViewController: MonthSelectorDelegate {
 }
 
 extension DashboardViewController: UICollectionViewDataSource {
-    func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int {
+    func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int)
+    -> Int
+    {
         return syncedViewModel.monthData.count
     }
     
-    func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
+    func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath)
+    -> UICollectionViewCell
+    {
         if collectionView == contentView.monthCarousel {
             let model = syncedViewModel.monthData[indexPath.item]
             
-            guard let cell = collectionView.dequeueReusableCell(withReuseIdentifier: MonthCarouselCell.reuseID, for: indexPath) as? MonthCarouselCell else {
+            guard
+                let cell = collectionView.dequeueReusableCell(
+                    withReuseIdentifier: MonthCarouselCell.reuseID, for: indexPath) as? MonthCarouselCell
+            else {
                 fatalError("Could not dequeue cell")
             }
             
@@ -182,12 +194,13 @@ extension DashboardViewController: UICollectionViewDataSource {
             
             cell.transactionTableView.dataSource = self
             cell.transactionTableView.delegate = self
-            cell.transactionTableView.register(TransactionCell.self, forCellReuseIdentifier: TransactionCell.reuseID)
-
+            cell.transactionTableView.register(
+                TransactionCell.self, forCellReuseIdentifier: TransactionCell.reuseID)
+            
             let key = DateFormatter.keyFormatter.string(from: model.date)
             let txs = syncedViewModel.allTransactions.filter { tx in
                 let txDate = Date(timeIntervalSince1970: TimeInterval(tx.dateTimestamp))
-                let txKey  = DateFormatter.keyFormatter.string(from: txDate)
+                let txKey = DateFormatter.keyFormatter.string(from: txDate)
                 return txKey == key
             }.sorted { (tx1, tx2) -> Bool in
                 return tx1.date > tx2.date
@@ -197,14 +210,17 @@ extension DashboardViewController: UICollectionViewDataSource {
                 currentCellTransactions = txs
                 currentCell = cell
             }
-                        
+            
             cell.tag = indexPath.item
             cell.transactions = txs
             cell.configure(with: model, transactions: txs)
             
             return cell
         } else {
-            guard let cell = collectionView.dequeueReusableCell(withReuseIdentifier: MonthCell.reuseID, for: indexPath) as? MonthCell else {
+            guard
+                let cell = collectionView.dequeueReusableCell(
+                    withReuseIdentifier: MonthCell.reuseID, for: indexPath) as? MonthCell
+            else {
                 fatalError("Could not dequeue month cell")
             }
             
@@ -224,12 +240,17 @@ extension DashboardViewController: UICollectionViewDelegate {
 }
 
 extension DashboardViewController: UICollectionViewDelegateFlowLayout {
-    func collectionView(_ collectionView: UICollectionView, layout collectionViewLayout: UICollectionViewLayout, sizeForItemAt indexPath: IndexPath) -> CGSize {
+    func collectionView(
+        _ collectionView: UICollectionView, layout collectionViewLayout: UICollectionViewLayout,
+        sizeForItemAt indexPath: IndexPath
+    ) -> CGSize {
         if collectionView == contentView.monthCarousel {
             return CGSize(width: collectionView.bounds.width, height: collectionView.bounds.height)
         } else if collectionView == contentView.monthSelectorView.collectionView {
             
-            let spacing = (collectionView.collectionViewLayout as? UICollectionViewFlowLayout)?.minimumInteritemSpacing ?? 0
+            let spacing =
+            (collectionView.collectionViewLayout as? UICollectionViewFlowLayout)?
+                .minimumInteritemSpacing ?? 0
             let totalSpacing = spacing * 4
             let availableWidth = collectionView.bounds.width - totalSpacing
             let cellWidth = availableWidth / 5
@@ -249,7 +270,8 @@ extension DashboardViewController: UIScrollViewDelegate {
             syncedViewModel.selectMonth(at: page, animated: true)
             
             if let visibleCells = contentView.monthCarousel.visibleCells as? [MonthCarouselCell],
-               let firstCell = visibleCells.first {
+               let firstCell = visibleCells.first
+            {
                 currentCell = firstCell
                 
                 let index = firstCell.tag
@@ -273,7 +295,6 @@ extension DashboardViewController: UIScrollViewDelegate {
         scrollViewDidEndDecelerating(scrollView)
     }
 }
-
 
 extension DashboardViewController: SyncedCollectionsViewModelDelegate {
     func didUpdateSelectedIndex(_ index: Int, animated: Bool) {
@@ -313,7 +334,8 @@ extension DashboardViewController: SyncedCollectionsViewModelDelegate {
     func didUpdateMonthData(_ data: [MonthBudgetCardType]) {
         let currentSelectedIndex = syncedViewModel.selectedIndex
         
-        contentView.monthSelectorView.configure(months: data.map { $0.month }, selectedIndex: currentSelectedIndex)
+        contentView.monthSelectorView.configure(
+            months: data.map { $0.month }, selectedIndex: currentSelectedIndex)
         DispatchQueue.main.async {
             self.contentView.monthCarousel.reloadData()
         }
@@ -328,7 +350,8 @@ extension DashboardViewController: SyncedCollectionsViewModelDelegate {
             }
         } else if currentSelectedIndex > 0 {
             DispatchQueue.main.async {
-                self.syncedViewModel.selectMonth(at: currentSelectedIndex, animated: !self.isLoadingInitialData)
+                self.syncedViewModel.selectMonth(
+                    at: currentSelectedIndex, animated: !self.isLoadingInitialData)
             }
         }
     }
@@ -355,7 +378,6 @@ extension DashboardViewController: SyncedCollectionsViewModelDelegate {
     }
 }
 
-
 extension DashboardViewController: MonthBudgetCardDelegate {
     func didTapConfigButton() {
         flowDelegate?.navigateToBudgets(date: nil)
@@ -367,28 +389,30 @@ extension DashboardViewController: MonthBudgetCardDelegate {
 }
 
 // MARK: - Transaction Table View Management
-extension DashboardViewController: UITableViewDataSource, UITableViewDelegate{
+extension DashboardViewController: UITableViewDataSource, UITableViewDelegate {
     
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
         guard
-          let parentCell = tableView.superview(of: MonthCarouselCell.self),
-          parentCell.tag < syncedViewModel.monthData.count
+            let parentCell = tableView.superview(of: MonthCarouselCell.self),
+            parentCell.tag < syncedViewModel.monthData.count
         else { return 0 }
-
+        
         let model = syncedViewModel.monthData[parentCell.tag]
-        let key   = DateFormatter.keyFormatter.string(from: model.date)
+        let key = DateFormatter.keyFormatter.string(from: model.date)
         let txs = syncedViewModel.allTransactions
-          .filter { tx in
-            let txDate = Date(timeIntervalSince1970: TimeInterval(tx.dateTimestamp))
-            return DateFormatter.keyFormatter.string(from: txDate) == key
-          }
-          .sorted { $0.date > $1.date }
-
+            .filter { tx in
+                let txDate = Date(timeIntervalSince1970: TimeInterval(tx.dateTimestamp))
+                return DateFormatter.keyFormatter.string(from: txDate) == key
+            }
+            .sorted { $0.date > $1.date }
+        
         return txs.count
     }
     
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-        let cell = tableView.dequeueReusableCell(withIdentifier: TransactionCell.reuseID, for: indexPath) as! TransactionCell
+        let cell =
+        tableView.dequeueReusableCell(withIdentifier: TransactionCell.reuseID, for: indexPath)
+        as! TransactionCell
         
         guard
             let parentCell = tableView.superview(of: MonthCarouselCell.self),
@@ -398,7 +422,7 @@ extension DashboardViewController: UITableViewDataSource, UITableViewDelegate{
         }
         
         let model = syncedViewModel.monthData[parentCell.tag]
-        let key   = DateFormatter.keyFormatter.string(from: model.date)
+        let key = DateFormatter.keyFormatter.string(from: model.date)
         let txs = syncedViewModel.allTransactions
             .filter { tx in
                 let txDate = Date(timeIntervalSince1970: TimeInterval(tx.dateTimestamp))
@@ -408,18 +432,21 @@ extension DashboardViewController: UITableViewDataSource, UITableViewDelegate{
         
         let tx = txs[indexPath.row]
         cell.configure(
-            category:        tx.category,
-            title:           tx.title,
-            date:            tx.date,
-            value:           tx.amount,
+            category: tx.category,
+            title: tx.title,
+            date: tx.date,
+            value: tx.amount,
             transactionType: tx.type
         )
         
         cell.onDelete = { [weak self] completion in
             guard let self = self else { return }
             
-            showConfirmation(title: "transaction.delete.title".localized, message: "delete.confirmation".localized, okTitle: "alert.delete".localized) {
-                
+            showConfirmation(
+                title: "transaction.delete.title".localized,
+                message: "delete.confirmation".localized,
+                okTitle: "alert.delete".localized
+            ) {
                 switch self.viewModel.deleteTransaction(id: tx.id!) {
                 case .success():
                     self.syncedViewModel.removeTransaction(withId: tx.id!)
@@ -446,12 +473,51 @@ extension DashboardViewController: UITableViewDataSource, UITableViewDelegate{
         
         return cell
     }
-        
+    
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
         return 67
     }
     
     func tableView(_ tableView: UITableView, willSelectRowAt indexPath: IndexPath) -> IndexPath? {
         return nil
+    }
+}
+
+extension DashboardViewController {
+    func cleanupWithUserPrompt() {
+        viewModel.cleanupRecurringTransactionsWithUserPrompt { [weak self] completion in
+            let alertController = UIAlertController(
+                title: "recurring.cleanup.title".localized,
+                message: "recurring.cleanup.message".localized,
+                preferredStyle: .alert
+            )
+            
+            let cleanAllAction = UIAlertAction(
+                title: "recurring.cleanup.all".localized,
+                style: .destructive
+            ) { _ in
+                completion(.all)
+                self?.loadData()
+            }
+            
+            let cleanFutureAction = UIAlertAction(
+                title: "recurring.cleanup.future".localized,
+                style: .default
+            ) { _ in
+                completion(.futureOnly)
+                self?.loadData()
+            }
+            
+            let cancelAction = UIAlertAction(
+                title: "alert.cancel".localized,
+                style: .cancel
+            )
+            
+            alertController.addAction(cleanAllAction)
+            alertController.addAction(cleanFutureAction)
+            alertController.addAction(cancelAction)
+            
+            self?.present(alertController, animated: true)
+        }
     }
 }
