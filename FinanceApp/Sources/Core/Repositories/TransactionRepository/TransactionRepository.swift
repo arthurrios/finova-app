@@ -21,9 +21,7 @@ final class TransactionRepository: TransactionRepositoryProtocol {
     func delete(id: Int) throws {
         try db.deleteTransaction(id: id)
     }
-}
-
-extension TransactionRepository {
+    
     func fetchRecurringTransactions() -> [Transaction] {
         return fetchTransactions().filter { $0.isRecurring == true }
     }

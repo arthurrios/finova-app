@@ -19,19 +19,19 @@ struct TransactionData<C, T> {
   let installmentNumber: Int?
   let totalInstallments: Int?
   let originalAmount: Int?
-  
+
   let category: C
   let type: T
 }
 
-enum TransactionError: Error {
-    case invalidDateFormat
-    case invalidCategory
-    case invalidType
-    case invalidInstallmentCount
-    case databaseError
-    case transactionNotFound
-    case notARecurringTransaction
-    case parentTransactionNotFound
-    case concurrentModificationError
+enum TransactionError: Error, Equatable {
+  case invalidDateFormat
+  case invalidCategory
+  case invalidType
+  case invalidInstallmentCount
+  case databaseError
+  case transactionNotFound
+  case notARecurringTransaction
+  case parentTransactionNotFound
+  case concurrentModificationError
 }
