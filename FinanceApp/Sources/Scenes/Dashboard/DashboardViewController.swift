@@ -429,15 +429,32 @@ extension DashboardViewController: UITableViewDataSource, UITableViewDelegate {
         return DateFormatter.keyFormatter.string(from: txDate) == key
       }
       .sorted { $0.date > $1.date }
+      
 
-    let tx = txs[indexPath.row]
-    cell.configure(
-      category: tx.category,
-      title: tx.title,
-      date: tx.date,
-      value: tx.amount,
-      transactionType: tx.type
-    )
+      let tx = txs[indexPath.row]
+      
+      
+      if tx.mode == .installments && tx.installmentNumber != nil && tx.totalInstallments != nil {
+          cell.configure(
+            category: tx.category,
+            title: tx.title,
+            date: tx.date,
+            value: tx.amount,
+            transactionType: tx.type,
+            transactionMode: tx.mode,
+            installmentNumber: tx.installmentNumber,
+            totalInstallments: tx.totalInstallments
+          )
+      } else {
+          cell.configure(
+            category: tx.category,
+            title: tx.title,
+            date: tx.date,
+            value: tx.amount,
+            transactionType: tx.type,
+            transactionMode: tx.mode
+          )
+      }
 
     cell.onDelete = { [weak self] completion in
       guard let self = self else { return }
