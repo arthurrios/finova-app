@@ -23,10 +23,8 @@ struct Transaction {
     } else if hasInstallments == true {
       return .installments
     } else if parentTransactionId != nil && installmentNumber != nil && totalInstallments != nil {
-      // This is a child installment transaction
       return .installments
     } else if parentTransactionId != nil && isRecurring != true && installmentNumber == nil {
-      // This is a child recurring transaction instance
       return .recurring
     } else {
       return .normal
@@ -145,13 +143,13 @@ enum TransactionCategory: String, CaseIterable {
   case homeMaintenance = "category.homeMaintenance"
   case communication = "category.communication"
   case fitness = "category.fitness"
-  case debit = "category.debit"
-  case credit = "category.credit"
-  case bankSlip = "category.bankSlip"
+//  case debit = "category.debit"
+//  case credit = "category.credit"
+//  case bankSlip = "category.bankSlip"
 
   var iconName: String {
     let caseName = String(describing: self)
-    let generatedIconName = "icon" + caseName.prefix(1).uppercased() + caseName.dropFirst()
+    let generatedIconName = "lucide_" + "icon" + caseName.prefix(1).uppercased() + caseName.dropFirst()
 
     if UIImage(named: generatedIconName) != nil {
       return generatedIconName

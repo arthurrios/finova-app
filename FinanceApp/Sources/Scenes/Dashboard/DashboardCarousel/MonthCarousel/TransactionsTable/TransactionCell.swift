@@ -215,7 +215,6 @@ final public class TransactionCell: UITableViewCell {
     valueStackView.setContentCompressionResistancePriority(.required, for: .horizontal)
     valueStackView.setContentHuggingPriority(.required, for: .horizontal)
 
-    // Ensure installment label doesn't expand the stack
     installmentLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
     installmentLabel.setContentHuggingPriority(.required, for: .horizontal)
 
@@ -241,7 +240,6 @@ final public class TransactionCell: UITableViewCell {
         constant: -Metrics.spacing4)
     titleToValue.priority = .required
 
-    // Add a preference for titleStackView to expand to available space
     let titleExpansion = titleStackView.trailingAnchor
       .constraint(
         equalTo: valueRowStackView.leadingAnchor,
@@ -273,7 +271,6 @@ final public class TransactionCell: UITableViewCell {
         equalTo: trashIconView.leadingAnchor, constant: -Metrics.spacing3),
       valueRowStackView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
 
-      // Strong constraint to prevent valueRowStackView from expanding leftward
       valueRowStackView.leadingAnchor.constraint(
         greaterThanOrEqualTo: titleStackView.trailingAnchor, constant: Metrics.spacing4),
 
