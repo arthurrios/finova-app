@@ -1,2 +1,3 @@
 *.xcuserstate
 GoogleService-Info.plist
+.cursor*

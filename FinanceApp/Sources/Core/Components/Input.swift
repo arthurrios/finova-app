@@ -20,6 +20,7 @@ class Input: UIView {
     
     enum InputTextFieldType: Equatable {
         case normal
+        case number
         case password
         case email
         case date(style: DatePickerStyle)
@@ -29,6 +30,8 @@ class Input: UIView {
         static func == (lhs: InputTextFieldType, rhs: InputTextFieldType) -> Bool {
             switch (lhs, rhs) {
             case (.normal, .normal):
+                return true
+            case (.number, .number):
                 return true
             case (.password, .password):
                 return true
@@ -145,6 +148,11 @@ class Input: UIView {
         iconImageView.addGestureRecognizer(tap)
     }
     
+    private func configureNumberInput() {
+        textField.keyboardType = .numberPad
+        textField.delegate = self
+    }
+    
     private let prefixLabel: UILabel = {
         let label = UILabel()
         label.font = Fonts.titleMD.font
@@ -167,6 +175,8 @@ class Input: UIView {
         switch type {
         case .password:
             configurePasswordInput()
+        case .number:
+            configureNumberInput()
         case .email:
             textField.autocapitalizationType = .none
             textField.autocorrectionType = .no
@@ -607,5 +617,17 @@ extension Input: UITextFieldDelegate {
         textField.keyboardType = .numberPad
         textField.delegate     = self
         textField.addTarget(self, action: #selector(currencyTextChanged), for: .editingChanged)
+    }
+    
+    // MARK: - Number input validation
+    
+    func textField(_ textField: UITextField, shouldChangeCharactersIn range: NSRange, replacementString string: String) -> Bool {
+        guard case .number = type else { return true }
+        
+        if string.isEmpty { return true }
+        
+        let allowedCharacters = CharacterSet.decimalDigits
+        let characterSet = CharacterSet(charactersIn: string)
+        return allowedCharacters.isSuperset(of: characterSet)
     }
 }

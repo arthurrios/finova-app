@@ -9,18 +9,22 @@ import Foundation
 
 final class AddTransactionModalViewModel {
     private let transactionRepo: TransactionRepository
-    
-    enum TransactionError: Error {
-        case invalidDateFormat
-        case invalidCategory
-        case invalidType
-    }
+    private let recurringManager: RecurringTransactionManager
+    private let carouselRange: ClosedRange<Int> = -12...24
     
     init(transactionRepo: TransactionRepository = TransactionRepository()) {
         self.transactionRepo = transactionRepo
+        self.recurringManager = RecurringTransactionManager(transactionRepo: transactionRepo)
     }
     
-    func addTransaction(title: String, amount: Int, dateString: String, categoryKey: String, typeRaw: String) -> Result<Void, Error> {
+    func addTransaction(
+        title: String,
+        amount: Int,
+        dateString: String,
+        categoryKey: String,
+        typeRaw: String,
+        isRecurring: Bool? = nil
+    ) -> Result<Void, Error> {
         
         guard let date = DateFormatter.fullDateFormatter.date(from: dateString) else {
             return .failure(TransactionError.invalidDateFormat)
@@ -29,30 +33,132 @@ final class AddTransactionModalViewModel {
         let timestamp = Int(date.timeIntervalSince1970)
         
         guard let category = TransactionCategory.allCases
-                .first(where: { $0.key == categoryKey })
+            .first(where: { $0.key == categoryKey })
         else {
             return .failure(TransactionError.invalidCategory)
         }
-
+        
         guard let type = TransactionType.allCases
-                .first(where: { String(describing: $0) == typeRaw })
+            .first(where: { String(describing: $0) == typeRaw })
         else {
             return .failure(TransactionError.invalidType)
         }
         
         let anchor = date.monthAnchor
         
-        let model = TransactionModel(
-            title: title,
-            category: category.key,
-            amount: amount,
-            type: type.key,
-            dateTimestamp: timestamp,
-            budgetMonthDate: anchor
-        )
+        if let isRecurring = isRecurring, isRecurring {
+            
+            let model = TransactionModel(
+                title: title,
+                category: category.key,
+                amount: amount,
+                type: type.key,
+                dateTimestamp: timestamp,
+                budgetMonthDate: anchor,
+                isRecurring: true
+            )
+            
+            do {
+                let insertedId = try transactionRepo.insertTransactionAndGetId(model)
+                try transactionRepo.updateParentTransactionId(transactionId: insertedId, parentId: insertedId)
+                
+                recurringManager.generateRecurringTransactionsForRange(
+                    carouselRange,
+                    referenceDate: Date(),
+                    transactionStartDate: date
+                )
+                
+                return .success(())
+            } catch {
+                return .failure(error)
+            }
+        } else {
+            let model = TransactionModel(
+                title: title,
+                category: category.key,
+                amount: amount,
+                type: type.key,
+                dateTimestamp: timestamp,
+                budgetMonthDate: anchor,
+                isRecurring: false
+            )
+            
+            do {
+                try transactionRepo.insertTransaction(model)
+                return .success(())
+            } catch {
+                return .failure(error)
+            }
+        }
+    }
+    
+    func addTransactionWithInstallments(
+        title: String,
+        totalAmount: Int,
+        dateString: String,
+        categoryKey: String,
+        typeRaw: String,
+        totalInstallments: Int
+    ) -> Result<Void, Error> {
+        guard totalInstallments > 1 else {
+            return .failure(TransactionError.invalidInstallmentCount)
+        }
+        
+        guard let startDate = DateFormatter.fullDateFormatter.date(from: dateString) else {
+            return .failure(TransactionError.invalidDateFormat)
+        }
+        
+        guard let category = TransactionCategory.allCases
+            .first(where: { $0.key == categoryKey })
+        else {
+            return .failure(TransactionError.invalidCategory)
+        }
+        
+        guard let type = TransactionType.allCases
+            .first(where: { String(describing: $0) == typeRaw })
+        else {
+            return .failure(TransactionError.invalidType)
+        }
+        
+        let amountPerInstallment = totalAmount / totalInstallments
+        let remainder = totalAmount % totalInstallments
         
         do {
-            try transactionRepo.insertTransaction(model)
+            // Create a placeholder parent (NOT visible in UI)
+            // This is used only for linking installments together
+            let parentModel = TransactionModel(
+                title: "\(title) - Installment Parent", // Mark it clearly as parent
+                category: category.key,
+                amount: 0, // Zero amount so it doesn't affect totals
+                type: type.key,
+                dateTimestamp: Int(startDate.timeIntervalSince1970),
+                budgetMonthDate: startDate.monthAnchor,
+                hasInstallments: true,
+                originalAmount: totalAmount,
+                totalInstallments: totalInstallments
+            )
+            
+            let parentId = try transactionRepo.insertTransactionAndGetId(parentModel)
+            
+            for installmentNumber in 1...totalInstallments {
+                let installmentDate = Calendar.current.date(byAdding: .month, value: installmentNumber - 1, to: startDate) ?? startDate
+                let installmentAmount = installmentNumber == 1 ? amountPerInstallment + remainder : amountPerInstallment
+                
+                let installmentModel = TransactionModel(
+                    title: title,
+                    category: category.key,
+                    amount: installmentAmount,
+                    type: type.key,
+                    dateTimestamp: Int(installmentDate.timeIntervalSince1970),
+                    budgetMonthDate: installmentDate.monthAnchor,
+                    parentTransactionId: parentId,
+                    originalAmount: totalAmount,
+                    installmentNumber: installmentNumber,
+                    totalInstallments: totalInstallments
+                )
+                
+                try transactionRepo.insertTransaction(installmentModel)
+            }
             return .success(())
         } catch {
             return .failure(error)

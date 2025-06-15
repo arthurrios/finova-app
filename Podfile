@@ -9,4 +9,10 @@ target 'FinanceApp' do
   pod 'Firebase/Auth'
   pod 'ShimmerView'
   pod 'SQLite.swift'
+
+  target 'FinanceAppTests' do
+    inherit! :search_paths
+    # Pods for testing
+    # Firebase is inherited from parent target
+  end
 end

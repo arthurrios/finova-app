@@ -14,9 +14,9 @@
             buildForAnalyzing = "YES">
             <BuildableReference
                BuildableIdentifier = "primary"
-               BlueprintIdentifier = "9C4575D64B2B6264CF6AB60FB03302AA"
-               BuildableName = "FirebaseCoreExtension_Privacy.bundle"
-               BlueprintName = "FirebaseCoreExtension-FirebaseCoreExtension_Privacy"
+               BlueprintIdentifier = "9714993229BF876822F9BC46A69431C5"
+               BuildableName = "Pods_FinanceAppTests.framework"
+               BlueprintName = "Pods-FinanceAppTests"
                ReferencedContainer = "container:Pods.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
