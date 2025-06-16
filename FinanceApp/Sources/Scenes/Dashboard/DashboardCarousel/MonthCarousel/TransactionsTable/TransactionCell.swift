@@ -307,8 +307,9 @@ final public class TransactionCell: UITableViewCell {
     self.valueLabel.attributedText = value.currencyAttributedString(
       symbolFont: symbolFont, font: Fonts.titleMD)
     self.valueLabel.accessibilityLabel = value.currencyString
-
-    self.iconView.image = UIImage(named: category.iconName)
+      
+    let iconName = category.iconName(for: transactionType)
+    self.iconView.image = UIImage(named: iconName)
 
     if transactionType == .income {
       self.transactionTypeIconView.image = UIImage(named: "arrowUp")

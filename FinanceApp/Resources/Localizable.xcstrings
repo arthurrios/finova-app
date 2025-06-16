@@ -970,6 +970,23 @@
         }
       }
     },
+    "category.transfer" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Transfer"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Transferência"
+          }
+        }
+      }
+    },
     "category.transportation" : {
       "extractionState" : "manual",
       "localizations" : {

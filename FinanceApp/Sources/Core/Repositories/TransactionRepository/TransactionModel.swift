@@ -90,13 +90,40 @@ struct TransactionModel {
 
 extension UITransactionData {
   init(from db: DBTransactionData) throws {
-    guard let cat = TransactionCategory.allCases.first(where: { $0.key == db.category }) else {
+    var cat: TransactionCategory?
+
+    cat = TransactionCategory.allCases.first(where: { $0.key == db.category })
+
+    if cat == nil {
+      cat = TransactionCategory.allCases.first(where: { $0.rawValue == db.category })
+    }
+
+    if cat == nil {
+      cat = TransactionCategory.allCases.first(where: {
+        $0.key.lowercased() == db.category.lowercased()
+      })
+    }
+
+    if cat == nil {
+      let cleanCategory = db.category.replacingOccurrences(of: "category.", with: "")
+      cat = TransactionCategory.allCases.first(where: {
+        $0.key.lowercased() == cleanCategory.lowercased()
+      })
+    }
+
+    guard let finalCategory = cat else {
+      print("⚠️ Failed to find category for key: '\(db.category)'")
+      print("⚠️ Available category keys: \(TransactionCategory.allCases.map { $0.key })")
+      print("⚠️ Available category raw values: \(TransactionCategory.allCases.map { $0.rawValue })")
       throw TransactionError.invalidCategory
     }
+
     guard
       let ty = TransactionType.allCases
         .first(where: { String(describing: $0) == db.type })
     else {
+      print("⚠️ Failed to find transaction type for key: '\(db.type)'")
+      print("⚠️ Available type keys: \(TransactionType.allCases.map { String(describing: $0) })")
       throw TransactionError.invalidType
     }
 
@@ -112,7 +139,7 @@ extension UITransactionData {
       installmentNumber: db.installmentNumber,
       totalInstallments: db.totalInstallments,
       originalAmount: db.originalAmount,
-      category: cat,
+      category: finalCategory,
       type: ty
     )
   }
@@ -143,18 +170,36 @@ enum TransactionCategory: String, CaseIterable {
   case homeMaintenance = "category.homeMaintenance"
   case communication = "category.communication"
   case fitness = "category.fitness"
-//  case debit = "category.debit"
-//  case credit = "category.credit"
-//  case bankSlip = "category.bankSlip"
+  case transfer = "category.transfer"
+  case bankSlip = "category.bankSlip"
+
+  //  case debit = "category.debit"
+  //  case credit = "category.credit"
 
   var iconName: String {
     let caseName = String(describing: self)
-    let generatedIconName = "lucide_" + "icon" + caseName.prefix(1).uppercased() + caseName.dropFirst()
+    let generatedIconName =
+      "lucide_" + "icon" + caseName.prefix(1).uppercased() + caseName.dropFirst()
 
     if UIImage(named: generatedIconName) != nil {
       return generatedIconName
     } else {
-      return "iconDollar"
+      return "lucide_" + "iconDollar"
+    }
+  }
+
+  func iconName(for transactionType: TransactionType) -> String {
+    if self == .transfer {
+      let suffix = transactionType == .income ? "Down" : "Up"
+      let transferIconName = "lucide_iconTransfer" + suffix
+
+      if UIImage(named: transferIconName) != nil {
+        return transferIconName
+      } else {
+        return "lucide_" + "iconDollar"
+      }
+    } else {
+      return self.iconName
     }
   }
 

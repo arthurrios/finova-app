@@ -275,7 +275,18 @@ class DBHelper {
   func insertTransaction(_ transaction: TransactionModel) throws -> Int {
     let insertQuery = """
           INSERT INTO Transactions (
-              title, category, type, amount, date, budget_month_date, is_recurring, has_installments, parent_transaction_id, installment_number, total_installments, original_amount
+              title,
+              category,
+              type,
+              amount, 
+              date, 
+              budget_month_date,
+              is_recurring,
+              has_installments,
+              parent_transaction_id,
+              installment_number,
+              total_installments,
+              original_amount
               ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
       """
 
