@@ -24,7 +24,6 @@ final class AddTransactionModalView: UIView {
             trailing: Metrics.spacing8)
         sv.isLayoutMarginsRelativeArrangement = true
         
-        // Improve layout behavior for dynamic content
         sv.setContentHuggingPriority(UILayoutPriority(251), for: .vertical)
         sv.setContentCompressionResistancePriority(UILayoutPriority(751), for: .vertical)
         
@@ -218,15 +217,9 @@ final class AddTransactionModalView: UIView {
         let date = dateTextField.textField.text ?? ""
         let rawValues = categoryPickerView.pickerValues ?? []
         let selectedRow = categoryPickerView.selectedPickerIndex
-        let categoryKey =
-        rawValues.indices.contains(selectedRow)
-        ? rawValues[selectedRow]
-        : ""
+        let categoryKey = rawValues.indices.contains(selectedRow) ? rawValues[selectedRow] : ""
         
-        let typeEnum: TransactionType =
-        incomeSelectorButton.variant == .selected
-        ? .income
-        : .expense
+        let typeEnum: TransactionType = incomeSelectorButton.variant == .selected ? .income : .expense
         let typeKey = String(describing: typeEnum)
         
         switch selectedMode {
