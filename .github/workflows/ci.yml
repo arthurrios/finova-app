@@ -6,6 +6,12 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+  id-token: write
+
 env:
   DEVELOPER_DIR: /Applications/Xcode.app/Contents/Developer
   XCODE_PROJECT: FinanceApp.xcworkspace
