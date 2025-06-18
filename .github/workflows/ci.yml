@@ -102,6 +102,7 @@ jobs:
           extra_plugins: |
             @semantic-release/changelog@6.0.0
             @semantic-release/git@10.0.0
+            conventional-changelog-conventionalcommits@7.0.2
           dry_run: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
