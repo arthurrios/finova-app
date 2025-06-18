@@ -34,7 +34,9 @@ extension UIView {
     
     func pinToSuperview(with insets: UIEdgeInsets = .zero) {
         guard let superview = self.superview else {
-            fatalError("pinToSuperview(): no superview for \(self)")
+            print("❌ ERROR: pinToSuperview() called on view \(self) without superview")
+            assertionFailure("pinToSuperview(): no superview for \(self)")
+            return
         }
         translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
