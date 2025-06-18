@@ -209,7 +209,7 @@ final class RecurringTransactionManager {
     selectedTransactionDate: Date,
     cleanupOption: RecurringCleanupOption
   ) {
-    let allTransactions = transactionRepo.fetchTransactions()
+    let allTransactions = transactionRepo.fetchAllTransactions()
     let installmentInstances = allTransactions.filter {
       $0.parentTransactionId == parentTransactionId
     }

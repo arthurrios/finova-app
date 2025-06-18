@@ -23,7 +23,30 @@ class TransactionLogicTests: XCTestCase {
     viewModel = AddTransactionModalViewModel(transactionRepo: transactionRepo)
     dashboardViewModel = DashboardViewModel(transactionRepo: transactionRepo)
 
+    // Check initial state before cleanup
+    let initialTransactions = transactionRepo.fetchAllTransactions()
+    let initialParentTransactions = transactionRepo.fetchParentInstallmentTransactions()
+    print(
+      "🧪 setUp - Before cleanup: \(initialTransactions.count) total, \(initialParentTransactions.count) parent transactions"
+    )
+
     clearTestData()
+
+    // Verify cleanup worked
+    let remainingTransactions = transactionRepo.fetchAllTransactions()
+    let remainingParentTransactions = transactionRepo.fetchParentInstallmentTransactions()
+    print(
+      "🧪 setUp - After cleanup: \(remainingTransactions.count) total, \(remainingParentTransactions.count) parent transactions"
+    )
+
+    if remainingTransactions.count > 0 {
+      print("⚠️ Warning: \(remainingTransactions.count) transactions still exist after cleanup")
+      for transaction in remainingTransactions {
+        print(
+          "   - Transaction: \(transaction.title) (ID: \(transaction.id ?? -1), hasInstallments: \(transaction.hasInstallments ?? false))"
+        )
+      }
+    }
   }
 
   override func tearDown() {
@@ -32,10 +55,18 @@ class TransactionLogicTests: XCTestCase {
   }
 
   private func clearTestData() {
-    let allTransactions = transactionRepo.fetchTransactions()
-    for transaction in allTransactions {
-      if let id = transaction.id {
-        try? transactionRepo.delete(id: id)
+    // Use the dedicated test cleanup method
+    transactionRepo.clearAllTransactionsForTesting()
+    
+    // Verify it worked
+    let remainingTransactions = transactionRepo.fetchAllTransactions()
+    if !remainingTransactions.isEmpty {
+      print("⚠️ Still have \(remainingTransactions.count) transactions after cleanup")
+      // Try one more time with deleteTransactionAndRelated for complex transactions
+      for transaction in remainingTransactions {
+        if let id = transaction.id {
+          try? transactionRepo.deleteTransactionAndRelated(id: id)
+        }
       }
     }
   }
@@ -261,9 +292,16 @@ class TransactionLogicTests: XCTestCase {
     }
 
     let allTransactions = transactionRepo.fetchTransactions()
-    let parentTransaction = allTransactions.first { $0.hasInstallments == true }
+    let allParentTransactions = transactionRepo.fetchParentInstallmentTransactions()
+
+    // Find the specific parent transaction for "MacBook Pro"
+    let parentTransaction = allParentTransactions.first {
+      $0.title.contains("MacBook Pro")
+    }
+
+    // Find installments for this specific parent
     let installments = allTransactions.filter {
-      $0.parentTransactionId != nil && $0.installmentNumber != nil
+      $0.parentTransactionId == parentTransaction?.id && $0.installmentNumber != nil
     }
 
     XCTAssertNotNil(parentTransaction, "Parent transaction should exist")
@@ -274,6 +312,85 @@ class TransactionLogicTests: XCTestCase {
     // Verify installment amounts sum to total
     let totalInstallmentAmount = installments.reduce(0) { $0 + $1.amount }
     XCTAssertEqual(totalInstallmentAmount, 299999, "Installment amounts should sum to total")
+
+    // Verify parent transaction is NOT in the main transaction list (UI-visible transactions)
+    let parentInMainList = allTransactions.first { $0.hasInstallments == true }
+    XCTAssertNil(parentInMainList, "Parent transaction should NOT be in main transaction list")
+  }
+
+  func testParentInstallmentTransactionsNotDisplayedInUI() {
+    // Verify we start with a clean state
+    let initialParentTransactions = transactionRepo.fetchParentInstallmentTransactions()
+    let initialDisplayedTransactions = transactionRepo.fetchTransactions()
+    print(
+      "🧪 Test start: \(initialParentTransactions.count) parent transactions, \(initialDisplayedTransactions.count) displayed transactions"
+    )
+
+    // Create multiple installment transactions
+    let installmentData1 = InstallmentTransactionData(
+      title: "iPhone Test UI",
+      totalAmount: 120000,
+      date: "01/01/2025",
+      category: "miscellaneous",
+      transactionType: "expense",
+      installments: 3
+    )
+
+    let installmentData2 = InstallmentTransactionData(
+      title: "Laptop Test UI",
+      totalAmount: 250000,
+      date: "15/01/2025",
+      category: "miscellaneous",
+      transactionType: "expense",
+      installments: 5
+    )
+
+    let result1 = viewModel.addTransactionWithInstallments(installmentData1)
+    let result2 = viewModel.addTransactionWithInstallments(installmentData2)
+
+    // Verify both transactions were created successfully
+    switch result1 {
+    case .success(): break
+    case .failure(let error): XCTFail("Failed to create first installment: \(error)")
+    }
+
+    switch result2 {
+    case .success(): break
+    case .failure(let error): XCTFail("Failed to create second installment: \(error)")
+    }
+
+    let displayedTransactions = transactionRepo.fetchTransactions()
+    let allParentTransactions = transactionRepo.fetchParentInstallmentTransactions()
+
+    // Filter to only the parent transactions we just created by checking for our specific titles
+    let ourParentTransactions = allParentTransactions.filter {
+      $0.title.contains("iPhone Test UI") || $0.title.contains("Laptop Test UI")
+    }
+
+    print(
+      "🧪 After creation: \(allParentTransactions.count) total parent transactions, \(ourParentTransactions.count) our parent transactions"
+    )
+
+    // Should have created exactly 2 parent transactions for our test
+    XCTAssertEqual(ourParentTransactions.count, 2, "Should have 2 parent transactions")
+
+    // Should have 8 installment transactions displayed (3 + 5) for our specific transactions
+    let ourInstallmentTransactions = displayedTransactions.filter { transaction in
+      ourParentTransactions.contains { parent in
+        transaction.parentTransactionId == parent.id
+      }
+    }
+    XCTAssertEqual(ourInstallmentTransactions.count, 8, "Should display 8 installment transactions")
+
+    // NO parent transactions should be in the displayed list
+    let parentInDisplayed = displayedTransactions.filter { $0.hasInstallments == true }
+    XCTAssertEqual(parentInDisplayed.count, 0, "No parent transactions should be displayed in UI")
+
+    // All displayed transactions should have actual amounts (not zero)
+    for transaction in displayedTransactions {
+      XCTAssertGreaterThan(
+        transaction.amount, 0, "All displayed transactions should have positive amounts")
+    }
   }
 
   func testInstallmentAmountDistribution() {
@@ -415,16 +532,22 @@ class TransactionLogicTests: XCTestCase {
 
     let allTransactions = transactionRepo.fetchTransactions()
     let regularTransaction = allTransactions.first { $0.title == "Regular Transaction" }!
-    let parentTransaction = allTransactions.first { $0.isRecurring == true }!
+
+    // Parent recurring transactions should be visible in main transaction list
+    let parentTransaction = allTransactions.first { $0.isRecurring == true }
+    XCTAssertNotNil(
+      parentTransaction, "Parent recurring transaction should be in fetchTransactions()")
+
+    let parentTransactionUnwrapped = parentTransaction!
     let instanceTransaction = allTransactions.first {
-      $0.parentTransactionId == parentTransaction.id
+      $0.parentTransactionId == parentTransactionUnwrapped.id
     }!
 
     XCTAssertFalse(
       dashboardViewModel.isRecurringTransaction(id: regularTransaction.id!),
       "Regular transaction should not be recurring")
     XCTAssertTrue(
-      dashboardViewModel.isRecurringTransaction(id: parentTransaction.id!),
+      dashboardViewModel.isRecurringTransaction(id: parentTransactionUnwrapped.id!),
       "Parent transaction should be recurring")
     XCTAssertTrue(
       dashboardViewModel.isRecurringTransaction(id: instanceTransaction.id!),

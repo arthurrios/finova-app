@@ -113,7 +113,7 @@ final class DashboardViewModel {
 
   func deleteTransaction(id: Int) -> Result<Void, Error> {
     do {
-      let allTransactions = transactionRepo.fetchTransactions()
+      let allTransactions = transactionRepo.fetchAllTransactions()
       guard let transaction = allTransactions.first(where: { $0.id == id }) else {
         return .failure(TransactionError.transactionNotFound)
       }
@@ -143,7 +143,7 @@ final class DashboardViewModel {
     completion: @escaping (Result<Void, Error>) -> Void
   ) {
     do {
-      let allTransactions = transactionRepo.fetchTransactions()
+      let allTransactions = transactionRepo.fetchAllTransactions()
       guard let transaction = allTransactions.first(where: { $0.id == transactionId }) else {
         completion(.failure(TransactionError.transactionNotFound))
         return
@@ -256,7 +256,8 @@ final class DashboardViewModel {
   }
 
   func isRecurringTransaction(id: Int) -> Bool {
-    guard let transaction = transactionRepo.fetchTransactions().first(where: { $0.id == id }) else {
+    guard let transaction = transactionRepo.fetchAllTransactions().first(where: { $0.id == id })
+    else {
       return false
     }
 
@@ -265,13 +266,16 @@ final class DashboardViewModel {
   }
 
   func getTransactionType(id: Int) -> TransactionComplexityType {
-    guard let transaction = transactionRepo.fetchTransactions().first(where: { $0.id == id }) else {
+    guard let transaction = transactionRepo.fetchAllTransactions().first(where: { $0.id == id })
+    else {
       return .simple
     }
 
     // Check if this is a recurring transaction instance
     if let parentId = transaction.parentTransactionId {
-      let parentTransaction = transactionRepo.fetchTransactions().first(where: { $0.id == parentId }
+      let parentTransaction = transactionRepo.fetchAllTransactions().first(where: {
+        $0.id == parentId
+      }
       )
       if parentTransaction?.isRecurring == true {
         return .recurringInstance

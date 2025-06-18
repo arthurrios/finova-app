@@ -11,7 +11,14 @@ final class TransactionRepository: TransactionRepositoryProtocol {
   private let db = DBHelper.shared
 
   func fetchTransactions() -> [Transaction] {
-    (try? db.getTransactions()) ?? []
+    return ((try? db.getTransactions()) ?? [])
+      .filter { transaction in
+        // Filter out parent installment transactions - they should not be displayed in UI
+        if transaction.hasInstallments == true {
+          return false
+        }
+        return true
+      }
   }
 
   func insertTransaction(_ transaction: TransactionModel) throws {
@@ -22,17 +29,26 @@ final class TransactionRepository: TransactionRepositoryProtocol {
     try db.deleteTransaction(id: id)
   }
 
+  func fetchAllTransactions() -> [Transaction] {
+    // Returns ALL transactions including parent transactions (for internal operations)
+    return (try? db.getTransactions()) ?? []
+  }
+
+  func fetchParentInstallmentTransactions() -> [Transaction] {
+    return ((try? db.getTransactions()) ?? [])
+      .filter { $0.hasInstallments == true }
+  }
+
   func fetchRecurringTransactions() -> [Transaction] {
-    return fetchTransactions().filter { $0.isRecurring == true }
+    return fetchAllTransactions().filter { $0.isRecurring == true }
   }
 
   func fetchTransactionInstancesForRecurring(_ recurringId: Int) -> [Transaction] {
-    return fetchTransactions().filter { $0.parentTransactionId == recurringId }
+    return fetchAllTransactions().filter { $0.parentTransactionId == recurringId }
   }
 
   func fetchAllRecurringInstances() -> [Transaction] {
-
-    return fetchTransactions().filter { $0.parentTransactionId != nil }
+    return fetchAllTransactions().filter { $0.parentTransactionId != nil }
   }
 
   func insertTransactionAndGetId(_ transaction: TransactionModel) throws -> Int {
@@ -44,7 +60,7 @@ final class TransactionRepository: TransactionRepositoryProtocol {
   }
 
   func deleteTransactionAndRelated(id: Int) throws {
-    let allTransactions = fetchTransactions()
+    let allTransactions = fetchAllTransactions()
     guard let transaction = allTransactions.first(where: { $0.id == id }) else {
       throw TransactionError.transactionNotFound
     }
@@ -68,7 +84,7 @@ final class TransactionRepository: TransactionRepositoryProtocol {
   }
 
   private func deleteRecurringTransactionAndInstances(transactionId: Int) throws {
-    let allTransactions = fetchTransactions()
+    let allTransactions = fetchAllTransactions()
 
     let instances = allTransactions.filter { $0.parentTransactionId == transactionId }
 
@@ -82,7 +98,7 @@ final class TransactionRepository: TransactionRepositoryProtocol {
   }
 
   private func deleteInstallmentTransactionAndSiblings(parentId: Int) throws {
-    let allTransactions = fetchTransactions()
+    let allTransactions = fetchAllTransactions()
 
     let installments = allTransactions.filter { $0.parentTransactionId == parentId }
 
@@ -96,6 +112,23 @@ final class TransactionRepository: TransactionRepositoryProtocol {
   }
 
   func fetchInstallmentTransactions(parentId: Int) -> [Transaction] {
-    return fetchTransactions().filter { $0.parentTransactionId == parentId }
+    return fetchAllTransactions().filter { $0.parentTransactionId == parentId }
+  }
+
+  // MARK: - Test Helper Methods
+  func clearAllTransactionsForTesting() {
+    let allTransactions = fetchAllTransactions()
+
+    // Delete in multiple passes to handle parent/child relationships
+    for _ in 0..<10 {  // Try up to 10 times
+      let remainingTransactions = fetchAllTransactions()
+      if remainingTransactions.isEmpty { break }
+
+      for transaction in remainingTransactions {
+        if let id = transaction.id {
+          try? delete(id: id)
+        }
+      }
+    }
   }
 }
