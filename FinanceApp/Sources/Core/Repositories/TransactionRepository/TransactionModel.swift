@@ -71,7 +71,7 @@ struct TransactionModel {
     totalInstallments: Int? = nil,
   ) {
     self.data = DBTransactionData(
-      id: nil,
+      id: id,
       title: title,
       amount: amount,
       dateTimestamp: dateTimestamp,

@@ -368,8 +368,7 @@ class DBHelper {
         installment_number,
         total_installments,
         original_amount
-      FROM Transactions
-      WHERE has_installments IS NULL OR has_installments = 0;
+      FROM Transactions;
       """
     var statement: OpaquePointer?
 
