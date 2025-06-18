@@ -39,10 +39,9 @@ final class LoginViewController: UIViewController {
         startKeyboardObservers()
     }
     
-    override func viewWillDisappear(_ animated: Bool) {
-        super.viewWillDisappear(animated)
-        stopKeyboardObservers()
-    }
+//    override func viewWillDisappear(_ animated: Bool) {
+//        super.viewWillDisappear(animated)
+//    }
     
     private func bindViewModel() {
         viewModel.successResult = { [weak self] (userName, userEmail) in
@@ -109,17 +108,14 @@ final class LoginViewController: UIViewController {
         }
     }
 
-    
     private func setup() {
         view.addSubview(contentView)
         buildHierarchy()
     }
     
-    
     private func buildHierarchy() {
         setupContentViewToBounds(contentView: contentView)
     }
-    
     
     func animateShow(completion: (() -> Void)? = nil) {
         contentView.layoutIfNeeded()

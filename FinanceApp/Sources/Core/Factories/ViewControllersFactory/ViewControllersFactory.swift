@@ -6,12 +6,15 @@
 //
 
 import Foundation
+import UIKit
 
 final class ViewControllersFactory: ViewControllersFactoryProtocol {
-    func makeAddTransactionModalViewController(flowDelegate: any AddTransactionModalFlowDelegate) -> AddTransactionModalViewController {
+    func makeAddTransactionModalViewController(flowDelegate: any AddTransactionModalFlowDelegate)
+    -> AddTransactionModalViewController {
         let contentView = AddTransactionModalView()
         let viewModel = AddTransactionModalViewModel()
-        let viewController = AddTransactionModalViewController(contentView: contentView, flowDelegate: flowDelegate, viewModel: viewModel)
+        let viewController = AddTransactionModalViewController(
+            contentView: contentView, flowDelegate: flowDelegate, viewModel: viewModel)
         return viewController
     }
     
@@ -24,21 +27,25 @@ final class ViewControllersFactory: ViewControllersFactoryProtocol {
     func makeLoginViewController(flowDelegate: LoginFlowDelegate) -> LoginViewController {
         let contentView = LoginView()
         let viewModel = LoginViewModel()
-        let viewController = LoginViewController(contentView: contentView, viewModel: viewModel, flowDelegate: flowDelegate)
+        let viewController = LoginViewController(
+            contentView: contentView, viewModel: viewModel, flowDelegate: flowDelegate)
         return viewController
     }
     
     func makeDashboardViewController(flowDelegate: DashboardFlowDelegate) -> DashboardViewController {
         let contentView = DashboardView()
         let viewModel = DashboardViewModel()
-        let viewController = DashboardViewController(contentView: contentView, viewModel: viewModel, flowDelegate: flowDelegate)
+        let viewController = DashboardViewController(
+            contentView: contentView, viewModel: viewModel, flowDelegate: flowDelegate)
         return viewController
     }
     
-    func makeBudgetsViewController(flowDelegate: BudgetsFlowDelegate, date: Date?) -> BudgetsViewController {
+    func makeBudgetsViewController(flowDelegate: BudgetsFlowDelegate, date: Date?)
+    -> BudgetsViewController {
         let contentView = BudgetsView()
         let viewModel = BudgetsViewModel(initialDate: date)
-        let viewController = BudgetsViewController(contentView: contentView, viewModel: viewModel, flowDelegate: flowDelegate)
+        let viewController = BudgetsViewController(
+            contentView: contentView, viewModel: viewModel, flowDelegate: flowDelegate)
         return viewController
     }
 }

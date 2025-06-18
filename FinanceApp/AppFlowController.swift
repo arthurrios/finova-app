@@ -46,14 +46,16 @@ extension AppFlowController: SplashFlowDelegate {
 extension AppFlowController: LoginFlowDelegate {
     func navigateToDashboard() {
         navigationController?.dismiss(animated: false)
-        let dashboardViewController = viewControllersFactory.makeDashboardViewController(flowDelegate: self)
+        let dashboardViewController = viewControllersFactory.makeDashboardViewController(
+            flowDelegate: self)
         navigationController?.pushViewController(dashboardViewController, animated: true)
     }
 }
 
 extension AppFlowController: DashboardFlowDelegate {
     func openAddTransactionModal() {
-        let viewController = viewControllersFactory.makeAddTransactionModalViewController(flowDelegate: self)
+        let viewController = viewControllersFactory.makeAddTransactionModalViewController(
+            flowDelegate: self)
         viewController.modalPresentationStyle = .overCurrentContext
         viewController.modalTransitionStyle = .crossDissolve
         navigationController?.present(viewController, animated: false) {
@@ -63,7 +65,8 @@ extension AppFlowController: DashboardFlowDelegate {
     
     func navigateToBudgets(date: Date?) {
         navigationController?.dismiss(animated: false)
-        let budgetsViewController = viewControllersFactory.makeBudgetsViewController(flowDelegate: self, date: date)
+        let budgetsViewController = viewControllersFactory.makeBudgetsViewController(
+            flowDelegate: self, date: date)
         navigationController?.pushViewController(budgetsViewController, animated: true)
     }
     
@@ -72,16 +75,16 @@ extension AppFlowController: DashboardFlowDelegate {
         
         let viewController = viewControllersFactory.makeLoginViewController(flowDelegate: self)
         
-        let t = CATransition()
-        t.duration = 0.3
-        t.type = .push
-        t.subtype = .fromLeft
-        t.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        let transition = CATransition()
+        transition.duration = 0.3
+        transition.type = .push
+        transition.subtype = .fromLeft
+        transition.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
         
         navigationController?.setNavigationBarHidden(true, animated: false)
         navigationController?.view.backgroundColor = Colors.gray100
         UIApplication.shared.delegate?.window??.backgroundColor = Colors.gray100
-        navigationController?.view.layer.add(t, forKey: kCATransition)
+        navigationController?.view.layer.add(transition, forKey: kCATransition)
         navigationController?.pushViewController(viewController, animated: false)
         viewController.contentView.containerView.alpha = 1
     }

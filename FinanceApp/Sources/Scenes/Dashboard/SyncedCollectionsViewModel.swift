@@ -91,7 +91,6 @@ final class SyncedCollectionsViewModel {
         monthData = updatedMonthData
     }
 
-    
     func moveToNextMonth(animated: Bool = true) {
         selectMonth(at: selectedIndex + 1, animated: animated)
     }

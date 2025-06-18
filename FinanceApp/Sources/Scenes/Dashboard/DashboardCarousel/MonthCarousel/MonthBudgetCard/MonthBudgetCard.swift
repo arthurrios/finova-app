@@ -14,19 +14,33 @@ class MonthBudgetCard: UIView {
     
     private let gradientLayer = Colors.gradientBlack
     
-    private lazy var mainStackView = UIStackView(axis: .vertical, arrangedSubviews: [headerHorizontalStackView, separator, availableBudgetStackView, footerStackView])
+    private lazy var mainStackView = UIStackView(
+        axis: .vertical,
+        arrangedSubviews: [
+            headerHorizontalStackView, separator, availableBudgetStackView, footerStackView
+        ])
     
-    private lazy var headerHorizontalStackView = UIStackView(axis: .horizontal, arrangedSubviews: [headerDateStackView, configIcon])
+    private lazy var headerHorizontalStackView = UIStackView(
+        axis: .horizontal, arrangedSubviews: [headerDateStackView, configIcon])
     
-    private lazy var headerDateStackView = UIStackView(axis: .horizontal, spacing: Metrics.spacing2, alignment: .center, arrangedSubviews: [monthLabel, yearLabel])
+    private lazy var headerDateStackView = UIStackView(
+        axis: .horizontal, spacing: Metrics.spacing2, alignment: .center,
+        arrangedSubviews: [monthLabel, yearLabel])
     
-    private lazy var availableBudgetStackView = UIStackView(axis: .vertical, spacing: Metrics.spacing3, arrangedSubviews: [availableBudgetTextLabel, availableBudgetValueLabel, defineBudgetButton])
+    private lazy var availableBudgetStackView = UIStackView(
+        axis: .vertical, spacing: Metrics.spacing3,
+        arrangedSubviews: [availableBudgetTextLabel, availableBudgetValueLabel, defineBudgetButton])
     
-    private lazy var footerStackView = UIStackView(axis: .horizontal, arrangedSubviews: [usedBudgetStackView, limitBudgetStackView])
+    private lazy var footerStackView = UIStackView(
+        axis: .horizontal, arrangedSubviews: [usedBudgetStackView, limitBudgetStackView])
     
-    private lazy var usedBudgetStackView = UIStackView(axis: .vertical, spacing: Metrics.spacing2, arrangedSubviews: [usedBudgetTextLabel, usedBudgetValueLabel])
+    private lazy var usedBudgetStackView = UIStackView(
+        axis: .vertical, spacing: Metrics.spacing2,
+        arrangedSubviews: [usedBudgetTextLabel, usedBudgetValueLabel])
     
-    private lazy var limitBudgetStackView = UIStackView(axis: .vertical, spacing: Metrics.spacing2, alignment: .trailing, arrangedSubviews: [limitBudgetTextLabel, limitBudgetValueLabel, infinitySymbol])
+    private lazy var limitBudgetStackView = UIStackView(
+        axis: .vertical, spacing: Metrics.spacing2, alignment: .trailing,
+        arrangedSubviews: [limitBudgetTextLabel, limitBudgetValueLabel, infinitySymbol])
     
     private let monthLabel: UILabel = {
         let label = UILabel()
@@ -77,7 +91,8 @@ class MonthBudgetCard: UIView {
         return label
     }()
     
-    private let defineBudgetButton = Button(variant: .outlined, label: "monthCard.defineBudget".localized)
+    private let defineBudgetButton = Button(
+        variant: .outlined, label: "monthCard.defineBudget".localized)
     
     private let usedBudgetTextLabel: UILabel = {
         let label = UILabel()
@@ -116,7 +131,7 @@ class MonthBudgetCard: UIView {
         imageView.tintColor = Colors.gray100
         return imageView
     }()
-
+    
     private let progressBar: UIProgressView = {
         let progressBar = UIProgressView(progressViewStyle: .bar)
         progressBar.progressViewStyle = .bar
@@ -144,9 +159,9 @@ class MonthBudgetCard: UIView {
         monthLabel.text = data.month
         monthLabel.applyStyle()
         yearLabel.text = "/ " + DateFormatter.yearFormatter.string(from: data.date)
-
+        
         usedBudgetValueLabel.text = data.usedValue.currencyString
-
+        
         if let availableValue = data.availableValue {
             availableBudgetValueLabel.text = availableValue.currencyString
             availableBudgetValueLabel.isHidden = false
@@ -155,10 +170,10 @@ class MonthBudgetCard: UIView {
             availableBudgetValueLabel.isHidden = true
             defineBudgetButton.isHidden = false
         }
-
+        
         updateLimitSection(with: data)
     }
-
+    
     private func updateLimitSection(with data: MonthBudgetCardType) {
         guard let budgetLimit = data.budgetLimit, budgetLimit > 0 else {
             limitBudgetValueLabel.isHidden = true
@@ -166,32 +181,33 @@ class MonthBudgetCard: UIView {
             infinitySymbol.isHidden = false
             defineBudgetButton.isHidden = false
             availableBudgetValueLabel.isHidden = true
-
+            
             let isPreviousMonth = DateUtils.isPastMonth(date: data.date)
             applyButtonStyle(isPreviousMonth: isPreviousMonth)
             return
         }
-
+        
         limitBudgetValueLabel.text = budgetLimit.currencyString
         limitBudgetValueLabel.isHidden = false
         infinitySymbol.isHidden = true
         progressBar.isHidden = false
         defineBudgetButton.isHidden = true
-
+        
         let rawFraction = Float(data.usedValue) / Float(budgetLimit)
         let clampedFraction = min(max(rawFraction, 0), 1)
-
+        
         let availableValue = data.availableValue ?? (budgetLimit - data.usedValue)
         let isAlertState = data.usedValue > budgetLimit || availableValue < 0
-
+        
         DispatchQueue.main.async {
             self.progressBar.setProgress(clampedFraction, animated: true)
-            self.progressBar.progressTintColor = isAlertState
-                ? Colors.mainRed
-                : Colors.mainMagenta
+            self.progressBar.progressTintColor =
+            isAlertState
+            ? Colors.mainRed
+            : Colors.mainMagenta
         }
     }
-
+    
     func refresh(with data: MonthBudgetCardType) {
         updateLimitSection(with: data)
     }
@@ -212,7 +228,10 @@ class MonthBudgetCard: UIView {
     
     private func setupMainStackView() {
         addSubview(mainStackView)
-        mainStackView.pinToSuperview(with: UIEdgeInsets(top: Metrics.spacing6, left: Metrics.spacing6, bottom: Metrics.spacing7, right: Metrics.spacing6))
+        mainStackView.pinToSuperview(
+            with: UIEdgeInsets(
+                top: Metrics.spacing6, left: Metrics.spacing6, bottom: Metrics.spacing7,
+                right: Metrics.spacing6))
         mainStackView.setCustomSpacing(Metrics.spacing4, after: headerHorizontalStackView)
         mainStackView.setCustomSpacing(Metrics.spacing3, after: separator)
         mainStackView.setCustomSpacing(Metrics.spacing5, after: availableBudgetStackView)
@@ -226,15 +245,17 @@ class MonthBudgetCard: UIView {
         NSLayoutConstraint.activate([
             progressBar.bottomAnchor.constraint(equalTo: bottomAnchor),
             progressBar.leadingAnchor.constraint(equalTo: leadingAnchor),
-            progressBar.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor),
+            progressBar.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor)
         ])
     }
     
     private func setupGestureRecognizers() {
-        let configTapGesture = UITapGestureRecognizer(target: self, action: #selector(handleConfigTapGesture))
+        let configTapGesture = UITapGestureRecognizer(
+            target: self, action: #selector(handleConfigTapGesture))
         configIcon.addGestureRecognizer(configTapGesture)
         
-        defineBudgetButton.addTarget(self, action: #selector(defineBudgetButtonTapped), for: .touchUpInside)
+        defineBudgetButton.addTarget(
+            self, action: #selector(defineBudgetButtonTapped), for: .touchUpInside)
     }
     
     @objc
