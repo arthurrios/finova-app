@@ -57,11 +57,14 @@ jobs:
 
       - name: Run unit tests
         run: |
+          # Clean up any existing test results to prevent conflicts
+          rm -rf TestResults.xcresult
           xcodebuild -workspace ${{ env.XCODE_PROJECT }} \
                      -scheme ${{ env.SCHEME }} \
                      -destination 'platform=iOS Simulator,name=iPhone 15,OS=latest' \
                      test-without-building \
-                     -resultBundlePath TestResults.xcresult
+                     -resultBundlePath TestResults.xcresult \
+                     -resultBundleOverwrite
 
       - name: Upload test results
         uses: actions/upload-artifact@v4

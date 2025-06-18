@@ -186,11 +186,14 @@ jobs:
         if: steps.test-cache.outputs.cache-hit != 'true' || env.cache-invalid == 'true'
         run: |
           echo "🧪 Running tests with full build cycle..."
+          # Clean up any existing test results to prevent conflicts
+          rm -rf TestResults.xcresult
           xcodebuild -workspace ${{ env.XCODE_PROJECT }} \
                      -scheme ${{ env.SCHEME }} \
                      -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest' \
                      test \
-                     -resultBundlePath TestResults.xcresult
+                     -resultBundlePath TestResults.xcresult \
+                     -resultBundleOverwrite
 
       - name: Mark test results as successful
         id: test-results
