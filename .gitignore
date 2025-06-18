@@ -18,7 +18,7 @@ xcuserdata/
 
 # CocoaPods
 Pods/
-Podfile.lock
+# Podfile.lock should be committed to ensure deterministic builds
 
 # Carthage
 Carthage/Build/
