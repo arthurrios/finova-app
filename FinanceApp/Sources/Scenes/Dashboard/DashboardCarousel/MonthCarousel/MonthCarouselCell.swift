@@ -23,7 +23,8 @@ class MonthCarouselCell: UICollectionViewCell {
         stackView.layer.cornerRadius = CornerRadius.extraLarge
         stackView.layer.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner]
         stackView.backgroundColor = Colors.gray100
-        stackView.layoutMargins = UIEdgeInsets(top: 0, left: Metrics.spacing5, bottom: 0, right: Metrics.spacing4)
+        stackView.layoutMargins = UIEdgeInsets(
+            top: 0, left: Metrics.spacing5, bottom: 0, right: Metrics.spacing4)
         stackView.isLayoutMarginsRelativeArrangement = true
         stackView.distribution = .equalSpacing
         stackView.translatesAutoresizingMaskIntoConstraints = false
@@ -46,7 +47,8 @@ class MonthCarouselCell: UICollectionViewCell {
         stackView.axis = .horizontal
         stackView.distribution = .fillEqually
         stackView.heightAnchor.constraint(equalToConstant: 18).isActive = true
-        stackView.layoutMargins = UIEdgeInsets(top: 0, left: Metrics.spacing2, bottom: 0, right: Metrics.spacing2)
+        stackView.layoutMargins = UIEdgeInsets(
+            top: 0, left: Metrics.spacing2, bottom: 0, right: Metrics.spacing2)
         stackView.isLayoutMarginsRelativeArrangement = true
         stackView.backgroundColor = Colors.gray300
         stackView.clipsToBounds = true
@@ -139,31 +141,38 @@ class MonthCarouselCell: UICollectionViewCell {
     private func setupConstraints() {
         NSLayoutConstraint.activate([
             monthCard.topAnchor.constraint(equalTo: contentView.topAnchor, constant: Metrics.spacing4),
-            monthCard.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: Metrics.spacing4),
-            monthCard.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -Metrics.spacing4),
+            monthCard.leadingAnchor.constraint(
+                equalTo: contentView.leadingAnchor, constant: Metrics.spacing4),
+            monthCard.trailingAnchor.constraint(
+                equalTo: contentView.trailingAnchor, constant: -Metrics.spacing4),
             
-            tableHeaderView.topAnchor.constraint(equalTo: monthCard.bottomAnchor, constant: Metrics.spacing4),
+            tableHeaderView.topAnchor.constraint(
+                equalTo: monthCard.bottomAnchor, constant: Metrics.spacing4),
             tableHeaderView.leadingAnchor.constraint(equalTo: monthCard.leadingAnchor),
             tableHeaderView.trailingAnchor.constraint(equalTo: monthCard.trailingAnchor),
             
             transactionTableView.topAnchor.constraint(equalTo: tableHeaderView.bottomAnchor),
             transactionTableView.leadingAnchor.constraint(equalTo: monthCard.leadingAnchor),
             transactionTableView.trailingAnchor.constraint(equalTo: monthCard.trailingAnchor),
-            transactionTableView.bottomAnchor.constraint(lessThanOrEqualTo: contentView.bottomAnchor, constant: -Metrics.spacing4),
+            transactionTableView.bottomAnchor.constraint(
+                lessThanOrEqualTo: contentView.bottomAnchor, constant: -Metrics.spacing4),
             
             emptyStateView.topAnchor.constraint(equalTo: tableHeaderView.bottomAnchor),
             emptyStateView.leadingAnchor.constraint(equalTo: monthCard.leadingAnchor),
             emptyStateView.trailingAnchor.constraint(equalTo: monthCard.trailingAnchor),
             emptyStateView.heightAnchor.constraint(equalToConstant: Metrics.tableEmptyViewHeight),
             
-            emptyStateIconImageView.leadingAnchor.constraint(equalTo: emptyStateView.leadingAnchor, constant: Metrics.spacing5),
+            emptyStateIconImageView.leadingAnchor.constraint(
+                equalTo: emptyStateView.leadingAnchor, constant: Metrics.spacing5),
             emptyStateIconImageView.centerYAnchor.constraint(equalTo: emptyStateView.centerYAnchor),
             emptyStateIconImageView.heightAnchor.constraint(equalToConstant: Metrics.spacing8),
             emptyStateIconImageView.widthAnchor.constraint(equalToConstant: Metrics.spacing8),
             
-            emptyStateDescriptionLabel.leadingAnchor.constraint(equalTo: emptyStateIconImageView.trailingAnchor, constant: Metrics.spacing5),
-            emptyStateDescriptionLabel.trailingAnchor.constraint(equalTo: emptyStateView.trailingAnchor, constant: -Metrics.spacing4),
-            emptyStateDescriptionLabel.centerYAnchor.constraint(equalTo: emptyStateView.centerYAnchor),
+            emptyStateDescriptionLabel.leadingAnchor.constraint(
+                equalTo: emptyStateIconImageView.trailingAnchor, constant: Metrics.spacing5),
+            emptyStateDescriptionLabel.trailingAnchor.constraint(
+                equalTo: emptyStateView.trailingAnchor, constant: -Metrics.spacing4),
+            emptyStateDescriptionLabel.centerYAnchor.constraint(equalTo: emptyStateView.centerYAnchor)
         ])
     }
     
@@ -186,13 +195,14 @@ class MonthCarouselCell: UICollectionViewCell {
     func updateTableHeight(txsCount: Int) {
         let rowHeight: CGFloat = 67
         let separatorHeight = CGFloat(max(0, txsCount - 1)) * 1.0
-        let contentHeight   = CGFloat(txsCount) * rowHeight + separatorHeight
+        let contentHeight = CGFloat(txsCount) * rowHeight + separatorHeight
         
         let maxTableHeight: CGFloat = Metrics.transactionsTableHeight
         let finalHeight = min(contentHeight, maxTableHeight)
         
         if tableHeightConstraint == nil {
-            tableHeightConstraint = transactionTableView.heightAnchor.constraint(equalToConstant: finalHeight)
+            tableHeightConstraint = transactionTableView.heightAnchor.constraint(
+                equalToConstant: finalHeight)
             tableHeightConstraint?.isActive = true
         } else {
             tableHeightConstraint?.constant = finalHeight
@@ -221,19 +231,21 @@ class MonthCarouselCell: UICollectionViewCell {
         
         path.addLine(to: CGPoint(x: 0, y: cornerRadius))
         
-        path.addArc(withCenter: CGPoint(x: cornerRadius, y: cornerRadius),
-                    radius: cornerRadius,
-                    startAngle: .pi,
-                    endAngle: 3 * .pi / 2,
-                    clockwise: true)
+        path.addArc(
+            withCenter: CGPoint(x: cornerRadius, y: cornerRadius),
+            radius: cornerRadius,
+            startAngle: .pi,
+            endAngle: 3 * .pi / 2,
+            clockwise: true)
         
         path.addLine(to: CGPoint(x: bounds.width - cornerRadius, y: 0))
         
-        path.addArc(withCenter: CGPoint(x: bounds.width - cornerRadius, y: cornerRadius),
-                    radius: cornerRadius,
-                    startAngle: 3 * .pi / 2,
-                    endAngle: 0,
-                    clockwise: true)
+        path.addArc(
+            withCenter: CGPoint(x: bounds.width - cornerRadius, y: cornerRadius),
+            radius: cornerRadius,
+            startAngle: 3 * .pi / 2,
+            endAngle: 0,
+            clockwise: true)
         
         path.addLine(to: CGPoint(x: bounds.width, y: bounds.height))
         
@@ -253,7 +265,8 @@ class MonthCarouselCell: UICollectionViewCell {
         
         transactionsNumberContainerView.layoutIfNeeded()
         
-        let size = min(transactionsNumberContainerView.bounds.width, transactionsNumberContainerView.bounds.height)
+        let size = min(
+            transactionsNumberContainerView.bounds.width, transactionsNumberContainerView.bounds.height)
         transactionsNumberContainerView.layer.cornerRadius = size / 2
         
         transactionsNumberContainerView.clipsToBounds = true

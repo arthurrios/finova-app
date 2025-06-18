@@ -85,7 +85,7 @@ class MonthSelectorView: UIView {
             collectionView.leadingAnchor.constraint(equalTo: leftButton.trailingAnchor),
             collectionView.trailingAnchor.constraint(equalTo: rightButton.leadingAnchor),
             collectionView.topAnchor.constraint(equalTo: topAnchor),
-            collectionView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            collectionView.bottomAnchor.constraint(equalTo: bottomAnchor)
         ])
     }
     
@@ -103,20 +103,23 @@ class MonthSelectorView: UIView {
         guard index >= 0, index < months.count else { return }
         selectedIndex = index
         let indexPath = IndexPath(item: index, section: 0)
-        collectionView.selectItem(at: indexPath,
-                                  animated: true,
-                                  scrollPosition: .centeredHorizontally)
+        collectionView.selectItem(
+            at: indexPath,
+            animated: true,
+            scrollPosition: .centeredHorizontally)
         collectionView.scrollToItem(at: indexPath, at: .centeredHorizontally, animated: animated)
     }
     
     private func selectCell(at index: Int, animated: Bool) {
         let indexPath = IndexPath(item: index, section: 0)
-        collectionView.selectItem(at: indexPath,
-                                  animated: animated,
-                                  scrollPosition: .centeredHorizontally)
-        collectionView.scrollToItem(at: indexPath,
-                                    at: .centeredHorizontally,
-                                    animated: animated)
+        collectionView.selectItem(
+            at: indexPath,
+            animated: animated,
+            scrollPosition: .centeredHorizontally)
+        collectionView.scrollToItem(
+            at: indexPath,
+            at: .centeredHorizontally,
+            animated: animated)
     }
     
     @objc
@@ -131,12 +134,17 @@ class MonthSelectorView: UIView {
 }
 
 extension MonthSelectorView: UICollectionViewDataSource, UICollectionViewDelegateFlowLayout {
-    func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int {
+    func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int)
+    -> Int {
         return months.count
     }
     
-    func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
-        guard let cell = collectionView.dequeueReusableCell(withReuseIdentifier: MonthCell.reuseID, for: indexPath) as? MonthCell else { return UICollectionViewCell() }
+    func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath)
+    -> UICollectionViewCell {
+        guard
+            let cell = collectionView.dequeueReusableCell(
+                withReuseIdentifier: MonthCell.reuseID, for: indexPath) as? MonthCell
+        else { return UICollectionViewCell() }
         
         cell.configure(title: months[indexPath.item])
         return cell
@@ -146,7 +154,10 @@ extension MonthSelectorView: UICollectionViewDataSource, UICollectionViewDelegat
         delegate?.didSelectMonth(at: indexPath.item)
     }
     
-    func collectionView(_ collectionView: UICollectionView, layout collectionViewLayout: UICollectionViewLayout, sizeForItemAt indexPath: IndexPath) -> CGSize {
+    func collectionView(
+        _ collectionView: UICollectionView, layout collectionViewLayout: UICollectionViewLayout,
+        sizeForItemAt indexPath: IndexPath
+    ) -> CGSize {
         return CGSize(width: 0, height: bounds.height)
     }
 }

@@ -9,7 +9,7 @@ import Foundation
 import UIKit
 
 class SplashView: UIView {
-        
+    
     let logoImageView: UIImageView = {
         let imageView = UIImageView(image: UIImage(named: "appLogo"))
         imageView.contentMode = .scaleAspectFit
@@ -44,7 +44,7 @@ class SplashView: UIView {
             logoImageView.centerYAnchor.constraint(equalTo: centerYAnchor, constant: -Metrics.spacing6),
             
             loginImageView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Metrics.spacing3),
-            loginImageView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Metrics.spacing3),
+            loginImageView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Metrics.spacing3)
         ])
     }
 }

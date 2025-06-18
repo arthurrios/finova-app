@@ -9,24 +9,24 @@ import Foundation
 import UIKit
 
 extension UIProgressView {
-  func roundRightCornersFixedHeight(_ h: CGFloat) {
+  func roundRightCornersFixedHeight(_ height: CGFloat) {
     transform = .identity
-    
+
     translatesAutoresizingMaskIntoConstraints = false
-    if let c = constraints.first(where: { $0.firstAttribute == .height }) {
-      c.constant = h
+    if let constraint = constraints.first(where: { $0.firstAttribute == .height }) {
+      constraint.constant = height
     } else {
-      heightAnchor.constraint(equalToConstant: h).isActive = true
+      heightAnchor.constraint(equalToConstant: height).isActive = true
     }
-    
-    layer.cornerRadius = h/2
+
+    layer.cornerRadius = height / 2
     layer.masksToBounds = true
-    
+
     layoutIfNeeded()
     guard subviews.count > 1 else { return }
     let fill = subviews[1]
-    
-    fill.layer.cornerRadius = h/2
+
+    fill.layer.cornerRadius = height / 2
     fill.layer.maskedCorners = [
       .layerMaxXMinYCorner,
       .layerMaxXMaxYCorner

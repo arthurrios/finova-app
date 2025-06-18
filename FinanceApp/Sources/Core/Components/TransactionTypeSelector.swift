@@ -100,7 +100,7 @@ public class TransactionTypeSelector: UIView {
             arrowUpImageView.widthAnchor.constraint(equalToConstant: Metrics.arrowSize),
             
             arrowDownImageView.heightAnchor.constraint(equalToConstant: Metrics.arrowSize),
-            arrowDownImageView.widthAnchor.constraint(equalToConstant: Metrics.arrowSize),
+            arrowDownImageView.widthAnchor.constraint(equalToConstant: Metrics.arrowSize)
         ])
     }
     
