@@ -1,0 +1,172 @@
+name: 🚀 CI/CD Pipeline
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+env:
+  DEVELOPER_DIR: /Applications/Xcode.app/Contents/Developer
+  XCODE_PROJECT: FinanceApp.xcworkspace
+  SCHEME: FinanceApp
+  CONFIGURATION: Release
+
+jobs:
+  test:
+    name: 🧪 Run Tests & Lint
+    runs-on: macos-14
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Select Xcode version
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Cache CocoaPods
+        uses: actions/cache@v4
+        with:
+          path: Pods
+          key: ${{ runner.os }}-pods-${{ hashFiles('**/Podfile.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-pods-
+
+      - name: Install dependencies
+        run: |
+          gem install cocoapods
+          pod install --repo-update
+
+      - name: Install SwiftLint
+        run: |
+          brew install swiftlint
+
+      - name: Run SwiftLint
+        run: swiftlint lint --reporter github-actions-logging
+
+      - name: Build for testing
+        run: |
+          xcodebuild -workspace ${{ env.XCODE_PROJECT }} \
+                     -scheme ${{ env.SCHEME }} \
+                     -destination 'platform=iOS Simulator,name=iPhone 15,OS=latest' \
+                     clean build-for-testing
+
+      - name: Run unit tests
+        run: |
+          xcodebuild -workspace ${{ env.XCODE_PROJECT }} \
+                     -scheme ${{ env.SCHEME }} \
+                     -destination 'platform=iOS Simulator,name=iPhone 15,OS=latest' \
+                     test-without-building \
+                     -resultBundlePath TestResults.xcresult
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results
+          path: TestResults.xcresult
+
+  semantic-version:
+    name: 📦 Semantic Versioning
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'
+    outputs:
+      new_release_published: ${{ steps.semantic.outputs.new_release_published }}
+      new_release_version: ${{ steps.semantic.outputs.new_release_version }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Semantic Release
+        id: semantic
+        uses: cycjimmy/semantic-release-action@v4
+        with:
+          semantic_version: 22
+          extra_plugins: |
+            @semantic-release/changelog@6.0.0
+            @semantic-release/git@10.0.0
+          dry_run: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build-and-archive:
+    name: 📱 Build & Archive
+    runs-on: macos-14
+    needs: [test, semantic-version]
+    if: needs.semantic-version.outputs.new_release_published == 'true' && github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Select Xcode version
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Cache CocoaPods
+        uses: actions/cache@v4
+        with:
+          path: Pods
+          key: ${{ runner.os }}-pods-${{ hashFiles('**/Podfile.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-pods-
+
+      - name: Install dependencies
+        run: |
+          gem install cocoapods
+          pod install --repo-update
+
+      - name: Update version numbers
+        run: |
+          # Update marketing version and build number
+          NEW_VERSION="${{ needs.semantic-version.outputs.new_release_version }}"
+          BUILD_NUMBER="${GITHUB_RUN_NUMBER}"
+
+          # Update project settings using PlistBuddy
+          /usr/libexec/PlistBuddy -c "Set :objects:$(plutil -extract rootObject xml1 -o - FinanceApp.xcodeproj/project.pbxproj | grep -o '[A-Z0-9]\{24\}' | head -1):buildSettings:MARKETING_VERSION $NEW_VERSION" FinanceApp.xcodeproj/project.pbxproj 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Set :objects:$(plutil -extract rootObject xml1 -o - FinanceApp.xcodeproj/project.pbxproj | grep -o '[A-Z0-9]\{24\}' | head -1):buildSettings:CURRENT_PROJECT_VERSION $BUILD_NUMBER" FinanceApp.xcodeproj/project.pbxproj 2>/dev/null || true
+
+          echo "Updated version to $NEW_VERSION ($BUILD_NUMBER)"
+
+      - name: Build and Archive
+        run: |
+          xcodebuild -workspace ${{ env.XCODE_PROJECT }} \
+                     -scheme ${{ env.SCHEME }} \
+                     -configuration ${{ env.CONFIGURATION }} \
+                     -destination 'generic/platform=iOS' \
+                     -archivePath "FinanceApp.xcarchive" \
+                     archive
+
+      - name: Create IPA
+        run: |
+          xcodebuild -exportArchive \
+                     -archivePath "FinanceApp.xcarchive" \
+                     -exportPath "." \
+                     -exportOptionsPlist ExportOptions.plist
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: FinanceApp-v${{ needs.semantic-version.outputs.new_release_version }}
+          path: "*.ipa"
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ needs.semantic-version.outputs.new_release_version }}
+          files: "*.ipa"
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

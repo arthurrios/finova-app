@@ -1,11 +1,9 @@
-# Uncomment the next line to define a global platform for your project
-# platform :ios, '9.0'
+platform :ios, '15.0'
 
 target 'FinanceApp' do
-  # Comment the next line if you don't want to use dynamic frameworks
   use_frameworks!
 
-  # Pods for FinanceApp
+  # Core Dependencies
   pod 'Firebase/Auth'
   pod 'ShimmerView'
   pod 'SQLite.swift'
@@ -13,6 +11,14 @@ target 'FinanceApp' do
   target 'FinanceAppTests' do
     inherit! :search_paths
     # Pods for testing
-    # Firebase is inherited from parent target
+  end
+end
+
+# SwiftLint integration
+post_install do |installer|
+  installer.pods_project.targets.each do |target|
+    target.build_configurations.each do |config|
+      config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '15.0'
+    end
   end
 end

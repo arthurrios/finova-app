@@ -1,0 +1,89 @@
+name: 🔍 PR Validation
+
+on:
+  pull_request:
+    branches: [main, develop]
+    types: [opened, synchronize, reopened]
+
+env:
+  DEVELOPER_DIR: /Applications/Xcode.app/Contents/Developer
+  XCODE_PROJECT: FinanceApp.xcworkspace
+  SCHEME: FinanceApp
+
+jobs:
+  validate:
+    name: 🔎 Validate Changes
+    runs-on: macos-14
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Select Xcode version
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Cache CocoaPods
+        uses: actions/cache@v4
+        with:
+          path: Pods
+          key: ${{ runner.os }}-pods-${{ hashFiles('**/Podfile.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-pods-
+
+      - name: Install dependencies
+        run: |
+          gem install cocoapods
+          pod install --repo-update
+
+      - name: Install SwiftLint
+        run: |
+          brew install swiftlint
+
+      - name: Run SwiftLint
+        run: |
+          swiftlint lint --reporter github-actions-logging --quiet
+
+      - name: Build project
+        run: |
+          xcodebuild -workspace ${{ env.XCODE_PROJECT }} \
+                     -scheme ${{ env.SCHEME }} \
+                     -destination 'platform=iOS Simulator,name=iPhone 15,OS=latest' \
+                     clean build
+
+      - name: Run unit tests
+        run: |
+          xcodebuild -workspace ${{ env.XCODE_PROJECT }} \
+                     -scheme ${{ env.SCHEME }} \
+                     -destination 'platform=iOS Simulator,name=iPhone 15,OS=latest' \
+                     test
+
+      - name: Check commit message format
+        uses: wagoid/commitlint-github-action@v5
+        with:
+          configFile: ".commitlintrc.json"
+
+  security-scan:
+    name: 🔒 Security Scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: "fs"
+          scan-ref: "."
+          format: "sarif"
+          output: "trivy-results.sarif"
+
+      - name: Upload Trivy scan results
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: "trivy-results.sarif"
