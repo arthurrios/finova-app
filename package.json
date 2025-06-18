@@ -5,7 +5,7 @@
   "private": true,
   "repository": {
     "type": "git",
-    "url": "https://github.com/YOUR_USERNAME/swift-finance-app.git"
+    "url": "https://github.com/arthurrios/finance-app.git"
   },
   "scripts": {
     "semantic-release": "semantic-release"

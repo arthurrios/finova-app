@@ -116,6 +116,8 @@ run_step "Build Settings Check" xcodebuild -workspace "$XCODE_PROJECT" \
 
 # Step 7: Clean and build for testing
 print_step "Building for Testing"
+# Clean up any existing build artifacts and test results
+rm -rf TestResults.xcresult
 run_step "Build for Testing" xcodebuild -workspace "$XCODE_PROJECT" \
   -scheme "$SCHEME" \
   -destination "$DESTINATION" \
@@ -123,11 +125,14 @@ run_step "Build for Testing" xcodebuild -workspace "$XCODE_PROJECT" \
 
 # Step 8: Run tests
 print_step "Running Unit Tests"
+# Clean up any existing test results to prevent conflicts
+rm -rf TestResults.xcresult
 run_step "Unit Tests" xcodebuild -workspace "$XCODE_PROJECT" \
   -scheme "$SCHEME" \
   -destination "$DESTINATION" \
   test \
-  -resultBundlePath TestResults.xcresult
+  -resultBundlePath TestResults.xcresult \
+  -resultBundleOverwrite
 
 # Step 9: Build for release (verification)
 print_step "Release Build Verification"
