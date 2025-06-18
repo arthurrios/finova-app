@@ -84,6 +84,7 @@ final class DashboardViewController: UIViewController {
         
         syncedViewModel.setMonthData(monthData)
         syncedViewModel.setTransactions(transactions)
+        syncedViewModel.selectMonth(at: todayMonthIndex, animated: false)
         viewModel.scheduleAllTransactionNotifications()
         
         contentView.monthCarousel.layoutIfNeeded()
@@ -350,6 +351,11 @@ extension DashboardViewController: SyncedCollectionsViewModelDelegate {
                 self.syncedViewModel.selectMonth(
                     at: currentSelectedIndex, animated: !self.isLoadingInitialData)
             }
+        }
+        
+        DispatchQueue.main.async {
+            self.contentView.hideShimmerViewsAndShowOriginals()
+            self.isLoadingInitialData = false
         }
     }
     
