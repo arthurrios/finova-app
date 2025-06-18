@@ -256,9 +256,12 @@ final class DashboardViewModel {
   }
 
   func isRecurringTransaction(id: Int) -> Bool {
-    return transactionRepo.fetchTransactions()
-      .first(where: { $0.id == id })?
-      .parentTransactionId != nil
+    guard let transaction = transactionRepo.fetchTransactions().first(where: { $0.id == id }) else {
+      return false
+    }
+
+    // Return true if it's a parent recurring transaction OR a recurring instance
+    return transaction.isRecurring == true || transaction.parentTransactionId != nil
   }
 
   func getTransactionType(id: Int) -> TransactionComplexityType {

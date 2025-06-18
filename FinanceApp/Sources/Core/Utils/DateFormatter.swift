@@ -31,9 +31,8 @@ extension DateFormatter {
 
   static let fullDateFormatter: DateFormatter = {
     let formatter = DateFormatter()
-    formatter.dateStyle = .short
-    formatter.timeStyle = .none
-    formatter.locale = Locale.current
+    formatter.dateFormat = "dd/MM/yyyy"
+    formatter.locale = Locale(identifier: "en_US_POSIX")
     formatter.timeZone = TimeZone.current
     return formatter
   }()
