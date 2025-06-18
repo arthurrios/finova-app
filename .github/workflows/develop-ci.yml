@@ -100,7 +100,8 @@ jobs:
     name: 📦 Development Versioning
     runs-on: ubuntu-latest
     needs: test
-    if: github.ref == 'refs/heads/develop' && github.event_name == 'push'
+    # Run on pushes to develop OR when manually triggered
+    if: (github.ref == 'refs/heads/develop' && github.event_name == 'push') || github.event_name == 'workflow_dispatch'
     outputs:
       new_release_published: ${{ steps.semantic.outputs.new_release_published }}
       new_release_version: ${{ steps.semantic.outputs.new_release_version }}
@@ -142,7 +143,9 @@ jobs:
     name: 🏗️ Build Verification
     runs-on: macos-14
     needs: [test, semantic-version-develop]
-    if: needs.semantic-version-develop.outputs.new_release_published == 'true'
+    # Run if semantic versioning job completed (regardless of whether new release was published)
+    # or if we're on develop branch and tests passed
+    if: always() && needs.test.result == 'success' && (needs.semantic-version-develop.result == 'success' || (github.ref == 'refs/heads/develop' && github.event_name == 'push'))
 
     steps:
       - name: Checkout code
@@ -171,6 +174,15 @@ jobs:
       - name: Verify release build (Simulator only)
         run: |
           echo "🔨 Building release version for verification..."
+
+          if [[ "${{ needs.semantic-version-develop.outputs.new_release_published }}" == "true" ]]; then
+            echo "📦 Building version ${{ needs.semantic-version-develop.outputs.new_release_version }}"
+            VERSION_INFO="Version ${{ needs.semantic-version-develop.outputs.new_release_version }}"
+          else
+            echo "📦 Building current develop branch (no new release)"
+            VERSION_INFO="Current develop build"
+          fi
+
           xcodebuild -workspace ${{ env.XCODE_PROJECT }} \
                      -scheme ${{ env.SCHEME }} \
                      -configuration Release \
@@ -178,5 +190,5 @@ jobs:
                      clean build
                      
           echo "✅ Release build verification successful!"
-          echo "📱 Version ${{ needs.semantic-version-develop.outputs.new_release_version }} is ready"
+          echo "📱 $VERSION_INFO is ready"
           echo "💡 This build is simulator-only (no device/archive needed for development)"
