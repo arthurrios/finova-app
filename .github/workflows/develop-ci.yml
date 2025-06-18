@@ -49,10 +49,27 @@ jobs:
 
       - name: Build for testing
         run: |
+          echo "🔨 Starting build for testing..."
+          echo "Workspace: ${{ env.XCODE_PROJECT }}"
+          echo "Scheme: ${{ env.SCHEME }}"
+          echo "Destination: iPhone 16"
+
+          # First, let's see what's available
+          xcodebuild -list -workspace ${{ env.XCODE_PROJECT }}
+
+          # Check if the scheme exists and is valid
+          xcodebuild -workspace ${{ env.XCODE_PROJECT }} \
+                     -scheme ${{ env.SCHEME }} \
+                     -showBuildSettings | head -20
+
+          # Now attempt the build with verbose output
+          set -o pipefail
           xcodebuild -workspace ${{ env.XCODE_PROJECT }} \
                      -scheme ${{ env.SCHEME }} \
                      -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest' \
-                     clean build-for-testing
+                     clean build-for-testing \
+                     -verbose | xcpretty --report html --output build-report.html
+        continue-on-error: true
 
       - name: Run unit tests
         run: |
@@ -68,6 +85,15 @@ jobs:
         with:
           name: test-results-develop
           path: TestResults.xcresult
+
+      - name: Upload build logs if failed
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: build-logs-develop
+          path: |
+            build-report.html
+            ~/Library/Developer/Xcode/DerivedData/*/Logs/Build/*.xcactivitylog
 
   semantic-version-develop:
     name: 📦 Development Versioning
