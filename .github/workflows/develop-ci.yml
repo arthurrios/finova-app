@@ -1,10 +1,11 @@
-name: 🔄 Development CI
+name: 🔄 CI/CD Pipeline
 
 on:
   push:
     branches: [develop]
   pull_request:
-    branches: [develop]
+    branches: [main, develop]
+    types: [opened, synchronize, reopened]
 
 env:
   DEVELOPER_DIR: /Applications/Xcode.app/Contents/Developer
@@ -47,6 +48,12 @@ jobs:
       - name: Run SwiftLint
         run: swiftlint lint --reporter github-actions-logging
 
+      - name: Check commit message format
+        uses: wagoid/commitlint-github-action@v5
+        if: github.event_name == 'pull_request'
+        with:
+          configFile: ".commitlintrc.json"
+
       - name: Build for testing
         run: |
           echo "🔨 Starting build for testing..."
@@ -84,17 +91,40 @@ jobs:
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: test-results-develop
+          name: test-results-${{ github.event_name }}-${{ github.run_number }}
           path: TestResults.xcresult
 
       - name: Upload build logs if failed
         uses: actions/upload-artifact@v4
         if: failure()
         with:
-          name: build-logs-develop
+          name: build-logs-${{ github.event_name }}-${{ github.run_number }}
           path: |
             build-report.html
             ~/Library/Developer/Xcode/DerivedData/*/Logs/Build/*.xcactivitylog
+
+  security-scan:
+    name: 🔒 Security Scan
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: "fs"
+          scan-ref: "."
+          format: "sarif"
+          output: "trivy-results.sarif"
+
+      - name: Upload Trivy scan results
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: "trivy-results.sarif"
 
   semantic-version-develop:
     name: 📦 Development Versioning
