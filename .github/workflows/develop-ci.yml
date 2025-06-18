@@ -73,10 +73,11 @@ jobs:
 
       - name: Run unit tests
         run: |
+          echo "🧪 Running tests with full build cycle..."
           xcodebuild -workspace ${{ env.XCODE_PROJECT }} \
                      -scheme ${{ env.SCHEME }} \
                      -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest' \
-                     test-without-building \
+                     test \
                      -resultBundlePath TestResults.xcresult
 
       - name: Upload test results
