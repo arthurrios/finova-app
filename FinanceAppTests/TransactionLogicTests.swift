@@ -57,7 +57,7 @@ class TransactionLogicTests: XCTestCase {
   private func clearTestData() {
     // Use the dedicated test cleanup method
     transactionRepo.clearAllTransactionsForTesting()
-    
+
     // Verify it worked
     let remainingTransactions = transactionRepo.fetchAllTransactions()
     if !remainingTransactions.isEmpty {

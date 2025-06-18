@@ -274,7 +274,7 @@ final class DashboardView: UIView {
       addTransactionButton.centerXAnchor.constraint(equalTo: centerXAnchor),
       addTransactionButton.bottomAnchor.constraint(equalTo: safeAreaLayoutGuide.bottomAnchor),
       addTransactionButton.heightAnchor.constraint(equalToConstant: Metrics.addButtonSize),
-      addTransactionButton.widthAnchor.constraint(equalToConstant: Metrics.addButtonSize)
+      addTransactionButton.widthAnchor.constraint(equalToConstant: Metrics.addButtonSize),
     ])
   }
 
