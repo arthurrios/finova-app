@@ -27,20 +27,27 @@ fi
 
 echo "📝 Linting staged Swift files..."
 
-# Run SwiftLint on staged files
+# Auto-fix SwiftLint issues first
+echo "🔧 Auto-fixing SwiftLint issues..."
+swiftlint autocorrect $STAGED_SWIFT_FILES
+
+# Add any auto-fixed files back to staging
+git add $STAGED_SWIFT_FILES
+
+# Run SwiftLint to check for remaining issues
 SWIFTLINT_OUTPUT=$(swiftlint lint --quiet $STAGED_SWIFT_FILES)
 SWIFTLINT_EXIT_CODE=$?
 
 if [ $SWIFTLINT_EXIT_CODE -ne 0 ]; then
-  echo "❌ SwiftLint found issues:"
+  echo "❌ SwiftLint found issues that require manual fixing:"
   echo "$SWIFTLINT_OUTPUT"
   echo ""
-  echo "💡 Fix the issues above and try again."
-  echo "   You can also run 'swiftlint autocorrect' to fix some issues automatically."
+  echo "💡 Some issues were auto-fixed, but these require manual attention."
+  echo "   Fix the remaining issues and commit again."
   exit 1
 fi
 
-echo "✅ SwiftLint passed!"
+echo "✅ SwiftLint passed! Auto-fixes applied and staged."
 
 # Check commit message format (if commitizen is available)
 if command -v commitizen &>/dev/null; then

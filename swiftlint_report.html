@@ -1,0 +1,796 @@
+<!doctype html>
+<html>
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		
+		<style type="text/css">
+			body {
+				font-family: Arial, Helvetica, sans-serif;
+				font-size: 0.9rem;
+			}
+			
+			table {
+				border: 1px solid gray;
+				border-collapse: collapse;
+				-moz-box-shadow: 3px 3px 4px #AAA;
+				-webkit-box-shadow: 3px 3px 4px #AAA;
+				box-shadow: 3px 3px 4px #AAA;
+				vertical-align: top;
+				height: 64px;
+			}
+			
+			td, th {
+				border: 1px solid #D3D3D3;
+				padding: 5px 10px 5px 10px;
+			}
+			
+			th {
+				border-bottom: 1px solid gray;
+				background-color: rgba(41,52,92,0.313);
+			}
+			
+			.error, .warning {
+				text-align: center;
+			}
+			
+			.error {
+				background-color: #FF9D92;
+				color: #7F0800;
+			}
+			
+			.warning {
+				background-color: #FFF59E;
+				color: #7F7000;
+			}
+		</style>
+		
+		<title>SwiftLint Report</title>
+	</head>
+	<body>
+		<h1>SwiftLint Report</h1>
+		
+		<hr />
+		
+		<h2>Violations</h2>
+		
+		<table>
+			<thead>
+				<tr>
+					<th style="width: 60pt;">
+						<b>Serial No.</b>
+					</th>
+					<th style="width: 500pt;">
+						<b>File</b>
+					</th>
+					<th style="width: 60pt;">
+						<b>Location</b>
+					</th>
+					<th style="width: 60pt;">
+						<b>Severity</b>
+					</th>
+					<th style="width: 500pt;">
+						<b>Message</b>
+					</th>
+				</tr>
+			</thead>
+			<tbody>
+				<tr>
+					<td style="text-align: right;">1</td>
+					<td>FinanceApp/Sources/Scenes/Splash/SplashViewController.swift</td>
+					<td style="text-align: center;">121:114</td>
+					<td class="warning">Warning</td>
+					<td>Unused parameter in a closure should be replaced with _</td>
+				</tr>
+				<tr>
+					<td style="text-align: right;">2</td>
+					<td>FinanceApp/Sources/Scenes/Splash/SplashViewController.swift</td>
+					<td style="text-align: center;">48:0</td>
+					<td class="warning">Warning</td>
+					<td>Limit vertical whitespace to a single empty line; currently 2</td>
+				</tr>
+				<tr>
+					<td style="text-align: right;">3</td>
+					<td>FinanceApp/Sources/Scenes/Splash/SplashViewController.swift</td>
+					<td style="text-align: center;">69:0</td>
+					<td class="warning">Warning</td>
+					<td>Limit vertical whitespace to a single empty line; currently 2</td>
+				</tr>
+				<tr>
+					<td style="text-align: right;">4</td>
+					<td>FinanceApp/Sources/Scenes/Splash/SplashViewController.swift</td>
+					<td style="text-align: center;">42:35</td>
+					<td class="warning">Warning</td>
+					<td>Using ternary to call Void functions should be avoided</td>
+				</tr>
+				<tr>
+					<td style="text-align: right;">5</td>
+					<td>FinanceApp/Sources/Scenes/Splash/SplashView.swift</td>
+					<td style="text-align: center;">47:107</td>
+					<td class="warning">Warning</td>
+					<td>Collection literals should not have trailing commas</td>
+				</tr>
+				<tr>
+					<td style="text-align: right;">6</td>
+					<td>FinanceApp/Sources/Scenes/Dashboard/DashboardCarousel/MonthCarousel/MonthSelector/MonthSelectorView.swift</td>
+					<td style="text-align: center;">88:74</td>
+					<td class="warning">Warning</td>
+					<td>Collection literals should not have trailing commas</td>
+				</tr>
+				<tr>
+					<td style="text-align: right;">7</td>
+					<td>FinanceApp/Sources/Scenes/Dashboard/DashboardCarousel/MonthCarousel/MonthCarouselCell.swift</td>
+					<td style="text-align: center;">166:103</td>
+					<td class="warning">Warning</td>
+					<td>Collection literals should not have trailing commas</td>
+				</tr>
+				<tr>
+					<td style="text-align: right;">8</td>
+					<td>FinanceApp/Sources/Scenes/Dashboard/DashboardCarousel/MonthCarousel/TransactionsTable/TransactionCell.swift</td>
+					<td style="text-align: center;">297:3</td>
+					<td class="warning">Warning</td>
+					<td>Function should have 5 parameters or less: it currently has 6</td>
+				</tr>
+				<tr>
+					<td style="text-align: right;">9</td>
+					<td>FinanceApp/Sources/Scenes/Dashboard/DashboardCarousel/MonthCarousel/TransactionsTable/TransactionCell.swift</td>
+					<td style="text-align: center;">159:9</td>
+					<td class="warning">Warning</td>
+					<td>Variable name &apos;g&apos; should be between 2 and 40 characters long</td>
+				</tr>
+				<tr>
+					<td style="text-align: right;">10</td>
+					<td>FinanceApp/Sources/Scenes/Dashboard/DashboardCarousel/MonthCarousel/TransactionsTable/TransactionCell.swift</td>
+					<td style="text-align: center;">401:9</td>
+					<td class="warning">Warning</td>
+					<td>Variable name &apos;v&apos; should be between 2 and 40 characters long</td>
+				</tr>
+				<tr>
+					<td style="text-align: right;">11</td>
+					<td>FinanceApp/Sources/Scenes/Dashboard/DashboardCarousel/MonthCarousel/TransactionsTable/TransactionCell.swift</td>
+					<td style="text-align: center;">175:19</td>
+					<td class="warning">Warning</td>
+					<td>override modifier should come before public</td>
+				</tr>
+				<tr>
+					<td style="text-align: right;">12</td>
+					<td>FinanceApp/Sources/Scenes/Dashboard/DashboardCarousel/MonthCarousel/TransactionsTable/TransactionCell.swift</td>
+					<td style="text-align: center;">11:14</td>
+					<td class="warning">Warning</td>
+					<td>public modifier should come before final</td>
+				</tr>
+				<tr>
+					<td style="text-align: right;">13</td>
+					<td>FinanceApp/Sources/Scenes/Dashboard/DashboardCarousel/MonthCarousel/TransactionsTable/TransactionCell.swift</td>
+					<td style="text-align: center;">385:19</td>
+					<td class="warning">Warning</td>
+					<td>override modifier should come before public</td>
+				</tr>
+				<tr>
+					<td style="text-align: right;">14</td>
+					<td>FinanceApp/Sources/Scenes/Dashboard/DashboardCarousel/MonthCarousel/TransactionsTable/TransactionCell.swift</td>
+					<td style="text-align: center;">399:19</td>
+					<td class="warning">Warning</td>
+					<td>override modifier should come before public</td>
+				</tr>
+				<tr>
+					<td style="text-align: right;">15</td>
+					<td>FinanceApp/Sources/Scenes/Dashboard/DashboardCarousel/MonthCarousel/TransactionsTable/TransactionCell.swift</td>
+					<td style="text-align: center;">405:19</td>
+					<td class="warning">Warning</td>
+					<td>override modifier should come before public</td>
+				</tr>
+				<tr>
+					<td style="text-align: right;">16</td>
+					<td>FinanceApp/Sources/Scenes/Dashboard/DashboardCarousel/MonthCarousel/TransactionsTable/TransactionCell.swift</td>
+					<td style="text-align: center;">339:5</td>
+					<td class="warning">Warning</td>
+					<td>Opening braces should be preceded by a single space and on the same line as the declaration</td>
+				</tr>
+				<tr>
+					<td style="text-align: right;">17</td>
+					<td>FinanceApp/Sources/Scenes/Dashboard/DashboardCarousel/MonthCarousel/TransactionsTable/TransactionCell.swift</td>
+					<td style="text-align: center;">293:87</td>
+					<td class="warning">Warning</td>
+					<td>Collection literals should not have trailing commas</td>
+				</tr>
+				<tr>
+					<td style="text-align: right;">18</td>
+					<td>FinanceApp/Sources/Scenes/Dashboard/SyncedCollectionsViewModel.swift</td>
+					<td style="text-align: center;">94:0</td>
+					<td class="warning">Warning</td>
+					<td>Limit vertical whitespace to a single empty line; currently 2</td>
+				</tr>
+				<tr>
+					<td style="text-align: right;">19</td>
+					<td>FinanceApp/Sources/Scenes/Dashboard/DashboardCarousel/MonthCarousel/MonthBudgetCard/MonthBudgetCard.swift</td>
+					<td style="text-align: center;">229:95</td>
+					<td class="warning">Warning</td>
+					<td>Collection literals should not have trailing commas</td>
+				</tr>
+				<tr>
+					<td style="text-align: right;">20</td>
+					<td>FinanceApp/Sources/Scenes/Budgets/BudgetsViewController.swift</td>
+					<td style="text-align: center;">30:0</td>
+					<td class="warning">Warning</td>
+					<td>Limit vertical whitespace to a single empty line; currently 2</td>
+				</tr>
+				<tr>
+					<td style="text-align: right;">21</td>
+					<td>FinanceApp/Sources/Scenes/Budgets/BudgetsViewController.swift</td>
+					<td style="text-align: center;">69:0</td>
+					<td class="warning">Warning</td>
+					<td>Limit vertical whitespace to a single empty line; currently 2</td>
+				</tr>
+				<tr>
+					<td style="text-align: right;">22</td>
+					<td>FinanceApp/Sources/Scenes/Budgets/BudgetsViewController.swift</td>
+					<td style="text-align: center;">177:0</td>
+					<td class="warning">Warning</td>
+					<td>Limit vertical whitespace to a single empty line; currently 2</td>
+				</tr>
+				<tr>
+					<td style="text-align: right;">23</td>
+					<td>FinanceApp/Sources/Scenes/Dashboard/DashboardViewController.swift</td>
+					<td style="text-align: center;">342:42</td>
+					<td class="error">Error</td>
+					<td>Prefer checking `isEmpty` over comparing `count` to zero</td>
+				</tr>
+				<tr>
+					<td style="text-align: right;">24</td>
+					<td>FinanceApp/Sources/Scenes/Dashboard/DashboardViewController.swift</td>
+					<td style="text-align: center;">472:24</td>
+					<td class="warning">Warning</td>
+					<td>Arguments can be omitted when matching enums with associated values if they are not used</td>
+				</tr>
+				<tr>
+					<td style="text-align: right;">25</td>
+					<td>FinanceApp/Sources/Scenes/Dashboard/DashboardViewController.swift</td>
+					<td style="text-align: center;">636:22</td>
+					<td class="warning">Warning</td>
+					<td>Arguments can be omitted when matching enums with associated values if they are not used</td>
+				</tr>
+				<tr>
+					<td style="text-align: right;">26</td>
+					<td>FinanceApp/Sources/Scenes/Dashboard/DashboardViewController.swift</td>
+					<td style="text-align: center;">596:92</td>
+					<td class="error">Error</td>
+					<td>Tuples should have at most 2 members</td>
+				</tr>
+				<tr>
+					<td style="text-align: right;">27</td>
+					<td>FinanceApp/Sources/Scenes/Dashboard/DashboardViewController.swift</td>
+					<td style="text-align: center;">176:3</td>
+					<td class="warning">Warning</td>
+					<td>Opening braces should be preceded by a single space and on the same line as the declaration</td>
+				</tr>
+				<tr>
+					<td style="text-align: right;">28</td>
+					<td>FinanceApp/Sources/Scenes/Dashboard/DashboardViewController.swift</td>
+					<td style="text-align: center;">182:3</td>
+					<td class="warning">Warning</td>
+					<td>Opening braces should be preceded by a single space and on the same line as the declaration</td>
+				</tr>
+				<tr>
+					<td style="text-align: right;">29</td>
+					<td>FinanceApp/Sources/Scenes/Dashboard/DashboardViewController.swift</td>
+					<td style="text-align: center;">274:7</td>
+					<td class="warning">Warning</td>
+					<td>Opening braces should be preceded by a single space and on the same line as the declaration</td>
+				</tr>
+				<tr>
+					<td style="text-align: right;">30</td>
+					<td>FinanceApp/Sources/Scenes/Dashboard/DashboardViewController.swift</td>
+					<td style="text-align: center;">433:0</td>
+					<td class="warning">Warning</td>
+					<td>Limit vertical whitespace to a single empty line; currently 2</td>
+				</tr>
+				<tr>
+					<td style="text-align: right;">31</td>
+					<td>FinanceApp/Sources/Scenes/Dashboard/DashboardViewController.swift</td>
+					<td style="text-align: center;">436:0</td>
+					<td class="warning">Warning</td>
+					<td>Limit vertical whitespace to a single empty line; currently 2</td>
+				</tr>
+				<tr>
+					<td style="text-align: right;">32</td>
+					<td>FinanceApp/Sources/Scenes/AddTransaction/AddTransactionModalViewDelegate.swift</td>
+					<td style="text-align: center;">14:5</td>
+					<td class="warning">Warning</td>
+					<td>Function should have 5 parameters or less: it currently has 6</td>
+				</tr>
+				<tr>
+					<td style="text-align: right;">33</td>
+					<td>FinanceApp/Sources/Scenes/Dashboard/DashboardViewModel.swift</td>
+					<td style="text-align: center;">124:7</td>
+					<td class="warning">Warning</td>
+					<td>Opening braces should be preceded by a single space and on the same line as the declaration</td>
+				</tr>
+				<tr>
+					<td style="text-align: right;">34</td>
+					<td>FinanceApp/Sources/Scenes/AddTransaction/AddTransactionModalViewController.swift</td>
+					<td style="text-align: center;">112:3</td>
+					<td class="warning">Warning</td>
+					<td>Function should have 5 parameters or less: it currently has 6</td>
+				</tr>
+				<tr>
+					<td style="text-align: right;">35</td>
+					<td>FinanceApp/Sources/Scenes/AddTransaction/AddTransactionModalViewController.swift</td>
+					<td style="text-align: center;">110:1</td>
+					<td class="warning">Warning</td>
+					<td>Opening braces should be preceded by a single space and on the same line as the declaration</td>
+				</tr>
+				<tr>
+					<td style="text-align: right;">36</td>
+					<td>FinanceApp/Sources/Scenes/AddTransaction/AddTransactionModalViewController.swift</td>
+					<td style="text-align: center;">69:70</td>
+					<td class="warning">Warning</td>
+					<td>Collection literals should not have trailing commas</td>
+				</tr>
+				<tr>
+					<td style="text-align: right;">37</td>
+					<td>FinanceApp/Sources/Scenes/Budgets/BudgetsView.swift</td>
+					<td style="text-align: center;">254:103</td>
+					<td class="warning">Warning</td>
+					<td>Collection literals should not have trailing commas</td>
+				</tr>
+				<tr>
+					<td style="text-align: right;">38</td>
+					<td>FinanceApp/Sources/Scenes/Budgets/BudgetsView.swift</td>
+					<td style="text-align: center;">285:5</td>
+					<td class="warning">Warning</td>
+					<td>Remove overridden functions that don&apos;t do anything except call their super</td>
+				</tr>
+				<tr>
+					<td style="text-align: right;">39</td>
+					<td>FinanceApp/Sources/Scenes/AddTransaction/AddTransactionModalView.swift</td>
+					<td style="text-align: center;">20:92</td>
+					<td class="warning">Warning</td>
+					<td>Collection literals should not have trailing commas</td>
+				</tr>
+				<tr>
+					<td style="text-align: right;">40</td>
+					<td>FinanceApp/Sources/Scenes/AddTransaction/AddTransactionModalView.swift</td>
+					<td style="text-align: center;">41:32</td>
+					<td class="warning">Warning</td>
+					<td>Collection literals should not have trailing commas</td>
+				</tr>
+				<tr>
+					<td style="text-align: right;">41</td>
+					<td>FinanceApp/Sources/Scenes/AddTransaction/AddTransactionModalView.swift</td>
+					<td style="text-align: center;">87:58</td>
+					<td class="warning">Warning</td>
+					<td>Collection literals should not have trailing commas</td>
+				</tr>
+				<tr>
+					<td style="text-align: right;">42</td>
+					<td>FinanceApp/Sources/Scenes/AddTransaction/AddTransactionModalView.swift</td>
+					<td style="text-align: center;">152:70</td>
+					<td class="warning">Warning</td>
+					<td>Collection literals should not have trailing commas</td>
+				</tr>
+				<tr>
+					<td style="text-align: right;">43</td>
+					<td>FinanceApp/Sources/Scenes/AddTransaction/AddTransactionModalView.swift</td>
+					<td style="text-align: center;">189:83</td>
+					<td class="warning">Warning</td>
+					<td>Collection literals should not have trailing commas</td>
+				</tr>
+				<tr>
+					<td style="text-align: right;">44</td>
+					<td>FinanceApp/Sources/Scenes/Budgets/BudgetsTable/BudgetsCell.swift</td>
+					<td style="text-align: center;">189:21</td>
+					<td class="warning">Warning</td>
+					<td>override modifier should come before public</td>
+				</tr>
+				<tr>
+					<td style="text-align: right;">45</td>
+					<td>FinanceApp/Sources/Scenes/Login/LoginViewController.swift</td>
+					<td style="text-align: center;">112:0</td>
+					<td class="warning">Warning</td>
+					<td>Limit vertical whitespace to a single empty line; currently 2</td>
+				</tr>
+				<tr>
+					<td style="text-align: right;">46</td>
+					<td>FinanceApp/Sources/Scenes/Login/LoginViewController.swift</td>
+					<td style="text-align: center;">118:0</td>
+					<td class="warning">Warning</td>
+					<td>Limit vertical whitespace to a single empty line; currently 2</td>
+				</tr>
+				<tr>
+					<td style="text-align: right;">47</td>
+					<td>FinanceApp/Sources/Scenes/Login/LoginViewController.swift</td>
+					<td style="text-align: center;">123:0</td>
+					<td class="warning">Warning</td>
+					<td>Limit vertical whitespace to a single empty line; currently 2</td>
+				</tr>
+				<tr>
+					<td style="text-align: right;">48</td>
+					<td>FinanceApp/Sources/Scenes/Login/LoginView.swift</td>
+					<td style="text-align: center;">47:50</td>
+					<td class="warning">Warning</td>
+					<td>There should be no space before and one after any comma</td>
+				</tr>
+				<tr>
+					<td style="text-align: right;">49</td>
+					<td>FinanceApp/Sources/Scenes/AddTransaction/AddTransactionModalViewModel.swift</td>
+					<td style="text-align: center;">95:5</td>
+					<td class="warning">Warning</td>
+					<td>Function should have 5 parameters or less: it currently has 6</td>
+				</tr>
+				<tr>
+					<td style="text-align: right;">50</td>
+					<td>FinanceApp/Sources/Scenes/Login/LoginViewModel.swift</td>
+					<td style="text-align: center;">16:84</td>
+					<td class="warning">Warning</td>
+					<td>Unused parameter in a closure should be replaced with _</td>
+				</tr>
+				<tr>
+					<td style="text-align: right;">51</td>
+					<td>FinanceApp/Sources/Core/Constants/Fonts.swift</td>
+					<td style="text-align: center;">38:13</td>
+					<td class="warning">Warning</td>
+					<td>Variable name &apos;p&apos; should be between 2 and 40 characters long</td>
+				</tr>
+				<tr>
+					<td style="text-align: right;">52</td>
+					<td>FinanceApp/Sources/Core/Constants/CornerRadius.swift</td>
+					<td style="text-align: center;">18:0</td>
+					<td class="warning">Warning</td>
+					<td>Files should have a single trailing newline</td>
+				</tr>
+				<tr>
+					<td style="text-align: right;">53</td>
+					<td>FinanceApp/Sources/Core/Utils/CurrencyUtils.swift</td>
+					<td style="text-align: center;">104:0</td>
+					<td class="warning">Warning</td>
+					<td>Files should have a single trailing newline</td>
+				</tr>
+				<tr>
+					<td style="text-align: right;">54</td>
+					<td>FinanceApp/Sources/Core/Models/MonthBudgetCardType.swift</td>
+					<td style="text-align: center;">14:26</td>
+					<td class="warning">Warning</td>
+					<td>Initializing an optional variable with nil is redundant</td>
+				</tr>
+				<tr>
+					<td style="text-align: right;">55</td>
+					<td>FinanceApp/Sources/Core/Models/MonthBudgetCardType.swift</td>
+					<td style="text-align: center;">15:29</td>
+					<td class="warning">Warning</td>
+					<td>Initializing an optional variable with nil is redundant</td>
+				</tr>
+				<tr>
+					<td style="text-align: right;">56</td>
+					<td>FinanceApp/Sources/Core/Extensions/StackView+Ext.swift</td>
+					<td style="text-align: center;">27:0</td>
+					<td class="warning">Warning</td>
+					<td>Files should have a single trailing newline</td>
+				</tr>
+				<tr>
+					<td style="text-align: right;">57</td>
+					<td>FinanceApp/Sources/Core/Repositories/TransactionRepository/TransactionRepository.swift</td>
+					<td style="text-align: center;">18:9</td>
+					<td class="warning">Warning</td>
+					<td>Prefer `_ = foo()` over `let _ = foo()` when discarding a result from a function</td>
+				</tr>
+				<tr>
+					<td style="text-align: right;">58</td>
+					<td>FinanceApp/Sources/Core/Extensions/Label+Ext.swift</td>
+					<td style="text-align: center;">24:19</td>
+					<td class="warning">Warning</td>
+					<td>Variable name &apos;s&apos; should be between 2 and 40 characters long</td>
+				</tr>
+				<tr>
+					<td style="text-align: right;">59</td>
+					<td>FinanceApp/Sources/Core/Extensions/String+Ext.swift</td>
+					<td style="text-align: center;">24:0</td>
+					<td class="warning">Warning</td>
+					<td>Files should have a single trailing newline</td>
+				</tr>
+				<tr>
+					<td style="text-align: right;">60</td>
+					<td>FinanceApp/Sources/Core/Extensions/ViewController+Ext.swift</td>
+					<td style="text-align: center;">61:9</td>
+					<td class="warning">Warning</td>
+					<td>An object should only remove itself as an observer in `deinit`</td>
+				</tr>
+				<tr>
+					<td style="text-align: right;">61</td>
+					<td>FinanceApp/Sources/Core/Extensions/ViewController+Ext.swift</td>
+					<td style="text-align: center;">41:67</td>
+					<td class="warning">Warning</td>
+					<td>Opening braces should be preceded by a single space and on the same line as the declaration</td>
+				</tr>
+				<tr>
+					<td style="text-align: right;">62</td>
+					<td>FinanceApp/Sources/Core/Extensions/ProgressView+Ext.swift</td>
+					<td style="text-align: center;">12:39</td>
+					<td class="warning">Warning</td>
+					<td>Variable name &apos;h&apos; should be between 2 and 40 characters long</td>
+				</tr>
+				<tr>
+					<td style="text-align: right;">63</td>
+					<td>FinanceApp/Sources/Core/Extensions/ProgressView+Ext.swift</td>
+					<td style="text-align: center;">16:12</td>
+					<td class="warning">Warning</td>
+					<td>Variable name &apos;c&apos; should be between 2 and 40 characters long</td>
+				</tr>
+				<tr>
+					<td style="text-align: right;">64</td>
+					<td>FinanceApp/Sources/Core/Database/DBHelper.swift</td>
+					<td style="text-align: center;">143:12</td>
+					<td class="error">Error</td>
+					<td>Prefer checking `isEmpty` over comparing `count` to zero</td>
+				</tr>
+				<tr>
+					<td style="text-align: right;">65</td>
+					<td>FinanceApp/Sources/Core/Database/DBHelper.swift</td>
+					<td style="text-align: center;">539:3</td>
+					<td class="warning">Warning</td>
+					<td>Opening braces should be preceded by a single space and on the same line as the declaration</td>
+				</tr>
+				<tr>
+					<td style="text-align: right;">66</td>
+					<td>FinanceApp/Sources/Core/Database/DBHelper.swift</td>
+					<td style="text-align: center;">629:3</td>
+					<td class="warning">Warning</td>
+					<td>Opening braces should be preceded by a single space and on the same line as the declaration</td>
+				</tr>
+				<tr>
+					<td style="text-align: right;">67</td>
+					<td>FinanceApp/Sources/Core/Database/DBHelper.swift</td>
+					<td style="text-align: center;">675:3</td>
+					<td class="warning">Warning</td>
+					<td>Opening braces should be preceded by a single space and on the same line as the declaration</td>
+				</tr>
+				<tr>
+					<td style="text-align: right;">68</td>
+					<td>FinanceApp/Sources/Core/Database/DBHelper.swift</td>
+					<td style="text-align: center;">665:29</td>
+					<td class="warning">Warning</td>
+					<td>Initializing an optional variable with nil is redundant</td>
+				</tr>
+				<tr>
+					<td style="text-align: right;">69</td>
+					<td>FinanceApp/Sources/Core/Database/DBHelper.swift</td>
+					<td style="text-align: center;">236:24</td>
+					<td class="warning">Warning</td>
+					<td>Collection literals should not have trailing commas</td>
+				</tr>
+				<tr>
+					<td style="text-align: right;">70</td>
+					<td>FinanceApp/Sources/Core/Database/DBHelper.swift</td>
+					<td style="text-align: center;">253:88</td>
+					<td class="warning">Warning</td>
+					<td>Collection literals should not have trailing commas</td>
+				</tr>
+				<tr>
+					<td style="text-align: right;">71</td>
+					<td>FinanceApp/Sources/Core/Components/LogoGraphic.swift</td>
+					<td style="text-align: center;">41:93</td>
+					<td class="warning">Warning</td>
+					<td>Collection literals should not have trailing commas</td>
+				</tr>
+				<tr>
+					<td style="text-align: right;">72</td>
+					<td>FinanceApp/Sources/Core/Extensions/View+Ext.swift</td>
+					<td style="text-align: center;">44:89</td>
+					<td class="warning">Warning</td>
+					<td>Collection literals should not have trailing commas</td>
+				</tr>
+				<tr>
+					<td style="text-align: right;">73</td>
+					<td>FinanceApp/Sources/Core/Components/CardHeader.swift</td>
+					<td style="text-align: center;">101:99</td>
+					<td class="warning">Warning</td>
+					<td>Collection literals should not have trailing commas</td>
+				</tr>
+				<tr>
+					<td style="text-align: right;">74</td>
+					<td>FinanceApp/AppDelegate.swift</td>
+					<td style="text-align: center;">48:0</td>
+					<td class="warning">Warning</td>
+					<td>Files should have a single trailing newline</td>
+				</tr>
+				<tr>
+					<td style="text-align: right;">75</td>
+					<td>FinanceApp/AppDelegate.swift</td>
+					<td style="text-align: center;">16:0</td>
+					<td class="warning">Warning</td>
+					<td>Limit vertical whitespace to a single empty line; currently 3</td>
+				</tr>
+				<tr>
+					<td style="text-align: right;">76</td>
+					<td>FinanceApp/SceneDelegate.swift</td>
+					<td style="text-align: center;">57:0</td>
+					<td class="warning">Warning</td>
+					<td>Files should have a single trailing newline</td>
+				</tr>
+				<tr>
+					<td style="text-align: right;">77</td>
+					<td>FinanceApp/SceneDelegate.swift</td>
+					<td style="text-align: center;">15:0</td>
+					<td class="warning">Warning</td>
+					<td>Limit vertical whitespace to a single empty line; currently 2</td>
+				</tr>
+				<tr>
+					<td style="text-align: right;">78</td>
+					<td>FinanceApp/SceneDelegate.swift</td>
+					<td style="text-align: center;">55:0</td>
+					<td class="warning">Warning</td>
+					<td>Limit vertical whitespace to a single empty line; currently 2</td>
+				</tr>
+				<tr>
+					<td style="text-align: right;">79</td>
+					<td>FinanceApp/Sources/Core/Components/InputSegmentedControl.swift</td>
+					<td style="text-align: center;">46:85</td>
+					<td class="warning">Warning</td>
+					<td>Collection literals should not have trailing commas</td>
+				</tr>
+				<tr>
+					<td style="text-align: right;">80</td>
+					<td>FinanceApp/Sources/Core/Components/InputSegmentedControl.swift</td>
+					<td style="text-align: center;">60:32</td>
+					<td class="warning">Warning</td>
+					<td>Collection literals should not have trailing commas</td>
+				</tr>
+				<tr>
+					<td style="text-align: right;">81</td>
+					<td>FinanceApp/Sources/Core/Components/InputSegmentedControl.swift</td>
+					<td style="text-align: center;">66:32</td>
+					<td class="warning">Warning</td>
+					<td>Collection literals should not have trailing commas</td>
+				</tr>
+				<tr>
+					<td style="text-align: right;">82</td>
+					<td>FinanceApp/Sources/Core/Components/TransactionTypeSelector.swift</td>
+					<td style="text-align: center;">103:90</td>
+					<td class="warning">Warning</td>
+					<td>Collection literals should not have trailing commas</td>
+				</tr>
+				<tr>
+					<td style="text-align: right;">83</td>
+					<td>FinanceApp/AppFlowController.swift</td>
+					<td style="text-align: center;">75:13</td>
+					<td class="warning">Warning</td>
+					<td>Variable name &apos;t&apos; should be between 2 and 40 characters long</td>
+				</tr>
+				<tr>
+					<td style="text-align: right;">84</td>
+					<td>FinanceApp/Sources/Core/Components/Input.swift</td>
+					<td style="text-align: center;">497:52</td>
+					<td class="warning">Warning</td>
+					<td>Tuples should have at most 2 members</td>
+				</tr>
+				<tr>
+					<td style="text-align: right;">85</td>
+					<td>FinanceApp/Sources/Core/Components/Input.swift</td>
+					<td style="text-align: center;">235:74</td>
+					<td class="warning">Warning</td>
+					<td>Collection literals should not have trailing commas</td>
+				</tr>
+				<tr>
+					<td style="text-align: right;">86</td>
+					<td>FinanceApp/Sources/Core/Components/Input.swift</td>
+					<td style="text-align: center;">243:75</td>
+					<td class="warning">Warning</td>
+					<td>Collection literals should not have trailing commas</td>
+				</tr>
+				<tr>
+					<td style="text-align: right;">87</td>
+					<td>FinanceApp/Sources/Core/Components/Input.swift</td>
+					<td style="text-align: center;">255:116</td>
+					<td class="warning">Warning</td>
+					<td>Collection literals should not have trailing commas</td>
+				</tr>
+				<tr>
+					<td style="text-align: right;">88</td>
+					<td>FinanceApp/Sources/Core/Components/Input.swift</td>
+					<td style="text-align: center;">262:106</td>
+					<td class="warning">Warning</td>
+					<td>Collection literals should not have trailing commas</td>
+				</tr>
+				<tr>
+					<td style="text-align: right;">89</td>
+					<td>FinanceApp/Sources/Core/Components/Input.swift</td>
+					<td style="text-align: center;">271:116</td>
+					<td class="warning">Warning</td>
+					<td>Collection literals should not have trailing commas</td>
+				</tr>
+				<tr>
+					<td style="text-align: right;">90</td>
+					<td>FinanceApp/Sources/Core/Components/Input.swift</td>
+					<td style="text-align: center;">279:119</td>
+					<td class="warning">Warning</td>
+					<td>Collection literals should not have trailing commas</td>
+				</tr>
+				<tr>
+					<td style="text-align: right;">91</td>
+					<td>FinanceApp/Sources/Core/Components/Input.swift</td>
+					<td style="text-align: center;">285:116</td>
+					<td class="warning">Warning</td>
+					<td>Collection literals should not have trailing commas</td>
+				</tr>
+				<tr>
+					<td style="text-align: right;">92</td>
+					<td>FinanceApp/Sources/Core/Components/Input.swift</td>
+					<td style="text-align: center;">188:13</td>
+					<td class="warning">Warning</td>
+					<td>Avoid using unneeded break statements</td>
+				</tr>
+				<tr>
+					<td style="text-align: right;">93</td>
+					<td>FinanceApp/Sources/Core/Components/Input.swift</td>
+					<td style="text-align: center;">192:13</td>
+					<td class="warning">Warning</td>
+					<td>Avoid using unneeded break statements</td>
+				</tr>
+				<tr>
+					<td style="text-align: right;">94</td>
+					<td>FinanceApp/Sources/Core/Components/Input.swift</td>
+					<td style="text-align: center;">57:0</td>
+					<td class="warning">Warning</td>
+					<td>Limit vertical whitespace to a single empty line; currently 2</td>
+				</tr>
+				<tr>
+					<td style="text-align: right;">95</td>
+					<td>FinanceApp/Sources/Core/Components/Input.swift</td>
+					<td style="text-align: center;">292:0</td>
+					<td class="warning">Warning</td>
+					<td>Limit vertical whitespace to a single empty line; currently 4</td>
+				</tr>
+				<tr>
+					<td style="text-align: right;">96</td>
+					<td>FinanceApp/Sources/Core/Components/Input.swift</td>
+					<td style="text-align: center;">449:0</td>
+					<td class="warning">Warning</td>
+					<td>Limit vertical whitespace to a single empty line; currently 2</td>
+				</tr>
+				<tr>
+					<td style="text-align: right;">97</td>
+					<td>FinanceApp/Sources/Core/Components/Input.swift</td>
+					<td style="text-align: center;">507:0</td>
+					<td class="warning">Warning</td>
+					<td>Limit vertical whitespace to a single empty line; currently 2</td>
+				</tr>
+				<tr>
+					<td style="text-align: right;">98</td>
+					<td>FinanceApp/Sources/Core/Components/Input.swift</td>
+					<td style="text-align: center;">514:0</td>
+					<td class="warning">Warning</td>
+					<td>Limit vertical whitespace to a single empty line; currently 2</td>
+				</tr>
+			</tbody>
+		</table>
+		
+		<br/>
+		
+		<h2>Summary</h2>
+		
+		<table>
+			<tbody>
+				<tr>
+					<td>Total files with violations</td>
+					<td>39</td>
+				</tr>
+				<tr>
+					<td>Total warnings</td>
+					<td>95</td>
+				</tr>
+				<tr>
+					<td>Total errors</td>
+					<td>3</td>
+				</tr>
+			</tbody>
+		</table>
+		
+		<hr />
+		
+		<p>
+			Created with
+			<a href="https://github.com/realm/SwiftLint"><b>SwiftLint</b></a>
+			0.59.1 on 18/06/25
+		</p>
+	</body>
+</html>

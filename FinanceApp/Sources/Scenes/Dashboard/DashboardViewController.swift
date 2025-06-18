@@ -339,7 +339,7 @@ extension DashboardViewController: SyncedCollectionsViewModelDelegate {
     DispatchQueue.main.async {
       self.contentView.monthCarousel.reloadData()
     }
-    if currentSelectedIndex == 0 && data.count > 0 {
+    if currentSelectedIndex == 0 && data.isEmpty {
       DispatchQueue.main.async {
         let todayKey = DateFormatter.keyFormatter.string(from: Date())
         if let currentIndex = self.syncedViewModel.monthData.firstIndex(where: {

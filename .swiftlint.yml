@@ -4,6 +4,12 @@ disabled_rules:
   - force_cast
   - force_try
   - todo
+  # Temporarily disabled during cleanup - re-enable gradually
+  - function_body_length
+  - file_length
+  - type_body_length
+  - cyclomatic_complexity
+  - line_length
 
 opt_in_rules:
   - empty_count

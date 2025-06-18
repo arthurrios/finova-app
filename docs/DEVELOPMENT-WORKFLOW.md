@@ -24,11 +24,14 @@ Since you don't have a paid Apple Developer account yet, the workflows have been
 ### **Setup: Initialize Your Development**
 
 ```bash
-# 1. Start from develop branch (your main development branch)
+# 1. Set up git hooks for auto-linting
+./scripts/setup-hooks.sh
+
+# 2. Start from develop branch (your main development branch)
 git checkout develop
 git pull origin develop
 
-# 2. Create feature branches from develop
+# 3. Create feature branches from develop
 git checkout -b feat/expense-tracking
 ```
 
@@ -39,10 +42,12 @@ git checkout -b feat/expense-tracking
 # Add a new feature (minor version bump)
 git add .
 git commit -m "feat(dashboard): add expense categorization with icons"
+# 🔧 Pre-commit hook automatically fixes SwiftLint issues!
 
 # Fix a bug (patch version bump)  
 git add .
 git commit -m "fix(ui): resolve button alignment issue on iPad"
+# 🔧 Auto-linting happens before commit is finalized
 
 # Performance improvement (patch version bump)
 git add .
