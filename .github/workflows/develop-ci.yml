@@ -85,6 +85,9 @@ jobs:
   test:
     name: 🧪 Run Tests & Lint
     runs-on: macos-15
+    outputs:
+      tests-passed: ${{ steps.test-results.outputs.tests-passed }}
+      commit-sha: ${{ steps.commit-info.outputs.commit-sha }}
 
     steps:
       - name: Checkout code
@@ -92,12 +95,30 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Get commit info
+        id: commit-info
+        run: |
+          COMMIT_SHA="${{ github.sha }}"
+          echo "commit-sha=$COMMIT_SHA" >> $GITHUB_OUTPUT
+          echo "📝 Testing commit: $COMMIT_SHA"
+
+      - name: Check for cached test results
+        id: test-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            test-results-marker
+            TestResults.xcresult
+          key: test-results-${{ steps.commit-info.outputs.commit-sha }}-${{ hashFiles('**/*.swift', '**/Podfile.lock', '**/*.xcodeproj/**', '**/*.xcworkspace/**') }}
+
       - name: Select Xcode version
+        if: steps.test-cache.outputs.cache-hit != 'true'
         uses: maxim-lobanov/setup-xcode@v1
         with:
           xcode-version: "16.2.0"
 
       - name: Cache CocoaPods
+        if: steps.test-cache.outputs.cache-hit != 'true'
         uses: actions/cache@v4
         with:
           path: Pods
@@ -106,18 +127,34 @@ jobs:
             ${{ runner.os }}-pods-
 
       - name: Install dependencies
+        if: steps.test-cache.outputs.cache-hit != 'true'
         run: |
           gem install cocoapods
           pod install --repo-update
 
       - name: Install SwiftLint
+        if: steps.test-cache.outputs.cache-hit != 'true'
         run: |
           brew install swiftlint
 
       - name: Run SwiftLint
+        if: steps.test-cache.outputs.cache-hit != 'true'
         run: swiftlint lint --reporter github-actions-logging
 
+      - name: Load cached test results
+        if: steps.test-cache.outputs.cache-hit == 'true'
+        run: |
+          echo "✅ Using cached test results for commit ${{ steps.commit-info.outputs.commit-sha }}"
+          echo "🚀 Tests already passed for this exact code - skipping execution"
+          if [ -f "test-results-marker" ]; then
+            echo "📊 Previous test results found and validated"
+          else
+            echo "⚠️ Cache marker missing - will re-run tests as safety measure"
+            echo "cache-invalid=true" >> $GITHUB_ENV
+          fi
+
       - name: Build for testing
+        if: steps.test-cache.outputs.cache-hit != 'true' || env.cache-invalid == 'true'
         run: |
           echo "🔨 Starting build for testing..."
           echo "Workspace: ${{ env.XCODE_PROJECT }}"
@@ -142,6 +179,7 @@ jobs:
         continue-on-error: true
 
       - name: Run unit tests
+        if: steps.test-cache.outputs.cache-hit != 'true' || env.cache-invalid == 'true'
         run: |
           echo "🧪 Running tests with full build cycle..."
           xcodebuild -workspace ${{ env.XCODE_PROJECT }} \
@@ -149,6 +187,21 @@ jobs:
                      -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest' \
                      test \
                      -resultBundlePath TestResults.xcresult
+
+      - name: Mark test results as successful
+        id: test-results
+        if: steps.test-cache.outputs.cache-hit != 'true' || env.cache-invalid == 'true'
+        run: |
+          echo "✅ Tests completed successfully"
+          echo "tests-passed=true" >> $GITHUB_OUTPUT
+          # Create marker file for cache validation
+          echo "Test results for commit ${{ steps.commit-info.outputs.commit-sha }}" > test-results-marker
+          echo "Tests passed at $(date)" >> test-results-marker
+
+      - name: Set cached test output
+        if: steps.test-cache.outputs.cache-hit == 'true' && env.cache-invalid != 'true'
+        run: |
+          echo "tests-passed=true" >> $GITHUB_OUTPUT
 
       - name: Upload test results
         uses: actions/upload-artifact@v4
@@ -165,6 +218,17 @@ jobs:
           path: |
             build-report.html
             ~/Library/Developer/Xcode/DerivedData/*/Logs/Build/*.xcactivitylog
+
+      - name: Test execution summary
+        if: always()
+        run: |
+          if [[ "${{ steps.test-cache.outputs.cache-hit }}" == "true" && "${{ env.cache-invalid }}" != "true" ]]; then
+            echo "⚡ Used cached test results - saved time by skipping redundant tests"
+            echo "💡 Tests were already validated for commit ${{ steps.commit-info.outputs.commit-sha }}"
+          else
+            echo "🔄 Executed fresh tests for commit ${{ steps.commit-info.outputs.commit-sha }}"
+            echo "📦 Results cached for future runs of this exact code"
+          fi
 
   security-scan:
     name: 🔒 Security Scan
