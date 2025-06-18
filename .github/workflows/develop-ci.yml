@@ -192,8 +192,7 @@ jobs:
                      -scheme ${{ env.SCHEME }} \
                      -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest' \
                      test \
-                     -resultBundlePath TestResults.xcresult \
-                     -resultBundleOverwrite
+                     -resultBundlePath TestResults.xcresult
 
       - name: Mark test results as successful
         id: test-results
