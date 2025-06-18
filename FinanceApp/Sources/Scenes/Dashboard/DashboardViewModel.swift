@@ -6,7 +6,7 @@
 //
 
 import Foundation
-import SwiftUICore
+import UIKit
 import UserNotifications
 
 final class DashboardViewModel {
