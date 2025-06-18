@@ -109,7 +109,9 @@ jobs:
           path: |
             test-results-marker
             TestResults.xcresult
-          key: test-results-${{ steps.commit-info.outputs.commit-sha }}-${{ hashFiles('**/*.swift', '**/Podfile.lock', '**/*.xcodeproj/**', '**/*.xcworkspace/**') }}
+          key: test-results-${{ hashFiles('**/*.swift', '**/Podfile.lock', '**/*.xcodeproj/**', '**/*.xcworkspace/**', '.github/workflows/**') }}
+          restore-keys: |
+            test-results-
 
       - name: Select Xcode version
         if: steps.test-cache.outputs.cache-hit != 'true'
@@ -144,10 +146,12 @@ jobs:
       - name: Load cached test results
         if: steps.test-cache.outputs.cache-hit == 'true'
         run: |
-          echo "✅ Using cached test results for commit ${{ steps.commit-info.outputs.commit-sha }}"
+          echo "✅ Using cached test results for identical code content"
           echo "🚀 Tests already passed for this exact code - skipping execution"
+          echo "📝 Current commit: ${{ steps.commit-info.outputs.commit-sha }}"
           if [ -f "test-results-marker" ]; then
-            echo "📊 Previous test results found and validated"
+            echo "📊 Previous test results found and validated:"
+            cat test-results-marker
           else
             echo "⚠️ Cache marker missing - will re-run tests as safety measure"
             echo "cache-invalid=true" >> $GITHUB_ENV
@@ -197,6 +201,7 @@ jobs:
           # Create marker file for cache validation
           echo "Test results for commit ${{ steps.commit-info.outputs.commit-sha }}" > test-results-marker
           echo "Tests passed at $(date)" >> test-results-marker
+          echo "Content hash: ${{ hashFiles('**/*.swift', '**/Podfile.lock', '**/*.xcodeproj/**', '**/*.xcworkspace/**') }}" >> test-results-marker
 
       - name: Set cached test output
         if: steps.test-cache.outputs.cache-hit == 'true' && env.cache-invalid != 'true'
@@ -222,12 +227,15 @@ jobs:
       - name: Test execution summary
         if: always()
         run: |
+          CONTENT_HASH="${{ hashFiles('**/*.swift', '**/Podfile.lock', '**/*.xcodeproj/**', '**/*.xcworkspace/**') }}"
           if [[ "${{ steps.test-cache.outputs.cache-hit }}" == "true" && "${{ env.cache-invalid }}" != "true" ]]; then
             echo "⚡ Used cached test results - saved time by skipping redundant tests"
-            echo "💡 Tests were already validated for commit ${{ steps.commit-info.outputs.commit-sha }}"
+            echo "💡 Tests were already validated for identical code content"
+            echo "🔗 Content hash: ${CONTENT_HASH:0:12}..."
           else
             echo "🔄 Executed fresh tests for commit ${{ steps.commit-info.outputs.commit-sha }}"
-            echo "📦 Results cached for future runs of this exact code"
+            echo "📦 Results cached for future runs of identical code"
+            echo "🔗 Content hash: ${CONTENT_HASH:0:12}..."
           fi
 
   security-scan:
