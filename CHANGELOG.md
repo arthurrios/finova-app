@@ -1,3 +1,15 @@
+## [1.0.0-beta.2](https://github.com/arthurrios/finance-app/compare/v1.0.0-beta.1...v1.0.0-beta.2) (2025-06-18)
+
+
+### 🐛 Bug Fixes
+
+* add missing comma in DashboardView layout constraints and remove unnecessary whitespace in TransactionLogicTests ([8d84dff](https://github.com/arthurrios/finance-app/commit/8d84dff10899182aa622f381b87f31aeba1c4664))
+
+
+### ♻️ Code Refactoring
+
+* update transaction fetching methods to improve clarity and functionality ([271c61b](https://github.com/arthurrios/finance-app/commit/271c61b159b1d749244955165e45e91293c9ae52))
+
 ## 1.0.0-beta.1 (2025-06-18)
 
 
