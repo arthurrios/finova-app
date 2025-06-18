@@ -243,14 +243,15 @@ class TransactionLogicTests: XCTestCase {
   // MARK: - Installment Transaction Tests
 
   func testInstallmentCreation() {
-    let result = viewModel.addTransactionWithInstallments(
+    let installmentData = InstallmentTransactionData(
       title: "MacBook Pro",
       totalAmount: 299999,  // $2999.99
-      dateString: "01/02/2025",
-      categoryKey: "miscellaneous",
-      typeRaw: "expense",
-      totalInstallments: 6
+      date: "01/02/2025",
+      category: "miscellaneous",
+      transactionType: "expense",
+      installments: 6
     )
+    let result = viewModel.addTransactionWithInstallments(installmentData)
 
     switch result {
     case .success():
@@ -261,23 +262,30 @@ class TransactionLogicTests: XCTestCase {
 
     let allTransactions = transactionRepo.fetchTransactions()
     let parentTransaction = allTransactions.first { $0.hasInstallments == true }
-    let installments = allTransactions.filter { $0.parentTransactionId == parentTransaction?.id }
+    let installments = allTransactions.filter {
+      $0.parentTransactionId != nil && $0.installmentNumber != nil
+    }
 
     XCTAssertNotNil(parentTransaction, "Parent transaction should exist")
     XCTAssertEqual(installments.count, 6, "Should create 6 installments")
     XCTAssertEqual(parentTransaction?.totalInstallments, 6)
     XCTAssertEqual(parentTransaction?.originalAmount, 299999)
+
+    // Verify installment amounts sum to total
+    let totalInstallmentAmount = installments.reduce(0) { $0 + $1.amount }
+    XCTAssertEqual(totalInstallmentAmount, 299999, "Installment amounts should sum to total")
   }
 
   func testInstallmentAmountDistribution() {
-    let result = viewModel.addTransactionWithInstallments(
+    let installmentData = InstallmentTransactionData(
       title: "iPhone",
       totalAmount: 100001,  // $1000.01 (intentionally not evenly divisible)
-      dateString: "01/01/2025",
-      categoryKey: "miscellaneous",
-      typeRaw: "expense",
-      totalInstallments: 3
+      date: "01/01/2025",
+      category: "miscellaneous",
+      transactionType: "expense",
+      installments: 3
     )
+    let result = viewModel.addTransactionWithInstallments(installmentData)
 
     switch result {
     case .success():
@@ -313,14 +321,15 @@ class TransactionLogicTests: XCTestCase {
   }
 
   func testInstallmentValidation() {
-    let result = viewModel.addTransactionWithInstallments(
+    let installmentData = InstallmentTransactionData(
       title: "Invalid",
       totalAmount: 10000,
-      dateString: "01/01/2025",
-      categoryKey: "miscellaneous",
-      typeRaw: "expense",
-      totalInstallments: 1
+      date: "01/01/2025",
+      category: "miscellaneous",
+      transactionType: "expense",
+      installments: 1
     )
+    let result = viewModel.addTransactionWithInstallments(installmentData)
 
     switch result {
     case .success():
@@ -356,7 +365,6 @@ class TransactionLogicTests: XCTestCase {
     let allTransactions = transactionRepo.fetchTransactions()
     let parentTransaction = allTransactions.first { $0.isRecurring == true }
     let instances = allTransactions.filter { $0.parentTransactionId != nil }
-
 
     // Check if parent exists and has self-reference
     XCTAssertNotNil(parentTransaction, "Parent transaction should exist")
