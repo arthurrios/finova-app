@@ -272,7 +272,7 @@ class DBHelper {
       "parent_transaction_id",
       "installment_number",
       "total_installments",
-      "original_amount"
+      "original_amount",
     ]
 
     let missingColumns = requiredColumns.filter { !existingColumns.contains($0) }
@@ -289,7 +289,7 @@ class DBHelper {
       "parent_transaction_id": "ALTER TABLE Transactions ADD COLUMN parent_transaction_id INTEGER;",
       "installment_number": "ALTER TABLE Transactions ADD COLUMN installment_number INTEGER;",
       "total_installments": "ALTER TABLE Transactions ADD COLUMN total_installments INTEGER;",
-      "original_amount": "ALTER TABLE Transactions ADD COLUMN original_amount INTEGER;"
+      "original_amount": "ALTER TABLE Transactions ADD COLUMN original_amount INTEGER;",
     ]
 
     for column in columns {
@@ -590,7 +590,8 @@ class DBHelper {
   }
 
   private func executeTransactionQuery(_ query: String, bindValues: [Int] = []) throws
-    -> [Transaction] {
+    -> [Transaction]
+  {
     var statement: OpaquePointer?
 
     guard sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK else {
@@ -685,7 +686,8 @@ class DBHelper {
     }
   }
 
-  func getTransactionWithParent(id: Int) throws -> (transaction: Transaction?, parent: Transaction?) {
+  func getTransactionWithParent(id: Int) throws -> (transaction: Transaction?, parent: Transaction?)
+  {
     let query = """
       SELECT
         t.id, t.title, t.category, t.type, t.amount, t.date, t.budget_month_date,
@@ -730,7 +732,8 @@ class DBHelper {
   }
 
   private func parseTransactionFromStatement(_ statement: OpaquePointer?, startIndex: Int32) throws
-    -> Transaction {
+    -> Transaction
+  {
     let id = Int(sqlite3_column_int64(statement, startIndex + 0))
     let title = String(cString: sqlite3_column_text(statement, startIndex + 1))
     let catKey = String(cString: sqlite3_column_text(statement, startIndex + 2))
