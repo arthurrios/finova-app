@@ -12,6 +12,7 @@ permissions:
   contents: read
   security-events: write
   actions: read
+  pull-requests: read
 
 env:
   DEVELOPER_DIR: /Applications/Xcode.app/Contents/Developer
@@ -19,7 +20,7 @@ env:
   SCHEME: FinanceApp
 
 jobs:
-  # Separate job for commit message validation on Ubuntu
+  # Alternative commitlint approach using Node.js
   commitlint:
     name: 📝 Validate Commit Messages
     runs-on: ubuntu-latest
@@ -31,14 +32,55 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Check commit message format
-        uses: wagoid/commitlint-github-action@v5
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          configFile: ".commitlintrc.json"
-          failOnWarnings: false
-          failOnErrors: true
-          helpURL: https://github.com/conventional-changelog/commitlint/#what-is-commitlint
-          token: ${{ secrets.GITHUB_TOKEN }}
+          node-version: "18"
+
+      - name: Install commitlint
+        run: |
+          npm install --save-dev @commitlint/config-conventional @commitlint/cli
+
+      - name: Validate commit messages
+        run: |
+          echo "📝 Validating commit messages..."
+
+          # Get the base and head commits
+          BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+
+          echo "Base SHA: $BASE_SHA"
+          echo "Head SHA: $HEAD_SHA"
+
+          # Get commit messages in the PR
+          git log --format="%H %s" $BASE_SHA..$HEAD_SHA > commits.txt
+
+          # Validate each commit message
+          EXIT_CODE=0
+          while IFS= read -r line; do
+            if [ -n "$line" ]; then
+              COMMIT_SHA=$(echo "$line" | cut -d' ' -f1)
+              COMMIT_MSG=$(echo "$line" | cut -d' ' -f2-)
+              echo "Checking commit: $COMMIT_SHA"
+              echo "Message: $COMMIT_MSG"
+              
+              # Use commitlint to check the message
+              if ! echo "$COMMIT_MSG" | npx commitlint --verbose; then
+                echo "❌ Commit message validation failed for: $COMMIT_SHA"
+                EXIT_CODE=1
+              else
+                echo "✅ Commit message is valid for: $COMMIT_SHA"
+              fi
+            fi
+          done < commits.txt
+
+          if [ $EXIT_CODE -eq 0 ]; then
+            echo "🎉 All commit messages are valid!"
+          else
+            echo "❌ Some commit messages are invalid. Please follow conventional commit format."
+            echo "📖 Learn more: https://github.com/conventional-changelog/commitlint/#what-is-commitlint"
+            exit 1
+          fi
 
   test:
     name: 🧪 Run Tests & Lint
@@ -148,6 +190,27 @@ jobs:
           sarif_file: "trivy-results.sarif"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true # Don't fail the workflow if code scanning is not enabled
+
+      - name: Upload security scan artifact (fallback)
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: security-scan-results-${{ github.run_number }}
+          path: trivy-results.sarif
+
+      - name: Display security scan summary
+        if: always()
+        run: |
+          echo "🔒 Security scan completed!"
+          echo "📄 SARIF results saved as artifact: security-scan-results-${{ github.run_number }}"
+          if [ -f "trivy-results.sarif" ]; then
+            echo "📊 Scan file size: $(du -h trivy-results.sarif | cut -f1)"
+            echo "💡 To enable automatic security alerts:"
+            echo "   1. Go to repository Settings"
+            echo "   2. Navigate to 'Code security and analysis'"
+            echo "   3. Enable 'Code scanning' under 'GitHub Advanced Security'"
+          fi
 
   semantic-version-develop:
     name: 📦 Development Versioning
