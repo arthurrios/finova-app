@@ -7,6 +7,7 @@
 
 import Foundation
 import UIKit
+import SwiftEmailValidator
 
 extension UITextField {
   func enableCurrencyMask() {
@@ -35,21 +36,17 @@ extension UITextField {
     formatter.maximumFractionDigits = 2
     text = formatter.string(from: NSNumber(value: number))
   }
-
-  @objc private func validateEmail() {
-    guard let email = self.text else { return }
-    let isValid = isValidEmail(email)
-    if let callback = objc_getAssociatedObject(self, &AssociatedKeys.validationCallback)
-      as? (Bool) -> Void {
-      callback(isValid)
+    
+    @objc private func validateEmail() {
+        guard let email = self.text else { return }
+        let isValid = EmailSyntaxValidator.correctlyFormatted(
+            email,
+            compatibility: .ascii
+        )
+        if let callback = objc_getAssociatedObject(self, &AssociatedKeys.validationCallback) as? (Bool) -> Void {
+            callback(isValid)
+        }
     }
-  }
-
-  private func isValidEmail(_ email: String) -> Bool {
-    let emailRegex = "[A-Z0-9a-z._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,64}"
-    let emailPredicate = NSPredicate(format: "SELF MATCHES %@", emailRegex)
-    return emailPredicate.evaluate(with: email)
-  }
 }
 
 private struct AssociatedKeys {

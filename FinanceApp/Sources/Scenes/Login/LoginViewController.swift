@@ -39,10 +39,6 @@ final class LoginViewController: UIViewController {
         startKeyboardObservers()
     }
     
-//    override func viewWillDisappear(_ animated: Bool) {
-//        super.viewWillDisappear(animated)
-//    }
-    
     private func bindViewModel() {
         viewModel.successResult = { [weak self] (userName, userEmail) in
             self?.presentSaveLoginAlert(name: userName, email: userEmail)

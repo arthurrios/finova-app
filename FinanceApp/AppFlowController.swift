@@ -19,7 +19,11 @@ class AppFlowController {
     
     // MARK: - startFlow
     func startFlow() -> UINavigationController? {
-        let viewController = viewControllersFactory.makeSplashViewController(flowDelegate: self)
+//        let viewController = viewControllersFactory.makeSplashViewController(flowDelegate: self)
+//        navigationController = UINavigationController(rootViewController: viewController)
+//        return navigationController
+        
+        let viewController = viewControllersFactory.makeRegisterViewController(flowDelegate: self)
         navigationController = UINavigationController(rootViewController: viewController)
         return navigationController
     }
@@ -44,11 +48,27 @@ extension AppFlowController: SplashFlowDelegate {
 }
 
 extension AppFlowController: LoginFlowDelegate {
+    func navigateToRegister() {
+        //
+    }
+    
     func navigateToDashboard() {
         navigationController?.dismiss(animated: false)
         let dashboardViewController = viewControllersFactory.makeDashboardViewController(
             flowDelegate: self)
         navigationController?.pushViewController(dashboardViewController, animated: true)
+    }
+}
+
+extension AppFlowController: RegisterFlowDelegate {
+    func navigateBackToLogin() {
+        navigationController?.dismiss(animated: false)
+        let viewController = viewControllersFactory.makeLoginViewController(flowDelegate: self)
+        viewController.modalPresentationStyle = .overCurrentContext
+        viewController.modalTransitionStyle = .crossDissolve
+        navigationController?.present(viewController, animated: false) {
+            viewController.animateShow()
+        }
     }
 }
 

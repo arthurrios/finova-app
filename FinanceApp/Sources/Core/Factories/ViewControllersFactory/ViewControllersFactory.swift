@@ -9,6 +9,13 @@ import Foundation
 import UIKit
 
 final class ViewControllersFactory: ViewControllersFactoryProtocol {
+    func makeRegisterViewController(flowDelegate: any RegisterFlowDelegate) -> RegisterViewController {
+        let contentView = RegisterView()
+        let viewModel = RegisterViewModel()
+        let viewController = RegisterViewController(contentView: contentView, viewModel: viewModel, flowDelegate: flowDelegate)
+        return viewController
+    }
+    
     func makeAddTransactionModalViewController(flowDelegate: any AddTransactionModalFlowDelegate)
     -> AddTransactionModalViewController {
         let contentView = AddTransactionModalView()
