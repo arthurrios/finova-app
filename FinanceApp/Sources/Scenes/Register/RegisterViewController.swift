@@ -61,6 +61,6 @@ extension RegisterViewController: RegisterViewDelegate {
     }
     
     func navigateBackToLogin() {
-        //
+        flowDelegate?.navigateBackToLogin()
     }
 }

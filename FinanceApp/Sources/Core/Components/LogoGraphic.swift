@@ -28,6 +28,7 @@ class LogoGraphic: UIView {
     
     private func setupView() {
         addSubview(loginImageView)
+        translatesAutoresizingMaskIntoConstraints = false
         
         setupConstraints()
     }
