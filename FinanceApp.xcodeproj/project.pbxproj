@@ -380,10 +380,12 @@
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = FinanceApp/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = FinFlow;
 				INFOPLIST_KEY_NSFaceIDUsageDescription = "We need permission to use FaceID for authentication";
 				INFOPLIST_KEY_NSUserTrackingUsageDescription = "We need permission to notify you about your transactions";
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
+				INFOPLIST_KEY_UIRequiredDeviceCapabilities = armv7;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
 				INFOPLIST_KEY_UIUserInterfaceStyle = Light;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -411,10 +413,12 @@
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = FinanceApp/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = FinFlow;
 				INFOPLIST_KEY_NSFaceIDUsageDescription = "We need permission to use FaceID for authentication";
 				INFOPLIST_KEY_NSUserTrackingUsageDescription = "We need permission to notify you about your transactions";
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
+				INFOPLIST_KEY_UIRequiredDeviceCapabilities = armv7;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
 				INFOPLIST_KEY_UIUserInterfaceStyle = Light;
 				LD_RUNPATH_SEARCH_PATHS = (

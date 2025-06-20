@@ -14,7 +14,7 @@ final class RegisterView: UIView {
     let containerView: UIView = {
         let view = UIView()
         view.directionalLayoutMargins = NSDirectionalEdgeInsets(
-            top: Metrics.spacing10,
+            top: Metrics.spacing7,
             leading: Metrics.spacing8,
             bottom: Metrics.spacing3,
             trailing: Metrics.spacing8)
@@ -123,15 +123,15 @@ final class RegisterView: UIView {
     
     private func setupConstraints() {
         NSLayoutConstraint.activate([
-            containerView.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor, constant: Metrics.spacing8),
+            containerView.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor),
             containerView.leadingAnchor.constraint(equalTo: leadingAnchor),
             containerView.trailingAnchor.constraint(equalTo: trailingAnchor),
             containerView.bottomAnchor.constraint(equalTo: safeAreaLayoutGuide.bottomAnchor),
             
             appLogoImageView.topAnchor.constraint(equalTo: containerView.layoutMarginsGuide.topAnchor),
             appLogoImageView.centerXAnchor.constraint(equalTo: centerXAnchor),
-            appLogoImageView.heightAnchor.constraint(equalToConstant: 120),
-            appLogoImageView.widthAnchor.constraint(equalToConstant: 120),
+            appLogoImageView.heightAnchor.constraint(equalToConstant: 100),
+            appLogoImageView.widthAnchor.constraint(equalToConstant: 100),
             
             welcomeTitleLabel.topAnchor.constraint(equalTo: appLogoImageView.bottomAnchor, constant: Metrics.spacing8),
             welcomeTitleLabel.leadingAnchor.constraint(equalTo: containerView.layoutMarginsGuide.leadingAnchor),
@@ -165,9 +165,9 @@ final class RegisterView: UIView {
             registerButton.leadingAnchor.constraint(equalTo: separator.leadingAnchor),
             registerButton.trailingAnchor.constraint(equalTo: separator.trailingAnchor),
             
-            loginLinkContainer.topAnchor.constraint(equalTo: registerButton.bottomAnchor, constant: Metrics.spacing5),
             loginLinkContainer.centerXAnchor.constraint(equalTo: centerXAnchor),
             loginLinkContainer.heightAnchor.constraint(equalToConstant: 44),
+            loginLinkContainer.bottomAnchor.constraint(equalTo: containerView.layoutMarginsGuide.bottomAnchor),
             
             alreadyHaveAccountLabel.leadingAnchor.constraint(equalTo: loginLinkContainer.leadingAnchor),
             alreadyHaveAccountLabel.centerYAnchor.constraint(equalTo: loginLinkContainer.centerYAnchor),

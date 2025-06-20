@@ -122,7 +122,11 @@ final class LoginViewController: UIViewController {
 }
 
 extension LoginViewController: LoginViewDelegate {
-    func sendLoginData(name: String, email: String, password: String) {
-        viewModel.authenticate(userName: name, userEmail: email, password: password)
+    func sendLoginData(email: String, password: String) {
+        viewModel.authenticate(userEmail: email, password: password)
+    }
+    
+    func navigateToRegister() {
+        flowDelegate?.navigateToRegister()
     }
 }

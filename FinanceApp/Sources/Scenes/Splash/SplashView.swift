@@ -30,6 +30,7 @@ class SplashView: UIView {
     }
     
     private func setupView() {
+        loginImageView.alpha = 0
         addSubview(logoImageView)
         addSubview(loginImageView)
         

@@ -12,12 +12,12 @@ class LoginViewModel {
   var successResult: ((String, String) -> Void)?
   var errorResult: ((String, String) -> Void)?
 
-  func authenticate(userName: String, userEmail: String, password: String) {
+  func authenticate(userEmail: String, password: String) {
     // Check if Firebase is configured before attempting authentication
     guard FirebaseApp.app() != nil else {
       print("⚠️ Firebase not configured - skipping authentication (likely in test environment)")
       // In test environment, simulate successful authentication for testing purposes
-      self.successResult?(userName, userEmail)
+      self.successResult?(userEmail, userEmail)
       return
     }
 
@@ -36,7 +36,7 @@ class LoginViewModel {
           }
         }
       } else {
-        self?.successResult?(userName, userEmail)
+        self?.successResult?(userEmail, userEmail)
       }
     }
   }

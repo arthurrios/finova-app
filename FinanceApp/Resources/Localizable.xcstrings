@@ -1378,6 +1378,23 @@
         }
       }
     },
+    "login.dontHaveAccount" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Don’t have an account?"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ainda não possui uma conta?"
+          }
+        }
+      }
+    },
     "login.error.invalidCredentials.description" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1476,6 +1493,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Erro Inesperado"
+          }
+        }
+      }
+    },
+    "login.registerLink" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Create Account"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Criar Conta"
           }
         }
       }
