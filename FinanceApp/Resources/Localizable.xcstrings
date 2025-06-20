@@ -1497,6 +1497,23 @@
         }
       }
     },
+    "login.googleSignIn" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Login with Google"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Entrar com Google"
+          }
+        }
+      }
+    },
     "login.registerLink" : {
       "extractionState" : "manual",
       "localizations" : {

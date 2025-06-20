@@ -33,7 +33,7 @@ final class LoginView: UIView {
         imageView.image = UIImage(named: "appLogo")
         imageView.contentMode = .scaleAspectFit
         imageView.translatesAutoresizingMaskIntoConstraints = false
-        imageView.isHidden = true // Hidden by default
+        imageView.isHidden = true  // Hidden by default
         return imageView
     }()
     
@@ -68,6 +68,29 @@ final class LoginView: UIView {
     }()
     
     let button = Button(label: "login.button".localized)
+    
+    let googleSignInButton: UIButton = {
+        let button = UIButton(type: .system)
+        button.setTitle("login.googleSignIn".localized, for: .normal)
+        button.setTitleColor(Colors.gray700, for: .normal)
+        button.titleLabel?.font = Fonts.buttonSM.font
+        button.backgroundColor = Colors.gray100
+        button.layer.cornerRadius = CornerRadius.large
+        button.layer.borderWidth = 1
+        button.layer.borderColor = Colors.gray300.cgColor
+        
+        if let icon = UIImage(named: "googleLogo") {
+            let smallIcon = icon.resizedPreservingColor(to: CGSize(width: 20, height: 20))
+            button.setImage(smallIcon, for: .normal)
+        }
+        
+        button.semanticContentAttribute = .forceRightToLeft
+        button.imageEdgeInsets = UIEdgeInsets(top: 0, left: 8, bottom: 0, right: -8)
+        
+        button.heightAnchor.constraint(equalToConstant: Metrics.buttonHeight).isActive = true
+        button.translatesAutoresizingMaskIntoConstraints = false
+        return button
+    }()
     
     let registerLinkContainer: UIView = {
         let view = UIView()
@@ -109,7 +132,9 @@ final class LoginView: UIView {
     private func setupView() {
         loginImageView.translatesAutoresizingMaskIntoConstraints = false
         button.addTarget(self, action: #selector(handleLoginButtonTapped), for: .touchUpInside)
-        registerLinkButton.addTarget(self, action: #selector(handleRegisterLinkTapped), for: .touchUpInside)
+        googleSignInButton.addTarget(self, action: #selector(handleGoogleSignInTapped), for: .touchUpInside)
+        registerLinkButton.addTarget(
+            self, action: #selector(handleRegisterLinkTapped), for: .touchUpInside)
         
         backgroundColor = Colors.gray100
         
@@ -130,6 +155,7 @@ final class LoginView: UIView {
         containerView.addSubview(welcomeSubtitleLabel)
         containerView.addSubview(separator)
         containerView.addSubview(button)
+        containerView.addSubview(googleSignInButton)
         containerView.addSubview(registerLinkContainer)
         registerLinkContainer.addSubview(dontHaveAccountLabel)
         registerLinkContainer.addSubview(registerLinkButton)
@@ -143,22 +169,28 @@ final class LoginView: UIView {
             containerView.trailingAnchor.constraint(equalTo: trailingAnchor),
             containerView.bottomAnchor.constraint(equalTo: bottomAnchor),
             
-            welcomeTitleLabel.leadingAnchor.constraint(equalTo: containerView.layoutMarginsGuide.leadingAnchor),
-            welcomeTitleLabel.trailingAnchor.constraint(equalTo: containerView.layoutMarginsGuide.trailingAnchor),
+            welcomeTitleLabel.leadingAnchor.constraint(
+                equalTo: containerView.layoutMarginsGuide.leadingAnchor),
+            welcomeTitleLabel.trailingAnchor.constraint(
+                equalTo: containerView.layoutMarginsGuide.trailingAnchor),
             
-            welcomeSubtitleLabel.topAnchor.constraint(equalTo: welcomeTitleLabel.bottomAnchor, constant: Metrics.spacing2),
+            welcomeSubtitleLabel.topAnchor.constraint(
+                equalTo: welcomeTitleLabel.bottomAnchor, constant: Metrics.spacing2),
             welcomeSubtitleLabel.leadingAnchor.constraint(equalTo: welcomeTitleLabel.leadingAnchor),
             welcomeSubtitleLabel.trailingAnchor.constraint(equalTo: welcomeTitleLabel.trailingAnchor),
             
-            emailTextField.topAnchor.constraint(equalTo: welcomeSubtitleLabel.bottomAnchor, constant: Metrics.spacing7),
+            emailTextField.topAnchor.constraint(
+                equalTo: welcomeSubtitleLabel.bottomAnchor, constant: Metrics.spacing7),
             emailTextField.leadingAnchor.constraint(equalTo: welcomeSubtitleLabel.leadingAnchor),
             emailTextField.trailingAnchor.constraint(equalTo: welcomeSubtitleLabel.trailingAnchor),
             
-            passwordTextField.topAnchor.constraint(equalTo: emailTextField.bottomAnchor, constant: Metrics.spacing3),
+            passwordTextField.topAnchor.constraint(
+                equalTo: emailTextField.bottomAnchor, constant: Metrics.spacing3),
             passwordTextField.leadingAnchor.constraint(equalTo: emailTextField.leadingAnchor),
             passwordTextField.trailingAnchor.constraint(equalTo: emailTextField.trailingAnchor),
             
-            separator.topAnchor.constraint(equalTo: passwordTextField.bottomAnchor, constant: Metrics.spacing7),
+            separator.topAnchor.constraint(
+                equalTo: passwordTextField.bottomAnchor, constant: Metrics.spacing7),
             separator.leadingAnchor.constraint(equalTo: passwordTextField.leadingAnchor),
             separator.trailingAnchor.constraint(equalTo: passwordTextField.trailingAnchor),
             
@@ -166,32 +198,41 @@ final class LoginView: UIView {
             button.leadingAnchor.constraint(equalTo: separator.leadingAnchor),
             button.trailingAnchor.constraint(equalTo: separator.trailingAnchor),
             
-            registerLinkContainer.bottomAnchor.constraint(equalTo: containerView.bottomAnchor, constant: -Metrics.spacing3),
+            googleSignInButton.topAnchor.constraint(equalTo: button.bottomAnchor, constant: Metrics.spacing3),
+            googleSignInButton.leadingAnchor.constraint(equalTo: button.leadingAnchor),
+            googleSignInButton.trailingAnchor.constraint(equalTo: button.trailingAnchor),
+            
+            registerLinkContainer.topAnchor.constraint(
+                equalTo: googleSignInButton.bottomAnchor, constant: Metrics.spacing3),
             registerLinkContainer.centerXAnchor.constraint(equalTo: centerXAnchor),
             registerLinkContainer.heightAnchor.constraint(equalToConstant: 44),
             
             dontHaveAccountLabel.leadingAnchor.constraint(equalTo: registerLinkContainer.leadingAnchor),
             dontHaveAccountLabel.centerYAnchor.constraint(equalTo: registerLinkContainer.centerYAnchor),
             
-            registerLinkButton.leadingAnchor.constraint(equalTo: dontHaveAccountLabel.trailingAnchor, constant: Metrics.spacing1),
+            registerLinkButton.leadingAnchor.constraint(
+                equalTo: dontHaveAccountLabel.trailingAnchor, constant: Metrics.spacing1),
             registerLinkButton.centerYAnchor.constraint(equalTo: registerLinkContainer.centerYAnchor),
-            registerLinkButton.trailingAnchor.constraint(lessThanOrEqualTo: registerLinkContainer.trailingAnchor)
+            registerLinkButton.trailingAnchor.constraint(
+                lessThanOrEqualTo: registerLinkContainer.trailingAnchor),
         ]
         
         if isSmallScreen {
             // Small screen constraints (similar to register view)
             smallScreenConstraints = [
                 // Small logo at top center
-                appLogoImageView.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor, constant: Metrics.spacing5),
+                appLogoImageView.topAnchor.constraint(
+                    equalTo: safeAreaLayoutGuide.topAnchor, constant: Metrics.spacing5),
                 appLogoImageView.centerXAnchor.constraint(equalTo: centerXAnchor),
                 appLogoImageView.heightAnchor.constraint(equalToConstant: 100),
                 appLogoImageView.widthAnchor.constraint(equalToConstant: 100),
                 
                 // Container starts below small logo
-                containerView.topAnchor.constraint(equalTo: appLogoImageView.bottomAnchor, constant: Metrics.spacing5),
+                containerView.topAnchor.constraint(
+                    equalTo: appLogoImageView.bottomAnchor, constant: Metrics.spacing5),
                 
                 // Welcome title starts at container top
-                welcomeTitleLabel.topAnchor.constraint(equalTo: containerView.layoutMarginsGuide.topAnchor)
+                welcomeTitleLabel.topAnchor.constraint(equalTo: containerView.layoutMarginsGuide.topAnchor),
             ]
             
             NSLayoutConstraint.activate(commonConstraints + smallScreenConstraints)
@@ -201,13 +242,14 @@ final class LoginView: UIView {
                 // Large logo graphic
                 loginImageView.topAnchor.constraint(equalTo: topAnchor),
                 loginImageView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Metrics.spacing3),
-                loginImageView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Metrics.spacing3),
+                loginImageView.trailingAnchor.constraint(
+                    equalTo: trailingAnchor, constant: -Metrics.spacing3),
                 
                 // Container starts below large logo
                 containerView.topAnchor.constraint(equalTo: loginImageView.bottomAnchor),
                 
                 // Welcome title starts at container top
-                welcomeTitleLabel.topAnchor.constraint(equalTo: containerView.layoutMarginsGuide.topAnchor)
+                welcomeTitleLabel.topAnchor.constraint(equalTo: containerView.layoutMarginsGuide.topAnchor),
             ]
             
             NSLayoutConstraint.activate(commonConstraints + largeScreenConstraints)
@@ -237,6 +279,11 @@ final class LoginView: UIView {
     @objc
     private func handleRegisterLinkTapped() {
         delegate?.navigateToRegister()
+    }
+    
+    @objc
+    private func handleGoogleSignInTapped() {
+//        delegate?.signInWithGoogle()
     }
 }
 
