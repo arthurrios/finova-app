@@ -5,6 +5,10 @@ target 'FinanceApp' do
 
   # Core Dependencies
   pod 'Firebase/Auth'
+  pod 'Firebase/Firestore'
+
+  pod 'GoogleSignIn'
+
   pod 'ShimmerView'
   pod 'SQLite.swift'
 
@@ -21,4 +25,7 @@ post_install do |installer|
       config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '15.0'
     end
   end
+  
+  # Fix duplicate UUID issue
+  installer.pods_project.root_object.attributes['TargetAttributes'] = {}
 end
