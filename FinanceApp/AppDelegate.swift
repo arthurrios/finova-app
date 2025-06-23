@@ -63,6 +63,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
             
             GIDSignIn.sharedInstance.configuration = GIDConfiguration(clientID: clientId)
             print("✅ Google Sign-In configured successfully")
+            #if DEBUG
+            AuthTestHelper.testAuthenticationFlow()
+            #endif
         } else {
             print("⚠️ GoogleService-Info.plist file not accessible - Firebase configuration skipped")
         }

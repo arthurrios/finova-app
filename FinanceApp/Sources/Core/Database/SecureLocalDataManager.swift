@@ -183,7 +183,7 @@ extension SecureLocalDataManager {
         print("🔍 SecureLocalDataManager Debug Info:")
         print("   Current User UID: \(currentUserUID ?? "None")")
         print("   Encryption Key: \(encryptionKey != nil ? "Available" : "None")")
-        if let directory = getUserDataDirectory(for: currentUserUID) {
+        if let directory = getUserDataDirectory() {
             print("   User Data Directory: \(directory.path)")
             print("   Directory Exists: \(FileManager.default.fileExists(atPath: directory.path))")
         }
