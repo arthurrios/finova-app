@@ -1106,6 +1106,23 @@
         }
       }
     },
+    "error.tryAgain" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Try again"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tentar novamente"
+          }
+        }
+      }
+    },
     "faceid.alert.subtitle" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1442,23 +1459,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Erro"
-          }
-        }
-      }
-    },
-    "login.error.tryAgain" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Try again"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Tentar novamente"
           }
         }
       }

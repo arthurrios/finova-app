@@ -123,7 +123,11 @@ extension DashboardViewController: DashboardViewDelegate {
     }
     
     func logout() {
+        AuthenticationManager.shared.signOut()
+        SecureLocalDataManager.shared.signOut()
         UserDefaultsManager.removeUser()
+        
+        print("✅ Complete logout performed")
         self.flowDelegate?.logout()
     }
 }

@@ -7,6 +7,7 @@
 
 import Foundation
 import UIKit
+import LocalAuthentication
 
 final class RegisterViewController: UIViewController {
     let contentView: RegisterView
@@ -29,6 +30,17 @@ final class RegisterViewController: UIViewController {
         contentView.delegate = self
         setup()
         hideKeyboardWhenTappedAround()
+        bindViewModel()
+    }
+    
+    private func bindViewModel() {
+        viewModel.successResult = { [weak self] in
+            self?.handleSuccessfulRegistration()
+        }
+        
+        viewModel.errorResult = { [weak self] title, message in
+            self?.presentErrorAlert(title: title, message: message)
+        }
     }
     
     override func viewWillAppear(_ animated: Bool) {
@@ -47,6 +59,81 @@ final class RegisterViewController: UIViewController {
         setupContentViewToBounds(contentView: contentView, respectingSafeArea: false)
     }
     
+    private func handleSuccessfulRegistration() {
+        guard let currentUser = UserDefaultsManager.getUser() else {
+            flowDelegate?.navigateToDashboard()
+            return
+        }
+        
+        // New Firebase user from registration - always offer Face ID
+        askEnableFaceID(for: currentUser)
+    }
+    
+    private func askEnableFaceID(for user: User) {
+        let context = LAContext()
+        var error: NSError?
+        
+        let supportsBiometrics = context.canEvaluatePolicy(
+            .deviceOwnerAuthenticationWithBiometrics,
+            error: &error
+        )
+        
+        if supportsBiometrics {
+            let alertController = UIAlertController(
+                title: "faceid.alert.title".localized,
+                message: "Complete your account setup with Face ID for secure, quick access.",
+                preferredStyle: .alert
+            )
+            
+            let yesAction = UIAlertAction(title: "Enable Face ID", style: .default) { _ in
+                let updatedUser = User(
+                    firebaseUID: user.firebaseUID,
+                    name: user.name,
+                    email: user.email,
+                    isUserSaved: true,
+                    hasFaceIdEnabled: true
+                )
+                UserDefaultsManager.saveUser(user: updatedUser)
+                print("✅ Face ID enabled for new Firebase user")
+                self.flowDelegate?.navigateToDashboard()
+            }
+            
+            let noAction = UIAlertAction(title: "Skip", style: .cancel) { _ in
+                let updatedUser = User(
+                    firebaseUID: user.firebaseUID,
+                    name: user.name,
+                    email: user.email,
+                    isUserSaved: true,
+                    hasFaceIdEnabled: false
+                )
+                UserDefaultsManager.saveUser(user: updatedUser)
+                self.flowDelegate?.navigateToDashboard()
+            }
+            
+            alertController.addAction(yesAction)
+            alertController.addAction(noAction)
+            present(alertController, animated: true)
+        } else {
+            // Device doesn't support biometrics
+            let updatedUser = User(
+                firebaseUID: user.firebaseUID,
+                name: user.name,
+                email: user.email,
+                isUserSaved: true,
+                hasFaceIdEnabled: false
+            )
+            UserDefaultsManager.saveUser(user: updatedUser)
+            flowDelegate?.navigateToDashboard()
+        }
+    }
+    
+    private func presentErrorAlert(title: String, message: String) {
+        let alertController = UIAlertController(title: title, message: message, preferredStyle: .alert)
+        let retryAction = UIAlertAction(title: "error.tryAgain".localized, style: .default)
+        alertController.addAction(retryAction)
+        self.present(alertController, animated: true)
+    }
+    
     func animateShow(completion: (() -> Void)? = nil) {
         contentView.layoutIfNeeded()
         UIView.animate(withDuration: 0.7, animations: {
@@ -57,7 +144,7 @@ final class RegisterViewController: UIViewController {
 
 extension RegisterViewController: RegisterViewDelegate {
     func sendRegisterData(name: String, email: String, password: String, confirmPassword: String) {
-        //
+        viewModel.registerUser(name: name, email: email, password: password, confirmPassword: confirmPassword)
     }
     
     func navigateBackToLogin() {

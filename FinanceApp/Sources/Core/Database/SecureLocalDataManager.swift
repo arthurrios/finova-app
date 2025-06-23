@@ -91,13 +91,11 @@ class SecureLocalDataManager {
         
         do {
             if FileManager.default.fileExists(atPath: userDirectory.path) {
-                do {
-                    try FileManager.default.createDirectory(at: userDirectory, withIntermediateDirectories: true)
-                    print("✅ User data directory created: \(userDirectory.path)")
-                } catch {
-                    print("❌ Failed to create user data directory: \(error)")
-                }
+                try FileManager.default.removeItem(at: userDirectory)
+                print("✅ User data cleared successfully")
             }
+        } catch {
+            print("❌ Failed to clear user data: \(error)")
         }
     }
     
@@ -124,7 +122,7 @@ class SecureLocalDataManager {
         let documentsDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
         return documentsDirectory
             .appendingPathComponent("UserData")
-            .appendingPathExtension(userUID)
+            .appendingPathComponent(userUID)
     }
     
     private func saveEncryptedData<T: Codable>(_ data: T, for userUID: String, filename: String) {
