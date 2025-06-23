@@ -45,17 +45,21 @@ extension LoginViewModel: AuthenticationManagerDelegate {
       }
     }
 
-    // Save user locally, preserving existing Face ID settings
+    // Check if this is a returning user or new user
     let existingUser = UserDefaultsManager.getUser()
+    let isReturningUser = existingUser?.firebaseUID == user.firebaseUID
+
     let updatedUser = User(
       firebaseUID: user.firebaseUID,
       name: user.name,
       email: user.email,
-      isUserSaved: true,
+      isUserSaved: isReturningUser,  // Mark as saved only if returning user
       hasFaceIdEnabled: existingUser?.hasFaceIdEnabled ?? false  // Preserve existing Face ID setting
     )
     UserDefaultsManager.saveUser(user: updatedUser)
-    print("✅ User saved with preserved Face ID setting: \(updatedUser.hasFaceIdEnabled)")
+    print(
+      "✅ User saved - isReturningUser: \(isReturningUser), hasFaceIdEnabled: \(updatedUser.hasFaceIdEnabled)"
+    )
 
     DispatchQueue.main.async {
       self.successResult?()
