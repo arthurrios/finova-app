@@ -41,10 +41,12 @@ final class LoginViewController: UIViewController {
     
     private func bindViewModel() {
         viewModel.successResult = { [weak self] in
+            LoadingManager.shared.hideLoading()
             self?.handleSuccessfulAuthentication()
         }
         
         viewModel.errorResult = { [weak self] title, message in
+            LoadingManager.shared.hideLoading()
             self?.presentErrorAlert(title: title, message: message)
         }
     }
@@ -186,10 +188,12 @@ final class LoginViewController: UIViewController {
 
 extension LoginViewController: LoginViewDelegate {
     func signInWithGoogle() {
+        LoadingManager.shared.showLoading(on: self)
         viewModel.signInWithGoogle()
     }
     
     func sendLoginData(email: String, password: String) {
+        LoadingManager.shared.showLoading(on: self)
         viewModel.authenticate(userEmail: email, password: password)
     }
     

@@ -8,8 +8,8 @@
 **Goal**: Implement Firebase Authentication for user management while keeping all financial data stored locally on device for maximum privacy and zero cloud costs.
 
 **Architecture**: 
-- **Firebase**: Authentication, user profiles only
-- **Local Storage**: All transactions, budgets, categories, user preferences
+- **Firebase**: Authentication only (no profiles stored)
+- **Local Storage**: All transactions, budgets, categories, user data
 - **Security**: UID-based data isolation and encryption
 
 ---
@@ -83,17 +83,11 @@ open FinanceApp.xcworkspace
    - Select: **"Link accounts that use the same email"** ✅
    - Enable: **"Prevent creation of multiple accounts with the same email"** ✅
 
-#### **Step 1.2.4: Security Rules (Optional - for future profile sync)**
-1. **Firestore > Rules**:
+#### **Step 1.2.4: Security Rules (Optional - for future features)**
+1. **Firestore > Rules** (Skip for now - no cloud data storage needed):
 ```javascript
-rules_version = '2';
-service cloud.firestore {
-  match /databases/{database}/documents {
-    match /users/{userId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
-    }
-  }
-}
+// Not needed for current implementation
+// All data stays local - no Firestore usage
 ```
 
 ### **1.3 iOS Project Configuration**
@@ -800,10 +794,7 @@ class DataMigrationManager {
             SecureLocalDataManager.shared.saveBudgets(oldBudgets)
         }
         
-        // 3. Migrate User Preferences
-        migrateUserPreferences(to: firebaseUID)
-        
-        // 4. Clean up old data (optional - keep for safety)
+        // 3. Clean up old data (optional - keep for safety)
         // clearOldData()
     }
     
@@ -817,10 +808,6 @@ class DataMigrationManager {
         // Load from your existing storage mechanism
         // This depends on your current implementation
         return nil
-    }
-    
-    private func migrateUserPreferences(to firebaseUID: String) {
-        // Migrate any user preferences/settings
     }
     
     private func clearOldData() {
@@ -852,8 +839,8 @@ func loadData() {
         // Check for data migration
         DataMigrationManager.shared.checkAndPerformMigration(for: currentUser.uid)
         
-        // Load user profile from Firebase
-        updateUserProfile(from: currentUser)
+        // Update basic user info locally (no profile scene needed)
+        updateBasicUserInfo(from: currentUser)
     }
     
     // Load financial data from secure local storage
@@ -863,8 +850,8 @@ func loadData() {
     // Your existing loadData logic...
 }
 
-private func updateUserProfile(from firebaseUser: FirebaseAuth.User) {
-    // Get user name from Firebase Auth
+private func updateBasicUserInfo(from firebaseUser: FirebaseAuth.User) {
+    // Get basic user info from Firebase Auth (for dashboard display only)
     let userName = firebaseUser.displayName ?? "User"
     let userEmail = firebaseUser.email ?? ""
     
@@ -878,7 +865,7 @@ private func updateUserProfile(from firebaseUser: FirebaseAuth.User) {
     
     UserDefaultsManager.saveUser(user: updatedUser)
     
-    // Update your UI
+    // Update dashboard display name if needed
     self.userName = userName
 }
 
@@ -992,9 +979,9 @@ private func logError(_ error: Error, context: String) {
 
 ## 📱 **Phase 8: Optional Enhancements**
 
-### **8.1 Biometric Authentication**
+### **8.1 Enhanced Local Security**
 
-#### **Step 8.1.1: Enhanced Local Auth**
+#### **Step 8.1.1: Additional Biometric Options**
 ```swift
 // Add to SecureLocalDataManager.swift
 import LocalAuthentication

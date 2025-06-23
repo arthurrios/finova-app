@@ -7,7 +7,6 @@
 
 import Foundation
 
-public protocol LoginFlowDelegate: AnyObject {
-    func navigateToDashboard()
-    func navigateToRegister()
+public protocol LoginFlowDelegate: CommonFlowDelegate {
+  func navigateToRegister()
 }
