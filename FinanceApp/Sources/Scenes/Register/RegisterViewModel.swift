@@ -64,11 +64,19 @@ extension RegisterViewModel: AuthenticationManagerDelegate {
 
     // Migrate old data if this is first Firebase registration
     if let firebaseUID = user.firebaseUID {
-      SecureLocalDataManager.shared.migrateOldDataToUser(firebaseUID: firebaseUID) { success in
+      DataMigrationManager.shared.checkAndPerformMigration(for: firebaseUID) { success in
         if success {
           print("✅ Data migration completed for new user")
+
+          // Get migration statistics for logging
+          let stats = DataMigrationManager.shared.getMigrationStatistics(for: firebaseUID)
+          print("📊 Migration Statistics:\n\(stats.summary)")
+        } else {
+          print("❌ Data migration failed for new user")
         }
       }
+
+      // Authenticate with secure data manager
       SecureLocalDataManager.shared.authenticateUser(firebaseUID: firebaseUID)
     }
 
