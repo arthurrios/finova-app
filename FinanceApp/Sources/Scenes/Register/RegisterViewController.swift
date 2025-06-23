@@ -14,8 +14,7 @@ final class RegisterViewController: UIViewController {
     let viewModel: RegisterViewModel
     public weak var flowDelegate: RegisterFlowDelegate?
     
-    init(contentView: RegisterView, viewModel: RegisterViewModel, flowDelegate: RegisterFlowDelegate)
-    {
+    init(contentView: RegisterView, viewModel: RegisterViewModel, flowDelegate: RegisterFlowDelegate) {
         self.contentView = contentView
         self.viewModel = viewModel
         self.flowDelegate = flowDelegate

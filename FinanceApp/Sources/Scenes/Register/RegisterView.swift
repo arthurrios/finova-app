@@ -199,7 +199,7 @@ final class RegisterView: UIView {
         equalTo: alreadyHaveAccountLabel.trailingAnchor, constant: Metrics.spacing1),
       loginLinkButton.centerYAnchor.constraint(equalTo: loginLinkContainer.centerYAnchor),
       loginLinkButton.trailingAnchor.constraint(
-        lessThanOrEqualTo: loginLinkContainer.trailingAnchor),
+        lessThanOrEqualTo: loginLinkContainer.trailingAnchor)
     ])
   }
 
