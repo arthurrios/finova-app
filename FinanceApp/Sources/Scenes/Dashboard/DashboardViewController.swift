@@ -56,6 +56,11 @@ final class DashboardViewController: UIViewController {
         syncedViewModel.setTransactions(viewModel.transactionRepo.fetchTransactions())
     }
     
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        LoadingManager.shared.hideLoading()
+    }
+    
     private func setup() {
         view.addSubview(contentView)
         buildHierarchy()
