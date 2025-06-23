@@ -48,12 +48,12 @@ class LoadingManager {
             
             UIView.animate(withDuration: 0.3, animations: {
                 loadingView.alpha = 0
-            }) { _ in
+            }, completion: { _ in
                 loadingView.removeFromSuperview()
                 self.loadingView = nil
                 self.activityIndicator = nil
             }
-        }
+        )}
     }
     
     // MARK: - Private methods

@@ -83,8 +83,7 @@ class DataMigrationManager {
     
     private func performMigration(for firebaseUID: String, completion: @escaping (Bool) -> Void) {
         // Use SecureLocalDataManager to perform the actual migration
-        SecureLocalDataManager.shared.migrateOldDataToUser(firebaseUID: firebaseUID) {
-            [weak self] success in
+        SecureLocalDataManager.shared.migrateOldDataToUser(firebaseUID: firebaseUID) { [weak self] success in
             if success {
                 print("✅ DataMigrationManager: Migration completed successfully")
                 

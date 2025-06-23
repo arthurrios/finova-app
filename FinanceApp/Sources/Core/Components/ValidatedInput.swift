@@ -104,7 +104,7 @@ class ValidatedInput: UIView {
             validationLabel.trailingAnchor.constraint(
                 equalTo: trailingAnchor, constant: -Metrics.spacing2),
             validationLabelHeightConstraint!,
-            validationLabel.bottomAnchor.constraint(equalTo: bottomAnchor),
+            validationLabel.bottomAnchor.constraint(equalTo: bottomAnchor)
         ])
     }
     
@@ -209,8 +209,7 @@ class ValidatedInput: UIView {
         }
     }
     
-    private func validateConfirmPassword(_ confirmPassword: String, against originalPassword: String)
-    {
+    private func validateConfirmPassword(_ confirmPassword: String, against originalPassword: String) {
         let passwordsMatch = confirmPassword == originalPassword && !confirmPassword.isEmpty
         
         if passwordsMatch {
