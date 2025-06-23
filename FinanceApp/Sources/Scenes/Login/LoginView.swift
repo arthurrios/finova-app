@@ -216,7 +216,7 @@ final class LoginView: UIView {
         equalTo: dontHaveAccountLabel.trailingAnchor, constant: Metrics.spacing1),
       registerLinkButton.centerYAnchor.constraint(equalTo: registerLinkContainer.centerYAnchor),
       registerLinkButton.trailingAnchor.constraint(
-        lessThanOrEqualTo: registerLinkContainer.trailingAnchor),
+        lessThanOrEqualTo: registerLinkContainer.trailingAnchor)
     ]
 
     if isSmallScreen {
@@ -234,7 +234,7 @@ final class LoginView: UIView {
           equalTo: appLogoImageView.bottomAnchor, constant: Metrics.spacing5),
 
         // Welcome title starts at container top
-        welcomeTitleLabel.topAnchor.constraint(equalTo: containerView.layoutMarginsGuide.topAnchor),
+        welcomeTitleLabel.topAnchor.constraint(equalTo: containerView.layoutMarginsGuide.topAnchor)
       ]
 
       NSLayoutConstraint.activate(commonConstraints + smallScreenConstraints)
@@ -251,7 +251,7 @@ final class LoginView: UIView {
         containerView.topAnchor.constraint(equalTo: loginImageView.bottomAnchor),
 
         // Welcome title starts at container top
-        welcomeTitleLabel.topAnchor.constraint(equalTo: containerView.layoutMarginsGuide.topAnchor),
+        welcomeTitleLabel.topAnchor.constraint(equalTo: containerView.layoutMarginsGuide.topAnchor)
       ]
 
       NSLayoutConstraint.activate(commonConstraints + largeScreenConstraints)
