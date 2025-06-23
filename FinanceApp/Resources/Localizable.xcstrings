@@ -1310,6 +1310,91 @@
         }
       }
     },
+    "faceid.reason" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Use Face ID to access your financial data securely"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Use o Face ID para acessar seus dados financeiros com segurança"
+          }
+        }
+      }
+    },
+    "faceid.enable.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enable %@?"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Habilitar %@?"
+          }
+        }
+      }
+    },
+    "faceid.enable.message" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Would you like to enable %@ for quick and secure access to your account?"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gostaria de habilitar %@ para acesso rápido e seguro à sua conta?"
+          }
+        }
+      }
+    },
+    "faceid.enable.button" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enable %@"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Habilitar %@"
+          }
+        }
+      }
+    },
+    "skip" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Skip"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pular"
+          }
+        }
+      }
+    },
     "input.confirmPassword" : {
       "extractionState" : "manual",
       "localizations" : {
