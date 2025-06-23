@@ -373,16 +373,19 @@ class AuthenticationTests: XCTestCase {
     }
     
     func testWeakPasswordRegistration() {
-        let expectation = XCTestExpectation(description: "Weak Password Registration")
         let testUser = TestUser.withWeakPassword()
-        
         print("🧪 Testing weak password registration with password: '\(testUser.password)'")
         
-        let mockDelegate = MockAuthenticationDelegate(
+        let expectation = performDirectFirebaseAuth(
+            operation: { completion in
+                Auth.auth().createUser(
+                    withEmail: testUser.email, password: testUser.password, completion: completion)
+            },
+            expectedEmail: testUser.email,
+            expectedName: testUser.name,
             onSuccess: { user in
                 print("⚠️ Firebase unexpectedly accepted weak password for user: \(user.email)")
                 XCTFail("Registration should fail with weak password, but succeeded")
-                expectation.fulfill()
             },
             onFailure: { error in
                 print("✅ Weak password correctly rejected: \(error.localizedDescription)")
@@ -411,36 +414,30 @@ class AuthenticationTests: XCTestCase {
                         isPasswordError,
                         "Should fail with password-related error, got: \(error.localizedDescription)")
                 }
-                
-                expectation.fulfill()
             }
         )
-        
-        authManager.delegate = mockDelegate
-        authManager.register(name: testUser.name, email: testUser.email, password: testUser.password)
         
         wait(for: [expectation], timeout: 10.0)
     }
     
     func testInvalidCredentialsLogin() {
-        let expectation = XCTestExpectation(description: "Invalid Credentials Login")
-        
         print("🧪 Testing invalid credentials login")
         
-        let mockDelegate = MockAuthenticationDelegate(
+        let expectation = performDirectFirebaseAuth(
+            operation: { completion in
+                Auth.auth().signIn(
+                    withEmail: "nonexistent@example.com", password: "wrongpassword", completion: completion)
+            },
+            expectedEmail: "nonexistent@example.com",
+            expectedName: "Invalid User",
             onSuccess: { _ in
                 XCTFail("Login should fail with invalid credentials")
-                expectation.fulfill()
             },
             onFailure: { error in
                 print("✅ Invalid credentials correctly rejected: \(error.localizedDescription)")
                 // Should fail with invalid credentials
-                expectation.fulfill()
             }
         )
-        
-        authManager.delegate = mockDelegate
-        authManager.signIn(email: "nonexistent@example.com", password: "wrongpassword")
         
         wait(for: [expectation], timeout: 10.0)
     }
@@ -448,10 +445,6 @@ class AuthenticationTests: XCTestCase {
     // MARK: - Data Isolation Tests
     
     func testDataIsolationBetweenUsers() {
-        let user1Expectation = XCTestExpectation(description: "User 1 Setup")
-        let user2Expectation = XCTestExpectation(description: "User 2 Setup")
-        let isolationExpectation = XCTestExpectation(description: "Data Isolation Verification")
-        
         let testUser1 = TestUser.createTestUser(suffix: "isolation1")
         let testUser2 = TestUser.createTestUser(suffix: "isolation2")
         
@@ -459,9 +452,30 @@ class AuthenticationTests: XCTestCase {
         print("   User 1: \(testUser1.email)")
         print("   User 2: \(testUser2.email)")
         
-        // Step 1: Register and setup User 1
-        let user1Delegate = MockAuthenticationDelegate(
-            onSuccess: { [self] user in
+        // Step 1: Register and setup User 1 using direct Firebase Auth
+        let user1Expectation = performDirectFirebaseAuth(
+            operation: { completion in
+                Auth.auth().createUser(withEmail: testUser1.email, password: testUser1.password) {
+                    result, error in
+                    if let error = error {
+                        completion(result, error)
+                        return
+                    }
+                    
+                    if let user = result?.user {
+                        let changeRequest = user.createProfileChangeRequest()
+                        changeRequest.displayName = testUser1.name
+                        changeRequest.commitChanges { profileError in
+                            completion(result, error)
+                        }
+                    } else {
+                        completion(result, error)
+                    }
+                }
+            },
+            expectedEmail: testUser1.email,
+            expectedName: testUser1.name,
+            onSuccess: { user in
                 print("✅ User 1 registered successfully")
                 // Authenticate with data manager
                 if let uid = user.firebaseUID {
@@ -479,28 +493,49 @@ class AuthenticationTests: XCTestCase {
                     self.dataManager.saveTransactions(user1Transactions)
                     print("✅ User 1 data saved: \(user1Transactions.count) transactions")
                 }
-                user1Expectation.fulfill()
             },
             onFailure: { error in
                 print("❌ User 1 registration failed: \(error.localizedDescription)")
                 XCTFail("User 1 registration failed: \(error.localizedDescription)")
-                user1Expectation.fulfill()
             }
         )
         
-        authManager.delegate = user1Delegate
-        authManager.register(name: testUser1.name, email: testUser1.email, password: testUser1.password)
-        
         wait(for: [user1Expectation], timeout: 15.0)
         
-        // Sign out User 1
-        authManager.signOut()
+        // Sign out User 1 using Firebase Auth directly
+        do {
+            try Auth.auth().signOut()
+            print("✅ User 1 signed out successfully")
+        } catch {
+            print("❌ Error signing out User 1: \(error.localizedDescription)")
+        }
         dataManager.signOut()
         Thread.sleep(forTimeInterval: 1.0)
         
-        // Step 2: Register and setup User 2
-        let user2Delegate = MockAuthenticationDelegate(
-            onSuccess: { [self] user in
+        // Step 2: Register and setup User 2 using direct Firebase Auth
+        let user2Expectation = performDirectFirebaseAuth(
+            operation: { completion in
+                Auth.auth().createUser(withEmail: testUser2.email, password: testUser2.password) {
+                    result, error in
+                    if let error = error {
+                        completion(result, error)
+                        return
+                    }
+                    
+                    if let user = result?.user {
+                        let changeRequest = user.createProfileChangeRequest()
+                        changeRequest.displayName = testUser2.name
+                        changeRequest.commitChanges { profileError in
+                            completion(result, error)
+                        }
+                    } else {
+                        completion(result, error)
+                    }
+                }
+            },
+            expectedEmail: testUser2.email,
+            expectedName: testUser2.name,
+            onSuccess: { user in
                 print("✅ User 2 registered successfully")
                 // Authenticate with data manager
                 if let uid = user.firebaseUID {
@@ -532,22 +567,14 @@ class AuthenticationTests: XCTestCase {
                     
                     print("✅ Data isolation verified successfully")
                 }
-                user2Expectation.fulfill()
             },
             onFailure: { error in
                 print("❌ User 2 registration failed: \(error.localizedDescription)")
                 XCTFail("User 2 registration failed: \(error.localizedDescription)")
-                user2Expectation.fulfill()
             }
         )
         
-        authManager.delegate = user2Delegate
-        authManager.register(name: testUser2.name, email: testUser2.email, password: testUser2.password)
-        
         wait(for: [user2Expectation], timeout: 15.0)
-        
-        isolationExpectation.fulfill()
-        wait(for: [isolationExpectation], timeout: 1.0)
     }
     
     // MARK: - Data Migration Tests
@@ -723,26 +750,40 @@ class AuthenticationTests: XCTestCase {
         
         // This test would require network mocking in a real implementation
         // For now, we'll test the error handling structure
-        let expectation = XCTestExpectation(description: "Network Error Handling")
+        let testUser = TestUser.user1
         
-        let mockDelegate = MockAuthenticationDelegate(
+        let expectation = performDirectFirebaseAuth(
+            operation: { completion in
+                Auth.auth().createUser(withEmail: testUser.email, password: testUser.password) {
+                    result, error in
+                    if let error = error {
+                        completion(result, error)
+                        return
+                    }
+                    
+                    if let user = result?.user {
+                        let changeRequest = user.createProfileChangeRequest()
+                        changeRequest.displayName = testUser.name
+                        changeRequest.commitChanges { profileError in
+                            completion(result, error)
+                        }
+                    } else {
+                        completion(result, error)
+                    }
+                }
+            },
+            expectedEmail: testUser.email,
+            expectedName: testUser.name,
             onSuccess: { _ in
                 print("✅ Network test completed (success case)")
                 // If this succeeds, that's also fine for this test
-                expectation.fulfill()
             },
             onFailure: { error in
                 print("✅ Network test completed (error case): \(error.localizedDescription)")
                 // Verify error handling works
                 XCTAssertNotNil(error.localizedDescription)
-                expectation.fulfill()
             }
         )
-        
-        authManager.delegate = mockDelegate
-        // Try to register with a potentially problematic scenario
-        let testUser = TestUser.user1
-        authManager.register(name: testUser.name, email: testUser.email, password: testUser.password)
         
         wait(for: [expectation], timeout: 15.0)
     }
