@@ -467,8 +467,8 @@ class SecureLocalDataManager {
 // MARK: - Supporting Data Models
 
 struct UserProfile: Codable {
-  let profileImageData: Data?
-  let currentMonthIndex: Int
+  var profileImageData: Data?
+  var currentMonthIndex: Int
   let preferences: UserPreferences
 }
 
