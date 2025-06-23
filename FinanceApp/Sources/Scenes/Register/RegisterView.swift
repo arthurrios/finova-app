@@ -167,7 +167,7 @@ final class RegisterView: UIView {
             
             loginLinkContainer.centerXAnchor.constraint(equalTo: centerXAnchor),
             loginLinkContainer.heightAnchor.constraint(equalToConstant: 44),
-            loginLinkContainer.bottomAnchor.constraint(equalTo: containerView.layoutMarginsGuide.bottomAnchor),
+            loginLinkContainer.topAnchor.constraint(equalTo: registerButton.bottomAnchor, constant: Metrics.spacing3),
             
             alreadyHaveAccountLabel.leadingAnchor.constraint(equalTo: loginLinkContainer.leadingAnchor),
             alreadyHaveAccountLabel.centerYAnchor.constraint(equalTo: loginLinkContainer.centerYAnchor),
