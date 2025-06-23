@@ -673,7 +673,7 @@ class AuthenticationTests: XCTestCase {
         let migrationExpectation = XCTestExpectation(description: "First User Migration")
 
         // Test migration for first user
-        self.migrationManager.checkAndPerformMigration(for: uid) { success in
+        self.migrationManager.checkAndPerformMigration(for: uid, userEmail: user.email) { success in
           print("🔄 First user migration completed with success: \(success)")
 
           XCTAssertTrue(success, "First user migration should succeed")
@@ -754,7 +754,8 @@ class AuthenticationTests: XCTestCase {
         // Perform migration for first user
         let migrationExpectation = XCTestExpectation(description: "First User Migration")
 
-        self.migrationManager.checkAndPerformMigration(for: firstUID) { success in
+        self.migrationManager.checkAndPerformMigration(for: firstUID, userEmail: firstUser.email) {
+          success in
           XCTAssertTrue(success, "First user migration should succeed")
           print("✅ First user migration completed")
           migrationExpectation.fulfill()
@@ -830,7 +831,8 @@ class AuthenticationTests: XCTestCase {
         // Test migration call for second user (should be no-op)
         let noMigrationExpectation = XCTestExpectation(description: "Second User No Migration")
 
-        self.migrationManager.checkAndPerformMigration(for: secondUID) { success in
+        self.migrationManager.checkAndPerformMigration(for: secondUID, userEmail: secondUser.email)
+        { success in
           XCTAssertTrue(success, "Migration check should succeed (but do nothing)")
 
           // Verify second user still has empty account after migration check
@@ -902,7 +904,8 @@ class AuthenticationTests: XCTestCase {
         // Perform migration
         let migrationExpectation = XCTestExpectation(description: "State Tracking Migration")
 
-        self.migrationManager.checkAndPerformMigration(for: uid) { success in
+        self.migrationManager.checkAndPerformMigration(for: uid, userEmail: testUser.email) {
+          success in
           XCTAssertTrue(success, "Migration should succeed")
 
           // Check final state
@@ -972,7 +975,8 @@ class AuthenticationTests: XCTestCase {
 
         let migrationExpectation = XCTestExpectation(description: "No Data Migration")
 
-        self.migrationManager.checkAndPerformMigration(for: uid) { success in
+        self.migrationManager.checkAndPerformMigration(for: uid, userEmail: testUser.email) {
+          success in
           XCTAssertTrue(success, "Migration should succeed even with no data")
 
           // Verify migration is marked complete

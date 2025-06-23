@@ -64,7 +64,8 @@ extension RegisterViewModel: AuthenticationManagerDelegate {
 
     // Migrate old data if this is first Firebase registration
     if let firebaseUID = user.firebaseUID {
-      DataMigrationManager.shared.checkAndPerformMigration(for: firebaseUID) { success in
+      DataMigrationManager.shared.checkAndPerformMigration(for: firebaseUID, userEmail: user.email)
+      { success in
         if success {
           print("✅ Data migration completed for new user")
 

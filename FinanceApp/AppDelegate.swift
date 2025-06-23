@@ -19,6 +19,15 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
   ) -> Bool {
     configureFirebase()
     registerForNotifications()
+
+    // 🧹 Perform one-time cleanup of global SQLite data
+    DataCleanupManager.shared.performGlobalDataCleanup()
+
+    #if DEBUG
+      // 🧪 Debug: Show data status on app launch
+      DebugDataManager.shared.showDataStatus()
+    #endif
+
     return true
   }
 

@@ -23,8 +23,12 @@ class DataMigrationManager {
 
   /// Checks if migration is needed and performs it if necessary
   /// This implements one-time global migration to prevent data privacy violations
-  func checkAndPerformMigration(for firebaseUID: String, completion: @escaping (Bool) -> Void) {
-    print("🔄 DataMigrationManager: Checking migration status for user: \(firebaseUID)")
+  func checkAndPerformMigration(
+    for firebaseUID: String, userEmail: String, completion: @escaping (Bool) -> Void
+  ) {
+    print(
+      "🔄 DataMigrationManager: Checking migration status for user: \(firebaseUID) with email: \(userEmail)"
+    )
 
     // Check if global migration has already been performed
     if UserDefaults.standard.bool(forKey: globalMigrationKey) {
@@ -52,13 +56,16 @@ class DataMigrationManager {
     }
 
     print("📦 Existing local data found - performing one-time migration to first Firebase user...")
-    performFirstUserMigration(for: firebaseUID, completion: completion)
+    performFirstUserMigration(for: firebaseUID, userEmail: userEmail, completion: completion)
   }
 
   /// Forces a migration regardless of previous status (for testing/debugging)
-  func forceMigration(for firebaseUID: String, completion: @escaping (Bool) -> Void) {
-    print("🔄 DataMigrationManager: Force migration for user: \(firebaseUID)")
-    performMigration(for: firebaseUID, completion: completion)
+  func forceMigration(
+    for firebaseUID: String, userEmail: String, completion: @escaping (Bool) -> Void
+  ) {
+    print(
+      "🔄 DataMigrationManager: Force migration for user: \(firebaseUID) with email: \(userEmail)")
+    performMigration(for: firebaseUID, userEmail: userEmail, completion: completion)
   }
 
   /// Verifies that migration was successful
@@ -88,13 +95,11 @@ class DataMigrationManager {
   // MARK: - Private Methods
 
   private func checkForExistingData() -> Bool {
-    // Check for existing transactions in SQLite
-    let transactionRepo = TransactionRepository()
-    let existingTransactions = transactionRepo.fetchAllTransactions()
+    // Check for existing transactions in SQLite DIRECTLY (not through repositories)
+    let existingTransactions = (try? DBHelper.shared.getTransactions()) ?? []
 
-    // Check for existing budgets in SQLite
-    let budgetRepo = BudgetRepository()
-    let existingBudgets = budgetRepo.fetchBudgets()
+    // Check for existing budgets in SQLite DIRECTLY (not through repositories)
+    let existingBudgets = (try? DBHelper.shared.getBudgets()) ?? []
 
     // Check for existing user profile data
     let hasProfileImage = UserDefaultsManager.loadProfileImage() != nil
@@ -104,7 +109,7 @@ class DataMigrationManager {
       !existingTransactions.isEmpty || !existingBudgets.isEmpty || hasProfileImage
       || currentMonthIndex != 0
 
-    print("🔍 Existing local data check:")
+    print("🔍 Existing local data check (SQLite direct):")
     print("   Transactions: \(existingTransactions.count)")
     print("   Budgets: \(existingBudgets.count)")
     print("   Profile Image: \(hasProfileImage)")
@@ -115,11 +120,11 @@ class DataMigrationManager {
   }
 
   private func performFirstUserMigration(
-    for firebaseUID: String, completion: @escaping (Bool) -> Void
+    for firebaseUID: String, userEmail: String, completion: @escaping (Bool) -> Void
   ) {
-    print("🎯 Performing first-user migration for: \(firebaseUID)")
+    print("🎯 Performing first-user migration for: \(firebaseUID) with email: \(userEmail)")
 
-    performMigration(for: firebaseUID) { [weak self] success in
+    performMigration(for: firebaseUID, userEmail: userEmail) { [weak self] success in
       if success {
         print("✅ First-user migration completed successfully")
         self?.markGlobalMigrationComplete(for: firebaseUID)
@@ -130,9 +135,13 @@ class DataMigrationManager {
     }
   }
 
-  private func performMigration(for firebaseUID: String, completion: @escaping (Bool) -> Void) {
+  private func performMigration(
+    for firebaseUID: String, userEmail: String, completion: @escaping (Bool) -> Void
+  ) {
     // Use SecureLocalDataManager to perform the actual migration
-    SecureLocalDataManager.shared.migrateOldDataToUser(firebaseUID: firebaseUID) {
+    SecureLocalDataManager.shared.migrateOldDataToUser(
+      firebaseUID: firebaseUID, userEmail: userEmail
+    ) {
       [weak self] success in
       if success {
         print("✅ DataMigrationManager: Migration completed successfully")
@@ -156,12 +165,9 @@ class DataMigrationManager {
   // MARK: - Migration Statistics
 
   func getMigrationStatistics(for firebaseUID: String) -> MigrationStatistics {
-    // Get original data counts
-    let transactionRepo = TransactionRepository()
-    let budgetRepo = BudgetRepository()
-
-    let originalTransactionCount = transactionRepo.fetchAllTransactions().count
-    let originalBudgetCount = budgetRepo.fetchBudgets().count
+    // Get original data counts from SQLite DIRECTLY
+    let originalTransactionCount = (try? DBHelper.shared.getTransactions())?.count ?? 0
+    let originalBudgetCount = (try? DBHelper.shared.getBudgets())?.count ?? 0
 
     // Get migrated data counts
     SecureLocalDataManager.shared.authenticateUser(firebaseUID: firebaseUID)

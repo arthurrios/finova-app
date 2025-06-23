@@ -34,7 +34,9 @@ extension LoginViewModel: AuthenticationManagerDelegate {
       SecureLocalDataManager.shared.authenticateUser(firebaseUID: firebaseUID)
 
       // Migrate existing data if needed
-      SecureLocalDataManager.shared.migrateOldDataToUser(firebaseUID: firebaseUID) { success in
+      SecureLocalDataManager.shared.migrateOldDataToUser(
+        firebaseUID: firebaseUID, userEmail: user.email
+      ) { success in
         if success {
           print("✅ Data migration completed successfully")
         } else {
