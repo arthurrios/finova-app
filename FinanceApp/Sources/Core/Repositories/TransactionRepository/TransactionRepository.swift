@@ -21,6 +21,11 @@ final class TransactionRepository: TransactionRepositoryProtocol {
       if transaction.hasInstallments == true {
         return false
       }
+      // Filter out parent recurring transactions - they should not be displayed in UI
+      // Only their instances (with parentTransactionId) should be shown
+      if transaction.isRecurring == true {
+        return false
+      }
       return true
     }
   }
