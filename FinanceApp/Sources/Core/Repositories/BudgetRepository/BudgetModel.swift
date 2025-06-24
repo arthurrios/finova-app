@@ -7,17 +7,17 @@
 
 import Foundation
 
-struct BudgetEntry {
+struct BudgetEntry: Codable {
     let monthKey: String
     let budget: Int
 }
 
-struct BudgetModel {
+struct BudgetModel: Codable {
     let monthDate: Int
     let amount: Int
 }
 
-struct DisplayBudgetModel {
+struct DisplayBudgetModel: Codable {
     let date: Date
     let amount: Int
 }

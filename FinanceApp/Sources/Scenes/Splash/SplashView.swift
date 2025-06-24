@@ -31,7 +31,6 @@ class SplashView: UIView {
     
     private func setupView() {
         loginImageView.alpha = 0
-        loginImageView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(logoImageView)
         addSubview(loginImageView)
         

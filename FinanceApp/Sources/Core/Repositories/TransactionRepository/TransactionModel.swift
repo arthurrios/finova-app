@@ -10,7 +10,7 @@ import UIKit
 
 typealias UITransactionData = TransactionData<TransactionCategory, TransactionType>
 
-struct Transaction {
+struct Transaction: Codable {
     private let data: UITransactionData
     
     var date: Date {
@@ -145,7 +145,7 @@ extension UITransactionData {
     }
 }
 
-enum TransactionCategory: String, CaseIterable {
+enum TransactionCategory: String, CaseIterable, Codable {
     case market = "category.market"
     case meals = "category.meals"
     case gifts = "category.gifts"

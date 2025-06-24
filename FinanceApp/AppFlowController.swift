@@ -25,6 +25,16 @@ class AppFlowController {
     }
 }
 
+// MARK: - Common Navigation
+extension AppFlowController: CommonFlowDelegate {
+    func navigateToDashboard() {
+        navigationController?.dismiss(animated: false)
+        let dashboardViewController = viewControllersFactory.makeDashboardViewController(
+            flowDelegate: self)
+        navigationController?.pushViewController(dashboardViewController, animated: true)
+    }
+}
+
 // MARK: - Splash
 extension AppFlowController: SplashFlowDelegate {
     func navigateToLogin() {
@@ -43,15 +53,33 @@ extension AppFlowController: SplashFlowDelegate {
     }
 }
 
+// MARK: - Login Flow
 extension AppFlowController: LoginFlowDelegate {
-    func navigateToDashboard() {
+    func navigateToRegister() {
         navigationController?.dismiss(animated: false)
-        let dashboardViewController = viewControllersFactory.makeDashboardViewController(
-            flowDelegate: self)
-        navigationController?.pushViewController(dashboardViewController, animated: true)
+        let viewController = viewControllersFactory.makeRegisterViewController(flowDelegate: self)
+        viewController.modalPresentationStyle = .overCurrentContext
+        viewController.modalTransitionStyle = .crossDissolve
+        navigationController?.present(viewController, animated: false) {
+            viewController.animateShow()
+        }
     }
 }
 
+// MARK: - Register Flow
+extension AppFlowController: RegisterFlowDelegate {
+    func navigateBackToLogin() {
+        navigationController?.dismiss(animated: false)
+        let viewController = viewControllersFactory.makeLoginViewController(flowDelegate: self)
+        viewController.modalPresentationStyle = .overCurrentContext
+        viewController.modalTransitionStyle = .crossDissolve
+        navigationController?.present(viewController, animated: false) {
+            viewController.animateShow()
+        }
+    }
+}
+
+// MARK: - Dashboard Flow
 extension AppFlowController: DashboardFlowDelegate {
     func openAddTransactionModal() {
         let viewController = viewControllersFactory.makeAddTransactionModalViewController(
@@ -90,12 +118,14 @@ extension AppFlowController: DashboardFlowDelegate {
     }
 }
 
+// MARK: - Budgets Flow
 extension AppFlowController: BudgetsFlowDelegate {
     func navBackToDashboard() {
         navigationController?.popViewController(animated: true)
     }
 }
 
+// MARK: - Add Transaction Modal Flow
 extension AppFlowController: AddTransactionModalFlowDelegate {
     func didAddTransaction() {
         navigationController?.dismiss(animated: false)

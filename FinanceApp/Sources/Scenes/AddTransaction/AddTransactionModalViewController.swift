@@ -30,6 +30,12 @@ final class AddTransactionModalViewController: UIViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         
+        // 🔒 Authenticate SecureLocalDataManager for UID-isolated data access
+        if let user = UserDefaultsManager.getUser(), let firebaseUID = user.firebaseUID {
+            SecureLocalDataManager.shared.authenticateUser(firebaseUID: firebaseUID)
+            print("🔒 AddTransactionModal: SecureLocalDataManager authenticated for user: \(firebaseUID)")
+        }
+        
         contentView.delegate = self
         contentView.incomeSelectorButton.delegate = self
         contentView.expenseSelectorButton.delegate = self
@@ -41,10 +47,6 @@ final class AddTransactionModalViewController: UIViewController {
         super.viewWillAppear(animated)
         startKeyboardObservers()
     }
-    
-//    override func viewWillDisappear(_ animated: Bool) {
-//        super.viewWillDisappear(animated)
-//    }
     
     private func setupView() {
         let blurEffect = UIBlurEffect(style: .dark)

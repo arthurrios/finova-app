@@ -44,6 +44,7 @@ final class DashboardViewController: UIViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         setup()
+        syncedViewModel.selectMonth(at: todayMonthIndex, animated: false)
         loadData()
         contentView.frame = view.bounds
         setupCollectionViews()
@@ -54,6 +55,11 @@ final class DashboardViewController: UIViewController {
         let monthData = viewModel.loadMonthlyCards()
         syncedViewModel.setMonthData(monthData)
         syncedViewModel.setTransactions(viewModel.transactionRepo.fetchTransactions())
+    }
+    
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        LoadingManager.shared.hideLoading()
     }
     
     private func setup() {
@@ -69,12 +75,24 @@ final class DashboardViewController: UIViewController {
     }
     
     func loadData() {
+        print("📱 DashboardViewController.loadData() called")
         if let user = UserDefaultsManager.getUser() {
+            print("📱 Dashboard loading user: '\(user.name)' with UID: '\(user.firebaseUID ?? "nil")'")
+            
+            // 🔒 Authenticate SecureLocalDataManager for UID-isolated data access
+            if let firebaseUID = user.firebaseUID {
+                SecureLocalDataManager.shared.authenticateUser(firebaseUID: firebaseUID)
+                print("🔒 SecureLocalDataManager authenticated for user: \(firebaseUID)")
+            }
+            
             contentView.welcomeTitleLabel.text = "dashboard.welcomeTitle".localized + "\(user.name)!"
             contentView.welcomeTitleLabel.applyStyle()
+            print("📱 Dashboard welcome text set to: '\(contentView.welcomeTitleLabel.text ?? "nil")'")
+        } else {
+            print("❌ Dashboard: No user found in UserDefaults")
         }
         
-        if let userImage = UserDefaultsManager.loadProfileImage() {
+        if let userImage = SecureLocalDataManager.shared.loadProfileImage() {
             contentView.avatar.userImage = userImage
         }
         
@@ -84,7 +102,6 @@ final class DashboardViewController: UIViewController {
         
         syncedViewModel.setMonthData(monthData)
         syncedViewModel.setTransactions(transactions)
-        syncedViewModel.selectMonth(at: todayMonthIndex, animated: false)
         viewModel.scheduleAllTransactionNotifications()
         
         contentView.monthCarousel.layoutIfNeeded()
@@ -123,7 +140,11 @@ extension DashboardViewController: DashboardViewDelegate {
     }
     
     func logout() {
+        AuthenticationManager.shared.signOut()
+        SecureLocalDataManager.shared.signOut()
         UserDefaultsManager.removeUser()
+        
+        print("✅ Complete logout performed")
         self.flowDelegate?.logout()
     }
 }
@@ -143,10 +164,10 @@ extension DashboardViewController: UIImagePickerControllerDelegate, UINavigation
     ) {
         if let editedImage = info[UIImagePickerController.InfoKey.editedImage] as? UIImage {
             contentView.avatar.userImage = editedImage
-            UserDefaultsManager.saveProfileImage(image: editedImage)
+            SecureLocalDataManager.shared.saveProfileImage(editedImage)
         } else if let originalImage = info[.originalImage] as? UIImage {
             contentView.avatar.userImage = originalImage
-            UserDefaultsManager.saveProfileImage(image: originalImage)
+            SecureLocalDataManager.shared.saveProfileImage(originalImage)
         }
         
         dismiss(animated: true)

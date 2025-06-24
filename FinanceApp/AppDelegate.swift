@@ -6,6 +6,7 @@
 //
 
 import Firebase
+import GoogleSignIn
 import UIKit
 import UserNotifications
 
@@ -18,6 +19,18 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
   ) -> Bool {
     configureFirebase()
     registerForNotifications()
+
+    // 🧹 Perform one-time cleanup of global SQLite data
+    DataCleanupManager.shared.performGlobalDataCleanup()
+
+    // 🔄 Perform one-time migrations (including global profile image cleanup)
+    OneTimeMigrations.shared.performAllMigrations()
+
+    #if DEBUG
+      // 🧪 Debug: Show data status on app launch
+      DebugDataManager.shared.showDataStatus()
+    #endif
+
     return true
   }
 
@@ -50,8 +63,37 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     }
 
     if FileManager.default.fileExists(atPath: path) {
+      print("🔥 Configuring Firebase...")
       FirebaseApp.configure()
       print("✅ Firebase configured successfully")
+
+      // Verify Firebase is working
+      if let app = FirebaseApp.app() {
+        print("✅ Firebase app instance: \(app)")
+        print("✅ Firebase project ID: \(app.options.projectID ?? "Unknown")")
+      } else {
+        print("❌ Firebase app instance is nil!")
+      }
+
+      // Test Auth instance
+      let auth = Auth.auth()
+      print("✅ Firebase Auth instance: \(auth)")
+
+      // Configure Google Sign-In
+      guard let plist = NSDictionary(contentsOfFile: path),
+        let clientId = plist["CLIENT_ID"] as? String
+      else {
+        print("⚠️ CLIENT_ID not found in GoogleService-Info.plist")
+        return
+      }
+
+      print("🔑 CLIENT_ID: \(clientId)")
+      GIDSignIn.sharedInstance.configuration = GIDConfiguration(clientID: clientId)
+      print("✅ Google Sign-In configured successfully")
+
+      #if DEBUG
+        // AuthTestHelper.testAuthenticationFlow()
+      #endif
     } else {
       print("⚠️ GoogleService-Info.plist file not accessible - Firebase configuration skipped")
     }
