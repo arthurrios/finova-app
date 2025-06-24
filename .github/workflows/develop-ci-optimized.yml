@@ -1,4 +1,4 @@
-name: 🚀 Optimized CI/CD Pipeline
+name: 🚀 Optimized CI/CD Pipeline (DISABLED)
 
 on:
   push:
@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: [main, develop]
     types: [opened, synchronize, reopened]
+
+# 🚫 WORKFLOW DISABLED - This workflow is disabled to prevent expensive macOS runner usage
+# To re-enable, remove the condition below and the "DISABLED" from the name above
 
 permissions:
   contents: write
@@ -22,10 +25,19 @@ env:
   DERIVED_DATA_PATH: ~/Library/Developer/Xcode/DerivedData
 
 jobs:
+  # 🚫 ALL JOBS DISABLED - Prevent expensive workflow execution
+  workflow-disabled-notice:
+    name: 🚫 Workflow Disabled (Cost Control)
+    runs-on: ubuntu-latest
+    if: false # This disables the entire workflow
+    steps:
+      - name: Notice
+        run: echo "This workflow is disabled to prevent expensive macOS runner usage"
+
   commitlint:
     name: 📝 Validate Commit Messages
     runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
+    if: false # Disabled - expensive workflow
 
     steps:
       - name: Checkout code
@@ -81,6 +93,7 @@ jobs:
   test:
     name: 🧪 Run Tests & Lint (Optimized)
     runs-on: macos-15
+    if: false # Disabled - expensive workflow
     outputs:
       tests-passed: ${{ steps.test-results.outputs.tests-passed }}
       commit-sha: ${{ steps.commit-info.outputs.commit-sha }}
@@ -279,7 +292,7 @@ jobs:
   security-scan:
     name: 🔒 Security Scan
     runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
+    if: false # Disabled - expensive workflow
 
     steps:
       - name: Checkout code
@@ -326,7 +339,7 @@ jobs:
     name: 📦 Development Versioning
     runs-on: ubuntu-latest
     needs: [test]
-    if: (github.ref == 'refs/heads/develop' && github.event_name == 'push') || github.event_name == 'workflow_dispatch'
+    if: false # Disabled - expensive workflow
     permissions:
       contents: write
       issues: write
@@ -374,7 +387,7 @@ jobs:
     name: 🏗️ Build Verification (Optimized)
     runs-on: macos-15
     needs: [test, semantic-version-develop]
-    if: always() && needs.test.result == 'success' && (needs.semantic-version-develop.result == 'success' || (github.ref == 'refs/heads/develop' && github.event_name == 'push'))
+    if: false # Disabled - expensive workflow
 
     steps:
       - name: Checkout code
