@@ -23,6 +23,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     // 🧹 Perform one-time cleanup of global SQLite data
     DataCleanupManager.shared.performGlobalDataCleanup()
 
+    // 🔄 Perform one-time migrations (including global profile image cleanup)
+    OneTimeMigrations.shared.performAllMigrations()
+
     #if DEBUG
       // 🧪 Debug: Show data status on app launch
       DebugDataManager.shared.showDataStatus()

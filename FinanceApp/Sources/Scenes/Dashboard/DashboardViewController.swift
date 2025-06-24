@@ -92,7 +92,7 @@ final class DashboardViewController: UIViewController {
             print("❌ Dashboard: No user found in UserDefaults")
         }
         
-        if let userImage = UserDefaultsManager.loadProfileImage() {
+        if let userImage = SecureLocalDataManager.shared.loadProfileImage() {
             contentView.avatar.userImage = userImage
         }
         
@@ -164,10 +164,10 @@ extension DashboardViewController: UIImagePickerControllerDelegate, UINavigation
     ) {
         if let editedImage = info[UIImagePickerController.InfoKey.editedImage] as? UIImage {
             contentView.avatar.userImage = editedImage
-            UserDefaultsManager.saveProfileImage(image: editedImage)
+            SecureLocalDataManager.shared.saveProfileImage(editedImage)
         } else if let originalImage = info[.originalImage] as? UIImage {
             contentView.avatar.userImage = originalImage
-            UserDefaultsManager.saveProfileImage(image: originalImage)
+            SecureLocalDataManager.shared.saveProfileImage(originalImage)
         }
         
         dismiss(animated: true)

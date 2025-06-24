@@ -7,6 +7,7 @@
 
 import CryptoKit
 import Foundation
+import UIKit
 
 class SecureLocalDataManager {
     
@@ -28,6 +29,7 @@ class SecureLocalDataManager {
         
         // Create user data directory if first time
         createUserDataDirectoryIfNeeded(for: firebaseUID)
+        
         print("✅ User authenticated for secure data access")
     }
     
@@ -80,6 +82,68 @@ class SecureLocalDataManager {
     
     func loadUserProfile() -> UserProfile? {
         return loadData(type: UserProfile.self, filename: "profile.json")
+    }
+    
+    // MARK: - Profile Image Methods (User-Specific)
+    
+    func saveProfileImage(_ image: UIImage) {
+        guard let uid = currentUserUID else {
+            print("❌ Cannot save profile image: No authenticated user")
+            return
+        }
+        
+        // Load existing profile or create new one
+        var userProfile =
+        loadUserProfile()
+        ?? UserProfile(
+            profileImageData: nil,
+            currentMonthIndex: UserDefaultsManager.getCurrentMonthIndex(),
+            preferences: UserPreferences()
+        )
+        
+        // Update profile image data
+        userProfile.profileImageData = image.jpegData(compressionQuality: 0.8)
+        
+        // Save updated profile
+        saveUserProfile(userProfile)
+        print("✅ Profile image saved for user: \(uid)")
+    }
+    
+    func loadProfileImage() -> UIImage? {
+        guard let uid = currentUserUID else {
+            print("❌ Cannot load profile image: No authenticated user")
+            return nil
+        }
+        
+        guard let userProfile = loadUserProfile(),
+              let imageData = userProfile.profileImageData
+        else {
+            print("ℹ️ No profile image found for user: \(uid)")
+            return nil
+        }
+        
+        let image = UIImage(data: imageData)
+        print("✅ Profile image loaded for user: \(uid)")
+        return image
+    }
+    
+    func removeProfileImage() {
+        guard let uid = currentUserUID else {
+            print("❌ Cannot remove profile image: No authenticated user")
+            return
+        }
+        
+        var userProfile =
+        loadUserProfile()
+        ?? UserProfile(
+            profileImageData: nil,
+            currentMonthIndex: UserDefaultsManager.getCurrentMonthIndex(),
+            preferences: UserPreferences()
+        )
+        
+        userProfile.profileImageData = nil
+        saveUserProfile(userProfile)
+        print("✅ Profile image removed for user: \(uid)")
     }
     
     // MARK: - Data Migration from Old Local Storage
@@ -217,11 +281,11 @@ class SecureLocalDataManager {
                 }
             }
             
-            // Migrate user profile image
+            // Migrate user profile image from any global storage location
             var profileImageData: Data?
-            if let profileImage = UserDefaultsManager.loadProfileImage() {
+            if let profileImage = ProfileImageCleanup.shared.loadGlobalProfileImageIfExists() {
                 profileImageData = profileImage.jpegData(compressionQuality: 0.8)
-                print("👤 Found profile image to migrate")
+                print("👤 Found global profile image to migrate")
             }
             
             // Migrate current month index
@@ -236,6 +300,9 @@ class SecureLocalDataManager {
             
             saveUserProfile(userProfile)
             print("✅ Successfully migrated user profile data")
+            
+            // 🧹 Comprehensive cleanup of all global profile images after migration
+            ProfileImageCleanup.shared.clearAllGlobalProfileImages()
             
             return true
         } catch {
