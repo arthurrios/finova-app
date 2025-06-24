@@ -1,0 +1,441 @@
+name: 🚀 Optimized CI/CD Pipeline
+
+on:
+  push:
+    branches: [develop]
+  pull_request:
+    branches: [main, develop]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+  security-events: write
+  actions: read
+  pull-requests: read
+  issues: write
+  id-token: write
+
+env:
+  DEVELOPER_DIR: /Applications/Xcode.app/Contents/Developer
+  XCODE_PROJECT: FinanceApp.xcworkspace
+  SCHEME: FinanceApp
+  DERIVED_DATA_PATH: ~/Library/Developer/Xcode/DerivedData
+
+jobs:
+  commitlint:
+    name: 📝 Validate Commit Messages
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "18"
+
+      - name: Install commitlint
+        run: |
+          npm install --save-dev @commitlint/config-conventional @commitlint/cli
+
+      - name: Validate commit messages
+        run: |
+          echo "📝 Validating commit messages..."
+          BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+
+          echo "Base SHA: $BASE_SHA"
+          echo "Head SHA: $HEAD_SHA"
+
+          git log --format="%H %s" $BASE_SHA..$HEAD_SHA > commits.txt
+
+          EXIT_CODE=0
+          while IFS= read -r line; do
+            if [ -n "$line" ]; then
+              COMMIT_SHA=$(echo "$line" | cut -d' ' -f1)
+              COMMIT_MSG=$(echo "$line" | cut -d' ' -f2-)
+              echo "Checking commit: $COMMIT_SHA"
+              echo "Message: $COMMIT_MSG"
+              
+              if ! echo "$COMMIT_MSG" | npx commitlint --verbose; then
+                echo "❌ Commit message validation failed for: $COMMIT_SHA"
+                EXIT_CODE=1
+              else
+                echo "✅ Commit message is valid for: $COMMIT_SHA"
+              fi
+            fi
+          done < commits.txt
+
+          if [ $EXIT_CODE -eq 0 ]; then
+            echo "🎉 All commit messages are valid!"
+          else
+            echo "❌ Some commit messages are invalid. Please follow conventional commit format."
+            echo "📖 Learn more: https://github.com/conventional-changelog/commitlint/#what-is-commitlint"
+            exit 1
+          fi
+
+  test:
+    name: 🧪 Run Tests & Lint (Optimized)
+    runs-on: macos-15
+    outputs:
+      tests-passed: ${{ steps.test-results.outputs.tests-passed }}
+      commit-sha: ${{ steps.commit-info.outputs.commit-sha }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get commit info
+        id: commit-info
+        run: |
+          COMMIT_SHA="${{ github.sha }}"
+          echo "commit-sha=$COMMIT_SHA" >> $GITHUB_OUTPUT
+          echo "📝 Testing commit: $COMMIT_SHA"
+
+      # 🚀 Multi-layer caching strategy
+      - name: Cache test results (complete)
+        id: test-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            test-results-marker
+            TestResults.xcresult
+          key: test-results-${{ hashFiles('**/*.swift', '**/Podfile.lock', '**/*.xcodeproj/**', '**/*.xcworkspace/**', '.github/workflows/**') }}
+          restore-keys: |
+            test-results-
+
+      - name: Cache Derived Data
+        if: steps.test-cache.outputs.cache-hit != 'true'
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Developer/Xcode/DerivedData
+          key: derived-data-${{ runner.os }}-${{ hashFiles('**/*.swift', '**/Podfile.lock', '**/*.xcodeproj/**', '**/*.xcworkspace/**') }}
+          restore-keys: |
+            derived-data-${{ runner.os }}-
+
+      - name: Cache Swift Package Manager
+        if: steps.test-cache.outputs.cache-hit != 'true'
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/Library/Caches/org.swift.swiftpm
+            ~/.cache/org.swift.swiftpm
+          key: spm-${{ runner.os }}-${{ hashFiles('**/Package.resolved') }}
+          restore-keys: |
+            spm-${{ runner.os }}-
+
+      - name: Cache CocoaPods
+        if: steps.test-cache.outputs.cache-hit != 'true'
+        uses: actions/cache@v4
+        with:
+          path: Pods
+          key: ${{ runner.os }}-pods-${{ hashFiles('**/Podfile.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-pods-
+
+      - name: Select Xcode version
+        if: steps.test-cache.outputs.cache-hit != 'true'
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "16.2.0"
+
+      - name: Install dependencies (optimized)
+        if: steps.test-cache.outputs.cache-hit != 'true'
+        run: |
+          # Install CocoaPods only if not cached
+          if [ ! -d "Pods" ]; then
+            gem install cocoapods
+            pod install --repo-update
+          else
+            echo "✅ Using cached CocoaPods"
+            # Verify pods are still valid
+            pod install --deployment
+          fi
+
+      - name: Install SwiftLint (cached)
+        if: steps.test-cache.outputs.cache-hit != 'true'
+        run: |
+          if ! command -v swiftlint &> /dev/null; then
+            brew install swiftlint
+          else
+            echo "✅ SwiftLint already available"
+          fi
+
+      - name: Run SwiftLint
+        if: steps.test-cache.outputs.cache-hit != 'true'
+        run: swiftlint lint --reporter github-actions-logging
+
+      - name: Load cached test results
+        if: steps.test-cache.outputs.cache-hit == 'true'
+        run: |
+          echo "✅ Using cached test results for identical code content"
+          echo "🚀 Tests already passed for this exact code - skipping execution"
+          echo "📝 Current commit: ${{ steps.commit-info.outputs.commit-sha }}"
+          if [ -f "test-results-marker" ]; then
+            echo "📊 Previous test results found and validated:"
+            cat test-results-marker
+          else
+            echo "⚠️ Cache marker missing - will re-run tests as safety measure"
+            echo "cache-invalid=true" >> $GITHUB_ENV
+          fi
+
+      # 🚀 Optimized build step
+      - name: Build for testing (optimized)
+        if: steps.test-cache.outputs.cache-hit != 'true' || env.cache-invalid == 'true'
+        run: |
+          echo "🔨 Starting optimized build for testing..."
+          echo "Workspace: ${{ env.XCODE_PROJECT }}"
+          echo "Scheme: ${{ env.SCHEME }}"
+          echo "Destination: iPhone 16"
+
+          # Ensure derived data directory exists
+          mkdir -p ${{ env.DERIVED_DATA_PATH }}
+
+          # Build with all performance optimizations
+          set -o pipefail
+          xcodebuild -workspace ${{ env.XCODE_PROJECT }} \
+                     -scheme ${{ env.SCHEME }} \
+                     -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest' \
+                     -derivedDataPath ${{ env.DERIVED_DATA_PATH }} \
+                     -parallel-testing-enabled YES \
+                     -maximum-concurrent-test-simulator-destinations 2 \
+                     -skipUnavailableActions \
+                     -quiet \
+                     build-for-testing | xcpretty --report html --output build-report.html
+
+      # 🚀 Optimized test step
+      - name: Run unit tests (optimized)
+        if: steps.test-cache.outputs.cache-hit != 'true' || env.cache-invalid == 'true'
+        run: |
+          echo "🧪 Running optimized tests..."
+
+          # Clean up any existing test results to prevent conflicts
+          rm -rf TestResults.xcresult
+
+          # Run tests without building (since we already built for testing)
+          xcodebuild -workspace ${{ env.XCODE_PROJECT }} \
+                     -scheme ${{ env.SCHEME }} \
+                     -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest' \
+                     -derivedDataPath ${{ env.DERIVED_DATA_PATH }} \
+                     -parallel-testing-enabled YES \
+                     -maximum-concurrent-test-simulator-destinations 2 \
+                     -skipUnavailableActions \
+                     -quiet \
+                     test-without-building \
+                     -resultBundlePath TestResults.xcresult
+
+      - name: Mark test results as successful
+        id: test-results
+        if: steps.test-cache.outputs.cache-hit != 'true' || env.cache-invalid == 'true'
+        run: |
+          echo "✅ Tests completed successfully"
+          echo "tests-passed=true" >> $GITHUB_OUTPUT
+          echo "Test results for commit ${{ steps.commit-info.outputs.commit-sha }}" > test-results-marker
+          echo "Tests passed at $(date)" >> test-results-marker
+          echo "Content hash: ${{ hashFiles('**/*.swift', '**/Podfile.lock', '**/*.xcodeproj/**', '**/*.xcworkspace/**') }}" >> test-results-marker
+
+      - name: Set cached test output
+        if: steps.test-cache.outputs.cache-hit == 'true' && env.cache-invalid != 'true'
+        run: |
+          echo "tests-passed=true" >> $GITHUB_OUTPUT
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results-${{ github.event_name }}-${{ github.run_number }}
+          path: TestResults.xcresult
+
+      - name: Upload build logs if failed
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: build-logs-${{ github.event_name }}-${{ github.run_number }}
+          path: |
+            build-report.html
+            ~/Library/Developer/Xcode/DerivedData/*/Logs/Build/*.xcactivitylog
+
+      - name: Test execution summary
+        if: always()
+        run: |
+          CONTENT_HASH="${{ hashFiles('**/*.swift', '**/Podfile.lock', '**/*.xcodeproj/**', '**/*.xcworkspace/**') }}"
+          if [[ "${{ steps.test-cache.outputs.cache-hit }}" == "true" && "${{ env.cache-invalid }}" != "true" ]]; then
+            echo "⚡ Used cached test results - saved ~15-18 minutes!"
+            echo "💡 Tests were already validated for identical code content"
+            echo "🔗 Content hash: ${CONTENT_HASH:0:12}..."
+          else
+            echo "🔄 Executed optimized tests for commit ${{ steps.commit-info.outputs.commit-sha }}"
+            echo "📦 Results cached for future runs of identical code"
+            echo "🔗 Content hash: ${CONTENT_HASH:0:12}..."
+            echo "⚡ Build time should be ~3-5 minutes with optimizations"
+          fi
+
+  security-scan:
+    name: 🔒 Security Scan
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: "fs"
+          scan-ref: "."
+          format: "sarif"
+          output: "trivy-results.sarif"
+
+      - name: Upload Trivy scan results
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: "trivy-results.sarif"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
+
+      - name: Upload security scan artifact (fallback)
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: security-scan-results-${{ github.run_number }}
+          path: trivy-results.sarif
+
+      - name: Display security scan summary
+        if: always()
+        run: |
+          echo "🔒 Security scan completed!"
+          echo "📄 SARIF results saved as artifact: security-scan-results-${{ github.run_number }}"
+          if [ -f "trivy-results.sarif" ]; then
+            echo "📊 Scan file size: $(du -h trivy-results.sarif | cut -f1)"
+            echo "💡 To enable automatic security alerts:"
+            echo "   1. Go to repository Settings"
+            echo "   2. Navigate to 'Code security and analysis'"
+            echo "   3. Enable 'Code scanning' under 'GitHub Advanced Security'"
+          fi
+
+  semantic-version-develop:
+    name: 📦 Development Versioning
+    runs-on: ubuntu-latest
+    needs: [test]
+    if: (github.ref == 'refs/heads/develop' && github.event_name == 'push') || github.event_name == 'workflow_dispatch'
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+      id-token: write
+    outputs:
+      new_release_published: ${{ steps.semantic.outputs.new_release_published }}
+      new_release_version: ${{ steps.semantic.outputs.new_release_version }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Semantic Release (Development)
+        id: semantic
+        uses: cycjimmy/semantic-release-action@v4
+        with:
+          semantic_version: 22
+          extra_plugins: |
+            @semantic-release/changelog@6.0.0
+            @semantic-release/git@10.0.0
+            conventional-changelog-conventionalcommits@7.0.2
+          dry_run: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Development Release Summary
+        if: steps.semantic.outputs.new_release_published == 'true'
+        run: |
+          echo "🎉 New development release: v${{ steps.semantic.outputs.new_release_version }}"
+          echo "📝 This version is ready for development and testing"
+          echo "🚀 When ready for production, create a PR to main branch"
+
+      - name: Update package.json version
+        if: steps.semantic.outputs.new_release_published == 'true'
+        run: |
+          NEW_VERSION="${{ steps.semantic.outputs.new_release_version }}"
+          echo "📦 Version updated to: $NEW_VERSION"
+          echo "This version can be used for local development and testing"
+
+  build-verification:
+    name: 🏗️ Build Verification (Optimized)
+    runs-on: macos-15
+    needs: [test, semantic-version-develop]
+    if: always() && needs.test.result == 'success' && (needs.semantic-version-develop.result == 'success' || (github.ref == 'refs/heads/develop' && github.event_name == 'push'))
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: develop
+
+      - name: Select Xcode version
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "16.2.0"
+
+      # Reuse cached dependencies from test job
+      - name: Cache CocoaPods
+        uses: actions/cache@v4
+        with:
+          path: Pods
+          key: ${{ runner.os }}-pods-${{ hashFiles('**/Podfile.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-pods-
+
+      - name: Cache Derived Data
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Developer/Xcode/DerivedData
+          key: derived-data-${{ runner.os }}-${{ hashFiles('**/*.swift', '**/Podfile.lock', '**/*.xcodeproj/**', '**/*.xcworkspace/**') }}
+          restore-keys: |
+            derived-data-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: |
+          if [ ! -d "Pods" ]; then
+            gem install cocoapods
+            pod install --repo-update
+          else
+            echo "✅ Using cached CocoaPods"
+            pod install --deployment
+          fi
+
+      - name: Verify release build (optimized)
+        run: |
+          echo "🔨 Building release version for verification..."
+
+          if [[ "${{ needs.semantic-version-develop.outputs.new_release_published }}" == "true" ]]; then
+            echo "📦 Building version ${{ needs.semantic-version-develop.outputs.new_release_version }}"
+            VERSION_INFO="Version ${{ needs.semantic-version-develop.outputs.new_release_version }}"
+          else
+            echo "📦 Building current develop branch (no new release)"
+            VERSION_INFO="Current develop build"
+          fi
+
+          # Optimized release build
+          xcodebuild -workspace ${{ env.XCODE_PROJECT }} \
+                     -scheme ${{ env.SCHEME }} \
+                     -configuration Release \
+                     -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest' \
+                     -derivedDataPath ${{ env.DERIVED_DATA_PATH }} \
+                     -skipUnavailableActions \
+                     -quiet \
+                     build
+                     
+          echo "✅ Release build verification successful!"
+          echo "📱 $VERSION_INFO is ready"
+          echo "💡 This build used cached derived data for faster compilation"
