@@ -134,7 +134,45 @@ final class TransactionRepository: TransactionRepositoryProtocol {
   }
 
   func updateParentTransactionId(transactionId: Int, parentId: Int) throws {
+    // Update SQLite first
     try db.updateTransactionParentId(transactionId: transactionId, parentId: parentId)
+
+    // 🔒 Also update SecureLocalDataManager for UID-isolated storage
+    var secureTransactions = SecureLocalDataManager.shared.loadTransactions()
+
+    // Find and update the specific transaction
+    if let index = secureTransactions.firstIndex(where: { $0.id == transactionId }) {
+      let existingTransaction = secureTransactions[index]
+
+      // Create updated transaction data with new parent ID
+      let updatedData = UITransactionData(
+        id: existingTransaction.id,
+        title: existingTransaction.title,
+        amount: existingTransaction.amount,
+        dateTimestamp: existingTransaction.dateTimestamp,
+        budgetMonthDate: existingTransaction.budgetMonthDate,
+        isRecurring: existingTransaction.isRecurring,
+        hasInstallments: existingTransaction.hasInstallments,
+        parentTransactionId: parentId,  // ✅ Update the parent ID here
+        installmentNumber: existingTransaction.installmentNumber,
+        totalInstallments: existingTransaction.totalInstallments,
+        originalAmount: existingTransaction.originalAmount,
+        category: existingTransaction.category,
+        type: existingTransaction.type
+      )
+
+      // Replace the transaction in the array
+      secureTransactions[index] = Transaction(data: updatedData)
+
+      // Save back to secure storage
+      SecureLocalDataManager.shared.saveTransactions(secureTransactions)
+
+      print(
+        "🔒 Updated parent transaction ID in secure storage: \(transactionId) -> parent: \(parentId)"
+      )
+    } else {
+      print("⚠️ Could not find transaction \(transactionId) in secure storage to update parent ID")
+    }
   }
 
   func deleteTransactionAndRelated(id: Int) throws {
