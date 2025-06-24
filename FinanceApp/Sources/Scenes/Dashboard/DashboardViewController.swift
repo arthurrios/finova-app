@@ -44,6 +44,7 @@ final class DashboardViewController: UIViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         setup()
+        syncedViewModel.selectMonth(at: todayMonthIndex, animated: false)
         loadData()
         contentView.frame = view.bounds
         setupCollectionViews()
@@ -101,7 +102,6 @@ final class DashboardViewController: UIViewController {
         
         syncedViewModel.setMonthData(monthData)
         syncedViewModel.setTransactions(transactions)
-        syncedViewModel.selectMonth(at: todayMonthIndex, animated: false)
         viewModel.scheduleAllTransactionNotifications()
         
         contentView.monthCarousel.layoutIfNeeded()
