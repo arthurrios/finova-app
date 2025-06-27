@@ -11,7 +11,7 @@ import UIKit
 import UserNotifications
 
 @main
-class AppDelegate: UIResponder, UIApplicationDelegate {
+class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterDelegate {
 
   func application(
     _ application: UIApplication,
@@ -101,12 +101,40 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
   func registerForNotifications() {
     let center = UNUserNotificationCenter.current()
+    center.delegate = self  // Set the delegate
     center.requestAuthorization(options: [.alert, .sound, .badge]) { granted, error in
-      if granted {
-        print("User granted permission for notifications")
-      } else if let error = error {
-        print("\(error) - User did not grant permission for notifications")
+      DispatchQueue.main.async {
+        if granted {
+          print("✅ User granted permission for notifications")
+        } else if let error = error {
+          print("❌ \(error) - User did not grant permission for notifications")
+        } else {
+          print("❌ User denied permission for notifications")
+        }
       }
     }
+  }
+
+  // MARK: - UNUserNotificationCenterDelegate
+
+  func userNotificationCenter(
+    _ center: UNUserNotificationCenter,
+    willPresent notification: UNNotification,
+    withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+  ) {
+    // Show notification even when app is in foreground
+    completionHandler([.alert, .sound, .badge])
+  }
+
+  func userNotificationCenter(
+    _ center: UNUserNotificationCenter,
+    didReceive response: UNNotificationResponse,
+    withCompletionHandler completionHandler: @escaping () -> Void
+  ) {
+    // Handle notification tap
+    let userInfo = response.notification.request.content.userInfo
+    print("📱 User tapped notification: \(userInfo)")
+    // TODO: Navigate to specific transaction or screen if needed
+    completionHandler()
   }
 }

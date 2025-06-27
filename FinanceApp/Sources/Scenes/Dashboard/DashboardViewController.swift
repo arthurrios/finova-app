@@ -68,6 +68,10 @@ final class DashboardViewController: UIViewController {
         
         contentView.delegate = self
         syncedViewModel.delegate = self
+        
+#if DEBUG
+        addDebugGesture()
+#endif
     }
     
     private func buildHierarchy() {
@@ -103,6 +107,13 @@ final class DashboardViewController: UIViewController {
         syncedViewModel.setMonthData(monthData)
         syncedViewModel.setTransactions(transactions)
         viewModel.scheduleAllTransactionNotifications()
+        
+#if DEBUG
+        // Add debug logging for notifications
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            self.viewModel.checkNotificationStatus()
+        }
+#endif
         
         contentView.monthCarousel.layoutIfNeeded()
     }
@@ -147,6 +158,38 @@ extension DashboardViewController: DashboardViewDelegate {
         print("✅ Complete logout performed")
         self.flowDelegate?.logout()
     }
+    
+#if DEBUG
+    @objc private func testNotification() {
+        print("🧪 Testing notification in 10 seconds...")
+        let center = UNUserNotificationCenter.current()
+        
+        let content = UNMutableNotificationContent()
+        content.title = "Test Notification"
+        content.body = "This is a test notification to verify the system is working"
+        content.sound = .default
+        
+        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 10, repeats: false)
+        let request = UNNotificationRequest(
+            identifier: "test_notification", content: content, trigger: trigger)
+        
+        center.add(request) { error in
+            if let error = error {
+                print("❌ Error scheduling test notification: \(error)")
+            } else {
+                print("✅ Test notification scheduled for 10 seconds from now")
+            }
+        }
+    }
+    
+    private func addDebugGesture() {
+        // Add a 3-finger tap gesture to trigger test notification
+        let testGesture = UITapGestureRecognizer(target: self, action: #selector(testNotification))
+        testGesture.numberOfTouchesRequired = 3
+        view.addGestureRecognizer(testGesture)
+        print("🧪 Debug: 3-finger tap to test notifications")
+    }
+#endif
 }
 
 extension DashboardViewController: UIImagePickerControllerDelegate, UINavigationControllerDelegate {
