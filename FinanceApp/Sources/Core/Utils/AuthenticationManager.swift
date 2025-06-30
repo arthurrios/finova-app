@@ -147,8 +147,7 @@ class AuthenticationManager {
             return
         }
         
-        GIDSignIn.sharedInstance.signIn(withPresenting: presentingViewController) {
-            [weak self] result, error in
+        GIDSignIn.sharedInstance.signIn(withPresenting: presentingViewController) { [weak self] result, error in
             if let error = error {
                 print("❌ Google Sign-In failed: \(error.localizedDescription)")
                 self?.isHandlingAuthentication = false
@@ -292,8 +291,7 @@ class AuthenticationManager {
 private func getCurrentViewController() -> UIViewController? {
     if let windowScene = UIApplication.shared.connectedScenes
         .compactMap({ $0 as? UIWindowScene })
-        .first(where: { $0.activationState == .foregroundActive })
-    {
+        .first(where: { $0.activationState == .foregroundActive }) {
         
         if let keyWindow = windowScene.windows.first(where: { $0.isKeyWindow }) {
             return keyWindow.rootViewController?.topMostViewController()
