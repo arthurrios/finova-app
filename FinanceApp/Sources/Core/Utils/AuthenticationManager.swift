@@ -147,7 +147,8 @@ class AuthenticationManager {
             return
         }
         
-        GIDSignIn.sharedInstance.signIn(withPresenting: presentingViewController) { [weak self] result, error in
+        GIDSignIn.sharedInstance.signIn(withPresenting: presentingViewController) {
+            [weak self] result, error in
             if let error = error {
                 print("❌ Google Sign-In failed: \(error.localizedDescription)")
                 self?.isHandlingAuthentication = false
@@ -166,13 +167,18 @@ class AuthenticationManager {
             
             print("✅ Google tokens obtained successfully")
             
+            // Store Google profile image URL for later download
+            let profileImageURL = user.profile?.imageURL(withDimension: 200)
+            
             let credential = GoogleAuthProvider.credential(
                 withIDToken: idToken,
                 accessToken: user.accessToken.tokenString
             )
             
-            Auth.auth().signIn(with: credential) { authResult, authError in
-                self?.handleAuthResult(result: authResult, error: authError, method: "Google Sign-In")
+            Auth.auth().signIn(with: credential) { [weak self] authResult, authError in
+                self?.handleAuthResult(
+                    result: authResult, error: authError, method: "Google Sign-In",
+                    googleProfileImageURL: profileImageURL)
             }
         }
     }
@@ -197,7 +203,9 @@ class AuthenticationManager {
     
     // MARK: - Private methods
     
-    private func handleAuthResult(result: AuthDataResult?, error: Error?, method: String) {
+    private func handleAuthResult(
+        result: AuthDataResult?, error: Error?, method: String, googleProfileImageURL: URL? = nil
+    ) {
         defer { isHandlingAuthentication = false }  // Reset flag when done
         
         if let error = error {
@@ -213,10 +221,12 @@ class AuthenticationManager {
         }
         
         print("✅ \(method) authentication successful for: \(firebaseUser.email ?? "No email")")
-        handleAuthenticatedUser(firebaseUser)
+        handleAuthenticatedUser(firebaseUser, googleProfileImageURL: googleProfileImageURL)
     }
     
-    private func handleAuthenticatedUser(_ firebaseUser: FirebaseAuth.User) {
+    private func handleAuthenticatedUser(
+        _ firebaseUser: FirebaseAuth.User, googleProfileImageURL: URL? = nil
+    ) {
         print("🔄 Processing authenticated user: \(firebaseUser.uid)")
         print("🔄 Firebase user displayName: '\(firebaseUser.displayName ?? "nil")'")
         print("🔄 Firebase user email: '\(firebaseUser.email ?? "nil")'")
@@ -233,7 +243,47 @@ class AuthenticationManager {
         )
         
         print("✅ Local user object created with name: '\(user.name)'")
+        
+        // Download and save Google profile image if available
+        if let imageURL = googleProfileImageURL {
+            downloadAndSaveGoogleProfileImage(imageURL, for: firebaseUser.uid)
+        }
+        
         delegate?.authenticationDidComplete(user: user)
+    }
+    
+    // MARK: - Google Profile Image Download
+    
+    private func downloadAndSaveGoogleProfileImage(_ imageURL: URL, for userUID: String) {
+        print("📸 Downloading Google profile image from: \(imageURL)")
+        
+        // First authenticate the manager with the user's UID to check existing images
+        SecureLocalDataManager.shared.authenticateUser(firebaseUID: userUID)
+        
+        // Check if user already has a profile image - don't overwrite existing images
+        if SecureLocalDataManager.shared.loadProfileImage() != nil {
+            print("ℹ️ User already has a profile image - skipping Google profile image download")
+            return
+        }
+        
+        URLSession.shared.dataTask(with: imageURL) { data, response, error in
+            if let error = error {
+                print("❌ Failed to download Google profile image: \(error.localizedDescription)")
+                return
+            }
+            
+            guard let data = data, let image = UIImage(data: data) else {
+                print("❌ Failed to create UIImage from downloaded data")
+                return
+            }
+            
+            print("✅ Google profile image downloaded successfully")
+            
+            // Save the image using SecureLocalDataManager
+            SecureLocalDataManager.shared.saveProfileImage(image)
+            
+            print("✅ Google profile image saved to secure storage")
+        }.resume()
     }
 }
 
@@ -242,7 +292,8 @@ class AuthenticationManager {
 private func getCurrentViewController() -> UIViewController? {
     if let windowScene = UIApplication.shared.connectedScenes
         .compactMap({ $0 as? UIWindowScene })
-        .first(where: { $0.activationState == .foregroundActive }) {
+        .first(where: { $0.activationState == .foregroundActive })
+    {
         
         if let keyWindow = windowScene.windows.first(where: { $0.isKeyWindow }) {
             return keyWindow.rootViewController?.topMostViewController()

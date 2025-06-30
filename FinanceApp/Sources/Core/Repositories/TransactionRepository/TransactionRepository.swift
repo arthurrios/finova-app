@@ -92,7 +92,9 @@ final class TransactionRepository: TransactionRepositoryProtocol {
   }
 
   func fetchTransactionInstancesForRecurring(_ recurringId: Int) -> [Transaction] {
-    return fetchAllTransactions().filter { $0.parentTransactionId == recurringId }
+    return fetchAllTransactions().filter {
+      $0.parentTransactionId == recurringId && $0.id != recurringId
+    }
   }
 
   func fetchAllRecurringInstances() -> [Transaction] {

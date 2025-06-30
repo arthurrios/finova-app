@@ -47,6 +47,7 @@ final class RecurringTransactionManager {
   ) {
     guard let recurringTxId = recurringTx.id else { return }
 
+    // Get existing instances for this specific recurring transaction only
     let existingInstances = transactionRepo.fetchTransactionInstancesForRecurring(recurringTxId)
     let existingAnchors = Set(existingInstances.map { $0.budgetMonthDate })
     let recurringStartAnchor = recurringTx.budgetMonthDate
@@ -64,12 +65,8 @@ final class RecurringTransactionManager {
         effectiveStartAnchor = recurringStartAnchor
       }
 
-      // Special handling: always create an instance for the original period, even if parent exists
-      let isOriginalPeriod = targetAnchor == effectiveStartAnchor
-      let hasExistingInstance = existingAnchors.contains(targetAnchor)
-
-      // Skip if instance already exists, UNLESS this is the original period where we need to create the first instance
-      if hasExistingInstance && !isOriginalPeriod {
+      // Skip if an instance already exists for this period
+      if existingAnchors.contains(targetAnchor) {
         continue
       }
 
@@ -92,27 +89,21 @@ final class RecurringTransactionManager {
           instanceDate = calendar.date(from: targetDateComponents) ?? targetDate
         }
 
-        // Special case: if this is the original transaction's period, create an instance
-        // even though the parent exists, so users can see the transaction in the current month
-        let isOriginalPeriod = targetAnchor == effectiveStartAnchor
-        let shouldCreateInstance = isOriginalPeriod || targetAnchor > effectiveStartAnchor
+        // Create the instance
+        let instanceModel = TransactionModel(
+          title: recurringTx.title,
+          category: recurringTx.category.key,
+          amount: recurringTx.amount,
+          type: recurringTx.type.key,
+          dateTimestamp: Int(instanceDate.timeIntervalSince1970),
+          budgetMonthDate: targetAnchor,
+          parentTransactionId: recurringTxId
+        )
 
-        if shouldCreateInstance {
-          let instanceModel = TransactionModel(
-            title: recurringTx.title,
-            category: recurringTx.category.key,
-            amount: recurringTx.amount,
-            type: recurringTx.type.key,
-            dateTimestamp: Int(instanceDate.timeIntervalSince1970),
-            budgetMonthDate: targetAnchor,
-            parentTransactionId: recurringTxId
-          )
-
-          do {
-            try transactionRepo.insertTransaction(instanceModel)
-          } catch {
-            print("Error creating recurring transaction instance: \(error)")
-          }
+        do {
+          try transactionRepo.insertTransaction(instanceModel)
+        } catch {
+          print("Error creating recurring transaction instance: \(error)")
         }
       }
     }

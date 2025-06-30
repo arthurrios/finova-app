@@ -11,6 +11,7 @@ final class AddTransactionModalViewModel {
     private let transactionRepo: TransactionRepository
     private let recurringManager: RecurringTransactionManager
     private let carouselRange: ClosedRange<Int> = -12...24
+    private let calendar = Calendar.current
     
     init(transactionRepo: TransactionRepository = TransactionRepository()) {
         self.transactionRepo = transactionRepo
@@ -65,9 +66,17 @@ final class AddTransactionModalViewModel {
                 try transactionRepo.updateParentTransactionId(
                     transactionId: insertedId, parentId: insertedId)
                 
+                // Use a more inclusive range to ensure the original transaction date is included
+                let today = Date()
+                
+                // Calculate how many months back we need to go to include the transaction date
+                let monthsBack = max(
+                    12, calendar.dateComponents([.month], from: date, to: today).month ?? 0)
+                let inclusiveRange = -monthsBack...24
+                
                 recurringManager.generateRecurringTransactionsForRange(
-                    carouselRange,
-                    referenceDate: Date(),
+                    inclusiveRange,
+                    referenceDate: today,
                     transactionStartDate: date
                 )
                 

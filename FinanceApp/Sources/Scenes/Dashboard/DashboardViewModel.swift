@@ -98,7 +98,7 @@ final class DashboardViewModel {
   }
 
   private func updateRecurringTransactions() {
-    recurringManager.generateRecurringTransactionsForRange(0...24)
+    recurringManager.generateRecurringTransactionsForRange(monthRange)
     recurringManager.cleanupRecurringInstancesOutsideRange(
       monthRange, referenceDate: Date(), cleanupOption: .futureOnly)
   }
@@ -120,7 +120,8 @@ final class DashboardViewModel {
 
       // Handle simple transactions directly
       if transaction.isRecurring != true && transaction.parentTransactionId == nil
-        && transaction.hasInstallments != true {
+        && transaction.hasInstallments != true
+      {
         try transactionRepo.delete(id: id)
 
         let notifID = "transaction_\(id)"
