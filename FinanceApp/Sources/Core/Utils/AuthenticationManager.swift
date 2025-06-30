@@ -265,7 +265,7 @@ class AuthenticationManager {
             return
         }
         
-        URLSession.shared.dataTask(with: imageURL) { data, response, error in
+        URLSession.shared.dataTask(with: imageURL) { data, _, error in
             if let error = error {
                 print("❌ Failed to download Google profile image: \(error.localizedDescription)")
                 return
