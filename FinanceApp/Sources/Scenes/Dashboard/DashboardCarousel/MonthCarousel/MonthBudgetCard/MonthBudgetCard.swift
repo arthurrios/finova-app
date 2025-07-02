@@ -231,6 +231,12 @@ class MonthBudgetCard: UIView {
         
         usedBudgetValueLabel.text = data.usedValue.currencyString
         
+        if isCurrentMonth() {
+            displayMode = UserDefaultsManager.getBalanceDisplayMode()
+        } else {
+            displayMode = .final
+        }
+        
         updateAvailableBudgetDisplay()
         updateLimitSection(with: data)
     }
@@ -462,6 +468,7 @@ class MonthBudgetCard: UIView {
     @objc
     private func toggleBalanceDisplay() {
         displayMode = displayMode == .final ? .current : .final
+        UserDefaultsManager.setBalanceDisplayMode(displayMode)
         updateAvailableBudgetDisplay()
     }
     
