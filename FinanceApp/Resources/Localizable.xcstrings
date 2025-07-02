@@ -1310,36 +1310,19 @@
         }
       }
     },
-    "faceid.reason" : {
+    "faceid.enable.button" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Use Face ID to access your financial data securely"
+            "value" : "Enable %@"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Use o Face ID para acessar seus dados financeiros com segurança"
-          }
-        }
-      }
-    },
-    "faceid.enable.title" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Enable %@?"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Habilitar %@?"
+            "value" : "Habilitar %@"
           }
         }
       }
@@ -1361,36 +1344,36 @@
         }
       }
     },
-    "faceid.enable.button" : {
+    "faceid.enable.title" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Enable %@"
+            "value" : "Enable %@?"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Habilitar %@"
+            "value" : "Habilitar %@?"
           }
         }
       }
     },
-    "skip" : {
+    "faceid.reason" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Skip"
+            "value" : "Use Face ID to access your financial data securely"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Pular"
+            "value" : "Use o Face ID para acessar seus dados financeiros com segurança"
           }
         }
       }
@@ -2228,6 +2211,23 @@
         }
       }
     },
+    "monthCard.currentBalance" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Current balance"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Saldo atual"
+          }
+        }
+      }
+    },
     "monthCard.defineBudget" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2683,6 +2683,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Criar Conta"
+          }
+        }
+      }
+    },
+    "skip" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Skip"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pular"
           }
         }
       }

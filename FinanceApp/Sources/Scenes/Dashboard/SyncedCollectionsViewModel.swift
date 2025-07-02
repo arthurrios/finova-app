@@ -85,7 +85,7 @@ final class SyncedCollectionsViewModel {
                     transaction.type == .income ? result + transaction.amount : result - transaction.amount
                 }
 
-            updatedMonthData[index].availableValue = total
+            updatedMonthData[index].finalBalance = total
         }
 
         monthData = updatedMonthData
