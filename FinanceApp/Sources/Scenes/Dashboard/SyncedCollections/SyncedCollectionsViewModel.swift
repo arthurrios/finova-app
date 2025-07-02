@@ -14,7 +14,7 @@ protocol SyncedCollectionsViewModelDelegate: AnyObject {
     func didUpdateTransactions(_ transactions: [Transaction])
 }
 
-final class SyncedCollectionsViewModel {
+final class SyncedCollectionsViewModel: ObservableObject {
     // MARK: - Properties
     private let calendar = Calendar.current
     private(set) var monthData: [MonthBudgetCardType] = []
