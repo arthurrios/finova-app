@@ -72,16 +72,18 @@ final class DashboardViewModel {
             let budgetLimit = budgetsByAnchor[anchor]
             
             let net = income - expense
-            let available = previousAvailable + net
-            
-            previousAvailable = available
-            runningBalance[anchor] = available
             
             let currentBalance = calculateCurrentBalance(
                 anchor: anchor,
                 allTransactions: allTxs,
-                previousBalance: previousAvailable
+                previousBalance: previousAvailable  // Use the previous month's balance
             )
+            
+            let thisMonthPreviousBalance = previousAvailable
+            
+            let available = previousAvailable + net
+            previousAvailable = available
+            runningBalance[anchor] = available
             
             return MonthBudgetCardType(
                 date: date,
@@ -90,7 +92,7 @@ final class DashboardViewModel {
                 budgetLimit: budgetLimit,
                 finalBalance: available,
                 currentBalance: currentBalance,
-                previousBalance: previousAvailable
+                previousBalance: thisMonthPreviousBalance
             )
         }
         
@@ -101,10 +103,16 @@ final class DashboardViewModel {
         let today = Date()
         let monthDate = Date(timeIntervalSince1970: TimeInterval(anchor))
         
+        let utcCalendar = Calendar(identifier: .gregorian)
+        var calendar = utcCalendar
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        
         let transactionsUpToToday = allTransactions.filter { tx in
             let txDate = Date(timeIntervalSince1970: TimeInterval(tx.dateTimestamp))
-            let isSameMonth = Calendar.current.isDate(txDate, equalTo: monthDate, toGranularity: .month)
+            
+            let isSameMonth = calendar.isDate(txDate, equalTo: monthDate, toGranularity: .month)
             let isBeforeOrToday = txDate <= today
+            
             return isSameMonth && isBeforeOrToday
         }
         
@@ -312,7 +320,7 @@ final class DashboardViewModel {
             if let error = error {
                 print("🔔 ❌ Error scheduling notification for \(tx.title): \(error)")
             } else {
-//                print("🔔 ✅ Successfully scheduled notification for \(tx.title) at \(notificationDate)")
+                //                print("🔔 ✅ Successfully scheduled notification for \(tx.title) at \(notificationDate)")
             }
         }
     }

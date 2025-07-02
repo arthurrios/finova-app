@@ -119,7 +119,7 @@ class MonthBudgetCard: UIView {
         let label = UILabel()
         label.font = Fonts.textSM.font
         label.textColor = Colors.gray400
-        return label
+        return label 
     }()
     
     private var availableBudgetValueLabel: UILabel = {
