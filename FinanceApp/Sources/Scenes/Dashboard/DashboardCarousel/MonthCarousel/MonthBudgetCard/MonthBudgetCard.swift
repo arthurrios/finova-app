@@ -131,15 +131,12 @@ class MonthBudgetCard: UIView {
         return label
     }()
     
-    private let balanceToggleButton: UIButton = {
-        let button = UIButton(type: .system)
-        var config = UIButton.Configuration.plain()
-        config.image = UIImage(named: "lucide_arrowRightLeft")
-        config.background.backgroundColor = .clear
-        button.tintColor = Colors.gray100
-        button.configuration = config
-        button.translatesAutoresizingMaskIntoConstraints = false
-        return button
+    private let balanceToggleIcon: UIImageView = {
+        let imageView = UIImageView()
+        imageView.image = UIImage(named: "lucide_arrowRightLeft")
+        imageView.tintColor = Colors.gray100
+        imageView.translatesAutoresizingMaskIntoConstraints = false
+        return imageView
     }()
 
     private lazy var balanceToggleContainer: UIView = {
@@ -147,12 +144,12 @@ class MonthBudgetCard: UIView {
         container.backgroundColor = Colors.gray600
         container.translatesAutoresizingMaskIntoConstraints = false
         
-        container.addSubview(balanceToggleButton)
+        container.addSubview(balanceToggleIcon)
         NSLayoutConstraint.activate([
-            balanceToggleButton.centerXAnchor.constraint(equalTo: container.centerXAnchor),
-            balanceToggleButton.centerYAnchor.constraint(equalTo: container.centerYAnchor),
-            balanceToggleButton.widthAnchor.constraint(equalToConstant: 24),
-            balanceToggleButton.heightAnchor.constraint(equalToConstant: 24),
+            balanceToggleIcon.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+            balanceToggleIcon.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+            balanceToggleIcon.widthAnchor.constraint(equalToConstant: 24),
+            balanceToggleIcon.heightAnchor.constraint(equalToConstant: 24),
             
             container.widthAnchor.constraint(equalToConstant: 36),
             container.heightAnchor.constraint(equalToConstant: 36)
@@ -386,7 +383,9 @@ class MonthBudgetCard: UIView {
         defineBudgetButton.addTarget(
             self, action: #selector(defineBudgetButtonTapped), for: .touchUpInside)
         
-        balanceToggleButton.addTarget(self, action: #selector(toggleBalanceDisplay), for: .touchUpInside)
+        let toggleBalanceTapGesture = UITapGestureRecognizer(target: self, action: #selector(toggleBalanceDisplay))
+        balanceToggleContainer.addGestureRecognizer(toggleBalanceTapGesture)
+        balanceToggleContainer.isUserInteractionEnabled = true
     }
     
     private func setupAnimatedNumberContainer() {
