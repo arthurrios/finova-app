@@ -51,27 +51,20 @@ class MonthBudgetCard: UIView {
         container.addSubview(availableBudgetValueLabel)
         availableBudgetValueLabel.translatesAutoresizingMaskIntoConstraints = false
         
-        container.addSubview(balanceToggleButton)
-        balanceToggleButton.translatesAutoresizingMaskIntoConstraints = false
-        
-        availableBudgetValueLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        availableBudgetValueLabel.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
-        balanceToggleButton.setContentHuggingPriority(.required, for: .horizontal)
-        balanceToggleButton.setContentCompressionResistancePriority(.required, for: .horizontal)
+        container.addSubview(balanceToggleContainer)
+        balanceToggleContainer.translatesAutoresizingMaskIntoConstraints = false
         
         NSLayoutConstraint.activate([
             availableBudgetValueLabel.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            availableBudgetValueLabel.topAnchor.constraint(equalTo: container.topAnchor),
-            availableBudgetValueLabel.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+            availableBudgetValueLabel.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+
+            balanceToggleContainer.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            balanceToggleContainer.centerYAnchor.constraint(equalTo: container.centerYAnchor),
             
-            balanceToggleButton.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            balanceToggleButton.centerYAnchor.constraint(equalTo: availableBudgetValueLabel.centerYAnchor),
-            balanceToggleButton.widthAnchor.constraint(equalToConstant: 24),
-            balanceToggleButton.heightAnchor.constraint(equalToConstant: 24),
+            balanceToggleContainer.leadingAnchor.constraint(greaterThanOrEqualTo: availableBudgetValueLabel.trailingAnchor, constant: 8),
             
-            balanceToggleButton.leadingAnchor.constraint(greaterThanOrEqualTo: availableBudgetValueLabel.trailingAnchor, constant: Metrics.spacing2),
-            
-            container.heightAnchor.constraint(equalTo: availableBudgetValueLabel.heightAnchor)
+            container.heightAnchor.constraint(equalTo: balanceToggleContainer.heightAnchor),
+            container.widthAnchor.constraint(greaterThanOrEqualTo: availableBudgetValueLabel.widthAnchor)
         ])
         
         return container
@@ -140,14 +133,32 @@ class MonthBudgetCard: UIView {
     
     private let balanceToggleButton: UIButton = {
         let button = UIButton(type: .system)
-        button.setImage(UIImage(systemName: "clock"), for: .normal)
-        button.backgroundColor = .clear
-        button.layer.cornerRadius = CornerRadius.extraLarge
-        button.widthAnchor.constraint(equalToConstant: Metrics.spacing6).isActive = true
-        button.heightAnchor.constraint(equalToConstant: Metrics.spacing6).isActive = true
-        button.setContentHuggingPriority(.required, for: .horizontal)
-        button.setContentCompressionResistancePriority(.required, for: .horizontal)
+        var config = UIButton.Configuration.plain()
+        config.image = UIImage(named: "lucide_arrowRightLeft")
+        config.background.backgroundColor = .clear
+        button.tintColor = Colors.gray100
+        button.configuration = config
+        button.translatesAutoresizingMaskIntoConstraints = false
         return button
+    }()
+
+    private lazy var balanceToggleContainer: UIView = {
+        let container = UIView()
+        container.backgroundColor = Colors.gray600
+        container.translatesAutoresizingMaskIntoConstraints = false
+        
+        container.addSubview(balanceToggleButton)
+        NSLayoutConstraint.activate([
+            balanceToggleButton.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+            balanceToggleButton.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+            balanceToggleButton.widthAnchor.constraint(equalToConstant: 24),
+            balanceToggleButton.heightAnchor.constraint(equalToConstant: 24),
+            
+            container.widthAnchor.constraint(equalToConstant: 36),
+            container.heightAnchor.constraint(equalToConstant: 36)
+        ])
+        
+        return container
     }()
     
     private let defineBudgetButton = Button(
@@ -270,25 +281,23 @@ class MonthBudgetCard: UIView {
         
         availableBudgetValueLabel.isHidden = false
         
-        balanceToggleButton.isHidden = !shouldShowToggleButton
+        balanceToggleContainer.isHidden = !shouldShowToggleButton
         
         if data.budgetLimit != nil && data.budgetLimit! > 0 {
             let displayValue: Int
             let textKey: String
             
             if shouldShowToggleButton {
-                // Current month with toggle - USE SWIFTUI ANIMATION
                 switch displayMode {
                 case .final:
                     displayValue = data.finalBalance ?? (data.budgetLimit! - data.usedValue)
                     textKey = "monthCard.availableBudget"
-                    balanceToggleButton.tintColor = Colors.gray400
-                    balanceToggleButton.layer.borderColor = Colors.gray400.cgColor
+                    balanceToggleContainer.backgroundColor = Colors.gray600
+
                 case .current:
                     displayValue = data.currentBalance ?? (data.previousBalance ?? 0)
                     textKey = "monthCard.currentBalance"
-                    balanceToggleButton.tintColor = Colors.mainMagenta
-                    balanceToggleButton.layer.borderColor = Colors.mainMagenta.cgColor
+                    balanceToggleContainer.backgroundColor = Colors.mainMagenta.withAlphaComponent(0.7)
                 }
                 
                 // Use animated SwiftUI view for current month
@@ -461,5 +470,6 @@ class MonthBudgetCard: UIView {
         super.layoutSubviews()
         gradientLayer.frame = bounds
         progressBar.roundRightCornersFixedHeight(Metrics.spacing2)
+        balanceToggleContainer.layer.cornerRadius = balanceToggleContainer.frame.width / 2
     }
 }
