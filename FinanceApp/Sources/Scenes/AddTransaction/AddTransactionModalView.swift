@@ -13,6 +13,10 @@ final class AddTransactionModalView: UIView {
     
     let categoryOptions = TransactionCategory.allCases
     
+    // Track ongoing animation to prevent conflicts
+    private var isAnimating = false
+    private var pendingMode: TransactionMode?
+    
     private lazy var contentStackView: UIStackView = {
         let sv = UIStackView(
             axis: .vertical, spacing: Metrics.spacing7, distribution: .fill,
@@ -33,15 +37,24 @@ final class AddTransactionModalView: UIView {
     private lazy var headerStackView = UIStackView(
         axis: .horizontal, alignment: .center, arrangedSubviews: [headerTitleLabel, closeIconButton])
     
+    private lazy var moneyInputsContainer: UIStackView = {
+        let stackView = UIStackView(
+            axis: .vertical,
+            spacing: Metrics.spacing2,
+            arrangedSubviews: [horizontalInputsStackView, totalValueLabel]
+        )
+        return stackView
+    }()
+    
     private lazy var inputStackView = UIStackView(
         axis: .vertical, spacing: Metrics.spacing3,
         arrangedSubviews: [
             transactionTitleTextField, categoryPickerView, transactionModeStackView,
-            horizontalInputsStackView
+            moneyInputsContainer
         ])
     
     private lazy var transactionModeStackView = UIStackView(
-        axis: .vertical, spacing: Metrics.spacing3,
+        axis: .vertical,
         arrangedSubviews: [transactionModelControl, installmentsInputContainer])
     
     private lazy var horizontalInputsStackView = UIStackView(
@@ -50,16 +63,16 @@ final class AddTransactionModalView: UIView {
     
     private lazy var installmentsInputContainer: UIStackView = {
         let stackView = UIStackView(
-            axis: .vertical, spacing: Metrics.spacing1, arrangedSubviews: [installmentsTextField])
-        stackView.isHidden = true
+            axis: .vertical, arrangedSubviews: [installmentsTextField])
         stackView.alpha = 0
         
-        // Set appropriate priorities for smooth animation and layout
         stackView.setContentHuggingPriority(UILayoutPriority(250), for: .vertical)
         stackView.setContentCompressionResistancePriority(UILayoutPriority(750), for: .vertical)
         
         return stackView
     }()
+    
+    private var installmentsHeightConstraint: NSLayoutConstraint?
     
     private lazy var transactionButtonsStackView = UIStackView(
         axis: .horizontal, spacing: Metrics.spacing3, distribution: .fillEqually,
@@ -104,6 +117,21 @@ final class AddTransactionModalView: UIView {
     
     private let moneyTextField = Input(type: .currency, placeholder: "0,00")
     
+    private let totalValueLabel: UILabel = {
+        let label = UILabel()
+        label.text = "addTransactionModal.totalValue".localized
+        label.font = Fonts.textSM.font
+        label.textColor = Colors.gray400
+        label.isHidden = true
+        label.translatesAutoresizingMaskIntoConstraints = false
+        
+        label.setContentHuggingPriority(.required, for: .vertical)
+        label.setContentCompressionResistancePriority(.required, for: .vertical)
+        label.heightAnchor.constraint(equalToConstant: Metrics.spacing3).isActive = true
+        
+        return label
+    }()
+    
     private let dateTextField = Input(
         type: .date(style: .fullDate), placeholder: "00/00/0000", icon: UIImage(named: "calendar"))
     
@@ -140,8 +168,15 @@ final class AddTransactionModalView: UIView {
         saveButton.addTarget(self, action: #selector(didTapSaveTransaction), for: .touchUpInside)
         
         setupTransactionModeControl()
+        setupInstallmentsConstraints()
         
         setupConstraints()
+    }
+    
+    private func setupInstallmentsConstraints() {
+        installmentsHeightConstraint = installmentsInputContainer.heightAnchor.constraint(
+            equalToConstant: 0)
+        installmentsHeightConstraint?.isActive = true
     }
     
     private func setupConstraints() {
@@ -160,23 +195,50 @@ final class AddTransactionModalView: UIView {
     }
     
     private func handleTransactionModeChange(_ mode: TransactionMode) {
+        if isAnimating {
+            pendingMode = mode
+            return
+        }
+        
+        totalValueLabel.isHidden = (mode != .installments)
+        
         let shouldShowInstallments = mode == .installments
+        
+        installmentsInputContainer.layer.removeAllAnimations()
+        
+        isAnimating = true
+        pendingMode = nil
+        
+        let targetHeight: CGFloat = shouldShowInstallments ? Metrics.inputHeight : 0
         
         UIView.animate(
             withDuration: 0.3,
+            delay: 0,
+            usingSpringWithDamping: 0.8,
+            initialSpringVelocity: 0,
+            options: [.beginFromCurrentState, .allowUserInteraction],
             animations: {
-                self.installmentsInputContainer.isHidden = !shouldShowInstallments
                 self.installmentsInputContainer.alpha = shouldShowInstallments ? 1.0 : 0.0
+                self.installmentsHeightConstraint?.constant = targetHeight
+                self.transactionModeStackView.spacing = shouldShowInstallments ? Metrics.spacing3 : 0
                 
-                // Force layout updates for the entire view hierarchy
                 self.layoutIfNeeded()
-                self.superview?.layoutIfNeeded()
                 
-                // If we're in a view controller, update its view as well
                 if let viewController = self.findViewController() {
                     viewController.view.layoutIfNeeded()
                 }
-            })
+            },
+            completion: { [weak self] _ in
+                guard let self = self else { return }
+                
+                self.isAnimating = false
+                
+                // Handle any pending mode changes
+                if let pendingMode = self.pendingMode {
+                    self.handleTransactionModeChange(pendingMode)
+                }
+            }
+        )
     }
     
     @objc private func didTapClose() {

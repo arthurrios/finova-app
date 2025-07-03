@@ -188,6 +188,23 @@
         }
       }
     },
+    "addTransactionModal.totalValue" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Total value"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Valor total"
+          }
+        }
+      }
+    },
     "alert.cancel" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2733,7 +2750,7 @@
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Parcelamento"
+            "value" : "Parcelas"
           }
         }
       }
