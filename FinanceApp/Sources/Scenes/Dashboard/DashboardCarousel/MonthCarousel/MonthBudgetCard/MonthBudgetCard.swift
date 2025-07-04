@@ -6,12 +6,12 @@
 //
 
 import Foundation
-import UIKit
 import SwiftUI
+import UIKit
 
 enum BalanceDisplayMode {
-    case final     // Final balance (available value)
-    case current   // Current balance (budget limit - used)
+    case final  // Final balance (available value)
+    case current  // Current balance (budget limit - used)
 }
 
 class MonthBudgetCard: UIView {
@@ -42,7 +42,9 @@ class MonthBudgetCard: UIView {
     
     private lazy var availableBudgetStackView = UIStackView(
         axis: .vertical, spacing: Metrics.spacing3,
-        arrangedSubviews: [availableBudgetTextLabel, availableBudgetValueWithToggleContainer, defineBudgetButton])
+        arrangedSubviews: [
+            availableBudgetTextLabel, availableBudgetValueWithToggleContainer, defineBudgetButton
+        ])
     
     private lazy var availableBudgetValueWithToggleContainer: UIView = {
         let container = UIView()
@@ -57,14 +59,14 @@ class MonthBudgetCard: UIView {
         NSLayoutConstraint.activate([
             availableBudgetValueLabel.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             availableBudgetValueLabel.centerYAnchor.constraint(equalTo: container.centerYAnchor),
-
+            
             balanceToggleContainer.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             balanceToggleContainer.centerYAnchor.constraint(equalTo: container.centerYAnchor),
             
-            balanceToggleContainer.leadingAnchor.constraint(greaterThanOrEqualTo: availableBudgetValueLabel.trailingAnchor, constant: 8),
+            balanceToggleContainer.leadingAnchor.constraint(
+                greaterThanOrEqualTo: availableBudgetValueLabel.trailingAnchor, constant: 8),
             
-            container.heightAnchor.constraint(equalTo: balanceToggleContainer.heightAnchor),
-            container.widthAnchor.constraint(greaterThanOrEqualTo: availableBudgetValueLabel.widthAnchor)
+            container.heightAnchor.constraint(equalTo: balanceToggleContainer.heightAnchor)
         ])
         
         return container
@@ -119,14 +121,14 @@ class MonthBudgetCard: UIView {
         let label = UILabel()
         label.font = Fonts.textSM.font
         label.textColor = Colors.gray400
-        return label 
+        return label
     }()
     
     private var availableBudgetValueLabel: UILabel = {
         let label = UILabel()
         label.font = Fonts.titleLG.font
         label.textColor = Colors.gray100
-        label.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        label.setContentHuggingPriority(.defaultHigh, for: .horizontal)
         label.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
         return label
     }()
@@ -138,7 +140,7 @@ class MonthBudgetCard: UIView {
         imageView.translatesAutoresizingMaskIntoConstraints = false
         return imageView
     }()
-
+    
     private lazy var balanceToggleContainer: UIView = {
         let container = UIView()
         container.backgroundColor = Colors.gray600
@@ -278,9 +280,8 @@ class MonthBudgetCard: UIView {
     private func updateAvailableBudgetDisplay() {
         guard let data = currentMonthData else { return }
         
-        let shouldShowToggleButton = data.budgetLimit != nil &&
-        data.budgetLimit! > 0 &&
-        isCurrentMonth()
+        let shouldShowToggleButton =
+        data.budgetLimit != nil && data.budgetLimit! > 0 && isCurrentMonth()
         
         availableBudgetValueLabel.isHidden = false
         
@@ -296,7 +297,7 @@ class MonthBudgetCard: UIView {
                     displayValue = data.finalBalance ?? (data.budgetLimit! - data.usedValue)
                     textKey = "monthCard.availableBudget"
                     balanceToggleContainer.backgroundColor = Colors.gray600
-
+                    
                 case .current:
                     displayValue = data.currentBalance ?? (data.previousBalance ?? 0)
                     textKey = "monthCard.currentBalance"
@@ -322,8 +323,10 @@ class MonthBudgetCard: UIView {
             availableBudgetValueWithToggleContainer.isHidden = false
             defineBudgetButton.isHidden = true
             
-            if !availableBudgetStackView.arrangedSubviews.contains(availableBudgetValueWithToggleContainer) {
-                availableBudgetStackView.insertArrangedSubview(availableBudgetValueWithToggleContainer, at: 1)
+            if !availableBudgetStackView.arrangedSubviews.contains(
+                availableBudgetValueWithToggleContainer) {
+                availableBudgetStackView.insertArrangedSubview(
+                    availableBudgetValueWithToggleContainer, at: 1)
             }
             
         } else {
@@ -389,7 +392,8 @@ class MonthBudgetCard: UIView {
         defineBudgetButton.addTarget(
             self, action: #selector(defineBudgetButtonTapped), for: .touchUpInside)
         
-        let toggleBalanceTapGesture = UITapGestureRecognizer(target: self, action: #selector(toggleBalanceDisplay))
+        let toggleBalanceTapGesture = UITapGestureRecognizer(
+            target: self, action: #selector(toggleBalanceDisplay))
         balanceToggleContainer.addGestureRecognizer(toggleBalanceTapGesture)
         balanceToggleContainer.isUserInteractionEnabled = true
     }
@@ -398,6 +402,8 @@ class MonthBudgetCard: UIView {
         animatedNumberContainer = UIView()
         animatedNumberContainer?.backgroundColor = .clear
         animatedNumberContainer?.translatesAutoresizingMaskIntoConstraints = false
+        animatedNumberContainer?.setContentHuggingPriority(.required, for: .horizontal)
+        animatedNumberContainer?.setContentCompressionResistancePriority(.required, for: .horizontal)
         
         animatedNumberContainer?.isHidden = true
         
@@ -405,10 +411,11 @@ class MonthBudgetCard: UIView {
         availableBudgetValueWithToggleContainer.addSubview(container)
         
         NSLayoutConstraint.activate([
-            container.leadingAnchor.constraint(equalTo: availableBudgetValueLabel.leadingAnchor),
-            container.trailingAnchor.constraint(equalTo: availableBudgetValueLabel.trailingAnchor),
-            container.topAnchor.constraint(equalTo: availableBudgetValueLabel.topAnchor),
-            container.bottomAnchor.constraint(equalTo: availableBudgetValueLabel.bottomAnchor)
+            container.leadingAnchor.constraint(
+                equalTo: availableBudgetValueLabel.leadingAnchor),
+            container.centerYAnchor.constraint(
+                equalTo: availableBudgetValueWithToggleContainer.centerYAnchor),
+            container.widthAnchor.constraint(greaterThanOrEqualToConstant: 150)
         ])
     }
     
@@ -423,15 +430,17 @@ class MonthBudgetCard: UIView {
             let swiftUIView = AnimatedNumberLabel(value: value, font: currentFont, color: currentColor)
             let hostController = UIHostingController(rootView: swiftUIView)
             hostController.view.backgroundColor = .clear
+            hostController.view.setContentHuggingPriority(.required, for: .horizontal)
+            hostController.view.setContentCompressionResistancePriority(.required, for: .horizontal)
             animatedNumberHost = hostController
             
             container.addSubview(hostController.view)
             hostController.view.translatesAutoresizingMaskIntoConstraints = false
             NSLayoutConstraint.activate([
                 hostController.view.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-                hostController.view.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-                hostController.view.topAnchor.constraint(equalTo: container.topAnchor),
-                hostController.view.bottomAnchor.constraint(equalTo: container.bottomAnchor)
+                hostController.view.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+                hostController.view.widthAnchor.constraint(equalToConstant: 180),
+                hostController.view.heightAnchor.constraint(equalTo: container.heightAnchor)
             ])
         } else {
             let swiftUIView = AnimatedNumberLabel(value: value, font: currentFont, color: currentColor)

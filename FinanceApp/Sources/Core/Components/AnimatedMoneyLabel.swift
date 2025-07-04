@@ -17,11 +17,12 @@ struct AnimatedNumberLabel: View {
             .font(Font(font))
             .foregroundColor(Color(color))
             .if(iOS17OrLater) { view in
-                view.contentTransition(.numericText()) // iOS 17+ smooth animation
-
+                view.contentTransition(.numericText())  // iOS 17+ smooth animation
+                
             }
             .animation(.easeInOut(duration: 0.3), value: value)
             .multilineTextAlignment(.leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
     
     private var iOS17OrLater: Bool {
@@ -34,7 +35,8 @@ struct AnimatedNumberLabel: View {
 }
 
 extension View {
-    @ViewBuilder func `if`<Content: View>(_ condition: Bool, transform: (Self) -> Content) -> some View {
+    @ViewBuilder func `if`<Content: View>(_ condition: Bool, transform: (Self) -> Content)
+    -> some View {
         if condition {
             transform(self)
         } else {
