@@ -1,6 +1,6 @@
 # 📱 Swift Finance App
 
-A comprehensive finance management app built with Swift and UIKit, featuring automated CI/CD, semantic versioning, and modern development practices.
+A comprehensive personal finance management app built with Swift and UIKit, featuring secure local data storage, user authentication, and modern development practices.
 
 ## 🚀 Quick Start
 
@@ -18,46 +18,40 @@ open FinanceApp.xcworkspace
 
 ## 🏗️ Project Status
 
-- **Current Version**: `0.9.0` (Pre-release)
-- **Target Release**: `1.0.0` (Production ready)
+- **Current Version**: Active Development
 - **iOS Deployment**: iOS 15.0+
-- **Xcode**: Latest stable version
+- **Xcode**: 16.2.0+
 - **Swift**: 5.0+
 
 ## 📋 Features
 
-### Current (v0.9.0)
-- 🔐 Firebase Authentication
-- 💾 SQLite Database Integration
-- ✨ Modern UI with Shimmer Effects
-- 📊 Financial Data Management
-- 🔄 Background Sync Support
-
-### Planned (v1.0.0)
-- 📈 Advanced Analytics Dashboard
-- 🔒 Biometric Authentication
-- 📱 Widget Support
-- 🌙 Dark Mode
-- 💳 Multi-account Management
+- 🔐 **User Authentication** - Firebase Authentication with Google Sign-In
+- 💾 **Local Data Storage** - Secure SQLite database with encryption
+- 💰 **Transaction Management** - Add, edit, and categorize income/expenses
+- 🔄 **Recurring Transactions** - Automated recurring transaction handling
+- 📊 **Budget Tracking** - Budget creation and expense monitoring
+- 🎨 **Modern UI** - Clean interface with shimmer effects and animations
+- 📱 **Dashboard** - Financial overview with monthly summaries
+- 🛡️ **Data Privacy** - All financial data stored locally, never in cloud
 
 ## 🛠️ Tech Stack
 
 - **Language**: Swift 5.0+
-- **UI Framework**: UIKit
-- **Architecture**: MVC with Coordinator Pattern
-- **Database**: SQLite (SQLite.swift)
-- **Authentication**: Firebase Auth
-- **UI Enhancements**: ShimmerView
+- **UI Framework**: UIKit with programmatic UI
+- **Architecture**: MVC with Flow Coordinator Pattern
+- **Database**: SQLite with secure local encryption
+- **Authentication**: Firebase Authentication
+- **UI Enhancements**: Custom animations and shimmer effects
 - **Dependency Management**: CocoaPods
-- **CI/CD**: GitHub Actions
+- **CI/CD**: GitHub Actions + Xcode Cloud
 - **Code Quality**: SwiftLint
-- **Version Management**: Semantic Release
+- **Testing**: XCTest with iPhone 16 simulator
 
 ## 🔄 Development Workflow
 
 ### 1. Local Development
 ```bash
-# Create feature branch
+# Create feature branch from develop
 git checkout -b feature/expense-tracking
 
 # Make changes with conventional commits
@@ -65,37 +59,30 @@ git commit -m "feat(tracking): add expense categorization"
 
 # Push and create PR
 git push origin feature/expense-tracking
-gh pr create --base develop
 ```
 
-### 2. Testing & Deployment
-- **PR → develop**: Triggers TestFlight deployment
-- **develop → main**: Triggers production release
-- **All changes**: Automatically versioned using semantic release
-
-### 3. Commit Convention
+### 2. Commit Convention
 ```bash
-# Features (minor version bump)
+# Features
 feat(scope): description
 
-# Bug fixes (patch version bump)
+# Bug fixes
 fix(scope): description
 
-# Breaking changes (major version bump)
+# Breaking changes
 feat(scope)!: description
-BREAKING CHANGE: explanation
 ```
 
 ## 🧪 Testing
 
 ```bash
-# Run unit tests
-xcodebuild test -workspace FinanceApp.xcworkspace -scheme FinanceApp -destination 'platform=iOS Simulator,name=iPhone 15,OS=latest'
+# Run unit tests (using iPhone 16 simulator)
+xcodebuild test -workspace FinanceApp.xcworkspace -scheme FinanceApp -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest'
 
 # Run SwiftLint
 swiftlint
 
-# Fix SwiftLint issues
+# Fix SwiftLint issues automatically
 swiftlint autocorrect
 ```
 
@@ -113,6 +100,11 @@ swiftlint autocorrect
 FinanceApp/
 ├── Sources/
 │   ├── Core/              # Core functionality and utilities
+│   │   ├── Components/    # Reusable UI components
+│   │   ├── Database/      # SQLite and data management
+│   │   ├── Models/        # Data models and entities
+│   │   ├── Repositories/  # Data access layer
+│   │   └── Utils/         # Utility classes and extensions
 │   └── Scenes/            # UI scenes and view controllers
 ├── Resources/             # Assets, fonts, and configuration files
 ├── FinanceAppTests/       # Unit and integration tests
@@ -121,12 +113,13 @@ FinanceApp/
 └── docs/                  # Project documentation
 ```
 
-## 🔐 Security
+## 🔐 Security & Privacy
 
-- 🔒 Secure authentication with Firebase
-- 🔐 API keys and sensitive data encrypted
-- 🛡️ Automated security scanning in CI/CD
-- 📱 iOS Keychain integration for secure storage
+- 🔒 Firebase Authentication for secure user login
+- 💾 All financial data stored locally in encrypted SQLite database
+- 🔐 No sensitive financial data sent to cloud servers
+- 🛡️ Automated security scanning in CI pipeline
+- 📱 Privacy-first architecture design
 
 ## 🤝 Contributing
 
@@ -143,52 +136,40 @@ FinanceApp/
 - Documentation for public APIs
 - Conventional commit messages
 
-## 🚀 Deployment
-
-### TestFlight (Beta)
-- Automatic deployment from `develop` branch
-- Version format: `0.9.x-beta.y`
-- Available for internal testing
-
-### App Store (Production)
-- Automatic deployment from `main` branch
-- Semantic versioning based on commits
-- Includes automated release notes
-
 ## 📊 CI/CD Pipeline
 
-- ✅ Automated testing on all PRs
+- ✅ Automated testing on pull requests
 - 🔍 Code quality checks with SwiftLint
-- 🔒 Security vulnerability scanning
-- 📦 Semantic versioning and releases
-- 📱 TestFlight and App Store deployment
+- 🔒 Security vulnerability scanning with Trivy
+- 📦 Semantic versioning for releases
 - 📈 Build artifacts and test reports
+- 🚀 Hybrid approach: GitHub Actions + Xcode Cloud
 
 ## 🆘 Support
 
 ### Getting Help
-- 📖 Check the [CI/CD Guide](docs/CI-CD-GUIDE.md) for detailed instructions
-- 🐛 Open an issue for bugs or questions
-- 💬 Use GitHub Discussions for general questions
+- 📖 Check the documentation in the `docs/` folder
+- 🐛 Open an issue for bugs or feature requests
+- 💬 Review the development workflow guide
 
 ### Common Issues
-- **Build failures**: Check Xcode version and dependencies
+- **Build failures**: Ensure Xcode 16.2.0+ and run `pod install`
 - **SwiftLint errors**: Run `swiftlint autocorrect` for auto-fixes
 - **CocoaPods issues**: Try `pod install --repo-update`
+- **Simulator issues**: Use iPhone 16 simulator for testing
 
 ## 📄 License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License.
 
 ## 🙏 Acknowledgments
 
 - Firebase team for authentication services
 - SQLite.swift contributors for database integration
-- GitHub Actions community for CI/CD templates
 - iOS development community for best practices
+- Open source contributors for inspiration
 
 ---
 
-**Maintainer**: Development Team  
-**Last Updated**: December 2024  
-**Version**: 0.9.0 
+**Status**: Paused Development  
+**Last Updated**: July 2025 
