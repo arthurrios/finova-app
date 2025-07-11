@@ -14,10 +14,12 @@ public struct Fonts {
     let lineHeight: CGFloat?
     let textCasing: TextCasing?
     
-    init(size: CGFloat,
-         weight: UIFont.Weight? = .regular,
-         lineHeight: CGFloat? = nil,
-         textCasing: TextCasing = .none) {
+    init(
+        size: CGFloat,
+        weight: UIFont.Weight? = .regular,
+        lineHeight: CGFloat? = nil,
+        textCasing: TextCasing = .none
+    ) {
         self.size = size
         self.weight = weight
         self.lineHeight = lineHeight
@@ -35,12 +37,12 @@ public struct Fonts {
     }
     
     var paragraphStyle: NSParagraphStyle {
-        let p = NSMutableParagraphStyle()
+        let paragraphStyle = NSMutableParagraphStyle()
         if let height = lineHeight {
-            p.minimumLineHeight = height
-            p.maximumLineHeight = height
+            paragraphStyle.minimumLineHeight = height
+            paragraphStyle.maximumLineHeight = height
         }
-        return p
+        return paragraphStyle
     }
     
     var attributes: [NSAttributedString.Key: Any] {

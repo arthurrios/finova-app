@@ -1,0 +1,28 @@
+{
+  "name": "swift-finance-app",
+  "version": "0.9.0",
+  "description": "A comprehensive finance management app built with Swift",
+  "private": true,
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/arthurrios/finance-app.git"
+  },
+  "scripts": {
+    "semantic-release": "semantic-release"
+  },
+  "devDependencies": {
+    "@semantic-release/changelog": "^6.0.3",
+    "@semantic-release/commit-analyzer": "^11.0.0",
+    "@semantic-release/git": "^10.0.1",
+    "@semantic-release/github": "^9.0.0",
+    "@semantic-release/release-notes-generator": "^12.0.0",
+    "conventional-changelog-conventionalcommits": "^7.0.2",
+    "semantic-release": "^22.0.12"
+  },
+  "publishConfig": {
+    "access": "restricted"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

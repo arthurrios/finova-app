@@ -10,30 +10,32 @@ import UIKit
 import SwiftEmailValidator
 
 extension UITextField {
-    func enableCurrencyMask() {
-        keyboardType = .numberPad
-        addTarget(self, action: #selector(currencyTextChanged), for: .editingChanged)
-    }
-    
-    func enableEmailValidation(callback: @escaping (Bool) -> Void) {
-        addTarget(self, action: #selector(validateEmail), for: .editingChanged)
-        objc_setAssociatedObject(self, &AssociatedKeys.validationCallback, callback, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
-    }
-    
-    @objc
-    private func currencyTextChanged() {
-        
-        let digitsOnly = text?.components(separatedBy: CharacterSet.decimalDigits.inverted).joined() ?? ""
-        
-        let number = (Double(digitsOnly) ?? 0) / 100
-        
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .currency
-        formatter.currencySymbol = ""
-        formatter.minimumFractionDigits = 2
-        formatter.maximumFractionDigits = 2
-        text = formatter.string(from: NSNumber(value: number))
-    }
+  func enableCurrencyMask() {
+    keyboardType = .numberPad
+    addTarget(self, action: #selector(currencyTextChanged), for: .editingChanged)
+  }
+
+  func enableEmailValidation(callback: @escaping (Bool) -> Void) {
+    addTarget(self, action: #selector(validateEmail), for: .editingChanged)
+    objc_setAssociatedObject(
+      self, &AssociatedKeys.validationCallback, callback, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+  }
+
+  @objc
+  private func currencyTextChanged() {
+
+    let digitsOnly =
+      text?.components(separatedBy: CharacterSet.decimalDigits.inverted).joined() ?? ""
+
+    let number = (Double(digitsOnly) ?? 0) / 100
+
+    let formatter = NumberFormatter()
+    formatter.numberStyle = .currency
+    formatter.currencySymbol = ""
+    formatter.minimumFractionDigits = 2
+    formatter.maximumFractionDigits = 2
+    text = formatter.string(from: NSNumber(value: number))
+  }
     
     @objc private func validateEmail() {
         guard let email = self.text else { return }
@@ -48,5 +50,5 @@ extension UITextField {
 }
 
 private struct AssociatedKeys {
-    static var validationCallback: UInt8 = 0
+  static var validationCallback: UInt8 = 0
 }

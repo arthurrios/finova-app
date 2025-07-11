@@ -47,6 +47,7 @@ final class RecurringTransactionManager {
   ) {
     guard let recurringTxId = recurringTx.id else { return }
 
+    // Get existing instances for this specific recurring transaction only
     let existingInstances = transactionRepo.fetchTransactionInstancesForRecurring(recurringTxId)
     let existingAnchors = Set(existingInstances.map { $0.budgetMonthDate })
     let recurringStartAnchor = recurringTx.budgetMonthDate
@@ -57,8 +58,6 @@ final class RecurringTransactionManager {
 
       let targetAnchor = targetDate.monthAnchor
 
-      if existingAnchors.contains(targetAnchor) { continue }
-
       let effectiveStartAnchor: Int
       if let startDate = transactionStartDate {
         effectiveStartAnchor = startDate.monthAnchor
@@ -66,6 +65,12 @@ final class RecurringTransactionManager {
         effectiveStartAnchor = recurringStartAnchor
       }
 
+      // Skip if an instance already exists for this period
+      if existingAnchors.contains(targetAnchor) {
+        continue
+      }
+
+      // Create instances for the effective start anchor and all future periods
       if targetAnchor >= effectiveStartAnchor {
         let originalDate = Date(timeIntervalSince1970: TimeInterval(recurringTx.dateTimestamp))
         let originalDay = calendar.component(.day, from: originalDate)
@@ -84,6 +89,7 @@ final class RecurringTransactionManager {
           instanceDate = calendar.date(from: targetDateComponents) ?? targetDate
         }
 
+        // Create the instance
         let instanceModel = TransactionModel(
           title: recurringTx.title,
           category: recurringTx.category.key,
@@ -209,7 +215,7 @@ final class RecurringTransactionManager {
     selectedTransactionDate: Date,
     cleanupOption: RecurringCleanupOption
   ) {
-    let allTransactions = transactionRepo.fetchTransactions()
+    let allTransactions = transactionRepo.fetchAllTransactions()
     let installmentInstances = allTransactions.filter {
       $0.parentTransactionId == parentTransactionId
     }

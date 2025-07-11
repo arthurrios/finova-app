@@ -11,6 +11,9 @@ struct MonthBudgetCardType: Codable {
     let date: Date
     let month: String
     let usedValue: Int
-    var budgetLimit: Int? = nil
-    var availableValue: Int? = nil
+    var budgetLimit: Int?
+    var finalBalance: Int?
+    
+    var currentBalance: Int?
+    var previousBalance: Int?
 }

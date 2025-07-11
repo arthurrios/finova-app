@@ -8,7 +8,9 @@
 import Foundation
 
 protocol TransactionRepositoryProtocol {
-    func fetchTransactions() -> [Transaction]
-    func insertTransaction(_ transaction: TransactionModel) throws
-    func delete(id: Int) throws
+  func fetchTransactions() -> [Transaction]
+  func fetchAllTransactions() -> [Transaction]
+  func fetchParentInstallmentTransactions() -> [Transaction]
+  func insertTransaction(_ transaction: TransactionModel) throws
+  func delete(id: Int) throws
 }

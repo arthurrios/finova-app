@@ -1,0 +1,59 @@
+#!/bin/bash
+
+# Pre-commit hook for Swift Finance App
+# This script runs SwiftLint on staged Swift files
+
+echo "🔍 Running pre-commit checks..."
+
+# Check if SwiftLint is installed
+if ! command -v swiftlint &>/dev/null; then
+  echo "⚠️  SwiftLint not found. Installing..."
+  if command -v brew &>/dev/null; then
+    brew install swiftlint
+  else
+    echo "❌ Homebrew not found. Please install SwiftLint manually."
+    echo "   Visit: https://github.com/realm/SwiftLint#installation"
+    exit 1
+  fi
+fi
+
+# Get list of staged Swift files
+STAGED_SWIFT_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.(swift)$')
+
+if [ -z "$STAGED_SWIFT_FILES" ]; then
+  echo "✅ No Swift files to lint."
+  exit 0
+fi
+
+echo "📝 Linting staged Swift files..."
+
+# Auto-fix SwiftLint issues first
+echo "🔧 Auto-fixing SwiftLint issues..."
+swiftlint autocorrect $STAGED_SWIFT_FILES
+
+# Add any auto-fixed files back to staging
+git add $STAGED_SWIFT_FILES
+
+# Run SwiftLint to check for remaining issues
+SWIFTLINT_OUTPUT=$(swiftlint lint --quiet $STAGED_SWIFT_FILES)
+SWIFTLINT_EXIT_CODE=$?
+
+if [ $SWIFTLINT_EXIT_CODE -ne 0 ]; then
+  echo "❌ SwiftLint found issues that require manual fixing:"
+  echo "$SWIFTLINT_OUTPUT"
+  echo ""
+  echo "💡 Some issues were auto-fixed, but these require manual attention."
+  echo "   Fix the remaining issues and commit again."
+  exit 1
+fi
+
+echo "✅ SwiftLint passed! Auto-fixes applied and staged."
+
+# Check commit message format (if commitizen is available)
+if command -v commitizen &>/dev/null; then
+  echo "📋 Checking commit message format..."
+  # This will be handled by commitizen
+fi
+
+echo "🎉 All pre-commit checks passed!"
+exit 0

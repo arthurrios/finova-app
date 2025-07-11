@@ -7,25 +7,26 @@
 
 import Foundation
 import UIKit
+
 private var styleKey: UInt8 = 0
 
 extension UILabel {
-    var fontStyle: Fonts? {
-        get {
-            return objc_getAssociatedObject(self, &styleKey) as? Fonts
-        }
-        set {
-            objc_setAssociatedObject(self, &styleKey, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
-            applyStyle()
-        }
+  var fontStyle: Fonts? {
+    get {
+      return objc_getAssociatedObject(self, &styleKey) as? Fonts
     }
-    
-    func applyStyle() {
-        guard let s = fontStyle, let original = text else { return }
-        
-        let casedText = s.textCasing?.apply(to: original) ?? original
-        
-        attributedText = NSAttributedString(string: casedText, attributes: s.attributes)
-        adjustsFontForContentSizeCategory = true
+    set {
+      objc_setAssociatedObject(self, &styleKey, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+      applyStyle()
     }
+  }
+
+  func applyStyle() {
+    guard let style = fontStyle, let original = text else { return }
+
+    let casedText = style.textCasing?.apply(to: original) ?? original
+
+    attributedText = NSAttributedString(string: casedText, attributes: style.attributes)
+    adjustsFontForContentSizeCategory = true
+  }
 }

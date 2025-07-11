@@ -6,12 +6,11 @@
 //
 
 import Foundation
-import UIKit
 
 class UserDefaultsManager {
     private static let userKey = "userKey"
-    private static let profileImageKey = "profileImageKey"
     private static let currentMonthIndex = "currentMonthIndexKey"
+    private static let balanceDisplayModeKey = "BalanceDisplayMode"
     
     static func saveUser(user: User) {
         let encoder = JSONEncoder()
@@ -19,19 +18,6 @@ class UserDefaultsManager {
             UserDefaults.standard.set(data, forKey: userKey)
             UserDefaults.standard.synchronize()
         }
-    }
-    
-    static func saveProfileImage(image: UIImage) {
-        if let imageData = image.jpegData(compressionQuality: 1.0) {
-            UserDefaults.standard.set(imageData, forKey: profileImageKey)
-        }
-    }
-    
-    static func loadProfileImage() -> UIImage? {
-        if let imageData = UserDefaults.standard.data(forKey: profileImageKey) {
-            return UIImage(data: imageData)
-        }
-        return nil
     }
     
     static func getUser() -> User? {
@@ -55,5 +41,15 @@ class UserDefaultsManager {
     
     static func setCurrentMonthIndex(_ index: Int) {
         UserDefaults.standard.set(index, forKey: currentMonthIndex)
+    }
+    
+    static func setBalanceDisplayMode(_ mode: BalanceDisplayMode) {
+        let modeString = mode == .current ? "current" : "final"
+        UserDefaults.standard.set(modeString, forKey: balanceDisplayModeKey)
+    }
+
+    static func getBalanceDisplayMode() -> BalanceDisplayMode {
+        let modeString = UserDefaults.standard.string(forKey: balanceDisplayModeKey) ?? "final"
+        return modeString == "current" ? .current : .final
     }
 }

@@ -1,0 +1,146 @@
+## [1.0.0-beta.2](https://github.com/arthurrios/finance-app/compare/v1.0.0-beta.1...v1.0.0-beta.2) (2025-06-18)
+
+
+### 🐛 Bug Fixes
+
+* add missing comma in DashboardView layout constraints and remove unnecessary whitespace in TransactionLogicTests ([8d84dff](https://github.com/arthurrios/finance-app/commit/8d84dff10899182aa622f381b87f31aeba1c4664))
+
+
+### ♻️ Code Refactoring
+
+* update transaction fetching methods to improve clarity and functionality ([271c61b](https://github.com/arthurrios/finance-app/commit/271c61b159b1d749244955165e45e91293c9ae52))
+
+## 1.0.0-beta.1 (2025-06-18)
+
+
+### 🚀 Features
+
+* add add transaction button ([3bd6a4c](https://github.com/arthurrios/finance-app/commit/3bd6a4c3b53752460316a30c21914ce76eaa8c2e))
+* add alert for adding budget errors ([ea0dd69](https://github.com/arthurrios/finance-app/commit/ea0dd690c7fcdd0e373686d7673e9cad4338e640))
+* add alert on delete ([79cf164](https://github.com/arthurrios/finance-app/commit/79cf1641b5fb21ca1d90517ef0513d0bd8f495df))
+* add animation to initial load transition ([3d110b2](https://github.com/arthurrios/finance-app/commit/3d110b2ffc8fbb8fb6dd6e603839feaf0009a43d))
+* add authentication and user saved action ([af6e88b](https://github.com/arthurrios/finance-app/commit/af6e88b693d25444535c2707efb5030a505ae335))
+* add budget and transaction repository ([415c734](https://github.com/arthurrios/finance-app/commit/415c7346c23f8baadbbe5b3f879f33c68eeaf075))
+* add budgets ([5d5d5f4](https://github.com/arthurrios/finance-app/commit/5d5d5f452ceb5466984e127d425d9b250589bc50))
+* add budgets header ([6ac852b](https://github.com/arthurrios/finance-app/commit/6ac852b487fe629a89fd61ca4230f47900019715))
+* add card header component ([411e3e4](https://github.com/arthurrios/finance-app/commit/411e3e488e90494e55c5c8721c07c4cf6ce28867))
+* add card inputs and button ([1e9f4ae](https://github.com/arthurrios/finance-app/commit/1e9f4aebeb4e59770d6c9153ce1ad3aa3cb629ea))
+* add card localizables ([cb58ef6](https://github.com/arthurrios/finance-app/commit/cb58ef680936f8b338baaed032c3fd606325497d))
+* add category icon fallback ([cf8711e](https://github.com/arthurrios/finance-app/commit/cf8711e505d39e96d9ba6e813f36223eb1ec1998))
+* add constants, logo and splash initial view ([4b8adde](https://github.com/arthurrios/finance-app/commit/4b8adde5ff5ae2b8cdd61b4e2e2b9c5ab93e9d65))
+* add date picker ([a4637c9](https://github.com/arthurrios/finance-app/commit/a4637c9c8d0bf93618d4d0d6cf0d431c6f97b618))
+* add delete budget cell on slide ([1c2574e](https://github.com/arthurrios/finance-app/commit/1c2574e62929e0f326505721bd535899a38cfa25))
+* add disabled button variant ([d2b8b4b](https://github.com/arthurrios/finance-app/commit/d2b8b4bc7d5d16601aaafd9a3660e82575ef667b))
+* add initial dashboard header and string catalog (international localized) ([bf7858c](https://github.com/arthurrios/finance-app/commit/bf7858c57ebaa77588c2941c3570ecc526cbfb83))
+* add initial logo animation ([38d5cf1](https://github.com/arthurrios/finance-app/commit/38d5cf1286b5565cf811bcdfcd2c0a4b89e79688))
+* add initial transaction tests ([c16756c](https://github.com/arthurrios/finance-app/commit/c16756c3b0a0f64aad32f3b3fd08b16668c0aa11))
+* add input, button components and finish login view ([97ce8c0](https://github.com/arthurrios/finance-app/commit/97ce8c0149ba1134fa72c22fda602868d73c2ed7))
+* add keyboard observer ([f135584](https://github.com/arthurrios/finance-app/commit/f135584525345f256ad7dd32315456e46146b42b))
+* add localizable months ([6f35e27](https://github.com/arthurrios/finance-app/commit/6f35e2708937fc2bcebc9b858a21b69b336e3139))
+* add login error alert ([03dece5](https://github.com/arthurrios/finance-app/commit/03dece5ad02bf6b3a7f358baa39f14b76a1d1b18))
+* add logout button logic and manual backwards animation ([c0adb84](https://github.com/arthurrios/finance-app/commit/c0adb84faa546058ccea87f84d8c9a24c9f7979a))
+* add missing localized strings to alerts ([4ed34f2](https://github.com/arthurrios/finance-app/commit/4ed34f2dbed28143f7ce465923511e164cec746e))
+* add money input ([c6fee96](https://github.com/arthurrios/finance-app/commit/c6fee969e17823bcbaf207f755296c4d9af4ca03))
+* add month budget card and change available budget subviews according to value ([b520771](https://github.com/arthurrios/finance-app/commit/b520771baad6d34d8d58ea1cfeb5db39c63524e4))
+* add month selector cell styles ([e2fef6c](https://github.com/arthurrios/finance-app/commit/e2fef6cfc3c3540e2e46478ee568ff769d6983f2))
+* add navigation to budgets ([72d2b11](https://github.com/arthurrios/finance-app/commit/72d2b11367933c2488dc958042c6686de4979229))
+* add new transaction methods DBHelper and repo ([4f32bf2](https://github.com/arthurrios/finance-app/commit/4f32bf2bd299f3affd3dfeb77eafbf5def8965f5))
+* add profile image ([b9f6eba](https://github.com/arthurrios/finance-app/commit/b9f6ebac61f286b705389f6e5f47072013a1985d))
+* add progress bar view ([8f8cf1a](https://github.com/arthurrios/finance-app/commit/8f8cf1ae91c30bac8802ccec03661ab769cdb263))
+* add quick and local CI test scripts - Introduced two new scripts for quick CI validation and local CI testing, enhancing the development workflow by ensuring project structure and build settings are verified before pushing changes. ([b61ec15](https://github.com/arthurrios/finance-app/commit/b61ec15107434c5d2fbebbeb9d62b24ffd8c3f95))
+* add recurring icon and installments label ([6e41fdf](https://github.com/arthurrios/finance-app/commit/6e41fdfb10fd88f23b4bc4ee5cc8d9fdadaeb622))
+* add rest of transactions tests ([3f5a9a4](https://github.com/arthurrios/finance-app/commit/3f5a9a49dbf4d54e11c11dbe038478b821f09188))
+* add shimmer ([37f71a5](https://github.com/arthurrios/finance-app/commit/37f71a5033077e0f529ec3367fa74ba4d3812b92))
+* add shimmer view to monthSelector ([b4a9cd3](https://github.com/arthurrios/finance-app/commit/b4a9cd32ddded0493b8519a4a5fe75b30f767bd7))
+* add splash subviews ([46f01f6](https://github.com/arthurrios/finance-app/commit/46f01f61cc14befba9466138926e9355e4064db2))
+* add today's transactions notifications ([2256354](https://github.com/arthurrios/finance-app/commit/2256354c847165691dfe5478c5289d24517fbdef))
+* add transaction integration ([0904000](https://github.com/arthurrios/finance-app/commit/0904000ebc53f2d6be9ec3319db0bb8f5f1d55f4))
+* add transaction modal ([75a6466](https://github.com/arthurrios/finance-app/commit/75a64663fe9faaf4a07dd7c944ab09899823078f))
+* add transactions table ([2155bb3](https://github.com/arthurrios/finance-app/commit/2155bb32c9c0efb467f9a653363dae3eb46a2723))
+* add transactions table empty view ([77b01c8](https://github.com/arthurrios/finance-app/commit/77b01c8e7b46c0ac40b33348f83e844a80a74162))
+* add transactions table header ([1269c2e](https://github.com/arthurrios/finance-app/commit/1269c2e17fd8d546b4e92291a18571e532e871ec))
+* add transfer category ([a55d4ae](https://github.com/arthurrios/finance-app/commit/a55d4ae6a0b1d92b4484fce1ffa3864243ebd1fa))
+* add update budget method on save ([5048c78](https://github.com/arthurrios/finance-app/commit/5048c78416d9a533bcfe24eaff1b0414edaee8a0))
+* add year to month budget card ([cdeee9f](https://github.com/arthurrios/finance-app/commit/cdeee9fac5db4f722ba4144dbccd2dc11d34cce7))
+* change date picker to custom selecting only month and year ([7f60b3e](https://github.com/arthurrios/finance-app/commit/7f60b3eb31f2aba3115f83d4f1dc2a5a8f7cbe3d))
+* creating header ([2be5a5d](https://github.com/arthurrios/finance-app/commit/2be5a5dd21c4d0c1549356f7c4d096712d41e6bc))
+* enable table view scroll (option 1) ([e5dabc0](https://github.com/arthurrios/finance-app/commit/e5dabc08beb9dd551932d2eb994b2ede9dbacd45))
+* enhance CI workflow with caching and commit info retrieval - added steps to cache test results, retrieve commit SHA, and conditionally skip tests if results are cached, optimizing the CI process and reducing build times. ([4e889d0](https://github.com/arthurrios/finance-app/commit/4e889d06049fb1d8a948b839f9c1db9ec204cd38))
+* enhance CI workflow with commit message validation - Added a new job for validating commit messages on pull requests, along with updated permissions for security scanning, improving the overall CI process and ensuring adherence to commit message standards. ([cbfbef6](https://github.com/arthurrios/finance-app/commit/cbfbef6d873926507879c5581d1052072fcb7a52))
+* Face ID ([741e2fb](https://github.com/arthurrios/finance-app/commit/741e2fbcf33fdad1cacefbf3db4953e5795c024a))
+* finish logo animation ([9471d2e](https://github.com/arthurrios/finance-app/commit/9471d2eccb53f0393b328fbad708652c8bc59512))
+* finish month budget card subviews ([09c3e50](https://github.com/arthurrios/finance-app/commit/09c3e507bb5774d3f23f7513bf9fd775fd8058d8))
+* finish month card carousel setup ([aab700d](https://github.com/arthurrios/finance-app/commit/aab700d84b42186e79dfee3a4b9eef5d6e9e0887))
+* finish transaction deletion ([5a4869f](https://github.com/arthurrios/finance-app/commit/5a4869f089c6a469339b2802e956d6b951bf6df4))
+* fix password input icon and add keyboard dismiss on screen touch ([35f743e](https://github.com/arthurrios/finance-app/commit/35f743e3bca13a0f7347146f7887a5810855f5ac))
+* fix recurring transaction methods ([bff012e](https://github.com/arthurrios/finance-app/commit/bff012e3350517142474022cc4028c13b7659984))
+* implement Node.js-based commit message validation - Replaced the previous commitlint GitHub action with a Node.js setup for validating commit messages in pull requests, enhancing the CI workflow. Added permissions for pull requests and improved security scan artifact handling. ([7d8db77](https://github.com/arthurrios/finance-app/commit/7d8db77d6a11085d717cb61001e86bc38eaea458))
+* refactor budget card stack views ([21e46d8](https://github.com/arthurrios/finance-app/commit/21e46d8020500d3e86c2c06ba4b0118519866937))
+* save profile image ([f281681](https://github.com/arthurrios/finance-app/commit/f281681b99c78cf97bfc49fce211272ce4d00be8))
+* set current month index ([db0ebb9](https://github.com/arthurrios/finance-app/commit/db0ebb9f10fa368bb6920bfb661f32801c71998d))
+* sort transactions by date ([0cebed2](https://github.com/arthurrios/finance-app/commit/0cebed2d53faa6eb5d09a6bdbb86046839079a1a))
+* touch month and move to center ([0e1856c](https://github.com/arthurrios/finance-app/commit/0e1856c8804f21e280285054a9ca439406fe7da5))
+* transactions swipe (option 1) ([c475ede](https://github.com/arthurrios/finance-app/commit/c475ede3ad6e1629e2062b3c7dee8808eee5b2cb))
+* update category icons ([4ec5782](https://github.com/arthurrios/finance-app/commit/4ec5782b618939faf6ce1161e1d3b1d70008ae61))
+
+
+### 🐛 Bug Fixes
+
+* add back package config ([91a1e77](https://github.com/arthurrios/finance-app/commit/91a1e773be1f47dd7a11ac575e3b2c0ca32aff10))
+* alert titles and descriptions ([2c39dfe](https://github.com/arthurrios/finance-app/commit/2c39dfe11da1f6ff87a941535afaad307d9c80b9))
+* background color transition ([2774c17](https://github.com/arthurrios/finance-app/commit/2774c17bb9cef8670d03f39d2351273b1ffc099c))
+* card layout on update and progress bar color change ([964399d](https://github.com/arthurrios/finance-app/commit/964399d62056c3888730ec69a89d218db7634876))
+* carousel and selector sync ([a7e5c6b](https://github.com/arthurrios/finance-app/commit/a7e5c6babe5523fd7d51dc55d8df09c4a5814c6f))
+* change CI to use full test cycle instead of test-without-building - Local tests pass completely with full build+test cycle - CI test-without-building fails with bundle identifier issues ([891147b](https://github.com/arthurrios/finance-app/commit/891147baca9a0497d5cf817abfbdd847b825bbac))
+* change xcode version in workflows ([29ebaa9](https://github.com/arthurrios/finance-app/commit/29ebaa9c98e889d23b5c3808679f607232119b78))
+* CI build issues and add permissive workflow - Fixed -dry-run incompatibility with Xcode 16.2 new build system - Added permissive CI workflow for unblocked development - Enhanced build diagnostics and error reporting - Added local CI check script for faster debugging ([4645bfd](https://github.com/arthurrios/finance-app/commit/4645bfd175f39f59f8da887aefa8346e08b9f512))
+* dashboard data loading ([44d2429](https://github.com/arthurrios/finance-app/commit/44d2429fb579cc55f0044b66508fe0b6ee9c4fa8))
+* extended month names in budgets ([bc8c9f5](https://github.com/arthurrios/finance-app/commit/bc8c9f59533ed06d913913138cf20f8ed982c87b))
+* future months available value and month selector style update on back from add budgets screen ([a3c4580](https://github.com/arthurrios/finance-app/commit/a3c4580cbe37d08aa810f04f346cabe82c1f1bef))
+* initial month selection ([8354cbe](https://github.com/arthurrios/finance-app/commit/8354cbe18ebbfbd94fd8cc2f4d87bacd13f8d481))
+* installments test ([40a4def](https://github.com/arthurrios/finance-app/commit/40a4defc7890d4a7e74cb03bfbc8ce4143630f04))
+* invalid transaction type ([b3c8920](https://github.com/arthurrios/finance-app/commit/b3c8920184811fea616f54a0ad32ca14cefa43f9))
+* ios deployment target ([aa3135d](https://github.com/arthurrios/finance-app/commit/aa3135d772862fb7eeccc08aa6fa4fa02a7e1a44))
+* last fixes to recurring and installments logic ([0c4a3ed](https://github.com/arthurrios/finance-app/commit/0c4a3ed1217c1172119d88e07ca7d5c16d37993c))
+* lint ([ae83fb6](https://github.com/arthurrios/finance-app/commit/ae83fb6fba0a18fa4a92bfe7f88d6059733d62ab))
+* lint issues ([2b9fff4](https://github.com/arthurrios/finance-app/commit/2b9fff44a982308c13c30375d0dffe0e27c46331))
+* login animation ([58d8433](https://github.com/arthurrios/finance-app/commit/58d8433fea07c4ffb9da27cf74a22e3282fde602))
+* loginView load on face ID failed ([ac7fdf1](https://github.com/arthurrios/finance-app/commit/ac7fdf1125507cedea68927101e2650f17021586))
+* month selector controls and initial month loaded ([8f6e3c0](https://github.com/arthurrios/finance-app/commit/8f6e3c0f27e13c17fd846fb280e2206a1cc3c07c))
+* picker date automatic selection on tap out ([5f17b46](https://github.com/arthurrios/finance-app/commit/5f17b46e741e900cd4ef1a3eb56c39a3dd979914))
+* profile icon size ([ce8ffd4](https://github.com/arthurrios/finance-app/commit/ce8ffd4da62d44792515232fd541030e25bd00e7))
+* regenerate workspace ([30cf783](https://github.com/arthurrios/finance-app/commit/30cf78352774fbcfc0aced3825f7fe18f2e6f500))
+* remove table row selection ([6f0ddc1](https://github.com/arthurrios/finance-app/commit/6f0ddc10a7c1a2b94ee2538ff3ce76d55e4d0cc7))
+* should not swipe previous month budget cell ([3d7f6c8](https://github.com/arthurrios/finance-app/commit/3d7f6c8946b61f7fb4c820c9de211e6b2814bba3))
+* table rounded corners bug ([fef2789](https://github.com/arthurrios/finance-app/commit/fef2789db9fe01b102a45976adae180011abd469))
+* tables height ([2355a60](https://github.com/arthurrios/finance-app/commit/2355a6036ef32a41d11ef400cf908771acbe6e64))
+* tests ([ce4fbde](https://github.com/arthurrios/finance-app/commit/ce4fbde99b5725f3c6f6c54c061e9df36d9d0ea7))
+* transaction title truncation ([f3d5d5c](https://github.com/arthurrios/finance-app/commit/f3d5d5ce7f92b2a529a8959e90b67a7194aa6aae))
+* transactions by month being lost ([6b4203b](https://github.com/arthurrios/finance-app/commit/6b4203b0812231dd8ffba71c951caac7a6827eec))
+* ui kit imports ([2af91cb](https://github.com/arthurrios/finance-app/commit/2af91cb50c5587dd40f1608c55c447bfc363f293))
+* update animation on initial load ([e9c8ebd](https://github.com/arthurrios/finance-app/commit/e9c8ebda86f78525da6e6274eb30296db3485d26))
+* update CI workflow to improve test result caching and output clarity - modified cache key to include workflow files, enhanced output messages for cached test results, and added content hash to marker file for better tracking of test results. ([6fbe1c7](https://github.com/arthurrios/finance-app/commit/6fbe1c7b1304329e6f33a0e283c213cb20d87bda))
+* update xcode version ([a9c489c](https://github.com/arthurrios/finance-app/commit/a9c489c1072cf6128d8ef594217aa73500c39e59))
+* vertical scroll and transaction cell pan ([1467f85](https://github.com/arthurrios/finance-app/commit/1467f854136ebfb647572336159c23f3c7159eb0))
+* wrong import in dashboard view model ([cd317c6](https://github.com/arthurrios/finance-app/commit/cd317c6a836df07e8483444a89c23b397c8fe161))
+
+
+### ♻️ Code Refactoring
+
+* clean up Avatar and InputSegmentedControl components - Improved code readability by removing unnecessary whitespace and ensuring consistent formatting across properties and methods. ([d46c4cb](https://github.com/arthurrios/finance-app/commit/d46c4cbfaa9edefc6313411fde488c39b541fae1))
+* enhance DBHelper and UIView extensions for improved readability - Standardized method formatting, improved indentation, and added new utility methods in UIView for better layout management and view controller retrieval. ([a287aa5](https://github.com/arthurrios/finance-app/commit/a287aa54d176ab7fd6a2f81eb4a9518ef6fc5235))
+* enhance TransactionModel and UITransactionData structures - Improved code readability by standardizing formatting, ensuring consistent indentation, and refining the initialization process for better clarity and maintainability. ([ef251ce](https://github.com/arthurrios/finance-app/commit/ef251ce761a2c8833ecd5a6c66f8a5f7a1389e99))
+* improve Firebase and database initialization - Refactored Firebase configuration into a dedicated method with error handling, and enhanced database initialization to prevent operations if not initialized, improving robustness and clarity. ([47c62d2](https://github.com/arthurrios/finance-app/commit/47c62d25d56558c8fc1396653b7797735495b2e8))
+* improve formatting and structure in DBHelper and View extensions - Enhanced code readability by standardizing method formatting, ensuring consistent indentation, and adding missing commas in the DBHelper class. ([e4f0fb3](https://github.com/arthurrios/finance-app/commit/e4f0fb339c9244886404aa7ec267c5f6f5e39c3a))
+* remove permissive CI workflow - Deleted the permissive CI workflow file to streamline the CI process, ensuring all development checks are handled within the main CI configuration. ([7b39ad3](https://github.com/arthurrios/finance-app/commit/7b39ad3c4544bdead58e082da1819812cbc08b19))
+* streamline code in AddTransactionModalView - Removed unnecessary comments and simplified categoryKey and typeEnum assignments for improved readability. ([cc82f8d](https://github.com/arthurrios/finance-app/commit/cc82f8d5f8fe79b9215a8465324a3d97f6c98b90))
+
+
+### 💄 Styles
+
+* apply SwiftLint auto-corrections ([177e6cf](https://github.com/arthurrios/finance-app/commit/177e6cf21418a1f4772c7d6106cba04556b7ece7))
+
+
+### 👷 CI
+
+* add workflows and docs ([6ac9d99](https://github.com/arthurrios/finance-app/commit/6ac9d99b505bb243f0797eeaf3de4a4e83a40218))

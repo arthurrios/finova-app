@@ -1,0 +1,301 @@
+name: 🚫 CI/CD Pipeline (DISABLED - Migrating to Xcode Cloud)
+
+on:
+  workflow_dispatch: # Manual trigger only (effectively disabled)
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+  id-token: write
+
+env:
+  XCODE_PROJECT: FinanceApp.xcworkspace
+  SCHEME: FinanceApp
+  CONFIGURATION: Release
+
+jobs:
+  # 🐧 LINUX JOBS (Cost: $0.008/min) - Run fast checks first
+
+  code-quality:
+    name: 🔍 Code Quality & Security
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Install and run SwiftLint using official action (more reliable)
+      - name: Install SwiftLint
+        uses: norio-nomura/action-swiftlint@3.2.1
+        with:
+          args: --version
+
+      - name: Run SwiftLint
+        uses: norio-nomura/action-swiftlint@3.2.1
+        with:
+          args: lint --reporter github-actions-logging
+
+      # Security scanning
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: "fs"
+          scan-ref: "."
+          format: "sarif"
+          output: "trivy-results.sarif"
+
+      - name: Upload security scan results
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: "trivy-results.sarif"
+        continue-on-error: true
+
+  semantic-version:
+    name: 📦 Semantic Versioning
+    runs-on: ubuntu-latest
+    needs: code-quality
+    if: github.ref == 'refs/heads/main'
+    outputs:
+      new_release_published: ${{ steps.semantic.outputs.new_release_published }}
+      new_release_version: ${{ steps.semantic.outputs.new_release_version }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Semantic Release
+        id: semantic
+        uses: cycjimmy/semantic-release-action@v4
+        with:
+          semantic_version: 22
+          extra_plugins: |
+            @semantic-release/changelog@6.0.0
+            @semantic-release/git@10.0.0
+            conventional-changelog-conventionalcommits@7.0.2
+          dry_run: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # 🍎 MACOS JOBS (Cost: $0.08/min) - Only essential iOS work
+
+  ios-test:
+    name: 🧪 iOS Build & Test
+    runs-on: macos-15
+    needs: [code-quality] # Only run if code quality passes
+    outputs:
+      tests-passed: ${{ steps.test-results.outputs.tests-passed }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # 🚀 Aggressive caching to minimize macOS runner time
+      - name: Cache complete test results
+        id: test-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            test-results-marker
+            TestResults.xcresult
+          key: ios-test-main-${{ hashFiles('**/*.swift', '**/Podfile.lock', '**/*.xcodeproj/**', '**/*.xcworkspace/**') }}
+          restore-keys: ios-test-main-
+
+      - name: Cache Derived Data
+        if: steps.test-cache.outputs.cache-hit != 'true'
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Developer/Xcode/DerivedData
+          key: derived-data-main-${{ hashFiles('**/*.swift', '**/Podfile.lock', '**/*.xcodeproj/**', '**/*.xcworkspace/**') }}
+          restore-keys: derived-data-main-
+
+      - name: Cache CocoaPods
+        if: steps.test-cache.outputs.cache-hit != 'true'
+        uses: actions/cache@v4
+        with:
+          path: Pods
+          key: pods-main-${{ hashFiles('**/Podfile.lock') }}
+          restore-keys: pods-main-
+
+      # Skip everything if we have cached results
+      - name: Load cached results
+        if: steps.test-cache.outputs.cache-hit == 'true'
+        run: |
+          echo "⚡ Using cached test results - saving ~$6-8 in runner costs!"
+          echo "🎯 Estimated savings: 8-10 minutes of macOS runner time"
+          cat test-results-marker
+
+      # Only run if no cache hit
+      - name: Setup Xcode
+        if: steps.test-cache.outputs.cache-hit != 'true'
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "16.2.0"
+
+      - name: Install dependencies
+        if: steps.test-cache.outputs.cache-hit != 'true'
+        run: |
+          if [ ! -d "Pods" ]; then
+            gem install cocoapods
+            pod install --repo-update
+          else
+            pod install --deployment
+          fi
+
+      # Ultra-optimized build & test (combined to save time)
+      - name: Build & Test (Optimized)
+        if: steps.test-cache.outputs.cache-hit != 'true'
+        run: |
+          echo "🚀 Running optimized iOS build & test..."
+
+          # Single command to build and test (faster than separate steps)
+          xcodebuild -workspace ${{ env.XCODE_PROJECT }} \
+                     -scheme ${{ env.SCHEME }} \
+                     -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest' \
+                     -derivedDataPath ~/Library/Developer/Xcode/DerivedData \
+                     -parallel-testing-enabled YES \
+                     -maximum-concurrent-test-simulator-destinations 2 \
+                     -skipUnavailableActions \
+                     -quiet \
+                     test \
+                     -resultBundlePath TestResults.xcresult
+
+      - name: Cache results
+        id: test-results
+        if: steps.test-cache.outputs.cache-hit != 'true'
+        run: |
+          echo "tests-passed=true" >> $GITHUB_OUTPUT
+          echo "iOS tests completed at $(date)" > test-results-marker
+          echo "Content hash: ${{ hashFiles('**/*.swift', '**/Podfile.lock', '**/*.xcodeproj/**', '**/*.xcworkspace/**') }}" >> test-results-marker
+
+      - name: Set cached output
+        if: steps.test-cache.outputs.cache-hit == 'true'
+        run: echo "tests-passed=true" >> $GITHUB_OUTPUT
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ios-test-results-main
+          path: TestResults.xcresult
+
+  # 🍎 MINIMAL MACOS for production builds
+  build-and-archive:
+    name: 📱 Build & Archive (Production)
+    runs-on: macos-15
+    needs: [ios-test, semantic-version]
+    if: needs.semantic-version.outputs.new_release_published == 'true' && needs.ios-test.outputs.tests-passed == 'true'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Select Xcode version
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "16.2.0"
+
+      # Reuse caches from test job
+      - name: Cache CocoaPods
+        uses: actions/cache@v4
+        with:
+          path: Pods
+          key: pods-main-${{ hashFiles('**/Podfile.lock') }}
+          restore-keys: pods-main-
+
+      - name: Cache Derived Data
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Developer/Xcode/DerivedData
+          key: derived-data-main-${{ hashFiles('**/*.swift', '**/Podfile.lock', '**/*.xcodeproj/**', '**/*.xcworkspace/**') }}
+          restore-keys: derived-data-main-
+
+      - name: Install dependencies
+        run: |
+          if [ ! -d "Pods" ]; then
+            gem install cocoapods
+            pod install --repo-update
+          else
+            echo "✅ Using cached CocoaPods"
+            pod install --deployment
+          fi
+
+      - name: Update version numbers
+        run: |
+          NEW_VERSION="${{ needs.semantic-version.outputs.new_release_version }}"
+          BUILD_NUMBER="${GITHUB_RUN_NUMBER}"
+
+          # Update project settings using PlistBuddy
+          /usr/libexec/PlistBuddy -c "Set :objects:$(plutil -extract rootObject xml1 -o - FinanceApp.xcodeproj/project.pbxproj | grep -o '[A-Z0-9]\{24\}' | head -1):buildSettings:MARKETING_VERSION $NEW_VERSION" FinanceApp.xcodeproj/project.pbxproj 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Set :objects:$(plutil -extract rootObject xml1 -o - FinanceApp.xcodeproj/project.pbxproj | grep -o '[A-Z0-9]\{24\}' | head -1):buildSettings:CURRENT_PROJECT_VERSION $BUILD_NUMBER" FinanceApp.xcodeproj/project.pbxproj 2>/dev/null || true
+
+          echo "Updated version to $NEW_VERSION ($BUILD_NUMBER)"
+
+      - name: Build and Archive (Optimized)
+        run: |
+          echo "🏗️ Building production archive for v${{ needs.semantic-version.outputs.new_release_version }}"
+
+          xcodebuild -workspace ${{ env.XCODE_PROJECT }} \
+                     -scheme ${{ env.SCHEME }} \
+                     -configuration ${{ env.CONFIGURATION }} \
+                     -destination 'generic/platform=iOS' \
+                     -derivedDataPath ~/Library/Developer/Xcode/DerivedData \
+                     -archivePath "FinanceApp.xcarchive" \
+                     -quiet \
+                     archive
+
+      - name: Create IPA
+        run: |
+          xcodebuild -exportArchive \
+                     -archivePath "FinanceApp.xcarchive" \
+                     -exportPath "." \
+                     -exportOptionsPlist ExportOptions.plist
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: FinanceApp-v${{ needs.semantic-version.outputs.new_release_version }}
+          path: "*.ipa"
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ needs.semantic-version.outputs.new_release_version }}
+          files: "*.ipa"
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # 📊 COST ANALYSIS REPORT
+  cost-report:
+    name: 💰 Cost Analysis (Main Branch)
+    runs-on: ubuntu-latest
+    needs: [ios-test, build-and-archive]
+    if: always()
+
+    steps:
+      - name: Calculate cost savings
+        run: |
+          echo "💰 Main Branch CI/CD Cost Analysis"
+          echo "================================="
+          echo ""
+          echo "📊 Job Distribution:"
+          echo "🐧 Linux jobs: ~3-4 minutes total (~$0.03)"
+          echo "🍎 macOS jobs: ~4-6 minutes total (~$0.48)"
+          echo "💾 Cache hits: Save ~8 minutes (~$0.64 per cache hit)"
+          echo ""
+          echo "💡 Estimated cost per main branch build:"
+          echo "   Traditional: ~$1.44 (18 min × $0.08)"
+          echo "   Hybrid: ~$0.51 (83% cost reduction)"
+          echo ""
+          echo "🎯 For production releases:"
+          echo "   • Fast feedback from Linux jobs"
+          echo "   • Minimal macOS usage for iOS-specific tasks"
+          echo "   • Aggressive caching reduces repeat costs"

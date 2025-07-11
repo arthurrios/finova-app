@@ -1,0 +1,285 @@
+name: 🚫 Deploy to TestFlight (DISABLED - Using Xcode Cloud)
+
+on:
+  workflow_dispatch: # Manual trigger only (effectively disabled)
+    inputs:
+      version_bump:
+        description: "Version bump type"
+        required: true
+        default: "patch"
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+
+env:
+  XCODE_PROJECT: FinanceApp.xcworkspace
+  SCHEME: FinanceApp
+  CONFIGURATION: Release
+
+jobs:
+  # 🐧 LINUX JOBS (Cost: $0.008/min) - Prepare for deployment
+
+  prepare-deployment:
+    name: 📋 Prepare Beta Deployment
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/develop'
+    outputs:
+      beta_version: ${{ steps.version.outputs.beta_version }}
+      should_deploy: ${{ steps.checks.outputs.should_deploy }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pre-deployment checks
+        id: checks
+        run: |
+          echo "🔍 Running pre-deployment validation..."
+
+          # Check if this commit should trigger deployment
+          if git log --format="%s" -1 | grep -E "\[skip ci\]|\[skip deploy\]"; then
+            echo "should_deploy=false" >> $GITHUB_OUTPUT
+            echo "⏭️ Deployment skipped by commit message"
+          else
+            echo "should_deploy=true" >> $GITHUB_OUTPUT
+            echo "✅ Deployment checks passed"
+          fi
+
+      - name: Generate beta version
+        id: version
+        run: |
+          CURRENT_VERSION=$(grep '"version"' package.json | sed 's/.*"version": "\(.*\)".*/\1/' || echo "1.0.0")
+          BETA_VERSION="${CURRENT_VERSION}-beta.${GITHUB_RUN_NUMBER}"
+          echo "beta_version=$BETA_VERSION" >> $GITHUB_OUTPUT
+          echo "📦 Beta version: $BETA_VERSION"
+
+      - name: Validate TestFlight configuration
+        run: |
+          echo "🔒 Validating TestFlight configuration..."
+
+          # Check if required secrets are available (without exposing them)
+          if [ -z "${{ secrets.APP_STORE_CONNECT_API_KEY }}" ]; then
+            echo "⚠️ APP_STORE_CONNECT_API_KEY not configured"
+          else
+            echo "✅ API Key configured"
+          fi
+
+          if [ -z "${{ secrets.APP_STORE_CONNECT_KEY_ID }}" ]; then
+            echo "⚠️ APP_STORE_CONNECT_KEY_ID not configured"
+          else
+            echo "✅ Key ID configured"
+          fi
+
+          echo "💡 Deployment will proceed with available configuration"
+
+  # 🍎 MACOS JOBS (Cost: $0.08/min) - Minimal iOS-specific work
+
+  ios-test-and-build:
+    name: 🧪 Test & Build for TestFlight
+    runs-on: macos-15
+    needs: [prepare-deployment]
+    if: needs.prepare-deployment.outputs.should_deploy == 'true'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # 🚀 Aggressive caching to minimize macOS runner time
+      - name: Cache Derived Data
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Developer/Xcode/DerivedData
+          key: derived-data-testflight-${{ hashFiles('**/*.swift', '**/Podfile.lock', '**/*.xcodeproj/**', '**/*.xcworkspace/**') }}
+          restore-keys: derived-data-testflight-
+
+      - name: Cache CocoaPods
+        uses: actions/cache@v4
+        with:
+          path: Pods
+          key: pods-testflight-${{ hashFiles('**/Podfile.lock') }}
+          restore-keys: pods-testflight-
+
+      - name: Setup Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "16.2.0"
+
+      - name: Install dependencies (optimized)
+        run: |
+          if [ ! -d "Pods" ]; then
+            gem install cocoapods
+            pod install --repo-update
+          else
+            echo "✅ Using cached CocoaPods"
+            pod install --deployment
+          fi
+
+      # Quick test run (essential for TestFlight)
+      - name: Run essential tests
+        run: |
+          echo "🧪 Running essential tests before TestFlight upload..."
+
+          xcodebuild -workspace ${{ env.XCODE_PROJECT }} \
+                     -scheme ${{ env.SCHEME }} \
+                     -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest' \
+                     -derivedDataPath ~/Library/Developer/Xcode/DerivedData \
+                     -parallel-testing-enabled YES \
+                     -skipUnavailableActions \
+                     -quiet \
+                     test
+
+      - name: Setup Ruby and Fastlane
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.0"
+          bundler-cache: true
+
+      - name: Install Fastlane
+        run: gem install fastlane
+
+      - name: Update version for beta
+        run: |
+          BETA_VERSION="${{ needs.prepare-deployment.outputs.beta_version }}"
+          BUILD_NUMBER="${GITHUB_RUN_NUMBER}"
+
+          echo "📦 Updating to beta version: $BETA_VERSION"
+
+          # Update marketing version and build number in project
+          sed -i '' "s/MARKETING_VERSION = .*/MARKETING_VERSION = $BETA_VERSION;/" FinanceApp.xcodeproj/project.pbxproj || true
+          sed -i '' "s/CURRENT_PROJECT_VERSION = .*/CURRENT_PROJECT_VERSION = $BUILD_NUMBER;/" FinanceApp.xcodeproj/project.pbxproj || true
+
+          echo "✅ Updated beta version to $BETA_VERSION ($BUILD_NUMBER)"
+
+      - name: Setup App Store Connect API Key
+        if: env.APP_STORE_CONNECT_API_KEY != ''
+        run: |
+          mkdir -p ~/.appstoreconnect/private_keys/
+          echo "${{ secrets.APP_STORE_CONNECT_API_KEY }}" | base64 --decode > ~/.appstoreconnect/private_keys/AuthKey_${{ secrets.APP_STORE_CONNECT_KEY_ID }}.p8
+
+      - name: Build and Archive (Optimized)
+        run: |
+          echo "🏗️ Building TestFlight archive for ${{ needs.prepare-deployment.outputs.beta_version }}"
+
+          xcodebuild -workspace ${{ env.XCODE_PROJECT }} \
+                     -scheme ${{ env.SCHEME }} \
+                     -configuration ${{ env.CONFIGURATION }} \
+                     -destination 'generic/platform=iOS' \
+                     -derivedDataPath ~/Library/Developer/Xcode/DerivedData \
+                     -archivePath "FinanceApp.xcarchive" \
+                     -quiet \
+                     archive
+
+      - name: Export IPA
+        run: |
+          echo "📱 Exporting IPA for TestFlight..."
+
+          xcodebuild -exportArchive \
+                     -archivePath "FinanceApp.xcarchive" \
+                     -exportPath "." \
+                     -exportOptionsPlist ExportOptions.plist
+
+      - name: Upload to TestFlight
+        if: env.APP_STORE_CONNECT_API_KEY != ''
+        run: |
+          echo "🚀 Uploading to TestFlight..."
+
+          xcrun altool --upload-app \
+                       --type ios \
+                       --file "*.ipa" \
+                       --primary-bundle-id "com.arthurrios.FinanceApp" \
+                       --apiKey ${{ secrets.APP_STORE_CONNECT_KEY_ID }} \
+                       --apiIssuer ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+
+      - name: Upload IPA artifact (fallback)
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: TestFlight-${{ needs.prepare-deployment.outputs.beta_version }}
+          path: "*.ipa"
+
+  # 🐧 BACK TO LINUX for release management
+
+  create-beta-release:
+    name: 📦 Create Beta Release
+    runs-on: ubuntu-latest
+    needs: [prepare-deployment, ios-test-and-build]
+    if: always() && needs.ios-test-and-build.result == 'success'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Create Beta Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ needs.prepare-deployment.outputs.beta_version }}
+          name: Beta Release v${{ needs.prepare-deployment.outputs.beta_version }}
+          body: |
+            🚧 **Beta Release for TestFlight**
+
+            This is a beta release deployed to TestFlight for testing purposes.
+
+            **Build Information:**
+            - Version: ${{ needs.prepare-deployment.outputs.beta_version }}
+            - Build number: ${{ github.run_number }}
+            - Commit: ${{ github.sha }}
+
+            **Testing:**
+            - Available on TestFlight for internal testing
+            - Please report any issues on GitHub Issues
+
+            **Cost-Optimized Build:**
+            - Used hybrid Linux/macOS approach
+            - Estimated build cost: ~$0.40 (vs ~$1.60 traditional)
+          prerelease: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Notify team (if configured)
+        if: env.SLACK_WEBHOOK_URL != ''
+        uses: 8398a7/action-slack@v3
+        with:
+          status: success
+          text: |
+            🎉 Beta v${{ needs.prepare-deployment.outputs.beta_version }} deployed to TestFlight!
+
+            Build: ${{ github.run_number }}
+            Commit: ${{ github.sha }}
+            💰 Cost-optimized build completed
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+  # 📊 COST ANALYSIS
+  testflight-cost-report:
+    name: 💰 TestFlight Cost Analysis
+    runs-on: ubuntu-latest
+    needs: [ios-test-and-build]
+    if: always()
+
+    steps:
+      - name: Calculate deployment costs
+        run: |
+          echo "💰 TestFlight Deployment Cost Analysis"
+          echo "====================================="
+          echo ""
+          echo "📊 Job Distribution:"
+          echo "🐧 Linux preparation: ~2-3 minutes (~$0.02)"
+          echo "🍎 macOS build/test/upload: ~5-7 minutes (~$0.48)"
+          echo "🐧 Linux release management: ~1 minute (~$0.01)"
+          echo ""
+          echo "💡 Cost per TestFlight deployment:"
+          echo "   Traditional: ~$1.60 (20 min × $0.08)"
+          echo "   Hybrid: ~$0.51 (68% cost reduction)"
+          echo ""
+          echo "🎯 Benefits:"
+          echo "   • Fast pre-checks catch issues early"
+          echo "   • Minimal macOS usage for iOS tasks only"
+          echo "   • Parallel job execution saves time"
+          echo "   • Aggressive caching reduces rebuild costs"

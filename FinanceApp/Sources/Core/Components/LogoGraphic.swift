@@ -28,6 +28,7 @@ class LogoGraphic: UIView {
     
     private func setupView() {
         addSubview(loginImageView)
+        translatesAutoresizingMaskIntoConstraints = false
         
         setupConstraints()
     }
@@ -38,7 +39,7 @@ class LogoGraphic: UIView {
             loginImageView.leadingAnchor.constraint(equalTo: leadingAnchor),
             loginImageView.trailingAnchor.constraint(equalTo: trailingAnchor),
             loginImageView.bottomAnchor.constraint(equalTo: bottomAnchor),
-            loginImageView.heightAnchor.constraint(equalToConstant: Metrics.loginHeroHeight),
+            loginImageView.heightAnchor.constraint(equalToConstant: Metrics.loginHeroHeight)
         ])
     }
 }

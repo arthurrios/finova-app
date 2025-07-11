@@ -188,6 +188,23 @@
         }
       }
     },
+    "addTransactionModal.totalValue" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Total value"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Valor total"
+          }
+        }
+      }
+    },
     "alert.cancel" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -337,6 +354,142 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Atualizar"
+          }
+        }
+      }
+    },
+    "auth.error.emailAlreadyInUse" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Email already in use"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "E-mail já está em uso"
+          }
+        }
+      }
+    },
+    "auth.error.invalidEmail" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Invalid email"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "E-mail inválido"
+          }
+        }
+      }
+    },
+    "auth.error.networkError" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Network error"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Erro de conexão"
+          }
+        }
+      }
+    },
+    "auth.error.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Auth Error"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Erro de Autenticação"
+          }
+        }
+      }
+    },
+    "auth.error.tooManyRequests" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Too many requests"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Muitas requisições"
+          }
+        }
+      }
+    },
+    "auth.error.userNotFound" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Invalid credentials"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Credenciais inválidas"
+          }
+        }
+      }
+    },
+    "auth.error.weakPassword" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Weak password"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Senha fraca"
+          }
+        }
+      }
+    },
+    "auth.error.wrongPassword" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Invalid crendentials"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Credenciais inválidas"
           }
         }
       }
@@ -1106,6 +1259,40 @@
         }
       }
     },
+    "email.validation.invalid" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Invalid email"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "E-mail inválido"
+          }
+        }
+      }
+    },
+    "error.tryAgain" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Try again"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tentar novamente"
+          }
+        }
+      }
+    },
     "faceid.alert.subtitle" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1136,6 +1323,91 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Face ID"
+          }
+        }
+      }
+    },
+    "faceid.enable.button" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enable %@"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Habilitar %@"
+          }
+        }
+      }
+    },
+    "faceid.enable.message" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Would you like to enable %@ for quick and secure access to your account?"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gostaria de habilitar %@ para acesso rápido e seguro à sua conta?"
+          }
+        }
+      }
+    },
+    "faceid.enable.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enable %@?"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Habilitar %@?"
+          }
+        }
+      }
+    },
+    "faceid.reason" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Use Face ID to access your financial data securely"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Use o Face ID para acessar seus dados financeiros com segurança"
+          }
+        }
+      }
+    },
+    "input.confirmPassword" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Confirm password"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Confirmar senha"
           }
         }
       }
@@ -1361,6 +1633,23 @@
         }
       }
     },
+    "login.dontHaveAccount" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Don’t have an account?"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ainda não possui uma conta?"
+          }
+        }
+      }
+    },
     "login.error.invalidCredentials.description" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1412,23 +1701,6 @@
         }
       }
     },
-    "login.error.tryAgain" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Try again"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Tentar novamente"
-          }
-        }
-      }
-    },
     "login.error.unexpectedError.message" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1459,6 +1731,40 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Erro Inesperado"
+          }
+        }
+      }
+    },
+    "login.googleSignIn" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Login with Google"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Entrar com Google"
+          }
+        }
+      }
+    },
+    "login.registerLink" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Create Account"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Criar Conta"
           }
         }
       }
@@ -1922,6 +2228,23 @@
         }
       }
     },
+    "monthCard.currentBalance" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Current balance"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Saldo atual"
+          }
+        }
+      }
+    },
     "monthCard.defineBudget" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2054,6 +2377,108 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Crédito agendado"
+          }
+        }
+      }
+    },
+    "password.mustContain" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Password must contain"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Senha deve conter"
+          }
+        }
+      }
+    },
+    "password.validation.hasLowercase" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lowercase letter"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Letra minúscula"
+          }
+        }
+      }
+    },
+    "password.validation.hasNumber" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Number"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Número"
+          }
+        }
+      }
+    },
+    "password.validation.hasSpecialCharacter" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Special character"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Caractere especial"
+          }
+        }
+      }
+    },
+    "password.validation.hasUppercase" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Uppercase letter"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Letra maiúscula"
+          }
+        }
+      }
+    },
+    "password.validation.minLength" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "At least 6 characters"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pelo menos 6 caracteres"
           }
         }
       }
@@ -2194,6 +2619,108 @@
         }
       }
     },
+    "register.alreadyHaveAccount" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Already have an account?"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Já tem uma conta?"
+          }
+        }
+      }
+    },
+    "register.button" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Create Account"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Criar Conta"
+          }
+        }
+      }
+    },
+    "register.loginLink" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sign In"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Entre"
+          }
+        }
+      }
+    },
+    "register.welcome.subtitle" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Join us to start managing your finances better"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Junte-se a nós e comece a gerenciar suas finanças melhor"
+          }
+        }
+      }
+    },
+    "register.welcome.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Create Account"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Criar Conta"
+          }
+        }
+      }
+    },
+    "skip" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Skip"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pular"
+          }
+        }
+      }
+    },
     "transaction.delete.title" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2223,7 +2750,7 @@
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Parcelamento"
+            "value" : "Parcelas"
           }
         }
       }
@@ -2292,6 +2819,57 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Lançamentos"
+          }
+        }
+      }
+    },
+    "validation.error.nameRequired" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Name is required"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nome é obrigatório"
+          }
+        }
+      }
+    },
+    "validation.error.passwordsDoNotMatch" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Passwords do not match"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "As senhas não correspondem"
+          }
+        }
+      }
+    },
+    "validation.error.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Validation Error"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Erro de Validação"
           }
         }
       }

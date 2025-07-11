@@ -43,7 +43,7 @@ class InputSegmentedControl: UIView {
       segmentedControl.leadingAnchor.constraint(equalTo: leadingAnchor),
       segmentedControl.trailingAnchor.constraint(equalTo: trailingAnchor),
       segmentedControl.bottomAnchor.constraint(equalTo: bottomAnchor),
-      segmentedControl.heightAnchor.constraint(equalToConstant: Metrics.inputHeight),
+      segmentedControl.heightAnchor.constraint(equalToConstant: Metrics.inputHeight)
     ])
   }
 
@@ -57,13 +57,13 @@ class InputSegmentedControl: UIView {
     segmentedControl.setTitleTextAttributes(
       [
         .foregroundColor: Colors.gray700,
-        .font: Fonts.input.font,
+        .font: Fonts.input.font
       ], for: .normal)
 
     segmentedControl.setTitleTextAttributes(
       [
         .foregroundColor: Colors.gray100,
-        .font: Fonts.input.font,
+        .font: Fonts.input.font
       ], for: .selected)
   }
 

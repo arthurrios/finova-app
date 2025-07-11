@@ -8,5 +8,7 @@
 import Foundation
 
 public protocol LoginViewDelegate: AnyObject {
-    func sendLoginData(name: String, email: String, password: String)
+  func sendLoginData(email: String, password: String)
+  func signInWithGoogle()
+  func navigateToRegister()
 }

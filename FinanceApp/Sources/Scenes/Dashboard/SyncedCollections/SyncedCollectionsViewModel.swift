@@ -14,7 +14,7 @@ protocol SyncedCollectionsViewModelDelegate: AnyObject {
     func didUpdateTransactions(_ transactions: [Transaction])
 }
 
-final class SyncedCollectionsViewModel {
+final class SyncedCollectionsViewModel: ObservableObject {
     // MARK: - Properties
     private let calendar = Calendar.current
     private(set) var monthData: [MonthBudgetCardType] = []
@@ -85,13 +85,12 @@ final class SyncedCollectionsViewModel {
                     transaction.type == .income ? result + transaction.amount : result - transaction.amount
                 }
 
-            updatedMonthData[index].availableValue = total
+            updatedMonthData[index].finalBalance = total
         }
 
         monthData = updatedMonthData
     }
 
-    
     func moveToNextMonth(animated: Bool = true) {
         selectMonth(at: selectedIndex + 1, animated: animated)
     }
