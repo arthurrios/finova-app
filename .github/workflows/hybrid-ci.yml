@@ -1,11 +1,7 @@
-name: 🚀 Develop CI/CD (Cost-Optimized Hybrid)
+name: 🚫 Develop CI/CD (DISABLED - Migrating to Xcode Cloud)
 
 on:
-  push:
-    branches: [develop]
-  pull_request:
-    branches: [main, develop]
-    types: [opened, synchronize, reopened]
+  workflow_dispatch: # Manual trigger only (effectively disabled)
 
 permissions:
   contents: write

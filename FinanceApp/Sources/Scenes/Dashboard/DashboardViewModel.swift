@@ -72,8 +72,16 @@ final class DashboardViewModel {
             let budgetLimit = budgetsByAnchor[anchor]
             
             let net = income - expense
-            let available = previousAvailable + net
             
+            let currentBalance = calculateCurrentBalance(
+                anchor: anchor,
+                allTransactions: allTxs,
+                previousBalance: previousAvailable  // Use the previous month's balance
+            )
+            
+            let thisMonthPreviousBalance = previousAvailable
+            
+            let available = previousAvailable + net
             previousAvailable = available
             runningBalance[anchor] = available
             
@@ -82,11 +90,37 @@ final class DashboardViewModel {
                 month: "month.\(month.lowercased())".localized,
                 usedValue: expense,
                 budgetLimit: budgetLimit,
-                availableValue: available
+                finalBalance: available,
+                currentBalance: currentBalance,
+                previousBalance: thisMonthPreviousBalance
             )
         }
         
         return cards.sorted { $0.date < $1.date }
+    }
+    
+    private func calculateCurrentBalance(anchor: Int, allTransactions: [Transaction], previousBalance: Int) -> Int {
+        let today = Date()
+        let monthDate = Date(timeIntervalSince1970: TimeInterval(anchor))
+        
+        let utcCalendar = Calendar(identifier: .gregorian)
+        var calendar = utcCalendar
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        
+        let transactionsUpToToday = allTransactions.filter { tx in
+            let txDate = Date(timeIntervalSince1970: TimeInterval(tx.dateTimestamp))
+            
+            let isSameMonth = calendar.isDate(txDate, equalTo: monthDate, toGranularity: .month)
+            let isBeforeOrToday = txDate <= today
+            
+            return isSameMonth && isBeforeOrToday
+        }
+        
+        let netUpToToday = transactionsUpToToday.reduce(0) { result, tx in
+            tx.type == .income ? result + tx.amount : result - tx.amount
+        }
+        
+        return previousBalance + netUpToToday
     }
     
     func cleanupRecurringTransactionsWithUserPrompt(
@@ -230,16 +264,12 @@ final class DashboardViewModel {
         let allTxs = transactionRepo.fetchTransactions()
         let now = Date()
         
-        print("🔔 Scheduling notifications for \(allTxs.count) transactions")
-        
         // Clear existing notifications first
         notificationCenter.removeAllPendingNotificationRequests()
         
         let futureTxs = allTxs.filter { $0.date >= now }
-        print("🔔 Found \(futureTxs.count) future transactions for notification scheduling")
         
         futureTxs.forEach { tx in
-            print("🔔 Attempting to schedule notification for: \(tx.title) on \(tx.date)")
             scheduleNotification(for: tx)
         }
     }
@@ -247,7 +277,6 @@ final class DashboardViewModel {
     private func scheduleNotification(for tx: Transaction) {
         // Ensure we have a valid transaction ID
         guard let transactionId = tx.id else {
-            print("🔔 ❌ No transaction ID for: \(tx.title)")
             return
         }
         
@@ -259,13 +288,11 @@ final class DashboardViewModel {
         comps.minute = 0
         
         guard let notificationDate = calendar.date(from: comps) else {
-            print("🔔 ❌ Could not create notification date for: \(tx.title)")
             return
         }
         
         // Only schedule if notification time is in the future
         guard notificationDate > Date() else {
-            print("🔔 ❌ Notification time (\(notificationDate)) is in the past for: \(tx.title)")
             return
         }
         
@@ -293,7 +320,7 @@ final class DashboardViewModel {
             if let error = error {
                 print("🔔 ❌ Error scheduling notification for \(tx.title): \(error)")
             } else {
-                print("🔔 ✅ Successfully scheduled notification for \(tx.title) at \(notificationDate)")
+                //                print("🔔 ✅ Successfully scheduled notification for \(tx.title) at \(notificationDate)")
             }
         }
     }

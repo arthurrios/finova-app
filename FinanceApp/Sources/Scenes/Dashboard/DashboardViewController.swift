@@ -234,7 +234,7 @@ extension DashboardViewController: UICollectionViewDataSource {
             cell.tag = indexPath.item
             cell.transactions = txs
             cell.configure(with: model, transactions: txs)
-            
+                        
             return cell
         } else {
             guard

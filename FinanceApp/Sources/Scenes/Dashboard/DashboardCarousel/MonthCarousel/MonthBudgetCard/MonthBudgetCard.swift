@@ -6,11 +6,24 @@
 //
 
 import Foundation
+import SwiftUI
 import UIKit
+
+enum BalanceDisplayMode {
+    case final  // Final balance (available value)
+    case current  // Current balance (budget limit - used)
+}
 
 class MonthBudgetCard: UIView {
     weak var delegate: MonthBudgetCardDelegate?
     private var budgetDate: Date?
+    
+    private var displayMode: BalanceDisplayMode = .final
+    private var currentMonthData: MonthBudgetCardType?
+    
+    private var animatedNumberHost: UIHostingController<AnimatedNumberLabel>?
+    private var animatedNumberContainer: UIView?
+    private var currentDisplayValue: Int = 0
     
     private let gradientLayer = Colors.gradientBlack
     
@@ -29,7 +42,35 @@ class MonthBudgetCard: UIView {
     
     private lazy var availableBudgetStackView = UIStackView(
         axis: .vertical, spacing: Metrics.spacing3,
-        arrangedSubviews: [availableBudgetTextLabel, availableBudgetValueLabel, defineBudgetButton])
+        arrangedSubviews: [
+            availableBudgetTextLabel, availableBudgetValueWithToggleContainer, defineBudgetButton
+        ])
+    
+    private lazy var availableBudgetValueWithToggleContainer: UIView = {
+        let container = UIView()
+        container.translatesAutoresizingMaskIntoConstraints = false
+        
+        container.addSubview(availableBudgetValueLabel)
+        availableBudgetValueLabel.translatesAutoresizingMaskIntoConstraints = false
+        
+        container.addSubview(balanceToggleContainer)
+        balanceToggleContainer.translatesAutoresizingMaskIntoConstraints = false
+        
+        NSLayoutConstraint.activate([
+            availableBudgetValueLabel.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            availableBudgetValueLabel.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+            
+            balanceToggleContainer.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            balanceToggleContainer.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+            
+            balanceToggleContainer.leadingAnchor.constraint(
+                greaterThanOrEqualTo: availableBudgetValueLabel.trailingAnchor, constant: 8),
+            
+            container.heightAnchor.constraint(equalTo: balanceToggleContainer.heightAnchor)
+        ])
+        
+        return container
+    }()
     
     private lazy var footerStackView = UIStackView(
         axis: .horizontal, arrangedSubviews: [usedBudgetStackView, limitBudgetStackView])
@@ -79,7 +120,6 @@ class MonthBudgetCard: UIView {
     private let availableBudgetTextLabel: UILabel = {
         let label = UILabel()
         label.font = Fonts.textSM.font
-        label.text = "monthCard.availableBudget".localized
         label.textColor = Colors.gray400
         return label
     }()
@@ -88,7 +128,36 @@ class MonthBudgetCard: UIView {
         let label = UILabel()
         label.font = Fonts.titleLG.font
         label.textColor = Colors.gray100
+        label.setContentHuggingPriority(.defaultHigh, for: .horizontal)
+        label.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
         return label
+    }()
+    
+    private let balanceToggleIcon: UIImageView = {
+        let imageView = UIImageView()
+        imageView.image = UIImage(named: "lucide_arrowRightLeft")
+        imageView.tintColor = Colors.gray100
+        imageView.translatesAutoresizingMaskIntoConstraints = false
+        return imageView
+    }()
+    
+    private lazy var balanceToggleContainer: UIView = {
+        let container = UIView()
+        container.backgroundColor = Colors.gray600
+        container.translatesAutoresizingMaskIntoConstraints = false
+        
+        container.addSubview(balanceToggleIcon)
+        NSLayoutConstraint.activate([
+            balanceToggleIcon.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+            balanceToggleIcon.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+            balanceToggleIcon.widthAnchor.constraint(equalToConstant: 24),
+            balanceToggleIcon.heightAnchor.constraint(equalToConstant: 24),
+            
+            container.widthAnchor.constraint(equalToConstant: 36),
+            container.heightAnchor.constraint(equalToConstant: 36)
+        ])
+        
+        return container
     }()
     
     private let defineBudgetButton = Button(
@@ -147,6 +216,7 @@ class MonthBudgetCard: UIView {
         layer.masksToBounds = true
         
         setupView()
+        setupAnimatedNumberContainer()
         setupGestureRecognizers()
     }
     
@@ -156,21 +226,20 @@ class MonthBudgetCard: UIView {
     
     func configure(data: MonthBudgetCardType) {
         budgetDate = data.date
+        currentMonthData = data
         monthLabel.text = data.month
         monthLabel.applyStyle()
         yearLabel.text = "/ " + DateFormatter.yearFormatter.string(from: data.date)
         
         usedBudgetValueLabel.text = data.usedValue.currencyString
         
-        if let availableValue = data.availableValue {
-            availableBudgetValueLabel.text = availableValue.currencyString
-            availableBudgetValueLabel.isHidden = false
-            defineBudgetButton.isHidden = true
+        if isCurrentMonth() {
+            displayMode = UserDefaultsManager.getBalanceDisplayMode()
         } else {
-            availableBudgetValueLabel.isHidden = true
-            defineBudgetButton.isHidden = false
+            displayMode = .final
         }
         
+        updateAvailableBudgetDisplay()
         updateLimitSection(with: data)
     }
     
@@ -196,7 +265,7 @@ class MonthBudgetCard: UIView {
         let rawFraction = Float(data.usedValue) / Float(budgetLimit)
         let clampedFraction = min(max(rawFraction, 0), 1)
         
-        let availableValue = data.availableValue ?? (budgetLimit - data.usedValue)
+        let availableValue = data.finalBalance ?? (budgetLimit - data.usedValue)
         let isAlertState = data.usedValue > budgetLimit || availableValue < 0
         
         DispatchQueue.main.async {
@@ -208,7 +277,73 @@ class MonthBudgetCard: UIView {
         }
     }
     
+    private func updateAvailableBudgetDisplay() {
+        guard let data = currentMonthData else { return }
+        
+        let shouldShowToggleButton =
+        data.budgetLimit != nil && data.budgetLimit! > 0 && isCurrentMonth()
+        
+        availableBudgetValueLabel.isHidden = false
+        
+        balanceToggleContainer.isHidden = !shouldShowToggleButton
+        
+        if data.budgetLimit != nil && data.budgetLimit! > 0 {
+            let displayValue: Int
+            let textKey: String
+            
+            if shouldShowToggleButton {
+                switch displayMode {
+                case .final:
+                    displayValue = data.finalBalance ?? (data.budgetLimit! - data.usedValue)
+                    textKey = "monthCard.availableBudget"
+                    balanceToggleContainer.backgroundColor = Colors.gray600
+                    
+                case .current:
+                    displayValue = data.currentBalance ?? (data.previousBalance ?? 0)
+                    textKey = "monthCard.currentBalance"
+                    balanceToggleContainer.backgroundColor = Colors.mainMagenta.withAlphaComponent(0.7)
+                }
+                
+                // Use animated SwiftUI view for current month
+                animatedNumberContainer?.isHidden = false
+                availableBudgetValueLabel.isHidden = true
+                setupOrUpdateAnimatedNumber(value: displayValue)
+                
+            } else {
+                // Other months - use regular UIKit label (no animation)
+                displayValue = data.finalBalance ?? (data.budgetLimit! - data.usedValue)
+                textKey = "monthCard.availableBudget"
+                
+                animatedNumberContainer?.isHidden = true
+                availableBudgetValueLabel.isHidden = false
+                availableBudgetValueLabel.text = displayValue.currencyString
+            }
+            
+            availableBudgetTextLabel.text = textKey.localized
+            availableBudgetValueWithToggleContainer.isHidden = false
+            defineBudgetButton.isHidden = true
+            
+            if !availableBudgetStackView.arrangedSubviews.contains(
+                availableBudgetValueWithToggleContainer) {
+                availableBudgetStackView.insertArrangedSubview(
+                    availableBudgetValueWithToggleContainer, at: 1)
+            }
+            
+        } else {
+            // No budget - hide everything
+            animatedNumberContainer?.isHidden = true
+            availableBudgetValueWithToggleContainer.isHidden = true
+            defineBudgetButton.isHidden = false
+            
+            if availableBudgetStackView.arrangedSubviews.contains(availableBudgetValueWithToggleContainer) {
+                availableBudgetStackView.removeArrangedSubview(availableBudgetValueWithToggleContainer)
+            }
+        }
+    }
+    
     func refresh(with data: MonthBudgetCardType) {
+        currentMonthData = data
+        updateAvailableBudgetDisplay()
         updateLimitSection(with: data)
     }
     
@@ -256,6 +391,76 @@ class MonthBudgetCard: UIView {
         
         defineBudgetButton.addTarget(
             self, action: #selector(defineBudgetButtonTapped), for: .touchUpInside)
+        
+        let toggleBalanceTapGesture = UITapGestureRecognizer(
+            target: self, action: #selector(toggleBalanceDisplay))
+        balanceToggleContainer.addGestureRecognizer(toggleBalanceTapGesture)
+        balanceToggleContainer.isUserInteractionEnabled = true
+    }
+    
+    private func setupAnimatedNumberContainer() {
+        animatedNumberContainer = UIView()
+        animatedNumberContainer?.backgroundColor = .clear
+        animatedNumberContainer?.translatesAutoresizingMaskIntoConstraints = false
+        animatedNumberContainer?.setContentHuggingPriority(.required, for: .horizontal)
+        animatedNumberContainer?.setContentCompressionResistancePriority(.required, for: .horizontal)
+        
+        animatedNumberContainer?.isHidden = true
+        
+        guard let container = animatedNumberContainer else { return }
+        availableBudgetValueWithToggleContainer.addSubview(container)
+        
+        NSLayoutConstraint.activate([
+            container.leadingAnchor.constraint(
+                equalTo: availableBudgetValueLabel.leadingAnchor),
+            container.centerYAnchor.constraint(
+                equalTo: availableBudgetValueWithToggleContainer.centerYAnchor),
+            container.widthAnchor.constraint(greaterThanOrEqualToConstant: 150)
+        ])
+    }
+    
+    private func setupOrUpdateAnimatedNumber(value: Int) {
+        guard let container = animatedNumberContainer else { return }
+        
+        currentDisplayValue = value
+        let currentFont = availableBudgetValueLabel.font ?? Fonts.titleLG.font
+        let currentColor = availableBudgetValueLabel.textColor ?? Colors.gray100
+        
+        if animatedNumberHost == nil {
+            let swiftUIView = AnimatedNumberLabel(value: value, font: currentFont, color: currentColor)
+            let hostController = UIHostingController(rootView: swiftUIView)
+            hostController.view.backgroundColor = .clear
+            hostController.view.setContentHuggingPriority(.required, for: .horizontal)
+            hostController.view.setContentCompressionResistancePriority(.required, for: .horizontal)
+            animatedNumberHost = hostController
+            
+            container.addSubview(hostController.view)
+            hostController.view.translatesAutoresizingMaskIntoConstraints = false
+            NSLayoutConstraint.activate([
+                hostController.view.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+                hostController.view.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+                hostController.view.widthAnchor.constraint(equalToConstant: 180),
+                hostController.view.heightAnchor.constraint(equalTo: container.heightAnchor)
+            ])
+        } else {
+            let swiftUIView = AnimatedNumberLabel(value: value, font: currentFont, color: currentColor)
+            animatedNumberHost?.rootView = swiftUIView
+        }
+    }
+    
+    private func isCurrentMonth() -> Bool {
+        guard let monthDate = currentMonthData?.date else { return false }
+        let utcCalendar = Calendar(identifier: .gregorian)
+        var utc = utcCalendar
+        utc.timeZone = TimeZone(secondsFromGMT: 0)!
+        
+        let today = Date()
+        let month = utc.component(.month, from: monthDate)
+        let year = utc.component(.year, from: monthDate)
+        let todayMonth = utc.component(.month, from: today)
+        let todayYear = utc.component(.year, from: today)
+        let isCurrent = (month == todayMonth) && (year == todayYear)
+        return isCurrent
     }
     
     @objc
@@ -269,9 +474,17 @@ class MonthBudgetCard: UIView {
         delegate?.didTapDefineBudgetButton(budgetDate: budgetDate)
     }
     
+    @objc
+    private func toggleBalanceDisplay() {
+        displayMode = displayMode == .final ? .current : .final
+        UserDefaultsManager.setBalanceDisplayMode(displayMode)
+        updateAvailableBudgetDisplay()
+    }
+    
     override func layoutSubviews() {
         super.layoutSubviews()
         gradientLayer.frame = bounds
         progressBar.roundRightCornersFixedHeight(Metrics.spacing2)
+        balanceToggleContainer.layer.cornerRadius = balanceToggleContainer.frame.width / 2
     }
 }

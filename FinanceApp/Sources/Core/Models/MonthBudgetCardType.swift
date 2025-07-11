@@ -8,9 +8,12 @@
 import Foundation
 
 struct MonthBudgetCardType: Codable {
-  let date: Date
-  let month: String
-  let usedValue: Int
-  var budgetLimit: Int?
-  var availableValue: Int?
+    let date: Date
+    let month: String
+    let usedValue: Int
+    var budgetLimit: Int?
+    var finalBalance: Int?
+    
+    var currentBalance: Int?
+    var previousBalance: Int?
 }

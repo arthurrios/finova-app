@@ -1,11 +1,7 @@
-name: 🚀 Deploy to TestFlight (Cost-Optimized - Ready when needed)
+name: 🚫 Deploy to TestFlight (DISABLED - Using Xcode Cloud)
 
 on:
-  # Currently disabled - requires paid Apple Developer account
-  # Uncomment when ready to deploy:
-  # push:
-  #   branches: [develop]
-  workflow_dispatch:
+  workflow_dispatch: # Manual trigger only (effectively disabled)
     inputs:
       version_bump:
         description: "Version bump type"

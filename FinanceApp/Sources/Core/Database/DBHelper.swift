@@ -31,9 +31,9 @@ class DBHelper {
             try createTransactionsTable()
             try migrateTransactionsTable()
             isInitialized = true
-            print("✅ Database initialized successfully")
+//            print("✅ Database initialized successfully")
         } catch {
-            print("⚠️ Database initialization failed: \(error)")
+//            print("⚠️ Database initialization failed: \(error)")
             // Don't crash the app, just log the error
             // This allows the app to continue running in test environments
             isInitialized = false
