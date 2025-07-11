@@ -1,10 +1,7 @@
-name: 🚀 CI/CD Pipeline (Cost-Optimized Hybrid)
+name: 🚫 CI/CD Pipeline (DISABLED - Migrating to Xcode Cloud)
 
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
+  workflow_dispatch: # Manual trigger only (effectively disabled)
 
 permissions:
   contents: write

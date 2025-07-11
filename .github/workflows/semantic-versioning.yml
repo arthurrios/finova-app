@@ -1,0 +1,163 @@
+name: 📦 Semantic Versioning (Linux Only)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+  id-token: write
+
+env:
+  NODE_VERSION: "18"
+
+jobs:
+  # 🐧 LINUX ONLY JOBS (Cost: $0.008/min) - Maximum cost efficiency
+
+  code-quality:
+    name: 🔍 Code Quality & Security
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Install SwiftLint on Linux (much faster than macOS)
+      - name: Install SwiftLint
+        run: |
+          wget https://github.com/realm/SwiftLint/releases/download/0.54.0/swiftlint_linux.zip
+          unzip swiftlint_linux.zip
+          sudo mv swiftlint /usr/local/bin/
+          swiftlint version
+
+      - name: Run SwiftLint
+        run: swiftlint lint --reporter github-actions-logging
+
+      # Security scanning
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: "fs"
+          scan-ref: "."
+          format: "sarif"
+          output: "trivy-results.sarif"
+
+      - name: Upload security scan results
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: "trivy-results.sarif"
+        continue-on-error: true
+
+  commit-validation:
+    name: 📝 Validate Commit Messages
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install commitlint
+        run: npm install --save-dev @commitlint/config-conventional @commitlint/cli
+
+      - name: Validate commit messages
+        run: |
+          BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+          git log --format="%H %s" $BASE_SHA..$HEAD_SHA | while read line; do
+            if [ -n "$line" ]; then
+              COMMIT_MSG=$(echo "$line" | cut -d' ' -f2-)
+              echo "$COMMIT_MSG" | npx commitlint --verbose
+            fi
+          done
+
+  semantic-release:
+    name: 📦 Semantic Release
+    runs-on: ubuntu-latest
+    needs: [code-quality]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    outputs:
+      new_release_published: ${{ steps.semantic.outputs.new_release_published }}
+      new_release_version: ${{ steps.semantic.outputs.new_release_version }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Semantic Release
+        id: semantic
+        uses: cycjimmy/semantic-release-action@v4
+        with:
+          semantic_version: 22
+          extra_plugins: |
+            @semantic-release/changelog@6.0.0
+            @semantic-release/git@10.0.0
+            conventional-changelog-conventionalcommits@7.0.2
+          dry_run: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update version in project files
+        if: steps.semantic.outputs.new_release_published == 'true'
+        run: |
+          NEW_VERSION="${{ steps.semantic.outputs.new_release_version }}"
+          echo "📦 New version released: $NEW_VERSION"
+
+          # Update package.json version (for consistency)
+          if [ -f "package.json" ]; then
+            sed -i "s/\"version\": \".*\"/\"version\": \"$NEW_VERSION\"/" package.json
+          fi
+
+          echo "✅ Version files updated"
+
+  # 📊 COST REPORT
+  cost-report:
+    name: 💰 Cost Analysis
+    runs-on: ubuntu-latest
+    needs: [code-quality, semantic-release]
+    if: always()
+
+    steps:
+      - name: Calculate cost savings
+        run: |
+          echo "💰 Semantic Versioning Only - Cost Analysis"
+          echo "============================================"
+          echo ""
+          echo "📊 Current workflow (Linux only):"
+          echo "🐧 Total runtime: ~3-4 minutes"
+          echo "🐧 Cost per run: ~$0.03"
+          echo "🐧 Monthly cost (100 builds): ~$3.00"
+          echo ""
+          echo "💡 Savings vs previous hybrid approach:"
+          echo "   Previous cost: ~$37/month"
+          echo "   Current cost: ~$3/month"
+          echo "   💰 SAVINGS: ~$34/month (92% reduction!)"
+          echo ""
+          echo "🎯 What you still get:"
+          echo "   ✅ Semantic versioning"
+          echo "   ✅ Code quality checks (SwiftLint)"
+          echo "   ✅ Security scanning"
+          echo "   ✅ Commit message validation"
+          echo "   ✅ GitHub releases with changelogs"
+          echo ""
+          echo "🍎 iOS builds and tests now handled by Xcode Cloud"
+          echo "📱 TestFlight deployment now handled by Xcode Cloud"
+          echo ""
+          echo "🎉 Perfect hybrid: GitHub for versioning, Xcode Cloud for iOS!"
