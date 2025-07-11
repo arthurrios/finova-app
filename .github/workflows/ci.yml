@@ -25,16 +25,16 @@ jobs:
         with:
           fetch-depth: 0
 
-      # Install SwiftLint on Linux (much faster than macOS)
+      # Install and run SwiftLint using official action (more reliable)
       - name: Install SwiftLint
-        run: |
-          wget https://github.com/realm/SwiftLint/releases/download/0.54.0/swiftlint_linux.zip
-          unzip swiftlint_linux.zip
-          sudo mv swiftlint /usr/local/bin/
-          swiftlint version
+        uses: norio-nomura/action-swiftlint@3.2.1
+        with:
+          args: --version
 
       - name: Run SwiftLint
-        run: swiftlint lint --reporter github-actions-logging
+        uses: norio-nomura/action-swiftlint@3.2.1
+        with:
+          args: lint --reporter github-actions-logging
 
       # Security scanning
       - name: Run Trivy vulnerability scanner
