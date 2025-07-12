@@ -382,7 +382,6 @@
 				INFOPLIST_FILE = Finova/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Finova;
 				INFOPLIST_KEY_NSFaceIDUsageDescription = "We need permission to use FaceID for authentication";
-				INFOPLIST_KEY_NSUserTrackingUsageDescription = "We need permission to notify you about your transactions";
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
 				INFOPLIST_KEY_UIRequiredDeviceCapabilities = armv7;
@@ -417,7 +416,6 @@
 				INFOPLIST_FILE = Finova/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Finova;
 				INFOPLIST_KEY_NSFaceIDUsageDescription = "We need permission to use FaceID for authentication";
-				INFOPLIST_KEY_NSUserTrackingUsageDescription = "We need permission to notify you about your transactions";
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
 				INFOPLIST_KEY_UIRequiredDeviceCapabilities = armv7;

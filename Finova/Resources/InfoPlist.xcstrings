@@ -10,6 +10,12 @@
             "state" : "new",
             "value" : "Finova"
           }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Finova"
+          }
         }
       }
     },
@@ -25,13 +31,14 @@
         },
         "pt-BR" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "App Finanças"
+            "state" : "translated",
+            "value" : "Finova"
           }
         }
       }
     },
     "NSFaceIDUsageDescription" : {
+      "comment" : "Precisamos de permissão para usar FaceID para autenticação",
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
@@ -44,41 +51,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Precisamos de sua permissão para usar FaceID para autenticação"
-          }
-        }
-      }
-    },
-    "NSUserTrackingDescription" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "We need permission to notify you about your transactions"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Precisamos de sua permissão para notificar sobre suas transações"
-          }
-        }
-      }
-    },
-    "NSUserTrackingUsageDescription" : {
-      "comment" : "Privacy - Tracking Usage Description",
-      "extractionState" : "extracted_with_value",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "new",
-            "value" : "We need permission to notify you about your transactions"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Precisamos de sua permissão para notificar sobre suas transações"
           }
         }
       }
