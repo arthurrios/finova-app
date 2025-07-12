@@ -27,34 +27,34 @@
 		66D82F0427A82D78DFC8E245 /* Pods-FinanceAppTests.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-FinanceAppTests.release.xcconfig"; path = "Target Support Files/Pods-FinanceAppTests/Pods-FinanceAppTests.release.xcconfig"; sourceTree = "<group>"; };
 		75FCE5CA666FCB9DE3A0B90F /* Pods_FinanceApp.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_FinanceApp.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		861F0E47F80E55F2555B81A9 /* Pods-FinanceApp.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-FinanceApp.debug.xcconfig"; path = "Target Support Files/Pods-FinanceApp/Pods-FinanceApp.debug.xcconfig"; sourceTree = "<group>"; };
-		C667CFAC2DFC7D0500B864E8 /* FinanceAppTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = FinanceAppTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		C6D36BDA2DCB81B700A9AB2E /* FinanceApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = FinanceApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		C667CFAC2DFC7D0500B864E8 /* FinovaTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = FinovaTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		C6D36BDA2DCB81B700A9AB2E /* Finova.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Finova.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		D38E272691170F3575D37E35 /* Pods-FinanceAppTests.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-FinanceAppTests.debug.xcconfig"; path = "Target Support Files/Pods-FinanceAppTests/Pods-FinanceAppTests.debug.xcconfig"; sourceTree = "<group>"; };
 		FDA435C47F3140359216EC08 /* Pods-FinanceApp.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-FinanceApp.release.xcconfig"; path = "Target Support Files/Pods-FinanceApp/Pods-FinanceApp.release.xcconfig"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		C6D36BEC2DCB81B800A9AB2E /* Exceptions for "FinanceApp" folder in "FinanceApp" target */ = {
+		C6D36BEC2DCB81B800A9AB2E /* Exceptions for "Finova" folder in "Finova" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
 			);
-			target = C6D36BD92DCB81B700A9AB2E /* FinanceApp */;
+			target = C6D36BD92DCB81B700A9AB2E /* Finova */;
 		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		C667CFAD2DFC7D0500B864E8 /* FinanceAppTests */ = {
+		C667CFAD2DFC7D0500B864E8 /* FinovaTests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			path = FinanceAppTests;
+			path = FinovaTests;
 			sourceTree = "<group>";
 		};
-		C6D36BDC2DCB81B700A9AB2E /* FinanceApp */ = {
+		C6D36BDC2DCB81B700A9AB2E /* Finova */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
-				C6D36BEC2DCB81B800A9AB2E /* Exceptions for "FinanceApp" folder in "FinanceApp" target */,
+				C6D36BEC2DCB81B800A9AB2E /* Exceptions for "Finova" folder in "Finova" target */,
 			);
-			path = FinanceApp;
+			path = Finova;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -103,8 +103,8 @@
 		C6D36BD12DCB81B700A9AB2E = {
 			isa = PBXGroup;
 			children = (
-				C6D36BDC2DCB81B700A9AB2E /* FinanceApp */,
-				C667CFAD2DFC7D0500B864E8 /* FinanceAppTests */,
+				C6D36BDC2DCB81B700A9AB2E /* Finova */,
+				C667CFAD2DFC7D0500B864E8 /* FinovaTests */,
 				C6D36BDB2DCB81B700A9AB2E /* Products */,
 				B6EF22C3E549CEB7DB518A3F /* Pods */,
 				3C7D365F56378FE2A0877202 /* Frameworks */,
@@ -114,8 +114,8 @@
 		C6D36BDB2DCB81B700A9AB2E /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				C6D36BDA2DCB81B700A9AB2E /* FinanceApp.app */,
-				C667CFAC2DFC7D0500B864E8 /* FinanceAppTests.xctest */,
+				C6D36BDA2DCB81B700A9AB2E /* Finova.app */,
+				C667CFAC2DFC7D0500B864E8 /* FinovaTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -123,9 +123,9 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		C667CFAB2DFC7D0500B864E8 /* FinanceAppTests */ = {
+		C667CFAB2DFC7D0500B864E8 /* FinovaTests */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = C667CFB22DFC7D0500B864E8 /* Build configuration list for PBXNativeTarget "FinanceAppTests" */;
+			buildConfigurationList = C667CFB22DFC7D0500B864E8 /* Build configuration list for PBXNativeTarget "FinovaTests" */;
 			buildPhases = (
 				A85AC847AAE320A720F57A17 /* [CP] Check Pods Manifest.lock */,
 				C667CFA82DFC7D0500B864E8 /* Sources */,
@@ -138,16 +138,16 @@
 				C667CFB12DFC7D0500B864E8 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
-				C667CFAD2DFC7D0500B864E8 /* FinanceAppTests */,
+				C667CFAD2DFC7D0500B864E8 /* FinovaTests */,
 			);
-			name = FinanceAppTests;
+			name = FinovaTests;
 			productName = FinanceAppTests;
-			productReference = C667CFAC2DFC7D0500B864E8 /* FinanceAppTests.xctest */;
+			productReference = C667CFAC2DFC7D0500B864E8 /* FinovaTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
-		C6D36BD92DCB81B700A9AB2E /* FinanceApp */ = {
+		C6D36BD92DCB81B700A9AB2E /* Finova */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = C6D36BED2DCB81B800A9AB2E /* Build configuration list for PBXNativeTarget "FinanceApp" */;
+			buildConfigurationList = C6D36BED2DCB81B800A9AB2E /* Build configuration list for PBXNativeTarget "Finova" */;
 			buildPhases = (
 				7D479B5942CC6C575E57A5A9 /* [CP] Check Pods Manifest.lock */,
 				C6D36BD62DCB81B700A9AB2E /* Sources */,
@@ -160,14 +160,14 @@
 			dependencies = (
 			);
 			fileSystemSynchronizedGroups = (
-				C6D36BDC2DCB81B700A9AB2E /* FinanceApp */,
+				C6D36BDC2DCB81B700A9AB2E /* Finova */,
 			);
-			name = FinanceApp;
+			name = Finova;
 			packageProductDependencies = (
 				C6D36C642DCCFCE700A9AB2E /* SwiftEmailValidator */,
 			);
 			productName = FinanceApp;
-			productReference = C6D36BDA2DCB81B700A9AB2E /* FinanceApp.app */;
+			productReference = C6D36BDA2DCB81B700A9AB2E /* Finova.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -190,7 +190,7 @@
 					};
 				};
 			};
-			buildConfigurationList = C6D36BD52DCB81B700A9AB2E /* Build configuration list for PBXProject "FinanceApp" */;
+			buildConfigurationList = C6D36BD52DCB81B700A9AB2E /* Build configuration list for PBXProject "Finova" */;
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -208,8 +208,8 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				C6D36BD92DCB81B700A9AB2E /* FinanceApp */,
-				C667CFAB2DFC7D0500B864E8 /* FinanceAppTests */,
+				C6D36BD92DCB81B700A9AB2E /* Finova */,
+				C667CFAB2DFC7D0500B864E8 /* FinovaTests */,
 			);
 		};
 /* End PBXProject section */
@@ -319,7 +319,7 @@
 /* Begin PBXTargetDependency section */
 		C667CFB12DFC7D0500B864E8 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			target = C6D36BD92DCB81B700A9AB2E /* FinanceApp */;
+			target = C6D36BD92DCB81B700A9AB2E /* Finova */;
 			targetProxy = C667CFB02DFC7D0500B864E8 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
@@ -343,7 +343,7 @@
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/FinanceApp.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/FinanceApp";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Finova.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Finova";
 			};
 			name = Debug;
 		};
@@ -364,7 +364,7 @@
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/FinanceApp.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/FinanceApp";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Finova.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Finova";
 			};
 			name = Release;
 		};
@@ -379,15 +379,17 @@
 				DEVELOPMENT_TEAM = AVJYPRL2JA;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = FinanceApp/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = FinFlow;
+				INFOPLIST_FILE = Finova/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Finova;
 				INFOPLIST_KEY_NSFaceIDUsageDescription = "We need permission to use FaceID for authentication";
 				INFOPLIST_KEY_NSUserTrackingUsageDescription = "We need permission to notify you about your transactions";
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
 				INFOPLIST_KEY_UIRequiredDeviceCapabilities = armv7;
+				INFOPLIST_KEY_UIRequiresFullScreen = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
 				INFOPLIST_KEY_UIUserInterfaceStyle = Light;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.6;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -412,15 +414,17 @@
 				DEVELOPMENT_TEAM = AVJYPRL2JA;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = FinanceApp/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = FinFlow;
+				INFOPLIST_FILE = Finova/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Finova;
 				INFOPLIST_KEY_NSFaceIDUsageDescription = "We need permission to use FaceID for authentication";
 				INFOPLIST_KEY_NSUserTrackingUsageDescription = "We need permission to notify you about your transactions";
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
 				INFOPLIST_KEY_UIRequiredDeviceCapabilities = armv7;
+				INFOPLIST_KEY_UIRequiresFullScreen = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
 				INFOPLIST_KEY_UIUserInterfaceStyle = Light;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.6;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -562,7 +566,7 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		C667CFB22DFC7D0500B864E8 /* Build configuration list for PBXNativeTarget "FinanceAppTests" */ = {
+		C667CFB22DFC7D0500B864E8 /* Build configuration list for PBXNativeTarget "FinovaTests" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				C667CFB32DFC7D0500B864E8 /* Debug */,
@@ -571,7 +575,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		C6D36BD52DCB81B700A9AB2E /* Build configuration list for PBXProject "FinanceApp" */ = {
+		C6D36BD52DCB81B700A9AB2E /* Build configuration list for PBXProject "Finova" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				C6D36BF02DCB81B800A9AB2E /* Debug */,
@@ -580,7 +584,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		C6D36BED2DCB81B800A9AB2E /* Build configuration list for PBXNativeTarget "FinanceApp" */ = {
+		C6D36BED2DCB81B800A9AB2E /* Build configuration list for PBXNativeTarget "Finova" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				C6D36BEE2DCB81B800A9AB2E /* Debug */,

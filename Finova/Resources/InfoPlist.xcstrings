@@ -8,7 +8,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "new",
-            "value" : "FinFlow"
+            "value" : "Finova"
           }
         }
       }
@@ -20,12 +20,12 @@
         "en" : {
           "stringUnit" : {
             "state" : "new",
-            "value" : "FinanceApp"
+            "value" : "Finova"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
-            "state" : "translated",
+            "state" : "needs_review",
             "value" : "App Finanças"
           }
         }

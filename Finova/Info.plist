@@ -13,9 +13,9 @@
 			</array>
 		</dict>
 	</array>
-	<key>FirebaseMultipleAccountsDisabled</key>
-	<true/>
 	<key>FirebaseAccountLinkingEnabled</key>
+	<true/>
+	<key>FirebaseMultipleAccountsDisabled</key>
 	<true/>
 	<key>UIAppFonts</key>
 	<array>
