@@ -152,6 +152,11 @@ final class RecurringTransactionManager {
       if shouldDelete {
         do {
           try transactionRepo.delete(id: id)
+
+          // Clean up notification for deleted recurring instance
+          let notifID = "transaction_\(id)"
+          notificationCenter.removePendingNotificationRequests(withIdentifiers: [notifID])
+          print("🔔 🗑️ Removed notification for deleted recurring instance: \(id)")
         } catch {
           print("Error deleting outdated recurring instance: \(error)")
         }
@@ -204,6 +209,13 @@ final class RecurringTransactionManager {
     if cleanupOption == .all {
       do {
         try transactionRepo.delete(id: parentTransactionId)
+
+        // Clean up notification for deleted parent transaction
+        let notifID = "transaction_\(parentTransactionId)"
+        notificationCenter.removePendingNotificationRequests(withIdentifiers: [notifID])
+        print(
+          "🔔 🗑️ Removed notification for deleted parent recurring transaction: \(parentTransactionId)"
+        )
       } catch {
         print("Error deleting parent recurring transaction: \(error)")
       }
@@ -245,6 +257,13 @@ final class RecurringTransactionManager {
     if cleanupOption == .all {
       do {
         try transactionRepo.delete(id: parentTransactionId)
+
+        // Clean up notification for deleted parent transaction
+        let notifID = "transaction_\(parentTransactionId)"
+        notificationCenter.removePendingNotificationRequests(withIdentifiers: [notifID])
+        print(
+          "🔔 🗑️ Removed notification for deleted parent installment transaction: \(parentTransactionId)"
+        )
       } catch {
         print("Error deleting parent installment transaction: \(error)")
       }

@@ -9,10 +9,10 @@ import Firebase
 import FirebaseAuth
 import XCTest
 
-@testable import FinanceApp
+@testable import Finova
 
 // Type alias to resolve ambiguity between FirebaseAuth.User and FinanceApp.User
-typealias AppUser = FinanceApp.User
+typealias AppUser = Finova.User
 
 class AuthenticationTests: XCTestCase {
     var authManager: AuthenticationManager!
@@ -284,7 +284,7 @@ class AuthenticationTests: XCTestCase {
         type: TransactionType,
         category: TransactionCategory,
         date: Date = Date()
-    ) -> FinanceApp.Transaction {
+    ) -> Finova.Transaction {
         let timestamp = Int(date.timeIntervalSince1970)
         let budgetMonthDate = timestamp  // Simplified for testing
         
@@ -304,7 +304,7 @@ class AuthenticationTests: XCTestCase {
             type: type
         )
         
-        return FinanceApp.Transaction(data: transactionData)
+        return Finova.Transaction(data: transactionData)
     }
     
     // MARK: - Email/Password Authentication Tests

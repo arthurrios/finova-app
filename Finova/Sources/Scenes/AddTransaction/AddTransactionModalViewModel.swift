@@ -83,7 +83,7 @@ final class AddTransactionModalViewModel {
         )
 
         // Schedule notifications for all newly created recurring instances
-        scheduleAllTransactionNotifications()
+        scheduleNotificationsForRecurringTransactions()
 
         return .success(())
       } catch {
@@ -101,10 +101,10 @@ final class AddTransactionModalViewModel {
       )
 
       do {
-        try transactionRepo.insertTransaction(model)
+        let insertedId = try transactionRepo.insertTransactionAndGetId(model)
 
-        // Schedule notification immediately for the new transaction
-        scheduleNotificationForNewTransaction(model)
+        // Schedule notification for the new transaction with its ID
+        scheduleNotificationForNewTransaction(insertedId, model)
 
         return .success(())
       } catch {
@@ -179,7 +179,10 @@ final class AddTransactionModalViewModel {
           totalInstallments: totalInstallments
         )
 
-        try transactionRepo.insertTransaction(installmentModel)
+        let installmentId = try transactionRepo.insertTransactionAndGetId(installmentModel)
+
+        // Schedule notification for each installment if it's in the future
+        scheduleNotificationForNewTransaction(installmentId, installmentModel)
       }
       return .success(())
     } catch {
@@ -189,7 +192,9 @@ final class AddTransactionModalViewModel {
 
   // MARK: - Notification Scheduling
 
-  private func scheduleNotificationForNewTransaction(_ model: TransactionModel) {
+  private func scheduleNotificationForNewTransaction(
+    _ transactionId: Int, _ model: TransactionModel
+  ) {
     // Check if we have notification permission first
     notificationCenter.getNotificationSettings { settings in
       guard settings.authorizationStatus == .authorized else {
@@ -198,12 +203,12 @@ final class AddTransactionModalViewModel {
       }
 
       DispatchQueue.main.async { [weak self] in
-        self?.scheduleNotification(for: model)
+        self?.scheduleNotification(for: transactionId, model: model)
       }
     }
   }
 
-  private func scheduleNotification(for model: TransactionModel) {
+  private func scheduleNotification(for transactionId: Int, model: TransactionModel) {
     let date = Date(timeIntervalSince1970: TimeInterval(model.data.dateTimestamp))
 
     // Create notification time (8 AM on transaction date)
@@ -222,32 +227,67 @@ final class AddTransactionModalViewModel {
       return
     }
 
-    // For new transactions, we won't have an ID yet, so we'll let the dashboard handle it
-    print(
-      "🔔 ✅ New transaction \(model.data.title) will be scheduled for notifications on next dashboard load"
-    )
+    let id = "transaction_\(transactionId)"
+    let trigger = UNCalendarNotificationTrigger(dateMatching: comps, repeats: false)
+
+    let titleKey =
+      model.data.type == "income"
+      ? "notification.transaction.title.income"
+      : "notification.transaction.title.expense"
+    let bodyKey =
+      model.data.type == "income"
+      ? "notification.transaction.body.income"
+      : "notification.transaction.body.expense"
+
+    let amountString = model.data.amount.currencyString
+    let title = titleKey.localized
+    let body = bodyKey.localized(amountString, model.data.title)
+
+    let content = UNMutableNotificationContent()
+    content.title = title
+    content.body = body
+    content.sound = .default
+    content.categoryIdentifier = "TRANSACTION_REMINDER"
+
+    let request = UNNotificationRequest(identifier: id, content: content, trigger: trigger)
+    notificationCenter.add(request) { error in
+      if let error = error {
+        print("🔔 ❌ Error scheduling notification for \(model.data.title): \(error)")
+      } else {
+        print(
+          "🔔 ✅ Successfully scheduled notification for \(model.data.title) at \(notificationDate)")
+      }
+    }
   }
 
-  private func scheduleAllTransactionNotifications() {
-    // This will trigger full notification rescheduling
+  private func scheduleNotificationsForRecurringTransactions() {
+    // This will schedule notifications for newly created recurring transactions
     notificationCenter.getNotificationSettings { settings in
       guard settings.authorizationStatus == .authorized else {
         return
       }
 
       DispatchQueue.main.async { [weak self] in
-        // Get all transactions and schedule notifications
+        // Get all transactions and schedule notifications for future ones only
         let allTxs = self?.transactionRepo.fetchTransactions() ?? []
         let now = Date()
 
         print(
-          "🔔 Rescheduling notifications for \(allTxs.count) transactions after adding recurring transaction"
+          "🔔 Scheduling notifications for recurring transactions"
         )
 
-        // Clear existing notifications first
-        self?.notificationCenter.removeAllPendingNotificationRequests()
+        // Only schedule for future transactions and don't clear existing ones
+        let futureTxs = allTxs.filter { tx in
+          // Get the transaction date and create notification time (8 AM)
+          let calendar = Calendar.current
+          var comps = calendar.dateComponents([.year, .month, .day], from: tx.date)
+          comps.hour = 8
+          comps.minute = 0
 
-        let futureTxs = allTxs.filter { $0.date >= now }
+          guard let notificationDate = calendar.date(from: comps) else { return false }
+          return notificationDate > now
+        }
+
         print("🔔 Found \(futureTxs.count) future transactions for notification scheduling")
 
         futureTxs.forEach { tx in

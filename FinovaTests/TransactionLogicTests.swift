@@ -8,7 +8,7 @@
 import Foundation
 import XCTest
 
-@testable import FinanceApp
+@testable import Finova
 
 class TransactionLogicTests: XCTestCase {
     var transactionRepo: TransactionRepository!
