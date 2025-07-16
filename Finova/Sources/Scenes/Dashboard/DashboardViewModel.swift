@@ -160,10 +160,11 @@ final class DashboardViewModel {
       {
         try transactionRepo.delete(id: id)
 
-        // Clean up notification for this transaction
-        let notifID = "transaction_\(id)"
-        notificationCenter.removePendingNotificationRequests(withIdentifiers: [notifID])
-        print("🔔 🗑️ Removed notification for deleted transaction: \(transaction.title)")
+        // Remove associated notification if transaction has an ID
+        if let transactionId = transaction.id {
+          let notificationId = "transaction_\(transactionId)"
+          notificationCenter.removePendingNotificationRequests(withIdentifiers: [notificationId])
+        }
         return .success(())
       }
 
@@ -241,17 +242,6 @@ final class DashboardViewModel {
     }
   }
 
-  @available(*, deprecated, message: "Use deleteComplexTransaction instead")
-  func deleteRecurringTransaction(
-    transactionId: Int,
-    selectedTransactionDate: Date,
-    cleanupOption: RecurringCleanupOption,
-    completion: @escaping (Result<Void, Error>) -> Void
-  ) {
-    deleteComplexTransaction(
-      transactionId: transactionId, cleanupOption: cleanupOption, completion: completion)
-  }
-
   // MARK: - Notification Debugging
   //
   // Note: Notification scheduling is now handled at:
@@ -308,16 +298,15 @@ final class DashboardViewModel {
 
   func debugPendingNotifications() {
     notificationCenter.getPendingNotificationRequests { requests in
-      print("🔔 📋 Currently pending notifications: \(requests.count)")
+      print("🔔 Pending notifications: \(requests.count)")
       for request in requests {
         if let trigger = request.trigger as? UNCalendarNotificationTrigger,
           let nextTriggerDate = trigger.nextTriggerDate()
         {
-          print("🔔 📅 ID: \(request.identifier)")
-          print("    Title: \(request.content.title)")
-          print("    Body: \(request.content.body)")
-          print("    Scheduled for: \(nextTriggerDate)")
-          print("    ---")
+          print("   \(request.identifier): \(nextTriggerDate)")
+        } else if let trigger = request.trigger as? UNTimeIntervalNotificationTrigger {
+          let fireTime = Date().addingTimeInterval(trigger.timeInterval)
+          print("   \(request.identifier): \(fireTime)")
         }
       }
     }

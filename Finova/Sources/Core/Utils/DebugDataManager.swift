@@ -88,6 +88,21 @@ import Foundation
 
       print("✅ DEBUG: Everything reset - ready for clean testing")
     }
+
+    /// Debug notification system comprehensively
+    func debugNotificationSystem() {
+      NotificationDebugManager.shared.performFullNotificationDebug()
+    }
+
+    /// Test notifications immediately
+    func testNotificationNow() {
+      NotificationDebugManager.shared.scheduleTestNotification()
+    }
+
+    /// Force reschedule all notifications
+    func forceRescheduleNotifications() {
+      NotificationDebugManager.shared.forceRescheduleAllNotifications()
+    }
   }
 
   // Helper extension for string repetition

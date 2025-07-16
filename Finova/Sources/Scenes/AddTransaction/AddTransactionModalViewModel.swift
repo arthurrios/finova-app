@@ -12,7 +12,11 @@ final class AddTransactionModalViewModel {
   private let transactionRepo: TransactionRepository
   private let recurringManager: RecurringTransactionManager
   private let carouselRange: ClosedRange<Int> = -12...24
-  private let calendar = Calendar.current
+  private var calendar: Calendar = {
+    var cal = Calendar.current
+    cal.timeZone = TimeZone.current  // Ensure we use local timezone
+    return cal
+  }()
   private let notificationCenter = UNUserNotificationCenter.current()
 
   init(transactionRepo: TransactionRepository = TransactionRepository()) {
@@ -198,7 +202,6 @@ final class AddTransactionModalViewModel {
     // Check if we have notification permission first
     notificationCenter.getNotificationSettings { settings in
       guard settings.authorizationStatus == .authorized else {
-        print("🔔 ❌ Notification permission not granted")
         return
       }
 
@@ -211,24 +214,19 @@ final class AddTransactionModalViewModel {
   private func scheduleNotification(for transactionId: Int, model: TransactionModel) {
     let date = Date(timeIntervalSince1970: TimeInterval(model.data.dateTimestamp))
 
-    // Create notification time (8 AM on transaction date)
-    var comps = calendar.dateComponents([.year, .month, .day], from: date)
-    comps.hour = 8
-    comps.minute = 0
-
-    guard let notificationDate = calendar.date(from: comps) else {
-      print("🔔 ❌ Could not create notification date for: \(model.data.title)")
-      return
-    }
+    // Create notification time (8 AM) in local timezone
+    var notificationDate = calendar.startOfDay(for: date)
+    notificationDate =
+      calendar.date(byAdding: .hour, value: 8, to: notificationDate) ?? notificationDate
 
     // Only schedule if notification time is in the future
     guard notificationDate > Date() else {
-      print("🔔 ❌ Notification time (\(notificationDate)) is in the past for: \(model.data.title)")
       return
     }
 
     let id = "transaction_\(transactionId)"
-    let trigger = UNCalendarNotificationTrigger(dateMatching: comps, repeats: false)
+    let timeInterval = notificationDate.timeIntervalSinceNow
+    let trigger = UNTimeIntervalNotificationTrigger(timeInterval: timeInterval, repeats: false)
 
     let titleKey =
       model.data.type == "income"
@@ -253,9 +251,6 @@ final class AddTransactionModalViewModel {
     notificationCenter.add(request) { error in
       if let error = error {
         print("🔔 ❌ Error scheduling notification for \(model.data.title): \(error)")
-      } else {
-        print(
-          "🔔 ✅ Successfully scheduled notification for \(model.data.title) at \(notificationDate)")
       }
     }
   }
@@ -272,23 +267,14 @@ final class AddTransactionModalViewModel {
         let allTxs = self?.transactionRepo.fetchTransactions() ?? []
         let now = Date()
 
-        print(
-          "🔔 Scheduling notifications for recurring transactions"
-        )
-
         // Only schedule for future transactions and don't clear existing ones
         let futureTxs = allTxs.filter { tx in
-          // Get the transaction date and create notification time (8 AM)
-          let calendar = Calendar.current
-          var comps = calendar.dateComponents([.year, .month, .day], from: tx.date)
-          comps.hour = 8
-          comps.minute = 0
-
-          guard let notificationDate = calendar.date(from: comps) else { return false }
+          // Create notification time (8 AM) in local timezone
+          var notificationDate = self?.calendar.startOfDay(for: tx.date) ?? tx.date
+          notificationDate =
+            self?.calendar.date(byAdding: .hour, value: 8, to: notificationDate) ?? notificationDate
           return notificationDate > now
         }
-
-        print("🔔 Found \(futureTxs.count) future transactions for notification scheduling")
 
         futureTxs.forEach { tx in
           self?.scheduleNotificationForTransaction(tx)
@@ -299,29 +285,23 @@ final class AddTransactionModalViewModel {
 
   private func scheduleNotificationForTransaction(_ tx: Transaction) {
     guard let transactionId = tx.id else {
-      print("🔔 ❌ No transaction ID for: \(tx.title)")
       return
     }
 
     let id = "transaction_\(transactionId)"
 
-    // Get the transaction date and create notification time (8 AM)
-    var comps = calendar.dateComponents([.year, .month, .day], from: tx.date)
-    comps.hour = 8
-    comps.minute = 0
-
-    guard let notificationDate = calendar.date(from: comps) else {
-      print("🔔 ❌ Could not create notification date for: \(tx.title)")
-      return
-    }
+    // Create notification time (8 AM) in local timezone
+    var notificationDate = calendar.startOfDay(for: tx.date)
+    notificationDate =
+      calendar.date(byAdding: .hour, value: 8, to: notificationDate) ?? notificationDate
 
     // Only schedule if notification time is in the future
     guard notificationDate > Date() else {
-      print("🔔 ❌ Notification time (\(notificationDate)) is in the past for: \(tx.title)")
       return
     }
 
-    let trigger = UNCalendarNotificationTrigger(dateMatching: comps, repeats: false)
+    let timeInterval = notificationDate.timeIntervalSinceNow
+    let trigger = UNTimeIntervalNotificationTrigger(timeInterval: timeInterval, repeats: false)
 
     let titleKey =
       tx.type == .income
@@ -345,9 +325,7 @@ final class AddTransactionModalViewModel {
     let request = UNNotificationRequest(identifier: id, content: content, trigger: trigger)
     notificationCenter.add(request) { error in
       if let error = error {
-        print("�� ❌ Error scheduling notification for \(tx.title): \(error)")
-      } else {
-        print("🔔 ✅ Successfully scheduled notification for \(tx.title) at \(notificationDate)")
+        print("🔔 ❌ Error scheduling notification for \(tx.title): \(error)")
       }
     }
   }
