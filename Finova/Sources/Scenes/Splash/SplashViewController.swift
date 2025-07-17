@@ -44,17 +44,55 @@ final class SplashViewController: UIViewController {
             // Authenticate local data manager with Firebase UID
             SecureLocalDataManager.shared.authenticateUser(firebaseUID: firebaseUser.uid)
             
-            // Check if user has Face ID enabled
-            if let localUser = UserDefaultsManager.getUser(), localUser.isUserSaved {
-                if localUser.hasFaceIdEnabled {
+            // Ensure user data is properly saved in UserDefaults for Firebase users
+            var localUser = UserDefaultsManager.getUser()
+            
+            // Check if we need to create or update user data
+            let needsUpdate = localUser == nil || localUser?.firebaseUID != firebaseUser.uid || localUser?.isUserSaved == false
+            
+            if needsUpdate {
+                print("🔄 Syncing Firebase user to UserDefaults...")
+                
+                // Smart name preservation logic
+                var finalName = firebaseUser.displayName ?? ""
+                if finalName.isEmpty {
+                    // Firebase doesn't provide a name, try to preserve existing name for same user
+                    if let existingUser = localUser, existingUser.firebaseUID == firebaseUser.uid, !existingUser.name.isEmpty && existingUser.name != "User" {
+                        finalName = existingUser.name
+                        print("📝 Preserving existing name: '\(finalName)' for user \(firebaseUser.uid)")
+                    } else {
+                        finalName = "User"
+                        print("⚠️ No name available, falling back to 'User'")
+                    }
+                } else {
+                    print("📝 Using Firebase display name: '\(finalName)'")
+                }
+                
+                let updatedUser = User(
+                    firebaseUID: firebaseUser.uid,
+                    name: finalName,
+                    email: firebaseUser.email ?? "",
+                    isUserSaved: true,  // Mark as saved since they're authenticated with Firebase
+                    hasFaceIdEnabled: localUser?.hasFaceIdEnabled ?? false
+                )
+                UserDefaultsManager.saveUser(user: updatedUser)
+                localUser = updatedUser
+                print("✅ User data synced to UserDefaults with name: '\(finalName)'")
+            } else {
+                print("ℹ️ User data already up to date")
+            }
+            
+            // Now proceed with Face ID check using the guaranteed local user
+            if let user = localUser {
+                if user.hasFaceIdEnabled {
                     print("🔒 Face ID enabled - requesting biometric authentication")
                     authenticateWithFaceID()
                 } else {
                     print("ℹ️ Face ID not enabled - asking user if they want to enable it")
-                    askToEnableFaceID(for: localUser)
+                    askToEnableFaceID(for: user)
                 }
             } else {
-                print("ℹ️ No saved user found - going to dashboard")
+                print("⚠️ Failed to create local user - going to dashboard")
                 flowDelegate?.navigateToDirectlyToDashboard()
             }
         } else {

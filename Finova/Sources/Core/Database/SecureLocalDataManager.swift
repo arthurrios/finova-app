@@ -403,20 +403,17 @@ class SecureLocalDataManager {
         let normalizedEmail = email.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
         deviceUsers = deviceUsers.map { $0.lowercased().trimmingCharacters(in: .whitespacesAndNewlines) }
 
-        if deviceUsers.isEmpty {
+        // With Firebase Auth + UID isolation, any authenticated user should be allowed
+        // Add them to device users list for tracking, but don't deny access
+        if !deviceUsers.contains(normalizedEmail) {
             deviceUsers.append(normalizedEmail)
             UserDefaults.standard.set(deviceUsers, forKey: deviceUserKey)
-            print("✅ First user on device - access granted")
-            return true
-        }
-
-        if deviceUsers.contains(normalizedEmail) {
+            print("✅ New Firebase user added to device - access granted")
+        } else {
             print("✅ Email found in device users - access granted")
-            return true
         }
-
-        print("⚠️ New email on device with existing data - access denied")
-        return false
+        
+        return true  // Always allow access for Firebase authenticated users
     }
     
     private func markDataOwnership(for firebaseUID: String, email: String) {

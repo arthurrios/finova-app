@@ -81,6 +81,12 @@ extension AppFlowController: RegisterFlowDelegate {
 
 // MARK: - Dashboard Flow
 extension AppFlowController: DashboardFlowDelegate {
+    func navigateToSettings() {
+        navigationController?.dismiss(animated: false)
+        let viewController = viewControllersFactory.makeSettingsViewController(flowDelegate: self)
+        navigationController?.pushViewController(viewController, animated: true)
+    }
+    
     func openAddTransactionModal() {
         let viewController = viewControllersFactory.makeAddTransactionModalViewController(
             flowDelegate: self)
@@ -136,4 +142,9 @@ extension AppFlowController: AddTransactionModalFlowDelegate {
             dashboardViewController.loadData()
         }
     }
+}
+
+// MARK: - Settings Flow
+extension AppFlowController: SettingsFlowDelegate {
+    
 }

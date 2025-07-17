@@ -11,4 +11,5 @@ public protocol DashboardViewDelegate: AnyObject {
     func didTapAddTransaction()
     func didTapProfileImage()
     func logout()
+    func didTapSettings()
 }
