@@ -101,6 +101,22 @@ final class SettingsView: UIView {
         setupActions()
     }
     
+    // Account Section
+    private let accountHeaderView = createSectionHeader(title: "settings.section.account".localized)
+    
+    private let deleteAccountContainer: UIView = {
+        let container = createSettingContainer()
+        container.isUserInteractionEnabled = true
+        return container
+    }()
+    
+    private let deleteAccountIconView = createIconView(imageName: "trash", tintColor: Colors.mainRed)
+    private let deleteAccountLabel: UILabel = {
+        let label = createSettingLabel(text: "settings.delete.account.title".localized)
+        label.textColor = Colors.mainRed
+        return label
+    }()
+    
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
@@ -131,6 +147,11 @@ final class SettingsView: UIView {
         contentStackView.addArrangedSubview(aboutHeaderView)
         setupVersionContainer()
         contentStackView.addArrangedSubview(versionContainer)
+        
+        // Account Section
+        contentStackView.addArrangedSubview(accountHeaderView)
+        setupDeleteAccountContainer()
+        contentStackView.addArrangedSubview(deleteAccountContainer)
     }
     
     private func setupBiometricContainer() {
@@ -164,6 +185,19 @@ final class SettingsView: UIView {
             
             versionLabel.trailingAnchor.constraint(equalTo: versionContainer.trailingAnchor, constant: -Metrics.spacing4),
             versionLabel.centerYAnchor.constraint(equalTo: versionContainer.centerYAnchor)
+        ])
+    }
+    
+    private func setupDeleteAccountContainer() {
+        deleteAccountContainer.addSubview(deleteAccountIconView)
+        deleteAccountContainer.addSubview(deleteAccountLabel)
+        
+        NSLayoutConstraint.activate([
+            deleteAccountIconView.leadingAnchor.constraint(equalTo: deleteAccountContainer.leadingAnchor, constant: Metrics.spacing4),
+            deleteAccountIconView.centerYAnchor.constraint(equalTo: deleteAccountContainer.centerYAnchor),
+            
+            deleteAccountLabel.leadingAnchor.constraint(equalTo: deleteAccountIconView.trailingAnchor, constant: Metrics.spacing3),
+            deleteAccountLabel.centerYAnchor.constraint(equalTo: deleteAccountContainer.centerYAnchor)
         ])
     }
     
@@ -201,11 +235,19 @@ final class SettingsView: UIView {
     
     private func setupActions() {
         biometricSwitch.addTarget(self, action: #selector(biometricToggled), for: .valueChanged)
+        
+        let deleteAccountTap = UITapGestureRecognizer(target: self, action: #selector(deleteAccountTapped))
+        deleteAccountContainer.addGestureRecognizer(deleteAccountTap)
     }
     
     @objc
     private func biometricToggled() {
         delegate?.didToggleBiometric(biometricSwitch.isOn)
+    }
+    
+    @objc
+    private func deleteAccountTapped() {
+        delegate?.didTapDeleteAccount()
     }
     
     @objc

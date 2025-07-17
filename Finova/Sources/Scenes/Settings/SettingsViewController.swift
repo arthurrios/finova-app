@@ -44,6 +44,10 @@ final class SettingsViewController: UIViewController {
 }
 
 extension SettingsViewController: SettingsViewDelegate {
+    func didTapDeleteAccount() {
+        print("Tapped delete account")
+    }
+    
     func didToggleBiometric(_ isEnabled: Bool) {
         //
     }
