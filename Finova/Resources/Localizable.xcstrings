@@ -358,6 +358,23 @@
         }
       }
     },
+    "auth.error.appleIDToken" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Failed to obtain Apple ID token"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Falha ao obter Apple ID token"
+          }
+        }
+      }
+    },
     "auth.error.emailAlreadyInUse" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -388,6 +405,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "E-mail inválido"
+          }
+        }
+      }
+    },
+    "auth.error.invalidState" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Invalid authentication state"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Estado de autenticação inválido"
           }
         }
       }

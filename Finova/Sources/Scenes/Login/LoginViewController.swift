@@ -184,7 +184,8 @@ final class LoginViewController: UIViewController {
 
 extension LoginViewController: LoginViewDelegate {
     func signInWithApple() {
-        //
+        LoadingManager.shared.showLoading(on: self)
+        viewModel.signInWithApple()
     }
     
     func signInWithGoogle() {

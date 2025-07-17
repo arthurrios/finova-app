@@ -9,13 +9,15 @@ import FirebaseAuth
 import Foundation
 import GoogleSignIn
 import UIKit
+import AuthenticationServices
+import CryptoKit
 
 protocol AuthenticationManagerDelegate: AnyObject {
     func authenticationDidComplete(user: User)
     func authenticationDidFail(error: Error)
 }
 
-class AuthenticationManager {
+class AuthenticationManager: NSObject {
     
     // MARK: - Singleton
     
@@ -25,7 +27,8 @@ class AuthenticationManager {
     
     weak var delegate: AuthenticationManagerDelegate?
     
-    private init() {
+    override init() {
+        super.init()
         setupAuthStateListener()
     }
     
@@ -38,6 +41,10 @@ class AuthenticationManager {
     var isAuthenticated: Bool {
         return currentUser != nil
     }
+    
+    // MARK: - Private Properties
+    
+    private var currentNonce: String?
     
     // MARK: - Authentication State Listener
     
@@ -182,6 +189,26 @@ class AuthenticationManager {
         }
     }
     
+    // MARK: - Apple Sign-In
+    
+    func signInWithApple() {
+        print("🍎 Attempting Apple Sign-In")
+        isHandlingAuthentication = true
+        
+        // Generate nonce for security
+        let nonce = randomNonceString()
+        currentNonce = nonce
+        
+        let request = ASAuthorizationAppleIDProvider().createRequest()
+        request.requestedScopes = [.fullName, .email]
+        request.nonce = sha256(nonce)
+        
+        let authorizationController = ASAuthorizationController(authorizationRequests: [request])
+        authorizationController.delegate = self
+        authorizationController.presentationContextProvider = self
+        authorizationController.performRequests()
+    }
+    
     // MARK: - Sign Out
     
     func signOut() {
@@ -284,6 +311,47 @@ class AuthenticationManager {
             print("✅ Google profile image saved to secure storage")
         }.resume()
     }
+    
+    private func randomNonceString(length: Int = 32) -> String {
+        precondition(length > 0)
+        let charset: [Character] = Array("0123456789ABCDEFGHIJKLMNOPQRSTUVXYZabcdefghijklmnopqrstuvwxyz-._")
+        var result = ""
+        var remainingLength = length
+        
+        while remainingLength > 0 {
+            let randoms: [UInt8] = (0 ..< 16).map { _ in
+                var random: UInt8 = 0
+                let errorCode = SecRandomCopyBytes(kSecRandomDefault, 1, &random)
+                if errorCode != errSecSuccess {
+                    fatalError("Unable to generate nonce. SecRandomCopyBytes failed with OSStatus \(errorCode)")
+                }
+                return random
+            }
+            
+            randoms.forEach { random in
+                if remainingLength == 0 {
+                    return
+                }
+                
+                if random < charset.count {
+                    result.append(charset[Int(random)])
+                    remainingLength -= 1
+                }
+            }
+        }
+        
+        return result
+    }
+    
+    private func sha256(_ input: String) -> String {
+        let inputData = Data(input.utf8)
+        let hashedData = SHA256.hash(data: inputData)
+        let hashString = hashedData.compactMap {
+            return String(format: "%02x", $0)
+        }.joined()
+        
+        return hashString
+    }
 }
 
 // MARK: - Helper Method for Getting Current View Controller
@@ -313,6 +381,8 @@ enum AuthError: LocalizedError {
     case noUser
     case invalidCredentials
     case networkError
+    case appleTokenFailure
+    case invalidState
     
     var errorDescription: String? {
         switch self {
@@ -326,6 +396,10 @@ enum AuthError: LocalizedError {
             return "auth.error.invalidCredentials".localized
         case .networkError:
             return "auth.error.networkError".localized
+        case .appleTokenFailure:
+            return "auth.error.appleIDToken".localized
+        case .invalidState:
+            return "auth.error.invalidState".localized
         }
     }
     
@@ -341,6 +415,10 @@ enum AuthError: LocalizedError {
             return "Please check your email and password and try again"
         case .networkError:
             return "Please check your internet connection and try again"
+        case .appleTokenFailure:
+            return "Please try again"
+        case .invalidState:
+            return "Please contact support if this issue persists"
         }
     }
 }
@@ -361,5 +439,62 @@ extension UIViewController {
         }
         
         return self
+    }
+}
+
+// MARK: - ASAuthorizationControllerDelegate
+extension AuthenticationManager: ASAuthorizationControllerDelegate {
+    func authorizationController(controller: ASAuthorizationController, didCompleteWithAuthorization authorization: ASAuthorization) {
+        
+        if let appleIDCredential = authorization.credential as? ASAuthorizationAppleIDCredential {
+            
+            guard let nonce = currentNonce else {
+                print("❌ Invalid state: A login callback was received, but no login request was sent.")
+                isHandlingAuthentication = false
+                delegate?.authenticationDidFail(error: AuthError.invalidState)
+                return
+            }
+            
+            guard let appleIDToken = appleIDCredential.identityToken else {
+                print("❌ Unable to fetch identity token")
+                isHandlingAuthentication = false
+                delegate?.authenticationDidFail(error: AuthError.appleTokenFailure)
+                return
+            }
+            
+            guard let idTokenString = String(data: appleIDToken, encoding: .utf8) else {
+                print("❌ Unable to serialize token string from data: \(appleIDToken.debugDescription)")
+                isHandlingAuthentication = false
+                delegate?.authenticationDidFail(error: AuthError.appleTokenFailure)
+                return
+            }
+            
+            print("✅ Apple ID tokens obtained successfully")
+            
+            // Initialize the Firebase credential
+            let credential = OAuthProvider.credential(providerID: AuthProviderID.apple,
+                                                      idToken: idTokenString,
+                                                      rawNonce: nonce)
+            // Sign in with Firebase
+            Auth.auth().signIn(with: credential) { [weak self] authResult, error in
+                self?.handleAuthResult(result: authResult, error: error, method: "Apple Sign-In")
+            }
+        }
+    }
+    
+    func authorizationController(controller: ASAuthorizationController, didCompleteWithError error: any Error) {
+        print("❌ Apple Sign-In failed: \(error.localizedDescription)")
+        isHandlingAuthentication = false
+        delegate?.authenticationDidFail(error: error)
+    }
+}
+
+// MARK: - ASAuthorizationControllerPresentationContextProviding
+extension AuthenticationManager: ASAuthorizationControllerPresentationContextProviding {
+    func presentationAnchor(for controller: ASAuthorizationController) -> ASPresentationAnchor {
+        guard let window = getCurrentViewController()?.view.window else {
+            return UIWindow()
+        }
+        return window
     }
 }
