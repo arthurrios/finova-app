@@ -5,6 +5,8 @@
 //  Created by Arthur Rios on 23/06/25.
 //
 
+import AuthenticationServices
+import CryptoKit
 import FirebaseAuth
 import Foundation
 import GoogleSignIn
@@ -15,7 +17,7 @@ protocol AuthenticationManagerDelegate: AnyObject {
     func authenticationDidFail(error: Error)
 }
 
-class AuthenticationManager {
+class AuthenticationManager: NSObject {
     
     // MARK: - Singleton
     
@@ -25,7 +27,8 @@ class AuthenticationManager {
     
     weak var delegate: AuthenticationManagerDelegate?
     
-    private init() {
+    override init() {
+        super.init()
         setupAuthStateListener()
     }
     
@@ -38,6 +41,10 @@ class AuthenticationManager {
     var isAuthenticated: Bool {
         return currentUser != nil
     }
+    
+    // MARK: - Private Properties
+    
+    private var currentNonce: String?
     
     // MARK: - Authentication State Listener
     
@@ -69,7 +76,7 @@ class AuthenticationManager {
         isHandlingAuthentication = true
         
         Auth.auth().signIn(withEmail: email, password: password) { [weak self] result, error in
-            self?.handleAuthResult(result: result, error: error, method: "Email/Password")
+            self?.handleAuthResult(result: result, error: error, method: "Email/Password", extractedDisplayName: nil)
         }
     }
     
@@ -110,7 +117,7 @@ class AuthenticationManager {
                     if let profileError = profileError {
                         print("⚠️ Failed to update display name: \(profileError.localizedDescription)")
                         // Still proceed with authentication even if display name update fails
-                        self?.handleAuthResult(result: result, error: error, method: "Registration")
+                        self?.handleAuthResult(result: result, error: error, method: "Registration", extractedDisplayName: name)
                     } else {
                         print("✅ Display name updated successfully to: \(name)")
                         // Reload the user to get the updated display name
@@ -123,13 +130,13 @@ class AuthenticationManager {
                                 print("✅ User reloaded successfully, displayName: '\(user.displayName ?? "nil")'")
                             }
                             // Now handle authentication with updated display name
-                            self?.handleAuthResult(result: result, error: error, method: "Registration")
+                            self?.handleAuthResult(result: result, error: error, method: "Registration", extractedDisplayName: name)
                         }
                     }
                 }
             } else {
                 // No user object, handle auth result immediately
-                self?.handleAuthResult(result: result, error: error, method: "Registration")
+                self?.handleAuthResult(result: result, error: error, method: "Registration", extractedDisplayName: name)
             }
         }
     }
@@ -147,7 +154,8 @@ class AuthenticationManager {
             return
         }
         
-        GIDSignIn.sharedInstance.signIn(withPresenting: presentingViewController) { [weak self] result, error in
+        GIDSignIn.sharedInstance.signIn(withPresenting: presentingViewController) {
+            [weak self] result, error in
             if let error = error {
                 print("❌ Google Sign-In failed: \(error.localizedDescription)")
                 self?.isHandlingAuthentication = false
@@ -166,6 +174,10 @@ class AuthenticationManager {
             
             print("✅ Google tokens obtained successfully")
             
+            // Extract Google profile name
+            let googleDisplayName = user.profile?.name
+            print("📧 Google profile name: '\(googleDisplayName ?? "nil")'")
+            
             // Store Google profile image URL for later download
             let profileImageURL = user.profile?.imageURL(withDimension: 200)
             
@@ -177,9 +189,29 @@ class AuthenticationManager {
             Auth.auth().signIn(with: credential) { [weak self] authResult, authError in
                 self?.handleAuthResult(
                     result: authResult, error: authError, method: "Google Sign-In",
-                    googleProfileImageURL: profileImageURL)
+                    googleProfileImageURL: profileImageURL, extractedDisplayName: googleDisplayName)
             }
         }
+    }
+    
+    // MARK: - Apple Sign-In
+    
+    func signInWithApple() {
+        print("🍎 Attempting Apple Sign-In")
+        isHandlingAuthentication = true
+        
+        // Generate nonce for security
+        let nonce = randomNonceString()
+        currentNonce = nonce
+        
+        let request = ASAuthorizationAppleIDProvider().createRequest()
+        request.requestedScopes = [.fullName, .email]
+        request.nonce = sha256(nonce)
+        
+        let authorizationController = ASAuthorizationController(authorizationRequests: [request])
+        authorizationController.delegate = self
+        authorizationController.presentationContextProvider = self
+        authorizationController.performRequests()
     }
     
     // MARK: - Sign Out
@@ -202,40 +234,372 @@ class AuthenticationManager {
     
     // MARK: - Private methods
     
+    // MARK: - Biometric Account Linking (Phase 7)
     private func handleAuthResult(
-        result: AuthDataResult?, error: Error?, method: String, googleProfileImageURL: URL? = nil
+        result: AuthDataResult?, error: Error?, method: String, googleProfileImageURL: URL? = nil, extractedDisplayName: String? = nil
     ) {
-        defer { isHandlingAuthentication = false }  // Reset flag when done
-        
+        defer { isHandlingAuthentication = false }
         if let error = error {
             print("❌ \(method) authentication failed: \(error.localizedDescription)")
             delegate?.authenticationDidFail(error: error)
             return
         }
-        
         guard let firebaseUser = result?.user else {
             print("❌ No user data received from \(method)")
             delegate?.authenticationDidFail(error: AuthError.noUser)
             return
         }
-        
         print("✅ \(method) authentication successful for: \(firebaseUser.email ?? "No email")")
-        handleAuthenticatedUser(firebaseUser, googleProfileImageURL: googleProfileImageURL)
+        handleSignInWithBiometricValidation(
+            firebaseUser: firebaseUser,
+            method: method,
+            googleProfileImageURL: googleProfileImageURL,
+            extractedDisplayName: extractedDisplayName
+        )
+    }
+    
+    private func handleSignInWithBiometricValidation(
+        firebaseUser: FirebaseAuth.User,
+        method: String,
+        googleProfileImageURL: URL? = nil,
+        extractedDisplayName: String? = nil
+    ) {
+        let newEmail = firebaseUser.email ?? ""
+        let validationResult = SecureLocalDataManager.shared.validateDataOwnershipWithBiometrics(
+            for: firebaseUser.uid,
+            email: newEmail
+        )
+        switch validationResult {
+        case .valid:
+            if !BiometricDataManager.shared.hasBiometricData() {
+                SecureLocalDataManager.shared.registerFirstTimeUserWithBiometrics(
+                    firebaseUID: firebaseUser.uid,
+                    email: newEmail
+                ) { [weak self] success in
+                    if success {
+                        self?.handleAuthenticatedUser(
+                            firebaseUser, googleProfileImageURL: googleProfileImageURL, extractedDisplayName: extractedDisplayName)
+                    } else {
+                        self?.delegate?.authenticationDidFail(error: AuthError.biometricRegistrationFailed)
+                    }
+                }
+            } else {
+                handleAuthenticatedUser(firebaseUser, googleProfileImageURL: googleProfileImageURL, extractedDisplayName: extractedDisplayName)
+            }
+        case .requiresBiometricVerification(let existingEmail, let newEmail):
+            performBiometricVerificationForAccountLinking(
+                existingEmail: existingEmail,
+                newEmail: newEmail,
+                firebaseUser: firebaseUser,
+                method: method,
+                googleProfileImageURL: googleProfileImageURL,
+                extractedDisplayName: extractedDisplayName
+            )
+        case .ownedByDifferentUser(let existingEmail, let newEmail):
+            print("🔒 Data owned by different user: \(existingEmail) vs \(newEmail)")
+            showDataOwnershipConflictAlert(existingEmail: existingEmail, newEmail: newEmail, firebaseUser: firebaseUser, method: method, googleProfileImageURL: googleProfileImageURL, extractedDisplayName: extractedDisplayName)
+        case .accessDenied:
+            print("❌ Access denied for security reasons")
+            delegate?.authenticationDidFail(error: AuthError.accessDenied)
+        }
+    }
+    
+    private func performBiometricVerificationForAccountLinking(
+        existingEmail: String,
+        newEmail: String,
+        firebaseUser: FirebaseAuth.User,
+        method: String,
+        googleProfileImageURL: URL? = nil,
+        extractedDisplayName: String? = nil
+    ) {
+        print("🔐 Performing biometric verification for account linking...")
+        BiometricDataManager.shared.verifyUserBiometric { [weak self] result in
+            switch result {
+            case .verified(let linkedEmail):
+                print("✅ Biometric verification successful - emails match: \(linkedEmail)")
+                self?.showAccountSynchronizationPrompt(
+                    existingEmail: existingEmail,
+                    newEmail: newEmail,
+                    firebaseUser: firebaseUser,
+                    method: method,
+                    googleProfileImageURL: googleProfileImageURL,
+                    extractedDisplayName: extractedDisplayName
+                )
+            case .verificationFailed:
+                print("❌ Biometric verification failed - treating as new user")
+                self?.handleNewUserAfterFailedBiometricVerification(
+                    firebaseUser: firebaseUser,
+                    method: method,
+                    googleProfileImageURL: googleProfileImageURL,
+                    extractedDisplayName: extractedDisplayName
+                )
+            case .userCancelled:
+                print("🚫 User cancelled biometric verification")
+                self?.delegate?.authenticationDidFail(error: AuthError.biometricVerificationCancelled)
+            case .userFallback:
+                print("🔄 User chose fallback - treating as new user")
+                self?.handleNewUserAfterFailedBiometricVerification(
+                    firebaseUser: firebaseUser,
+                    method: method,
+                    googleProfileImageURL: googleProfileImageURL,
+                    extractedDisplayName: extractedDisplayName
+                )
+            case .notAvailable, .noRegisteredBiometric:
+                print("⚠️ Biometric authentication not available - treating as new user")
+                self?.handleNewUserAfterFailedBiometricVerification(
+                    firebaseUser: firebaseUser,
+                    method: method,
+                    googleProfileImageURL: googleProfileImageURL,
+                    extractedDisplayName: extractedDisplayName
+                )
+            }
+        }
+    }
+    
+    private func handleNewUserAfterFailedBiometricVerification(
+        firebaseUser: FirebaseAuth.User,
+        method: String,
+        googleProfileImageURL: URL? = nil,
+        extractedDisplayName: String? = nil
+    ) {
+        SecureLocalDataManager.shared.registerFirstTimeUserWithBiometrics(
+            firebaseUID: firebaseUser.uid,
+            email: firebaseUser.email ?? ""
+        ) { [weak self] success in
+            if success {
+                self?.handleAuthenticatedUser(firebaseUser, googleProfileImageURL: googleProfileImageURL, extractedDisplayName: extractedDisplayName)
+            } else {
+                self?.delegate?.authenticationDidFail(error: AuthError.biometricRegistrationFailed)
+            }
+        }
+    }
+    
+    private func showAccountSynchronizationPrompt(
+        existingEmail: String,
+        newEmail: String,
+        firebaseUser: FirebaseAuth.User,
+        method: String,
+        googleProfileImageURL: URL? = nil,
+        extractedDisplayName: String? = nil
+    ) {
+        DispatchQueue.main.async { [weak self] in
+            guard let presentingVC = getCurrentViewController() else {
+                print("❌ No presenting view controller for synchronization prompt")
+                self?.delegate?.authenticationDidFail(error: AuthError.noPresentingController)
+                return
+            }
+            let alert = UIAlertController(
+                title: "🔐 Account Data Found",
+                message: """
+          We found existing data from your other account:
+          \(existingEmail)
+          \nWould you like to synchronize and access this data with your current sign-in?
+          """,
+                preferredStyle: .alert
+            )
+            alert.addAction(
+                UIAlertAction(title: "Synchronize", style: .default) { _ in
+                    self?.synchronizeAccountData(
+                        firebaseUser: firebaseUser,
+                        existingEmail: existingEmail,
+                        newEmail: newEmail,
+                        method: method,
+                        googleProfileImageURL: googleProfileImageURL,
+                        extractedDisplayName: extractedDisplayName
+                    )
+                })
+            alert.addAction(
+                UIAlertAction(title: "Keep Separate", style: .default) { _ in
+                    self?.createSeparateAccount(
+                        firebaseUser: firebaseUser,
+                        method: method,
+                        googleProfileImageURL: googleProfileImageURL,
+                        extractedDisplayName: extractedDisplayName
+                    )
+                })
+            presentingVC.present(alert, animated: true)
+        }
+    }
+    
+    private func synchronizeAccountData(
+        firebaseUser: FirebaseAuth.User,
+        existingEmail: String,
+        newEmail: String,
+        method: String,
+        googleProfileImageURL: URL? = nil,
+        extractedDisplayName: String? = nil
+    ) {
+        print("🔄 User chose to synchronize accounts after biometric verification")
+        SecureLocalDataManager.shared.handleBiometricAccountLinking(
+            newFirebaseUID: firebaseUser.uid,
+            newEmail: newEmail,
+            linkToExistingData: true
+        ) { [weak self] success in
+            if success {
+                DispatchQueue.main.async {
+                    self?.handleAuthenticatedUser(firebaseUser, googleProfileImageURL: googleProfileImageURL, extractedDisplayName: extractedDisplayName)
+                }
+            } else {
+                DispatchQueue.main.async {
+                    self?.delegate?.authenticationDidFail(error: AuthError.synchronizationFailed)
+                }
+            }
+        }
+    }
+    
+    private func createSeparateAccount(
+        firebaseUser: FirebaseAuth.User,
+        method: String,
+        googleProfileImageURL: URL? = nil,
+        extractedDisplayName: String? = nil
+    ) {
+        print("🆕 User chose to keep accounts separate - creating new account")
+        SecureLocalDataManager.shared.handleBiometricAccountLinking(
+            newFirebaseUID: firebaseUser.uid,
+            newEmail: firebaseUser.email ?? "",
+            linkToExistingData: false
+        ) { [weak self] success in
+            DispatchQueue.main.async {
+                if success {
+                    self?.handleAuthenticatedUser(firebaseUser, googleProfileImageURL: googleProfileImageURL, extractedDisplayName: extractedDisplayName)
+                } else {
+                    self?.delegate?.authenticationDidFail(error: AuthError.accountCreationFailed)
+                }
+            }
+        }
+    }
+    
+    private func showDataOwnershipConflictAlert(
+        existingEmail: String,
+        newEmail: String,
+        firebaseUser: FirebaseAuth.User,
+        method: String,
+        googleProfileImageURL: URL? = nil,
+        extractedDisplayName: String? = nil
+    ) {
+        DispatchQueue.main.async { [weak self] in
+            guard let presentingVC = getCurrentViewController() else {
+                print("❌ No presenting view controller for data ownership conflict alert")
+                self?.delegate?.authenticationDidFail(error: AuthError.noPresentingController)
+                return
+            }
+            
+            let alert = UIAlertController(
+                title: "🔒 DataOwnership Conflict",
+                message: """
+          This device contains data owned by: \(existingEmail)
+          \nYou're signing in with: \(newEmail)
+          \n\nIf this is your data, you can reclaim ownership. Otherwise, start fresh.
+          """,
+                preferredStyle: .alert
+            )
+            
+            alert.addAction(
+                UIAlertAction(title: "Reclaim My Data", style: .default) { _ in
+                    self?.handleReclaimDataOwnership(
+                        firebaseUser: firebaseUser,
+                        method: method,
+                        googleProfileImageURL: googleProfileImageURL,
+                        extractedDisplayName: extractedDisplayName
+                    )
+                })
+            
+            alert.addAction(
+                UIAlertAction(title: "Start Fresh", style: .destructive) { _ in
+                    self?.handleStartFreshWithNewAccount(
+                        firebaseUser: firebaseUser,
+                        method: method,
+                        googleProfileImageURL: googleProfileImageURL,
+                        extractedDisplayName: extractedDisplayName
+                    )
+                })
+            
+            alert.addAction(
+                UIAlertAction(title: "Cancel", style: .cancel) { _ in
+                    self?.delegate?.authenticationDidFail(error: AuthError.userCancelled)
+                })
+            
+            presentingVC.present(alert, animated: true)
+        }
+    }
+    
+    private func handleStartFreshWithNewAccount(
+        firebaseUser: FirebaseAuth.User,
+        method: String,
+        googleProfileImageURL: URL? = nil,
+        extractedDisplayName: String? = nil
+    ) {
+        print("🆕 User chose to start fresh - clearing existing data")
+        
+        // Clear existing data ownership and user data
+        SecureLocalDataManager.shared.clearDataOwnership()
+        SecureLocalDataManager.shared.clearUserData()
+        
+        // Register as new user
+        SecureLocalDataManager.shared.registerFirstTimeUserWithBiometrics(
+            firebaseUID: firebaseUser.uid,
+            email: firebaseUser.email ?? ""
+        ) { [weak self] success in
+            DispatchQueue.main.async {
+                if success {
+                    self?.handleAuthenticatedUser(firebaseUser, googleProfileImageURL: googleProfileImageURL, extractedDisplayName: extractedDisplayName)
+                } else {
+                    self?.delegate?.authenticationDidFail(error: AuthError.accountCreationFailed)
+                }
+            }
+        }
+    }
+    
+    private func handleReclaimDataOwnership(
+        firebaseUser: FirebaseAuth.User,
+        method: String,
+        googleProfileImageURL: URL? = nil,
+        extractedDisplayName: String? = nil
+    ) {
+        print("🔗 User chose to reclaim data ownership")
+        
+        // Reclaim data ownership for the current user
+        SecureLocalDataManager.shared.reclaimDataOwnership(
+            for: firebaseUser.uid,
+            email: firebaseUser.email ?? ""
+        )
+        
+        // Authenticate the user with the reclaimed data
+        SecureLocalDataManager.shared.authenticateUser(firebaseUID: firebaseUser.uid)
+        
+        // Handle the authenticated user
+        DispatchQueue.main.async { [weak self] in
+            self?.handleAuthenticatedUser(firebaseUser, googleProfileImageURL: googleProfileImageURL, extractedDisplayName: extractedDisplayName)
+        }
     }
     
     private func handleAuthenticatedUser(
-        _ firebaseUser: FirebaseAuth.User, googleProfileImageURL: URL? = nil
+        _ firebaseUser: FirebaseAuth.User, googleProfileImageURL: URL? = nil, extractedDisplayName: String? = nil
     ) {
         print("🔄 Processing authenticated user: \(firebaseUser.uid)")
         print("🔄 Firebase user displayName: '\(firebaseUser.displayName ?? "nil")'")
         print("🔄 Firebase user email: '\(firebaseUser.email ?? "nil")'")
+        print("🔄 Extracted displayName: '\(extractedDisplayName ?? "nil")'")
         
-        let userName = firebaseUser.displayName ?? "User"
-        print("🔄 Using userName: '\(userName)'")
+        // Check for existing user data if no display name was extracted (e.g., subsequent Apple Sign-Ins)
+        var userName = extractedDisplayName ?? firebaseUser.displayName
+        
+        if userName == nil || userName?.isEmpty == true {
+            // Try to get name from existing user data
+            if let existingUser = UserDefaultsManager.getUser(),
+               existingUser.firebaseUID == firebaseUser.uid {
+                userName = existingUser.name
+                print("🔄 Using existing user name from UserDefaults: '\(userName ?? "nil")'")
+            }
+        }
+        
+        // Fallback to User if still no name found
+        userName = userName ?? "User"
+        print("🔄 Final userName: '\(userName!)'")
         
         let user = User(
             firebaseUID: firebaseUser.uid,
-            name: userName,
+            name: userName!,
             email: firebaseUser.email ?? "",
             isUserSaved: true,
             hasFaceIdEnabled: false
@@ -284,6 +648,49 @@ class AuthenticationManager {
             print("✅ Google profile image saved to secure storage")
         }.resume()
     }
+    
+    private func randomNonceString(length: Int = 32) -> String {
+        precondition(length > 0)
+        let charset: [Character] = Array(
+            "0123456789ABCDEFGHIJKLMNOPQRSTUVXYZabcdefghijklmnopqrstuvwxyz-._")
+        var result = ""
+        var remainingLength = length
+        
+        while remainingLength > 0 {
+            let randoms: [UInt8] = (0..<16).map { _ in
+                var random: UInt8 = 0
+                let errorCode = SecRandomCopyBytes(kSecRandomDefault, 1, &random)
+                if errorCode != errSecSuccess {
+                    fatalError(
+                        "Unable to generate nonce. SecRandomCopyBytes failed with OSStatus \(errorCode)")
+                }
+                return random
+            }
+            
+            randoms.forEach { random in
+                if remainingLength == 0 {
+                    return
+                }
+                
+                if random < charset.count {
+                    result.append(charset[Int(random)])
+                    remainingLength -= 1
+                }
+            }
+        }
+        
+        return result
+    }
+    
+    private func sha256(_ input: String) -> String {
+        let inputData = Data(input.utf8)
+        let hashedData = SHA256.hash(data: inputData)
+        let hashString = hashedData.compactMap {
+            return String(format: "%02x", $0)
+        }.joined()
+        
+        return hashString
+    }
 }
 
 // MARK: - Helper Method for Getting Current View Controller
@@ -291,7 +698,8 @@ class AuthenticationManager {
 private func getCurrentViewController() -> UIViewController? {
     if let windowScene = UIApplication.shared.connectedScenes
         .compactMap({ $0 as? UIWindowScene })
-        .first(where: { $0.activationState == .foregroundActive }) {
+        .first(where: { $0.activationState == .foregroundActive })
+    {
         
         if let keyWindow = windowScene.windows.first(where: { $0.isKeyWindow }) {
             return keyWindow.rootViewController?.topMostViewController()
@@ -313,6 +721,14 @@ enum AuthError: LocalizedError {
     case noUser
     case invalidCredentials
     case networkError
+    case appleTokenFailure
+    case invalidState
+    case biometricRegistrationFailed
+    case biometricVerificationCancelled
+    case accessDenied
+    case synchronizationFailed
+    case accountCreationFailed
+    case userCancelled
     
     var errorDescription: String? {
         switch self {
@@ -326,6 +742,22 @@ enum AuthError: LocalizedError {
             return "auth.error.invalidCredentials".localized
         case .networkError:
             return "auth.error.networkError".localized
+        case .appleTokenFailure:
+            return "auth.error.appleIDToken".localized
+        case .invalidState:
+            return "auth.error.invalidState".localized
+        case .biometricRegistrationFailed:
+            return "auth.error.biometricRegistrationFailed".localized
+        case .biometricVerificationCancelled:
+            return "auth.error.biometricVerificationCancelled".localized
+        case .accessDenied:
+            return "auth.error.accessDenied".localized
+        case .synchronizationFailed:
+            return "auth.error.synchronizationFailed".localized
+        case .accountCreationFailed:
+            return "auth.error.accountCreationFailed".localized
+        case .userCancelled:
+            return "auth.error.userCancelled".localized
         }
     }
     
@@ -341,6 +773,22 @@ enum AuthError: LocalizedError {
             return "Please check your email and password and try again"
         case .networkError:
             return "Please check your internet connection and try again"
+        case .appleTokenFailure:
+            return "Please try again"
+        case .invalidState:
+            return "Please contact support if this issue persists"
+        case .biometricRegistrationFailed:
+            return "Please try again or contact support"
+        case .biometricVerificationCancelled:
+            return "Please try again or contact support"
+        case .accessDenied:
+            return "Please contact support if this issue persists"
+        case .synchronizationFailed:
+            return "Please try again or contact support"
+        case .accountCreationFailed:
+            return "Please try again or contact support"
+        case .userCancelled:
+            return "Please try again or contact support"
         }
     }
 }
@@ -361,5 +809,79 @@ extension UIViewController {
         }
         
         return self
+    }
+}
+
+// MARK: - ASAuthorizationControllerDelegate
+extension AuthenticationManager: ASAuthorizationControllerDelegate {
+    func authorizationController(
+        controller: ASAuthorizationController,
+        didCompleteWithAuthorization authorization: ASAuthorization
+    ) {
+        
+        if let appleIDCredential = authorization.credential as? ASAuthorizationAppleIDCredential {
+            
+            guard let nonce = currentNonce else {
+                print("❌ Invalid state: A login callback was received, but no login request was sent.")
+                isHandlingAuthentication = false
+                delegate?.authenticationDidFail(error: AuthError.invalidState)
+                return
+            }
+            
+            guard let appleIDToken = appleIDCredential.identityToken else {
+                print("❌ Unable to fetch identity token")
+                isHandlingAuthentication = false
+                delegate?.authenticationDidFail(error: AuthError.appleTokenFailure)
+                return
+            }
+            
+            guard let idTokenString = String(data: appleIDToken, encoding: .utf8) else {
+                print("❌ Unable to serialize token string from data: \(appleIDToken.debugDescription)")
+                isHandlingAuthentication = false
+                delegate?.authenticationDidFail(error: AuthError.appleTokenFailure)
+                return
+            }
+            
+            print("✅ Apple ID tokens obtained successfully")
+            
+            // Extract Apple user name
+            var appleDisplayName: String?
+            if let fullName = appleIDCredential.fullName {
+                let firstName = fullName.givenName ?? ""
+                let lastName = fullName.familyName ?? ""
+                if !firstName.isEmpty || !lastName.isEmpty {
+                    appleDisplayName = "\(firstName) \(lastName)".trimmingCharacters(in: .whitespaces)
+                }
+            }
+            print("🍎 Apple profile name: '\(appleDisplayName ?? "nil")'")
+            
+            // Initialize the Firebase credential
+            let credential = OAuthProvider.credential(
+                providerID: AuthProviderID.apple,
+                idToken: idTokenString,
+                rawNonce: nonce)
+            // Sign in with Firebase
+            Auth.auth().signIn(with: credential) { [weak self] authResult, error in
+                self?.handleAuthResult(result: authResult, error: error, method: "Apple Sign-In", extractedDisplayName: appleDisplayName)
+            }
+        }
+    }
+    
+    func authorizationController(
+        controller: ASAuthorizationController, didCompleteWithError error: any Error
+    ) {
+        print("❌ Apple Sign-In failed: \(error.localizedDescription)")
+        isHandlingAuthentication = false
+        delegate?.authenticationDidFail(error: error)
+    }
+}
+
+// MARK: - ASAuthorizationControllerPresentationContextProviding
+extension AuthenticationManager: ASAuthorizationControllerPresentationContextProviding {
+    func presentationAnchor(for controller: ASAuthorizationController) -> ASPresentationAnchor {
+        guard let window = getCurrentViewController()?.view.window else {
+            return UIWindow()
+        }
+        return window
     }
 }

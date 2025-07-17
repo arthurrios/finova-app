@@ -57,6 +57,14 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     // Use this method to release any resources that were specific to the discarded scenes, as they will not return.
   }
 
+  func applicationWillTerminate(_ application: UIApplication) {
+    // Called when the application is about to terminate.
+    // Save data if appropriate.
+
+    // Mark that app is terminating gracefully
+    UserDefaults.standard.set(false, forKey: "appWasTerminatedGracefully")
+  }
+
   private func configureFirebase() {
     guard let path = Bundle.main.path(forResource: "GoogleService-Info", ofType: "plist") else {
       print(
@@ -124,7 +132,6 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     // Only schedule notifications if we have permission
     UNUserNotificationCenter.current().getNotificationSettings { settings in
       guard settings.authorizationStatus == .authorized else {
-        print("🔔 ❌ Notification permission not granted - skipping scheduling")
         return
       }
 
@@ -141,7 +148,6 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     guard let user = UserDefaultsManager.getUser(),
       let firebaseUID = user.firebaseUID
     else {
-      print("🔔 ❌ No authenticated user - skipping notification scheduling")
       return
     }
 
@@ -151,25 +157,30 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     let transactionRepo = TransactionRepository()
     let allTxs = transactionRepo.fetchAllTransactions()
     let now = Date()
-    let calendar = Calendar.current
-
-    print("🔔 📅 Scheduling notifications for \(allTxs.count) transactions on app launch")
+    var calendar = Calendar.current
+    calendar.timeZone = TimeZone.current
 
     // Clear existing notifications first
     UNUserNotificationCenter.current().removeAllPendingNotificationRequests()
 
-    // Schedule notifications for all future transactions
+    // Schedule notifications for all future transactions (excluding hidden parent transactions)
     let futureTxs = allTxs.filter { tx in
-      // Get the transaction date and create notification time (8 AM)
-      var comps = calendar.dateComponents([.year, .month, .day], from: tx.date)
-      comps.hour = 8
-      comps.minute = 0
+      // Skip parent transactions that are not visible in UI
+      if tx.hasInstallments == true && tx.amount == 0 {
+        return false
+      }
 
-      guard let notificationDate = calendar.date(from: comps) else { return false }
+      if tx.isRecurring == true && tx.parentTransactionId == nil && tx.amount == 0 {
+        return false
+      }
+
+      // Create notification time (8 AM) in local timezone
+      var notificationDate = calendar.startOfDay(for: tx.date)
+      notificationDate =
+        calendar.date(byAdding: .hour, value: 8, to: notificationDate) ?? notificationDate
+
       return notificationDate > now
     }
-
-    print("🔔 📅 Found \(futureTxs.count) future transactions to schedule")
 
     futureTxs.forEach { tx in
       scheduleNotification(for: tx, calendar: calendar)
@@ -178,29 +189,24 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
 
   private func scheduleNotification(for tx: Transaction, calendar: Calendar) {
     guard let transactionId = tx.id else {
-      print("🔔 ❌ No transaction ID for: \(tx.title)")
       return
     }
 
     let id = "transaction_\(transactionId)"
 
-    // Get the transaction date and create notification time (8 AM)
-    var comps = calendar.dateComponents([.year, .month, .day], from: tx.date)
-    comps.hour = 8
-    comps.minute = 0
-
-    guard let notificationDate = calendar.date(from: comps) else {
-      print("🔔 ❌ Could not create notification date for: \(tx.title)")
-      return
-    }
+    // Create notification time (8 AM) in local timezone
+    var notificationDate = calendar.startOfDay(for: tx.date)
+    notificationDate =
+      calendar.date(byAdding: .hour, value: 8, to: notificationDate) ?? notificationDate
 
     // Only schedule if notification time is in the future
     guard notificationDate > Date() else {
-      print("🔔 ❌ Notification time (\(notificationDate)) is in the past for: \(tx.title)")
       return
     }
 
-    let trigger = UNCalendarNotificationTrigger(dateMatching: comps, repeats: false)
+    // Calculate time interval from now to notification date
+    let timeInterval = notificationDate.timeIntervalSinceNow
+    let trigger = UNTimeIntervalNotificationTrigger(timeInterval: timeInterval, repeats: false)
 
     let titleKey =
       tx.type == .income
@@ -225,8 +231,6 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     UNUserNotificationCenter.current().add(request) { error in
       if let error = error {
         print("🔔 ❌ Error scheduling notification for \(tx.title): \(error)")
-      } else {
-        print("🔔 ✅ Successfully scheduled notification for \(tx.title) at \(notificationDate)")
       }
     }
   }
@@ -250,7 +254,6 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     // Handle notification tap
     let userInfo = response.notification.request.content.userInfo
     print("📱 User tapped notification: \(userInfo)")
-    // TODO: Navigate to specific transaction or screen if needed
     completionHandler()
   }
 }

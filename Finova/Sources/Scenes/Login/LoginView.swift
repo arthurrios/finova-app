@@ -20,7 +20,7 @@ final class LoginView: UIView {
     let containerView: UIView = {
         let view = UIView()
         view.directionalLayoutMargins = NSDirectionalEdgeInsets(
-            top: Metrics.spacing7, leading: Metrics.spacing8, bottom: 0, trailing: Metrics.spacing8)
+            top: Metrics.spacing6, leading: Metrics.spacing8, bottom: 0, trailing: Metrics.spacing8)
         view.layer.opacity = 0
         view.translatesAutoresizingMaskIntoConstraints = false
         return view
@@ -68,6 +68,31 @@ final class LoginView: UIView {
     }()
     
     let button = Button(label: "login.button".localized)
+    
+    let appleSignInButton: UIButton = {
+        let button = UIButton(type: .system)
+        button.setTitle("login.appleSignIn".localized, for: .normal)
+        button.setTitleColor(Colors.gray700, for: .normal)
+        button.titleLabel?.font = Fonts.buttonSM.font
+        button.backgroundColor = Colors.gray100
+        button.layer.cornerRadius = CornerRadius.large
+        button.layer.borderWidth = 1
+        button.layer.borderColor = Colors.gray300.cgColor
+        
+        if let appleIcon = UIImage(systemName: "applelogo") {
+            let smallIcon = appleIcon.withConfiguration(
+                UIImage.SymbolConfiguration(pointSize: 16, weight: .medium)
+            ).withTintColor(Colors.gray700, renderingMode: .alwaysOriginal)
+            button.setImage(smallIcon, for: .normal)
+        }
+        
+        button.semanticContentAttribute = .forceRightToLeft
+        button.imageEdgeInsets = UIEdgeInsets(top: 0, left: 8, bottom: 0, right: -8)
+        
+        button.heightAnchor.constraint(equalToConstant: Metrics.buttonHeight).isActive = true
+        button.translatesAutoresizingMaskIntoConstraints = false
+        return button
+    }()
     
     let googleSignInButton: UIButton = {
         let button = UIButton(type: .system)
@@ -132,6 +157,7 @@ final class LoginView: UIView {
     private func setupView() {
         loginImageView.translatesAutoresizingMaskIntoConstraints = false
         button.addTarget(self, action: #selector(handleLoginButtonTapped), for: .touchUpInside)
+        appleSignInButton.addTarget(self, action: #selector(handleAppleSignInTapped), for: .touchUpInside)
         googleSignInButton.addTarget(
             self, action: #selector(handleGoogleSignInTapped), for: .touchUpInside)
         registerLinkButton.addTarget(
@@ -156,6 +182,7 @@ final class LoginView: UIView {
         containerView.addSubview(welcomeSubtitleLabel)
         containerView.addSubview(separator)
         containerView.addSubview(button)
+        containerView.addSubview(appleSignInButton)
         containerView.addSubview(googleSignInButton)
         containerView.addSubview(registerLinkContainer)
         registerLinkContainer.addSubview(dontHaveAccountLabel)
@@ -181,7 +208,7 @@ final class LoginView: UIView {
             welcomeSubtitleLabel.trailingAnchor.constraint(equalTo: welcomeTitleLabel.trailingAnchor),
             
             emailTextField.topAnchor.constraint(
-                equalTo: welcomeSubtitleLabel.bottomAnchor, constant: Metrics.spacing7),
+                equalTo: welcomeSubtitleLabel.bottomAnchor, constant: Metrics.spacing5),
             emailTextField.leadingAnchor.constraint(equalTo: welcomeSubtitleLabel.leadingAnchor),
             emailTextField.trailingAnchor.constraint(equalTo: welcomeSubtitleLabel.trailingAnchor),
             
@@ -191,21 +218,25 @@ final class LoginView: UIView {
             passwordTextField.trailingAnchor.constraint(equalTo: emailTextField.trailingAnchor),
             
             separator.topAnchor.constraint(
-                equalTo: passwordTextField.bottomAnchor, constant: Metrics.spacing7),
+                equalTo: passwordTextField.bottomAnchor, constant: Metrics.spacing3),
             separator.leadingAnchor.constraint(equalTo: passwordTextField.leadingAnchor),
             separator.trailingAnchor.constraint(equalTo: passwordTextField.trailingAnchor),
             
-            button.topAnchor.constraint(equalTo: separator.bottomAnchor, constant: Metrics.spacing7),
+            button.topAnchor.constraint(equalTo: separator.bottomAnchor, constant: Metrics.spacing3),
             button.leadingAnchor.constraint(equalTo: separator.leadingAnchor),
             button.trailingAnchor.constraint(equalTo: separator.trailingAnchor),
             
+            appleSignInButton.topAnchor.constraint(equalTo: button.bottomAnchor, constant: Metrics.spacing3),
+            appleSignInButton.leadingAnchor.constraint(equalTo: button.leadingAnchor),
+            appleSignInButton.trailingAnchor.constraint(equalTo: button.trailingAnchor),
+            
             googleSignInButton.topAnchor.constraint(
-                equalTo: button.bottomAnchor, constant: Metrics.spacing3),
+                equalTo: appleSignInButton.bottomAnchor, constant: Metrics.spacing3),
             googleSignInButton.leadingAnchor.constraint(equalTo: button.leadingAnchor),
             googleSignInButton.trailingAnchor.constraint(equalTo: button.trailingAnchor),
             
             registerLinkContainer.topAnchor.constraint(
-                equalTo: googleSignInButton.bottomAnchor, constant: Metrics.spacing3),
+                equalTo: googleSignInButton.bottomAnchor, constant: 1),
             registerLinkContainer.centerXAnchor.constraint(equalTo: centerXAnchor),
             registerLinkContainer.heightAnchor.constraint(equalToConstant: 44),
             
@@ -286,6 +317,11 @@ final class LoginView: UIView {
     @objc
     private func handleGoogleSignInTapped() {
         delegate?.signInWithGoogle()
+    }
+    
+    @objc
+    private func handleAppleSignInTapped() {
+        delegate?.signInWithApple()
     }
 }
 

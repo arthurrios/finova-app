@@ -7,8 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		1616CF8A1C2A6B2BA16E0703 /* Pods_FinanceApp.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 75FCE5CA666FCB9DE3A0B90F /* Pods_FinanceApp.framework */; };
-		ACA11F9A8A2FAB45CC1E2FA2 /* Pods_FinanceAppTests.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0A4309BBBF5794533AD219C4 /* Pods_FinanceAppTests.framework */; };
+		25DA072F8ABE7A92867D08F4 /* Pods_Finova.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 4C1213A9FB6A1739B3AE0F31 /* Pods_Finova.framework */; };
+		8FAE205B38ADF97E127A6C1A /* Pods_FinovaTests.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 368924A4C493636AE9030A68 /* Pods_FinovaTests.framework */; };
 		C6D36C652DCCFCE700A9AB2E /* SwiftEmailValidator in Frameworks */ = {isa = PBXBuildFile; productRef = C6D36C642DCCFCE700A9AB2E /* SwiftEmailValidator */; };
 /* End PBXBuildFile section */
 
@@ -23,13 +23,17 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
-		0A4309BBBF5794533AD219C4 /* Pods_FinanceAppTests.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_FinanceAppTests.framework; sourceTree = BUILT_PRODUCTS_DIR; };
+		142A5A4F50FBB26CAD8D0112 /* Pods-Finova.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Finova.release.xcconfig"; path = "Target Support Files/Pods-Finova/Pods-Finova.release.xcconfig"; sourceTree = "<group>"; };
+		368924A4C493636AE9030A68 /* Pods_FinovaTests.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_FinovaTests.framework; sourceTree = BUILT_PRODUCTS_DIR; };
+		428564A5355B5A4031117B24 /* Pods-FinovaTests.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-FinovaTests.debug.xcconfig"; path = "Target Support Files/Pods-FinovaTests/Pods-FinovaTests.debug.xcconfig"; sourceTree = "<group>"; };
+		4C1213A9FB6A1739B3AE0F31 /* Pods_Finova.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_Finova.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		66D82F0427A82D78DFC8E245 /* Pods-FinanceAppTests.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-FinanceAppTests.release.xcconfig"; path = "Target Support Files/Pods-FinanceAppTests/Pods-FinanceAppTests.release.xcconfig"; sourceTree = "<group>"; };
-		75FCE5CA666FCB9DE3A0B90F /* Pods_FinanceApp.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_FinanceApp.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		861F0E47F80E55F2555B81A9 /* Pods-FinanceApp.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-FinanceApp.debug.xcconfig"; path = "Target Support Files/Pods-FinanceApp/Pods-FinanceApp.debug.xcconfig"; sourceTree = "<group>"; };
+		AE5010FD60FF3E18931A3CCF /* Pods-FinovaTests.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-FinovaTests.release.xcconfig"; path = "Target Support Files/Pods-FinovaTests/Pods-FinovaTests.release.xcconfig"; sourceTree = "<group>"; };
 		C667CFAC2DFC7D0500B864E8 /* FinovaTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = FinovaTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		C6D36BDA2DCB81B700A9AB2E /* Finova.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Finova.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		D38E272691170F3575D37E35 /* Pods-FinanceAppTests.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-FinanceAppTests.debug.xcconfig"; path = "Target Support Files/Pods-FinanceAppTests/Pods-FinanceAppTests.debug.xcconfig"; sourceTree = "<group>"; };
+		E06A0D849F7051DD83F9FED9 /* Pods-Finova.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Finova.debug.xcconfig"; path = "Target Support Files/Pods-Finova/Pods-Finova.debug.xcconfig"; sourceTree = "<group>"; };
 		FDA435C47F3140359216EC08 /* Pods-FinanceApp.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-FinanceApp.release.xcconfig"; path = "Target Support Files/Pods-FinanceApp/Pods-FinanceApp.release.xcconfig"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -64,7 +68,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				ACA11F9A8A2FAB45CC1E2FA2 /* Pods_FinanceAppTests.framework in Frameworks */,
+				8FAE205B38ADF97E127A6C1A /* Pods_FinovaTests.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -73,7 +77,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				C6D36C652DCCFCE700A9AB2E /* SwiftEmailValidator in Frameworks */,
-				1616CF8A1C2A6B2BA16E0703 /* Pods_FinanceApp.framework in Frameworks */,
+				25DA072F8ABE7A92867D08F4 /* Pods_Finova.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -83,8 +87,8 @@
 		3C7D365F56378FE2A0877202 /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
-				75FCE5CA666FCB9DE3A0B90F /* Pods_FinanceApp.framework */,
-				0A4309BBBF5794533AD219C4 /* Pods_FinanceAppTests.framework */,
+				4C1213A9FB6A1739B3AE0F31 /* Pods_Finova.framework */,
+				368924A4C493636AE9030A68 /* Pods_FinovaTests.framework */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
@@ -96,6 +100,10 @@
 				FDA435C47F3140359216EC08 /* Pods-FinanceApp.release.xcconfig */,
 				D38E272691170F3575D37E35 /* Pods-FinanceAppTests.debug.xcconfig */,
 				66D82F0427A82D78DFC8E245 /* Pods-FinanceAppTests.release.xcconfig */,
+				E06A0D849F7051DD83F9FED9 /* Pods-Finova.debug.xcconfig */,
+				142A5A4F50FBB26CAD8D0112 /* Pods-Finova.release.xcconfig */,
+				428564A5355B5A4031117B24 /* Pods-FinovaTests.debug.xcconfig */,
+				AE5010FD60FF3E18931A3CCF /* Pods-FinovaTests.release.xcconfig */,
 			);
 			path = Pods;
 			sourceTree = "<group>";
@@ -247,7 +255,7 @@
 			outputFileListPaths = (
 			);
 			outputPaths = (
-				"$(DERIVED_FILE_DIR)/Pods-FinanceApp-checkManifestLockResult.txt",
+				"$(DERIVED_FILE_DIR)/Pods-Finova-checkManifestLockResult.txt",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
@@ -269,7 +277,7 @@
 			outputFileListPaths = (
 			);
 			outputPaths = (
-				"$(DERIVED_FILE_DIR)/Pods-FinanceAppTests-checkManifestLockResult.txt",
+				"$(DERIVED_FILE_DIR)/Pods-FinovaTests-checkManifestLockResult.txt",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
@@ -282,19 +290,19 @@
 			files = (
 			);
 			inputFileListPaths = (
-				"${PODS_ROOT}/Target Support Files/Pods-FinanceApp/Pods-FinanceApp-frameworks-${CONFIGURATION}-input-files.xcfilelist",
+				"${PODS_ROOT}/Target Support Files/Pods-Finova/Pods-Finova-frameworks-${CONFIGURATION}-input-files.xcfilelist",
 			);
 			inputPaths = (
 			);
 			name = "[CP] Embed Pods Frameworks";
 			outputFileListPaths = (
-				"${PODS_ROOT}/Target Support Files/Pods-FinanceApp/Pods-FinanceApp-frameworks-${CONFIGURATION}-output-files.xcfilelist",
+				"${PODS_ROOT}/Target Support Files/Pods-Finova/Pods-Finova-frameworks-${CONFIGURATION}-output-files.xcfilelist",
 			);
 			outputPaths = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-FinanceApp/Pods-FinanceApp-frameworks.sh\"\n";
+			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-Finova/Pods-Finova-frameworks.sh\"\n";
 			showEnvVarsInLog = 0;
 		};
 /* End PBXShellScriptBuildPhase section */
@@ -327,7 +335,7 @@
 /* Begin XCBuildConfiguration section */
 		C667CFB32DFC7D0500B864E8 /* Debug */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = D38E272691170F3575D37E35 /* Pods-FinanceAppTests.debug.xcconfig */;
+			baseConfigurationReference = 428564A5355B5A4031117B24 /* Pods-FinovaTests.debug.xcconfig */;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CLANG_ENABLE_MODULES = YES;
@@ -349,7 +357,7 @@
 		};
 		C667CFB42DFC7D0500B864E8 /* Release */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = 66D82F0427A82D78DFC8E245 /* Pods-FinanceAppTests.release.xcconfig */;
+			baseConfigurationReference = AE5010FD60FF3E18931A3CCF /* Pods-FinovaTests.release.xcconfig */;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CLANG_ENABLE_MODULES = YES;
@@ -370,12 +378,13 @@
 		};
 		C6D36BEE2DCB81B800A9AB2E /* Debug */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = 861F0E47F80E55F2555B81A9 /* Pods-FinanceApp.debug.xcconfig */;
+			baseConfigurationReference = E06A0D849F7051DD83F9FED9 /* Pods-Finova.debug.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = Finova/Finova.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 4;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = AVJYPRL2JA;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -393,7 +402,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 1.0.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.arthurrios.FinanceApp;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -404,12 +413,13 @@
 		};
 		C6D36BEF2DCB81B800A9AB2E /* Release */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = FDA435C47F3140359216EC08 /* Pods-FinanceApp.release.xcconfig */;
+			baseConfigurationReference = 142A5A4F50FBB26CAD8D0112 /* Pods-Finova.release.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = Finova/Finova.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 4;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = AVJYPRL2JA;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -427,7 +437,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 1.0.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.arthurrios.FinanceApp;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;

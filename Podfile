@@ -1,18 +1,18 @@
 platform :ios, '15.0'
 
-target 'FinanceApp' do
+target 'Finova' do
   use_frameworks!
 
-  # Core Dependencies
+  # Core Dependencies - Authentication Only
   pod 'Firebase/Auth'
-  pod 'Firebase/Firestore'
+  # Removed Firebase/Firestore - not being used, may trigger privacy concerns
 
   pod 'GoogleSignIn'
 
   pod 'ShimmerView'
   pod 'SQLite.swift'
 
-  target 'FinanceAppTests' do
+  target 'FinovaTests' do
     inherit! :search_paths
     # Pods for testing
   end
