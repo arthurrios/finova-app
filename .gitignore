@@ -103,3 +103,5 @@ notes/
 
 # macOS personal files
 *.icloud
+
+docs*
