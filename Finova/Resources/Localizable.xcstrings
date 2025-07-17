@@ -1616,6 +1616,23 @@
         }
       }
     },
+    "login.appleSignIn" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sign in with Apple"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Entrar com Apple"
+          }
+        }
+      }
+    },
     "login.button" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1741,7 +1758,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Login with Google"
+            "value" : "Sign in with Google"
           }
         },
         "pt-BR" : {
