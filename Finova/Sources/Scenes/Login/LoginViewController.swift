@@ -58,22 +58,17 @@ final class LoginViewController: UIViewController {
     }
     
     private func handleSuccessfulAuthentication() {
-        guard let currentUser = UserDefaultsManager.getUser() else {
+        guard let currentUser = UserDefaultsManager.getUserWithUID() else {
             // Fallback: go directly to dashboard
             flowDelegate?.navigateToDashboard()
             return
         }
         
-        // Check if this is a new Firebase user (first time login)
-        if currentUser.isFirebaseUser && !currentUser.isUserSaved {
-            // New Firebase user - offer Face ID setup
+        // Always prompt to enable Face ID if available and not enabled globally
+        if FaceIDManager.shared.isFaceIDAvailable && !UserDefaultsManager.getBiometricEnabled() {
             askEnableFaceID(for: currentUser)
-        } else if currentUser.isUserSaved {
-            // Existing user - go to dashboard
-            flowDelegate?.navigateToDashboard()
         } else {
-            // Legacy user or other case - offer to save and enable Face ID
-            presentSaveLoginAlert(for: currentUser)
+            flowDelegate?.navigateToDashboard()
         }
     }
     
@@ -89,15 +84,9 @@ final class LoginViewController: UIViewController {
         }
         
         let cancelAction = UIAlertAction(title: "login.alert.cancel".localized, style: .cancel) { _ in
-            // Save user without Face ID
-            let updatedUser = User(
-                firebaseUID: user.firebaseUID,
-                name: user.name,
-                email: user.email,
-                isUserSaved: true,
-                hasFaceIdEnabled: false
-            )
-            UserDefaultsManager.saveUser(user: updatedUser)
+            // Save user without Face ID using UID-based system
+            UserDefaultsManager.updateCurrentUserSavedStatus(saved: true)
+            // Don't change global biometric setting when user cancels
             self.flowDelegate?.navigateToDashboard()
         }
         
@@ -109,15 +98,9 @@ final class LoginViewController: UIViewController {
     private func askEnableFaceID(for user: User) {
         // Use FaceIDManager instead of direct LocalAuthentication calls
         guard FaceIDManager.shared.isFaceIDAvailable else {
-            // Device doesn't support biometrics - save user without Face ID
-            let updatedUser = User(
-                firebaseUID: user.firebaseUID,
-                name: user.name,
-                email: user.email,
-                isUserSaved: true,
-                hasFaceIdEnabled: false
-            )
-            UserDefaultsManager.saveUser(user: updatedUser)
+            // Device doesn't support biometrics - save user without Face ID using UID-based system
+            UserDefaultsManager.updateCurrentUserSavedStatus(saved: true)
+            // Don't change global biometric setting when device doesn't support it
             flowDelegate?.navigateToDashboard()
             return
         }
@@ -132,29 +115,18 @@ final class LoginViewController: UIViewController {
         let yesAction = UIAlertAction(
             title: String(format: "faceid.enable.button".localized, biometricType), style: .default
         ) { _ in
-            // Save user with Face ID enabled
-            let updatedUser = User(
-                firebaseUID: user.firebaseUID,
-                name: user.name,
-                email: user.email,
-                isUserSaved: true,
-                hasFaceIdEnabled: true
-            )
-            UserDefaultsManager.saveUser(user: updatedUser)
-            print("✅ \(biometricType) enabled for Firebase user")
+            // Save user with Face ID enabled using UID-based system
+            UserDefaultsManager.updateCurrentUserSavedStatus(saved: true)
+            // Enable biometric globally for the app
+            UserDefaultsManager.setBiometricEnabled(true)
+            print("✅ \(biometricType) enabled globally for app")
             self.flowDelegate?.navigateToDashboard()
         }
         
         let noAction = UIAlertAction(title: "skip".localized, style: .cancel) { _ in
-            // Save user without Face ID
-            let updatedUser = User(
-                firebaseUID: user.firebaseUID,
-                name: user.name,
-                email: user.email,
-                isUserSaved: true,
-                hasFaceIdEnabled: false
-            )
-            UserDefaultsManager.saveUser(user: updatedUser)
+            // Save user without Face ID using UID-based system
+            UserDefaultsManager.updateCurrentUserSavedStatus(saved: true)
+            // Don't change global biometric setting when user skips
             self.flowDelegate?.navigateToDashboard()
         }
         

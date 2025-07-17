@@ -202,9 +202,75 @@ final class DashboardViewController: UIViewController {
     
     func loadData() {
         print("📱 DashboardViewController.loadData() called")
-        if let user = UserDefaultsManager.getUser() {
-            print("📱 Dashboard loading user: '\(user.name)' with UID: '\(user.firebaseUID ?? "nil")'")
+        
+        // Get user from UID-based settings first, fallback to global UserDefaults
+        var displayUser: User?
+        
+        // First try to get Firebase user and set current UID if needed
+        if let firebaseUser = AuthenticationManager.shared.currentUser {
+            // Ensure current UID is set
+            UIDUserDefaultsManager.shared.currentUserUID = firebaseUser.uid
+            print("🔧 Set current UID to: \(firebaseUser.uid)")
             
+            // Try to get UID-based settings
+            if let uidSettings = UIDUserDefaultsManager.shared.getUserSettings(for: firebaseUser.uid) {
+                displayUser = User(
+                    firebaseUID: firebaseUser.uid,
+                    name: uidSettings.name,
+                    email: uidSettings.email,
+                    isUserSaved: uidSettings.isUserSaved,
+                    hasFaceIdEnabled: uidSettings.hasFaceIdEnabled
+                )
+                print("📱 Dashboard loading UID-based user: '\(uidSettings.name)' with UID: '\(firebaseUser.uid)'")
+            } else {
+                // No UID settings found, check global and migrate
+                if let globalUser = UserDefaultsManager.getUserWithUID() {
+                    displayUser = globalUser
+                    print("📱 Dashboard loading global user: '\(globalUser.name)' with UID: '\(globalUser.firebaseUID ?? "nil")'")
+                    
+                    // Migrate to UID-based system if same user
+                    if globalUser.firebaseUID == firebaseUser.uid {
+                        let userSettings = UserSettings(
+                            name: globalUser.name,
+                            email: globalUser.email,
+                            hasFaceIdEnabled: globalUser.hasFaceIdEnabled,
+                            isUserSaved: globalUser.isUserSaved
+                        )
+                        UIDUserDefaultsManager.shared.saveUserSettings(for: firebaseUser.uid, settings: userSettings)
+                        print("✅ Migrated user settings to UID-based system")
+                    }
+                } else {
+                    // Create basic user from Firebase
+                    displayUser = User(
+                        firebaseUID: firebaseUser.uid,
+                        name: firebaseUser.displayName ?? "User",
+                        email: firebaseUser.email ?? "",
+                        isUserSaved: true,
+                        hasFaceIdEnabled: false
+                    )
+                    print("📱 Created basic user from Firebase: '\(displayUser!.name)'")
+                }
+            }
+        }
+        // Fallback to UID-based settings with stored current UID
+        else if let currentUID = UIDUserDefaultsManager.shared.currentUserUID,
+           let uidSettings = UIDUserDefaultsManager.shared.getUserSettings(for: currentUID) {
+            displayUser = User(
+                firebaseUID: currentUID,
+                name: uidSettings.name,
+                email: uidSettings.email,
+                isUserSaved: uidSettings.isUserSaved,
+                hasFaceIdEnabled: uidSettings.hasFaceIdEnabled
+            )
+            print("📱 Dashboard loading UID-based user: '\(uidSettings.name)' with UID: '\(currentUID)'")
+        }
+        // Final fallback to global UserDefaults
+        else if let globalUser = UserDefaultsManager.getUserWithUID() {
+            displayUser = globalUser
+            print("📱 Dashboard loading global user: '\(globalUser.name)' with UID: '\(globalUser.firebaseUID ?? "nil")'")
+        }
+        
+        if let user = displayUser {
             // 🔒 Authenticate SecureLocalDataManager for UID-isolated data access
             if let firebaseUID = user.firebaseUID {
                 SecureLocalDataManager.shared.authenticateUser(firebaseUID: firebaseUID)
@@ -215,7 +281,8 @@ final class DashboardViewController: UIViewController {
             contentView.welcomeTitleLabel.applyStyle()
             print("📱 Dashboard welcome text set to: '\(contentView.welcomeTitleLabel.text ?? "nil")'")
         } else {
-            print("❌ Dashboard: No user found in UserDefaults")
+            print("❌ Dashboard: No user found in any UserDefaults system")
+            contentView.welcomeTitleLabel.text = "dashboard.welcomeTitle".localized + "User!"
         }
         
         if let userImage = SecureLocalDataManager.shared.loadProfileImage() {
@@ -271,7 +338,7 @@ extension DashboardViewController: DashboardViewDelegate {
     func logout() {
         AuthenticationManager.shared.signOut()
         SecureLocalDataManager.shared.signOut()
-        UserDefaultsManager.removeUser()
+        UserDefaultsManager.signOutCurrentUser()
         
         print("✅ Complete logout performed")
         self.flowDelegate?.logout()

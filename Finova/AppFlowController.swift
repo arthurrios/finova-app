@@ -46,7 +46,7 @@ extension AppFlowController: SplashFlowDelegate {
         }
     }
     
-    func navigateToDirectlyToDashboard() {
+    func navigateDirectlyToDashboard() {
         navigationController?.dismiss(animated: false)
         let viewController = viewControllersFactory.makeDashboardViewController(flowDelegate: self)
         navigationController?.pushViewController(viewController, animated: true)

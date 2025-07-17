@@ -62,6 +62,13 @@ final class SettingsViewModel {
         )
     }
     
+    // MARK: - Public Methods
+    
+    func refreshBiometricUI() {
+        print("🔧 Refreshing biometric UI, current value: \(isBiometricEnabled)")
+        updateBiometricUI()
+    }
+    
     // MARK: - Biometric Management
     
     func toggleBiometric(_ isEnabled: Bool) {
@@ -78,14 +85,17 @@ final class SettingsViewModel {
                 DispatchQueue.main.async {
                     if success {
                         self?.isBiometricEnabled = true
-                        FaceIDManager.shared.enableFaceIDForCurrentUser()
-                        print("✅ Biometric authentication enabled")
+                        print("✅ Biometric authentication enabled globally")
+                        // Update UI to reflect the change
+                        self?.updateBiometricUI()
                     } else {
                         if let error = error {
                             self?.delegate?.didEncounterBiometricError(
                                 title: "settings.biometric.error.title",
                                 message: FaceIDManager.shared.getFriendlyErrorMessage(for: error))
                         }
+                        // Reset switch to off position if authentication failed
+                        self?.updateBiometricUI()
                     }
                 }
             }
@@ -93,8 +103,8 @@ final class SettingsViewModel {
     
     private func disableBiometric() {
         isBiometricEnabled = false
-        FaceIDManager.shared.disableFaceIDForCurrentUser()
-        print("✅ Biometric authentication disabled")
+        print("✅ Biometric authentication disabled globally")
+        updateBiometricUI()
     }
     
     // MARK: - Account Deletion

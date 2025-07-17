@@ -216,7 +216,7 @@ class AuthenticationManager: NSObject {
     
     // MARK: - Sign Out
     
-    func signOut() {
+        func signOut() {
         print("🔐 Signing out user")
         
         do {
@@ -226,6 +226,9 @@ class AuthenticationManager: NSObject {
             // 🔒 Clear SecureLocalDataManager session
             SecureLocalDataManager.shared.signOut()
             
+            // 🔒 Clear UID-based user settings session
+            UIDUserDefaultsManager.shared.signOut()
+    
             print("✅ User signed out successfully")
         } catch {
             print("❌ Error signing out: \(error.localizedDescription)")
@@ -574,24 +577,44 @@ class AuthenticationManager: NSObject {
         print("🔄 Extracted displayName: '\(extractedDisplayName ?? "nil")'")
         
         // Check for existing user data if no display name was extracted (e.g., subsequent Apple Sign-Ins)
-        var userName = extractedDisplayName ?? firebaseUser.displayName
+        // Smart name resolution: prioritize best available name
+        var bestName = "User" // Default fallback
         
-        if userName == nil || userName?.isEmpty == true {
-            // Try to get name from existing user data
-            if let existingUser = UserDefaultsManager.getUser(),
-               existingUser.firebaseUID == firebaseUser.uid {
-                userName = existingUser.name
-                print("🔄 Using existing user name from UserDefaults: '\(userName ?? "nil")'")
-            }
+        // Step 1: Check if we have existing UID-based settings with a good name
+        if let existingSettings = UIDUserDefaultsManager.shared.getUserSettings(for: firebaseUser.uid),
+           !existingSettings.name.isEmpty && existingSettings.name != "User" {
+            bestName = existingSettings.name
+            print("🔄 Using existing UID-based name: '\(bestName)'")
+        }
+        // Step 2: Check if we have global UserDefaults with a good name
+        else if let existingUser = UserDefaultsManager.getUser(),
+                existingUser.firebaseUID == firebaseUser.uid,
+                !existingUser.name.isEmpty && existingUser.name != "User" {
+            bestName = existingUser.name
+            print("🔄 Using existing global user name: '\(bestName)'")
+        }
+        // Step 3: Use extracted name from current login (Apple/Google) if it's better
+        else if let extractedName = extractedDisplayName,
+                !extractedName.isEmpty && extractedName != "User" {
+            bestName = extractedName
+            print("🔄 Using extracted name from current login: '\(bestName)'")
+        }
+        // Step 4: Use Firebase display name if it's better
+        else if let firebaseName = firebaseUser.displayName,
+                !firebaseName.isEmpty && firebaseName != "User" {
+            bestName = firebaseName
+            print("🔄 Using Firebase display name: '\(bestName)'")
         }
         
-        // Fallback to User if still no name found
-        userName = userName ?? "User"
-        print("🔄 Final userName: '\(userName!)'")
+
+        
+
+
+        print("🔄 Final userName: '\(bestName)'")
         
         let user = User(
             firebaseUID: firebaseUser.uid,
-            name: userName!,
+            name: bestName,
             email: firebaseUser.email ?? "",
             isUserSaved: true,
             hasFaceIdEnabled: false

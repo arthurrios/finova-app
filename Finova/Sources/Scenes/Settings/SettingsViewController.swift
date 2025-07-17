@@ -30,6 +30,12 @@ final class SettingsViewController: UIViewController {
         setup()
     }
     
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        // Refresh biometric UI when returning to settings
+        viewModel.refreshBiometricUI()
+    }
+    
     private func setup() {
         view.addSubview(contentView)
         buildHierarchy()
