@@ -2993,6 +2993,23 @@
         }
       }
     },
+    "settings.section.about" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "About"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sobre"
+          }
+        }
+      }
+    },
     "settings.section.security" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -3006,6 +3023,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Segurança"
+          }
+        }
+      }
+    },
+    "settings.version.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Version"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Versão"
           }
         }
       }

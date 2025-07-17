@@ -87,6 +87,14 @@ final class SettingsView: UIView {
         return toggle
     }()
     
+    // About Section
+    private let aboutHeaderView = createSectionHeader(title: "settings.section.about".localized)
+    
+    private let versionContainer = createSettingContainer()
+    private let versionIconView = createIconView(imageName: "info.circle")
+    private let versionTitleLabel = createSettingLabel(text: "settings.version.title".localized)
+    let versionLabel = createDetailLabel(text: "1.0.1")
+    
     override init(frame: CGRect) {
         super.init(frame: .zero)
         setupView()
@@ -118,6 +126,11 @@ final class SettingsView: UIView {
         contentStackView.addArrangedSubview(securityHeaderView)
         setupBiometricContainer()
         contentStackView.addArrangedSubview(biometricContainer)
+        
+        // About section
+        contentStackView.addArrangedSubview(aboutHeaderView)
+        setupVersionContainer()
+        contentStackView.addArrangedSubview(versionContainer)
     }
     
     private func setupBiometricContainer() {
@@ -134,6 +147,23 @@ final class SettingsView: UIView {
             
             biometricSwitch.trailingAnchor.constraint(equalTo: biometricContainer.trailingAnchor, constant: -Metrics.spacing4),
             biometricSwitch.centerYAnchor.constraint(equalTo: biometricContainer.centerYAnchor)
+        ])
+    }
+    
+    private func setupVersionContainer() {
+        versionContainer.addSubview(versionIconView)
+        versionContainer.addSubview(versionTitleLabel)
+        versionContainer.addSubview(versionLabel)
+        
+        NSLayoutConstraint.activate([
+            versionIconView.leadingAnchor.constraint(equalTo: versionContainer.leadingAnchor, constant: Metrics.spacing4),
+            versionIconView.centerYAnchor.constraint(equalTo: versionContainer.centerYAnchor),
+            
+            versionTitleLabel.leadingAnchor.constraint(equalTo: versionIconView.trailingAnchor, constant: Metrics.spacing3),
+            versionTitleLabel.centerYAnchor.constraint(equalTo: versionContainer.centerYAnchor),
+            
+            versionLabel.trailingAnchor.constraint(equalTo: versionContainer.trailingAnchor, constant: -Metrics.spacing4),
+            versionLabel.centerYAnchor.constraint(equalTo: versionContainer.centerYAnchor)
         ])
     }
     

@@ -44,6 +44,10 @@ final class SettingsViewController: UIViewController {
 }
 
 extension SettingsViewController: SettingsViewDelegate {
+    func didToggleBiometric(_ isEnabled: Bool) {
+        //
+    }
+    
     func handleDidTapBackButton() {
         self.flowDelegate?.didTapBackButton()
     }
