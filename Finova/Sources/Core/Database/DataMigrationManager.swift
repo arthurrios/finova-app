@@ -189,6 +189,29 @@ class DataMigrationManager {
     UserDefaults.standard.removeObject(forKey: globalMigrationKey)
     UserDefaults.standard.removeObject(forKey: migratedDataOwnerKey)
   }
+  
+  /// Reset migration state for current user only
+  func resetCurrentUserMigrationState() {
+    // Get current user from SecureLocalDataManager
+    guard let currentUID = SecureLocalDataManager.shared.getCurrentUserUID() else {
+      print("❌ Cannot reset migration state: No authenticated user")
+      return
+    }
+    
+    // Reset migration flags for current user only
+    // Do not affect other users' migration states
+    UserDefaults.standard.removeObject(forKey: "migration_completed_\(currentUID)")
+    
+    // Only reset global migration if current user is the data owner
+    let currentDataOwner = UserDefaults.standard.string(forKey: migratedDataOwnerKey)
+    if currentDataOwner == currentUID {
+      UserDefaults.standard.removeObject(forKey: globalMigrationKey)
+      UserDefaults.standard.removeObject(forKey: migratedDataOwnerKey)
+      print("✅ Current user migration state reset (was data owner)")
+    } else {
+      print("✅ Current user migration state reset (preserving other users)")
+    }
+  }
 
   /// Gets current migration state for debugging
   func getMigrationState() -> MigrationState {

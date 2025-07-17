@@ -11,6 +11,7 @@ class UserDefaultsManager {
     private static let userKey = "userKey"
     private static let currentMonthIndex = "currentMonthIndexKey"
     private static let balanceDisplayModeKey = "BalanceDisplayMode"
+    private static let biometricEnabledKey = "biometricEnabled"
     
     static func saveUser(user: User) {
         let encoder = JSONEncoder()
@@ -47,9 +48,27 @@ class UserDefaultsManager {
         let modeString = mode == .current ? "current" : "final"
         UserDefaults.standard.set(modeString, forKey: balanceDisplayModeKey)
     }
-
+    
     static func getBalanceDisplayMode() -> BalanceDisplayMode {
         let modeString = UserDefaults.standard.string(forKey: balanceDisplayModeKey) ?? "final"
         return modeString == "current" ? .current : .final
+    }
+    
+    static func setBiometricEnabled(_ isEnabled: Bool) {
+        UserDefaults.standard.set(isEnabled, forKey: biometricEnabledKey)
+        UserDefaults.standard.synchronize()
+    }
+    
+    static func getBiometricEnabled() -> Bool {
+        return UserDefaults.standard.bool(forKey: biometricEnabledKey)
+    }
+    
+    // MARK: - Clear All Settings
+    
+    static func clearAllSettings() {
+        UserDefaults.standard.removeObject(forKey: biometricEnabledKey)
+        UserDefaults.standard.removeObject(forKey: currentMonthIndex)
+        UserDefaults.standard.removeObject(forKey: balanceDisplayModeKey)
+        UserDefaults.standard.synchronize()
     }
 }

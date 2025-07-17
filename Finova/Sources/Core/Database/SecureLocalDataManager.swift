@@ -33,6 +33,10 @@ class SecureLocalDataManager {
         print("✅ User authenticated for secure data access")
     }
     
+    func getCurrentUserUID() -> String? {
+        return currentUserUID
+    }
+    
     func signOut() {
         print("🔒 Signing out from secure data manager")
         self.currentUserUID = nil
@@ -399,10 +403,10 @@ class SecureLocalDataManager {
         let deviceUserKey = "device_users"
         var deviceUsers = UserDefaults.standard.stringArray(forKey: deviceUserKey) ?? []
         print("📋 Current device users: \(deviceUsers)")
-
+        
         let normalizedEmail = email.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
         deviceUsers = deviceUsers.map { $0.lowercased().trimmingCharacters(in: .whitespacesAndNewlines) }
-
+        
         // With Firebase Auth + UID isolation, any authenticated user should be allowed
         // Add them to device users list for tracking, but don't deny access
         if !deviceUsers.contains(normalizedEmail) {
@@ -435,6 +439,24 @@ class SecureLocalDataManager {
         UserDefaults.standard.removeObject(forKey: "data_owner_email")
         UserDefaults.standard.removeObject(forKey: "data_ownership_date")
         print("🧹 Data ownership cleared - ready for new user")
+    }
+    
+    func clearCurrentUserDataOwnership() {
+        guard let uid = currentUserUID else {
+            print("❌ Cannot clear data ownership: No authenticated user")
+            return
+        }
+        
+        // Clear only current user's ownership records, preserve others
+        // Only clear global ownership if current user is the owner
+        if getDataOwnerUID() == uid {
+            UserDefaults.standard.removeObject(forKey: "data_owner_uid")
+            UserDefaults.standard.removeObject(forKey: "data_owner_email")
+            UserDefaults.standard.removeObject(forKey: "data_ownership_date")
+            print("✅ Current user data ownership cleared")
+        } else {
+            print("📋 Current user is not data owner, no ownership to clear")
+        }
     }
     
     func manuallyUpdateDeviceUsers(to email: String) {
@@ -728,7 +750,7 @@ extension SecureLocalDataManager {
                 print("🔒 Device access denied - triggering data ownership conflict")
                 return .ownedByDifferentUser(existingEmail: existingOwnerEmail, newEmail: email)
             }
-        } 
+        }
         
         return deviceAccess ? .valid : .accessDenied
     }
@@ -812,5 +834,20 @@ extension SecureLocalDataManager {
         ]
         UserDefaults.standard.set(linkingInfo, forKey: "biometric_linking_\(originalUID)")
         print("🔗 Biometric account linking recorded")
+    }
+    
+    func deleteAllUserData() {
+        guard let _ = currentUserUID else {
+            print("❌ Cannot delete user data: No authenticated user")
+            return
+        }
+        
+        // Clear encrypted user data directory
+        clearUserData()
+        
+        // Clear data ownership records
+        clearDataOwnership()
+        
+        print("✅ All user data deleted for account deletion")
     }
 }

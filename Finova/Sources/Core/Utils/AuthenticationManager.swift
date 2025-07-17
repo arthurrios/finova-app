@@ -389,16 +389,12 @@ class AuthenticationManager: NSObject {
                 return
             }
             let alert = UIAlertController(
-                title: "🔐 Account Data Found",
-                message: """
-          We found existing data from your other account:
-          \(existingEmail)
-          \nWould you like to synchronize and access this data with your current sign-in?
-          """,
+                title: "auth.dialog.accountFound.title".localized,
+                message: String(format: "auth.dialog.accountFound.message".localized, existingEmail),
                 preferredStyle: .alert
             )
             alert.addAction(
-                UIAlertAction(title: "Synchronize", style: .default) { _ in
+                UIAlertAction(title: "auth.dialog.button.synchronize".localized, style: .default) { _ in
                     self?.synchronizeAccountData(
                         firebaseUser: firebaseUser,
                         existingEmail: existingEmail,
@@ -409,7 +405,7 @@ class AuthenticationManager: NSObject {
                     )
                 })
             alert.addAction(
-                UIAlertAction(title: "Keep Separate", style: .default) { _ in
+                UIAlertAction(title: "auth.dialog.button.keepSeparate".localized, style: .default) { _ in
                     self?.createSeparateAccount(
                         firebaseUser: firebaseUser,
                         method: method,
@@ -485,17 +481,13 @@ class AuthenticationManager: NSObject {
             }
             
             let alert = UIAlertController(
-                title: "🔒 DataOwnership Conflict",
-                message: """
-          This device contains data owned by: \(existingEmail)
-          \nYou're signing in with: \(newEmail)
-          \n\nIf this is your data, you can reclaim ownership. Otherwise, start fresh.
-          """,
+                title: "auth.dialog.ownershipConflict.title".localized,
+                message: String(format: "auth.dialog.ownershipConflict.message".localized, existingEmail, newEmail),
                 preferredStyle: .alert
             )
             
             alert.addAction(
-                UIAlertAction(title: "Reclaim My Data", style: .default) { _ in
+                UIAlertAction(title: "auth.dialog.button.reclaimData".localized, style: .default) { _ in
                     self?.handleReclaimDataOwnership(
                         firebaseUser: firebaseUser,
                         method: method,
@@ -505,7 +497,7 @@ class AuthenticationManager: NSObject {
                 })
             
             alert.addAction(
-                UIAlertAction(title: "Start Fresh", style: .destructive) { _ in
+                UIAlertAction(title: "auth.dialog.button.startFresh".localized, style: .destructive) { _ in
                     self?.handleStartFreshWithNewAccount(
                         firebaseUser: firebaseUser,
                         method: method,
@@ -515,7 +507,7 @@ class AuthenticationManager: NSObject {
                 })
             
             alert.addAction(
-                UIAlertAction(title: "Cancel", style: .cancel) { _ in
+                UIAlertAction(title: "alert.cancel".localized, style: .cancel) { _ in
                     self?.delegate?.authenticationDidFail(error: AuthError.userCancelled)
                 })
             

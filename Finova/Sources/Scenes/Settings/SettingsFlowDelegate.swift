@@ -6,5 +6,6 @@
 //
 
 public protocol SettingsFlowDelegate: AnyObject {
-    func didTapBackButton()
+    func dismissSettings()
+    func logout()
 }

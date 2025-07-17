@@ -80,7 +80,7 @@ extension AppFlowController: RegisterFlowDelegate {
 }
 
 // MARK: - Dashboard Flow
-extension AppFlowController: DashboardFlowDelegate {
+extension AppFlowController: DashboardFlowDelegate, SettingsFlowDelegate {
     func navigateToSettings() {
         navigationController?.dismiss(animated: false)
         let viewController = viewControllersFactory.makeSettingsViewController(flowDelegate: self)
@@ -122,6 +122,10 @@ extension AppFlowController: DashboardFlowDelegate {
         navigationController?.pushViewController(viewController, animated: false)
         viewController.contentView.containerView.alpha = 1
     }
+    
+    func dismissSettings() {
+        navigationController?.popViewController(animated: true)
+    }
 }
 
 // MARK: - Budgets Flow
@@ -141,12 +145,5 @@ extension AppFlowController: AddTransactionModalFlowDelegate {
             .last {
             dashboardViewController.loadData()
         }
-    }
-}
-
-// MARK: - Settings Flow
-extension AppFlowController: SettingsFlowDelegate {
-    func didTapBackButton() {
-        navigationController?.popViewController(animated: true)
     }
 }
