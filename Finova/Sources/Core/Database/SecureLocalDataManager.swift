@@ -395,28 +395,26 @@ class SecureLocalDataManager {
     }
     
     private func validateDeviceDataAccess(for email: String) -> Bool {
-        // This could check if the user has previously used this device
-        // For now, we'll allow access but log for security monitoring
         print("🔍 Validating device data access for: \(email)")
-        
-        // Check if this email has been used on this device before
         let deviceUserKey = "device_users"
         var deviceUsers = UserDefaults.standard.stringArray(forKey: deviceUserKey) ?? []
-        
+        print("📋 Current device users: \(deviceUsers)")
+
+        let normalizedEmail = email.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        deviceUsers = deviceUsers.map { $0.lowercased().trimmingCharacters(in: .whitespacesAndNewlines) }
+
         if deviceUsers.isEmpty {
-            // First user on this device - grant access
-            deviceUsers.append(email.lowercased())
+            deviceUsers.append(normalizedEmail)
             UserDefaults.standard.set(deviceUsers, forKey: deviceUserKey)
             print("✅ First user on device - access granted")
             return true
         }
-        
-        if deviceUsers.contains(email.lowercased()) {
+
+        if deviceUsers.contains(normalizedEmail) {
             print("✅ Email found in device users - access granted")
             return true
         }
-        
-        // New email on device with existing data - require explicit confirmation
+
         print("⚠️ New email on device with existing data - access denied")
         return false
     }
@@ -426,6 +424,73 @@ class SecureLocalDataManager {
         UserDefaults.standard.set(email.lowercased(), forKey: "data_owner_email")
         UserDefaults.standard.set(Date(), forKey: "data_ownership_date")
         print("🔒 Data ownership marked for: \(email) (\(firebaseUID))")
+    }
+    
+    private func updateDataOwnership(for firebaseUID: String, email: String) {
+        UserDefaults.standard.set(firebaseUID, forKey: "data_owner_uid")
+        UserDefaults.standard.set(email.lowercased(), forKey: "data_owner_email")
+        UserDefaults.standard.set(Date(), forKey: "data_ownership_date")
+        print("🔄 Data ownership updated for: \(email) (\(firebaseUID))")
+    }
+    
+    func clearDataOwnership() {
+        UserDefaults.standard.removeObject(forKey: "data_owner_uid")
+        UserDefaults.standard.removeObject(forKey: "data_owner_email")
+        UserDefaults.standard.removeObject(forKey: "data_ownership_date")
+        print("🧹 Data ownership cleared - ready for new user")
+    }
+    
+    func manuallyUpdateDeviceUsers(to email: String) {
+        let deviceUserKey = "device_users"
+        let normalizedEmail = email.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        print("🔧 Manually updating device users to: \(normalizedEmail)")
+        UserDefaults.standard.set([normalizedEmail], forKey: deviceUserKey)
+        print("✅ Device users manually updated")
+    }
+    
+    func reclaimDataOwnership(for firebaseUID: String, email: String) {
+        print("🔗 Reclaiming data ownership for: \(email) (\(firebaseUID))")
+        updateDataOwnership(for: firebaseUID, email: email)
+        
+        // Also update the user in UserDefaults if needed
+        if let existingUser = UserDefaultsManager.getUser() {
+            if existingUser.email.lowercased() != email.lowercased() {
+                let updatedUser = User(
+                    firebaseUID: firebaseUID,
+                    name: existingUser.name,
+                    email: email,
+                    isUserSaved: true,
+                    hasFaceIdEnabled: existingUser.hasFaceIdEnabled
+                )
+                UserDefaultsManager.saveUser(user: updatedUser)
+                print("✅ Updated user email in UserDefaults")
+            }
+        }
+        
+        // Add reclaimed email to device users
+        let deviceUserKey = "device_users"
+        var deviceUsers = UserDefaults.standard.stringArray(forKey: deviceUserKey) ?? []
+        print("📋 Before reclaim - device users: \(deviceUsers)")
+        
+        // Remove the old email (jack@email.com) and add the new one
+        let normalizedEmail = email.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        deviceUsers = deviceUsers.map { $0.lowercased().trimmingCharacters(in: .whitespacesAndNewlines) }
+        
+        // Remove any old emails and add the new one
+        deviceUsers.removeAll { $0 != normalizedEmail }
+        if !deviceUsers.contains(normalizedEmail) {
+            deviceUsers.append(normalizedEmail)
+        }
+        
+        UserDefaults.standard.set(deviceUsers, forKey: deviceUserKey)
+        print("📋 After reclaim - device users: \(deviceUsers)")
+        print("✅ Updated device users list with reclaimed email")
+        
+        // Also manually ensure the device users list is correct
+        manuallyUpdateDeviceUsers(to: email)
+        
+        print("✅ Data ownership successfully reclaimed")
     }
     
     private func getDataOwnerUID() -> String? {
@@ -438,7 +503,8 @@ class SecureLocalDataManager {
     
     // Helper validation methods
     private func validateTransactionOwnership(_ transactions: [Transaction], for email: String)
-    -> Bool {
+    -> Bool
+    {
         // For now, return true if user email matches stored user
         // You could enhance this with more sophisticated validation
         return true
@@ -500,7 +566,8 @@ class SecureLocalDataManager {
     }
     
     private func loadEncryptedData<T: Codable>(type: T.Type, for userUID: String, filename: String)
-    -> T? {
+    -> T?
+    {
         guard let encryptionKey = encryptionKey else {
             print("❌ Cannot load: No encryption key available")
             return nil
@@ -590,4 +657,163 @@ extension DateFormatter {
         formatter.dateFormat = "yyyy-MM-dd_HH-mm-ss"
         return formatter
     }()
+}
+
+// MARK: - Biometric Account Linking (Phase 7)
+
+enum AccountValidationResult {
+    case valid
+    case requiresBiometricVerification(existingEmail: String, newEmail: String)
+    case ownedByDifferentUser(existingEmail: String, newEmail: String)
+    case accessDenied
+}
+
+extension SecureLocalDataManager {
+    func validateDataOwnershipWithBiometrics(for firebaseUID: String, email: String)
+    -> AccountValidationResult
+    {
+        print("🔍 Validating data ownership for: \(email) (UID: \(firebaseUID))")
+        
+        // First check if this email has been used on this device before
+        if let existingUser = UserDefaultsManager.getUser() {
+            print("📱 Found existing user: \(existingUser.email)")
+            if existingUser.email.lowercased() == email.lowercased() {                // Same email - allow access regardless of Firebase UID
+                print("✅ Same email detected - allowing access for: \(email)")
+                return .valid
+            } else {
+                print("🔒 Email mismatch detected:")
+                print("   Existing: \(existingUser.email)")
+                print("   New: \(email)")
+                if BiometricDataManager.shared.hasBiometricData() {
+                    return .requiresBiometricVerification(existingEmail: existingUser.email, newEmail: email)
+                } else {
+                    return .valid
+                }
+            }
+        } else {
+            print("📱 No existing user found in UserDefaults")
+        }
+        
+        // Check if data has been claimed by a different UID
+        if let existingOwnerUID = getDataOwnerUID() {
+            print("🔒 Found existing data owner UID: \(existingOwnerUID)")
+            if existingOwnerUID != firebaseUID {                // Check if the existing owner has the same email
+                if let existingOwnerEmail = getDataOwnerEmail() {
+                    print("📧 Existing owner email: \(existingOwnerEmail)")
+                    if existingOwnerEmail.lowercased() == email.lowercased() {
+                        print("✅ Same email for existing owner - updating ownership for: \(email)")
+                        updateDataOwnership(for: firebaseUID, email: email)
+                        return .valid
+                    } else {
+                        print("❌ Email mismatch with existing owner")
+                        print("🔒 Data already owned by different user: \(existingOwnerUID)")
+                        return .ownedByDifferentUser(existingEmail: existingOwnerEmail, newEmail: email)
+                    }
+                } else {
+                    print("⚠️ No email stored for existing owner")
+                    print("🔒 Data already owned by different user: \(existingOwnerUID)")
+                    return .ownedByDifferentUser(existingEmail: "Unknown", newEmail: email)
+                }
+            } else {
+                print("✅ Same UID - allowing access")
+            }
+        } else {
+            print("🔒 No existing data owner found")
+        }
+        
+        // Check device access - if it fails, we need to handle the conflict
+        let deviceAccess = validateDeviceDataAccess(for: email)
+        print("📱 Device data access validation: \(deviceAccess)")
+        
+        if !deviceAccess {
+            // Device access failed - check if we have existing owner data to reclaim
+            if let existingOwnerEmail = getDataOwnerEmail() {
+                print("🔒 Device access denied - triggering data ownership conflict")
+                return .ownedByDifferentUser(existingEmail: existingOwnerEmail, newEmail: email)
+            }
+        } 
+        
+        return deviceAccess ? .valid : .accessDenied
+    }
+    
+    func registerFirstTimeUserWithBiometrics(
+        firebaseUID: String,
+        email: String,
+        completion: @escaping (Bool) -> Void
+    ) {
+        guard BiometricDataManager.shared.isBiometricAvailable() else {
+            print("ℹ️ Biometric authentication not available - proceeding without registration")
+            authenticateUser(firebaseUID: firebaseUID)
+            completion(true)
+            return
+        }
+        
+        // Check if biometric data already exists
+        if BiometricDataManager.shared.hasBiometricData() {
+            print("ℹ️ Biometric data already exists - skipping registration")
+            authenticateUser(firebaseUID: firebaseUID)
+            completion(true)
+            return
+        }
+        BiometricDataManager.shared.registerUserBiometric(for: email) { [weak self] success, error in
+            if success {
+                print("✅ Biometric registration successful for: \(email)")
+            } else {
+                print("⚠️ Biometric registration failed: \(error?.localizedDescription ?? "Unknown error")")
+            }
+            self?.authenticateUser(firebaseUID: firebaseUID)
+            completion(true)
+        }
+    }
+    
+    func handleBiometricAccountLinking(
+        newFirebaseUID: String,
+        newEmail: String,
+        linkToExistingData: Bool,
+        completion: @escaping (Bool) -> Void
+    ) {
+        if linkToExistingData {
+            if let existingUser = UserDefaultsManager.getUser() {
+                print("🔗 Linking accounts via biometric verification: keeping existing data")
+                let linkedUser = User(
+                    firebaseUID: existingUser.firebaseUID,
+                    name: existingUser.name,
+                    email: newEmail,
+                    isUserSaved: true,
+                    hasFaceIdEnabled: existingUser.hasFaceIdEnabled
+                )
+                UserDefaultsManager.saveUser(user: linkedUser)
+                markBiometricAccountLinking(
+                    originalUID: existingUser.firebaseUID ?? "",
+                    newUID: newFirebaseUID,
+                    newEmail: newEmail
+                )
+                authenticateUser(firebaseUID: existingUser.firebaseUID ?? "")
+                print("✅ Biometric account linking successful")
+                completion(true)
+            } else {
+                print("❌ No existing user found for linking")
+                completion(false)
+            }
+        } else {
+            print("🆕 Starting fresh with new account")
+            registerFirstTimeUserWithBiometrics(
+                firebaseUID: newFirebaseUID,
+                email: newEmail,
+                completion: completion
+            )
+        }
+    }
+    
+    private func markBiometricAccountLinking(originalUID: String, newUID: String, newEmail: String) {
+        let linkingInfo = [
+            "original_uid": originalUID,
+            "linked_uid": newUID,
+            "linked_email": newEmail,
+            "linking_method": "biometric_verification",
+            "linking_date": ISO8601DateFormatter().string(from: Date()),
+        ]
+        UserDefaults.standard.set(linkingInfo, forKey: "biometric_linking_\(originalUID)")
+        print("🔗 Biometric account linking recorded")
+    }
 }

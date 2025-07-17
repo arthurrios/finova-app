@@ -417,836 +417,108 @@ func signInWithApple() {
 
 ---
 
-## 🔗 **PHASE 7: Biometric Account Linking with FaceID**
+# 🔗 **PHASE 7: Biometric Account Linking with FaceID (Full Implementation Steps)**
 
-### **The Challenge: Different Email Addresses**
-
-Apple Sign-In can create a data isolation problem when users have different email addresses for different providers:
-
-```
-Google Sign-In: arthur.rios007@gmail.com → Firebase UID: "google_abc123"
-Apple Sign-In: rios.arthur@hotmail.com → Firebase UID: "apple_xyz789"
-```
-
-**Result**: Same person, different UIDs, **separate data sets**!
-
-### **🔐 Enhanced Solution: FaceID Biometric Verification**
-
-Instead of relying on email detection alone, we use FaceID to verify that the same **physical person** is trying to access different accounts. This is much more secure and user-friendly.
-
-**New Flow:**
-1. **First Sign-In** → Store FaceID biometric hash with user data
-2. **Different Email Detected** → Prompt for FaceID verification
-3. **FaceID Matches** → "We found data from your other account. Synchronize?"
-4. **FaceID Doesn't Match** → Silent new account creation (no prompt)
+## **Overview**
+This phase enables secure, privacy-first account linking using FaceID (or TouchID) to ensure only the same physical user can synchronize data across different sign-in methods (Apple, Google, Email/Password). It prevents data exposure to unauthorized users and provides a seamless experience for legitimate account owners.
 
 ---
 
-### **Step 1: BiometricDataManager Implementation**
+## **Step 1: Create BiometricDataManager.swift**
+- **Location:** `Finova/Sources/Core/Utils/`
+- **Purpose:** Handles FaceID/TouchID registration, verification, and secure Keychain storage.
+- **Key Methods:**
+  - `registerUserBiometric(for:completion:)` — Registers biometric for a given email
+  - `verifyUserBiometric(completion:)` — Verifies biometric and returns linked email
+  - `hasBiometricData()` — Checks if biometric is registered
+  - `clearBiometricData()` — Removes biometric data from Keychain
+- **See code sample in main guide for full implementation.**
 
-Create a new `BiometricDataManager.swift` class to handle FaceID operations:
+---
 
-```swift
-//
-//  BiometricDataManager.swift
-//  FinanceApp
-//
+## **Step 2: Integrate Biometric Checks in SecureLocalDataManager**
+- **Update data ownership validation:**
+  - Use `validateDataOwnershipWithBiometrics(for:email:)` to check if the current sign-in email matches the registered biometric email.
+  - If emails differ and biometric is present, return `.requiresBiometricVerification`.
+- **On new account creation:**
+  - Call `BiometricDataManager.shared.registerUserBiometric(for: email)` after successful sign-in to register FaceID for the user.
+- **On email mismatch:**
+  - Call `BiometricDataManager.shared.verifyUserBiometric` before offering to synchronize data.
 
-import Foundation
-import LocalAuthentication
-import Security
+---
 
-class BiometricDataManager {
-    
-    // MARK: - Singleton
-    static let shared = BiometricDataManager()
-    private init() {}
-    
-    // MARK: - Keychain Keys
-    private let biometricIdentifierKey = "biometric_user_identifier"
-    private let biometricEmailKey = "biometric_linked_email"
-    
-    // MARK: - Biometric Availability
-    
-    func isBiometricAvailable() -> Bool {
-        let context = LAContext()
-        var error: NSError?
-        return context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &error)
-    }
-    
-    func getBiometricType() -> LABiometryType {
-        let context = LAContext()
-        _ = context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: nil)
-        return context.biometryType
-    }
-    
-    // MARK: - Biometric Registration
-    
-    func registerUserBiometric(for email: String, completion: @escaping (Bool, Error?) -> Void) {
-        guard isBiometricAvailable() else {
-            completion(false, BiometricError.notAvailable)
-            return
-        }
-        
-        let context = LAContext()
-        let reason = "Register your biometric authentication to link accounts securely"
-        
-        context.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, localizedReason: reason) { [weak self] success, error in
-            
-            if success {
-                // Generate unique biometric identifier
-                let biometricIdentifier = self?.generateBiometricIdentifier() ?? UUID().uuidString
-                
-                // Store biometric data in Keychain
-                let stored = self?.storeBiometricData(identifier: biometricIdentifier, email: email) ?? false
-                
-                DispatchQueue.main.async {
-                    completion(stored, stored ? nil : BiometricError.storageFailure)
-                }
-            } else {
-                DispatchQueue.main.async {
-                    completion(false, error ?? BiometricError.authenticationFailed)
-                }
-            }
-        }
-    }
-    
-    // MARK: - Biometric Verification
-    
-    func verifyUserBiometric(completion: @escaping (BiometricVerificationResult) -> Void) {
-        guard isBiometricAvailable() else {
-            completion(.notAvailable)
-            return
-        }
-        
-        guard getBiometricData() != nil else {
-            completion(.noRegisteredBiometric)
-            return
-        }
-        
-        let context = LAContext()
-        let reason = "Verify your identity to access existing account data"
-        
-        context.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, localizedReason: reason) { [weak self] success, error in
-            
-            DispatchQueue.main.async {
-                if success {
-                    if let (_, email) = self?.getBiometricData() {
-                        completion(.verified(linkedEmail: email))
-                    } else {
-                        completion(.verificationFailed)
-                    }
-                } else {
-                    if let laError = error as? LAError {
-                        switch laError.code {
-                        case .userCancel:
-                            completion(.userCancelled)
-                        case .userFallback:
-                            completion(.userFallback)
-                        default:
-                            completion(.verificationFailed)
-                        }
-                    } else {
-                        completion(.verificationFailed)
-                    }
-                }
-            }
-        }
-    }
-    
-    // MARK: - Biometric Data Management
-    
-    func hasBiometricData() -> Bool {
-        return getBiometricData() != nil
-    }
-    
-    func getLinkedEmail() -> String? {
-        return getBiometricData()?.email
-    }
-    
-    func clearBiometricData() {
-        deleteBiometricDataFromKeychain()
-    }
-    
-    // MARK: - Private Methods
-    
-    private func generateBiometricIdentifier() -> String {
-        // Generate a unique identifier based on device and biometric data
-        let deviceIdentifier = UIDevice.current.identifierForVendor?.uuidString ?? "unknown"
-        let timestamp = String(Date().timeIntervalSince1970)
-        let combined = "\(deviceIdentifier)_\(timestamp)"
-        
-        return combined.data(using: .utf8)?.base64EncodedString() ?? UUID().uuidString
-    }
-    
-    private func storeBiometricData(identifier: String, email: String) -> Bool {
-        let biometricData = BiometricUserData(identifier: identifier, email: email, registrationDate: Date())
-        
-        do {
-            let data = try JSONEncoder().encode(biometricData)
-            return storeBiometricDataInKeychain(data: data)
-        } catch {
-            print("❌ Failed to encode biometric data: \(error)")
-            return false
-        }
-    }
-    
-    private func getBiometricData() -> BiometricUserData? {
-        guard let data = getBiometricDataFromKeychain() else { return nil }
-        
-        do {
-            return try JSONDecoder().decode(BiometricUserData.self, from: data)
-        } catch {
-            print("❌ Failed to decode biometric data: \(error)")
-            return nil
-        }
-    }
-    
-    // MARK: - Keychain Operations
-    
-    private func storeBiometricDataInKeychain(data: Data) -> Bool {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrAccount as String: biometricIdentifierKey,
-            kSecAttrService as String: Bundle.main.bundleIdentifier ?? "FinanceApp",
-            kSecValueData as String: data,
-            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly
-        ]
-        
-        // Delete existing item first
-        SecItemDelete(query as CFDictionary)
-        
-        let status = SecItemAdd(query as CFDictionary, nil)
-        return status == errSecSuccess
-    }
-    
-    private func getBiometricDataFromKeychain() -> Data? {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrAccount as String: biometricIdentifierKey,
-            kSecAttrService as String: Bundle.main.bundleIdentifier ?? "FinanceApp",
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne
-        ]
-        
-        var result: AnyObject?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
-        
-        if status == errSecSuccess {
-            return result as? Data
-        }
-        return nil
-    }
-    
-    private func deleteBiometricDataFromKeychain() {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrAccount as String: biometricIdentifierKey,
-            kSecAttrService as String: Bundle.main.bundleIdentifier ?? "FinanceApp"
-        ]
-        
-        SecItemDelete(query as CFDictionary)
-    }
-}
+## **Step 3: Update AuthenticationManager for Biometric Flow**
+- **After any sign-in (Apple, Google, Email):**
+  - Call `handleSignInWithBiometricValidation(firebaseUser:method:googleProfileImageURL:)`.
+  - If `.valid`, register biometric if not already present.
+  - If `.requiresBiometricVerification`, prompt for FaceID verification.
+  - On FaceID success, show sync prompt. On failure/cancel, treat as new user (no prompt).
+- **Show UIAlertController after successful FaceID:**
+  - Title: "🔐 Account Data Found"
+  - Message: "We found existing data from your other account: [email]. Would you like to synchronize and access this data with your current sign-in?"
+  - Actions: [Synchronize] [Keep Separate]
+- **On Synchronize:**
+  - Call `handleBiometricAccountLinking(linkToExistingData: true)`
+- **On Keep Separate:**
+  - Call `handleBiometricAccountLinking(linkToExistingData: false)`
 
-// MARK: - Supporting Types
+---
 
-struct BiometricUserData: Codable {
-    let identifier: String
-    let email: String
-    let registrationDate: Date
-}
+## **Step 4: Error Handling**
+- **Add new error cases to `AuthError`:**
+  - `.biometricRegistrationFailed`, `.biometricVerificationCancelled`, `.synchronizationFailed`, `.accountCreationFailed`
+- **Handle all biometric scenarios:**
+  - If FaceID fails or is cancelled, create a new account silently (no data exposure).
+  - If FaceID is not available, proceed with normal flow (no linking).
 
-enum BiometricVerificationResult {
-    case verified(linkedEmail: String)
-    case verificationFailed
-    case userCancelled
-    case userFallback
-    case notAvailable
-    case noRegisteredBiometric
-}
+---
 
-enum BiometricError: LocalizedError {
-    case notAvailable
-    case authenticationFailed
-    case storageFailure
-    
-    var errorDescription: String? {
-        switch self {
-        case .notAvailable:
-            return "Biometric authentication is not available on this device"
-        case .authenticationFailed:
-            return "Biometric authentication failed"
-        case .storageFailure:
-            return "Failed to store biometric data securely"
-        }
-    }
-}
-```
+## **Step 5: Testing & Security Notes**
+- **Test with same person, different emails:**
+  - Should see sync prompt after FaceID.
+- **Test with different people:**
+  - Should never see sync prompt; new account is created.
+- **Test FaceID cancellation:**
+  - Should create new account, no data shown.
+- **Test on device without FaceID:**
+  - Should proceed as normal, no linking available.
+- **Security:**
+  - No data exposure to unauthorized users.
+  - No hints about other accounts if FaceID fails.
 
-### **Step 2: Enhanced SecureLocalDataManager**
+---
 
-Update `SecureLocalDataManager.swift` to integrate biometric verification:
+## **Sample User Flows**
 
-```swift
-// Add to SecureLocalDataManager class
-func validateDataOwnershipWithBiometrics(for firebaseUID: String, email: String) -> AccountValidationResult {
-    // Check if data has already been claimed by another user
-    if let existingOwnerUID = getDataOwnerUID() {
-        if existingOwnerUID != firebaseUID {
-            print("🔒 Data already owned by different user: \(existingOwnerUID)")
-            return .ownedByDifferentUser
-        }
-    }
-    
-    // Check if existing local user data matches this email
-    if let existingUser = UserDefaultsManager.getUser() {
-        if existingUser.email.lowercased() != email.lowercased() {
-            print("🔒 Email mismatch detected:")
-            print("   Existing: \(existingUser.email)")
-            print("   New: \(email)")
-            
-            // Check if we have biometric data registered
-            if BiometricDataManager.shared.hasBiometricData() {
-                return .requiresBiometricVerification(existingEmail: existingUser.email, newEmail: email)
-            } else {
-                // No biometric data - treat as new user
-                return .valid
-            }
-        }
-    }
-    
-    // Standard validation for first-time users
-    return validateDeviceDataAccess(for: email) ? .valid : .accessDenied
-}
+### **Scenario 1: Same Person, Different Emails**
+1. Sign in with Google (email1) → Register FaceID
+2. Sign in with Apple (email2) → Email mismatch detected
+3. FaceID prompt appears
+4. FaceID success → Sync prompt shown
+5. User chooses to synchronize → Data merged
 
-// Enhanced validation result enum
-enum AccountValidationResult {
-    case valid
-    case requiresBiometricVerification(existingEmail: String, newEmail: String)
-    case ownedByDifferentUser
-    case accessDenied
-}
-```
+### **Scenario 2: Different Person**
+1. User A signs in and registers FaceID
+2. User B signs in with different email
+3. FaceID prompt appears
+4. FaceID fails → New account created, no prompt
 
-### **Step 3: Biometric Registration for First-Time Users**
+### **Scenario 3: FaceID Not Available**
+1. Sign in on device without FaceID
+2. Normal flow, no linking or prompts
 
-Add biometric registration to `SecureLocalDataManager`:
+---
 
-```swift
-// Add to SecureLocalDataManager class
-func registerFirstTimeUserWithBiometrics(
-    firebaseUID: String,
-    email: String,
-    completion: @escaping (Bool) -> Void
-) {
-    guard BiometricDataManager.shared.isBiometricAvailable() else {
-        print("ℹ️ Biometric authentication not available - proceeding without registration")
-        authenticateUser(firebaseUID: firebaseUID)
-        completion(true)
-        return
-    }
-    
-    // Register biometric data for this user
-    BiometricDataManager.shared.registerUserBiometric(for: email) { [weak self] success, error in
-        if success {
-            print("✅ Biometric registration successful for: \(email)")
-        } else {
-            print("⚠️ Biometric registration failed: \(error?.localizedDescription ?? "Unknown error")")
-            // Continue without biometric registration
-        }
-        
-        // Proceed with normal authentication regardless of biometric registration result
-        self?.authenticateUser(firebaseUID: firebaseUID)
-        completion(true)
-    }
-}
+## **Best Practices**
+- Always register biometric after first successful sign-in
+- Never show account linking prompts unless FaceID matches
+- Store biometric data securely in Keychain
+- Provide clear user messaging for synchronization
+- Test all edge cases (success, failure, cancel, no biometric)
 
-func handleBiometricAccountLinking(
-    newFirebaseUID: String, 
-    newEmail: String, 
-    linkToExistingData: Bool,
-    completion: @escaping (Bool) -> Void
-) {
-    if linkToExistingData {
-        // Link to existing data - use existing UID structure but update user info
-        if let existingUser = UserDefaultsManager.getUser() {
-            print("🔗 Linking accounts via biometric verification: keeping existing data")
-            
-            // Update user profile with new sign-in method info
-            let linkedUser = User(
-                firebaseUID: existingUser.firebaseUID, // Keep existing UID
-                name: existingUser.name,
-                email: newEmail, // Update to new email
-                isUserSaved: true,
-                hasFaceIdEnabled: existingUser.hasFaceIdEnabled
-            )
-            
-            UserDefaultsManager.saveUser(linkedUser)
-            
-            // Mark the account as linked
-            markBiometricAccountLinking(
-                originalUID: existingUser.firebaseUID,
-                newUID: newFirebaseUID,
-                newEmail: newEmail
-            )
-            
-            // Authenticate with existing UID to access existing data
-            authenticateUser(firebaseUID: existingUser.firebaseUID)
-            
-            print("✅ Biometric account linking successful")
-            completion(true)
-        } else {
-            print("❌ No existing user found for linking")
-            completion(false)
-        }
-    } else {
-        // Start fresh - register biometric for new account
-        print("🆕 Starting fresh with new account")
-        registerFirstTimeUserWithBiometrics(
-            firebaseUID: newFirebaseUID,
-            email: newEmail,
-            completion: completion
-        )
-    }
-}
+---
 
-private func markBiometricAccountLinking(originalUID: String, newUID: String, newEmail: String) {
-    let linkingInfo = [
-        "original_uid": originalUID,
-        "linked_uid": newUID,
-        "linked_email": newEmail,
-        "linking_method": "biometric_verification",
-        "linking_date": DateFormatter.iso8601.string(from: Date())
-    ]
-    UserDefaults.standard.set(linkingInfo, forKey: "biometric_linking_\(originalUID)")
-    print("🔗 Biometric account linking recorded")
-}
-```
-
-### **Step 4: Enhanced AuthenticationManager with Biometric Flow**
-
-Update `AuthenticationManager.swift` to handle biometric verification:
-
-```swift
-// Add to AuthenticationManager class
-import UIKit
-import LocalAuthentication
-
-// Enhanced handleAuthResult for ALL sign-in methods with biometric verification
-private func handleAuthResult(
-    result: AuthDataResult?, error: Error?, method: String, googleProfileImageURL: URL? = nil
-) {
-    defer { isHandlingAuthentication = false }
-    
-    if let error = error {
-        print("❌ \(method) authentication failed: \(error.localizedDescription)")
-        delegate?.authenticationDidFail(error: error)
-        return
-    }
-    
-    guard let firebaseUser = result?.user else {
-        print("❌ No user data received from \(method)")
-        delegate?.authenticationDidFail(error: AuthError.noUser)
-        return
-    }
-    
-    print("✅ \(method) authentication successful for: \(firebaseUser.email ?? "No email")")
-    
-    // 🔐 BIOMETRIC VALIDATION - Handle ALL sign-in methods with FaceID verification
-    handleSignInWithBiometricValidation(
-        firebaseUser: firebaseUser, 
-        method: method, 
-        googleProfileImageURL: googleProfileImageURL
-    )
-}
-
-private func handleSignInWithBiometricValidation(
-    firebaseUser: FirebaseAuth.User,
-    method: String,
-    googleProfileImageURL: URL? = nil
-) {
-    let newEmail = firebaseUser.email ?? ""
-    let validationResult = SecureLocalDataManager.shared.validateDataOwnershipWithBiometrics(
-        for: firebaseUser.uid, 
-        email: newEmail
-    )
-    
-    switch validationResult {
-    case .valid:
-        // No issues - check if this is first-time user and register biometric
-        if !BiometricDataManager.shared.hasBiometricData() {
-            // First-time user - register biometric
-            SecureLocalDataManager.shared.registerFirstTimeUserWithBiometrics(
-                firebaseUID: firebaseUser.uid,
-                email: newEmail
-            ) { [weak self] success in
-                if success {
-                    self?.handleAuthenticatedUser(firebaseUser, googleProfileImageURL: googleProfileImageURL)
-                } else {
-                    self?.delegate?.authenticationDidFail(error: AuthError.biometricRegistrationFailed)
-                }
-            }
-        } else {
-            // Existing user - proceed normally
-            handleAuthenticatedUser(firebaseUser, googleProfileImageURL: googleProfileImageURL)
-        }
-        
-    case .requiresBiometricVerification(let existingEmail, let newEmail):
-        // Perform biometric verification before showing any prompts
-        performBiometricVerificationForAccountLinking(
-            existingEmail: existingEmail,
-            newEmail: newEmail,
-            firebaseUser: firebaseUser,
-            method: method,
-            googleProfileImageURL: googleProfileImageURL
-        )
-        
-    case .ownedByDifferentUser, .accessDenied:
-        // Security issue - deny access
-        print("❌ Access denied for security reasons")
-        delegate?.authenticationDidFail(error: AuthError.accessDenied)
-    }
-}
-
-private func performBiometricVerificationForAccountLinking(
-    existingEmail: String,
-    newEmail: String,
-    firebaseUser: FirebaseAuth.User,
-    method: String,
-    googleProfileImageURL: URL? = nil
-) {
-    print("🔐 Performing biometric verification for account linking...")
-    
-    BiometricDataManager.shared.verifyUserBiometric { [weak self] result in
-        switch result {
-        case .verified(let linkedEmail):
-            print("✅ Biometric verification successful - emails match: \(linkedEmail)")
-            // Show account synchronization prompt
-            self?.showAccountSynchronizationPrompt(
-                existingEmail: existingEmail,
-                newEmail: newEmail,
-                firebaseUser: firebaseUser,
-                method: method,
-                googleProfileImageURL: googleProfileImageURL
-            )
-            
-        case .verificationFailed:
-            print("❌ Biometric verification failed - treating as new user")
-            // Failed verification - treat as completely new user (silent)
-            self?.handleNewUserAfterFailedBiometricVerification(
-                firebaseUser: firebaseUser,
-                method: method,
-                googleProfileImageURL: googleProfileImageURL
-            )
-            
-        case .userCancelled:
-            print("🚫 User cancelled biometric verification")
-            self?.delegate?.authenticationDidFail(error: AuthError.biometricVerificationCancelled)
-            
-        case .userFallback:
-            print("🔄 User chose fallback - treating as new user")
-            // User chose fallback - treat as new user
-            self?.handleNewUserAfterFailedBiometricVerification(
-                firebaseUser: firebaseUser,
-                method: method,
-                googleProfileImageURL: googleProfileImageURL
-            )
-            
-        case .notAvailable:
-            print("⚠️ Biometric authentication not available - treating as new user")
-            // No biometric available - treat as new user
-            self?.handleNewUserAfterFailedBiometricVerification(
-                firebaseUser: firebaseUser,
-                method: method,
-                googleProfileImageURL: googleProfileImageURL
-            )
-            
-        case .noRegisteredBiometric:
-            print("ℹ️ No registered biometric found - treating as new user")
-            // No registered biometric - treat as new user
-            self?.handleNewUserAfterFailedBiometricVerification(
-                firebaseUser: firebaseUser,
-                method: method,
-                googleProfileImageURL: googleProfileImageURL
-            )
-        }
-    }
-}
-
-private func handleNewUserAfterFailedBiometricVerification(
-    firebaseUser: FirebaseAuth.User,
-    method: String,
-    googleProfileImageURL: URL? = nil
-) {
-    // Register biometric for this new user and proceed
-    SecureLocalDataManager.shared.registerFirstTimeUserWithBiometrics(
-        firebaseUID: firebaseUser.uid,
-        email: firebaseUser.email ?? ""
-    ) { [weak self] success in
-        if success {
-            self?.handleAuthenticatedUser(firebaseUser, googleProfileImageURL: googleProfileImageURL)
-        } else {
-            self?.delegate?.authenticationDidFail(error: AuthError.biometricRegistrationFailed)
-        }
-    }
-}
-
-private func showAccountSynchronizationPrompt(
-    existingEmail: String,
-    newEmail: String,
-    firebaseUser: FirebaseAuth.User,
-    method: String,
-    googleProfileImageURL: URL? = nil
-) {
-    DispatchQueue.main.async { [weak self] in
-        guard let presentingVC = getCurrentViewController() else {
-            print("❌ No presenting view controller for synchronization prompt")
-            self?.delegate?.authenticationDidFail(error: AuthError.noPresentingController)
-            return
-        }
-        
-        // Biometric verification successful - show friendly synchronization message
-        let alert = UIAlertController(
-            title: "🔐 Account Data Found",
-            message: """
-            We found existing data from your other account:
-            \(existingEmail)
-            
-            Would you like to synchronize and access this data with your current sign-in?
-            """,
-            preferredStyle: .alert
-        )
-        
-        // Synchronize option
-        alert.addAction(UIAlertAction(title: "Synchronize", style: .default) { _ in
-            self?.synchronizeAccountData(
-                firebaseUser: firebaseUser,
-                existingEmail: existingEmail,
-                newEmail: newEmail,
-                method: method,
-                googleProfileImageURL: googleProfileImageURL
-            )
-        })
-        
-        // Keep Separate option
-        alert.addAction(UIAlertAction(title: "Keep Separate", style: .default) { _ in
-            self?.createSeparateAccount(
-                firebaseUser: firebaseUser,
-                method: method,
-                googleProfileImageURL: googleProfileImageURL
-            )
-        })
-        
-        presentingVC.present(alert, animated: true)
-    }
-}
-
-private func getMethodDescription(_ method: String) -> String {
-    switch method {
-    case "Apple Sign-In":
-        return "Apple ID"
-    case "Google Sign-In":
-        return "Google account"
-    case "Email/Password", "Registration":
-        return "email account"
-    default:
-        return "account"
-    }
-}
-
-private func synchronizeAccountData(
-    firebaseUser: FirebaseAuth.User,
-    existingEmail: String,
-    newEmail: String,
-    method: String,
-    googleProfileImageURL: URL? = nil
-) {
-    print("🔄 User chose to synchronize accounts after biometric verification")
-    
-    SecureLocalDataManager.shared.handleBiometricAccountLinking(
-        newFirebaseUID: firebaseUser.uid,
-        newEmail: newEmail,
-        linkToExistingData: true
-    ) { [weak self] success in
-        if success {
-            DispatchQueue.main.async {
-                self?.handleAuthenticatedUser(firebaseUser, googleProfileImageURL: googleProfileImageURL)
-            }
-        } else {
-            DispatchQueue.main.async {
-                self?.delegate?.authenticationDidFail(error: AuthError.synchronizationFailed)
-            }
-        }
-    }
-}
-
-private func createSeparateAccount(
-    firebaseUser: FirebaseAuth.User,
-    method: String,
-    googleProfileImageURL: URL? = nil
-) {
-    print("🆕 User chose to keep accounts separate - creating new account")
-    
-    SecureLocalDataManager.shared.handleBiometricAccountLinking(
-        newFirebaseUID: firebaseUser.uid,
-        newEmail: firebaseUser.email ?? "",
-        linkToExistingData: false
-    ) { [weak self] success in
-        DispatchQueue.main.async {
-            if success {
-                self?.handleAuthenticatedUser(firebaseUser, googleProfileImageURL: googleProfileImageURL)
-            } else {
-                self?.delegate?.authenticationDidFail(error: AuthError.accountCreationFailed)
-            }
-        }
-    }
-}
-```
-
-### **Step 5: Update Error Handling for Biometric Flow**
-
-Add new biometric-related error cases to `AuthError` enum:
-
-```swift
-enum AuthError: LocalizedError {
-    // ... existing cases ...
-    case appleTokenFailure
-    case invalidState
-    case accessDenied
-    case userCancelled
-    case biometricRegistrationFailed
-    case biometricVerificationCancelled
-    case synchronizationFailed
-    case accountCreationFailed
-    
-    var errorDescription: String? {
-        switch self {
-        // ... existing cases ...
-        case .appleTokenFailure:
-            return "Failed to obtain Apple ID token"
-        case .invalidState:
-            return "Invalid authentication state"
-        case .accessDenied:
-            return "Access denied for security reasons"
-        case .userCancelled:
-            return "Authentication cancelled by user"
-        case .biometricRegistrationFailed:
-            return "Failed to register biometric authentication"
-        case .biometricVerificationCancelled:
-            return "Biometric verification was cancelled"
-        case .synchronizationFailed:
-            return "Failed to synchronize account data"
-        case .accountCreationFailed:
-            return "Failed to create new account"
-        }
-    }
-    
-    var recoverySuggestion: String? {
-        switch self {
-        // ... existing cases ...
-        case .biometricRegistrationFailed:
-            return "You can continue using the app, but account linking won't be available"
-        case .biometricVerificationCancelled:
-            return "Try signing in again to verify your identity"
-        case .synchronizationFailed:
-            return "Please try signing in again or contact support"
-        case .accountCreationFailed:
-            return "Please try again or use a different sign-in method"
-        default:
-            return nil
-        }
-    }
-}
-```
-
-### **Step 5: Add Missing SecureLocalDataManager Method**
-
-Add the validation result method:
-
-```swift
-// Add to SecureLocalDataManager class
-func validateDataOwnershipResult(for firebaseUID: String, email: String) -> EmailValidationResult {
-    return validateDataOwnership(for: firebaseUID, email: email)
-}
-```
-
-### **Step 6: Enhanced Biometric User Experience Flow**
-
-**🔐 BIOMETRIC VERIFICATION FLOW - MAXIMUM SECURITY:**
-
-**Scenario 1: First-time user (any method)**
-```
-Any Sign-In → No existing data → Register FaceID → Normal flow
-```
-
-**Scenario 2: Same person, different email (Google → Apple)**
-```
-1. Google Sign-In: arthur.rios007@gmail.com → FaceID registered → Data created
-2. Apple Sign-In: rios.arthur@hotmail.com → Email mismatch detected
-3. FaceID Verification Prompt: "Verify your identity"
-4. FaceID SUCCESS → "🔐 Account Data Found - Synchronize?"
-   ├── Synchronize → Access existing Google data with Apple sign-in
-   └── Keep Separate → Create new Apple account (separate data)
-```
-
-**Scenario 3: Same person, different email (Apple → Google)**
-```
-1. Apple Sign-In: rios.arthur@hotmail.com → FaceID registered → Data created
-2. Google Sign-In: arthur.rios007@gmail.com → Email mismatch detected
-3. FaceID Verification Prompt: "Verify your identity"
-4. FaceID SUCCESS → "🔐 Account Data Found - Synchronize?"
-   ├── Synchronize → Access existing Apple data with Google sign-in
-   └── Keep Separate → Create new Google account (separate data)
-```
-
-**Scenario 4: Different person with different email**
-```
-1. Previous User: arthur.rios007@gmail.com → FaceID registered → Data created
-2. New User: jane.doe@email.com → Email mismatch detected
-3. FaceID Verification Prompt: "Verify your identity"
-4. FaceID FAILURE → Silent new account creation (NO PROMPT SHOWN)
-   → New user never sees previous user's data
-```
-
-**Scenario 5: User cancels FaceID verification**
-```
-1. Different email detected → FaceID prompt shown
-2. User cancels FaceID → Silent new account creation
-   → Treated as new user (privacy preserved)
-```
-
-**Scenario 6: FaceID not available**
-```
-Any Sign-In → Device without FaceID → Normal flow (no linking available)
-```
-
-**🔒 Security Benefits:**
-- **No data exposure**: Different people never see prompts about other accounts
-- **Biometric verification**: Physical presence required for account linking
-- **Silent fallbacks**: Failed verification creates new account without exposure
-- **Privacy-first**: No hints about existing accounts to unauthorized users
-
-### **Step 7: Account Management Features**
-
-Add optional settings screen functionality:
-
-```swift
-// For future enhancement in Settings
-class AccountSettingsViewController {
-    
-    func showLinkedAccounts() {
-        // Display linked sign-in methods
-        // Allow unlinking accounts
-        // Show which data belongs to which account
-    }
-    
-    func unlinkAccount(provider: String) {
-        // Remove account linking
-        // Prompt user about data access implications
-    }
-}
-```
+**This phase ensures your app is privacy-first, secure, and provides a seamless experience for users who want to link accounts across different sign-in methods.**
 
 ---
 
