@@ -358,6 +358,40 @@
         }
       }
     },
+    "auth.error.accessDenied" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Access denied for security reasons"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Acesso negado por motivos de segurança"
+          }
+        }
+      }
+    },
+    "auth.error.accountCreationFailed" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Failed to create new account"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Falha ao criar nova conta"
+          }
+        }
+      }
+    },
     "auth.error.appleIDToken" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -375,6 +409,40 @@
         }
       }
     },
+    "auth.error.biometricRegistrationFailed" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Failed to register biometric authentication"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Falha ao registrar autenticação biométrica"
+          }
+        }
+      }
+    },
+    "auth.error.biometricVerificationCancelled" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Biometric verification was cancelled"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Verificação biométrica foi cancelada"
+          }
+        }
+      }
+    },
     "auth.error.emailAlreadyInUse" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -388,6 +456,40 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "E-mail já está em uso"
+          }
+        }
+      }
+    },
+    "auth.error.googleTokenFailure" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Failed to obtain Google authentication tokens"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Falha ao obter tokens de autenticação do Google"
+          }
+        }
+      }
+    },
+    "auth.error.invalidCredentials" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Invalid email or password"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "E-mail ou senha inválidos"
           }
         }
       }
@@ -443,6 +545,57 @@
         }
       }
     },
+    "auth.error.noPresentingController" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No presenting view controller available"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nenhum controlador de visualização disponível"
+          }
+        }
+      }
+    },
+    "auth.error.noUser" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No user data received"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nenhum dado de usuário recebido"
+          }
+        }
+      }
+    },
+    "auth.error.synchronizationFailed" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Failed to synchronize account data"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Falha ao sincronizar dados da conta"
+          }
+        }
+      }
+    },
     "auth.error.title" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -473,6 +626,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Muitas requisições"
+          }
+        }
+      }
+    },
+    "auth.error.userCancelled" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Authentication cancelled by user"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Autenticação cancelada pelo usuário"
           }
         }
       }
@@ -528,95 +698,55 @@
         }
       }
     },
-    "auth.error.noPresentingController" : {
+    "biometric.error.authenticationFailed" : {
       "extractionState" : "manual",
       "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "No presenting view controller available" } },
-        "pt-BR" : { "stringUnit" : { "state" : "translated", "value" : "Nenhum controlador de visualização disponível" } }
-      }
-    },
-    "auth.error.googleTokenFailure" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Failed to obtain Google authentication tokens" } },
-        "pt-BR" : { "stringUnit" : { "state" : "translated", "value" : "Falha ao obter tokens de autenticação do Google" } }
-      }
-    },
-    "auth.error.noUser" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "No user data received" } },
-        "pt-BR" : { "stringUnit" : { "state" : "translated", "value" : "Nenhum dado de usuário recebido" } }
-      }
-    },
-    "auth.error.invalidCredentials" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Invalid email or password" } },
-        "pt-BR" : { "stringUnit" : { "state" : "translated", "value" : "E-mail ou senha inválidos" } }
-      }
-    },
-    "auth.error.biometricRegistrationFailed" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Failed to register biometric authentication" } },
-        "pt-BR" : { "stringUnit" : { "state" : "translated", "value" : "Falha ao registrar autenticação biométrica" } }
-      }
-    },
-    "auth.error.biometricVerificationCancelled" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Biometric verification was cancelled" } },
-        "pt-BR" : { "stringUnit" : { "state" : "translated", "value" : "Verificação biométrica foi cancelada" } }
-      }
-    },
-    "auth.error.accessDenied" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Access denied for security reasons" } },
-        "pt-BR" : { "stringUnit" : { "state" : "translated", "value" : "Acesso negado por motivos de segurança" } }
-      }
-    },
-    "auth.error.synchronizationFailed" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Failed to synchronize account data" } },
-        "pt-BR" : { "stringUnit" : { "state" : "translated", "value" : "Falha ao sincronizar dados da conta" } }
-      }
-    },
-    "auth.error.accountCreationFailed" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Failed to create new account" } },
-        "pt-BR" : { "stringUnit" : { "state" : "translated", "value" : "Falha ao criar nova conta" } }
-      }
-    },
-    "auth.error.userCancelled" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Authentication cancelled by user" } },
-        "pt-BR" : { "stringUnit" : { "state" : "translated", "value" : "Autenticação cancelada pelo usuário" } }
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Biometric authentication failed"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A autenticação biométrica falhou"
+          }
+        }
       }
     },
     "biometric.error.notAvailable" : {
       "extractionState" : "manual",
       "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Biometric authentication is not available on this device" } },
-        "pt-BR" : { "stringUnit" : { "state" : "translated", "value" : "A autenticação biométrica não está disponível neste dispositivo" } }
-      }
-    },
-    "biometric.error.authenticationFailed" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Biometric authentication failed" } },
-        "pt-BR" : { "stringUnit" : { "state" : "translated", "value" : "A autenticação biométrica falhou" } }
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Biometric authentication is not available on this device"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A autenticação biométrica não está disponível neste dispositivo"
+          }
+        }
       }
     },
     "biometric.error.storageFailure" : {
       "extractionState" : "manual",
       "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Failed to store biometric data securely" } },
-        "pt-BR" : { "stringUnit" : { "state" : "translated", "value" : "Falha ao armazenar dados biométricos com segurança" } }
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Failed to store biometric data securely"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Falha ao armazenar dados biométricos com segurança"
+          }
+        }
       }
     },
     "budget.delete.title" : {
@@ -2842,6 +2972,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Criar Conta"
+          }
+        }
+      }
+    },
+    "settings.header.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Settings"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Configurações"
           }
         }
       }

@@ -146,5 +146,7 @@ extension AppFlowController: AddTransactionModalFlowDelegate {
 
 // MARK: - Settings Flow
 extension AppFlowController: SettingsFlowDelegate {
-    
+    func didTapBackButton() {
+        navigationController?.popViewController(animated: true)
+    }
 }

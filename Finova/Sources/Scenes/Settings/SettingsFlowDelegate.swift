@@ -6,5 +6,5 @@
 //
 
 public protocol SettingsFlowDelegate: AnyObject {
-    func navBackToDashboard()
+    func didTapBackButton()
 }

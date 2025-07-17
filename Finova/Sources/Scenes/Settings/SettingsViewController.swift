@@ -31,9 +31,20 @@ final class SettingsViewController: UIViewController {
     private func setup() {
         view.addSubview(contentView)
         buildHierarchy()
+        setupDelegates()
+    }
+    
+    private func setupDelegates() {
+        contentView.delegate = self
     }
     
     private func buildHierarchy() {
         setupContentViewToBounds(contentView: contentView, respectingSafeArea: false)
+    }
+}
+
+extension SettingsViewController: SettingsViewDelegate {
+    func handleDidTapBackButton() {
+        self.flowDelegate?.didTapBackButton()
     }
 }
