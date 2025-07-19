@@ -19,6 +19,7 @@ final class SettingsViewController: UIViewController {
         super.init(nibName: nil, bundle: nil)
         
         self.viewModel.delegate = self
+        self.viewModel.refreshAllSettings()
     }
     
     required init?(coder: NSCoder) {
@@ -32,8 +33,8 @@ final class SettingsViewController: UIViewController {
     
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
-        // Refresh biometric UI when returning to settings
-        viewModel.refreshBiometricUI()
+        // Refresh all settings when returning to settings
+        viewModel.refreshAllSettings()
     }
     
     private func setup() {

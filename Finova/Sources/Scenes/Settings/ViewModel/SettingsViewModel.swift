@@ -30,9 +30,9 @@ final class SettingsViewModel {
     
     var appVersionString: String {
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0.0"
-        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1"
+        let _ = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1"
         
-        return "\(version) (\(build))"
+        return "\(version)"
     }
     
     // MARK: - Initialization
@@ -67,6 +67,11 @@ final class SettingsViewModel {
     func refreshBiometricUI() {
         print("🔧 Refreshing biometric UI, current value: \(isBiometricEnabled)")
         updateBiometricUI()
+    }
+    
+    func refreshAllSettings() {
+        updateBiometricUI()
+        delegate?.didUpdateAppVersion(version: appVersionString)
     }
     
     // MARK: - Biometric Management

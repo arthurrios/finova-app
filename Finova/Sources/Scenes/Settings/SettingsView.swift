@@ -93,7 +93,7 @@ final class SettingsView: UIView {
     private let versionContainer = createSettingContainer()
     private let versionIconView = createIconView(imageName: "info.circle")
     private let versionTitleLabel = createSettingLabel(text: "settings.version.title".localized)
-    let versionLabel = createDetailLabel(text: "1.0.1")
+    let versionLabel = createDetailLabel(text: "")
     
     override init(frame: CGRect) {
         super.init(frame: .zero)
