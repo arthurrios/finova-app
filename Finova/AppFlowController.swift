@@ -46,7 +46,7 @@ extension AppFlowController: SplashFlowDelegate {
         }
     }
     
-    func navigateToDirectlyToDashboard() {
+    func navigateDirectlyToDashboard() {
         navigationController?.dismiss(animated: false)
         let viewController = viewControllersFactory.makeDashboardViewController(flowDelegate: self)
         navigationController?.pushViewController(viewController, animated: true)
@@ -80,7 +80,13 @@ extension AppFlowController: RegisterFlowDelegate {
 }
 
 // MARK: - Dashboard Flow
-extension AppFlowController: DashboardFlowDelegate {
+extension AppFlowController: DashboardFlowDelegate, SettingsFlowDelegate {
+    func navigateToSettings() {
+        navigationController?.dismiss(animated: false)
+        let viewController = viewControllersFactory.makeSettingsViewController(flowDelegate: self)
+        navigationController?.pushViewController(viewController, animated: true)
+    }
+    
     func openAddTransactionModal() {
         let viewController = viewControllersFactory.makeAddTransactionModalViewController(
             flowDelegate: self)
@@ -115,6 +121,10 @@ extension AppFlowController: DashboardFlowDelegate {
         navigationController?.view.layer.add(transition, forKey: kCATransition)
         navigationController?.pushViewController(viewController, animated: false)
         viewController.contentView.containerView.alpha = 1
+    }
+    
+    func dismissSettings() {
+        navigationController?.popViewController(animated: true)
     }
 }
 

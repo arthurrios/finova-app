@@ -11,4 +11,5 @@ public protocol DashboardFlowDelegate: AnyObject {
     func logout()
     func navigateToBudgets(date: Date?)
     func openAddTransactionModal()
+    func navigateToSettings()
 }

@@ -60,37 +60,17 @@ class FaceIDManager {
     // MARK: - User Settings
     
     func enableFaceIDForCurrentUser() {
-        guard var user = UserDefaultsManager.getUser() else { return }
-        
-        let updatedUser = User(
-            firebaseUID: user.firebaseUID,
-            name: user.name,
-            email: user.email,
-            isUserSaved: true,
-            hasFaceIdEnabled: true
-        )
-        
-        UserDefaultsManager.saveUser(user: updatedUser)
-        print("✅ Face ID enabled for user")
+        UserDefaultsManager.updateCurrentUserFaceID(enabled: true)
+        print("✅ Face ID enabled for current user")
     }
     
     func disableFaceIDForCurrentUser() {
-        guard var user = UserDefaultsManager.getUser() else { return }
-        
-        let updatedUser = User(
-            firebaseUID: user.firebaseUID,
-            name: user.name,
-            email: user.email,
-            isUserSaved: user.isUserSaved,
-            hasFaceIdEnabled: false
-        )
-        
-        UserDefaultsManager.saveUser(user: updatedUser)
-        print("✅ Face ID disabled for user")
+        UserDefaultsManager.updateCurrentUserFaceID(enabled: false)
+        print("✅ Face ID disabled for current user")
     }
     
     var isCurrentUserFaceIDEnabled: Bool {
-        return UserDefaultsManager.getUser()?.hasFaceIdEnabled ?? false
+        return UserDefaultsManager.getCurrentUserFaceIDSetting()
     }
     
     // MARK: - Error Handling

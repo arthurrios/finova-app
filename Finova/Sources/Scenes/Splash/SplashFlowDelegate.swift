@@ -9,5 +9,5 @@ import Foundation
 
 public protocol SplashFlowDelegate: AnyObject {
     func navigateToLogin()
-    func navigateToDirectlyToDashboard()
+    func navigateDirectlyToDashboard()
 }

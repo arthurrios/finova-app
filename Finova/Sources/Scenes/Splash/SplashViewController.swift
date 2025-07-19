@@ -44,29 +44,97 @@ final class SplashViewController: UIViewController {
             // Authenticate local data manager with Firebase UID
             SecureLocalDataManager.shared.authenticateUser(firebaseUID: firebaseUser.uid)
             
-            // Check if user has Face ID enabled
-            if let localUser = UserDefaultsManager.getUser(), localUser.isUserSaved {
-                if localUser.hasFaceIdEnabled {
-                    print("🔒 Face ID enabled - requesting biometric authentication")
-                    authenticateWithFaceID()
+            // Set current user UID for settings lookup
+            UIDUserDefaultsManager.shared.currentUserUID = firebaseUser.uid
+            
+            // Check if this user has existing settings
+            let existingSettings = UIDUserDefaultsManager.shared.getUserSettings(for: firebaseUser.uid)
+            var localUser: User?
+            
+            if let settings = existingSettings {
+                // Returning user - use their saved settings
+                print("🔄 Loading existing user settings for: \(settings.name)")
+                
+                // Smart name preservation: if Firebase has a better name, use it
+                var bestName = settings.name
+                let firebaseName = firebaseUser.displayName ?? ""
+                if !firebaseName.isEmpty && firebaseName != "User" && (settings.name.isEmpty || settings.name == "User") {
+                    bestName = firebaseName
+                    print("📝 Updating saved name from '\(settings.name)' to '\(firebaseName)' from Firebase")
+                } else if settings.name.isEmpty || settings.name == "User" {
+                    bestName = firebaseName.isEmpty ? "User" : firebaseName
+                }
+                
+                var updatedSettings = settings
+                updatedSettings.name = bestName // Update with best available name
+                updatedSettings.lastSignIn = Date()
+                UIDUserDefaultsManager.shared.saveUserSettings(for: firebaseUser.uid, settings: updatedSettings)
+                
+                localUser = User(
+                    firebaseUID: firebaseUser.uid,
+                    name: bestName, // Use best available name
+                    email: settings.email,
+                    isUserSaved: settings.isUserSaved,
+                    hasFaceIdEnabled: settings.hasFaceIdEnabled // Use saved Face ID setting
+                )
+                
+                print("✅ Restored user: '\(bestName)', faceId: \(settings.hasFaceIdEnabled)")
+            } else {
+                print("🔄 Syncing new Firebase user to UserDefaults...")
+                
+                // Smart name preservation logic for new users
+                var finalName = firebaseUser.displayName ?? ""
+                if finalName.isEmpty {
+                    finalName = "User"
+                    print("⚠️ No name available, falling back to 'User'")
                 } else {
-                    print("ℹ️ Face ID not enabled - asking user if they want to enable it")
-                    askToEnableFaceID(for: localUser)
+                    print("📝 Using Firebase display name: '\(finalName)'")
+                }
+                
+                localUser = User(
+                    firebaseUID: firebaseUser.uid,
+                    name: finalName,
+                    email: firebaseUser.email ?? "",
+                    isUserSaved: true,  // Mark as saved since they're authenticated with Firebase
+                    hasFaceIdEnabled: false // New users start with Face ID disabled
+                )
+                
+                print("✅ Created new user: '\(finalName)', faceId: false")
+            }
+            
+            if let user = localUser {
+                UserDefaultsManager.saveUserWithUID(user: user)
+                print("✅ User data synced with UID-based system")
+            }
+            
+            // Now proceed with Face ID check using global biometric setting
+            if let user = localUser {
+                if FaceIDManager.shared.isFaceIDAvailable {
+                    if UserDefaultsManager.getBiometricEnabled() {
+                        print("🔒 Biometric enabled globally - requesting biometric authentication")
+                        authenticateWithFaceID()
+                    } else {
+                        print("ℹ️ Biometric not enabled globally - asking user if they want to enable it")
+                        askToEnableFaceID(for: user)
+                    }
+                } else {
+                    print("ℹ️ Biometric not available - proceeding to dashboard")
+                    flowDelegate?.navigateDirectlyToDashboard()
                 }
             } else {
-                print("ℹ️ No saved user found - going to dashboard")
-                flowDelegate?.navigateToDirectlyToDashboard()
+                print("⚠️ Failed to create local user - going to dashboard")
+                flowDelegate?.navigateDirectlyToDashboard()
             }
         } else {
             print("ℹ️ No Firebase user found, checking local user...")
             
             // Check for legacy local users (pre-Firebase)
             if let localUser = UserDefaultsManager.getUser(), localUser.isUserSaved {
-                if localUser.hasFaceIdEnabled {
-                    print("🔒 Legacy user has Face ID enabled - requesting authentication")
+                if UserDefaultsManager.getBiometricEnabled() {
+                    print("🔒 Biometric enabled globally - requesting authentication")
                     authenticateWithFaceID()
                 } else {
-                    print("ℹ️ Legacy user does not have Face ID enabled - asking if they want to enable it")
+                    print("ℹ️ Biometric not enabled globally - asking if they want to enable it")
                     askToEnableFaceID(for: localUser)
                 }
             } else {
@@ -165,7 +233,10 @@ extension SplashViewController {
             
             if success {
                 print("✅ Face ID authentication successful")
-                self.flowDelegate?.navigateToDirectlyToDashboard()
+                // Since Face ID authentication was successful, ensure global biometric setting is enabled
+                UserDefaultsManager.setBiometricEnabled(true)
+                print("✅ Global biometric setting enabled after successful authentication")
+                self.flowDelegate?.navigateDirectlyToDashboard()
             } else {
                 print("❌ Face ID authentication failed: \(error?.localizedDescription ?? "Unknown error")")
                 
@@ -216,7 +287,7 @@ extension SplashViewController {
         // Check if Face ID is available on this device
         guard FaceIDManager.shared.isFaceIDAvailable else {
             print("ℹ️ Face ID not available on this device - going to dashboard")
-            flowDelegate?.navigateToDirectlyToDashboard()
+            flowDelegate?.navigateDirectlyToDashboard()
             return
         }
         
@@ -230,31 +301,26 @@ extension SplashViewController {
         let enableAction = UIAlertAction(
             title: String(format: "faceid.enable.button".localized, biometricType), style: .default
         ) { _ in
-            // Update user to enable Face ID
-            let updatedUser = User(
-                firebaseUID: user.firebaseUID,
-                name: user.name,
-                email: user.email,
-                isUserSaved: true,
-                hasFaceIdEnabled: true
-            )
-            UserDefaultsManager.saveUser(user: updatedUser)
-            print("✅ \(biometricType) enabled and saved - proceeding to authentication")
+            // Update user to enable Face ID using UID-based system
+            UserDefaultsManager.updateCurrentUserSavedStatus(saved: true)
+            // Enable biometric globally for the app
+            UserDefaultsManager.setBiometricEnabled(true)
+            print("✅ \(biometricType) enabled globally for app - proceeding to authentication")
             
             // Verify the save worked
-            if let savedUser = UserDefaultsManager.getUser() {
-                print("🔍 VERIFICATION: Saved user hasFaceIdEnabled: \(savedUser.hasFaceIdEnabled)")
-            } else {
-                print("❌ ERROR: Failed to save user!")
-            }
+            let isBiometricEnabled = UserDefaultsManager.getBiometricEnabled()
+            print("🔍 VERIFICATION: Global biometric enabled: \(isBiometricEnabled)")
             
             // Now authenticate with the newly enabled Face ID
             self.authenticateWithFaceID()
         }
         
         let skipAction = UIAlertAction(title: "skip".localized, style: .cancel) { _ in
-            print("ℹ️ User chose to skip \(biometricType) - going to dashboard")
-            self.flowDelegate?.navigateToDirectlyToDashboard()
+            // User chose to skip Face ID setup
+            UserDefaultsManager.updateCurrentUserSavedStatus(saved: true)
+            // Don't change global biometric setting when user skips
+            print("⏭️ User skipped \(biometricType) setup")
+            self.flowDelegate?.navigateDirectlyToDashboard()
         }
         
         alertController.addAction(enableAction)

@@ -55,4 +55,12 @@ final class ViewControllersFactory: ViewControllersFactoryProtocol {
             contentView: contentView, viewModel: viewModel, flowDelegate: flowDelegate)
         return viewController
     }
+    
+    func makeSettingsViewController(flowDelegate: SettingsFlowDelegate) -> SettingsViewController {
+        let contentView = SettingsView()
+        let viewModel = SettingsViewModel()
+        let viewController = SettingsViewController(
+            contentView: contentView, viewModel: viewModel, flowDelegate: flowDelegate)
+        return viewController
+    }
 }

@@ -9,7 +9,7 @@ import Foundation
 
 struct User: Codable {
     let firebaseUID: String?
-    let name: String
+    var name: String
     let email: String
     var isUserSaved: Bool = false
     var hasFaceIdEnabled: Bool = false

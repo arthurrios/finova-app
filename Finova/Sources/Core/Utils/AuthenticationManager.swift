@@ -216,7 +216,7 @@ class AuthenticationManager: NSObject {
     
     // MARK: - Sign Out
     
-    func signOut() {
+        func signOut() {
         print("🔐 Signing out user")
         
         do {
@@ -226,6 +226,9 @@ class AuthenticationManager: NSObject {
             // 🔒 Clear SecureLocalDataManager session
             SecureLocalDataManager.shared.signOut()
             
+            // 🔒 Clear UID-based user settings session
+            UIDUserDefaultsManager.shared.signOut()
+    
             print("✅ User signed out successfully")
         } catch {
             print("❌ Error signing out: \(error.localizedDescription)")
@@ -389,16 +392,12 @@ class AuthenticationManager: NSObject {
                 return
             }
             let alert = UIAlertController(
-                title: "🔐 Account Data Found",
-                message: """
-          We found existing data from your other account:
-          \(existingEmail)
-          \nWould you like to synchronize and access this data with your current sign-in?
-          """,
+                title: "auth.dialog.accountFound.title".localized,
+                message: String(format: "auth.dialog.accountFound.message".localized, existingEmail),
                 preferredStyle: .alert
             )
             alert.addAction(
-                UIAlertAction(title: "Synchronize", style: .default) { _ in
+                UIAlertAction(title: "auth.dialog.button.synchronize".localized, style: .default) { _ in
                     self?.synchronizeAccountData(
                         firebaseUser: firebaseUser,
                         existingEmail: existingEmail,
@@ -409,7 +408,7 @@ class AuthenticationManager: NSObject {
                     )
                 })
             alert.addAction(
-                UIAlertAction(title: "Keep Separate", style: .default) { _ in
+                UIAlertAction(title: "auth.dialog.button.keepSeparate".localized, style: .default) { _ in
                     self?.createSeparateAccount(
                         firebaseUser: firebaseUser,
                         method: method,
@@ -485,17 +484,13 @@ class AuthenticationManager: NSObject {
             }
             
             let alert = UIAlertController(
-                title: "🔒 DataOwnership Conflict",
-                message: """
-          This device contains data owned by: \(existingEmail)
-          \nYou're signing in with: \(newEmail)
-          \n\nIf this is your data, you can reclaim ownership. Otherwise, start fresh.
-          """,
+                title: "auth.dialog.ownershipConflict.title".localized,
+                message: String(format: "auth.dialog.ownershipConflict.message".localized, existingEmail, newEmail),
                 preferredStyle: .alert
             )
             
             alert.addAction(
-                UIAlertAction(title: "Reclaim My Data", style: .default) { _ in
+                UIAlertAction(title: "auth.dialog.button.reclaimData".localized, style: .default) { _ in
                     self?.handleReclaimDataOwnership(
                         firebaseUser: firebaseUser,
                         method: method,
@@ -505,7 +500,7 @@ class AuthenticationManager: NSObject {
                 })
             
             alert.addAction(
-                UIAlertAction(title: "Start Fresh", style: .destructive) { _ in
+                UIAlertAction(title: "auth.dialog.button.startFresh".localized, style: .destructive) { _ in
                     self?.handleStartFreshWithNewAccount(
                         firebaseUser: firebaseUser,
                         method: method,
@@ -515,7 +510,7 @@ class AuthenticationManager: NSObject {
                 })
             
             alert.addAction(
-                UIAlertAction(title: "Cancel", style: .cancel) { _ in
+                UIAlertAction(title: "alert.cancel".localized, style: .cancel) { _ in
                     self?.delegate?.authenticationDidFail(error: AuthError.userCancelled)
                 })
             
@@ -582,24 +577,44 @@ class AuthenticationManager: NSObject {
         print("🔄 Extracted displayName: '\(extractedDisplayName ?? "nil")'")
         
         // Check for existing user data if no display name was extracted (e.g., subsequent Apple Sign-Ins)
-        var userName = extractedDisplayName ?? firebaseUser.displayName
+        // Smart name resolution: prioritize best available name
+        var bestName = "User" // Default fallback
         
-        if userName == nil || userName?.isEmpty == true {
-            // Try to get name from existing user data
-            if let existingUser = UserDefaultsManager.getUser(),
-               existingUser.firebaseUID == firebaseUser.uid {
-                userName = existingUser.name
-                print("🔄 Using existing user name from UserDefaults: '\(userName ?? "nil")'")
-            }
+        // Step 1: Check if we have existing UID-based settings with a good name
+        if let existingSettings = UIDUserDefaultsManager.shared.getUserSettings(for: firebaseUser.uid),
+           !existingSettings.name.isEmpty && existingSettings.name != "User" {
+            bestName = existingSettings.name
+            print("🔄 Using existing UID-based name: '\(bestName)'")
+        }
+        // Step 2: Check if we have global UserDefaults with a good name
+        else if let existingUser = UserDefaultsManager.getUser(),
+                existingUser.firebaseUID == firebaseUser.uid,
+                !existingUser.name.isEmpty && existingUser.name != "User" {
+            bestName = existingUser.name
+            print("🔄 Using existing global user name: '\(bestName)'")
+        }
+        // Step 3: Use extracted name from current login (Apple/Google) if it's better
+        else if let extractedName = extractedDisplayName,
+                !extractedName.isEmpty && extractedName != "User" {
+            bestName = extractedName
+            print("🔄 Using extracted name from current login: '\(bestName)'")
+        }
+        // Step 4: Use Firebase display name if it's better
+        else if let firebaseName = firebaseUser.displayName,
+                !firebaseName.isEmpty && firebaseName != "User" {
+            bestName = firebaseName
+            print("🔄 Using Firebase display name: '\(bestName)'")
         }
         
-        // Fallback to User if still no name found
-        userName = userName ?? "User"
-        print("🔄 Final userName: '\(userName!)'")
+
+        
+
+
+        print("🔄 Final userName: '\(bestName)'")
         
         let user = User(
             firebaseUID: firebaseUser.uid,
-            name: userName!,
+            name: bestName,
             email: firebaseUser.email ?? "",
             isUserSaved: true,
             hasFaceIdEnabled: false

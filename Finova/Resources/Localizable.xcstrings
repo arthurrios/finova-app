@@ -358,6 +358,40 @@
         }
       }
     },
+    "auth.error.accessDenied" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Access denied for security reasons"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Acesso negado por motivos de segurança"
+          }
+        }
+      }
+    },
+    "auth.error.accountCreationFailed" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Failed to create new account"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Falha ao criar nova conta"
+          }
+        }
+      }
+    },
     "auth.error.appleIDToken" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -375,6 +409,40 @@
         }
       }
     },
+    "auth.error.biometricRegistrationFailed" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Failed to register biometric authentication"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Falha ao registrar autenticação biométrica"
+          }
+        }
+      }
+    },
+    "auth.error.biometricVerificationCancelled" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Biometric verification was cancelled"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Verificação biométrica foi cancelada"
+          }
+        }
+      }
+    },
     "auth.error.emailAlreadyInUse" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -388,6 +456,40 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "E-mail já está em uso"
+          }
+        }
+      }
+    },
+    "auth.error.googleTokenFailure" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Failed to obtain Google authentication tokens"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Falha ao obter tokens de autenticação do Google"
+          }
+        }
+      }
+    },
+    "auth.error.invalidCredentials" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Invalid email or password"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "E-mail ou senha inválidos"
           }
         }
       }
@@ -443,6 +545,57 @@
         }
       }
     },
+    "auth.error.noPresentingController" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No presenting view controller available"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nenhum controlador de visualização disponível"
+          }
+        }
+      }
+    },
+    "auth.error.noUser" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No user data received"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nenhum dado de usuário recebido"
+          }
+        }
+      }
+    },
+    "auth.error.synchronizationFailed" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Failed to synchronize account data"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Falha ao sincronizar dados da conta"
+          }
+        }
+      }
+    },
     "auth.error.title" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -473,6 +626,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Muitas requisições"
+          }
+        }
+      }
+    },
+    "auth.error.userCancelled" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Authentication cancelled by user"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Autenticação cancelada pelo usuário"
           }
         }
       }
@@ -528,95 +698,191 @@
         }
       }
     },
-    "auth.error.noPresentingController" : {
+    "auth.dialog.accountFound.title" : {
       "extractionState" : "manual",
       "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "No presenting view controller available" } },
-        "pt-BR" : { "stringUnit" : { "state" : "translated", "value" : "Nenhum controlador de visualização disponível" } }
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Account Data Found"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dados da Conta Encontrados"
+          }
+        }
       }
     },
-    "auth.error.googleTokenFailure" : {
+    "auth.dialog.accountFound.message" : {
       "extractionState" : "manual",
       "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Failed to obtain Google authentication tokens" } },
-        "pt-BR" : { "stringUnit" : { "state" : "translated", "value" : "Falha ao obter tokens de autenticação do Google" } }
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "We found existing data from your other account:\n%@\n\nWould you like to synchronize and access this data with your current sign-in?"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Encontramos dados existentes da sua outra conta:\n%@\n\nGostaria de sincronizar e acessar esses dados com seu login atual?"
+          }
+        }
       }
     },
-    "auth.error.noUser" : {
+    "auth.dialog.button.synchronize" : {
       "extractionState" : "manual",
       "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "No user data received" } },
-        "pt-BR" : { "stringUnit" : { "state" : "translated", "value" : "Nenhum dado de usuário recebido" } }
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Synchronize"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sincronizar"
+          }
+        }
       }
     },
-    "auth.error.invalidCredentials" : {
+    "auth.dialog.button.keepSeparate" : {
       "extractionState" : "manual",
       "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Invalid email or password" } },
-        "pt-BR" : { "stringUnit" : { "state" : "translated", "value" : "E-mail ou senha inválidos" } }
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keep Separate"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Manter Separado"
+          }
+        }
       }
     },
-    "auth.error.biometricRegistrationFailed" : {
+    "auth.dialog.button.reclaimData" : {
       "extractionState" : "manual",
       "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Failed to register biometric authentication" } },
-        "pt-BR" : { "stringUnit" : { "state" : "translated", "value" : "Falha ao registrar autenticação biométrica" } }
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reclaim My Data"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reivindicar Meus Dados"
+          }
+        }
       }
     },
-    "auth.error.biometricVerificationCancelled" : {
+    "auth.dialog.button.startFresh" : {
       "extractionState" : "manual",
       "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Biometric verification was cancelled" } },
-        "pt-BR" : { "stringUnit" : { "state" : "translated", "value" : "Verificação biométrica foi cancelada" } }
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Start Fresh"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Começar do Zero"
+          }
+        }
       }
     },
-    "auth.error.accessDenied" : {
+    "auth.dialog.ownershipConflict.title" : {
       "extractionState" : "manual",
       "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Access denied for security reasons" } },
-        "pt-BR" : { "stringUnit" : { "state" : "translated", "value" : "Acesso negado por motivos de segurança" } }
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Data Ownership Conflict"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Conflito de Propriedade dos Dados"
+          }
+        }
       }
     },
-    "auth.error.synchronizationFailed" : {
+    "auth.dialog.ownershipConflict.message" : {
       "extractionState" : "manual",
       "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Failed to synchronize account data" } },
-        "pt-BR" : { "stringUnit" : { "state" : "translated", "value" : "Falha ao sincronizar dados da conta" } }
-      }
-    },
-    "auth.error.accountCreationFailed" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Failed to create new account" } },
-        "pt-BR" : { "stringUnit" : { "state" : "translated", "value" : "Falha ao criar nova conta" } }
-      }
-    },
-    "auth.error.userCancelled" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Authentication cancelled by user" } },
-        "pt-BR" : { "stringUnit" : { "state" : "translated", "value" : "Autenticação cancelada pelo usuário" } }
-      }
-    },
-    "biometric.error.notAvailable" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Biometric authentication is not available on this device" } },
-        "pt-BR" : { "stringUnit" : { "state" : "translated", "value" : "A autenticação biométrica não está disponível neste dispositivo" } }
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This device contains data owned by: %@\n\nYou're signing in with: %@\n\nIf this is your data, you can reclaim ownership. Otherwise, start fresh."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Este dispositivo contém dados pertencentes a: %@\n\nVocê está fazendo login com: %@\n\nSe estes são seus dados, você pode reivindicar a propriedade. Caso contrário, comece do zero."
+          }
+        }
       }
     },
     "biometric.error.authenticationFailed" : {
       "extractionState" : "manual",
       "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Biometric authentication failed" } },
-        "pt-BR" : { "stringUnit" : { "state" : "translated", "value" : "A autenticação biométrica falhou" } }
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Biometric authentication failed"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A autenticação biométrica falhou"
+          }
+        }
+      }
+    },
+    "biometric.error.notAvailable" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Biometric authentication is not available on this device"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A autenticação biométrica não está disponível neste dispositivo"
+          }
+        }
       }
     },
     "biometric.error.storageFailure" : {
       "extractionState" : "manual",
       "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Failed to store biometric data securely" } },
-        "pt-BR" : { "stringUnit" : { "state" : "translated", "value" : "Falha ao armazenar dados biométricos com segurança" } }
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Failed to store biometric data securely"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Falha ao armazenar dados biométricos com segurança"
+          }
+        }
       }
     },
     "budget.delete.title" : {
@@ -2842,6 +3108,312 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Criar Conta"
+          }
+        }
+      }
+    },
+    "settings.biometric.enable.reason" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Do you wish to activate biometrics?"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Você deseja ativar biometria?"
+          }
+        }
+      }
+    },
+    "settings.biometric.error.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Biometric Error"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Erro Biometria"
+          }
+        }
+      }
+    },
+    "settings.delete.account.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delete account"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Apagar conta"
+          }
+        }
+      }
+    },
+    "settings.delete.account.warning" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This action is irreversible. All your data will be permanently deleted. Are you sure?"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Esta ação é irreversível. Todos os seus dados serão excluídos permanentemente. Tem certeza?"
+          }
+        }
+      }
+    },
+    "settings.delete.account.confirm" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delete"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Excluir"
+          }
+        }
+      }
+    },
+    "settings.delete.account.processing" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deleting account..."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Excluindo conta..."
+          }
+        }
+      }
+    },
+    "settings.delete.account.error.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deletion Error"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Erro na Exclusão"
+          }
+        }
+      }
+    },
+    "settings.delete.account.reauth.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Authentication Required"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Autenticação Necessária"
+          }
+        }
+      }
+    },
+    "settings.delete.account.reauth.message" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Please sign in again to delete your account, or sign out to clear local data only"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Faça login novamente para excluir sua conta, ou saia para limpar apenas os dados locais"
+          }
+        }
+      }
+    },
+    "settings.delete.account.signout" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sign Out & Clear Data"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sair e Limpar Dados"
+          }
+        }
+      }
+    },
+    "settings.delete.account.success.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Account Deleted"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Conta Excluída"
+          }
+        }
+      }
+    },
+    "settings.delete.account.success.message" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your account has been successfully deleted"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sua conta foi excluída com sucesso"
+          }
+        }
+      }
+    },
+    "settings.header.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Settings"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Configurações"
+          }
+        }
+      }
+    },
+    "settings.section.about" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "About"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sobre"
+          }
+        }
+      }
+    },
+    "settings.section.account" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Account"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Conta"
+          }
+        }
+      }
+    },
+    "settings.section.security" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Security"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Segurança"
+          }
+        }
+      }
+    },
+    "settings.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Settings"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Configurações"
+          }
+        }
+      }
+    },
+    "settings.version.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Version"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Versão"
           }
         }
       }
