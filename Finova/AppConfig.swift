@@ -10,7 +10,7 @@ import Foundation
 struct AppConfig {
     static var defaultCurrencyCode: String = "USD"
     
-    static var useDeviceLocaleCurrency: Bool = true
+    static var useDeviceLocaleCurrency: Bool = false
     
     static var currencyCode: String {
         if useDeviceLocaleCurrency {

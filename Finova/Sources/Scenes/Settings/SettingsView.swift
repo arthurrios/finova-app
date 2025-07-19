@@ -29,7 +29,7 @@ final class SettingsView: UIView {
         let view = UIView()
         view.backgroundColor = Colors.gray100
         view.translatesAutoresizingMaskIntoConstraints = false
-        view.heightAnchor.constraint(equalToConstant: Metrics.settingsHeaderHeight).isActive = true
+        view.heightAnchor.constraint(equalToConstant: Metrics.headerHeight - 12).isActive = true
         return view
     }()
     

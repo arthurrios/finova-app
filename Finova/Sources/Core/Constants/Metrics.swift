@@ -9,6 +9,11 @@ import Foundation
 import UIKit
 
 enum Metrics {
+    
+    private var isSmallScreen: Bool {
+        return UIScreen.main.bounds.height <= 900
+    }
+    
     // Spacing
     static let spacing1: CGFloat = 4
     static let spacing2: CGFloat = 8
@@ -37,7 +42,20 @@ enum Metrics {
     static let loginHeroHeight: CGFloat = 360
     static let profileImageSize: CGFloat = 40
     static let profileIconSize: CGFloat = 20
-    static let headerHeight: CGFloat = 136
+    static var headerHeight: CGFloat {
+        let screenHeight = UIScreen.main.bounds.height
+        
+        switch screenHeight {
+        case 0..<700:  // iPhone SE, mini
+            return 100
+        case 700..<900:  // Regular iPhones
+            return 114
+        case 900..<1100:  // Plus/Pro models
+            return 136
+        default:  // iPad and larger
+            return 150
+        }
+    }
     static let settingsHeaderHeight: CGFloat = 120
     static let cardHeaderHeight: CGFloat = 44
     static let tableEmptyViewHeight: CGFloat = 68
