@@ -43,18 +43,14 @@ enum Metrics {
     static let profileImageSize: CGFloat = 40
     static let profileIconSize: CGFloat = 20
     static var headerHeight: CGFloat {
-        let screenHeight = UIScreen.main.bounds.height
-        
-        switch screenHeight {
-        case 0..<700:  // iPhone SE, mini
-            return 100
-        case 700..<900:  // Regular iPhones
-            return 114
-        case 900..<1100:  // Plus/Pro models
-            return 136
-        default:  // iPad and larger
-            return 150
-        }
+        let keyWindow = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap { $0.windows }
+            .first { $0.isKeyWindow }
+        let topInset = keyWindow?.safeAreaInsets.top ?? 0
+        // Dynamic Island devices have a top inset of 59
+        let hasDynamicIsland = topInset >= 59
+        return hasDynamicIsland ? 136 : 116
     }
     static let settingsHeaderHeight: CGFloat = 120
     static let cardHeaderHeight: CGFloat = 44
