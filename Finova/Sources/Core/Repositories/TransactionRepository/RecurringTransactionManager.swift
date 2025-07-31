@@ -15,11 +15,16 @@ enum RecurringCleanupOption {
 
 final class RecurringTransactionManager {
   private let transactionRepo: TransactionRepository
-  private let calendar = Calendar.current
+  private let calendar: Calendar
   private let notificationCenter = UNUserNotificationCenter.current()
 
   init(transactionRepo: TransactionRepository = TransactionRepository()) {
     self.transactionRepo = transactionRepo
+    
+    // Usar calendar com fuso horário UTC para consistência com monthAnchor
+    var utcCalendar = Calendar(identifier: .gregorian)
+    utcCalendar.timeZone = TimeZone(abbreviation: "UTC")!
+    self.calendar = utcCalendar
   }
 
   func generateRecurringTransactionsForRange(
@@ -47,10 +52,16 @@ final class RecurringTransactionManager {
   ) {
     guard let recurringTxId = recurringTx.id else { return }
 
+    print("🔄 Generating instances for recurring transaction: '\(recurringTx.title)'")
+    print("📅 Range: \(monthRange), Reference date: \(referenceDate)")
+
     // Get existing instances for this specific recurring transaction only
     let existingInstances = transactionRepo.fetchTransactionInstancesForRecurring(recurringTxId)
     let existingAnchors = Set(existingInstances.map { $0.budgetMonthDate })
     let recurringStartAnchor = recurringTx.budgetMonthDate
+
+    print("📊 Existing instances: \(existingInstances.count)")
+    print("📊 Existing anchors: \(existingAnchors)")
 
     for monthOffset in monthRange {
       guard let targetDate = calendar.date(byAdding: .month, value: monthOffset, to: referenceDate)
@@ -65,29 +76,55 @@ final class RecurringTransactionManager {
         effectiveStartAnchor = recurringStartAnchor
       }
 
+      print("📅 Processing month offset \(monthOffset): targetDate=\(targetDate), targetAnchor=\(targetAnchor)")
+
       // Skip if an instance already exists for this period
       if existingAnchors.contains(targetAnchor) {
+        print("⏭️ Skipping month \(targetAnchor) - instance already exists")
         continue
       }
 
       // Create instances for the effective start anchor and all future periods
       if targetAnchor >= effectiveStartAnchor {
         let originalDate = Date(timeIntervalSince1970: TimeInterval(recurringTx.dateTimestamp))
-        let originalDay = calendar.component(.day, from: originalDate)
+        
+        print("📅 Original date: \(originalDate)")
+        print("📅 Original day: \(calendar.component(.day, from: originalDate))")
+        
+        // Usar a nova função para gerar data válida
+        let targetYear = calendar.component(.year, from: targetDate)
+        let targetMonth = calendar.component(.month, from: targetDate)
+        let instanceDate = generateValidDateForMonth(
+          originalDate: originalDate,
+          targetMonth: targetMonth,
+          targetYear: targetYear
+        )
 
-        var targetDateComponents = calendar.dateComponents([.year, .month], from: targetDate)
-        targetDateComponents.day = originalDay
+        print("📅 Generated date: \(instanceDate)")
+        print("📅 Generated day: \(calendar.component(.day, from: instanceDate))")
 
-        // Handle month-end dates properly (e.g., Jan 31 → Feb 28/29)
-        var instanceDate: Date
-        if let attemptedDate = calendar.date(from: targetDateComponents) {
-          instanceDate = attemptedDate
-        } else {
-          // If the day doesn't exist in the target month, use the last day of that month
-          let daysInTargetMonth = calendar.range(of: .day, in: .month, for: targetDate)?.count ?? 28
-          targetDateComponents.day = min(originalDay, daysInTargetMonth)
-          instanceDate = calendar.date(from: targetDateComponents) ?? targetDate
+        // Verificar se a data gerada está no mês correto
+        let generatedAnchor = instanceDate.monthAnchor
+        print("📊 Target anchor: \(targetAnchor), Generated anchor: \(generatedAnchor)")
+        
+        // Usar o anchor gerado em vez do target anchor
+        let finalAnchor = generatedAnchor
+        print("🎯 Using final anchor: \(finalAnchor)")
+
+        // Verificação adicional: não criar se já existe uma instância para este mês
+        let existingInstancesForMonth = existingInstances.filter { $0.budgetMonthDate == finalAnchor }
+        if !existingInstancesForMonth.isEmpty {
+          print("⏭️ Skipping month \(finalAnchor) - already has \(existingInstancesForMonth.count) instance(s)")
+          continue
         }
+
+        // Verificação adicional: não criar se já existe uma instância para este anchor específico
+        if existingAnchors.contains(finalAnchor) {
+          print("⏭️ Skipping final anchor \(finalAnchor) - already exists in existingAnchors")
+          continue
+        }
+
+        print("✅ Creating instance for anchor: \(finalAnchor)")
 
         // Create the instance
         let instanceModel = TransactionModel(
@@ -96,14 +133,15 @@ final class RecurringTransactionManager {
           amount: recurringTx.amount,
           type: recurringTx.type.key,
           dateTimestamp: Int(instanceDate.timeIntervalSince1970),
-          budgetMonthDate: targetAnchor,
+          budgetMonthDate: finalAnchor,
           parentTransactionId: recurringTxId
         )
 
         do {
           try transactionRepo.insertTransaction(instanceModel)
+          print("✅ Created recurring instance: \(recurringTx.title) for \(instanceDate)")
         } catch {
-          print("Error creating recurring transaction instance: \(error)")
+          print("❌ Error creating recurring transaction instance: \(error)")
         }
       }
     }
@@ -267,5 +305,69 @@ final class RecurringTransactionManager {
         print("Error deleting parent installment transaction: \(error)")
       }
     }
+  }
+
+  // MARK: - Helper Methods
+  
+  /// Gera uma data válida para o mês especificado, lidando com dias que não existem
+  /// - Parameters:
+  ///   - originalDate: Data original da transação recorrente
+  ///   - targetMonth: Mês para o qual gerar a data
+  ///   - targetYear: Ano para o qual gerar a data
+  /// - Returns: Data válida para o mês especificado
+  private func generateValidDateForMonth(
+    originalDate: Date,
+    targetMonth: Int,
+    targetYear: Int
+  ) -> Date {
+    let originalDay = calendar.component(.day, from: originalDate)
+    
+    print("🔧 generateValidDateForMonth: originalDay=\(originalDay), targetMonth=\(targetMonth), targetYear=\(targetYear)")
+    
+    // Calcular o último dia do mês específico primeiro
+    let lastDayOfMonth: Int
+    
+    switch targetMonth {
+    case 2: // Fevereiro
+      let isLeapYear = (targetYear % 4 == 0 && targetYear % 100 != 0) || (targetYear % 400 == 0)
+      lastDayOfMonth = isLeapYear ? 29 : 28
+    case 4, 6, 9, 11: // Abril, Junho, Setembro, Novembro
+      lastDayOfMonth = 30
+    default: // Janeiro, Março, Maio, Julho, Agosto, Outubro, Dezembro
+      lastDayOfMonth = 31
+    }
+    
+    print("📅 Last day of month \(targetMonth)/\(targetYear): \(lastDayOfMonth)")
+    
+    // Determinar o dia a usar
+    let dayToUse = min(originalDay, lastDayOfMonth)
+    print("📅 Using day: \(dayToUse) (original: \(originalDay), last day: \(lastDayOfMonth))")
+    
+    // Criar a data com o dia determinado
+    var dateComponents = DateComponents()
+    dateComponents.year = targetYear
+    dateComponents.month = targetMonth
+    dateComponents.day = dayToUse
+    dateComponents.hour = 12 // Usar meio-dia para evitar problemas de fuso horário
+    dateComponents.minute = 0
+    dateComponents.second = 0
+    
+    // Criar a data
+    guard let validDate = calendar.date(from: dateComponents) else {
+      print("❌ Failed to create date for \(dayToUse)/\(targetMonth)/\(targetYear), using fallback")
+      // Fallback: usar o primeiro dia do mês
+      dateComponents.day = 1
+      let fallbackDate = calendar.date(from: dateComponents) ?? Date()
+      print("⚠️ Using fallback date (1st day) for month \(targetMonth)/\(targetYear)")
+      return fallbackDate
+    }
+    
+    if dayToUse != originalDay {
+      print("📅 Adjusted date for month \(targetMonth)/\(targetYear): original day \(originalDay) → adjusted day \(dayToUse)")
+    } else {
+      print("✅ Original day \(originalDay) works for month \(targetMonth)/\(targetYear)")
+    }
+    
+    return validDate
   }
 }

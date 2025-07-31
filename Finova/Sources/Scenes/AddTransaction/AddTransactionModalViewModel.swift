@@ -164,9 +164,21 @@ final class AddTransactionModalViewModel {
       let parentId = try transactionRepo.insertTransactionAndGetId(parentModel)
 
       for installmentNumber in 1...totalInstallments {
-        let installmentDate =
-          Calendar.current.date(byAdding: .month, value: installmentNumber - 1, to: startDate)
-          ?? startDate
+        // Calcular a data da parcela usando a função de geração de datas válidas
+        let targetDate = calendar.date(byAdding: .month, value: installmentNumber - 1, to: startDate) ?? startDate
+        let targetYear = calendar.component(.year, from: targetDate)
+        let targetMonth = calendar.component(.month, from: targetDate)
+        
+        print("🔄 Creating installment \(installmentNumber)/\(totalInstallments) for month \(targetMonth)/\(targetYear)")
+        
+        let installmentDate = generateValidDateForMonth(
+          originalDate: startDate,
+          targetMonth: targetMonth,
+          targetYear: targetYear
+        )
+        
+        print("📅 Installment \(installmentNumber) date: \(installmentDate)")
+        
         let installmentAmount =
           installmentNumber == 1 ? amountPerInstallment + remainder : amountPerInstallment
 
@@ -184,6 +196,7 @@ final class AddTransactionModalViewModel {
         )
 
         let installmentId = try transactionRepo.insertTransactionAndGetId(installmentModel)
+        print("✅ Created installment \(installmentNumber): \(data.title) for \(installmentDate)")
 
         // Schedule notification for each installment if it's in the future
         scheduleNotificationForNewTransaction(installmentId, installmentModel)
@@ -328,5 +341,69 @@ final class AddTransactionModalViewModel {
         print("🔔 ❌ Error scheduling notification for \(tx.title): \(error)")
       }
     }
+  }
+
+  // MARK: - Helper Methods
+  
+  /// Gera uma data válida para o mês especificado, lidando com dias que não existem
+  /// - Parameters:
+  ///   - originalDate: Data original da transação
+  ///   - targetMonth: Mês para o qual gerar a data
+  ///   - targetYear: Ano para o qual gerar a data
+  /// - Returns: Data válida para o mês especificado
+  private func generateValidDateForMonth(
+    originalDate: Date,
+    targetMonth: Int,
+    targetYear: Int
+  ) -> Date {
+    let originalDay = calendar.component(.day, from: originalDate)
+    
+    print("🔧 generateValidDateForMonth (installments): originalDay=\(originalDay), targetMonth=\(targetMonth), targetYear=\(targetYear)")
+    
+    // Calcular o último dia do mês específico primeiro
+    let lastDayOfMonth: Int
+    
+    switch targetMonth {
+    case 2: // Fevereiro
+      let isLeapYear = (targetYear % 4 == 0 && targetYear % 100 != 0) || (targetYear % 400 == 0)
+      lastDayOfMonth = isLeapYear ? 29 : 28
+    case 4, 6, 9, 11: // Abril, Junho, Setembro, Novembro
+      lastDayOfMonth = 30
+    default: // Janeiro, Março, Maio, Julho, Agosto, Outubro, Dezembro
+      lastDayOfMonth = 31
+    }
+    
+    print("📅 Last day of month \(targetMonth)/\(targetYear): \(lastDayOfMonth)")
+    
+    // Determinar o dia a usar
+    let dayToUse = min(originalDay, lastDayOfMonth)
+    print("📅 Using day: \(dayToUse) (original: \(originalDay), last day: \(lastDayOfMonth))")
+    
+    // Criar a data com o dia determinado
+    var dateComponents = DateComponents()
+    dateComponents.year = targetYear
+    dateComponents.month = targetMonth
+    dateComponents.day = dayToUse
+    dateComponents.hour = 12 // Usar meio-dia para evitar problemas de fuso horário
+    dateComponents.minute = 0
+    dateComponents.second = 0
+    
+    // Criar a data
+    guard let validDate = calendar.date(from: dateComponents) else {
+      print("❌ Failed to create date for \(dayToUse)/\(targetMonth)/\(targetYear), using fallback")
+      // Fallback: usar o primeiro dia do mês
+      dateComponents.day = 1
+      let fallbackDate = calendar.date(from: dateComponents) ?? Date()
+      print("⚠️ Using fallback date (1st day) for installment month \(targetMonth)/\(targetYear)")
+      return fallbackDate
+    }
+    
+    if dayToUse != originalDay {
+      print("📅 Adjusted installment date for month \(targetMonth)/\(targetYear): original day \(originalDay) → adjusted day \(dayToUse)")
+    } else {
+      print("✅ Original day \(originalDay) works for installment month \(targetMonth)/\(targetYear)")
+    }
+    
+    return validDate
   }
 }
