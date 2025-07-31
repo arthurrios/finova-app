@@ -63,6 +63,9 @@ final class RecurringTransactionManager {
     print("📊 Existing instances: \(existingInstances.count)")
     print("📊 Existing anchors: \(existingAnchors)")
 
+    // Coletar todas as novas instâncias para agendar notificações otimizadas
+    var newInstances: [TransactionModel] = []
+
     for monthOffset in monthRange {
       guard let targetDate = calendar.date(byAdding: .month, value: monthOffset, to: referenceDate)
       else { continue }
@@ -140,10 +143,18 @@ final class RecurringTransactionManager {
         do {
           try transactionRepo.insertTransaction(instanceModel)
           print("✅ Created recurring instance: \(recurringTx.title) for \(instanceDate)")
+          
+          // Adicionar à lista para notificações otimizadas
+          newInstances.append(instanceModel)
         } catch {
           print("❌ Error creating recurring transaction instance: \(error)")
         }
       }
+    }
+    
+    // Agendar notificações otimizadas para todas as novas instâncias
+    if !newInstances.isEmpty {
+      scheduleOptimizedNotificationsForRecurringInstances(newInstances)
     }
   }
 
@@ -369,5 +380,121 @@ final class RecurringTransactionManager {
     }
     
     return validDate
+  }
+
+  // MARK: - Notification Management
+  
+  /// Sistema otimizado para agendar notificações de transações recorrentes
+  private func scheduleOptimizedNotificationsForRecurringInstances(_ instances: [TransactionModel]) {
+    print("🔔 🔄 Scheduling optimized notifications for \(instances.count) recurring instances")
+    
+    // Agrupar instâncias por mês
+    var instancesByMonth: [String: [TransactionModel]] = [:]
+    
+    for instance in instances {
+      let date = Date(timeIntervalSince1970: TimeInterval(instance.data.dateTimestamp))
+      let monthKey = "\(calendar.component(.year, from: date))-\(calendar.component(.month, from: date))"
+      
+      if instancesByMonth[monthKey] == nil {
+        instancesByMonth[monthKey] = []
+      }
+      instancesByMonth[monthKey]?.append(instance)
+    }
+    
+    print("🔔 📅 Grouped recurring instances into \(instancesByMonth.count) months")
+    
+    // Agendar notificação para cada mês (máximo 1 por mês)
+    for (monthKey, monthInstances) in instancesByMonth {
+      scheduleMonthlyRecurringNotification(monthKey: monthKey, instances: monthInstances)
+    }
+  }
+  
+  /// Agenda uma notificação mensal para todas as instâncias recorrentes do mês
+  private func scheduleMonthlyRecurringNotification(monthKey: String, instances: [TransactionModel]) {
+    guard let firstInstance = instances.first else { return }
+    
+    let date = Date(timeIntervalSince1970: TimeInterval(firstInstance.data.dateTimestamp))
+    
+    // Verificar se a data é muito no futuro (mais de 1 ano)
+    let oneYearFromNow = Calendar.current.date(byAdding: .year, value: 1, to: Date()) ?? Date()
+    if date > oneYearFromNow {
+      print("🔔 ⚠️ Recurring month \(monthKey) is more than 1 year in the future, skipping notification")
+      return
+    }
+    
+    // Create notification time (8 AM) in local timezone
+    var notificationDate = calendar.startOfDay(for: date)
+    notificationDate = calendar.date(byAdding: .hour, value: 8, to: notificationDate) ?? notificationDate
+    
+    // Only schedule if notification time is in the future
+    guard notificationDate > Date() else {
+      print("🔔 ⚠️ Recurring notification time is in the past, skipping")
+      return
+    }
+    
+    let timeInterval = notificationDate.timeIntervalSinceNow
+    
+    // Verificar se o intervalo é muito grande (mais de 30 dias)
+    let thirtyDaysInSeconds: TimeInterval = 30 * 24 * 60 * 60
+    if timeInterval > thirtyDaysInSeconds {
+      print("🔔 ⚠️ Recurring month \(monthKey) is more than 30 days away, scheduling reminder")
+      scheduleRecurringReminderNotification(for: monthKey, instances: instances)
+      return
+    }
+    
+    // Criar notificação mensal consolidada
+    let totalAmount = instances.reduce(0) { $0 + $1.data.amount }
+    let instanceCount = instances.count
+    
+    let title = "notification.recurring.title".localized
+    let body = String(format: "notification.recurring.body".localized, instanceCount, totalAmount.currencyString)
+    
+    let content = UNMutableNotificationContent()
+    content.title = title
+    content.body = body
+    content.sound = .default
+    content.categoryIdentifier = "TRANSACTION_REMINDER"
+    content.userInfo = [
+      "type": "recurring_month",
+      "monthKey": monthKey,
+      "instanceCount": instanceCount,
+      "totalAmount": totalAmount
+    ]
+    
+    let trigger = UNTimeIntervalNotificationTrigger(timeInterval: timeInterval, repeats: false)
+    let request = UNNotificationRequest(identifier: "recurring_month_\(monthKey)", content: content, trigger: trigger)
+    
+    notificationCenter.add(request) { error in
+      if let error = error {
+        print("🔔 ❌ Error scheduling recurring notification for month \(monthKey): \(error)")
+      } else {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd HH:mm"
+        print("🔔 ✅ Scheduled recurring notification for month \(monthKey) at \(formatter.string(from: notificationDate))")
+      }
+    }
+  }
+  
+  /// Agenda uma notificação de lembrete para instâncias recorrentes distantes
+  private func scheduleRecurringReminderNotification(for monthKey: String, instances: [TransactionModel]) {
+    let thirtyDaysInSeconds: TimeInterval = 30 * 24 * 60 * 60
+    let trigger = UNTimeIntervalNotificationTrigger(timeInterval: thirtyDaysInSeconds, repeats: false)
+    
+    let content = UNMutableNotificationContent()
+    content.title = "notification.recurring.reminder.title".localized
+    content.body = "notification.recurring.reminder.body".localized
+    content.sound = .default
+    content.categoryIdentifier = "TRANSACTION_REMINDER"
+    content.userInfo = ["type": "recurring_reminder", "monthKey": monthKey]
+    
+    let request = UNNotificationRequest(identifier: "recurring_reminder_\(monthKey)", content: content, trigger: trigger)
+    
+    notificationCenter.add(request) { error in
+      if let error = error {
+        print("🔔 ❌ Error scheduling recurring reminder for month \(monthKey): \(error)")
+      } else {
+        print("🔔 ✅ Scheduled recurring reminder for month \(monthKey)")
+      }
+    }
   }
 }
