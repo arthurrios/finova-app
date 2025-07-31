@@ -26,8 +26,8 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     // 🔄 Perform one-time migrations (including global profile image cleanup)
     OneTimeMigrations.shared.performAllMigrations()
 
-    // 🔔 Schedule notifications on app launch
-    scheduleNotificationsOnLaunch()
+    // 🔔 Setup monthly notification system
+    setupMonthlyNotificationSystem()
 
     #if DEBUG
       // 🧪 Debug: Show data status on app launch
@@ -43,6 +43,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     
     // Reagendar notificações para transações próximas
     rescheduleNearbyNotifications()
+    
+    // Monitorar saldo negativo quando o app voltar ao foreground
+    monitorNegativeBalance()
   }
 
   // MARK: UISceneSession Lifecycle
@@ -147,6 +150,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
       // This will be called once on app launch to ensure notifications are set up
       DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {  // Delay to ensure data is loaded
         self.scheduleAllTransactionNotifications()
+        self.monitorNegativeBalance()
       }
     }
   }
@@ -338,5 +342,49 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     let userInfo = response.notification.request.content.userInfo
     print("📱 User tapped notification: \(userInfo)")
     completionHandler()
+  }
+  
+  // MARK: - Balance Monitoring
+  
+  /// Monitora o saldo negativo do mês atual
+  private func monitorNegativeBalance() {
+    // Check if user is authenticated first
+    guard let user = UserDefaultsManager.getUser(),
+      let firebaseUID = user.firebaseUID
+    else {
+      print("🔔 ❌ Cannot monitor balance: User not authenticated")
+      return
+    }
+
+    // Authenticate SecureLocalDataManager
+    SecureLocalDataManager.shared.authenticateUser(firebaseUID: firebaseUID)
+    
+    // Create balance monitor and check current month
+    let balanceMonitor = BalanceMonitorManager()
+    balanceMonitor.monitorCurrentMonthBalance()
+    
+    print("🔔 💰 Balance monitoring completed")
+  }
+  
+  // MARK: - Monthly Notification System
+  
+  /// Configura o sistema de notificações mensais
+  private func setupMonthlyNotificationSystem() {
+    // Check if user is authenticated first
+    guard let user = UserDefaultsManager.getUser(),
+      let firebaseUID = user.firebaseUID
+    else {
+      print("🔔 ❌ Cannot setup monthly notifications: User not authenticated")
+      return
+    }
+
+    // Authenticate SecureLocalDataManager
+    SecureLocalDataManager.shared.authenticateUser(firebaseUID: firebaseUID)
+    
+    // Create monthly notification manager and setup system
+    let monthlyManager = MonthlyNotificationManager()
+    monthlyManager.setupMonthlyNotificationSystem()
+    
+    print("🔔 📅 Monthly notification system setup completed")
   }
 }

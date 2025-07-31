@@ -88,6 +88,9 @@ final class AddTransactionModalViewModel {
 
         // Schedule notifications for all newly created recurring instances
         scheduleNotificationsForRecurringTransactions()
+        
+        // Monitorar saldo negativo após adicionar transação recorrente
+        monitorNegativeBalance()
 
         return .success(())
       } catch {
@@ -109,6 +112,9 @@ final class AddTransactionModalViewModel {
 
         // Schedule notification for the new transaction with its ID
         scheduleNotificationForNewTransaction(insertedId, model)
+        
+        // Monitorar saldo negativo após adicionar transação simples
+        monitorNegativeBalance()
 
         return .success(())
       } catch {
@@ -208,6 +214,9 @@ final class AddTransactionModalViewModel {
       // Agendar notificações otimizadas para todas as parcelas
       scheduleOptimizedNotificationsForInstallments(allInstallments)
       
+      // Monitorar saldo negativo após adicionar transação parcelada
+      monitorNegativeBalance()
+      
       return .success(())
     } catch {
       return .failure(error)
@@ -295,7 +304,10 @@ final class AddTransactionModalViewModel {
     let installmentCount = installments.count
     
     let title = "notification.installment.title".localized
-    let body = String(format: "notification.installment.body".localized, installmentCount, totalAmount.currencyString)
+    let bodyKey = installmentCount == 1 ? "notification.installment.body.singular" : "notification.installment.body.plural"
+    let body = installmentCount == 1 
+      ? String(format: bodyKey.localized, totalAmount.currencyString)
+      : String(format: bodyKey.localized, installmentCount, totalAmount.currencyString)
     
     let content = UNMutableNotificationContent()
     content.title = title
@@ -576,5 +588,27 @@ final class AddTransactionModalViewModel {
     }
     
     return validDate
+  }
+  
+  // MARK: - Balance Monitoring
+  
+  /// Monitora o saldo negativo do mês atual
+  private func monitorNegativeBalance() {
+    // Check if user is authenticated first
+    guard let user = UserDefaultsManager.getUser(),
+      let firebaseUID = user.firebaseUID
+    else {
+      print("🔔 ❌ Cannot monitor balance: User not authenticated")
+      return
+    }
+
+    // Authenticate SecureLocalDataManager
+    SecureLocalDataManager.shared.authenticateUser(firebaseUID: firebaseUID)
+    
+    // Create balance monitor and check current month
+    let balanceMonitor = BalanceMonitorManager()
+    balanceMonitor.monitorCurrentMonthBalance()
+    
+    print("🔔 💰 Balance monitoring completed after transaction addition")
   }
 }

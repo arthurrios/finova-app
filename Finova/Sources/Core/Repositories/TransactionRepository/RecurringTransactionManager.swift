@@ -447,7 +447,10 @@ final class RecurringTransactionManager {
     let instanceCount = instances.count
     
     let title = "notification.recurring.title".localized
-    let body = String(format: "notification.recurring.body".localized, instanceCount, totalAmount.currencyString)
+    let bodyKey = instanceCount == 1 ? "notification.recurring.body.singular" : "notification.recurring.body.plural"
+    let body = instanceCount == 1 
+      ? String(format: bodyKey.localized, totalAmount.currencyString)
+      : String(format: bodyKey.localized, instanceCount, totalAmount.currencyString)
     
     let content = UNMutableNotificationContent()
     content.title = title

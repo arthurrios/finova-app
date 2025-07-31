@@ -49,6 +49,9 @@ final class DashboardViewController: UIViewController {
         setupCollectionViews()
         syncedViewModel.selectMonth(at: todayMonthIndex, animated: false)
         contentView.frame = view.bounds
+        
+        // Verificar e agendar notificações automaticamente
+        checkAndScheduleNotificationsIfNeeded()
     }
     
     override func viewWillAppear(_ animated: Bool) {
@@ -908,5 +911,40 @@ extension DashboardViewController {
         currentCell?.updateTableHeight(txsCount: newCount)
         currentCell?.toggleEmptyState(newCount == 0)
         loadData()
+    }
+    
+    // MARK: - Automatic Notification Scheduling
+    
+    /// Verifica e agenda notificações automaticamente quando necessário
+    private func checkAndScheduleNotificationsIfNeeded() {
+        let status = viewModel.checkMonthlyNotificationsStatus()
+        
+        switch status {
+        case .notConfigured:
+            print("🔔 📅 No notifications configured, scheduling automatically...")
+            scheduleNotificationsAutomatically()
+            
+        case .outdated:
+            print("🔔 📅 Notifications are outdated, updating...")
+            scheduleNotificationsAutomatically()
+            
+        case .configured:
+            print("🔔 📅 Notifications are already configured for this month")
+            break
+        }
+    }
+    
+    /// Agenda notificações automaticamente sem interação do usuário
+    private func scheduleNotificationsAutomatically() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            let success = self.viewModel.scheduleAllMonthlyNotifications(showAlert: false)
+            
+            if success {
+                print("🔔 ✅ Notifications scheduled automatically")
+                // Não mostrar alerta para agendamento automático
+            } else {
+                print("🔔 ❌ Failed to schedule notifications automatically")
+            }
+        }
     }
 }

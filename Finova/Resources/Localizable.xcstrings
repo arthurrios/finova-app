@@ -2806,19 +2806,36 @@
         }
       }
     },
-    "notification.installment.body" : {
+    "notification.installment.body.singular" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "You have %d installment(s) due this month totaling %@"
+            "value" : "You have 1 installment due this month totaling %@"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Você tem %d parcela(s) vencendo este mês totalizando %@"
+            "value" : "Você tem 1 parcela vencendo este mês totalizando %@"
+          }
+        }
+      }
+    },
+    "notification.installment.body.plural" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "You have %d installments due this month totaling %@"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Você tem %d parcelas vencendo este mês totalizando %@"
           }
         }
       }
@@ -2874,19 +2891,36 @@
         }
       }
     },
-    "notification.recurring.body" : {
+    "notification.recurring.body.singular" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "You have %d recurring transaction(s) due this month totaling %@"
+            "value" : "You have 1 recurring transaction due this month totaling %@"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Você tem %d transação(ões) recorrente(s) vencendo este mês totalizando %@"
+            "value" : "Você tem 1 transação recorrente vencendo este mês totalizando %@"
+          }
+        }
+      }
+    },
+    "notification.recurring.body.plural" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "You have %d recurring transactions due this month totaling %@"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Você tem %d transações recorrentes vencendo este mês totalizando %@"
           }
         }
       }
@@ -2955,6 +2989,176 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Você tem transações próximas. Abra o app para ver detalhes."
+          }
+        }
+      }
+    },
+    "notification.negative.balance.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "⚠️ Negative Balance Alert"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "⚠️ Alerta de Saldo Negativo"
+          }
+        }
+      }
+    },
+    "notification.negative.balance.body" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "According to your monthly calculations, you will have a negative balance in %d days (%@). Check your transactions and adjust your budget."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "De acordo com os cálculos das transações do mês, você ficará com saldo negativo em %d dias (%@). Verifique suas transações e ajuste seu orçamento."
+          }
+        }
+      }
+    },
+    "notification.monthly.reminder.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "📅 Monthly Notifications Setup"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "📅 Configurar Notificações do Mês"
+          }
+        }
+      }
+    },
+    "notification.monthly.reminder.body" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open the app to configure your notifications for this month. This ensures you'll receive alerts for transactions and balance warnings."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Abra o app para configurar suas notificações deste mês. Isso garante que você receberá alertas para transações e avisos de saldo."
+          }
+        }
+      }
+    },
+    "notification.monthly.fallback.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "⚠️ Notifications Not Configured"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "⚠️ Notificações Não Configuradas"
+          }
+        }
+      }
+    },
+    "notification.monthly.fallback.body" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "You haven't configured notifications for this month yet. Open the app to set them up automatically."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Você ainda não configurou as notificações deste mês. Abra o app para configurá-las automaticamente."
+          }
+        }
+      }
+    },
+    "notification.monthly.success.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "✅ Notifications Configured"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "✅ Notificações Configuradas"
+          }
+        }
+      }
+    },
+    "notification.monthly.success.body" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "All notifications for this month have been scheduled successfully. You'll receive alerts for transactions and balance warnings."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Todas as notificações deste mês foram agendadas com sucesso. Você receberá alertas para transações e avisos de saldo."
+          }
+        }
+      }
+    },
+    "notification.test.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "🧪 Test Notification"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "🧪 Notificação de Teste"
+          }
+        }
+      }
+    },
+    "notification.test.body" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "If you see this, notifications are working correctly! This should fire in 5 seconds."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Se você vê isso, as notificações estão funcionando corretamente! Isso deve aparecer em 5 segundos."
           }
         }
       }
