@@ -146,6 +146,10 @@ class MonthBudgetCard: UIView {
         container.backgroundColor = Colors.gray600
         container.translatesAutoresizingMaskIntoConstraints = false
         
+        // Aplicar cornerRadius desde o início
+        container.layer.cornerRadius = 18
+        container.layer.masksToBounds = true
+        
         container.addSubview(balanceToggleIcon)
         NSLayoutConstraint.activate([
             balanceToggleIcon.centerXAnchor.constraint(equalTo: container.centerXAnchor),
@@ -303,6 +307,10 @@ class MonthBudgetCard: UIView {
                     textKey = "monthCard.currentBalance"
                     balanceToggleContainer.backgroundColor = Colors.mainMagenta.withAlphaComponent(0.7)
                 }
+                
+                // Garantir que o botão seja sempre redondo
+                balanceToggleContainer.layer.cornerRadius = 18
+                balanceToggleContainer.layer.masksToBounds = true
                 
                 // Use animated SwiftUI view for current month
                 animatedNumberContainer?.isHidden = false
@@ -485,6 +493,10 @@ class MonthBudgetCard: UIView {
         super.layoutSubviews()
         gradientLayer.frame = bounds
         progressBar.roundRightCornersFixedHeight(Metrics.spacing2)
-        balanceToggleContainer.layer.cornerRadius = balanceToggleContainer.frame.width / 2
+        
+        // Garantir que o botão de toggle seja sempre redondo
+        // Usar valor fixo baseado na constraint de largura (36)
+        balanceToggleContainer.layer.cornerRadius = 18
+        balanceToggleContainer.layer.masksToBounds = true
     }
 }
