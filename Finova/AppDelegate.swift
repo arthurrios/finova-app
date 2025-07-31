@@ -26,8 +26,8 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     // 🔄 Perform one-time migrations (including global profile image cleanup)
     OneTimeMigrations.shared.performAllMigrations()
 
-    // 🔔 Schedule notifications on app launch
-    scheduleNotificationsOnLaunch()
+    // 🔔 Setup monthly notification system
+    setupMonthlyNotificationSystem()
 
     #if DEBUG
       // 🧪 Debug: Show data status on app launch
@@ -35,6 +35,17 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     #endif
 
     return true
+  }
+
+  func applicationWillEnterForeground(_ application: UIApplication) {
+    // Called as part of the transition from the background to the active state; here you can undo many of the changes made on entering the background.
+    print("🔄 App will enter foreground")
+    
+    // Reagendar notificações para transações próximas
+    rescheduleNearbyNotifications()
+    
+    // Monitorar saldo negativo quando o app voltar ao foreground
+    monitorNegativeBalance()
   }
 
   // MARK: UISceneSession Lifecycle
@@ -139,6 +150,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
       // This will be called once on app launch to ensure notifications are set up
       DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {  // Delay to ensure data is loaded
         self.scheduleAllTransactionNotifications()
+        self.monitorNegativeBalance()
       }
     }
   }
@@ -148,6 +160,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     guard let user = UserDefaultsManager.getUser(),
       let firebaseUID = user.firebaseUID
     else {
+      print("🔔 ❌ Cannot schedule notifications: User not authenticated")
       return
     }
 
@@ -160,8 +173,11 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     var calendar = Calendar.current
     calendar.timeZone = TimeZone.current
 
+    print("🔔 📡 Scheduling notifications for \(allTxs.count) transactions")
+
     // Clear existing notifications first
     UNUserNotificationCenter.current().removeAllPendingNotificationRequests()
+    print("🔔 🧹 Cleared existing notifications")
 
     // Schedule notifications for all future transactions (excluding hidden parent transactions)
     let futureTxs = allTxs.filter { tx in
@@ -182,7 +198,15 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
       return notificationDate > now
     }
 
-    futureTxs.forEach { tx in
+    print("🔔 📅 Found \(futureTxs.count) future transactions to schedule")
+
+    // Limitar a 50 notificações para evitar problemas com limite do iOS
+    let limitedTxs = Array(futureTxs.prefix(50))
+    if limitedTxs.count < futureTxs.count {
+      print("🔔 ⚠️ Limited notifications to 50 (iOS limit). \(futureTxs.count - limitedTxs.count) transactions will not have notifications")
+    }
+
+    limitedTxs.forEach { tx in
       scheduleNotification(for: tx, calendar: calendar)
     }
   }
@@ -204,8 +228,23 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
       return
     }
 
+    // Verificar se a data é muito no futuro (mais de 1 ano)
+    let oneYearFromNow = Calendar.current.date(byAdding: .year, value: 1, to: Date()) ?? Date()
+    if tx.date > oneYearFromNow {
+      print("🔔 ⚠️ Skipping notification for \(tx.title) - date too far in future")
+      return
+    }
+
     // Calculate time interval from now to notification date
     let timeInterval = notificationDate.timeIntervalSinceNow
+    
+    // Verificar se o intervalo é muito grande (mais de 30 dias)
+    let thirtyDaysInSeconds: TimeInterval = 30 * 24 * 60 * 60
+    if timeInterval > thirtyDaysInSeconds {
+      print("🔔 ⚠️ Skipping notification for \(tx.title) - more than 30 days away")
+      return
+    }
+    
     let trigger = UNTimeIntervalNotificationTrigger(timeInterval: timeInterval, repeats: false)
 
     let titleKey =
@@ -219,18 +258,66 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
 
     let amountString = tx.amount.currencyString
     let title = titleKey.localized
-    let body = bodyKey.localized(amountString, tx.title)
+    let body = String(format: bodyKey.localized, amountString, tx.title)
 
     let content = UNMutableNotificationContent()
     content.title = title
     content.body = body
     content.sound = .default
     content.categoryIdentifier = "TRANSACTION_REMINDER"
+    content.userInfo = ["transactionId": transactionId, "date": tx.date.timeIntervalSince1970]
 
     let request = UNNotificationRequest(identifier: id, content: content, trigger: trigger)
     UNUserNotificationCenter.current().add(request) { error in
       if let error = error {
         print("🔔 ❌ Error scheduling notification for \(tx.title): \(error)")
+      } else {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd HH:mm"
+        print("🔔 ✅ Scheduled notification for \(tx.title) at \(formatter.string(from: notificationDate))")
+      }
+    }
+  }
+
+  // MARK: - Notification Management
+
+  /// Reagenda notificações para transações que estão próximas (dentro de 30 dias)
+  private func rescheduleNearbyNotifications() {
+    guard let user = UserDefaultsManager.getUser(),
+      let firebaseUID = user.firebaseUID
+    else {
+      return
+    }
+
+    SecureLocalDataManager.shared.authenticateUser(firebaseUID: firebaseUID)
+
+    let transactionRepo = TransactionRepository()
+    let allTxs = transactionRepo.fetchAllTransactions()
+    let now = Date()
+    var calendar = Calendar.current
+    calendar.timeZone = TimeZone.current
+
+    // Encontrar transações que estão entre 30 e 60 dias no futuro
+    let thirtyDaysFromNow = calendar.date(byAdding: .day, value: 30, to: now) ?? now
+    let sixtyDaysFromNow = calendar.date(byAdding: .day, value: 60, to: now) ?? now
+
+    let nearbyTxs = allTxs.filter { tx in
+      // Skip parent transactions that are not visible in UI
+      if tx.hasInstallments == true && tx.amount == 0 {
+        return false
+      }
+
+      if tx.isRecurring == true && tx.parentTransactionId == nil && tx.amount == 0 {
+        return false
+      }
+
+      return tx.date >= thirtyDaysFromNow && tx.date <= sixtyDaysFromNow
+    }
+
+    if !nearbyTxs.isEmpty {
+      print("🔔 🔄 Rescheduling notifications for \(nearbyTxs.count) nearby transactions")
+      nearbyTxs.forEach { tx in
+        scheduleNotification(for: tx, calendar: calendar)
       }
     }
   }
@@ -255,5 +342,49 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     let userInfo = response.notification.request.content.userInfo
     print("📱 User tapped notification: \(userInfo)")
     completionHandler()
+  }
+  
+  // MARK: - Balance Monitoring
+  
+  /// Monitora o saldo negativo do mês atual
+  private func monitorNegativeBalance() {
+    // Check if user is authenticated first
+    guard let user = UserDefaultsManager.getUser(),
+      let firebaseUID = user.firebaseUID
+    else {
+      print("🔔 ❌ Cannot monitor balance: User not authenticated")
+      return
+    }
+
+    // Authenticate SecureLocalDataManager
+    SecureLocalDataManager.shared.authenticateUser(firebaseUID: firebaseUID)
+    
+    // Create balance monitor and check current month
+    let balanceMonitor = BalanceMonitorManager()
+    balanceMonitor.monitorCurrentMonthBalance()
+    
+    print("🔔 💰 Balance monitoring completed")
+  }
+  
+  // MARK: - Monthly Notification System
+  
+  /// Configura o sistema de notificações mensais
+  private func setupMonthlyNotificationSystem() {
+    // Check if user is authenticated first
+    guard let user = UserDefaultsManager.getUser(),
+      let firebaseUID = user.firebaseUID
+    else {
+      print("🔔 ❌ Cannot setup monthly notifications: User not authenticated")
+      return
+    }
+
+    // Authenticate SecureLocalDataManager
+    SecureLocalDataManager.shared.authenticateUser(firebaseUID: firebaseUID)
+    
+    // Create monthly notification manager and setup system
+    let monthlyManager = MonthlyNotificationManager()
+    monthlyManager.setupMonthlyNotificationSystem()
+    
+    print("🔔 📅 Monthly notification system setup completed")
   }
 }

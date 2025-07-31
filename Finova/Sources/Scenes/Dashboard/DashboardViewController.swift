@@ -18,6 +18,7 @@ final class DashboardViewController: UIViewController {
     private var transactions: [Transaction] = []
     private var currentCellTransactions: [Transaction] = []
     private var transactionsByMonth: [Int: [Transaction]] = [:]
+    private var isInitialLoadComplete = false
     
     private var currentCell: MonthCarouselCell?
     weak var flowDelegate: DashboardFlowDelegate?
@@ -44,15 +45,22 @@ final class DashboardViewController: UIViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         setup()
-        syncedViewModel.selectMonth(at: todayMonthIndex, animated: false)
         loadData()
-        contentView.frame = view.bounds
         setupCollectionViews()
+        syncedViewModel.selectMonth(at: todayMonthIndex, animated: false)
+        contentView.frame = view.bounds
+        
+        // Verificar e agendar notificações automaticamente
+        checkAndScheduleNotificationsIfNeeded()
     }
     
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
-        refreshDashboardData()
+        
+        // Evitar refresh desnecessário na primeira vez que a view aparece
+        if isInitialLoadComplete {
+            refreshDashboardData()
+        }
     }
     
     private func refreshDashboardData() {
@@ -297,9 +305,23 @@ final class DashboardViewController: UIViewController {
         syncedViewModel.setTransactions(transactions)
         
         contentView.monthCarousel.layoutIfNeeded()
+        
+        // Marcar que o carregamento inicial foi concluído
+        isInitialLoadComplete = true
+        isLoadingInitialData = false
+        
+        print("✅ Initial data loading completed")
     }
     
     private func setupCollectionViews() {
+        // Verificar se já foi configurado
+        guard contentView.monthSelectorView.collectionView.delegate == nil else {
+            print("⏭️ Collection views already configured, skipping setup")
+            return
+        }
+        
+        print("🔄 Setting up collection views...")
+        
         contentView.monthSelectorView.collectionView.delegate = self
         contentView.monthSelectorView.collectionView.dataSource = self
         contentView.monthSelectorView.collectionView.register(
@@ -311,14 +333,19 @@ final class DashboardViewController: UIViewController {
         contentView.monthCarousel.register(
             MonthCarouselCell.self, forCellWithReuseIdentifier: MonthCarouselCell.reuseID)
         
-        let monthTitles = syncedViewModel.getMonths()
-        contentView.monthSelectorView.configure(
-            months: monthTitles, selectedIndex: syncedViewModel.selectedIndex)
+        // Configurar month selector apenas se houver dados
+        if !syncedViewModel.monthData.isEmpty {
+            let monthTitles = syncedViewModel.getMonths()
+            contentView.monthSelectorView.configure(
+                months: monthTitles, selectedIndex: syncedViewModel.selectedIndex)
+        }
         
         contentView.monthCarousel.reloadData()
         
         contentView.monthSelectorView.layoutIfNeeded()
         contentView.monthCarousel.layoutIfNeeded()
+        
+        print("✅ Collection views setup completed")
     }
 }
 
@@ -552,8 +579,18 @@ extension DashboardViewController: SyncedCollectionsViewModelDelegate {
     func didUpdateMonthData(_ data: [MonthBudgetCardType]) {
         let currentSelectedIndex = syncedViewModel.selectedIndex
         
-        contentView.monthSelectorView.configure(
-            months: data.map { $0.month }, selectedIndex: currentSelectedIndex)
+        // Verificar se os dados realmente mudaram antes de reconfigurar
+        let currentMonths = contentView.monthSelectorView.months
+        let newMonths = data.map { $0.month }
+        let monthsChanged = currentMonths != newMonths
+        
+        print("📊 didUpdateMonthData: \(data.count) months, changed: \(monthsChanged)")
+        
+        if monthsChanged {
+            contentView.monthSelectorView.configure(
+                months: newMonths, selectedIndex: currentSelectedIndex)
+        }
+        
         DispatchQueue.main.async {
             self.contentView.monthCarousel.reloadData()
         }
@@ -874,5 +911,40 @@ extension DashboardViewController {
         currentCell?.updateTableHeight(txsCount: newCount)
         currentCell?.toggleEmptyState(newCount == 0)
         loadData()
+    }
+    
+    // MARK: - Automatic Notification Scheduling
+    
+    /// Verifica e agenda notificações automaticamente quando necessário
+    private func checkAndScheduleNotificationsIfNeeded() {
+        let status = viewModel.checkMonthlyNotificationsStatus()
+        
+        switch status {
+        case .notConfigured:
+            print("🔔 📅 No notifications configured, scheduling automatically...")
+            scheduleNotificationsAutomatically()
+            
+        case .outdated:
+            print("🔔 📅 Notifications are outdated, updating...")
+            scheduleNotificationsAutomatically()
+            
+        case .configured:
+            print("🔔 📅 Notifications are already configured for this month")
+            break
+        }
+    }
+    
+    /// Agenda notificações automaticamente sem interação do usuário
+    private func scheduleNotificationsAutomatically() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            let success = self.viewModel.scheduleAllMonthlyNotifications(showAlert: false)
+            
+            if success {
+                print("🔔 ✅ Notifications scheduled automatically")
+                // Não mostrar alerta para agendamento automático
+            } else {
+                print("🔔 ❌ Failed to schedule notifications automatically")
+            }
+        }
     }
 }

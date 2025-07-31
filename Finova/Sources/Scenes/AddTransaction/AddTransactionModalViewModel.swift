@@ -88,6 +88,9 @@ final class AddTransactionModalViewModel {
 
         // Schedule notifications for all newly created recurring instances
         scheduleNotificationsForRecurringTransactions()
+        
+        // Monitorar saldo negativo após adicionar transação recorrente
+        monitorNegativeBalance()
 
         return .success(())
       } catch {
@@ -109,6 +112,9 @@ final class AddTransactionModalViewModel {
 
         // Schedule notification for the new transaction with its ID
         scheduleNotificationForNewTransaction(insertedId, model)
+        
+        // Monitorar saldo negativo após adicionar transação simples
+        monitorNegativeBalance()
 
         return .success(())
       } catch {
@@ -162,11 +168,26 @@ final class AddTransactionModalViewModel {
       )
 
       let parentId = try transactionRepo.insertTransactionAndGetId(parentModel)
+      
+      // Coletar todas as parcelas para agendar notificações otimizadas
+      var allInstallments: [TransactionModel] = []
 
       for installmentNumber in 1...totalInstallments {
-        let installmentDate =
-          Calendar.current.date(byAdding: .month, value: installmentNumber - 1, to: startDate)
-          ?? startDate
+        // Calcular a data da parcela usando a função de geração de datas válidas
+        let targetDate = calendar.date(byAdding: .month, value: installmentNumber - 1, to: startDate) ?? startDate
+        let targetYear = calendar.component(.year, from: targetDate)
+        let targetMonth = calendar.component(.month, from: targetDate)
+        
+        print("🔄 Creating installment \(installmentNumber)/\(totalInstallments) for month \(targetMonth)/\(targetYear)")
+        
+        let installmentDate = generateValidDateForMonth(
+          originalDate: startDate,
+          targetMonth: targetMonth,
+          targetYear: targetYear
+        )
+        
+        print("📅 Installment \(installmentNumber) date: \(installmentDate)")
+        
         let installmentAmount =
           installmentNumber == 1 ? amountPerInstallment + remainder : amountPerInstallment
 
@@ -184,10 +205,18 @@ final class AddTransactionModalViewModel {
         )
 
         let installmentId = try transactionRepo.insertTransactionAndGetId(installmentModel)
-
-        // Schedule notification for each installment if it's in the future
-        scheduleNotificationForNewTransaction(installmentId, installmentModel)
+        print("✅ Created installment \(installmentNumber): \(data.title) for \(installmentDate)")
+        
+        // Adicionar à lista para notificações otimizadas
+        allInstallments.append(installmentModel)
       }
+      
+      // Agendar notificações otimizadas para todas as parcelas
+      scheduleOptimizedNotificationsForInstallments(allInstallments)
+      
+      // Monitorar saldo negativo após adicionar transação parcelada
+      monitorNegativeBalance()
+      
       return .success(())
     } catch {
       return .failure(error)
@@ -202,6 +231,7 @@ final class AddTransactionModalViewModel {
     // Check if we have notification permission first
     notificationCenter.getNotificationSettings { settings in
       guard settings.authorizationStatus == .authorized else {
+        print("🔔 ❌ Notification permission not granted")
         return
       }
 
@@ -211,8 +241,135 @@ final class AddTransactionModalViewModel {
     }
   }
 
+  /// Sistema otimizado para agendar notificações de parcelas
+  private func scheduleOptimizedNotificationsForInstallments(_ installments: [TransactionModel]) {
+    print("🔔 📦 Scheduling optimized notifications for \(installments.count) installments")
+    
+    // Agrupar parcelas por mês
+    var installmentsByMonth: [String: [TransactionModel]] = [:]
+    
+    for installment in installments {
+      let date = Date(timeIntervalSince1970: TimeInterval(installment.data.dateTimestamp))
+      let monthKey = "\(calendar.component(.year, from: date))-\(calendar.component(.month, from: date))"
+      
+      if installmentsByMonth[monthKey] == nil {
+        installmentsByMonth[monthKey] = []
+      }
+      installmentsByMonth[monthKey]?.append(installment)
+    }
+    
+    print("🔔 📅 Grouped installments into \(installmentsByMonth.count) months")
+    
+    // Agendar notificação para cada mês (máximo 1 por mês)
+    for (monthKey, monthInstallments) in installmentsByMonth {
+      scheduleMonthlyInstallmentNotification(monthKey: monthKey, installments: monthInstallments)
+    }
+  }
+  
+  /// Agenda uma notificação mensal para todas as parcelas do mês
+  private func scheduleMonthlyInstallmentNotification(monthKey: String, installments: [TransactionModel]) {
+    guard let firstInstallment = installments.first else { return }
+    
+    let date = Date(timeIntervalSince1970: TimeInterval(firstInstallment.data.dateTimestamp))
+    
+    // Verificar se a data é muito no futuro (mais de 1 ano)
+    let oneYearFromNow = Calendar.current.date(byAdding: .year, value: 1, to: Date()) ?? Date()
+    if date > oneYearFromNow {
+      print("🔔 ⚠️ Installment month \(monthKey) is more than 1 year in the future, skipping notification")
+      return
+    }
+    
+    // Create notification time (8 AM) in local timezone
+    var notificationDate = calendar.startOfDay(for: date)
+    notificationDate = calendar.date(byAdding: .hour, value: 8, to: notificationDate) ?? notificationDate
+    
+    // Only schedule if notification time is in the future
+    guard notificationDate > Date() else {
+      print("🔔 ⚠️ Installment notification time is in the past, skipping")
+      return
+    }
+    
+    let timeInterval = notificationDate.timeIntervalSinceNow
+    
+    // Verificar se o intervalo é muito grande (mais de 30 dias)
+    let thirtyDaysInSeconds: TimeInterval = 30 * 24 * 60 * 60
+    if timeInterval > thirtyDaysInSeconds {
+      print("🔔 ⚠️ Installment month \(monthKey) is more than 30 days away, scheduling reminder")
+      scheduleReminderNotification(for: monthKey, installments: installments)
+      return
+    }
+    
+    // Criar notificação mensal consolidada
+    let totalAmount = installments.reduce(0) { $0 + $1.data.amount }
+    let installmentCount = installments.count
+    
+    let title = "notification.installment.title".localized
+    let bodyKey = installmentCount == 1 ? "notification.installment.body.singular" : "notification.installment.body.plural"
+    let body = installmentCount == 1 
+      ? String(format: bodyKey.localized, totalAmount.currencyString)
+      : String(format: bodyKey.localized, installmentCount, totalAmount.currencyString)
+    
+    let content = UNMutableNotificationContent()
+    content.title = title
+    content.body = body
+    content.sound = .default
+    content.categoryIdentifier = "TRANSACTION_REMINDER"
+    content.userInfo = [
+      "type": "installment_month",
+      "monthKey": monthKey,
+      "installmentCount": installmentCount,
+      "totalAmount": totalAmount
+    ]
+    
+    let trigger = UNTimeIntervalNotificationTrigger(timeInterval: timeInterval, repeats: false)
+    let request = UNNotificationRequest(identifier: "installment_month_\(monthKey)", content: content, trigger: trigger)
+    
+    notificationCenter.add(request) { error in
+      if let error = error {
+        print("🔔 ❌ Error scheduling installment notification for month \(monthKey): \(error)")
+      } else {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd HH:mm"
+        print("🔔 ✅ Scheduled installment notification for month \(monthKey) at \(formatter.string(from: notificationDate))")
+      }
+    }
+  }
+  
+  /// Agenda uma notificação de lembrete para parcelas distantes
+  private func scheduleReminderNotification(for monthKey: String, installments: [TransactionModel]) {
+    let thirtyDaysInSeconds: TimeInterval = 30 * 24 * 60 * 60
+    let trigger = UNTimeIntervalNotificationTrigger(timeInterval: thirtyDaysInSeconds, repeats: false)
+    
+    let content = UNMutableNotificationContent()
+    content.title = "notification.installment.reminder.title".localized
+    content.body = "notification.installment.reminder.body".localized
+    content.sound = .default
+    content.categoryIdentifier = "TRANSACTION_REMINDER"
+    content.userInfo = ["type": "installment_reminder", "monthKey": monthKey]
+    
+    let request = UNNotificationRequest(identifier: "installment_reminder_\(monthKey)", content: content, trigger: trigger)
+    
+    notificationCenter.add(request) { error in
+      if let error = error {
+        print("🔔 ❌ Error scheduling installment reminder for month \(monthKey): \(error)")
+      } else {
+        print("🔔 ✅ Scheduled installment reminder for month \(monthKey)")
+      }
+    }
+  }
+
   private func scheduleNotification(for transactionId: Int, model: TransactionModel) {
     let date = Date(timeIntervalSince1970: TimeInterval(model.data.dateTimestamp))
+    
+    print("🔔 Scheduling notification for transaction: \(model.data.title)")
+    print("📅 Transaction date: \(date)")
+    
+    // Verificar se a data é muito no futuro (mais de 1 ano)
+    let oneYearFromNow = Calendar.current.date(byAdding: .year, value: 1, to: Date()) ?? Date()
+    if date > oneYearFromNow {
+      print("🔔 ⚠️ Transaction date is more than 1 year in the future, skipping notification")
+      return
+    }
 
     // Create notification time (8 AM) in local timezone
     var notificationDate = calendar.startOfDay(for: date)
@@ -221,11 +378,45 @@ final class AddTransactionModalViewModel {
 
     // Only schedule if notification time is in the future
     guard notificationDate > Date() else {
+      print("🔔 ⚠️ Notification time is in the past, skipping")
       return
     }
 
+    // Verificar se já existe uma notificação para este dia
+    let dayIdentifier = "day_\(calendar.startOfDay(for: date).timeIntervalSince1970)"
+    
+    // Limpar notificações antigas para este dia se existirem
+    notificationCenter.removePendingNotificationRequests(withIdentifiers: [dayIdentifier])
+    
     let id = "transaction_\(transactionId)"
     let timeInterval = notificationDate.timeIntervalSinceNow
+    
+    // Verificar se o intervalo é muito grande (mais de 30 dias)
+    let thirtyDaysInSeconds: TimeInterval = 30 * 24 * 60 * 60
+    if timeInterval > thirtyDaysInSeconds {
+      print("🔔 ⚠️ Notification interval is more than 30 days (\(timeInterval/86400) days), scheduling for 30 days")
+      // Agendar para 30 dias e depois reagendar quando chegar mais perto
+      let adjustedInterval = thirtyDaysInSeconds
+      let trigger = UNTimeIntervalNotificationTrigger(timeInterval: adjustedInterval, repeats: false)
+      
+      let content = UNMutableNotificationContent()
+      content.title = "notification.transaction.reminder.title".localized
+      content.body = "notification.transaction.reminder.body".localized
+      content.sound = .default
+      content.categoryIdentifier = "TRANSACTION_REMINDER"
+      content.userInfo = ["type": "reminder", "transactionId": transactionId]
+      
+      let request = UNNotificationRequest(identifier: dayIdentifier, content: content, trigger: trigger)
+      notificationCenter.add(request) { error in
+        if let error = error {
+          print("🔔 ❌ Error scheduling reminder notification: \(error)")
+        } else {
+          print("🔔 ✅ Scheduled reminder notification for 30 days from now")
+        }
+      }
+      return
+    }
+
     let trigger = UNTimeIntervalNotificationTrigger(timeInterval: timeInterval, repeats: false)
 
     let titleKey =
@@ -246,11 +437,16 @@ final class AddTransactionModalViewModel {
     content.body = body
     content.sound = .default
     content.categoryIdentifier = "TRANSACTION_REMINDER"
+    content.userInfo = ["transactionId": transactionId, "date": date.timeIntervalSince1970]
 
     let request = UNNotificationRequest(identifier: id, content: content, trigger: trigger)
     notificationCenter.add(request) { error in
       if let error = error {
         print("🔔 ❌ Error scheduling notification for \(model.data.title): \(error)")
+      } else {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd HH:mm"
+        print("🔔 ✅ Scheduled notification for \(model.data.title) at \(formatter.string(from: notificationDate))")
       }
     }
   }
@@ -328,5 +524,91 @@ final class AddTransactionModalViewModel {
         print("🔔 ❌ Error scheduling notification for \(tx.title): \(error)")
       }
     }
+  }
+
+  // MARK: - Helper Methods
+  
+  /// Gera uma data válida para o mês especificado, lidando com dias que não existem
+  /// - Parameters:
+  ///   - originalDate: Data original da transação
+  ///   - targetMonth: Mês para o qual gerar a data
+  ///   - targetYear: Ano para o qual gerar a data
+  /// - Returns: Data válida para o mês especificado
+  private func generateValidDateForMonth(
+    originalDate: Date,
+    targetMonth: Int,
+    targetYear: Int
+  ) -> Date {
+    let originalDay = calendar.component(.day, from: originalDate)
+    
+    print("🔧 generateValidDateForMonth (installments): originalDay=\(originalDay), targetMonth=\(targetMonth), targetYear=\(targetYear)")
+    
+    // Calcular o último dia do mês específico primeiro
+    let lastDayOfMonth: Int
+    
+    switch targetMonth {
+    case 2: // Fevereiro
+      let isLeapYear = (targetYear % 4 == 0 && targetYear % 100 != 0) || (targetYear % 400 == 0)
+      lastDayOfMonth = isLeapYear ? 29 : 28
+    case 4, 6, 9, 11: // Abril, Junho, Setembro, Novembro
+      lastDayOfMonth = 30
+    default: // Janeiro, Março, Maio, Julho, Agosto, Outubro, Dezembro
+      lastDayOfMonth = 31
+    }
+    
+    print("📅 Last day of month \(targetMonth)/\(targetYear): \(lastDayOfMonth)")
+    
+    // Determinar o dia a usar
+    let dayToUse = min(originalDay, lastDayOfMonth)
+    print("📅 Using day: \(dayToUse) (original: \(originalDay), last day: \(lastDayOfMonth))")
+    
+    // Criar a data com o dia determinado
+    var dateComponents = DateComponents()
+    dateComponents.year = targetYear
+    dateComponents.month = targetMonth
+    dateComponents.day = dayToUse
+    dateComponents.hour = 12 // Usar meio-dia para evitar problemas de fuso horário
+    dateComponents.minute = 0
+    dateComponents.second = 0
+    
+    // Criar a data
+    guard let validDate = calendar.date(from: dateComponents) else {
+      print("❌ Failed to create date for \(dayToUse)/\(targetMonth)/\(targetYear), using fallback")
+      // Fallback: usar o primeiro dia do mês
+      dateComponents.day = 1
+      let fallbackDate = calendar.date(from: dateComponents) ?? Date()
+      print("⚠️ Using fallback date (1st day) for installment month \(targetMonth)/\(targetYear)")
+      return fallbackDate
+    }
+    
+    if dayToUse != originalDay {
+      print("📅 Adjusted installment date for month \(targetMonth)/\(targetYear): original day \(originalDay) → adjusted day \(dayToUse)")
+    } else {
+      print("✅ Original day \(originalDay) works for installment month \(targetMonth)/\(targetYear)")
+    }
+    
+    return validDate
+  }
+  
+  // MARK: - Balance Monitoring
+  
+  /// Monitora o saldo negativo do mês atual
+  private func monitorNegativeBalance() {
+    // Check if user is authenticated first
+    guard let user = UserDefaultsManager.getUser(),
+      let firebaseUID = user.firebaseUID
+    else {
+      print("🔔 ❌ Cannot monitor balance: User not authenticated")
+      return
+    }
+
+    // Authenticate SecureLocalDataManager
+    SecureLocalDataManager.shared.authenticateUser(firebaseUID: firebaseUID)
+    
+    // Create balance monitor and check current month
+    let balanceMonitor = BalanceMonitorManager()
+    balanceMonitor.monitorCurrentMonthBalance()
+    
+    print("🔔 💰 Balance monitoring completed after transaction addition")
   }
 }

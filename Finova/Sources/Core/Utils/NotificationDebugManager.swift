@@ -311,9 +311,8 @@ final class NotificationDebugManager {
       }
 
       let content = UNMutableNotificationContent()
-      content.title = "🧪 Test Notification"
-      content.body =
-        "If you see this, notifications are working correctly! This should fire in 5 seconds."
+      content.title = "notification.test.title".localized
+      content.body = "notification.test.body".localized
       content.sound = .default
       content.categoryIdentifier = "TEST_NOTIFICATION"
 

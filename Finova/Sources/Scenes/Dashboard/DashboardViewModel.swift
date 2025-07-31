@@ -13,6 +13,8 @@ final class DashboardViewModel {
   let budgetRepo: BudgetRepository
   let transactionRepo: TransactionRepository
   private let recurringManager: RecurringTransactionManager
+  private let balanceMonitor: BalanceMonitorManager
+  private let monthlyNotificationManager: MonthlyNotificationManager
   private let calendar = Calendar.current
 
   private let monthRange: ClosedRange<Int>
@@ -29,6 +31,8 @@ final class DashboardViewModel {
     self.transactionRepo = transactionRepo
     self.monthRange = monthRange
     self.recurringManager = RecurringTransactionManager(transactionRepo: transactionRepo)
+    self.balanceMonitor = BalanceMonitorManager(transactionRepo: transactionRepo, budgetRepo: budgetRepo)
+    self.monthlyNotificationManager = MonthlyNotificationManager(transactionRepo: transactionRepo, budgetRepo: budgetRepo)
   }
 
   func loadMonthlyCards() -> [MonthBudgetCardType] {
@@ -95,6 +99,9 @@ final class DashboardViewModel {
         previousBalance: thisMonthPreviousBalance
       )
     }
+
+    // Monitorar saldo negativo após carregar os dados
+    balanceMonitor.monitorCurrentMonthBalance()
 
     return cards.sorted { $0.date < $1.date }
   }
@@ -310,6 +317,50 @@ final class DashboardViewModel {
         }
       }
     }
+  }
+  
+  // MARK: - Balance Monitor Functions
+  
+  /// Força o monitoramento de saldo negativo
+  func forceBalanceMonitoring() {
+    balanceMonitor.monitorCurrentMonthBalance()
+  }
+  
+  /// Remove todas as notificações de saldo negativo
+  func removeNegativeBalanceNotifications() {
+    balanceMonitor.removeNegativeBalanceNotifications()
+  }
+  
+  /// Verifica se há notificações de saldo negativo agendadas
+  func hasNegativeBalanceNotifications() -> Bool {
+    return balanceMonitor.hasNegativeBalanceNotifications()
+  }
+  
+  /// Debug: Lista todas as notificações de saldo negativo
+  func debugNegativeBalanceNotifications() {
+    balanceMonitor.debugNegativeBalanceNotifications()
+  }
+  
+  /// Debug: Testa formatação de data para diferentes idiomas
+  func debugDateFormatting() {
+    balanceMonitor.debugDateFormatting()
+  }
+  
+  // MARK: - Monthly Notification Functions
+  
+  /// Agenda todas as notificações do mês atual
+  func scheduleAllMonthlyNotifications(showAlert: Bool = true) -> Bool {
+    return monthlyNotificationManager.scheduleAllMonthlyNotifications(showAlert: showAlert)
+  }
+  
+  /// Verifica o status das notificações mensais
+  func checkMonthlyNotificationsStatus() -> MonthlyNotificationStatus {
+    return monthlyNotificationManager.checkMonthlyNotificationsStatus()
+  }
+  
+  /// Configura o sistema de notificações mensais
+  func setupMonthlyNotificationSystem() {
+    monthlyNotificationManager.setupMonthlyNotificationSystem()
   }
 
 }
