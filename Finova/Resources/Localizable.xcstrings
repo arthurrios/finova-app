@@ -358,6 +358,142 @@
         }
       }
     },
+    "auth.dialog.accountFound.message" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "We found existing data from your other account:\n%@\n\nWould you like to synchronize and access this data with your current sign-in?"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Encontramos dados existentes da sua outra conta:\n%@\n\nGostaria de sincronizar e acessar esses dados com seu login atual?"
+          }
+        }
+      }
+    },
+    "auth.dialog.accountFound.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Account Data Found"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dados da Conta Encontrados"
+          }
+        }
+      }
+    },
+    "auth.dialog.button.keepSeparate" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keep Separate"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Manter Separado"
+          }
+        }
+      }
+    },
+    "auth.dialog.button.reclaimData" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reclaim My Data"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reivindicar Meus Dados"
+          }
+        }
+      }
+    },
+    "auth.dialog.button.startFresh" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Start Fresh"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Começar do Zero"
+          }
+        }
+      }
+    },
+    "auth.dialog.button.synchronize" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Synchronize"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sincronizar"
+          }
+        }
+      }
+    },
+    "auth.dialog.ownershipConflict.message" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This device contains data owned by: %@\n\nYou're signing in with: %@\n\nIf this is your data, you can reclaim ownership. Otherwise, start fresh."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Este dispositivo contém dados pertencentes a: %@\n\nVocê está fazendo login com: %@\n\nSe estes são seus dados, você pode reivindicar a propriedade. Caso contrário, comece do zero."
+          }
+        }
+      }
+    },
+    "auth.dialog.ownershipConflict.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Data Ownership Conflict"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Conflito de Propriedade dos Dados"
+          }
+        }
+      }
+    },
     "auth.error.accessDenied" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -694,142 +830,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Credenciais inválidas"
-          }
-        }
-      }
-    },
-    "auth.dialog.accountFound.title" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Account Data Found"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Dados da Conta Encontrados"
-          }
-        }
-      }
-    },
-    "auth.dialog.accountFound.message" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "We found existing data from your other account:\n%@\n\nWould you like to synchronize and access this data with your current sign-in?"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Encontramos dados existentes da sua outra conta:\n%@\n\nGostaria de sincronizar e acessar esses dados com seu login atual?"
-          }
-        }
-      }
-    },
-    "auth.dialog.button.synchronize" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Synchronize"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Sincronizar"
-          }
-        }
-      }
-    },
-    "auth.dialog.button.keepSeparate" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Keep Separate"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Manter Separado"
-          }
-        }
-      }
-    },
-    "auth.dialog.button.reclaimData" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Reclaim My Data"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Reivindicar Meus Dados"
-          }
-        }
-      }
-    },
-    "auth.dialog.button.startFresh" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Start Fresh"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Começar do Zero"
-          }
-        }
-      }
-    },
-    "auth.dialog.ownershipConflict.title" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Data Ownership Conflict"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Conflito de Propriedade dos Dados"
-          }
-        }
-      }
-    },
-    "auth.dialog.ownershipConflict.message" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "This device contains data owned by: %@\n\nYou're signing in with: %@\n\nIf this is your data, you can reclaim ownership. Otherwise, start fresh."
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Este dispositivo contém dados pertencentes a: %@\n\nVocê está fazendo login com: %@\n\nSe estes são seus dados, você pode reivindicar a propriedade. Caso contrário, comece do zero."
           }
         }
       }
@@ -2721,19 +2721,359 @@
         }
       }
     },
+    "notification.installment.body.plural" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "You have %d installments due this month totaling %@"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Você tem %d parcelas vencendo este mês totalizando %@"
+          }
+        }
+      }
+    },
+    "notification.installment.body.singular" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "You have 1 installment due this month totaling %@"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Você tem 1 parcela vencendo este mês totalizando %@"
+          }
+        }
+      }
+    },
+    "notification.installment.reminder.body" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "You have upcoming installment payments. Open the app to see details."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Você tem pagamentos de parcelas próximos. Abra o app para ver detalhes."
+          }
+        }
+      }
+    },
+    "notification.installment.reminder.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Installment Reminder"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lembrete de Parcela"
+          }
+        }
+      }
+    },
+    "notification.installment.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Installment Payment Due"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pagamento de Parcela Vencendo"
+          }
+        }
+      }
+    },
+    "notification.monthly.fallback.body" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "You haven't configured notifications for this month yet. Open the app to set them up automatically."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Você ainda não configurou as notificações deste mês. Abra o app para configurá-las automaticamente."
+          }
+        }
+      }
+    },
+    "notification.monthly.fallback.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "⚠️ Notifications Not Configured"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "⚠️ Notificações Não Configuradas"
+          }
+        }
+      }
+    },
+    "notification.monthly.reminder.body" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open the app to configure your notifications for this month. This ensures you'll receive alerts for transactions and balance warnings."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Abra o app para configurar suas notificações deste mês. Isso garante que você receberá alertas para transações e avisos de saldo."
+          }
+        }
+      }
+    },
+    "notification.monthly.reminder.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "📅 Monthly Notifications Setup"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "📅 Configurar Notificações do Mês"
+          }
+        }
+      }
+    },
+    "notification.monthly.success.body" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "All notifications for this month have been scheduled successfully. You'll receive alerts for transactions and balance warnings."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Todas as notificações deste mês foram agendadas com sucesso. Você receberá alertas para transações e avisos de saldo."
+          }
+        }
+      }
+    },
+    "notification.monthly.success.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "✅ Notifications Configured"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "✅ Notificações Configuradas"
+          }
+        }
+      }
+    },
+    "notification.negative.balance.body" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "According to your monthly calculations, you will have a negative balance in %d days (%@). Check your transactions and adjust your budget."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "De acordo com os cálculos das transações do mês, você ficará com saldo negativo em %d dias (%@). Verifique suas transações e ajuste seu orçamento."
+          }
+        }
+      }
+    },
+    "notification.negative.balance.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "⚠️ Negative Balance Alert"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "⚠️ Alerta de Saldo Negativo"
+          }
+        }
+      }
+    },
+    "notification.recurring.body.plural" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "You have %d recurring transactions due this month totaling %@"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Você tem %d transações recorrentes vencendo este mês totalizando %@"
+          }
+        }
+      }
+    },
+    "notification.recurring.body.singular" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "You have 1 recurring transaction due this month totaling %@"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Você tem 1 transação recorrente vencendo este mês totalizando %@"
+          }
+        }
+      }
+    },
+    "notification.recurring.reminder.body" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "You have upcoming recurring transactions. Open the app to see details."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Você tem transações recorrentes próximas. Abra o app para ver detalhes."
+          }
+        }
+      }
+    },
+    "notification.recurring.reminder.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Recurring Transaction Reminder"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lembrete de Transação Recorrente"
+          }
+        }
+      }
+    },
+    "notification.recurring.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Recurring Transaction Due"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Transação Recorrente Vencendo"
+          }
+        }
+      }
+    },
+    "notification.test.body" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "If you see this, notifications are working correctly! This should fire in 5 seconds."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Se você vê isso, as notificações estão funcionando corretamente! Isso deve aparecer em 5 segundos."
+          }
+        }
+      }
+    },
+    "notification.test.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "🧪 Test Notification"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "🧪 Notificação de Teste"
+          }
+        }
+      }
+    },
     "notification.transaction.body.expense" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "\"%@\" of \"%@\""
+            "value" : "%@ of %@"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "\"%@\" de \"%@\""
+            "value" : "%@ de %@"
           }
         }
       }
@@ -2744,13 +3084,47 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "\"%@\" of \"%@\""
+            "value" : "%@ of %@"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "\"%@\" de \"%@\""
+            "value" : "%@ de %@"
+          }
+        }
+      }
+    },
+    "notification.transaction.reminder.body" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "You have upcoming transactions. Open the app to see details."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Você tem transações próximas. Abra o app para ver detalhes."
+          }
+        }
+      }
+    },
+    "notification.transaction.reminder.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Transaction Reminder"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lembrete de Transação"
           }
         }
       }
@@ -2785,380 +3159,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Crédito agendado"
-          }
-        }
-      }
-    },
-    "notification.installment.title" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Installment Payment Due"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Pagamento de Parcela Vencendo"
-          }
-        }
-      }
-    },
-    "notification.installment.body.singular" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "You have 1 installment due this month totaling %@"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Você tem 1 parcela vencendo este mês totalizando %@"
-          }
-        }
-      }
-    },
-    "notification.installment.body.plural" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "You have %d installments due this month totaling %@"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Você tem %d parcelas vencendo este mês totalizando %@"
-          }
-        }
-      }
-    },
-    "notification.installment.reminder.title" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Installment Reminder"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Lembrete de Parcela"
-          }
-        }
-      }
-    },
-    "notification.installment.reminder.body" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "You have upcoming installment payments. Open the app to see details."
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Você tem pagamentos de parcelas próximos. Abra o app para ver detalhes."
-          }
-        }
-      }
-    },
-    "notification.recurring.title" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Recurring Transaction Due"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Transação Recorrente Vencendo"
-          }
-        }
-      }
-    },
-    "notification.recurring.body.singular" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "You have 1 recurring transaction due this month totaling %@"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Você tem 1 transação recorrente vencendo este mês totalizando %@"
-          }
-        }
-      }
-    },
-    "notification.recurring.body.plural" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "You have %d recurring transactions due this month totaling %@"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Você tem %d transações recorrentes vencendo este mês totalizando %@"
-          }
-        }
-      }
-    },
-    "notification.recurring.reminder.title" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Recurring Transaction Reminder"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Lembrete de Transação Recorrente"
-          }
-        }
-      }
-    },
-    "notification.recurring.reminder.body" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "You have upcoming recurring transactions. Open the app to see details."
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Você tem transações recorrentes próximas. Abra o app para ver detalhes."
-          }
-        }
-      }
-    },
-    "notification.transaction.reminder.title" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Transaction Reminder"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Lembrete de Transação"
-          }
-        }
-      }
-    },
-    "notification.transaction.reminder.body" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "You have upcoming transactions. Open the app to see details."
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Você tem transações próximas. Abra o app para ver detalhes."
-          }
-        }
-      }
-    },
-    "notification.negative.balance.title" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "⚠️ Negative Balance Alert"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "⚠️ Alerta de Saldo Negativo"
-          }
-        }
-      }
-    },
-    "notification.negative.balance.body" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "According to your monthly calculations, you will have a negative balance in %d days (%@). Check your transactions and adjust your budget."
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "De acordo com os cálculos das transações do mês, você ficará com saldo negativo em %d dias (%@). Verifique suas transações e ajuste seu orçamento."
-          }
-        }
-      }
-    },
-    "notification.monthly.reminder.title" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "📅 Monthly Notifications Setup"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "📅 Configurar Notificações do Mês"
-          }
-        }
-      }
-    },
-    "notification.monthly.reminder.body" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Open the app to configure your notifications for this month. This ensures you'll receive alerts for transactions and balance warnings."
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Abra o app para configurar suas notificações deste mês. Isso garante que você receberá alertas para transações e avisos de saldo."
-          }
-        }
-      }
-    },
-    "notification.monthly.fallback.title" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "⚠️ Notifications Not Configured"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "⚠️ Notificações Não Configuradas"
-          }
-        }
-      }
-    },
-    "notification.monthly.fallback.body" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "You haven't configured notifications for this month yet. Open the app to set them up automatically."
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Você ainda não configurou as notificações deste mês. Abra o app para configurá-las automaticamente."
-          }
-        }
-      }
-    },
-    "notification.monthly.success.title" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "✅ Notifications Configured"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "✅ Notificações Configuradas"
-          }
-        }
-      }
-    },
-    "notification.monthly.success.body" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "All notifications for this month have been scheduled successfully. You'll receive alerts for transactions and balance warnings."
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Todas as notificações deste mês foram agendadas com sucesso. Você receberá alertas para transações e avisos de saldo."
-          }
-        }
-      }
-    },
-    "notification.test.title" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "🧪 Test Notification"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "🧪 Notificação de Teste"
-          }
-        }
-      }
-    },
-    "notification.test.body" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "If you see this, notifications are working correctly! This should fire in 5 seconds."
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Se você vê isso, as notificações estão funcionando corretamente! Isso deve aparecer em 5 segundos."
           }
         }
       }
@@ -3520,6 +3520,142 @@
         }
       }
     },
+    "settings.delete.account.confirm" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delete"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Excluir"
+          }
+        }
+      }
+    },
+    "settings.delete.account.error.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deletion Error"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Erro na Exclusão"
+          }
+        }
+      }
+    },
+    "settings.delete.account.processing" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deleting account..."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Excluindo conta..."
+          }
+        }
+      }
+    },
+    "settings.delete.account.reauth.message" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Please sign in again to delete your account, or sign out to clear local data only"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Faça login novamente para excluir sua conta, ou saia para limpar apenas os dados locais"
+          }
+        }
+      }
+    },
+    "settings.delete.account.reauth.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Authentication Required"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Autenticação Necessária"
+          }
+        }
+      }
+    },
+    "settings.delete.account.signout" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sign Out & Clear Data"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sair e Limpar Dados"
+          }
+        }
+      }
+    },
+    "settings.delete.account.success.message" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your account has been successfully deleted"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sua conta foi excluída com sucesso"
+          }
+        }
+      }
+    },
+    "settings.delete.account.success.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Account Deleted"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Conta Excluída"
+          }
+        }
+      }
+    },
     "settings.delete.account.title" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -3550,142 +3686,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Esta ação é irreversível. Todos os seus dados serão excluídos permanentemente. Tem certeza?"
-          }
-        }
-      }
-    },
-    "settings.delete.account.confirm" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Delete"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Excluir"
-          }
-        }
-      }
-    },
-    "settings.delete.account.processing" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Deleting account..."
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Excluindo conta..."
-          }
-        }
-      }
-    },
-    "settings.delete.account.error.title" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Deletion Error"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Erro na Exclusão"
-          }
-        }
-      }
-    },
-    "settings.delete.account.reauth.title" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Authentication Required"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Autenticação Necessária"
-          }
-        }
-      }
-    },
-    "settings.delete.account.reauth.message" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Please sign in again to delete your account, or sign out to clear local data only"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Faça login novamente para excluir sua conta, ou saia para limpar apenas os dados locais"
-          }
-        }
-      }
-    },
-    "settings.delete.account.signout" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Sign Out & Clear Data"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Sair e Limpar Dados"
-          }
-        }
-      }
-    },
-    "settings.delete.account.success.title" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Account Deleted"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Conta Excluída"
-          }
-        }
-      }
-    },
-    "settings.delete.account.success.message" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Your account has been successfully deleted"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Sua conta foi excluída com sucesso"
           }
         }
       }
