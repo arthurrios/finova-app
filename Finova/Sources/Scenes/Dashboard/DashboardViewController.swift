@@ -135,12 +135,47 @@ final class DashboardViewController: UIViewController {
         super.viewDidAppear(animated)
         LoadingManager.shared.hideLoading()
         
+        // Check if we should show notification success alert
+        checkAndShowNotificationSuccessAlert()
+        
 #if DEBUG
         // Add notification debugging on dashboard appear
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
             self.debugNotificationSystem()
         }
 #endif
+    }
+    
+    /// Check if we should show notification success alert and show it if needed
+    private func checkAndShowNotificationSuccessAlert() {
+        let shouldShowAlert = UserDefaults.standard.bool(forKey: "shouldShowNotificationSuccessAlert")
+        
+        if shouldShowAlert {
+            // Clear the flag first
+            UserDefaults.standard.set(false, forKey: "shouldShowNotificationSuccessAlert")
+            
+            // Get the alert type if specified
+            let alertType = UserDefaults.standard.string(forKey: "notificationAlertType") ?? "success"
+            
+            // Show the appropriate alert
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { // Small delay to ensure dashboard is fully loaded
+                let monthlyManager = MonthlyNotificationManager()
+                
+                switch alertType {
+                case "rescheduled":
+                    monthlyManager.showRescheduledAlert()
+                case "failure":
+                    monthlyManager.showFailureAlert()
+                case "permission":
+                    monthlyManager.showPermissionDeniedAlert()
+                default:
+                    monthlyManager.showSuccessAlert()
+                }
+                
+                // Clear the alert type
+                UserDefaults.standard.removeObject(forKey: "notificationAlertType")
+            }
+        }
     }
     
 #if DEBUG
@@ -150,6 +185,26 @@ final class DashboardViewController: UIViewController {
         
         // Also show current pending notifications
         viewModel.debugPendingNotifications()
+    }
+    
+    /// Reset notification state for testing
+    private func resetNotificationStateForTesting() {
+        // Clear all notification-related UserDefaults
+        UserDefaults.standard.removeObject(forKey: "lastScheduledMonthKey")
+        UserDefaults.standard.removeObject(forKey: "shouldShowNotificationSuccessAlert")
+        UserDefaults.standard.removeObject(forKey: "notificationAlertType")
+        
+        print("🔔 🧪 Reset notification state for testing")
+        
+        // Show confirmation alert
+        let alert = UIAlertController(
+            title: "🧪 Notification State Reset",
+            message: "Notification state has been reset. The next time you open the app, it should trigger the monthly notification setup.",
+            preferredStyle: .alert
+        )
+        
+        alert.addAction(UIAlertAction(title: "OK", style: .default))
+        present(alert, animated: true)
     }
 #endif
     
@@ -193,11 +248,16 @@ final class DashboardViewController: UIViewController {
             DebugDataManager.shared.forceRescheduleNotifications()
         }
         
+        let resetAction = UIAlertAction(title: "🧪 Reset Notification State", style: .default) { _ in
+            self.resetNotificationStateForTesting()
+        }
+        
         let cancelAction = UIAlertAction(title: "Cancel", style: .cancel)
         
         alertController.addAction(debugAction)
         alertController.addAction(testAction)
         alertController.addAction(rescheduleAction)
+        alertController.addAction(resetAction)
         alertController.addAction(cancelAction)
         
         present(alertController, animated: true)
