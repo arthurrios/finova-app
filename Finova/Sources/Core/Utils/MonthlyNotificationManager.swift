@@ -50,8 +50,14 @@ final class MonthlyNotificationManager {
         
         guard hasPermission else {
             print("🔔 ❌ Notification permission not granted")
+            if showAlert {
+                showPermissionDeniedAlert()
+            }
             return false
         }
+        
+        // Verificar se já foram agendadas para este mês
+        let alreadyScheduled = areNotificationsScheduledForCurrentMonth()
         
         // Limpar notificações existentes
         clearExistingMonthlyNotifications()
@@ -70,10 +76,17 @@ final class MonthlyNotificationManager {
         if overallSuccess {
             print("🔔 ✅ All monthly notifications scheduled successfully")
             if showAlert {
-                showSuccessAlert()
+                if alreadyScheduled {
+                    showRescheduledAlert()
+                } else {
+                    showSuccessAlert()
+                }
             }
         } else {
             print("🔔 ⚠️ Some notifications failed to schedule")
+            if showAlert {
+                showFailureAlert()
+            }
         }
         
         return overallSuccess
@@ -116,6 +129,18 @@ final class MonthlyNotificationManager {
         
         semaphore.wait()
         return status
+    }
+    
+    /// Verifica se as notificações já foram agendadas para o mês atual
+    func areNotificationsScheduledForCurrentMonth() -> Bool {
+        let currentDate = Date()
+        let calendar = Calendar.current
+        let currentMonth = calendar.component(.month, from: currentDate)
+        let currentYear = calendar.component(.year, from: currentDate)
+        let currentMonthKey = "\(currentYear)-\(currentMonth)"
+        
+        let lastScheduledMonthKey = UserDefaults.standard.string(forKey: "lastScheduledMonthKey")
+        return lastScheduledMonthKey == currentMonthKey
     }
     
     // MARK: - Private Methods
@@ -308,11 +333,89 @@ final class MonthlyNotificationManager {
     }
     
     /// Mostra alerta de sucesso
-    private func showSuccessAlert() {
+    func showSuccessAlert() {
         DispatchQueue.main.async {
             let alert = UIAlertController(
                 title: "notification.monthly.success.title".localized,
                 message: "notification.monthly.success.body".localized,
+                preferredStyle: .alert
+            )
+            
+            alert.addAction(UIAlertAction(title: "OK", style: .default))
+            
+            // Encontrar o view controller ativo para apresentar o alerta
+            if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+               let window = windowScene.windows.first,
+               let rootViewController = window.rootViewController {
+                
+                var topViewController = rootViewController
+                while let presentedViewController = topViewController.presentedViewController {
+                    topViewController = presentedViewController
+                }
+                
+                topViewController.present(alert, animated: true)
+            }
+        }
+    }
+    
+    /// Mostra alerta de reagendamento
+    func showRescheduledAlert() {
+        DispatchQueue.main.async {
+            let alert = UIAlertController(
+                title: "notification.monthly.rescheduled.title".localized,
+                message: "notification.monthly.rescheduled.body".localized,
+                preferredStyle: .alert
+            )
+            
+            alert.addAction(UIAlertAction(title: "OK", style: .default))
+            
+            // Encontrar o view controller ativo para apresentar o alerta
+            if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+               let window = windowScene.windows.first,
+               let rootViewController = window.rootViewController {
+                
+                var topViewController = rootViewController
+                while let presentedViewController = topViewController.presentedViewController {
+                    topViewController = presentedViewController
+                }
+                
+                topViewController.present(alert, animated: true)
+            }
+        }
+    }
+    
+    /// Mostra alerta de falha
+    func showFailureAlert() {
+        DispatchQueue.main.async {
+            let alert = UIAlertController(
+                title: "notification.monthly.failure.title".localized,
+                message: "notification.monthly.failure.body".localized,
+                preferredStyle: .alert
+            )
+            
+            alert.addAction(UIAlertAction(title: "OK", style: .default))
+            
+            // Encontrar o view controller ativo para apresentar o alerta
+            if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+               let window = windowScene.windows.first,
+               let rootViewController = window.rootViewController {
+                
+                var topViewController = rootViewController
+                while let presentedViewController = topViewController.presentedViewController {
+                    topViewController = presentedViewController
+                }
+                
+                topViewController.present(alert, animated: true)
+            }
+        }
+    }
+    
+    /// Mostra alerta de permissão negada
+    func showPermissionDeniedAlert() {
+        DispatchQueue.main.async {
+            let alert = UIAlertController(
+                title: "notification.monthly.permission.title".localized,
+                message: "notification.monthly.permission.body".localized,
                 preferredStyle: .alert
             )
             
