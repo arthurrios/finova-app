@@ -63,4 +63,12 @@ final class ViewControllersFactory: ViewControllersFactoryProtocol {
             contentView: contentView, viewModel: viewModel, flowDelegate: flowDelegate)
         return viewController
     }
+    
+    func makeCategoriesViewController(flowDelegate: any CategoriesFlowDelegate) -> CategoriesViewController {
+        let contentView = CategoriesView()
+        let viewModel = CategoriesViewModel()
+        let viewController = CategoriesViewController(
+            contentView: contentView, viewModel: viewModel, flowDelegate: flowDelegate)
+        return viewController
+    }
 }

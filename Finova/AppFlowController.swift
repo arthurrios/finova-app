@@ -147,3 +147,23 @@ extension AppFlowController: AddTransactionModalFlowDelegate {
         }
     }
 }
+// 
+extension AppFlowController: CategoriesFlowDelegate {
+    func navigateToSubCategoryManagement() {
+        <#code#>
+    }
+    
+    func navigateToSubCategoryCreation(parentCategory: TransactionCategory?) {
+        <#code#>
+    }
+    
+    func navigateToBudgetAllocation(for month: Date) {
+        <#code#>
+    }
+    
+    func navigateBackToDashboard() {
+        <#code#>
+    }
+    
+    
+}
