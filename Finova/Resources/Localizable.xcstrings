@@ -14,7 +14,7 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "A transação precisa ser ou do tipo entrada ou saída"
-          }
+          } 
         }
       }
     },
