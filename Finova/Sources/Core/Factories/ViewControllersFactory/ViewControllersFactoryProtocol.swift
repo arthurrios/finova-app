@@ -18,4 +18,5 @@ protocol ViewControllersFactoryProtocol: AnyObject {
     -> AddTransactionModalViewController
     func makeRegisterViewController(flowDelegate: RegisterFlowDelegate) -> RegisterViewController
     func makeSettingsViewController(flowDelegate: SettingsFlowDelegate) -> SettingsViewController
+    func makeCategoriesViewController(flowDelegate: CategoriesFlowDelegate) -> CategoriesViewController
 }
