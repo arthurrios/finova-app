@@ -81,17 +81,42 @@ class CustomTabBarController: UITabBarController {
     private func setupTabBar() {
         delegate = self
         
-        // Create placeholder view controllers for now
-        let dashboardVC = createPlaceholderViewController(title: "Dashboard", icon: "home")
-        let budgetsVC = createPlaceholderViewController(title: "Budgets", icon: "wallet")
+        // Create real view controllers using the factory
+        let dashboardVC = createRealDashboardViewController()
+        let budgetsVC = createRealBudgetsViewController()
         let addVC = createPlaceholderViewController(title: "", icon: "")
-        let categoriesVC = createPlaceholderViewController(title: "Categories", icon: "tag")
-        let settingsVC = createPlaceholderViewController(title: "Settings", icon: "settingsOutlinedIcon")
+        let categoriesVC = createRealCategoriesViewController()
+        let settingsVC = createRealSettingsViewController()
         
         viewControllers = [dashboardVC, budgetsVC, addVC, categoriesVC, settingsVC]
         
         // Set initial tab
         selectedIndex = 0
+    }
+    
+    private func createRealDashboardViewController() -> UIViewController {
+        // Use the factory to create the real dashboard
+        let dashboardVC = ViewControllersFactory().makeDashboardViewController(flowDelegate: self)
+        
+        // Remove the add transaction button from the dashboard view
+        // The DashboardViewController has a contentView property that is DashboardView
+        if let dashboardViewController = dashboardVC as? DashboardViewController {
+            dashboardViewController.contentView.removeAddTransactionButton()
+        }
+        
+        return dashboardVC
+    }
+    
+    private func createRealBudgetsViewController() -> UIViewController {
+        return ViewControllersFactory().makeBudgetsViewController(flowDelegate: self, date: nil)
+    }
+    
+    private func createRealCategoriesViewController() -> UIViewController {
+        return ViewControllersFactory().makeCategoriesViewController(flowDelegate: self)
+    }
+    
+    private func createRealSettingsViewController() -> UIViewController {
+        return ViewControllersFactory().makeSettingsViewController(flowDelegate: self)
     }
     
     private func setupTabBarContainer() {
@@ -242,8 +267,8 @@ class CustomTabBarController: UITabBarController {
         // But we exclude 'add' from our buttons, so the mapping is:
         // Button 0 (dashboard) -> selectedIndex 0
         // Button 1 (budgets) -> selectedIndex 1  
-        // Button 3 (categories) -> selectedIndex 2
-        // Button 4 (settings) -> selectedIndex 3
+        // Button 3 (categories) -> selectedIndex 3
+        // Button 4 (settings) -> selectedIndex 4
         let selectedIndex: Int
         switch buttonTag {
         case 0: // dashboard
@@ -251,9 +276,9 @@ class CustomTabBarController: UITabBarController {
         case 1: // budgets
             selectedIndex = 1
         case 3: // categories
-            selectedIndex = 2
-        case 4: // settings
             selectedIndex = 3
+        case 4: // settings
+            selectedIndex = 4
         default:
             selectedIndex = 0
         }
@@ -270,16 +295,15 @@ class CustomTabBarController: UITabBarController {
             case 1: // budgets
                 isSelected = selectedIndex == 1
             case 3: // categories
-                isSelected = selectedIndex == 2
-            case 4: // settings
                 isSelected = selectedIndex == 3
+            case 4: // settings
+                isSelected = selectedIndex == 4
             default:
                 isSelected = false
             }
+            
             button.tintColor = isSelected ? Colors.mainMagenta : Colors.gray100
         }
-        
-        customDelegate?.didSelectTab(at: selectedIndex)
     }
     
     private func setupFloatingActionButton() {
@@ -296,7 +320,7 @@ class CustomTabBarController: UITabBarController {
     private func positionFloatingActionButton() {
         // Position the floating button centered with the tab bar container
         let containerFrame = tabBarContainerView.frame
-        let buttonSize: CGFloat = 72 // Bigger than the bar (50pt bar, 56pt button)
+        let buttonSize: CGFloat = 72 // Bigger than the bar (50pt bar, 72pt button)
         
         // Perfect center alignment with the tab bar container
         let centerX = containerFrame.midX - buttonSize / 2
@@ -363,6 +387,88 @@ extension CustomTabBarController: CustomTabBarControllerDelegate {
     }
     
     func didTapFloatingActionButton() {
-        //
+        let addTransactionVC = ViewControllersFactory().makeAddTransactionModalViewController(flowDelegate: self)
+        
+        // Present as a normal view that covers the entire screen
+        addTransactionVC.modalPresentationStyle = .overCurrentContext
+        addTransactionVC.modalTransitionStyle = .crossDissolve
+        
+        present(addTransactionVC, animated: true)
+    }
+}
+
+// MARK: - Flow Delegates
+extension CustomTabBarController: DashboardFlowDelegate {
+    func logout() {
+        // Handle logout
+        customDelegate?.didSelectTab(at: -1) // Signal logout
+    }
+    
+    func navigateToBudgets(date: Date?) {
+        // Navigate to budgets tab
+        selectedIndex = 1
+    }
+    
+    func openAddTransactionModal() {
+        // This is now handled by the floating button
+        didTapFloatingActionButton()
+    }
+    
+    func navigateToSettings() {
+        // Navigate to settings
+        selectedIndex = 4 // Settings tab
+    }
+}
+
+extension CustomTabBarController: BudgetsFlowDelegate {
+    func navBackToDashboard() {
+        // Navigate back to dashboard
+        selectedIndex = 0
+    }
+}
+
+extension CustomTabBarController: CategoriesFlowDelegate {
+    func navigateToSubCategoryManagement() {
+        // Handle sub-category management
+    }
+    
+    func navigateToSubCategoryCreation(parentCategory: TransactionCategory?) {
+        // Handle sub-category creation
+    }
+    
+    func navigateToBudgetAllocation(for month: Date) {
+        // Handle budget allocation navigation
+    }
+    
+    func navigateBackToDashboard() {
+        // Navigate back to dashboard
+        selectedIndex = 0
+    }
+}
+
+extension CustomTabBarController: SettingsFlowDelegate {
+    func dismissSettings() {
+        // Navigate back to dashboard
+        selectedIndex = 0
+    }
+    
+    // Remove duplicate logout method - use the one from DashboardFlowDelegate
+}
+
+extension CustomTabBarController: AddTransactionModalFlowDelegate {
+    func didAddTransaction() {
+        // Handle transaction added
+        dismiss(animated: true) {
+            // Refresh the dashboard data after modal is dismissed
+            self.refreshDashboardData()
+        }
+    }
+    
+    private func refreshDashboardData() {
+        // Get the current dashboard view controller
+        if let dashboardVC = viewControllers?[0] as? DashboardViewController {
+            // Trigger a refresh of the dashboard data
+            dashboardVC.refreshDashboardData()
+        }
     }
 }

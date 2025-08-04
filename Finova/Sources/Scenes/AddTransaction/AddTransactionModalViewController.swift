@@ -41,6 +41,11 @@ final class AddTransactionModalViewController: UIViewController {
         contentView.expenseSelectorButton.delegate = self
         
         setupView()
+        
+        // Start animation immediately
+        DispatchQueue.main.async {
+            self.animateShow()
+        }
     }
     
     override func viewWillAppear(_ animated: Bool) {
@@ -48,11 +53,15 @@ final class AddTransactionModalViewController: UIViewController {
         startKeyboardObservers()
     }
     
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        // Animation is now handled in viewDidLoad
+    }
+    
     private func setupView() {
         let blurEffect = UIBlurEffect(style: .dark)
         let blurEffectView = UIVisualEffectView(effect: blurEffect)
-        blurEffectView.frame = view.bounds
-        blurEffectView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        blurEffectView.translatesAutoresizingMaskIntoConstraints = false
         
         setupGesture(viewTapped: blurEffectView)
         
@@ -60,7 +69,18 @@ final class AddTransactionModalViewController: UIViewController {
         view.addSubview(contentView)
         contentView.translatesAutoresizingMaskIntoConstraints = false
         
+        // Make blur view fill entire screen including beyond safe area
+        NSLayoutConstraint.activate([
+            blurEffectView.topAnchor.constraint(equalTo: view.topAnchor),
+            blurEffectView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            blurEffectView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            blurEffectView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+        ])
+        
         setupConstraints()
+        
+        // Position content view off-screen initially (will be animated in viewDidAppear)
+        contentView.transform = CGAffineTransform(translationX: 0, y: view.bounds.height)
     }
     
     private func setupConstraints() {
@@ -95,13 +115,10 @@ final class AddTransactionModalViewController: UIViewController {
     }
     
     func animateShow() {
-        view.layoutIfNeeded()
-        contentView.transform = CGAffineTransform(translationX: 0, y: contentView.frame.height)
         UIView.animate(
             withDuration: 0.3,
             animations: {
                 self.contentView.transform = .identity
-                self.view.layoutIfNeeded()
             })
     }
 }

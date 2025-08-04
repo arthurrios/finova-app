@@ -90,35 +90,6 @@ final class DashboardView: UIView {
         return collectionView
     }()
     
-    private let addTransactionButton: UIButton = {
-        let btn = UIButton(type: .system)
-        
-        if let originalImage = UIImage(named: "plus") {
-            let newSize = CGSize(width: 24, height: 24)
-            UIGraphicsBeginImageContextWithOptions(newSize, false, 0.0)
-            originalImage.draw(in: CGRect(origin: .zero, size: newSize))
-            let resizedImage = UIGraphicsGetImageFromCurrentImageContext()
-            UIGraphicsEndImageContext()
-            
-            btn.setImage(resizedImage, for: .normal)
-        }
-        
-        btn.tintColor = Colors.gray100
-        btn.backgroundColor = Colors.gray700
-        
-        btn.imageView?.contentMode = .center
-        
-        btn.layer.shadowColor = UIColor.black.cgColor
-        btn.layer.shadowOffset = CGSize(width: 0, height: 4)
-        btn.layer.shadowOpacity = 0.25
-        btn.layer.shadowRadius = 4
-        btn.layer.shouldRasterize = true
-        btn.layer.rasterizationScale = UIScreen.main.scale
-        
-        btn.translatesAutoresizingMaskIntoConstraints = false
-        return btn
-    }()
-    
     let monthSelectorShimmerView: ShimmerView = {
         let style = ShimmerViewStyle(
             baseColor: Colors.gray100, highlightColor: .white, duration: 1.2, interval: 0.4,
@@ -198,20 +169,11 @@ final class DashboardView: UIView {
         addSubview(monthSelectorView)
         addSubview(monthCarousel)
         
-        addSubview(addTransactionButton)
-        
-        bringSubviewToFront(addTransactionButton)
-        
         settingsButton.addTarget(self, action: #selector(settingsTapped), for: .touchUpInside)
         
         logoutButton.addTarget(
             self,
             action: #selector(logoutTapped),
-            for: .touchUpInside)
-        
-        addTransactionButton.addTarget(
-            self,
-            action: #selector(handleTapAddButton),
             for: .touchUpInside)
         
         setupImageGesture()
@@ -285,12 +247,7 @@ final class DashboardView: UIView {
             transactionsTableShimmerView.trailingAnchor.constraint(
                 equalTo: monthSelectorView.trailingAnchor, constant: -Metrics.spacing4),
             transactionsTableShimmerView.bottomAnchor.constraint(
-                equalTo: bottomAnchor, constant: -Metrics.spacing4),
-            
-            addTransactionButton.centerXAnchor.constraint(equalTo: centerXAnchor),
-            addTransactionButton.bottomAnchor.constraint(equalTo: safeAreaLayoutGuide.bottomAnchor),
-            addTransactionButton.heightAnchor.constraint(equalToConstant: Metrics.addButtonSize),
-            addTransactionButton.widthAnchor.constraint(equalToConstant: Metrics.addButtonSize)
+                equalTo: bottomAnchor, constant: -Metrics.spacing4)
         ])
     }
     
@@ -310,11 +267,13 @@ final class DashboardView: UIView {
                 self.monthCardShimmerView.removeFromSuperview()
                 self.transactionsTableShimmerView.removeFromSuperview()
                 
-                self.bringSubviewToFront(self.addTransactionButton)
-                
                 self.setNeedsLayout()
                 self.layoutIfNeeded()
             })
+    }
+    
+    func removeAddTransactionButton() {
+        // This method is no longer needed since the button was completely removed
     }
     
     @objc private func logoutTapped() {
@@ -339,17 +298,7 @@ final class DashboardView: UIView {
     override func layoutSubviews() {
         super.layoutSubviews()
         
-        addTransactionButton.layer.cornerRadius = addTransactionButton.bounds.height / 2
-        
-        addTransactionButton.layer.shadowPath =
-        UIBezierPath(
-            roundedRect: addTransactionButton.bounds,
-            cornerRadius: addTransactionButton.layer.cornerRadius
-        ).cgPath
-    }
-    
-    @objc
-    private func handleTapAddButton() {
-        delegate?.didTapAddTransaction()
+        // The old add transaction button has been completely removed
+        // No layout updates needed for it anymore
     }
 }
