@@ -12,4 +12,5 @@ protocol CategoriesFlowDelegate: AnyObject {
     func navigateToSubCategoryCreation(parentCategory: TransactionCategory?)
     func navigateToBudgetAllocation(for month: Date)
     func navigateBackToDashboard()
+    func categoriesDidAppear()
 }

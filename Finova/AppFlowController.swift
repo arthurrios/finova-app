@@ -133,6 +133,21 @@ extension AppFlowController: DashboardFlowDelegate, SettingsFlowDelegate {
     func dismissSettings() {
         navigationController?.popViewController(animated: true)
     }
+    
+    // MARK: - New methods for tab bar selection
+    func dashboardDidAppear() {
+        // Update tab bar when dashboard appears
+        if let tabBarController = navigationController?.viewControllers.first as? CustomTabBarController {
+            tabBarController.updateTabBarSelection(for: 0)
+        }
+    }
+    
+    func settingsDidAppear() {
+        // Update tab bar when settings appears
+        if let tabBarController = navigationController?.viewControllers.first as? CustomTabBarController {
+            tabBarController.updateTabBarSelection(for: 4)
+        }
+    }
 }
 
 // MARK: - Budgets Flow
@@ -140,6 +155,13 @@ extension AppFlowController: BudgetsFlowDelegate {
     func navBackToDashboard() {
         navigationController?.popViewController(animated: true)
         setupTabBarController()
+    }
+    
+    func budgetsDidAppear() {
+        // Update tab bar when budgets appears
+        if let tabBarController = navigationController?.viewControllers.first as? CustomTabBarController {
+            tabBarController.updateTabBarSelection(for: 1)
+        }
     }
 }
 
@@ -171,6 +193,13 @@ extension AppFlowController: CategoriesFlowDelegate {
     
     func navigateBackToDashboard() {
         //
+    }
+    
+    func categoriesDidAppear() {
+        // Update tab bar when categories appears
+        if let tabBarController = navigationController?.viewControllers.first as? CustomTabBarController {
+            tabBarController.updateTabBarSelection(for: 3)
+        }
     }
 }
 

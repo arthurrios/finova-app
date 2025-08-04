@@ -376,30 +376,9 @@ class CustomTabBarController: UITabBarController {
         
         // Only update if selection changed
         guard newSelectedIndex != customSelectedIndex else { return }
-        customSelectedIndex = newSelectedIndex
         
-        // Update the UITabBarController's selectedIndex for proper navigation
-        self.selectedIndex = newSelectedIndex
-        
-        // Update button colors - only icon changes color, labels stay visible
-        for (index, button) in tabButtons.enumerated() {
-            let currentButtonTag = button.tag
-            let isSelected = (currentButtonTag == customSelectedIndex)
-            
-            button.tintColor = isSelected ? Colors.mainMagenta : Colors.gray100
-            
-            // Find corresponding label - labels always stay visible and gray
-            let label = tabLabels.first { $0.tag == currentButtonTag }
-            if let label = label {
-                label.textColor = Colors.gray100 // Always gray
-                label.isHidden = false // Always visible
-            }
-        }
-        
-        // Animate layout changes
-        UIView.animate(withDuration: 0.2) {
-            self.customTabBarView.layoutIfNeeded()
-        }
+        // Use the new method to update tab bar selection
+        updateTabBarSelection(for: newSelectedIndex)
         
         // Notify delegate
         customDelegate?.didSelectTab(at: customSelectedIndex)
@@ -504,8 +483,7 @@ extension CustomTabBarController: DashboardFlowDelegate {
     
     func navigateToBudgets(date: Date?) {
         // Navigate to budgets tab
-        customSelectedIndex = 1
-        self.selectedIndex = 1
+        updateTabBarSelection(for: 1)
     }
     
     func openAddTransactionModal() {
@@ -515,16 +493,24 @@ extension CustomTabBarController: DashboardFlowDelegate {
     
     func navigateToSettings() {
         // Navigate to settings
-        customSelectedIndex = 4 // Settings tab
-        self.selectedIndex = 4
+        updateTabBarSelection(for: 4)
+    }
+    
+    func dashboardDidAppear() {
+        // Update tab bar when dashboard appears
+        updateTabBarSelection(for: 0)
     }
 }
 
 extension CustomTabBarController: BudgetsFlowDelegate {
     func navBackToDashboard() {
         // Navigate back to dashboard
-        customSelectedIndex = 0
-        self.selectedIndex = 0
+        updateTabBarSelection(for: 0)
+    }
+    
+    func budgetsDidAppear() {
+        // Update tab bar when budgets appears
+        updateTabBarSelection(for: 1)
     }
 }
 
@@ -543,16 +529,24 @@ extension CustomTabBarController: CategoriesFlowDelegate {
     
     func navigateBackToDashboard() {
         // Navigate back to dashboard
-        customSelectedIndex = 0
-        self.selectedIndex = 0
+        updateTabBarSelection(for: 0)
+    }
+    
+    func categoriesDidAppear() {
+        // Update tab bar when categories appears
+        updateTabBarSelection(for: 3)
     }
 }
 
 extension CustomTabBarController: SettingsFlowDelegate {
     func dismissSettings() {
         // Navigate back to dashboard
-        customSelectedIndex = 0
-        self.selectedIndex = 0
+        updateTabBarSelection(for: 0)
+    }
+    
+    func settingsDidAppear() {
+        // Update tab bar when settings appears
+        updateTabBarSelection(for: 4)
     }
     
     // Remove duplicate logout method - use the one from DashboardFlowDelegate
@@ -572,6 +566,38 @@ extension CustomTabBarController: AddTransactionModalFlowDelegate {
         if let dashboardVC = viewControllers?[0] as? DashboardViewController {
             // Trigger a refresh of the dashboard data
             dashboardVC.refreshDashboardData()
+        }
+    }
+    
+    // MARK: - Public Methods
+    func updateTabBarSelection(for index: Int) {
+        // Update the selected index
+        customSelectedIndex = index
+        self.selectedIndex = index
+        
+        // Update button colors and labels
+        updateTabBarAppearance()
+    }
+    
+    private func updateTabBarAppearance() {
+        // Update button colors - only icon changes color, labels stay visible
+        for (index, button) in tabButtons.enumerated() {
+            let currentButtonTag = button.tag
+            let isSelected = (currentButtonTag == customSelectedIndex)
+            
+            button.tintColor = isSelected ? Colors.mainMagenta : Colors.gray100
+            
+            // Find corresponding label - labels always stay visible and gray
+            let label = tabLabels.first { $0.tag == currentButtonTag }
+            if let label = label {
+                label.textColor = Colors.gray100 // Always gray
+                label.isHidden = false // Always visible
+            }
+        }
+        
+        // Animate layout changes
+        UIView.animate(withDuration: 0.2) {
+            self.customTabBarView.layoutIfNeeded()
         }
     }
 }

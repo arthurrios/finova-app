@@ -135,6 +135,9 @@ final class DashboardViewController: UIViewController {
         super.viewDidAppear(animated)
         LoadingManager.shared.hideLoading()
         
+        // Update tab bar selection when dashboard appears
+        flowDelegate?.dashboardDidAppear()
+        
         // Check if we should show notification success alert
         checkAndShowNotificationSuccessAlert()
         

@@ -12,4 +12,5 @@ public protocol DashboardFlowDelegate: AnyObject {
     func navigateToBudgets(date: Date?)
     func openAddTransactionModal()
     func navigateToSettings()
+    func dashboardDidAppear()
 }

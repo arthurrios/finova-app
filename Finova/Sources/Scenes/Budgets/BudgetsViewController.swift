@@ -128,6 +128,13 @@ final class BudgetsViewController: UIViewController {
         super.viewDidLayoutSubviews()
         updateTableHeight()
     }
+    
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        
+        // Update tab bar selection when budgets appears
+        flowDelegate?.budgetsDidAppear()
+    }
 }
 
 extension BudgetsViewController: BudgetsViewDelegate {
