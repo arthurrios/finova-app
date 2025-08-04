@@ -16,6 +16,18 @@ class CustomTabBarController: UITabBarController {
     private let tabBarContainerView = UIView()
     private let customTabBarView = UIView()
     private var tabButtons: [UIButton] = []
+    private var tabLabels: [UILabel] = []
+    private var tabContainers: [UIView] = []
+    
+    // Properties for dynamic constraint management
+    private var buttonWidthConstraints: [UIButton: (small: NSLayoutConstraint, big: NSLayoutConstraint)] = [:]
+    private var buttonHeightConstraints: [UIButton: (small: NSLayoutConstraint, big: NSLayoutConstraint)] = [:]
+    private var buttonTopConstraints: [UIButton: NSLayoutConstraint] = [:]
+    private var buttonCenterYConstraints: [UIButton: NSLayoutConstraint] = [:]
+    private var labelVerticalConstraints: [UILabel: (top: NSLayoutConstraint, bottom: NSLayoutConstraint)] = [:]
+    
+    // Track selected tab index
+    private var customSelectedIndex: Int = 0
     
     // MARK: - Tab Items
     private enum TabItem: Int, CaseIterable {
@@ -27,11 +39,11 @@ class CustomTabBarController: UITabBarController {
         
         var title: String {
             switch self {
-            case .dashboard: return ""
-            case .budgets: return ""
+            case .dashboard: return "dashboard.tab".localized
+            case .budgets: return "budgets.tab".localized
             case .add: return ""
-            case .categories: return ""
-            case .settings: return ""
+            case .categories: return "categories.tab".localized
+            case .settings: return "settings.tab".localized
             }
         }
         
@@ -69,13 +81,12 @@ class CustomTabBarController: UITabBarController {
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         positionFloatingActionButton()
-        positionTabButtons()
+        // Positioning is now handled by Auto Layout constraints
     }
     
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
-        // Ensure buttons are positioned after layout
-        positionTabButtons()
+        // Positioning is now handled by Auto Layout constraints
     }
     
     private func setupTabBar() {
@@ -91,7 +102,7 @@ class CustomTabBarController: UITabBarController {
         viewControllers = [dashboardVC, budgetsVC, addVC, categoriesVC, settingsVC]
         
         // Set initial tab
-        selectedIndex = 0
+        customSelectedIndex = 0
     }
     
     private func createRealDashboardViewController() -> UIViewController {
@@ -122,7 +133,7 @@ class CustomTabBarController: UITabBarController {
     private func setupTabBarContainer() {
         // Create a container view for the tab bar with padding
         tabBarContainerView.backgroundColor = Colors.gray700
-        tabBarContainerView.layer.cornerRadius = 25 // Smaller radius for smaller height
+        tabBarContainerView.layer.cornerRadius = 27.5 // Half of the height (55/2) for fully rounded sides
         tabBarContainerView.layer.masksToBounds = false // Allow shadow to show
         
         // Add shadow to match the floating button
@@ -142,7 +153,7 @@ class CustomTabBarController: UITabBarController {
             tabBarContainerView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: Metrics.spacing8), // More padding
             tabBarContainerView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -Metrics.spacing8), // More padding
             tabBarContainerView.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -Metrics.spacing3),
-            tabBarContainerView.heightAnchor.constraint(equalToConstant: 50) // Smaller height for better visual hierarchy
+            tabBarContainerView.heightAnchor.constraint(equalToConstant: 55) // Slightly increased height for labels
         ])
     }
     
@@ -164,9 +175,56 @@ class CustomTabBarController: UITabBarController {
     
     private func createTabButtons() {
         let items = TabItem.allCases.filter { $0 != .add } // Exclude add button
-        print("Creating \(items.count) tab buttons")
+        
+        // Create a horizontal stack view for the tab items
+        let tabStackView = UIStackView()
+        tabStackView.axis = .horizontal
+        tabStackView.distribution = .equalSpacing
+        tabStackView.alignment = .center
+        tabStackView.translatesAutoresizingMaskIntoConstraints = false
+        
+        customTabBarView.addSubview(tabStackView)
+        
+        // Add constraints for the stack view
+        NSLayoutConstraint.activate([
+            tabStackView.leadingAnchor.constraint(equalTo: customTabBarView.leadingAnchor, constant: 10), // Less padding to push left stack more left
+            tabStackView.trailingAnchor.constraint(equalTo: customTabBarView.trailingAnchor, constant: -10), // Less padding to push right stack more left
+            tabStackView.centerYAnchor.constraint(equalTo: customTabBarView.centerYAnchor)
+        ])
+        
+        // Create left group stack view
+        let leftGroupStack = UIStackView()
+        leftGroupStack.axis = .horizontal
+        leftGroupStack.distribution = .equalSpacing
+        leftGroupStack.alignment = .center
+        leftGroupStack.translatesAutoresizingMaskIntoConstraints = false
+        
+        // Create right group stack view
+        let rightGroupStack = UIStackView()
+        rightGroupStack.axis = .horizontal
+        rightGroupStack.distribution = .equalSpacing
+        rightGroupStack.alignment = .center
+        rightGroupStack.translatesAutoresizingMaskIntoConstraints = false
+        
+        // Add groups to main stack view
+        tabStackView.addArrangedSubview(leftGroupStack)
+        
+        // Add center spacing view for plus button
+        let centerSpacingView = UIView()
+        centerSpacingView.translatesAutoresizingMaskIntoConstraints = false
+        tabStackView.addArrangedSubview(centerSpacingView)
+        NSLayoutConstraint.activate([
+            centerSpacingView.widthAnchor.constraint(equalToConstant: 80) // Space for plus button
+        ])
+        
+        tabStackView.addArrangedSubview(rightGroupStack)
         
         for (index, item) in items.enumerated() {
+            // Create container view for icon and label
+            let containerView = UIView()
+            containerView.translatesAutoresizingMaskIntoConstraints = false
+            
+            // Create icon button
             let button = UIButton(type: .system)
             button.setImage(UIImage(named: item.iconName), for: .normal)
             
@@ -189,57 +247,87 @@ class CustomTabBarController: UITabBarController {
             
             button.tag = item.rawValue
             button.addTarget(self, action: #selector(tabButtonTapped(_:)), for: .touchUpInside)
+            button.translatesAutoresizingMaskIntoConstraints = false
             
-            // Set initial frame - consistent 24pt size
-            button.frame = CGRect(x: 0, y: 0, width: 24, height: 24)
+            // Create label
+            let label = UILabel()
+            label.text = item.title
+            label.font = Fonts.title2XS.font // Use the smallest available font
+            label.textColor = isSelected ? Colors.mainMagenta : Colors.gray100
+            label.textAlignment = .center
+            label.translatesAutoresizingMaskIntoConstraints = false
+            label.isHidden = !isSelected // Hide label if not selected
+            label.tag = item.rawValue // Use same tag as button for easy lookup
             
-            // Remove debug background
-            button.backgroundColor = UIColor.clear
+            // Add button and label to container
+            containerView.addSubview(button)
+            containerView.addSubview(label)
             
-            customTabBarView.addSubview(button)
+            // Common horizontal centering for button
+            NSLayoutConstraint.activate([
+                button.centerXAnchor.constraint(equalTo: containerView.centerXAnchor),
+            ])
+
+            // Label horizontal constraints (always active)
+            NSLayoutConstraint.activate([
+                label.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
+                label.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
+            ])
+
+            // Create all possible constraints, but don't activate yet
+            let buttonWidthSmall = button.widthAnchor.constraint(equalToConstant: 18)
+            let buttonHeightSmall = button.heightAnchor.constraint(equalToConstant: 18)
+            let buttonWidthBig = button.widthAnchor.constraint(equalToConstant: 24)
+            let buttonHeightBig = button.heightAnchor.constraint(equalToConstant: 24)
+            
+            let buttonTop = button.topAnchor.constraint(equalTo: containerView.topAnchor, constant: 3)
+            let buttonCenterY = button.centerYAnchor.constraint(equalTo: containerView.centerYAnchor)
+            
+            let labelTop = label.topAnchor.constraint(equalTo: button.bottomAnchor, constant: 2)
+            let labelBottom = label.bottomAnchor.constraint(equalTo: containerView.bottomAnchor, constant: -3)
+
+            // Store constraints
+            buttonWidthConstraints[button] = (small: buttonWidthSmall, big: buttonWidthBig)
+            buttonHeightConstraints[button] = (small: buttonHeightSmall, big: buttonHeightBig)
+            buttonTopConstraints[button] = buttonTop
+            buttonCenterYConstraints[button] = buttonCenterY
+            labelVerticalConstraints[label] = (top: labelTop, bottom: labelBottom)
+
+            // Activate initial state
+            if isSelected {
+                buttonWidthSmall.isActive = true
+                buttonHeightSmall.isActive = true
+                buttonTop.isActive = true
+                labelTop.isActive = true
+                labelBottom.isActive = true
+            } else {
+                buttonWidthBig.isActive = true
+                buttonHeightBig.isActive = true
+                buttonCenterY.isActive = true
+            }
+            
+            // Set container size constraints
+            NSLayoutConstraint.activate([
+                containerView.widthAnchor.constraint(equalToConstant: 60),
+                containerView.heightAnchor.constraint(equalToConstant: 40)
+            ])
+            
+            // Add to appropriate group based on index
+            if index < 2 { // Dashboard and Budgets go to left group
+                leftGroupStack.addArrangedSubview(containerView)
+            } else { // Categories and Settings go to right group
+                rightGroupStack.addArrangedSubview(containerView)
+            }
+            
             tabButtons.append(button)
-            print("Created button for \(item.iconName) at index \(index)")
+            tabLabels.append(label)
+            tabContainers.append(containerView)
         }
     }
     
     private func positionTabButtons() {
-        let items = TabItem.allCases.filter { $0 != .add }
-        let containerWidth = tabBarContainerView.bounds.width
-        let buttonSize: CGFloat = 24
-        
-        // Create space in the middle for the plus button
-        // Divide the container into 5 sections: left1, left2, center(plus), right1, right2
-        let sectionWidth = containerWidth / 5
-        
-        print("Positioning \(tabButtons.count) buttons in container width: \(containerWidth), section width: \(sectionWidth)")
-        
-        for (index, button) in tabButtons.enumerated() {
-            var xPosition: CGFloat
-            
-            // Position buttons with space in the middle for plus button
-            switch index {
-            case 0: // Dashboard (leftmost)
-                xPosition = sectionWidth * 0.5
-            case 1: // Budgets (left of center)
-                xPosition = sectionWidth * 1.5
-            case 2: // Categories (right of center)
-                xPosition = sectionWidth * 3.5
-            case 3: // Settings (rightmost)
-                xPosition = sectionWidth * 4.5
-            default:
-                xPosition = 0
-            }
-            
-            let yPosition = (tabBarContainerView.bounds.height - buttonSize) / 2 // Center vertically
-            
-            // Ensure consistent button size
-            button.frame = CGRect(x: xPosition - buttonSize/2, y: yPosition, width: buttonSize, height: buttonSize)
-            
-            // Ensure proper image sizing
-            button.imageView?.contentMode = .scaleAspectFit
-            
-            print("Positioned button \(index) at x: \(xPosition - buttonSize/2), y: \(yPosition), size: \(buttonSize)x\(buttonSize)")
-        }
+        // This method is no longer needed since we're using Auto Layout constraints
+        // The positioning is now handled in positionContainer method
     }
     
     private func updateCustomTabBarLayout() {
@@ -263,47 +351,75 @@ class CustomTabBarController: UITabBarController {
         let buttonTag = sender.tag
         
         // Map button tag to the correct tab index
-        // TabItem: dashboard=0, budgets=1, add=2, categories=3, settings=4
-        // But we exclude 'add' from our buttons, so the mapping is:
-        // Button 0 (dashboard) -> selectedIndex 0
-        // Button 1 (budgets) -> selectedIndex 1  
-        // Button 3 (categories) -> selectedIndex 3
-        // Button 4 (settings) -> selectedIndex 4
-        let selectedIndex: Int
+        let newSelectedIndex: Int
         switch buttonTag {
         case 0: // dashboard
-            selectedIndex = 0
+            newSelectedIndex = 0
         case 1: // budgets
-            selectedIndex = 1
+            newSelectedIndex = 1
         case 3: // categories
-            selectedIndex = 3
+            newSelectedIndex = 3
         case 4: // settings
-            selectedIndex = 4
+            newSelectedIndex = 4
         default:
-            selectedIndex = 0
+            newSelectedIndex = customSelectedIndex // Should not happen
         }
         
-        self.selectedIndex = selectedIndex
+        // Only update if selection changed
+        guard newSelectedIndex != customSelectedIndex else { return }
+        customSelectedIndex = newSelectedIndex
         
-        // Update button colors with magenta for selected, gray for unselected
+        // Update the UITabBarController's selectedIndex for proper navigation
+        self.selectedIndex = newSelectedIndex
+        
+        // Update button colors, label visibility, and icon sizes/positions
         for (index, button) in tabButtons.enumerated() {
-            let buttonTag = button.tag
-            let isSelected: Bool
-            switch buttonTag {
-            case 0: // dashboard
-                isSelected = selectedIndex == 0
-            case 1: // budgets
-                isSelected = selectedIndex == 1
-            case 3: // categories
-                isSelected = selectedIndex == 3
-            case 4: // settings
-                isSelected = selectedIndex == 4
-            default:
-                isSelected = false
-            }
+            let currentButtonTag = button.tag
+            let isSelected = (currentButtonTag == customSelectedIndex)
             
             button.tintColor = isSelected ? Colors.mainMagenta : Colors.gray100
+            
+            // Find corresponding label
+            let label = tabLabels.first { $0.tag == currentButtonTag }
+            
+            // Deactivate current constraints
+            buttonTopConstraints[button]?.isActive = false
+            buttonCenterYConstraints[button]?.isActive = false
+            buttonWidthConstraints[button]?.small.isActive = false
+            buttonWidthConstraints[button]?.big.isActive = false
+            buttonHeightConstraints[button]?.small.isActive = false
+            buttonHeightConstraints[button]?.big.isActive = false
+            
+            if let label = label {
+                labelVerticalConstraints[label]?.top.isActive = false
+                labelVerticalConstraints[label]?.bottom.isActive = false
+                
+                // Update label visibility and color
+                label.textColor = isSelected ? Colors.mainMagenta : Colors.gray100
+                label.isHidden = !isSelected
+                
+                // Activate new constraints based on selection
+                if isSelected {
+                    buttonTopConstraints[button]?.isActive = true
+                    buttonWidthConstraints[button]?.small.isActive = true
+                    buttonHeightConstraints[button]?.small.isActive = true
+                    labelVerticalConstraints[label]?.top.isActive = true
+                    labelVerticalConstraints[label]?.bottom.isActive = true
+                } else {
+                    buttonCenterYConstraints[button]?.isActive = true
+                    buttonWidthConstraints[button]?.big.isActive = true
+                    buttonHeightConstraints[button]?.big.isActive = true
+                }
+            }
         }
+        
+        // Animate layout changes
+        UIView.animate(withDuration: 0.2) {
+            self.customTabBarView.layoutIfNeeded()
+        }
+        
+        // Notify delegate
+        customDelegate?.didSelectTab(at: customSelectedIndex)
     }
     
     private func setupFloatingActionButton() {
@@ -333,7 +449,6 @@ class CustomTabBarController: UITabBarController {
             height: buttonSize
         )
         
-        print("Floating button positioned at x: \(centerX), y: \(centerY), container center: \(containerFrame.midX)")
     }
     
     private func createPlaceholderViewController(title: String, icon: String) -> UIViewController {
@@ -406,7 +521,8 @@ extension CustomTabBarController: DashboardFlowDelegate {
     
     func navigateToBudgets(date: Date?) {
         // Navigate to budgets tab
-        selectedIndex = 1
+        customSelectedIndex = 1
+        self.selectedIndex = 1
     }
     
     func openAddTransactionModal() {
@@ -416,14 +532,16 @@ extension CustomTabBarController: DashboardFlowDelegate {
     
     func navigateToSettings() {
         // Navigate to settings
-        selectedIndex = 4 // Settings tab
+        customSelectedIndex = 4 // Settings tab
+        self.selectedIndex = 4
     }
 }
 
 extension CustomTabBarController: BudgetsFlowDelegate {
     func navBackToDashboard() {
         // Navigate back to dashboard
-        selectedIndex = 0
+        customSelectedIndex = 0
+        self.selectedIndex = 0
     }
 }
 
@@ -442,14 +560,16 @@ extension CustomTabBarController: CategoriesFlowDelegate {
     
     func navigateBackToDashboard() {
         // Navigate back to dashboard
-        selectedIndex = 0
+        customSelectedIndex = 0
+        self.selectedIndex = 0
     }
 }
 
 extension CustomTabBarController: SettingsFlowDelegate {
     func dismissSettings() {
         // Navigate back to dashboard
-        selectedIndex = 0
+        customSelectedIndex = 0
+        self.selectedIndex = 0
     }
     
     // Remove duplicate logout method - use the one from DashboardFlowDelegate

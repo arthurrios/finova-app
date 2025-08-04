@@ -39,9 +39,6 @@ class AppFlowController {
 extension AppFlowController: CommonFlowDelegate {
     func navigateToDashboard() {
         navigationController?.dismiss(animated: false)
-        let dashboardViewController = viewControllersFactory.makeDashboardViewController(
-            flowDelegate: self)
-        navigationController?.pushViewController(dashboardViewController, animated: true)
         setupTabBarController()
     }
 }
@@ -59,8 +56,6 @@ extension AppFlowController: SplashFlowDelegate {
     
     func navigateDirectlyToDashboard() {
         navigationController?.dismiss(animated: false)
-        let viewController = viewControllersFactory.makeDashboardViewController(flowDelegate: self)
-        navigationController?.pushViewController(viewController, animated: true)
         setupTabBarController()
     }
 }
