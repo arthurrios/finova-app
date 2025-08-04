@@ -11,6 +11,7 @@ import UIKit
 class AppFlowController {
     // MARK: - Properties
     private var navigationController: UINavigationController?
+    private var tabBarController: CustomTabBarController?
     private let viewControllersFactory: ViewControllersFactoryProtocol
     // MARK: - init
     public init() {
@@ -23,6 +24,15 @@ class AppFlowController {
         navigationController = UINavigationController(rootViewController: viewController)
         return navigationController
     }
+    
+    // MARK: - Tab Bar Setup
+    private func setupTabBarController() {
+        tabBarController = CustomTabBarController(nibName: nil, bundle: nil)
+        tabBarController?.customDelegate = self
+        
+        // Set the tab bar controller as the root
+        navigationController?.setViewControllers([tabBarController!], animated: false)
+    }
 }
 
 // MARK: - Common Navigation
@@ -32,6 +42,7 @@ extension AppFlowController: CommonFlowDelegate {
         let dashboardViewController = viewControllersFactory.makeDashboardViewController(
             flowDelegate: self)
         navigationController?.pushViewController(dashboardViewController, animated: true)
+        setupTabBarController()
     }
 }
 
@@ -50,6 +61,7 @@ extension AppFlowController: SplashFlowDelegate {
         navigationController?.dismiss(animated: false)
         let viewController = viewControllersFactory.makeDashboardViewController(flowDelegate: self)
         navigationController?.pushViewController(viewController, animated: true)
+        setupTabBarController()
     }
 }
 
@@ -132,6 +144,7 @@ extension AppFlowController: DashboardFlowDelegate, SettingsFlowDelegate {
 extension AppFlowController: BudgetsFlowDelegate {
     func navBackToDashboard() {
         navigationController?.popViewController(animated: true)
+        setupTabBarController()
     }
 }
 
@@ -150,20 +163,30 @@ extension AppFlowController: AddTransactionModalFlowDelegate {
 // 
 extension AppFlowController: CategoriesFlowDelegate {
     func navigateToSubCategoryManagement() {
-        <#code#>
+        //
     }
     
     func navigateToSubCategoryCreation(parentCategory: TransactionCategory?) {
-        <#code#>
+        //
     }
     
     func navigateToBudgetAllocation(for month: Date) {
-        <#code#>
+        //
     }
     
     func navigateBackToDashboard() {
-        <#code#>
+        //
+    }
+}
+
+extension AppFlowController: CustomTabBarControllerDelegate {
+    func didSelectTab(at index: Int) {
+        // Handle tab selection if needed
+        print("Selected tab at index: \(index)")
     }
     
-    
+    func didTapFloatingActionButton() {
+        // Open add transaction modal
+        openAddTransactionModal()
+    }
 }

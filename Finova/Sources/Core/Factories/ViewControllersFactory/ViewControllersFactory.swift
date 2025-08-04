@@ -71,4 +71,11 @@ final class ViewControllersFactory: ViewControllersFactoryProtocol {
             contentView: contentView, viewModel: viewModel, flowDelegate: flowDelegate)
         return viewController
     }
+    
+    // MARK: - Custom Tab Bar Controller
+    func makeCustomTabBarController(flowDelegate: CustomTabBarControllerDelegate) -> CustomTabBarController {
+        let tabBarController = CustomTabBarController(nibName: nil, bundle: nil)
+        tabBarController.customDelegate = flowDelegate
+        return tabBarController
+    }
 }

@@ -78,9 +78,9 @@ final class CategoriesView: UIView {
             scrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
             
             contentStackView.topAnchor.constraint(equalTo: scrollView.topAnchor, constant: Metrics.spacing5),
-            contentStackView.leadingAnchor.constraint(equalTo: scrollView.leadingAnchor, constant: Metrics.spacing5)),
-            contentStackView.trailingAnchor.constraint(equalTo: scrollView.trailingAnchor, constant: -Metrics.spacing5)),
-            contentStackView.bottomAnchor.constraint(equalTo: scrollView.bottomAnchor, constant: -Metrics.spacing5)),
+            contentStackView.leadingAnchor.constraint(equalTo: scrollView.leadingAnchor, constant: Metrics.spacing5),
+            contentStackView.trailingAnchor.constraint(equalTo: scrollView.trailingAnchor, constant: -Metrics.spacing5),
+            contentStackView.bottomAnchor.constraint(equalTo: scrollView.bottomAnchor, constant: -Metrics.spacing5),
             contentStackView.widthAnchor.constraint(equalTo: scrollView.widthAnchor, constant: -Metrics.spacing10)
         ])
     }

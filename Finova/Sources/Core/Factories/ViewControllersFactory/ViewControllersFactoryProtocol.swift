@@ -19,4 +19,5 @@ protocol ViewControllersFactoryProtocol: AnyObject {
     func makeRegisterViewController(flowDelegate: RegisterFlowDelegate) -> RegisterViewController
     func makeSettingsViewController(flowDelegate: SettingsFlowDelegate) -> SettingsViewController
     func makeCategoriesViewController(flowDelegate: CategoriesFlowDelegate) -> CategoriesViewController
+    func makeCustomTabBarController(flowDelegate: CustomTabBarControllerDelegate) -> CustomTabBarController
 }
