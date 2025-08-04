@@ -38,14 +38,14 @@ final class FloatingActionButton: UIButton {
         
         // Configure button appearance
         tintColor = Colors.gray100
-        backgroundColor = Colors.gray700
+        backgroundColor = Colors.darkMagenta
         
         // Configure image view
         imageView?.contentMode = .center
         imageView?.tintColor = Colors.gray100
         
-        // Make it circular for the main shape
-        layer.cornerRadius = 36
+        // Make it circular for the main shape - smaller size
+        layer.cornerRadius = 28
         
         // Add shadow for elevation
         layer.shadowColor = UIColor.black.cgColor

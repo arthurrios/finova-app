@@ -14,7 +14,7 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "A transação precisa ser ou do tipo entrada ou saída"
-          } 
+          }
         }
       }
     },
@@ -1089,19 +1089,53 @@
         }
       }
     },
+    "budgets.tab" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Budgets"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Orçamentos"
+          }
+        }
+      }
+    },
     "budgets.table.header.title" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Registered budgets"
+            "value" : "Budgets"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Orçamentos cadastrados"
+            "value" : "Orçamentos"
+          }
+        }
+      }
+    },
+    "categories.tab" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Categories"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Categorias"
           }
         }
       }
@@ -1578,6 +1612,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Utilidades"
+          }
+        }
+      }
+    },
+    "dashboard.tab" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Home"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Início"
           }
         }
       }
@@ -2806,6 +2857,40 @@
         }
       }
     },
+    "notification.monthly.failure.body" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Some notifications could not be scheduled. Please try again later."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Algumas notificações não puderam ser agendadas. Tente novamente mais tarde."
+          }
+        }
+      }
+    },
+    "notification.monthly.failure.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "❌ Notification Setup Failed"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "❌ Falha na Configuração"
+          }
+        }
+      }
+    },
     "notification.monthly.fallback.body" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2836,6 +2921,40 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "⚠️ Notificações Não Configuradas"
+          }
+        }
+      }
+    },
+    "notification.monthly.permission.body" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Please enable notifications in Settings to receive monthly reminders and transaction alerts."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ative as notificações nas Configurações para receber lembretes mensais e alertas de transações."
+          }
+        }
+      }
+    },
+    "notification.monthly.permission.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "🔔 Notification Permission Required"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "🔔 Permissão de Notificação Necessária"
           }
         }
       }
@@ -2874,6 +2993,40 @@
         }
       }
     },
+    "notification.monthly.rescheduled.body" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your monthly notifications have been updated with the latest transaction data."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Suas notificações mensais foram atualizadas com os dados mais recentes das transações."
+          }
+        }
+      }
+    },
+    "notification.monthly.rescheduled.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "🔄 Notifications Updated"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "🔄 Notificações Atualizadas"
+          }
+        }
+      }
+    },
     "notification.monthly.success.body" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2904,108 +3057,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "✅ Notificações Configuradas"
-          }
-        }
-      }
-    },
-    "notification.monthly.rescheduled.title" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "🔄 Notifications Updated"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "🔄 Notificações Atualizadas"
-          }
-        }
-      }
-    },
-    "notification.monthly.rescheduled.body" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Your monthly notifications have been updated with the latest transaction data."
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Suas notificações mensais foram atualizadas com os dados mais recentes das transações."
-          }
-        }
-      }
-    },
-    "notification.monthly.failure.title" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "❌ Notification Setup Failed"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "❌ Falha na Configuração"
-          }
-        }
-      }
-    },
-    "notification.monthly.failure.body" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Some notifications could not be scheduled. Please try again later."
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Algumas notificações não puderam ser agendadas. Tente novamente mais tarde."
-          }
-        }
-      }
-    },
-    "notification.monthly.permission.title" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "🔔 Notification Permission Required"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "🔔 Permissão de Notificação Necessária"
-          }
-        }
-      }
-    },
-    "notification.monthly.permission.body" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Please enable notifications in Settings to receive monthly reminders and transaction alerts."
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ative as notificações nas Configurações para receber lembretes mensais e alertas de transações."
           }
         }
       }
@@ -3804,7 +3855,7 @@
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Configurações"
+            "value" : "Ajustes"
           }
         }
       }
@@ -3860,6 +3911,23 @@
         }
       }
     },
+    "settings.tab" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Settings"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ajustes"
+          }
+        }
+      }
+    },
     "settings.title" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -3872,7 +3940,7 @@
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Configurações"
+            "value" : "Ajustes"
           }
         }
       }
