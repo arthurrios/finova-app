@@ -17,6 +17,9 @@ class CustomTabBarController: UITabBarController {
     private let customTabBarView = UIView()
     private var tabButtons: [UIButton] = []
     
+    // Track selected tab index
+    private var customSelectedIndex: Int = 0
+    
     // MARK: - Tab Items
     private enum TabItem: Int, CaseIterable {
         case dashboard = 0
@@ -69,29 +72,56 @@ class CustomTabBarController: UITabBarController {
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         positionFloatingActionButton()
-        positionTabButtons()
+        // Positioning is now handled by Auto Layout constraints
     }
     
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
-        // Ensure buttons are positioned after layout
-        positionTabButtons()
+        // Ensure Home tab is selected when tab bar appears
+        if customSelectedIndex != 0 {
+            selectHomeTab()
+        }
     }
     
     private func setupTabBar() {
         delegate = self
         
-        // Create placeholder view controllers for now
-        let dashboardVC = createPlaceholderViewController(title: "Dashboard", icon: "home")
-        let budgetsVC = createPlaceholderViewController(title: "Budgets", icon: "wallet")
+        // Create real view controllers using the factory
+        let dashboardVC = createRealDashboardViewController()
+        let budgetsVC = createRealBudgetsViewController()
         let addVC = createPlaceholderViewController(title: "", icon: "")
-        let categoriesVC = createPlaceholderViewController(title: "Categories", icon: "tag")
-        let settingsVC = createPlaceholderViewController(title: "Settings", icon: "settingsOutlinedIcon")
+        let categoriesVC = createRealCategoriesViewController()
+        let settingsVC = createRealSettingsViewController()
         
         viewControllers = [dashboardVC, budgetsVC, addVC, categoriesVC, settingsVC]
         
         // Set initial tab
         selectedIndex = 0
+    }
+    
+    private func createRealDashboardViewController() -> UIViewController {
+        // Use the factory to create the real dashboard
+        let dashboardVC = ViewControllersFactory().makeDashboardViewController(flowDelegate: self)
+        
+        // Remove the add transaction button from the dashboard view
+        // The DashboardViewController has a contentView property that is DashboardView
+        if let dashboardViewController = dashboardVC as? DashboardViewController {
+            dashboardViewController.contentView.removeAddTransactionButton()
+        }
+        
+        return dashboardVC
+    }
+    
+    private func createRealBudgetsViewController() -> UIViewController {
+        return ViewControllersFactory().makeBudgetsViewController(flowDelegate: self, date: nil)
+    }
+    
+    private func createRealCategoriesViewController() -> UIViewController {
+        return ViewControllersFactory().makeCategoriesViewController(flowDelegate: self)
+    }
+    
+    private func createRealSettingsViewController() -> UIViewController {
+        return ViewControllersFactory().makeSettingsViewController(flowDelegate: self)
     }
     
     private func setupTabBarContainer() {
@@ -139,7 +169,25 @@ class CustomTabBarController: UITabBarController {
     
     private func createTabButtons() {
         let items = TabItem.allCases.filter { $0 != .add } // Exclude add button
-        print("Creating \(items.count) tab buttons")
+        
+        // Create a horizontal stack view for the tab items
+        let tabStackView = UIStackView()
+        tabStackView.axis = .horizontal
+        tabStackView.distribution = .equalSpacing
+        tabStackView.alignment = .center
+        tabStackView.translatesAutoresizingMaskIntoConstraints = false
+        
+        customTabBarView.addSubview(tabStackView)
+        
+        // Add constraints for the stack view
+        NSLayoutConstraint.activate([
+            tabStackView.leadingAnchor.constraint(equalTo: customTabBarView.leadingAnchor, constant: 20),
+            tabStackView.trailingAnchor.constraint(equalTo: customTabBarView.trailingAnchor, constant: -20),
+            tabStackView.centerYAnchor.constraint(equalTo: customTabBarView.centerYAnchor)
+        ])
+        
+        // Create all buttons first
+        var allButtons: [UIButton] = []
         
         for (index, item) in items.enumerated() {
             let button = UIButton(type: .system)
@@ -164,70 +212,32 @@ class CustomTabBarController: UITabBarController {
             
             button.tag = item.rawValue
             button.addTarget(self, action: #selector(tabButtonTapped(_:)), for: .touchUpInside)
+            button.translatesAutoresizingMaskIntoConstraints = false
             
-            // Set initial frame - consistent 24pt size
-            button.frame = CGRect(x: 0, y: 0, width: 24, height: 24)
+            // Set button size constraints
+            NSLayoutConstraint.activate([
+                button.widthAnchor.constraint(equalToConstant: 24),
+                button.heightAnchor.constraint(equalToConstant: 24)
+            ])
             
-            // Remove debug background
-            button.backgroundColor = UIColor.clear
-            
-            customTabBarView.addSubview(button)
+            allButtons.append(button)
             tabButtons.append(button)
-            print("Created button for \(item.iconName) at index \(index)")
         }
-    }
-    
-    private func positionTabButtons() {
-        let items = TabItem.allCases.filter { $0 != .add }
-        let containerWidth = tabBarContainerView.bounds.width
-        let buttonSize: CGFloat = 24
         
-        // Create space in the middle for the plus button
-        // Divide the container into 5 sections: left1, left2, center(plus), right1, right2
-        let sectionWidth = containerWidth / 5
+        // Add buttons to stack view in order: Dashboard, Budgets, [space for plus], Categories, Settings
+        tabStackView.addArrangedSubview(allButtons[0]) // Dashboard
+        tabStackView.addArrangedSubview(allButtons[1]) // Budgets
         
-        print("Positioning \(tabButtons.count) buttons in container width: \(containerWidth), section width: \(sectionWidth)")
+        // Add center spacing view for plus button
+        let centerSpacingView = UIView()
+        centerSpacingView.translatesAutoresizingMaskIntoConstraints = false
+        tabStackView.addArrangedSubview(centerSpacingView)
+        NSLayoutConstraint.activate([
+            centerSpacingView.widthAnchor.constraint(equalToConstant: 40) // Space for plus button
+        ])
         
-        for (index, button) in tabButtons.enumerated() {
-            var xPosition: CGFloat
-            
-            // Position buttons with space in the middle for plus button
-            switch index {
-            case 0: // Dashboard (leftmost)
-                xPosition = sectionWidth * 0.5
-            case 1: // Budgets (left of center)
-                xPosition = sectionWidth * 1.5
-            case 2: // Categories (right of center)
-                xPosition = sectionWidth * 3.5
-            case 3: // Settings (rightmost)
-                xPosition = sectionWidth * 4.5
-            default:
-                xPosition = 0
-            }
-            
-            let yPosition = (tabBarContainerView.bounds.height - buttonSize) / 2 // Center vertically
-            
-            // Ensure consistent button size
-            button.frame = CGRect(x: xPosition - buttonSize/2, y: yPosition, width: buttonSize, height: buttonSize)
-            
-            // Ensure proper image sizing
-            button.imageView?.contentMode = .scaleAspectFit
-            
-            print("Positioned button \(index) at x: \(xPosition - buttonSize/2), y: \(yPosition), size: \(buttonSize)x\(buttonSize)")
-        }
-    }
-    
-    private func updateCustomTabBarLayout() {
-        // Update button positions when container size changes
-        let items = TabItem.allCases.filter { $0 != .add }
-        let containerWidth = tabBarContainerView.frame.width
-        let buttonSpacing = containerWidth / CGFloat(items.count + 1)
-        
-        for (index, button) in tabButtons.enumerated() {
-            let xPosition = buttonSpacing * CGFloat(index + 1)
-            button.frame.origin.x = xPosition - button.frame.width / 2
-            button.frame.origin.y = (tabBarContainerView.frame.height - button.frame.height) / 2
-        }
+        tabStackView.addArrangedSubview(allButtons[2]) // Categories
+        tabStackView.addArrangedSubview(allButtons[3]) // Settings
     }
     
     private func hideOriginalTabBar() {
@@ -238,48 +248,32 @@ class CustomTabBarController: UITabBarController {
         let buttonTag = sender.tag
         
         // Map button tag to the correct tab index
-        // TabItem: dashboard=0, budgets=1, add=2, categories=3, settings=4
-        // But we exclude 'add' from our buttons, so the mapping is:
-        // Button 0 (dashboard) -> selectedIndex 0
-        // Button 1 (budgets) -> selectedIndex 1  
-        // Button 3 (categories) -> selectedIndex 2
-        // Button 4 (settings) -> selectedIndex 3
-        let selectedIndex: Int
+        let newSelectedIndex: Int
         switch buttonTag {
         case 0: // dashboard
-            selectedIndex = 0
+            newSelectedIndex = 0
         case 1: // budgets
-            selectedIndex = 1
+            newSelectedIndex = 1
         case 3: // categories
-            selectedIndex = 2
+            newSelectedIndex = 3
         case 4: // settings
-            selectedIndex = 3
+            newSelectedIndex = 4
         default:
-            selectedIndex = 0
+            newSelectedIndex = customSelectedIndex // Should not happen
         }
         
-        self.selectedIndex = selectedIndex
+        // Only update if selection changed
+        guard newSelectedIndex != customSelectedIndex else { return }
+        customSelectedIndex = newSelectedIndex
         
-        // Update button colors with magenta for selected, gray for unselected
-        for (index, button) in tabButtons.enumerated() {
-            let buttonTag = button.tag
-            let isSelected: Bool
-            switch buttonTag {
-            case 0: // dashboard
-                isSelected = selectedIndex == 0
-            case 1: // budgets
-                isSelected = selectedIndex == 1
-            case 3: // categories
-                isSelected = selectedIndex == 2
-            case 4: // settings
-                isSelected = selectedIndex == 3
-            default:
-                isSelected = false
-            }
-            button.tintColor = isSelected ? Colors.mainMagenta : Colors.gray100
-        }
+        // Update the UITabBarController's selectedIndex for proper navigation
+        self.selectedIndex = newSelectedIndex
         
-        customDelegate?.didSelectTab(at: selectedIndex)
+        // Update tab bar appearance
+        updateTabBarAppearance()
+        
+        // Notify delegate
+        customDelegate?.didSelectTab(at: customSelectedIndex)
     }
     
     private func setupFloatingActionButton() {
@@ -296,7 +290,7 @@ class CustomTabBarController: UITabBarController {
     private func positionFloatingActionButton() {
         // Position the floating button centered with the tab bar container
         let containerFrame = tabBarContainerView.frame
-        let buttonSize: CGFloat = 72 // Bigger than the bar (50pt bar, 56pt button)
+        let buttonSize: CGFloat = 72 // Bigger than the bar (50pt bar, 72pt button)
         
         // Perfect center alignment with the tab bar container
         let centerX = containerFrame.midX - buttonSize / 2
@@ -308,8 +302,6 @@ class CustomTabBarController: UITabBarController {
             width: buttonSize,
             height: buttonSize
         )
-        
-        print("Floating button positioned at x: \(centerX), y: \(centerY), container center: \(containerFrame.midX)")
     }
     
     private func createPlaceholderViewController(title: String, icon: String) -> UIViewController {
@@ -338,6 +330,26 @@ class CustomTabBarController: UITabBarController {
         
         return viewController
     }
+    
+    // MARK: - Public Methods
+    func selectHomeTab() {
+        // Always select Home tab (index 0) when navigating to dashboard
+        customSelectedIndex = 0
+        self.selectedIndex = 0
+        
+        // Update button colors
+        updateTabBarAppearance()
+    }
+    
+    private func updateTabBarAppearance() {
+        // Update button colors
+        for (index, button) in tabButtons.enumerated() {
+            let currentButtonTag = button.tag
+            let isSelected = (currentButtonTag == customSelectedIndex)
+            
+            button.tintColor = isSelected ? Colors.mainMagenta : Colors.gray100
+        }
+    }
 }
 
 // MARK: - UITabBarControllerDelegate
@@ -363,6 +375,92 @@ extension CustomTabBarController: CustomTabBarControllerDelegate {
     }
     
     func didTapFloatingActionButton() {
-        //
+        let addTransactionVC = ViewControllersFactory().makeAddTransactionModalViewController(flowDelegate: self)
+        
+        // Present as a normal view that covers the entire screen
+        addTransactionVC.modalPresentationStyle = .overCurrentContext
+        addTransactionVC.modalTransitionStyle = .crossDissolve
+        
+        present(addTransactionVC, animated: true)
+    }
+}
+
+// MARK: - Flow Delegates
+extension CustomTabBarController: DashboardFlowDelegate {
+    func logout() {
+        // Handle logout
+        customDelegate?.didSelectTab(at: -1) // Signal logout
+    }
+    
+    func navigateToBudgets(date: Date?) {
+        // Navigate to budgets tab
+        customSelectedIndex = 1
+        self.selectedIndex = 1
+        updateTabBarAppearance()
+    }
+    
+    func openAddTransactionModal() {
+        // This is now handled by the floating button
+        didTapFloatingActionButton()
+    }
+    
+    func navigateToSettings() {
+        // Navigate to settings
+        customSelectedIndex = 4 // Settings tab
+        self.selectedIndex = 4
+        updateTabBarAppearance()
+    }
+}
+
+extension CustomTabBarController: BudgetsFlowDelegate {
+    func navBackToDashboard() {
+        // Navigate back to dashboard and ensure Home is selected
+        selectHomeTab()
+    }
+}
+
+extension CustomTabBarController: CategoriesFlowDelegate {
+    func navigateToSubCategoryManagement() {
+        // Handle sub-category management
+    }
+    
+    func navigateToSubCategoryCreation(parentCategory: TransactionCategory?) {
+        // Handle sub-category creation
+    }
+    
+    func navigateToBudgetAllocation(for month: Date) {
+        // Handle budget allocation navigation
+    }
+    
+    func navigateBackToDashboard() {
+        // Navigate back to dashboard and ensure Home is selected
+        selectHomeTab()
+    }
+}
+
+extension CustomTabBarController: SettingsFlowDelegate {
+    func dismissSettings() {
+        // Navigate back to dashboard and ensure Home is selected
+        selectHomeTab()
+    }
+    
+    // Remove duplicate logout method - use the one from DashboardFlowDelegate
+}
+
+extension CustomTabBarController: AddTransactionModalFlowDelegate {
+    func didAddTransaction() {
+        // Handle transaction added
+        dismiss(animated: true) {
+            // Refresh the dashboard data after modal is dismissed
+            self.refreshDashboardData()
+        }
+    }
+    
+    private func refreshDashboardData() {
+        // Get the current dashboard view controller
+        if let dashboardVC = viewControllers?[0] as? DashboardViewController {
+            // Trigger a refresh of the dashboard data
+            dashboardVC.refreshDashboardData()
+        }
     }
 }

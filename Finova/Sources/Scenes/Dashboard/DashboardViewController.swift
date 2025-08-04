@@ -63,7 +63,7 @@ final class DashboardViewController: UIViewController {
         }
     }
     
-    private func refreshDashboardData() {
+    func refreshDashboardData() {
         print("🔄 Refreshing dashboard data...")
         
         // Load fresh data from repositories
