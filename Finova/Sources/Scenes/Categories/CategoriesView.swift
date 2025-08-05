@@ -259,6 +259,10 @@ extension CategoriesView: UITableViewDelegate {
 
 // MARK: - CategoryCellDelegate
 extension CategoriesView: CategoryCellDelegate {
+    func didTapDeleteCategory(_ category: TransactionCategory) {
+        //
+    }
+    
     func didTapManageSubCategories(for category: TransactionCategory) {
         delegate?.didTapSubCategoryManagement(for: category)
     }

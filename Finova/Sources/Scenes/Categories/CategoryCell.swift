@@ -165,14 +165,14 @@ final class CategoryCell: UITableViewCell {
         label.font = Fonts.textXS.font
         label.textColor = Colors.gray500
         label.numberOfLines = 0
-        label.text = "No sub-categories yet"
+        label.text = "subcategory.empty.message".localized
         label.translatesAutoresizingMaskIntoConstraints = false
         return label
     }()
     
     // MARK: - Add Button (at bottom)
     private let addSubCategoryButton: Button = {
-        let button = Button(variant: .outlined, label: "Add Sub-Category")
+        let button = Button(variant: .outlined, label: "subcategory.add.button".localized)
         button.translatesAutoresizingMaskIntoConstraints = false
         return button
     }()
@@ -350,7 +350,7 @@ final class CategoryCell: UITableViewCell {
     private func setupTableView() {
         subCategoriesTableView.delegate = self
         subCategoriesTableView.dataSource = self
-        subCategoriesTableView.register(UITableViewCell.self, forCellReuseIdentifier: "SubCategoryCell")
+        subCategoriesTableView.register(SubCategoryTableCell.self, forCellReuseIdentifier: "SubCategoryTableCell")
         
         // Configure table view with fixed row height for consistent calculation
         subCategoriesTableView.rowHeight = 50
@@ -490,162 +490,6 @@ final class CategoryCell: UITableViewCell {
         }
     }
     
-    private func createSubCategoryCell(for subCategory: SubCategory, at indexPath: IndexPath) -> UITableViewCell {
-        let cell = UITableViewCell()
-        cell.backgroundColor = Colors.gray100
-        cell.selectionStyle = .none
-        cell.layer.masksToBounds = true
-        cell.translatesAutoresizingMaskIntoConstraints = false
-        
-        // Safety check to prevent index out of range
-        guard indexPath.row < subCategories.count else {
-            // Return a basic cell if index is out of bounds
-            return cell
-        }
-        
-        // Configure border styling like transaction table
-        let isFirstCell = indexPath.row == 0
-        let isLastCell = indexPath.row == subCategories.count - 1
-        
-        if isFirstCell && isLastCell {
-            // Single cell - rounded on all corners with all borders
-            cell.layer.cornerRadius = CornerRadius.small
-            cell.layer.borderWidth = 1
-            cell.layer.borderColor = Colors.gray200.cgColor
-        } else if isFirstCell {
-            // First cell - rounded on top corners with all borders
-            cell.layer.cornerRadius = CornerRadius.small
-            cell.layer.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner]
-            cell.layer.borderWidth = 1
-            cell.layer.borderColor = Colors.gray200.cgColor
-            // Add bottom border
-            let bottomBorder = UIView()
-            bottomBorder.backgroundColor = Colors.gray200
-            bottomBorder.translatesAutoresizingMaskIntoConstraints = false
-            cell.contentView.addSubview(bottomBorder)
-            NSLayoutConstraint.activate([
-                bottomBorder.leadingAnchor.constraint(equalTo: cell.contentView.leadingAnchor),
-                bottomBorder.trailingAnchor.constraint(equalTo: cell.contentView.trailingAnchor),
-                bottomBorder.bottomAnchor.constraint(equalTo: cell.contentView.bottomAnchor),
-                bottomBorder.heightAnchor.constraint(equalToConstant: 1)
-            ])
-        } else if isLastCell {
-            // Last cell - rounded on bottom corners with all borders
-            cell.layer.cornerRadius = CornerRadius.small
-            cell.layer.maskedCorners = [.layerMinXMaxYCorner, .layerMaxXMaxYCorner]
-            cell.layer.borderWidth = 1
-            cell.layer.borderColor = Colors.gray200.cgColor
-        } else {
-            // Middle cell - no rounded corners, no side borders, just bottom border
-            cell.layer.cornerRadius = 0
-            cell.layer.borderWidth = 0
-            // Add bottom border only
-            let bottomBorder = UIView()
-            bottomBorder.backgroundColor = Colors.gray200
-            bottomBorder.translatesAutoresizingMaskIntoConstraints = false
-            cell.contentView.addSubview(bottomBorder)
-            NSLayoutConstraint.activate([
-                bottomBorder.leadingAnchor.constraint(equalTo: cell.contentView.leadingAnchor),
-                bottomBorder.trailingAnchor.constraint(equalTo: cell.contentView.trailingAnchor),
-                bottomBorder.bottomAnchor.constraint(equalTo: cell.contentView.bottomAnchor),
-                bottomBorder.heightAnchor.constraint(equalToConstant: 1)
-            ])
-            
-            // Add left and right borders for middle cells
-            let leftBorder = UIView()
-            leftBorder.backgroundColor = Colors.gray200
-            leftBorder.translatesAutoresizingMaskIntoConstraints = false
-            cell.contentView.addSubview(leftBorder)
-            
-            let rightBorder = UIView()
-            rightBorder.backgroundColor = Colors.gray200
-            rightBorder.translatesAutoresizingMaskIntoConstraints = false
-            cell.contentView.addSubview(rightBorder)
-            
-            NSLayoutConstraint.activate([
-                leftBorder.leadingAnchor.constraint(equalTo: cell.contentView.leadingAnchor),
-                leftBorder.topAnchor.constraint(equalTo: cell.contentView.topAnchor),
-                leftBorder.bottomAnchor.constraint(equalTo: cell.contentView.bottomAnchor),
-                leftBorder.widthAnchor.constraint(equalToConstant: 1),
-                
-                rightBorder.trailingAnchor.constraint(equalTo: cell.contentView.trailingAnchor),
-                rightBorder.topAnchor.constraint(equalTo: cell.contentView.topAnchor),
-                rightBorder.bottomAnchor.constraint(equalTo: cell.contentView.bottomAnchor),
-                rightBorder.widthAnchor.constraint(equalToConstant: 1)
-            ])
-        }
-        
-        // Sub-category title
-        let titleLabel = UILabel()
-        titleLabel.text = subCategory.name
-        titleLabel.font = Fonts.textSM.font
-        titleLabel.textColor = Colors.gray700
-        titleLabel.translatesAutoresizingMaskIntoConstraints = false
-        
-        // Action buttons container
-        let actionsContainer = UIStackView()
-        actionsContainer.axis = .horizontal
-        actionsContainer.spacing = Metrics.spacing2
-        actionsContainer.alignment = .center
-        actionsContainer.translatesAutoresizingMaskIntoConstraints = false
-        
-        // Edit button
-        let editButton = UIButton(type: .system)
-        editButton.setImage(UIImage(named: "edit"), for: .normal)
-        editButton.tintColor = Colors.mainMagenta
-        editButton.translatesAutoresizingMaskIntoConstraints = false
-        editButton.tag = subCategory.id.hashValue
-        
-        // Delete button
-        let deleteButton = UIButton(type: .system)
-        deleteButton.setImage(UIImage(named: "trash"), for: .normal)
-        deleteButton.tintColor = Colors.mainMagenta
-        deleteButton.translatesAutoresizingMaskIntoConstraints = false
-        deleteButton.tag = subCategory.id.hashValue
-        
-        // Add buttons to actions container
-        actionsContainer.addArrangedSubview(editButton)
-        actionsContainer.addArrangedSubview(deleteButton)
-        
-        // Add subviews to cell
-        cell.contentView.addSubview(titleLabel)
-        cell.contentView.addSubview(actionsContainer)
-        
-        // Setup constraints
-        NSLayoutConstraint.activate([
-            titleLabel.leadingAnchor.constraint(equalTo: cell.contentView.leadingAnchor, constant: Metrics.spacing4),
-            titleLabel.centerYAnchor.constraint(equalTo: cell.contentView.centerYAnchor),
-            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: actionsContainer.leadingAnchor, constant: -Metrics.spacing3),
-            
-            actionsContainer.trailingAnchor.constraint(equalTo: cell.contentView.trailingAnchor, constant: -Metrics.spacing4),
-            actionsContainer.centerYAnchor.constraint(equalTo: cell.contentView.centerYAnchor),
-            
-            editButton.widthAnchor.constraint(equalToConstant: 20),
-            editButton.heightAnchor.constraint(equalToConstant: 20),
-            
-            deleteButton.widthAnchor.constraint(equalToConstant: 20),
-            deleteButton.heightAnchor.constraint(equalToConstant: 20)
-        ])
-        
-        // Add action handlers
-        editButton.addTarget(self, action: #selector(editSubCategoryTapped(_:)), for: .touchUpInside)
-        deleteButton.addTarget(self, action: #selector(deleteSubCategoryTapped(_:)), for: .touchUpInside)
-        
-        return cell
-    }
-    
-    @objc private func editSubCategoryTapped(_ sender: UIButton) {
-        if let subCategory = subCategories.first(where: { $0.id.hashValue == sender.tag }) {
-            delegate?.didTapEditSubCategory(subCategory)
-        }
-    }
-    
-    @objc private func deleteSubCategoryTapped(_ sender: UIButton) {
-        if let subCategory = subCategories.first(where: { $0.id.hashValue == sender.tag }) {
-            delegate?.didTapDeleteSubCategory(subCategory)
-        }
-    }
-    
     override func layoutSubviews() {
         super.layoutSubviews()
         
@@ -681,7 +525,8 @@ extension CategoryCell: UITableViewDelegate, UITableViewDataSource {
         }
         
         let subCategory = subCategories[indexPath.row]
-        let cell = createSubCategoryCell(for: subCategory, at: indexPath)
+        let cell = tableView.dequeueReusableCell(withIdentifier: "SubCategoryTableCell", for: indexPath) as! SubCategoryTableCell
+        cell.configure(with: subCategory, delegate: self)
         return cell
     }
     
@@ -705,5 +550,16 @@ extension CategoryCell: UITableViewDelegate, UITableViewDataSource {
             let subCategoryToDelete = subCategories[indexPath.row]
             delegate?.didTapDeleteSubCategory(subCategoryToDelete)
         }
+    }
+}
+
+// MARK: - SubCategoryTableCellDelegate
+extension CategoryCell: SubCategoryTableCellDelegate {
+    func didTapEditSubCategory(_ subCategory: SubCategory) {
+        delegate?.didTapEditSubCategory(subCategory)
+    }
+    
+    func didTapDeleteSubCategory(_ subCategory: SubCategory) {
+        delegate?.didTapDeleteSubCategory(subCategory)
     }
 }
