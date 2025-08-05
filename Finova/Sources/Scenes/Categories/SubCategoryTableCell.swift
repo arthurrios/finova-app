@@ -319,4 +319,4 @@ extension SubCategoryTableCell {
         
         return abs(vel.y) > abs(vel.x)
     }
-} 
+}

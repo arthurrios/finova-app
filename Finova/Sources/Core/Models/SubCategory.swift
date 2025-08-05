@@ -7,7 +7,7 @@
 
 import Foundation
 
-struct SubCategory: Codable, Equatable {
+struct SubCategory: Codable, Identifiable, Hashable {
     let id: String
     let name: String
     let parentCategory: TransactionCategory
@@ -15,12 +15,14 @@ struct SubCategory: Codable, Equatable {
     let createdAt: Date
     let userId: String
     
-    init(id: String = UUID().uuidString,
-         name: String,
-         parentCategory: TransactionCategory,
-         isDefault: Bool = false,
-         createdAt: Date = Date(),
-         userId: String) {
+    init(
+        id: String = UUID().uuidString,
+        name: String,
+        parentCategory: TransactionCategory,
+        isDefault: Bool = false,
+        createdAt: Date = Date(),
+        userId: String
+    ) {
         self.id = id
         self.name = name
         self.parentCategory = parentCategory
@@ -28,4 +30,4 @@ struct SubCategory: Codable, Equatable {
         self.createdAt = createdAt
         self.userId = userId
     }
-} 
+}
