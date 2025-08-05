@@ -180,19 +180,20 @@ extension AppFlowController: AddTransactionModalFlowDelegate {
 // 
 extension AppFlowController: CategoriesFlowDelegate {
     func navigateToSubCategoryManagement() {
-        //
+        // TODO: Implement sub-category management navigation
     }
     
     func navigateToSubCategoryCreation(parentCategory: TransactionCategory?) {
-        //
+        // TODO: Implement sub-category creation navigation
     }
     
-    func navigateToBudgetAllocation(for month: Date) {
-        //
+    func navigateToSubCategoryEditing(_ subCategory: SubCategory) {
+        // TODO: Implement sub-category editing navigation
     }
     
     func navigateBackToDashboard() {
-        //
+        navigationController?.popViewController(animated: true)
+        setupTabBarController()
     }
     
     func categoriesDidAppear() {

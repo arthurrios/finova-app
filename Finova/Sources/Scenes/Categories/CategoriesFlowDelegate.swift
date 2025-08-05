@@ -10,7 +10,6 @@ import Foundation
 protocol CategoriesFlowDelegate: AnyObject {
     func navigateToSubCategoryManagement()
     func navigateToSubCategoryCreation(parentCategory: TransactionCategory?)
-    func navigateToBudgetAllocation(for month: Date)
+    func navigateToSubCategoryEditing(_ subCategory: SubCategory)
     func navigateBackToDashboard()
-    func categoriesDidAppear()
 }

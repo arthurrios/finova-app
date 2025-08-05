@@ -515,6 +515,10 @@ extension CustomTabBarController: BudgetsFlowDelegate {
 }
 
 extension CustomTabBarController: CategoriesFlowDelegate {
+    func navigateToSubCategoryEditing(_ subCategory: SubCategory) {
+        //
+    }
+    
     func navigateToSubCategoryManagement() {
         // Handle sub-category management
     }
