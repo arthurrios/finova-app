@@ -179,12 +179,12 @@ extension CategoriesView: UITableViewDelegate {
         let isExpanded = expandedCategories.contains(category)
         
         guard isExpanded else {
-            return 100
+            return 78 // Just the header height, no extra space
         }
         
         let subCategories = subCategoriesData[category] ?? []
         let baseHeight: CGFloat = 70 // Header row height
-        let containerPadding: CGFloat = Metrics.spacing3 * 4 // Proper padding including bottom padding
+        let containerPadding: CGFloat = Metrics.spacing3 * 3.5 // Proper padding including bottom padding
         let addButtonHeight: CGFloat = 44
         let addButtonPadding: CGFloat = 0 // No spacing between table and button
         
@@ -217,7 +217,7 @@ extension CategoriesView: UITableViewDelegate {
         let isExpanded = expandedCategories.contains(category)
         
         guard isExpanded else {
-            return 100
+            return 70 // Just the header height, no extra space
         }
         
         let subCategories = subCategoriesData[category] ?? []

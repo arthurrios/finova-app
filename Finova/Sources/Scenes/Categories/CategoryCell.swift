@@ -24,6 +24,7 @@ final class CategoryCell: UITableViewCell {
     private var tableHeightConstraint: NSLayoutConstraint?
     private var tableContainerHeightConstraint: NSLayoutConstraint?
     private var mainContainerHeightConstraint: NSLayoutConstraint?
+    private var mainContainerBottomConstraint: NSLayoutConstraint?
     private var addButtonToHeaderConstraint: NSLayoutConstraint?
     private var addButtonToTableConstraint: NSLayoutConstraint?
     weak var delegate: CategoryCellDelegate?
@@ -83,13 +84,19 @@ final class CategoryCell: UITableViewCell {
     }()
     
     // MARK: - Quantity Container (like TransactionCell)
-    private let quantityContainerView: UIView = {
-        let view = UIView()
-        view.backgroundColor = Colors.gray300
-        view.layer.cornerRadius = 8
-        view.layer.masksToBounds = true
-        view.translatesAutoresizingMaskIntoConstraints = false
-        return view
+    private let quantityContainerView: UIStackView = {
+        let stackView = UIStackView()
+        stackView.axis = .horizontal
+        stackView.distribution = .fillEqually
+        stackView.heightAnchor.constraint(equalToConstant: 18).isActive = true
+        stackView.layoutMargins = UIEdgeInsets(
+            top: 0, left: Metrics.spacing2, bottom: 0, right: Metrics.spacing2)
+        stackView.isLayoutMarginsRelativeArrangement = true
+        stackView.backgroundColor = Colors.gray300
+        stackView.clipsToBounds = true
+        stackView.alignment = .center
+        stackView.translatesAutoresizingMaskIntoConstraints = false
+        return stackView
     }()
     
     private let quantityLabel: UILabel = {
@@ -104,7 +111,7 @@ final class CategoryCell: UITableViewCell {
     // MARK: - Action Buttons (like TransactionCell)
     private let expandButton: UIButton = {
         let button = UIButton(type: .system)
-        button.setImage(UIImage(named: "arrowDown"), for: .normal)
+        button.setImage(UIImage(named: "chevronDown"), for: .normal)
         button.tintColor = Colors.gray400
         button.translatesAutoresizingMaskIntoConstraints = false
         return button
@@ -136,7 +143,7 @@ final class CategoryCell: UITableViewCell {
     private let emptyStateView: UIView = {
         let view = UIView()
         view.backgroundColor = Colors.gray100
-        view.layer.cornerRadius = CornerRadius.small
+        view.layer.cornerRadius = CornerRadius.medium
         view.layer.borderWidth = 1
         view.layer.borderColor = Colors.gray200.cgColor
         view.isHidden = true
@@ -146,7 +153,7 @@ final class CategoryCell: UITableViewCell {
     
     private let emptyStateIconImageView: UIImageView = {
         let imageView = UIImageView()
-        imageView.image = UIImage(systemName: "folder")
+        imageView.image = UIImage(named: "iconBankSlip")
         imageView.tintColor = Colors.gray400
         imageView.contentMode = .scaleAspectFit
         imageView.translatesAutoresizingMaskIntoConstraints = false
@@ -197,7 +204,7 @@ final class CategoryCell: UITableViewCell {
         iconContainerView.addSubview(iconImageView)
         headerRowView.addSubview(titleLabel)
         headerRowView.addSubview(quantityContainerView)
-        quantityContainerView.addSubview(quantityLabel)
+        quantityContainerView.addArrangedSubview(quantityLabel)
         headerRowView.addSubview(expandButton)
         
         // Add sub-categories table container
@@ -218,9 +225,12 @@ final class CategoryCell: UITableViewCell {
         NSLayoutConstraint.activate([
             mainContainerView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: Metrics.spacing2),
             mainContainerView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: Metrics.spacing3),
-            mainContainerView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -Metrics.spacing3),
-            mainContainerView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -Metrics.spacing2)
+            mainContainerView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -Metrics.spacing3)
         ])
+        
+        // Dynamic bottom constraint for main container
+        mainContainerBottomConstraint = mainContainerView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -Metrics.spacing2)
+        mainContainerBottomConstraint?.isActive = true
         
         // Dynamic height constraint for main container
         mainContainerHeightConstraint = mainContainerView.heightAnchor.constraint(equalToConstant: 74) // 70 + 4 (spacing)
@@ -260,20 +270,14 @@ final class CategoryCell: UITableViewCell {
         // Quantity container constraints
         NSLayoutConstraint.activate([
             quantityContainerView.trailingAnchor.constraint(equalTo: expandButton.leadingAnchor, constant: -Metrics.spacing2),
-            quantityContainerView.centerYAnchor.constraint(equalTo: headerRowView.centerYAnchor),
-            quantityContainerView.widthAnchor.constraint(equalToConstant: 24),
-            quantityContainerView.heightAnchor.constraint(equalToConstant: 24)
+            quantityContainerView.centerYAnchor.constraint(equalTo: headerRowView.centerYAnchor)
         ])
         
-        // Quantity label constraints
-        NSLayoutConstraint.activate([
-            quantityLabel.centerXAnchor.constraint(equalTo: quantityContainerView.centerXAnchor),
-            quantityLabel.centerYAnchor.constraint(equalTo: quantityContainerView.centerYAnchor)
-        ])
+        // Quantity label constraints - no need for separate constraints since it's an arranged subview
         
         // Expand button constraints
         NSLayoutConstraint.activate([
-            expandButton.trailingAnchor.constraint(equalTo: headerRowView.trailingAnchor, constant: -Metrics.spacing3),
+            expandButton.trailingAnchor.constraint(equalTo: headerRowView.trailingAnchor, constant: -Metrics.spacing4),
             expandButton.centerYAnchor.constraint(equalTo: headerRowView.centerYAnchor),
             expandButton.widthAnchor.constraint(equalToConstant: 20),
             expandButton.heightAnchor.constraint(equalToConstant: 20)
@@ -281,7 +285,7 @@ final class CategoryCell: UITableViewCell {
         
         // Sub-categories table container constraints
         NSLayoutConstraint.activate([
-            subCategoriesTableContainer.topAnchor.constraint(equalTo: headerRowView.bottomAnchor, constant: Metrics.spacing3),
+            subCategoriesTableContainer.topAnchor.constraint(equalTo: headerRowView.bottomAnchor),
             subCategoriesTableContainer.leadingAnchor.constraint(equalTo: mainContainerView.leadingAnchor, constant: Metrics.spacing3),
             subCategoriesTableContainer.trailingAnchor.constraint(equalTo: mainContainerView.trailingAnchor, constant: -Metrics.spacing3)
         ])
@@ -348,9 +352,8 @@ final class CategoryCell: UITableViewCell {
         subCategoriesTableView.dataSource = self
         subCategoriesTableView.register(UITableViewCell.self, forCellReuseIdentifier: "SubCategoryCell")
         
-        // Configure table view with automatic sizing
-        subCategoriesTableView.estimatedRowHeight = 30
-        subCategoriesTableView.rowHeight = UITableView.automaticDimension
+        // Configure table view with fixed row height for consistent calculation
+        subCategoriesTableView.rowHeight = 50
         subCategoriesTableView.reloadData()
     }
     
@@ -364,12 +367,17 @@ final class CategoryCell: UITableViewCell {
         self.subCategories = subCategories
         self.isExpanded = isExpanded
         
+        // Safety check to ensure subCategories is not nil
+        if self.subCategories.isEmpty && !subCategories.isEmpty {
+            self.subCategories = subCategories
+        }
+        
         // Configure header
         titleLabel.text = category.rawValue.localized
         iconImageView.image = UIImage(named: category.iconName)
         
         // Update quantity label
-        quantityLabel.text = "\(subCategories.count)"
+        quantityLabel.text = "\(self.subCategories.count)"
         quantityContainerView.isHidden = false
         
         // Update expand button state
@@ -404,6 +412,12 @@ final class CategoryCell: UITableViewCell {
             addButtonToHeaderConstraint?.isActive = false
             addButtonToTableConstraint?.isActive = true
             
+            // Reactivate height constraint when expanded
+            mainContainerHeightConstraint?.isActive = true
+            
+            // Restore bottom spacing when expanded
+            mainContainerBottomConstraint?.constant = -Metrics.spacing2
+            
             setupSubCategoriesTable()
         } else {
             subCategoriesTableContainer.isHidden = true
@@ -418,8 +432,10 @@ final class CategoryCell: UITableViewCell {
             // Reset table height constraint when collapsed
             tableHeightConstraint?.constant = 0
             tableContainerHeightConstraint?.constant = 0
-            // Set main container to collapsed height - just header
-            mainContainerHeightConstraint?.constant = 74 // 70 (header) + 4 (spacing)
+            // Remove height constraint when collapsed to let cell size naturally
+            mainContainerHeightConstraint?.isActive = false
+            // Remove bottom spacing when collapsed
+            mainContainerBottomConstraint?.constant = 0
         }
     }
     
@@ -443,21 +459,27 @@ final class CategoryCell: UITableViewCell {
             
             // Use dynamic height for small lists, fixed height for larger lists
             let finalTableHeight: CGFloat
+            let containerPadding: CGFloat
             if subCategories.count <= 3 {
                 // Dynamic height for small lists (1-3 items) with reduced spacing
                 finalTableHeight = contentHeight
+                containerPadding = Metrics.spacing3 * 2 // Reduced padding for small lists
                 subCategoriesTableView.isScrollEnabled = false
+                // Ensure table height matches content exactly
+                subCategoriesTableView.rowHeight = 50 // Fixed row height for consistent calculation
             } else {
                 // Fixed height for larger lists (4+ items)
                 finalTableHeight = 180
+                containerPadding = Metrics.spacing3 * 4 // Full padding for larger lists
                 subCategoriesTableView.isScrollEnabled = true
+                subCategoriesTableView.rowHeight = 50 // Fixed row height for consistent calculation
             }
             
             tableHeightConstraint?.constant = finalTableHeight
             tableContainerHeightConstraint?.constant = finalTableHeight
             
             // Calculate main container height for expanded state with proper bottom padding
-            let totalHeight = 70 + finalTableHeight + 44 + Metrics.spacing3 * 4 // header + table + button + spacing + bottom padding
+            let totalHeight = 70 + finalTableHeight + 44 + containerPadding // header + table + button + dynamic padding
             mainContainerHeightConstraint?.constant = totalHeight
             
             subCategoriesTableView.reloadData()
@@ -474,6 +496,12 @@ final class CategoryCell: UITableViewCell {
         cell.selectionStyle = .none
         cell.layer.masksToBounds = true
         cell.translatesAutoresizingMaskIntoConstraints = false
+        
+        // Safety check to prevent index out of range
+        guard indexPath.row < subCategories.count else {
+            // Return a basic cell if index is out of bounds
+            return cell
+        }
         
         // Configure border styling like transaction table
         let isFirstCell = indexPath.row == 0
@@ -563,7 +591,7 @@ final class CategoryCell: UITableViewCell {
         
         // Edit button
         let editButton = UIButton(type: .system)
-        editButton.setImage(UIImage(systemName: "pencil"), for: .normal)
+        editButton.setImage(UIImage(named: "edit"), for: .normal)
         editButton.tintColor = Colors.mainMagenta
         editButton.translatesAutoresizingMaskIntoConstraints = false
         editButton.tag = subCategory.id.hashValue
@@ -617,6 +645,16 @@ final class CategoryCell: UITableViewCell {
             delegate?.didTapDeleteSubCategory(subCategory)
         }
     }
+    
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        
+        // Update corner radius for quantity container to make it circular
+        quantityContainerView.layoutIfNeeded()
+        let size = min(quantityContainerView.bounds.width, quantityContainerView.bounds.height)
+        quantityContainerView.layer.cornerRadius = size / 2
+        quantityContainerView.clipsToBounds = true
+    }
 }
 
 // MARK: - ButtonDelegate
@@ -633,17 +671,26 @@ extension CategoryCell: UITableViewDelegate, UITableViewDataSource {
     }
 
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+        // Safety check to prevent index out of range
+        guard indexPath.row < subCategories.count else {
+            // Return an empty cell if index is out of bounds
+            let cell = UITableViewCell()
+            cell.backgroundColor = Colors.gray100
+            cell.selectionStyle = .none
+            return cell
+        }
+        
         let subCategory = subCategories[indexPath.row]
         let cell = createSubCategoryCell(for: subCategory, at: indexPath)
         return cell
     }
     
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
-        return UITableView.automaticDimension
+        return 50 // Fixed row height for consistent calculation
     }
     
     func tableView(_ tableView: UITableView, estimatedHeightForRowAt indexPath: IndexPath) -> CGFloat {
-        return 50
+        return 50 // Fixed row height for consistent calculation
     }
 
     func tableView(_ tableView: UITableView, canEditRowAt indexPath: IndexPath) -> Bool {
@@ -652,6 +699,9 @@ extension CategoryCell: UITableViewDelegate, UITableViewDataSource {
 
     func tableView(_ tableView: UITableView, commit editingStyle: UITableViewCell.EditingStyle, forRowAt indexPath: IndexPath) {
         if editingStyle == .delete {
+            // Safety check to prevent index out of range
+            guard indexPath.row < subCategories.count else { return }
+            
             let subCategoryToDelete = subCategories[indexPath.row]
             delegate?.didTapDeleteSubCategory(subCategoryToDelete)
         }
