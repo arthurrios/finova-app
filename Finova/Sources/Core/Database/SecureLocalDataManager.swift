@@ -613,6 +613,87 @@ class SecureLocalDataManager {
             return nil
         }
     }
+    
+    
+    // MARK: - SubCategories
+    func saveSubCategory(_ subCategory: SubCategory) throws {
+        guard let uid = currentUserUID else {
+            print("❌ Cannot save sub-category: No authenticated user")
+            throw NSError(domain: "SecureLocalDataManager", code: 401, userInfo: [NSLocalizedDescriptionKey: "No authenticated user"])
+        }
+        
+        try DBHelper.shared.insertSubcategory(
+            id: subCategory.id,
+            name: subCategory.name,
+            parentCategory: subCategory.parentCategory.rawValue,
+            isDefault: subCategory.isDefault ? 1 : 0,
+            createdAt: Int(subCategory.createdAt.timeIntervalSince1970),
+            userId: uid
+        )
+    }
+    
+    func deleteSubCategory(id: String) throws {
+        guard let uid = currentUserUID else {
+            print("❌ Cannot delete sub-category: No authenticated user")
+            throw NSError(domain: "SecureLocalDataManager", code: 401, userInfo: [NSLocalizedDescriptionKey: "No authenticated user"])
+        }
+        
+        try DBHelper.shared.deleteSubCategory(id: id, userId: uid)
+    }
+    
+    func fetchSubCategories(for category: TransactionCategory?) -> [SubCategory] {
+        guard let uid = currentUserUID else {
+            print("❌ Cannot fetch sub-categories: No authenticated user")
+            return []
+        }
+        
+        do {
+            let parentCategory = category?.rawValue
+            let results = try DBHelper.shared.getSubCategories(userId: uid, parentCategory: parentCategory)
+            
+            return results.compactMap { row in
+                guard let id = row["id"] as? String,
+                      let name = row["name"] as? String,
+                      let parentCategoryRaw = row["parent_category"] as? String,
+                      let parentCategory = TransactionCategory(rawValue: parentCategoryRaw),
+                      let isDefault = row["is_default"] as? Int,
+                      let createdAtTimestamp = row["created_at"] as? Int
+                else { return nil }
+                
+                return SubCategory(
+                    id: id,
+                    name: name,
+                    parentCategory: parentCategory,
+                    isDefault: isDefault == 1,
+                    createdAt: Date(timeIntervalSince1970: TimeInterval(createdAtTimestamp)),
+                    userId: uid
+                )
+            }
+        } catch {
+            print("Error fetching sub-categories: \(error)")
+            return []
+        }
+    }
+    
+    func validateSubCategoryName(_ name: String, parentCategory: TransactionCategory) -> Bool {
+        guard let uid = currentUserUID else {
+            print("❌ Cannot validate sub-category name: No authenticated user")
+            return false
+        }
+        
+        do {
+            let exists = try DBHelper.shared.subCategoryExists(
+                name: name,
+                parentCategory: parentCategory.rawValue,
+                userId: uid
+            )
+            
+            return !exists
+        } catch {
+            print("Error validating sub-category name: \(error)")
+            return false
+        }
+    }
 }
 
 // MARK: - Supporting Data Models

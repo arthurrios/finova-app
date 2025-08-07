@@ -6,28 +6,45 @@
 //
 
 import Foundation
+import Combine
 
+@MainActor
 final class CategoriesViewModel: ObservableObject {
+    // MARK: - Published Properties
+    @Published var categories: [TransactionCategory] = []
+    @Published var subCategories: [SubCategory] = []
+    @Published var isLoading = false
+    @Published var errorMessage: String?
+    @Published var selectedCategory: TransactionCategory?
     
-    // MARK: - Callbacks
-    var onSubCategoriesUpdated: ((TransactionCategory, [SubCategory]) -> Void)?
+    // MARK: - Private Properties
+    private let subCategoryRepository: SubCategoryRepository
+    private var cancellables: Set<AnyCancellable> = []
     
-    // MARK: - Properties
-    private var subCategoriesData: [TransactionCategory: [SubCategory]] = [:]
+    // MARK: - Initialization
+    init(subCategoryRepository: SubCategoryRepository) {
+        self.subCategoryRepository = subCategoryRepository
+        setupCategories()
+    }
     
     // MARK: - Public Methods
-    func loadSubCategoriesForAllCategories() {
-        // TODO: Load from repository when implemented
-        loadMockSubCategories()
+    func loadData() {
+        isLoading = true
+        errorMessage = nil
+        
+        subCategories = subCategoryRepository.fetchAllSubCategories()
+        isLoading = false
     }
     
     func loadSubCategories(for category: TransactionCategory) {
-        // TODO: Load from repository when implemented
-        let subCategories = subCategoriesData[category] ?? []
-        onSubCategoriesUpdated?(category, subCategories)
+        selectedCategory = category
+        subCategories = subCategoryRepository.fetchSubCategoriesByParent(category)
     }
     
     func createSubCategory(name: String, parentCategory: TransactionCategory, isDefault: Bool = false) {
+        isLoading = true
+        errorMessage = nil
+        
         let subCategory = SubCategory(
             name: name,
             parentCategory: parentCategory,
@@ -35,98 +52,27 @@ final class CategoriesViewModel: ObservableObject {
             userId: getCurrentUserId()
         )
         
-        // TODO: Save to repository when implemented
-        if subCategoriesData[parentCategory] == nil {
-            subCategoriesData[parentCategory] = []
+        do {
+            try subCategoryRepository.createSubCategory(subCategory)
+            loadData()
+        } catch SubCategoryError.duplicateName {
+            errorMessage = SubCategoryError.duplicateName.localizedDescription
+        } catch {
+            errorMessage = "An error occurred while creating the sub-category"
         }
-        subCategoriesData[parentCategory]?.append(subCategory)
         
-        onSubCategoriesUpdated?(parentCategory, subCategoriesData[parentCategory] ?? [])
+        isLoading = false
     }
     
-    func updateSubCategory(_ subCategory: SubCategory) {
-        // TODO: Update in repository when implemented
-        if let index = subCategoriesData[subCategory.parentCategory]?.firstIndex(of: subCategory) {
-            subCategoriesData[subCategory.parentCategory]?[index] = subCategory
-            onSubCategoriesUpdated?(subCategory.parentCategory, subCategoriesData[subCategory.parentCategory] ?? [])
-        }
+    
+    // MARK: - Helper Methods
+    private func setupCategories() {
+        categories = TransactionCategory.allCases
     }
     
-    func deleteSubCategory(_ subCategory: SubCategory) {
-        // TODO: Delete from repository when implemented
-        subCategoriesData[subCategory.parentCategory]?.removeAll { $0.id == subCategory.id }
-        onSubCategoriesUpdated?(subCategory.parentCategory, subCategoriesData[subCategory.parentCategory] ?? [])
-    }
-    
-    // MARK: - Private Methods
     private func getCurrentUserId() -> String {
-        // TODO: Get from authentication manager when implemented
-        return "current-user-id"
+        return SecureLocalDataManager.shared.getCurrentUserUID() ?? ""
     }
     
-    private func loadMockSubCategories() {
-        print("🔍 Loading mock sub-categories...")
-        
-        // Mock data for demonstration with more sub-categories to test dynamic height
-        let mockSubCategories: [TransactionCategory: [SubCategory]] = [
-            .groceries: [
-                SubCategory(name: "Fresh Produce", parentCategory: .groceries, isDefault: true, userId: getCurrentUserId()),
-                SubCategory(name: "Dairy", parentCategory: .groceries, isDefault: true, userId: getCurrentUserId()),
-                SubCategory(name: "Pantry Items", parentCategory: .groceries, isDefault: true, userId: getCurrentUserId()),
-                SubCategory(name: "Beverages", parentCategory: .groceries, isDefault: true, userId: getCurrentUserId()),
-                SubCategory(name: "Snacks", parentCategory: .groceries, isDefault: true, userId: getCurrentUserId())
-            ],
-            .entertainment: [
-                SubCategory(name: "Movies", parentCategory: .entertainment, isDefault: true, userId: getCurrentUserId()),
-                SubCategory(name: "Restaurants", parentCategory: .entertainment, isDefault: true, userId: getCurrentUserId()),
-                SubCategory(name: "Concerts", parentCategory: .entertainment, isDefault: true, userId: getCurrentUserId()),
-                SubCategory(name: "Games", parentCategory: .entertainment, isDefault: true, userId: getCurrentUserId())
-            ],
-            .transportation: [
-                SubCategory(name: "Fuel", parentCategory: .transportation, isDefault: true, userId: getCurrentUserId()),
-                SubCategory(name: "Public Transport", parentCategory: .transportation, isDefault: true, userId: getCurrentUserId()),
-                SubCategory(name: "Parking", parentCategory: .transportation, isDefault: true, userId: getCurrentUserId()),
-                SubCategory(name: "Maintenance", parentCategory: .transportation, isDefault: true, userId: getCurrentUserId()),
-                SubCategory(name: "Insurance", parentCategory: .transportation, isDefault: true, userId: getCurrentUserId())
-            ],
-            .healthcare: [
-                SubCategory(name: "Doctor Visits", parentCategory: .healthcare, isDefault: true, userId: getCurrentUserId()),
-                SubCategory(name: "Medications", parentCategory: .healthcare, isDefault: true, userId: getCurrentUserId()),
-                SubCategory(name: "Dental Care", parentCategory: .healthcare, isDefault: true, userId: getCurrentUserId()),
-                SubCategory(name: "Vision Care", parentCategory: .healthcare, isDefault: true, userId: getCurrentUserId())
-            ],
-            .utilities: [
-                SubCategory(name: "Electricity", parentCategory: .utilities, isDefault: true, userId: getCurrentUserId()),
-                SubCategory(name: "Water", parentCategory: .utilities, isDefault: true, userId: getCurrentUserId()),
-                SubCategory(name: "Gas", parentCategory: .utilities, isDefault: true, userId: getCurrentUserId()),
-                SubCategory(name: "Internet", parentCategory: .utilities, isDefault: true, userId: getCurrentUserId()),
-                SubCategory(name: "Phone", parentCategory: .utilities, isDefault: true, userId: getCurrentUserId()),
-                SubCategory(name: "Garbage", parentCategory: .utilities, isDefault: true, userId: getCurrentUserId())
-            ],
-            .salary: [
-                SubCategory(name: "Regular Salary", parentCategory: .salary, isDefault: true, userId: getCurrentUserId()),
-                SubCategory(name: "Bonus", parentCategory: .salary, isDefault: true, userId: getCurrentUserId()),
-                SubCategory(name: "Overtime", parentCategory: .salary, isDefault: true, userId: getCurrentUserId())
-            ],
-            .education: [
-                SubCategory(name: "Tuition", parentCategory: .education, isDefault: true, userId: getCurrentUserId())
-            ],
-            .clothing: [
-                SubCategory(name: "Casual Wear", parentCategory: .clothing, isDefault: true, userId: getCurrentUserId()),
-                SubCategory(name: "Formal Wear", parentCategory: .clothing, isDefault: true, userId: getCurrentUserId())
-            ]
-        ]
-        
-        subCategoriesData = mockSubCategories
-        
-        print("🔍 Mock data loaded for \(subCategoriesData.count) categories")
-        print("🔍 Categories with data: \(subCategoriesData.keys.map { $0.rawValue })")
-        
-        // Notify all categories
-        for category in TransactionCategory.allCases {
-            let subCategories = subCategoriesData[category] ?? []
-            print("🔍 Notifying category: \(category.rawValue) with \(subCategories.count) sub-categories")
-            onSubCategoriesUpdated?(category, subCategories)
-        }
-    }
+    
 }
