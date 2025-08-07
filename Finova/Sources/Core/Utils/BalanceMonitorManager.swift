@@ -14,6 +14,10 @@ final class BalanceMonitorManager {
     private let notificationCenter = UNUserNotificationCenter.current()
     private let calendar = Calendar.current
     
+    // Controle para evitar execuções muito frequentes
+    private var lastMonitoringTime: Date?
+    private let minimumMonitoringInterval: TimeInterval = 300 // 5 minutos
+    
     init(
         transactionRepo: TransactionRepository = TransactionRepository(),
         budgetRepo: BudgetRepository = BudgetRepository()
@@ -26,14 +30,29 @@ final class BalanceMonitorManager {
     
     /// Monitora o saldo do mês atual e agenda notificações se necessário
     func monitorCurrentMonthBalance() {
+        // Verificar se já foi executado recentemente
+        if let lastTime = lastMonitoringTime {
+            let timeSinceLastMonitoring = Date().timeIntervalSince(lastTime)
+            if timeSinceLastMonitoring < minimumMonitoringInterval {
+                print("🔔 ⏰ Balance monitoring skipped - executed recently (\(Int(timeSinceLastMonitoring))s ago)")
+                return
+            }
+        }
+        
+        // Atualizar tempo da última execução
+        lastMonitoringTime = Date()
+        
         let today = Date()
         let currentMonth = calendar.dateInterval(of: .month, for: today)!
         
+        // Limpar notificações antigas primeiro
+        removeOldNegativeBalanceNotifications()
+        
         // Calcular saldo projetado para cada dia do mês
-        let dailyBalanceProjection = calculateDailyBalanceProjection(for: currentMonth)
+        let dailyBalanceProjection = calculateDailyBalanceProjectionInternal(for: currentMonth)
         
         // Verificar se há dias com saldo negativo
-        let negativeBalanceDays = findNegativeBalanceDays(from: dailyBalanceProjection)
+        let negativeBalanceDays = findNegativeBalanceDaysInternal(from: dailyBalanceProjection)
         
         if !negativeBalanceDays.isEmpty {
             scheduleNegativeBalanceNotifications(for: negativeBalanceDays)
@@ -57,10 +76,48 @@ final class BalanceMonitorManager {
         }
     }
     
+    /// Remove notificações de saldo negativo antigas (para datas que já passaram)
+    func removeOldNegativeBalanceNotifications() {
+        let today = Date()
+        
+        notificationCenter.getPendingNotificationRequests { requests in
+            let oldNegativeBalanceIds = requests
+                .filter { request in
+                    guard request.identifier.hasPrefix("negative_balance_") else { return false }
+                    
+                    // Extrair a data da notificação do userInfo
+                    if let userInfo = request.content.userInfo as? [String: Any],
+                       let negativeDateTimestamp = userInfo["negativeDate"] as? TimeInterval {
+                        let negativeDate = Date(timeIntervalSince1970: negativeDateTimestamp)
+                        return negativeDate < today
+                    }
+                    return false
+                }
+                .map { $0.identifier }
+            
+            if !oldNegativeBalanceIds.isEmpty {
+                self.notificationCenter.removePendingNotificationRequests(withIdentifiers: oldNegativeBalanceIds)
+                print("🔔 🧹 Removed \(oldNegativeBalanceIds.count) old negative balance notifications")
+            }
+        }
+    }
+    
+    // MARK: - Internal Methods (for testing)
+    
+    /// Método interno para testes - calcula projeção de saldo
+    func calculateDailyBalanceProjection(for monthInterval: DateInterval) -> [Date: Int] {
+        return calculateDailyBalanceProjectionInternal(for: monthInterval)
+    }
+    
+    /// Método interno para testes - encontra dias com saldo negativo
+    func findNegativeBalanceDays(from dailyBalance: [Date: Int]) -> [Date] {
+        return findNegativeBalanceDaysInternal(from: dailyBalance)
+    }
+    
     // MARK: - Private Methods
     
     /// Calcula a projeção de saldo para cada dia do mês
-    private func calculateDailyBalanceProjection(for monthInterval: DateInterval) -> [Date: Int] {
+    private func calculateDailyBalanceProjectionInternal(for monthInterval: DateInterval) -> [Date: Int] {
         let allTransactions = transactionRepo.fetchAllTransactions()
         let budgets = budgetRepo.fetchBudgets()
         
@@ -73,14 +130,13 @@ final class BalanceMonitorManager {
         }
         
         let previousMonthNet = previousMonthTransactions.reduce(0) { result, tx in
-            tx.type == .income ? result + tx.amount : result - tx.amount
+            tx.type == .income ? result + tx.amount : result + tx.amount
         }
         
         // Saldo inicial (assumindo que o usuário começa com saldo positivo)
-        // Em uma implementação real, você pode querer armazenar o saldo atual do usuário
         let initialBalance = max(0, previousMonthNet)
         
-        // Filtrar transações do mês atual
+        // Filtrar transações do mês atual (incluindo transações projetadas)
         let currentMonthTransactions = allTransactions.filter { transaction in
             let txDate = Date(timeIntervalSince1970: TimeInterval(transaction.dateTimestamp))
             return calendar.isDate(txDate, equalTo: monthInterval.start, toGranularity: .month)
@@ -98,39 +154,54 @@ final class BalanceMonitorManager {
                 continue
             }
             
-            // Calcular transações até este dia
+            // Normalizar a data para o início do dia
+            let normalizedDate = calendar.startOfDay(for: date)
+            
+            // Calcular transações até este dia (incluindo transações projetadas)
             let transactionsUpToDate = currentMonthTransactions.filter { transaction in
                 let txDate = Date(timeIntervalSince1970: TimeInterval(transaction.dateTimestamp))
                 return txDate <= date
             }
             
             let netUpToDate = transactionsUpToDate.reduce(0) { result, tx in
-                tx.type == .income ? result + tx.amount : result - tx.amount
+                tx.type == .income ? result + tx.amount : result + tx.amount
             }
             
             let balanceForDate = initialBalance + netUpToDate
-            dailyBalance[date] = balanceForDate
+            dailyBalance[normalizedDate] = balanceForDate
             runningBalance = balanceForDate
         }
         
         return dailyBalance
     }
     
-    /// Encontra os dias com saldo negativo
-    private func findNegativeBalanceDays(from dailyBalance: [Date: Int]) -> [Date] {
+    /// Encontra o primeiro dia com saldo negativo
+    private func findNegativeBalanceDaysInternal(from dailyBalance: [Date: Int]) -> [Date] {
         let today = Date()
+        let todayStart = calendar.startOfDay(for: today)
         
-        return dailyBalance
-            .filter { date, balance in
-                balance < 0 && date >= today // Apenas dias futuros
+        // Ordenar os dias cronologicamente
+        let sortedDays = dailyBalance.keys.sorted()
+        
+        // Encontrar o primeiro dia futuro com saldo negativo
+        for date in sortedDays {
+            guard date >= todayStart else { continue } // Apenas dias futuros (incluindo hoje)
+            
+            if let balance = dailyBalance[date], balance < 0 {
+                // Retornar apenas o primeiro dia negativo
+                return [date]
             }
-            .map { $0.key }
-            .sorted()
+        }
+        
+        return []
     }
     
     /// Agenda notificações para dias com saldo negativo
     private func scheduleNegativeBalanceNotifications(for negativeDays: [Date]) {
         let today = Date()
+        
+        // Primeiro, remover notificações existentes para evitar duplicatas
+        removeNegativeBalanceNotifications()
         
         for negativeDay in negativeDays {
             // Calcular quantos dias faltam até o saldo ficar negativo
