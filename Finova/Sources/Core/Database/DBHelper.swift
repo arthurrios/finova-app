@@ -29,6 +29,7 @@ class DBHelper {
             try openDatabase()
             try createBudgetsTable()
             try createTransactionsTable()
+            try createSubCategoriesTable()
             try migrateTransactionsTable()
             isInitialized = true
 //            print("✅ Database initialized successfully")
@@ -776,5 +777,226 @@ class DBHelper {
         
         let uiData = try UITransactionData(from: dbData)
         return Transaction(data: uiData)
+    }
+    
+    // MARK: - Sub-Categories
+    private func createSubCategoriesTable() throws {
+        let createTableQuery = """
+            CREATE TABLE IF NOT EXISTS SubCategories (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                parent_category TEXT NOT NULL,
+                is_default INTEGER NOT NULL DEFAULT 0,
+                created_at INTEGER NOT NULL,
+                user_id TEXT NOT NULL,
+                UNIQUE(name, parent_category, user_id)
+            );
+            """
+        
+        var statement: OpaquePointer?
+        
+        guard sqlite3_prepare_v2(db, createTableQuery, -1, &statement, nil) == SQLITE_OK else {
+            let msg = String(cString: sqlite3_errmsg(db))
+            throw DBError.prepareFailed(message: msg)
+        }
+        
+        defer { sqlite3_finalize(statement) }
+        
+        guard sqlite3_step(statement) == SQLITE_DONE else {
+            let msg = String(cString: sqlite3_errmsg(db))
+            throw DBError.stepFailed(message: msg)
+        }
+    }
+    
+    func insertSubcategory(id: String, name: String, parentCategory: String, isDefault: Int, createdAt: Int, userId: String) throws {
+        guard isInitialized else {
+            print("⚠️ Database not initialized, skipping sub-category insert")
+            return
+        }
+        
+        let insertQuery = """
+                INSERT INTO SubCategories (id, name, parent_category, is_default, created_at, user_id)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """
+        var statement: OpaquePointer?
+        
+        guard sqlite3_prepare_v2(db, insertQuery, -1, &statement, nil) == SQLITE_OK else {
+            let msg = String(cString: sqlite3_errmsg(db))
+            throw DBError.prepareFailed(message: msg)
+        }
+        
+        defer { sqlite3_finalize(statement) }
+        
+        sqlite3_bind_text(statement, 1, (id as NSString).utf8String, -1, nil)
+        sqlite3_bind_text(statement, 2, (name as NSString).utf8String, -1, nil)
+        sqlite3_bind_text(statement, 3, (parentCategory as NSString).utf8String, -1, nil)
+        sqlite3_bind_int64(statement, 4, Int64(isDefault))
+        sqlite3_bind_int64(statement, 5, Int64(createdAt))
+        sqlite3_bind_text(statement, 6, (userId as NSString).utf8String, -1, nil)
+        
+        guard sqlite3_step(statement) == SQLITE_DONE else {
+            let msg = String(cString: sqlite3_errmsg(db))
+            throw DBError.stepFailed(message: msg)
+        }
+    }
+    
+    func updateSubCategory(id: String, name: String, parentCategory: String, isDefault: Int, createdAt: Int, userId: String) throws {
+        guard isInitialized else {
+            print("⚠️ Database not initialized, skipping sub-category update")
+            return
+        }
+        
+        let updateQuery = """
+            UPDATE SubCategories
+            SET 
+                name = ?,
+                parent_category = ?,
+                is_default = ?,
+                created_at = ?,
+                user_id = ?
+            WHERE
+                id = ?;
+            """
+        var statement: OpaquePointer?
+        
+        guard sqlite3_prepare_v2(db, updateQuery, -1, &statement, nil) == SQLITE_OK else {
+            let msg = String(cString: sqlite3_errmsg(db))
+            throw DBError.prepareFailed(message: msg)
+        }
+        
+        defer { sqlite3_finalize(statement) }
+        
+        sqlite3_bind_text(statement, 1, (name as NSString).utf8String, -1, nil)
+        sqlite3_bind_text(statement, 2, (parentCategory as NSString).utf8String, -1, nil)
+        sqlite3_bind_int64(statement, 3, Int64(isDefault))
+        sqlite3_bind_int64(statement, 4, Int64(createdAt))
+        sqlite3_bind_text(statement, 5, (userId as NSString).utf8String, -1, nil)
+        sqlite3_bind_text(statement, 6, (id as NSString).utf8String, -1, nil)
+        
+        guard sqlite3_step(statement) == SQLITE_DONE else {
+            let msg = String(cString: sqlite3_errmsg(db))
+            throw DBError.stepFailed(message: msg)
+        }
+    }
+    
+    func deleteSubCategory(id: String, userId: String) throws {
+        guard isInitialized else {
+            print("⚠️ Database not initialized, skipping sub-category deletion")
+            return
+        }
+        
+        let deleteQuery = "DELETE FROM SubCategories WHERE id = ? AND user_id = ?;"
+        var statement: OpaquePointer?
+        
+        guard sqlite3_prepare_v2(db, deleteQuery, -1, &statement, nil) == SQLITE_OK else {
+            let msg = String(cString: sqlite3_errmsg(db))
+            throw DBError.prepareFailed(message: msg)
+        }
+        
+        defer { sqlite3_finalize(statement) }
+        
+        sqlite3_bind_text(statement, 1, (id as NSString).utf8String, -1, nil)
+        sqlite3_bind_text(statement, 2, (userId as NSString).utf8String, -1, nil)
+        
+        guard sqlite3_step(statement) == SQLITE_DONE else {
+            let msg = String(cString: sqlite3_errmsg(db))
+            throw DBError.stepFailed(message: msg)
+        }
+    }
+    
+    func getSubCategories(userId: String, parentCategory: String? = nil) throws -> [[String: Any]] {
+        guard isInitialized else {
+            print("⚠️ Database not initialized, returning empty sub-categories list")
+            return []
+        }
+        
+        var query = "SELECT * FROM SubCategories WHERE user_id = ?"
+        var parameters: [String] = [userId]
+        
+        if let parentCategory = parentCategory {
+            query += " AND parent_category = ?"
+            parameters.append(parentCategory)
+        }
+        
+        query += " ORDER BY name ASC;"
+        
+        var statement: OpaquePointer?
+        
+        guard sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK else {
+            let msg = String(cString: sqlite3_errmsg(db))
+            throw DBError.prepareFailed(message: msg)
+        }
+        
+        defer { sqlite3_finalize(statement) }
+        
+        for (index, parameter) in parameters.enumerated() {
+            sqlite3_bind_text(statement, Int32(index + 1), (parameter as NSString).utf8String, -1, nil)
+        }
+        
+        var results: [[String: Any]] = []
+        
+        while sqlite3_step(statement) == SQLITE_ROW {
+            var row: [String: Any] = [:]
+            
+            let columnCount = sqlite3_column_count(statement)
+            
+            for i in 0..<columnCount {
+                let columnName = String(cString: sqlite3_column_name(statement, i))
+                let columnType = sqlite3_column_type(statement, i)
+                
+                switch columnType {
+                case SQLITE_TEXT:
+                    if let text = sqlite3_column_text(statement, i) {
+                        row[columnName] = String(cString: text)
+                    }
+                case SQLITE_INTEGER:
+                    row[columnName] = Int(sqlite3_column_int(statement, i))
+                case SQLITE_NULL:
+                    row[columnName] = nil
+                default:
+                    break
+                }
+            }
+            
+            results.append(row)
+        }
+        
+        return results
+    }
+    
+    func subCategoryExists(name: String, parentCategory: String, userId: String) throws -> Bool {
+        guard isInitialized else {
+            print("⚠️ Database not initialized, returning false for sub-category check")
+            return false
+        }
+        
+        let query = """
+            SELECT COUNT(*)
+            FROM SubCategories
+            WHERE 
+                LOWER(name) = LOWER(?)
+                AND parent_category = ?
+                AND user_id = ?;
+            """
+        var statement: OpaquePointer?
+        
+        guard sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK else {
+            let msg = String(cString: sqlite3_errmsg(db))
+            throw DBError.prepareFailed(message: msg)
+        }
+        
+        defer { sqlite3_finalize(statement) }
+        
+        sqlite3_bind_text(statement, 1, (name as NSString).utf8String, -1, nil)
+        sqlite3_bind_text(statement, 2, (parentCategory as NSString).utf8String, -1, nil)
+        sqlite3_bind_text(statement, 3, (userId as NSString).utf8String, -1, nil)
+        
+        guard sqlite3_step(statement) == SQLITE_ROW else {
+            let msg = String(cString: sqlite3_errmsg(db))
+            throw DBError.stepFailed(message: msg)
+        }
+        
+        let count = Int(sqlite3_column_int64(statement, 0))
+        return count > 0
     }
 }

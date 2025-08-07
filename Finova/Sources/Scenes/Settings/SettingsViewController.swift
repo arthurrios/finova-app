@@ -37,6 +37,13 @@ final class SettingsViewController: UIViewController {
         viewModel.refreshAllSettings()
     }
     
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        
+        // Update tab bar selection when settings appears
+        flowDelegate?.settingsDidAppear()
+    }
+    
     private func setup() {
         view.addSubview(contentView)
         buildHierarchy()

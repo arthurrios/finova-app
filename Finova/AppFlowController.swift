@@ -11,6 +11,7 @@ import UIKit
 class AppFlowController {
     // MARK: - Properties
     private var navigationController: UINavigationController?
+    private var tabBarController: CustomTabBarController?
     private let viewControllersFactory: ViewControllersFactoryProtocol
     // MARK: - init
     public init() {
@@ -23,15 +24,22 @@ class AppFlowController {
         navigationController = UINavigationController(rootViewController: viewController)
         return navigationController
     }
+    
+    // MARK: - Tab Bar Setup
+    private func setupTabBarController() {
+        tabBarController = CustomTabBarController(nibName: nil, bundle: nil)
+        tabBarController?.customDelegate = self
+        
+        // Set the tab bar controller as the root
+        navigationController?.setViewControllers([tabBarController!], animated: false)
+    }
 }
 
 // MARK: - Common Navigation
 extension AppFlowController: CommonFlowDelegate {
     func navigateToDashboard() {
         navigationController?.dismiss(animated: false)
-        let dashboardViewController = viewControllersFactory.makeDashboardViewController(
-            flowDelegate: self)
-        navigationController?.pushViewController(dashboardViewController, animated: true)
+        setupTabBarController()
     }
 }
 
@@ -48,8 +56,7 @@ extension AppFlowController: SplashFlowDelegate {
     
     func navigateDirectlyToDashboard() {
         navigationController?.dismiss(animated: false)
-        let viewController = viewControllersFactory.makeDashboardViewController(flowDelegate: self)
-        navigationController?.pushViewController(viewController, animated: true)
+        setupTabBarController()
     }
 }
 
@@ -126,12 +133,35 @@ extension AppFlowController: DashboardFlowDelegate, SettingsFlowDelegate {
     func dismissSettings() {
         navigationController?.popViewController(animated: true)
     }
+    
+    // MARK: - New methods for tab bar selection
+    func dashboardDidAppear() {
+        // Update tab bar when dashboard appears
+        if let tabBarController = navigationController?.viewControllers.first as? CustomTabBarController {
+            tabBarController.updateTabBarSelection(for: 0)
+        }
+    }
+    
+    func settingsDidAppear() {
+        // Update tab bar when settings appears
+        if let tabBarController = navigationController?.viewControllers.first as? CustomTabBarController {
+            tabBarController.updateTabBarSelection(for: 4)
+        }
+    }
 }
 
 // MARK: - Budgets Flow
 extension AppFlowController: BudgetsFlowDelegate {
     func navBackToDashboard() {
         navigationController?.popViewController(animated: true)
+        setupTabBarController()
+    }
+    
+    func budgetsDidAppear() {
+        // Update tab bar when budgets appears
+        if let tabBarController = navigationController?.viewControllers.first as? CustomTabBarController {
+            tabBarController.updateTabBarSelection(for: 1)
+        }
     }
 }
 
@@ -145,5 +175,43 @@ extension AppFlowController: AddTransactionModalFlowDelegate {
             .last {
             dashboardViewController.loadData()
         }
+    }
+}
+// 
+extension AppFlowController: CategoriesFlowDelegate {
+    func navigateToSubCategoryManagement() {
+        // TODO: Implement sub-category management navigation
+    }
+    
+    func navigateToSubCategoryCreation(parentCategory: TransactionCategory?) {
+        // TODO: Implement sub-category creation navigation
+    }
+    
+    func navigateToSubCategoryEditing(_ subCategory: SubCategory) {
+        // TODO: Implement sub-category editing navigation
+    }
+    
+    func navigateBackToDashboard() {
+        navigationController?.popViewController(animated: true)
+        setupTabBarController()
+    }
+    
+    func categoriesDidAppear() {
+        // Update tab bar when categories appears
+        if let tabBarController = navigationController?.viewControllers.first as? CustomTabBarController {
+            tabBarController.updateTabBarSelection(for: 3)
+        }
+    }
+}
+
+extension AppFlowController: CustomTabBarControllerDelegate {
+    func didSelectTab(at index: Int) {
+        // Handle tab selection if needed
+        print("Selected tab at index: \(index)")
+    }
+    
+    func didTapFloatingActionButton() {
+        // Open add transaction modal
+        openAddTransactionModal()
     }
 }

@@ -60,7 +60,7 @@ enum Metrics {
     static let budgetsTableHeight: CGFloat = 400
     
     // MARK: - Dashboard Screen
-    static let transactionsTableHeight: CGFloat = 330
+    static let transactionsTableHeight: CGFloat = 270
     
     // MARK: - Budgets Screen
     static let newBudgetContentContainerHeight: CGFloat = 158

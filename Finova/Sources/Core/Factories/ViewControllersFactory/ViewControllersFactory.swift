@@ -63,4 +63,19 @@ final class ViewControllersFactory: ViewControllersFactoryProtocol {
             contentView: contentView, viewModel: viewModel, flowDelegate: flowDelegate)
         return viewController
     }
+    
+    func makeCategoriesViewController(flowDelegate: any CategoriesFlowDelegate) -> CategoriesViewController {
+        let contentView = CategoriesView()
+        let viewModel = CategoriesViewModel()
+        let viewController = CategoriesViewController(
+            contentView: contentView, viewModel: viewModel, flowDelegate: flowDelegate)
+        return viewController
+    }
+    
+    // MARK: - Custom Tab Bar Controller
+    func makeCustomTabBarController(flowDelegate: CustomTabBarControllerDelegate) -> CustomTabBarController {
+        let tabBarController = CustomTabBarController(nibName: nil, bundle: nil)
+        tabBarController.customDelegate = flowDelegate
+        return tabBarController
+    }
 }

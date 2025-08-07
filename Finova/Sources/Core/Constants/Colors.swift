@@ -10,6 +10,7 @@ import UIKit
 
 enum Colors {
     static let mainMagenta = UIColor(hex: "#DA4BDD")
+    static let darkMagenta = UIColor(hex: "#B83BB9") // Darker version of mainMagenta
     static let mainRed = UIColor(hex: "#D93A4A")
     static let mainGreen = UIColor(hex: "#1FA342")
     

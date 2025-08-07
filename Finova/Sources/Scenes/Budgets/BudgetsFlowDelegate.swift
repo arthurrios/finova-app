@@ -9,4 +9,5 @@ import Foundation
 
 public protocol BudgetsFlowDelegate: AnyObject {
     func navBackToDashboard()
+    func budgetsDidAppear()
 }

@@ -63,7 +63,7 @@ final class DashboardViewController: UIViewController {
         }
     }
     
-    private func refreshDashboardData() {
+    func refreshDashboardData() {
         print("🔄 Refreshing dashboard data...")
         
         // Load fresh data from repositories
@@ -134,6 +134,9 @@ final class DashboardViewController: UIViewController {
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         LoadingManager.shared.hideLoading()
+        
+        // Update tab bar selection when dashboard appears
+        flowDelegate?.dashboardDidAppear()
         
         // Check if we should show notification success alert
         checkAndShowNotificationSuccessAlert()

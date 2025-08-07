@@ -8,4 +8,5 @@
 public protocol SettingsFlowDelegate: AnyObject {
     func dismissSettings()
     func logout()
+    func settingsDidAppear()
 }
