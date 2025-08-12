@@ -3044,6 +3044,23 @@
         }
       }
     },
+    "notification.negative.balance.body.today" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your balance is currently negative. Check your transactions and adjust your budget."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Seu saldo está negativo atualmente. Verifique suas transações e ajuste seu orçamento."
+          }
+        }
+      }
+    },
     "notification.recurring.body.plural" : {
       "extractionState" : "manual",
       "localizations" : {

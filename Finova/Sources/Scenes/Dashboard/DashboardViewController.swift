@@ -187,6 +187,73 @@ final class DashboardViewController: UIViewController {
         viewModel.debugPendingNotifications()
     }
     
+    private func debugBalanceMonitoring() {
+        // Run comprehensive balance monitoring debugging using dashboard data
+        let balanceMonitor = BalanceMonitorManager()
+        
+        // Get current month data from the dashboard
+        if let currentMonthData = syncedViewModel.getCurrentMonthData() {
+            balanceMonitor.debugBalanceMonitoring(with: currentMonthData)
+        } else {
+            // Fallback to regular debug if no dashboard data available
+            balanceMonitor.debugBalanceMonitoring()
+        }
+    }
+    
+    private func forceTriggerBalanceMonitoring() {
+        // Force trigger balance monitoring
+        let balanceMonitor = BalanceMonitorManager()
+        balanceMonitor.forceTriggerBalanceMonitoring()
+    }
+    
+    private func clearBalanceNotifications() {
+        // Clear all negative balance notifications
+        let balanceMonitor = BalanceMonitorManager()
+        balanceMonitor.clearAllNegativeBalanceNotifications()
+        
+        // Show confirmation alert
+        let alert = UIAlertController(
+            title: "🧹 Notifications Cleared",
+            message: "All negative balance notifications have been cleared.",
+            preferredStyle: .alert
+        )
+        
+        alert.addAction(UIAlertAction(title: "OK", style: .default))
+        present(alert, animated: true)
+    }
+    
+    private func testTomorrowNegativeBalanceAlert() {
+        // Test tomorrow's negative balance notification
+        let balanceMonitor = BalanceMonitorManager()
+        balanceMonitor.testTomorrowNegativeBalanceNotification()
+        
+        // Show confirmation alert
+        let alert = UIAlertController(
+            title: "🧪 Test Notification Scheduled",
+            message: "A test notification for tomorrow's negative balance will appear in 5 seconds.",
+            preferredStyle: .alert
+        )
+        
+        alert.addAction(UIAlertAction(title: "OK", style: .default))
+        present(alert, animated: true)
+    }
+    
+    private func testNegativeBalanceAlertIn1Minute() {
+        // Test negative balance notification in 1 minute
+        let balanceMonitor = BalanceMonitorManager()
+        balanceMonitor.testNegativeBalanceNotificationIn1Minute()
+        
+        // Show confirmation alert
+        let alert = UIAlertController(
+            title: "🧪 Test Notification Scheduled",
+            message: "A test negative balance notification will appear in 1 minute.",
+            preferredStyle: .alert
+        )
+        
+        alert.addAction(UIAlertAction(title: "OK", style: .default))
+        present(alert, animated: true)
+    }
+    
     /// Reset notification state for testing
     private func resetNotificationStateForTesting() {
         // Clear all notification-related UserDefaults
@@ -240,6 +307,26 @@ final class DashboardViewController: UIViewController {
             self.debugNotificationSystem()
         }
         
+        let balanceDebugAction = UIAlertAction(title: "💰 Debug Balance Monitoring", style: .default) { _ in
+            self.debugBalanceMonitoring()
+        }
+        
+        let forceBalanceAction = UIAlertAction(title: "⚡ Force Balance Monitoring", style: .default) { _ in
+            self.forceTriggerBalanceMonitoring()
+        }
+        
+        let clearNotificationsAction = UIAlertAction(title: "🧹 Clear Balance Notifications", style: .default) { _ in
+            self.clearBalanceNotifications()
+        }
+        
+        let testTomorrowAction = UIAlertAction(title: "🧪 Test Tomorrow's Alert (5s)", style: .default) { _ in
+            self.testTomorrowNegativeBalanceAlert()
+        }
+        
+        let test1MinAction = UIAlertAction(title: "🧪 Test Alert in 1 Minute", style: .default) { _ in
+            self.testNegativeBalanceAlertIn1Minute()
+        }
+        
         let testAction = UIAlertAction(title: "📡 Test Notification (5s)", style: .default) { _ in
             DebugDataManager.shared.testNotificationNow()
         }
@@ -255,6 +342,11 @@ final class DashboardViewController: UIViewController {
         let cancelAction = UIAlertAction(title: "Cancel", style: .cancel)
         
         alertController.addAction(debugAction)
+        alertController.addAction(balanceDebugAction)
+        alertController.addAction(forceBalanceAction)
+        alertController.addAction(clearNotificationsAction)
+        alertController.addAction(testTomorrowAction)
+        alertController.addAction(test1MinAction)
         alertController.addAction(testAction)
         alertController.addAction(rescheduleAction)
         alertController.addAction(resetAction)
@@ -970,7 +1062,11 @@ extension DashboardViewController {
         let newCount = currentCell?.transactions.count ?? 0
         currentCell?.updateTableHeight(txsCount: newCount)
         currentCell?.toggleEmptyState(newCount == 0)
-        loadData()
+        
+        // Add a small delay to ensure deletion is fully processed before reloading data
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            self.loadData()
+        }
     }
     
     // MARK: - Automatic Notification Scheduling

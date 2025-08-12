@@ -33,8 +33,26 @@ final class RecurringTransactionManager {
     transactionStartDate: Date? = nil
   ) {
     let recurringTransactions = transactionRepo.fetchRecurringTransactions()
+    
+    print("🔄 Generating recurring transactions for range \(monthRange)")
+    print("📊 Found \(recurringTransactions.count) recurring transactions")
 
     for recurringTx in recurringTransactions {
+      // Verify the transaction still exists and is valid
+      guard let recurringTxId = recurringTx.id else {
+        print("⚠️ Skipping recurring transaction without ID: \(recurringTx.title)")
+        continue
+      }
+      
+      // Double-check that this transaction still exists in the database
+      let allTransactions = transactionRepo.fetchAllTransactions()
+      let parentTransaction = allTransactions.first { $0.id == recurringTxId }
+      
+      if parentTransaction == nil {
+        print("⚠️ Skipping deleted recurring transaction: \(recurringTx.title) (ID: \(recurringTxId))")
+        continue
+      }
+      
       generateInstancesForTransaction(
         recurringTx,
         in: monthRange,
@@ -52,8 +70,17 @@ final class RecurringTransactionManager {
   ) {
     guard let recurringTxId = recurringTx.id else { return }
 
-    print("🔄 Generating instances for recurring transaction: '\(recurringTx.title)'")
+    print("🔄 Generating instances for recurring transaction: '\(recurringTx.title)' (ID: \(recurringTxId))")
     print("📅 Range: \(monthRange), Reference date: \(referenceDate)")
+
+    // Verify the parent transaction still exists before generating instances
+    let allTransactions = transactionRepo.fetchAllTransactions()
+    let parentTransaction = allTransactions.first { $0.id == recurringTxId }
+    
+    if parentTransaction == nil {
+      print("⚠️ Parent recurring transaction \(recurringTxId) not found, skipping instance generation")
+      return
+    }
 
     // Get existing instances for this specific recurring transaction only
     let existingInstances = transactionRepo.fetchTransactionInstancesForRecurring(recurringTxId)
@@ -225,12 +252,16 @@ final class RecurringTransactionManager {
     selectedTransactionDate: Date,
     cleanupOption: RecurringCleanupOption
   ) {
+    print("🧹 Starting cleanup for recurring transaction \(parentTransactionId) with option: \(cleanupOption)")
+    
     let selectedAnchor = selectedTransactionDate.monthAnchor
     let allInstances = transactionRepo.fetchAllRecurringInstances()
 
     let relatedInstances = allInstances.filter {
       $0.parentTransactionId == parentTransactionId
     }
+
+    print("🧹 Found \(relatedInstances.count) related instances for parent \(parentTransactionId)")
 
     for instance in relatedInstances {
       let shouldDelete: Bool
@@ -245,29 +276,41 @@ final class RecurringTransactionManager {
       if shouldDelete, let instanceId = instance.id {
         do {
           try transactionRepo.delete(id: instanceId)
+          print("🧹 Deleted instance \(instanceId) for parent \(parentTransactionId)")
 
           let notifID = "transaction_\(instanceId)"
           notificationCenter.removePendingNotificationRequests(withIdentifiers: [notifID])
         } catch {
-          print("Error deleting recurring instance: \(error)")
+          print("❌ Error deleting recurring instance \(instanceId): \(error)")
         }
       }
     }
 
     if cleanupOption == .all {
       do {
-        try transactionRepo.delete(id: parentTransactionId)
+        // Verify the parent transaction still exists before trying to delete it
+        let allTransactions = transactionRepo.fetchAllTransactions()
+        let parentTransaction = allTransactions.first { $0.id == parentTransactionId }
+        
+        if parentTransaction != nil {
+          try transactionRepo.delete(id: parentTransactionId)
+          print("🧹 Successfully deleted parent recurring transaction \(parentTransactionId)")
 
-        // Clean up notification for deleted parent transaction
-        let notifID = "transaction_\(parentTransactionId)"
-        notificationCenter.removePendingNotificationRequests(withIdentifiers: [notifID])
-        print(
-          "🔔 🗑️ Removed notification for deleted parent recurring transaction: \(parentTransactionId)"
-        )
+          // Clean up notification for deleted parent transaction
+          let notifID = "transaction_\(parentTransactionId)"
+          notificationCenter.removePendingNotificationRequests(withIdentifiers: [notifID])
+          print("🔔 🗑️ Removed notification for deleted parent recurring transaction: \(parentTransactionId)")
+        } else {
+          print("⚠️ Parent transaction \(parentTransactionId) was already deleted or not found")
+        }
       } catch {
-        print("Error deleting parent recurring transaction: \(error)")
+        print("❌ Error deleting parent recurring transaction \(parentTransactionId): \(error)")
       }
+    } else {
+      print("🧹 Skipping parent deletion for futureOnly cleanup")
     }
+    
+    print("🧹 Completed cleanup for recurring transaction \(parentTransactionId)")
   }
 
   func cleanupInstallmentTransactionsFromDate(
