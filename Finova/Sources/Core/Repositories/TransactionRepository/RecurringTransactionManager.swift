@@ -18,9 +18,15 @@ final class RecurringTransactionManager {
   private let calendar: Calendar
   private let notificationCenter = UNUserNotificationCenter.current()
 
+  // MARK: - Concurrency Control
+  private let operationQueue = DispatchQueue(
+    label: "recurring.transaction.operations", qos: .userInitiated)
+  private var currentOperations: Set<String> = []
+  private let operationLock = NSLock()
+
   init(transactionRepo: TransactionRepository = TransactionRepository()) {
     self.transactionRepo = transactionRepo
-    
+
     // Usar calendar com fuso horário UTC para consistência com monthAnchor
     var utcCalendar = Calendar(identifier: .gregorian)
     utcCalendar.timeZone = TimeZone(abbreviation: "UTC")!
@@ -32,33 +38,57 @@ final class RecurringTransactionManager {
     referenceDate: Date = Date(),
     transactionStartDate: Date? = nil
   ) {
-    let recurringTransactions = transactionRepo.fetchRecurringTransactions()
-    
-    print("🔄 Generating recurring transactions for range \(monthRange)")
-    print("📊 Found \(recurringTransactions.count) recurring transactions")
+    let operationId = "generate_range_\(monthRange.lowerBound)_\(monthRange.upperBound)"
 
-    for recurringTx in recurringTransactions {
-      // Verify the transaction still exists and is valid
-      guard let recurringTxId = recurringTx.id else {
-        print("⚠️ Skipping recurring transaction without ID: \(recurringTx.title)")
-        continue
+    // Prevent concurrent generation operations
+    operationLock.lock()
+    defer { operationLock.unlock() }
+
+    guard !currentOperations.contains(operationId) else {
+      print("🔄 ⚠️ Generation already in progress for range \(monthRange), skipping")
+      return
+    }
+
+    currentOperations.insert(operationId)
+
+    operationQueue.async { [weak self] in
+      defer {
+        self?.operationLock.lock()
+        self?.currentOperations.remove(operationId)
+        self?.operationLock.unlock()
       }
-      
-      // Double-check that this transaction still exists in the database
-      let allTransactions = transactionRepo.fetchAllTransactions()
-      let parentTransaction = allTransactions.first { $0.id == recurringTxId }
-      
-      if parentTransaction == nil {
-        print("⚠️ Skipping deleted recurring transaction: \(recurringTx.title) (ID: \(recurringTxId))")
-        continue
+
+      guard let self = self else { return }
+
+      let recurringTransactions = self.transactionRepo.fetchRecurringTransactions()
+
+      print("🔄 Generating recurring transactions for range \(monthRange)")
+      print("📊 Found \(recurringTransactions.count) recurring transactions")
+
+      for recurringTx in recurringTransactions {
+        // Verify the transaction still exists and is valid
+        guard let recurringTxId = recurringTx.id else {
+          print("⚠️ Skipping recurring transaction without ID: \(recurringTx.title)")
+          continue
+        }
+
+        // Double-check that this transaction still exists in the database
+        let allTransactions = self.transactionRepo.fetchAllTransactions()
+        let parentTransaction = allTransactions.first { $0.id == recurringTxId }
+
+        if parentTransaction == nil {
+          print(
+            "⚠️ Skipping deleted recurring transaction: \(recurringTx.title) (ID: \(recurringTxId))")
+          continue
+        }
+
+        self.generateInstancesForTransaction(
+          recurringTx,
+          in: monthRange,
+          referenceDate: referenceDate,
+          transactionStartDate: transactionStartDate
+        )
       }
-      
-      generateInstancesForTransaction(
-        recurringTx,
-        in: monthRange,
-        referenceDate: referenceDate,
-        transactionStartDate: transactionStartDate
-      )
     }
   }
 
@@ -70,15 +100,18 @@ final class RecurringTransactionManager {
   ) {
     guard let recurringTxId = recurringTx.id else { return }
 
-    print("🔄 Generating instances for recurring transaction: '\(recurringTx.title)' (ID: \(recurringTxId))")
+    print(
+      "🔄 Generating instances for recurring transaction: '\(recurringTx.title)' (ID: \(recurringTxId))"
+    )
     print("📅 Range: \(monthRange), Reference date: \(referenceDate)")
 
     // Verify the parent transaction still exists before generating instances
     let allTransactions = transactionRepo.fetchAllTransactions()
     let parentTransaction = allTransactions.first { $0.id == recurringTxId }
-    
+
     if parentTransaction == nil {
-      print("⚠️ Parent recurring transaction \(recurringTxId) not found, skipping instance generation")
+      print(
+        "⚠️ Parent recurring transaction \(recurringTxId) not found, skipping instance generation")
       return
     }
 
@@ -106,7 +139,9 @@ final class RecurringTransactionManager {
         effectiveStartAnchor = recurringStartAnchor
       }
 
-      print("📅 Processing month offset \(monthOffset): targetDate=\(targetDate), targetAnchor=\(targetAnchor)")
+      print(
+        "📅 Processing month offset \(monthOffset): targetDate=\(targetDate), targetAnchor=\(targetAnchor)"
+      )
 
       // Skip if an instance already exists for this period
       if existingAnchors.contains(targetAnchor) {
@@ -117,10 +152,10 @@ final class RecurringTransactionManager {
       // Create instances for the effective start anchor and all future periods
       if targetAnchor >= effectiveStartAnchor {
         let originalDate = Date(timeIntervalSince1970: TimeInterval(recurringTx.dateTimestamp))
-        
+
         print("📅 Original date: \(originalDate)")
         print("📅 Original day: \(calendar.component(.day, from: originalDate))")
-        
+
         // Usar a nova função para gerar data válida
         let targetYear = calendar.component(.year, from: targetDate)
         let targetMonth = calendar.component(.month, from: targetDate)
@@ -136,15 +171,19 @@ final class RecurringTransactionManager {
         // Verificar se a data gerada está no mês correto
         let generatedAnchor = instanceDate.monthAnchor
         print("📊 Target anchor: \(targetAnchor), Generated anchor: \(generatedAnchor)")
-        
+
         // Usar o anchor gerado em vez do target anchor
         let finalAnchor = generatedAnchor
         print("🎯 Using final anchor: \(finalAnchor)")
 
         // Verificação adicional: não criar se já existe uma instância para este mês
-        let existingInstancesForMonth = existingInstances.filter { $0.budgetMonthDate == finalAnchor }
+        let existingInstancesForMonth = existingInstances.filter {
+          $0.budgetMonthDate == finalAnchor
+        }
         if !existingInstancesForMonth.isEmpty {
-          print("⏭️ Skipping month \(finalAnchor) - already has \(existingInstancesForMonth.count) instance(s)")
+          print(
+            "⏭️ Skipping month \(finalAnchor) - already has \(existingInstancesForMonth.count) instance(s)"
+          )
           continue
         }
 
@@ -170,7 +209,7 @@ final class RecurringTransactionManager {
         do {
           try transactionRepo.insertTransaction(instanceModel)
           print("✅ Created recurring instance: \(recurringTx.title) for \(instanceDate)")
-          
+
           // Adicionar à lista para notificações otimizadas
           newInstances.append(instanceModel)
         } catch {
@@ -178,7 +217,7 @@ final class RecurringTransactionManager {
         }
       }
     }
-    
+
     // Agendar notificações otimizadas para todas as novas instâncias
     if !newInstances.isEmpty {
       scheduleOptimizedNotificationsForRecurringInstances(newInstances)
@@ -252,65 +291,100 @@ final class RecurringTransactionManager {
     selectedTransactionDate: Date,
     cleanupOption: RecurringCleanupOption
   ) {
-    print("🧹 Starting cleanup for recurring transaction \(parentTransactionId) with option: \(cleanupOption)")
-    
-    let selectedAnchor = selectedTransactionDate.monthAnchor
-    let allInstances = transactionRepo.fetchAllRecurringInstances()
+    let operationId = "cleanup_recurring_\(parentTransactionId)_\(cleanupOption)"
 
-    let relatedInstances = allInstances.filter {
-      $0.parentTransactionId == parentTransactionId
+    // Prevent concurrent deletion operations on the same transaction
+    operationLock.lock()
+    defer { operationLock.unlock() }
+
+    guard !currentOperations.contains(operationId) else {
+      print("🧹 ⚠️ Cleanup already in progress for transaction \(parentTransactionId), skipping")
+      return
     }
 
-    print("🧹 Found \(relatedInstances.count) related instances for parent \(parentTransactionId)")
+    currentOperations.insert(operationId)
 
-    for instance in relatedInstances {
-      let shouldDelete: Bool
-
-      switch cleanupOption {
-      case .all:
-        shouldDelete = true
-      case .futureOnly:
-        shouldDelete = instance.budgetMonthDate >= selectedAnchor
+    operationQueue.async { [weak self] in
+      defer {
+        self?.operationLock.lock()
+        self?.currentOperations.remove(operationId)
+        self?.operationLock.unlock()
       }
 
-      if shouldDelete, let instanceId = instance.id {
+      guard let self = self else { return }
+
+      print(
+        "🧹 Starting cleanup for recurring transaction \(parentTransactionId) with option: \(cleanupOption)"
+      )
+
+      let selectedAnchor = selectedTransactionDate.monthAnchor
+      let allInstances = self.transactionRepo.fetchAllRecurringInstances()
+
+      let relatedInstances = allInstances.filter {
+        $0.parentTransactionId == parentTransactionId
+      }
+
+      print("🧹 Found \(relatedInstances.count) related instances for parent \(parentTransactionId)")
+
+      // Delete instances in a single transaction to prevent partial states
+      var instancesToDelete: [Int] = []
+
+      for instance in relatedInstances {
+        let shouldDelete: Bool
+
+        switch cleanupOption {
+        case .all:
+          shouldDelete = true
+        case .futureOnly:
+          shouldDelete = instance.budgetMonthDate >= selectedAnchor
+        }
+
+        if shouldDelete, let instanceId = instance.id {
+          instancesToDelete.append(instanceId)
+        }
+      }
+
+      // Perform deletions atomically
+      for instanceId in instancesToDelete {
         do {
-          try transactionRepo.delete(id: instanceId)
+          try self.transactionRepo.delete(id: instanceId)
           print("🧹 Deleted instance \(instanceId) for parent \(parentTransactionId)")
 
           let notifID = "transaction_\(instanceId)"
-          notificationCenter.removePendingNotificationRequests(withIdentifiers: [notifID])
+          self.notificationCenter.removePendingNotificationRequests(withIdentifiers: [notifID])
         } catch {
           print("❌ Error deleting recurring instance \(instanceId): \(error)")
         }
       }
-    }
 
-    if cleanupOption == .all {
-      do {
-        // Verify the parent transaction still exists before trying to delete it
-        let allTransactions = transactionRepo.fetchAllTransactions()
-        let parentTransaction = allTransactions.first { $0.id == parentTransactionId }
-        
-        if parentTransaction != nil {
-          try transactionRepo.delete(id: parentTransactionId)
-          print("🧹 Successfully deleted parent recurring transaction \(parentTransactionId)")
+      if cleanupOption == .all {
+        do {
+          // Verify the parent transaction still exists before trying to delete it
+          let allTransactions = self.transactionRepo.fetchAllTransactions()
+          let parentTransaction = allTransactions.first { $0.id == parentTransactionId }
 
-          // Clean up notification for deleted parent transaction
-          let notifID = "transaction_\(parentTransactionId)"
-          notificationCenter.removePendingNotificationRequests(withIdentifiers: [notifID])
-          print("🔔 🗑️ Removed notification for deleted parent recurring transaction: \(parentTransactionId)")
-        } else {
-          print("⚠️ Parent transaction \(parentTransactionId) was already deleted or not found")
+          if parentTransaction != nil {
+            try self.transactionRepo.delete(id: parentTransactionId)
+            print("🧹 Successfully deleted parent recurring transaction \(parentTransactionId)")
+
+            // Clean up notification for deleted parent transaction
+            let notifID = "transaction_\(parentTransactionId)"
+            self.notificationCenter.removePendingNotificationRequests(withIdentifiers: [notifID])
+            print(
+              "🔔 🗑️ Removed notification for deleted parent recurring transaction: \(parentTransactionId)"
+            )
+          } else {
+            print("⚠️ Parent transaction \(parentTransactionId) was already deleted or not found")
+          }
+        } catch {
+          print("❌ Error deleting parent recurring transaction \(parentTransactionId): \(error)")
         }
-      } catch {
-        print("❌ Error deleting parent recurring transaction \(parentTransactionId): \(error)")
+      } else {
+        print("🧹 Skipping parent deletion for futureOnly cleanup")
       }
-    } else {
-      print("🧹 Skipping parent deletion for futureOnly cleanup")
+
+      print("🧹 Completed cleanup for recurring transaction \(parentTransactionId)")
     }
-    
-    print("🧹 Completed cleanup for recurring transaction \(parentTransactionId)")
   }
 
   func cleanupInstallmentTransactionsFromDate(
@@ -318,51 +392,84 @@ final class RecurringTransactionManager {
     selectedTransactionDate: Date,
     cleanupOption: RecurringCleanupOption
   ) {
-    let allTransactions = transactionRepo.fetchAllTransactions()
-    let installmentInstances = allTransactions.filter {
-      $0.parentTransactionId == parentTransactionId
+    let operationId = "cleanup_installment_\(parentTransactionId)_\(cleanupOption)"
+
+    // Prevent concurrent deletion operations on the same transaction
+    operationLock.lock()
+    defer { operationLock.unlock() }
+
+    guard !currentOperations.contains(operationId) else {
+      print(
+        "🧹 ⚠️ Installment cleanup already in progress for transaction \(parentTransactionId), skipping"
+      )
+      return
     }
 
-    for instance in installmentInstances {
-      let shouldDelete: Bool
+    currentOperations.insert(operationId)
 
-      switch cleanupOption {
-      case .all:
-        shouldDelete = true
-      case .futureOnly:
-        shouldDelete = instance.date >= selectedTransactionDate
+    operationQueue.async { [weak self] in
+      defer {
+        self?.operationLock.lock()
+        self?.currentOperations.remove(operationId)
+        self?.operationLock.unlock()
       }
 
-      if shouldDelete, let instanceId = instance.id {
+      guard let self = self else { return }
+
+      let allTransactions = self.transactionRepo.fetchAllTransactions()
+      let installmentInstances = allTransactions.filter {
+        $0.parentTransactionId == parentTransactionId
+      }
+
+      // Collect instances to delete first to avoid partial states
+      var instancesToDelete: [Int] = []
+
+      for instance in installmentInstances {
+        let shouldDelete: Bool
+
+        switch cleanupOption {
+        case .all:
+          shouldDelete = true
+        case .futureOnly:
+          shouldDelete = instance.date >= selectedTransactionDate
+        }
+
+        if shouldDelete, let instanceId = instance.id {
+          instancesToDelete.append(instanceId)
+        }
+      }
+
+      // Perform deletions atomically
+      for instanceId in instancesToDelete {
         do {
-          try transactionRepo.delete(id: instanceId)
+          try self.transactionRepo.delete(id: instanceId)
 
           let notifID = "transaction_\(instanceId)"
-          notificationCenter.removePendingNotificationRequests(withIdentifiers: [notifID])
+          self.notificationCenter.removePendingNotificationRequests(withIdentifiers: [notifID])
         } catch {
           print("Error deleting installment instance: \(error)")
         }
       }
-    }
 
-    if cleanupOption == .all {
-      do {
-        try transactionRepo.delete(id: parentTransactionId)
+      if cleanupOption == .all {
+        do {
+          try self.transactionRepo.delete(id: parentTransactionId)
 
-        // Clean up notification for deleted parent transaction
-        let notifID = "transaction_\(parentTransactionId)"
-        notificationCenter.removePendingNotificationRequests(withIdentifiers: [notifID])
-        print(
-          "🔔 🗑️ Removed notification for deleted parent installment transaction: \(parentTransactionId)"
-        )
-      } catch {
-        print("Error deleting parent installment transaction: \(error)")
+          // Clean up notification for deleted parent transaction
+          let notifID = "transaction_\(parentTransactionId)"
+          self.notificationCenter.removePendingNotificationRequests(withIdentifiers: [notifID])
+          print(
+            "🔔 🗑️ Removed notification for deleted parent installment transaction: \(parentTransactionId)"
+          )
+        } catch {
+          print("Error deleting parent installment transaction: \(error)")
+        }
       }
     }
   }
 
   // MARK: - Helper Methods
-  
+
   /// Gera uma data válida para o mês especificado, lidando com dias que não existem
   /// - Parameters:
   ///   - originalDate: Data original da transação recorrente
@@ -375,37 +482,39 @@ final class RecurringTransactionManager {
     targetYear: Int
   ) -> Date {
     let originalDay = calendar.component(.day, from: originalDate)
-    
-    print("🔧 generateValidDateForMonth: originalDay=\(originalDay), targetMonth=\(targetMonth), targetYear=\(targetYear)")
-    
+
+    print(
+      "🔧 generateValidDateForMonth: originalDay=\(originalDay), targetMonth=\(targetMonth), targetYear=\(targetYear)"
+    )
+
     // Calcular o último dia do mês específico primeiro
     let lastDayOfMonth: Int
-    
+
     switch targetMonth {
-    case 2: // Fevereiro
+    case 2:  // Fevereiro
       let isLeapYear = (targetYear % 4 == 0 && targetYear % 100 != 0) || (targetYear % 400 == 0)
       lastDayOfMonth = isLeapYear ? 29 : 28
-    case 4, 6, 9, 11: // Abril, Junho, Setembro, Novembro
+    case 4, 6, 9, 11:  // Abril, Junho, Setembro, Novembro
       lastDayOfMonth = 30
-    default: // Janeiro, Março, Maio, Julho, Agosto, Outubro, Dezembro
+    default:  // Janeiro, Março, Maio, Julho, Agosto, Outubro, Dezembro
       lastDayOfMonth = 31
     }
-    
+
     print("📅 Last day of month \(targetMonth)/\(targetYear): \(lastDayOfMonth)")
-    
+
     // Determinar o dia a usar
     let dayToUse = min(originalDay, lastDayOfMonth)
     print("📅 Using day: \(dayToUse) (original: \(originalDay), last day: \(lastDayOfMonth))")
-    
+
     // Criar a data com o dia determinado
     var dateComponents = DateComponents()
     dateComponents.year = targetYear
     dateComponents.month = targetMonth
     dateComponents.day = dayToUse
-    dateComponents.hour = 12 // Usar meio-dia para evitar problemas de fuso horário
+    dateComponents.hour = 12  // Usar meio-dia para evitar problemas de fuso horário
     dateComponents.minute = 0
     dateComponents.second = 0
-    
+
     // Criar a data
     guard let validDate = calendar.date(from: dateComponents) else {
       print("❌ Failed to create date for \(dayToUse)/\(targetMonth)/\(targetYear), using fallback")
@@ -415,68 +524,75 @@ final class RecurringTransactionManager {
       print("⚠️ Using fallback date (1st day) for month \(targetMonth)/\(targetYear)")
       return fallbackDate
     }
-    
+
     if dayToUse != originalDay {
-      print("📅 Adjusted date for month \(targetMonth)/\(targetYear): original day \(originalDay) → adjusted day \(dayToUse)")
+      print(
+        "📅 Adjusted date for month \(targetMonth)/\(targetYear): original day \(originalDay) → adjusted day \(dayToUse)"
+      )
     } else {
       print("✅ Original day \(originalDay) works for month \(targetMonth)/\(targetYear)")
     }
-    
+
     return validDate
   }
 
   // MARK: - Notification Management
-  
+
   /// Sistema otimizado para agendar notificações de transações recorrentes
-  private func scheduleOptimizedNotificationsForRecurringInstances(_ instances: [TransactionModel]) {
+  private func scheduleOptimizedNotificationsForRecurringInstances(_ instances: [TransactionModel])
+  {
     print("🔔 🔄 Scheduling optimized notifications for \(instances.count) recurring instances")
-    
+
     // Agrupar instâncias por mês
     var instancesByMonth: [String: [TransactionModel]] = [:]
-    
+
     for instance in instances {
       let date = Date(timeIntervalSince1970: TimeInterval(instance.data.dateTimestamp))
-      let monthKey = "\(calendar.component(.year, from: date))-\(calendar.component(.month, from: date))"
-      
+      let monthKey =
+        "\(calendar.component(.year, from: date))-\(calendar.component(.month, from: date))"
+
       if instancesByMonth[monthKey] == nil {
         instancesByMonth[monthKey] = []
       }
       instancesByMonth[monthKey]?.append(instance)
     }
-    
+
     print("🔔 📅 Grouped recurring instances into \(instancesByMonth.count) months")
-    
+
     // Agendar notificação para cada mês (máximo 1 por mês)
     for (monthKey, monthInstances) in instancesByMonth {
       scheduleMonthlyRecurringNotification(monthKey: monthKey, instances: monthInstances)
     }
   }
-  
+
   /// Agenda uma notificação mensal para todas as instâncias recorrentes do mês
-  private func scheduleMonthlyRecurringNotification(monthKey: String, instances: [TransactionModel]) {
+  private func scheduleMonthlyRecurringNotification(monthKey: String, instances: [TransactionModel])
+  {
     guard let firstInstance = instances.first else { return }
-    
+
     let date = Date(timeIntervalSince1970: TimeInterval(firstInstance.data.dateTimestamp))
-    
+
     // Verificar se a data é muito no futuro (mais de 1 ano)
     let oneYearFromNow = Calendar.current.date(byAdding: .year, value: 1, to: Date()) ?? Date()
     if date > oneYearFromNow {
-      print("🔔 ⚠️ Recurring month \(monthKey) is more than 1 year in the future, skipping notification")
+      print(
+        "🔔 ⚠️ Recurring month \(monthKey) is more than 1 year in the future, skipping notification")
       return
     }
-    
+
     // Create notification time (8 AM) in local timezone
     var notificationDate = calendar.startOfDay(for: date)
-    notificationDate = calendar.date(byAdding: .hour, value: 8, to: notificationDate) ?? notificationDate
-    
+    notificationDate =
+      calendar.date(byAdding: .hour, value: 8, to: notificationDate) ?? notificationDate
+
     // Only schedule if notification time is in the future
     guard notificationDate > Date() else {
       print("🔔 ⚠️ Recurring notification time is in the past, skipping")
       return
     }
-    
+
     let timeInterval = notificationDate.timeIntervalSinceNow
-    
+
     // Verificar se o intervalo é muito grande (mais de 30 dias)
     let thirtyDaysInSeconds: TimeInterval = 30 * 24 * 60 * 60
     if timeInterval > thirtyDaysInSeconds {
@@ -484,17 +600,20 @@ final class RecurringTransactionManager {
       scheduleRecurringReminderNotification(for: monthKey, instances: instances)
       return
     }
-    
+
     // Criar notificação mensal consolidada
     let totalAmount = instances.reduce(0) { $0 + $1.data.amount }
     let instanceCount = instances.count
-    
+
     let title = "notification.recurring.title".localized
-    let bodyKey = instanceCount == 1 ? "notification.recurring.body.singular" : "notification.recurring.body.plural"
-    let body = instanceCount == 1 
+    let bodyKey =
+      instanceCount == 1
+      ? "notification.recurring.body.singular" : "notification.recurring.body.plural"
+    let body =
+      instanceCount == 1
       ? String(format: bodyKey.localized, totalAmount.currencyString)
       : String(format: bodyKey.localized, instanceCount, totalAmount.currencyString)
-    
+
     let content = UNMutableNotificationContent()
     content.title = title
     content.body = body
@@ -504,37 +623,44 @@ final class RecurringTransactionManager {
       "type": "recurring_month",
       "monthKey": monthKey,
       "instanceCount": instanceCount,
-      "totalAmount": totalAmount
+      "totalAmount": totalAmount,
     ]
-    
+
     let trigger = UNTimeIntervalNotificationTrigger(timeInterval: timeInterval, repeats: false)
-    let request = UNNotificationRequest(identifier: "recurring_month_\(monthKey)", content: content, trigger: trigger)
-    
+    let request = UNNotificationRequest(
+      identifier: "recurring_month_\(monthKey)", content: content, trigger: trigger)
+
     notificationCenter.add(request) { error in
       if let error = error {
         print("🔔 ❌ Error scheduling recurring notification for month \(monthKey): \(error)")
       } else {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd HH:mm"
-        print("🔔 ✅ Scheduled recurring notification for month \(monthKey) at \(formatter.string(from: notificationDate))")
+        print(
+          "🔔 ✅ Scheduled recurring notification for month \(monthKey) at \(formatter.string(from: notificationDate))"
+        )
       }
     }
   }
-  
+
   /// Agenda uma notificação de lembrete para instâncias recorrentes distantes
-  private func scheduleRecurringReminderNotification(for monthKey: String, instances: [TransactionModel]) {
+  private func scheduleRecurringReminderNotification(
+    for monthKey: String, instances: [TransactionModel]
+  ) {
     let thirtyDaysInSeconds: TimeInterval = 30 * 24 * 60 * 60
-    let trigger = UNTimeIntervalNotificationTrigger(timeInterval: thirtyDaysInSeconds, repeats: false)
-    
+    let trigger = UNTimeIntervalNotificationTrigger(
+      timeInterval: thirtyDaysInSeconds, repeats: false)
+
     let content = UNMutableNotificationContent()
     content.title = "notification.recurring.reminder.title".localized
     content.body = "notification.recurring.reminder.body".localized
     content.sound = .default
     content.categoryIdentifier = "TRANSACTION_REMINDER"
     content.userInfo = ["type": "recurring_reminder", "monthKey": monthKey]
-    
-    let request = UNNotificationRequest(identifier: "recurring_reminder_\(monthKey)", content: content, trigger: trigger)
-    
+
+    let request = UNNotificationRequest(
+      identifier: "recurring_reminder_\(monthKey)", content: content, trigger: trigger)
+
     notificationCenter.add(request) { error in
       if let error = error {
         print("🔔 ❌ Error scheduling recurring reminder for month \(monthKey): \(error)")

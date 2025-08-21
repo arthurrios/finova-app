@@ -31,8 +31,10 @@ final class DashboardViewModel {
     self.transactionRepo = transactionRepo
     self.monthRange = monthRange
     self.recurringManager = RecurringTransactionManager(transactionRepo: transactionRepo)
-    self.balanceMonitor = BalanceMonitorManager(transactionRepo: transactionRepo, budgetRepo: budgetRepo)
-    self.monthlyNotificationManager = MonthlyNotificationManager(transactionRepo: transactionRepo, budgetRepo: budgetRepo)
+    self.balanceMonitor = BalanceMonitorManager(
+      transactionRepo: transactionRepo, budgetRepo: budgetRepo)
+    self.monthlyNotificationManager = MonthlyNotificationManager(
+      transactionRepo: transactionRepo, budgetRepo: budgetRepo)
   }
 
   func loadMonthlyCards() -> [MonthBudgetCardType] {
@@ -189,63 +191,86 @@ final class DashboardViewModel {
     cleanupOption: RecurringCleanupOption,
     completion: @escaping (Result<Void, Error>) -> Void
   ) {
-    do {
-      let allTransactions = transactionRepo.fetchAllTransactions()
-      guard let transaction = allTransactions.first(where: { $0.id == transactionId }) else {
-        completion(.failure(TransactionError.transactionNotFound))
+    // Perform deletion on background queue to avoid blocking UI
+    DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+      guard let self = self else {
+        DispatchQueue.main.async {
+          completion(.failure(TransactionError.transactionNotFound))
+        }
         return
       }
 
-      // Handle recurring transaction instances
-      if let parentTransactionId = transaction.parentTransactionId {
-        let parentTransaction = allTransactions.first(where: { $0.id == parentTransactionId })
-
-        if parentTransaction?.isRecurring == true {
-          // This is a recurring transaction instance
-          recurringManager.cleanupRecurringInstancesFromDate(
-            parentTransactionId: parentTransactionId,
-            selectedTransactionDate: transaction.date,
-            cleanupOption: cleanupOption
-          )
-        } else {
-          // This is an installment transaction
-          recurringManager.cleanupInstallmentTransactionsFromDate(
-            parentTransactionId: parentTransactionId,
-            selectedTransactionDate: transaction.date,
-            cleanupOption: cleanupOption
-          )
+      do {
+        let allTransactions = self.transactionRepo.fetchAllTransactions()
+        guard let transaction = allTransactions.first(where: { $0.id == transactionId }) else {
+          DispatchQueue.main.async {
+            completion(.failure(TransactionError.transactionNotFound))
+          }
+          return
         }
 
-        completion(.success(()))
-        return
+        // Handle recurring transaction instances
+        if let parentTransactionId = transaction.parentTransactionId {
+          let parentTransaction = allTransactions.first(where: { $0.id == parentTransactionId })
+
+          if parentTransaction?.isRecurring == true {
+            // This is a recurring transaction instance
+            self.recurringManager.cleanupRecurringInstancesFromDate(
+              parentTransactionId: parentTransactionId,
+              selectedTransactionDate: transaction.date,
+              cleanupOption: cleanupOption
+            )
+          } else {
+            // This is an installment transaction
+            self.recurringManager.cleanupInstallmentTransactionsFromDate(
+              parentTransactionId: parentTransactionId,
+              selectedTransactionDate: transaction.date,
+              cleanupOption: cleanupOption
+            )
+          }
+
+          // Add a small delay to ensure database operations complete
+          DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            completion(.success(()))
+          }
+          return
+        }
+
+        // Handle parent recurring transaction
+        if transaction.isRecurring == true {
+          self.recurringManager.cleanupRecurringInstancesFromDate(
+            parentTransactionId: transactionId,
+            selectedTransactionDate: transaction.date,
+            cleanupOption: cleanupOption
+          )
+          DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            completion(.success(()))
+          }
+          return
+        }
+
+        // Handle parent installment transaction
+        if transaction.hasInstallments == true {
+          self.recurringManager.cleanupInstallmentTransactionsFromDate(
+            parentTransactionId: transactionId,
+            selectedTransactionDate: transaction.date,
+            cleanupOption: cleanupOption
+          )
+          DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            completion(.success(()))
+          }
+          return
+        }
+
+        DispatchQueue.main.async {
+          completion(.failure(TransactionError.transactionNotFound))
+        }
+
+      } catch {
+        DispatchQueue.main.async {
+          completion(.failure(error))
+        }
       }
-
-      // Handle parent recurring transaction
-      if transaction.isRecurring == true {
-        recurringManager.cleanupRecurringInstancesFromDate(
-          parentTransactionId: transactionId,
-          selectedTransactionDate: transaction.date,
-          cleanupOption: cleanupOption
-        )
-        completion(.success(()))
-        return
-      }
-
-      // Handle parent installment transaction
-      if transaction.hasInstallments == true {
-        recurringManager.cleanupInstallmentTransactionsFromDate(
-          parentTransactionId: transactionId,
-          selectedTransactionDate: transaction.date,
-          cleanupOption: cleanupOption
-        )
-        completion(.success(()))
-        return
-      }
-
-      completion(.failure(TransactionError.transactionNotFound))
-
-    } catch {
-      completion(.failure(error))
     }
   }
 
@@ -318,46 +343,46 @@ final class DashboardViewModel {
       }
     }
   }
-  
+
   // MARK: - Balance Monitor Functions
-  
+
   /// Força o monitoramento de saldo negativo
   func forceBalanceMonitoring() {
     balanceMonitor.monitorCurrentMonthBalance()
   }
-  
+
   /// Remove todas as notificações de saldo negativo
   func removeNegativeBalanceNotifications() {
     balanceMonitor.removeNegativeBalanceNotifications()
   }
-  
+
   /// Verifica se há notificações de saldo negativo agendadas
   func hasNegativeBalanceNotifications() -> Bool {
     return balanceMonitor.hasNegativeBalanceNotifications()
   }
-  
+
   /// Debug: Lista todas as notificações de saldo negativo
   func debugNegativeBalanceNotifications() {
     balanceMonitor.debugNegativeBalanceNotifications()
   }
-  
+
   /// Debug: Testa formatação de data para diferentes idiomas
   func debugDateFormatting() {
     balanceMonitor.debugDateFormatting()
   }
-  
+
   // MARK: - Monthly Notification Functions
-  
+
   /// Agenda todas as notificações do mês atual
   func scheduleAllMonthlyNotifications(showAlert: Bool = true) -> Bool {
     return monthlyNotificationManager.scheduleAllMonthlyNotifications(showAlert: showAlert)
   }
-  
+
   /// Verifica o status das notificações mensais
   func checkMonthlyNotificationsStatus() -> MonthlyNotificationStatus {
     return monthlyNotificationManager.checkMonthlyNotificationsStatus()
   }
-  
+
   /// Configura o sistema de notificações mensais
   func setupMonthlyNotificationSystem() {
     monthlyNotificationManager.setupMonthlyNotificationSystem()
