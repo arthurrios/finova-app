@@ -336,6 +336,71 @@ final class NotificationDebugManager {
     }
   }
 
+  /// Remove duplicate notifications based on content similarity
+  func removeDuplicateNotifications() {
+    print("🔔 🔍 CHECKING FOR DUPLICATE NOTIFICATIONS...")
+
+    UNUserNotificationCenter.current().getPendingNotificationRequests { requests in
+      DispatchQueue.main.async {
+        print("🔔 📊 Analyzing \(requests.count) pending notifications for duplicates...")
+
+        // Group notifications by content (title + body combination)
+        var notificationGroups: [String: [UNNotificationRequest]] = [:]
+
+        for request in requests {
+          // Skip system notifications (monthly reminders, etc.)
+          if request.identifier.contains("monthly_") || request.identifier.contains("test_") {
+            continue
+          }
+
+          // Create a key based on title and body content
+          let contentKey = "\(request.content.title)_\(request.content.body)"
+
+          if notificationGroups[contentKey] == nil {
+            notificationGroups[contentKey] = []
+          }
+          notificationGroups[contentKey]?.append(request)
+        }
+
+        // Find and remove duplicates
+        var duplicatesFound = 0
+        var idsToRemove: [String] = []
+
+        for (contentKey, group) in notificationGroups {
+          if group.count > 1 {
+            print("🔔 🚨 Found \(group.count) duplicates for: \(contentKey)")
+            duplicatesFound += group.count - 1
+
+            // Keep the first one, remove the rest
+            let duplicatesToRemove = Array(group.dropFirst())
+            for duplicate in duplicatesToRemove {
+              idsToRemove.append(duplicate.identifier)
+              print("🔔 ❌ Will remove duplicate: \(duplicate.identifier)")
+            }
+          }
+        }
+
+        if duplicatesFound > 0 {
+          print("🔔 🧹 Removing \(duplicatesFound) duplicate notifications...")
+          UNUserNotificationCenter.current().removePendingNotificationRequests(
+            withIdentifiers: idsToRemove)
+          print("🔔 ✅ Removed duplicate notifications")
+
+          // Show results after cleanup
+          DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            UNUserNotificationCenter.current().getPendingNotificationRequests { updatedRequests in
+              DispatchQueue.main.async {
+                print("🔔 📊 After cleanup: \(updatedRequests.count) notifications remaining")
+              }
+            }
+          }
+        } else {
+          print("🔔 ✅ No duplicate notifications found")
+        }
+      }
+    }
+  }
+
   /// Force reschedule all notifications
   func forceRescheduleAllNotifications() {
     print("🔔 🔄 FORCE RESCHEDULING ALL NOTIFICATIONS...")
