@@ -78,6 +78,9 @@ final class DashboardViewController: UIViewController {
     syncedViewModel.setMonthData(monthData)
     syncedViewModel.setTransactions(transactions)
 
+    // Schedule notifications for any new transactions in the next 30 days
+    scheduleNext30DaysNotifications()
+
     // Force refresh the current visible cell if it exists
     if let currentCell = currentCell {
       let selectedIndex = syncedViewModel.selectedIndex
@@ -154,6 +157,9 @@ final class DashboardViewController: UIViewController {
       // Update the view models
       self.syncedViewModel.setMonthData(monthData)
       self.syncedViewModel.setTransactions(transactions)
+
+      // Schedule notifications for any new transactions in the next 30 days
+      self.scheduleNext30DaysNotifications()
 
       // Force refresh the UI with animation
       DispatchQueue.main.async {
@@ -570,12 +576,8 @@ final class DashboardViewController: UIViewController {
     contentView.monthCarousel.register(
       MonthCarouselCell.self, forCellWithReuseIdentifier: MonthCarouselCell.reuseID)
 
-    // Configurar month selector apenas se houver dados
-    if !syncedViewModel.monthData.isEmpty {
-      let monthTitles = syncedViewModel.getMonths()
-      contentView.monthSelectorView.configure(
-        months: monthTitles, selectedIndex: syncedViewModel.selectedIndex)
-    }
+    // Don't configure month selector here - let it be configured through didUpdateMonthData
+    // This ensures consistency between month data and month selector
 
     contentView.monthCarousel.reloadData()
 
@@ -842,7 +844,24 @@ extension DashboardViewController: SyncedCollectionsViewModelDelegate {
     let newMonths = data.map { $0.month }
     let monthsChanged = currentMonths != newMonths
 
-    print("📊 didUpdateMonthData: \(data.count) months, changed: \(monthsChanged)")
+    print("🔍 didUpdateMonthData called with \(data.count) items")
+    print("🔍 New months array: \(newMonths)")
+
+    // Check for duplicates in the incoming data
+    let uniqueMonths = Set(newMonths)
+    if uniqueMonths.count != newMonths.count {
+      print("⚠️ DUPLICATES FOUND in incoming data!")
+      let duplicates = newMonths.filter { month in
+        newMonths.filter { $0 == month }.count > 1
+      }
+      print("⚠️ Duplicate months: \(Array(Set(duplicates)))")
+
+      // Check if the issue is in the data itself
+      print("🔍 Checking MonthBudgetCardType data:")
+      for (index, card) in data.enumerated() {
+        print("  \(index): \(card.date) -> \(card.month)")
+      }
+    }
 
     if monthsChanged {
       contentView.monthSelectorView.configure(
@@ -1454,13 +1473,193 @@ extension DashboardViewController {
   /// Agenda notificações automaticamente sem interação do usuário
   private func scheduleNotificationsAutomatically() {
     DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-      let success = self.viewModel.scheduleAllMonthlyNotifications(showAlert: false)
+      self.scheduleNext30DaysNotifications()
+    }
+  }
 
-      if success {
-        print("🔔 ✅ Notifications scheduled automatically")
-        // Não mostrar alerta para agendamento automático
+  /// Smart notification scheduling for the next 30 days
+  private func scheduleNext30DaysNotifications() {
+    print("🔔 📅 Starting smart notification scheduling for next 30 days...")
+
+    // Check if user is authenticated first
+    guard let user = UserDefaultsManager.getUser(),
+      let firebaseUID = user.firebaseUID
+    else {
+      print("🔔 ❌ Cannot schedule notifications: User not authenticated")
+      return
+    }
+
+    // Authenticate SecureLocalDataManager
+    SecureLocalDataManager.shared.authenticateUser(firebaseUID: firebaseUID)
+
+    // Get all transactions
+    let allTxs = viewModel.transactionRepo.fetchAllTransactions()
+    let now = Date()
+    var calendar = Calendar.current
+    calendar.timeZone = TimeZone.current
+
+    // Filter for future transactions in next 30 days (excluding hidden parent transactions)
+    let thirtyDaysFromNow = calendar.date(byAdding: .day, value: 30, to: now) ?? now
+
+    let next30DaysTxs = allTxs.filter { tx in
+      // Skip parent transactions that are not visible in UI
+      if tx.hasInstallments == true && tx.amount == 0 {
+        return false
+      }
+      if tx.isRecurring == true && tx.parentTransactionId == nil && tx.amount == 0 {
+        return false
+      }
+
+      // Create notification time (8 AM) in local timezone
+      var notificationDate = calendar.startOfDay(for: tx.date)
+      notificationDate =
+        calendar.date(byAdding: .hour, value: 8, to: notificationDate) ?? notificationDate
+
+      // Must be in future and within 30 days
+      return notificationDate > now && tx.date <= thirtyDaysFromNow
+    }.sorted { $0.date < $1.date }  // Sort by date (closest first)
+
+    print("🔔 📅 Found \(next30DaysTxs.count) transactions in next 30 days")
+
+    // Get currently pending notifications to avoid duplicates
+    UNUserNotificationCenter.current().getPendingNotificationRequests { [weak self] requests in
+      DispatchQueue.main.async {
+        let existingNotificationIds = Set(requests.map { $0.identifier })
+
+        // Schedule notifications for transactions that don't already have them
+        var scheduledCount = 0
+        var skippedCount = 0
+
+        for tx in next30DaysTxs {
+          guard let transactionId = tx.id else { continue }
+
+          let notificationId = "transaction_\(transactionId)"
+
+          if existingNotificationIds.contains(notificationId) {
+            print("🔔 ⏭️ Skipping transaction \(tx.title) - notification already exists")
+            skippedCount += 1
+            continue
+          }
+
+          // Schedule the notification
+          self?.scheduleNotificationForTransaction(tx, calendar: calendar)
+          scheduledCount += 1
+
+          // Respect iOS limit - stop at 50 total (but prioritize by date)
+          if scheduledCount >= 50 {
+            print("🔔 ⚠️ Reached iOS notification limit (50), stopping")
+            break
+          }
+        }
+
+        print("🔔 ✅ Smart scheduling complete:")
+        print("🔔    📊 Scheduled: \(scheduledCount) new notifications")
+        print("🔔    ⏭️ Skipped: \(skippedCount) existing notifications")
+        print("🔔    📅 Total in next 30 days: \(next30DaysTxs.count)")
+
+        // Clean up any duplicate notifications
+        self?.removeDuplicateNotifications()
+      }
+    }
+  }
+
+  /// Schedule notification for a specific transaction
+  private func scheduleNotificationForTransaction(_ tx: Transaction, calendar: Calendar) {
+    guard let transactionId = tx.id else { return }
+
+    let id = "transaction_\(transactionId)"
+
+    // Create notification time (8 AM) in local timezone
+    var notificationDate = calendar.startOfDay(for: tx.date)
+    notificationDate =
+      calendar.date(byAdding: .hour, value: 8, to: notificationDate) ?? notificationDate
+
+    // Only schedule if notification time is in the future
+    guard notificationDate > Date() else { return }
+
+    let timeInterval = notificationDate.timeIntervalSinceNow
+    let trigger = UNTimeIntervalNotificationTrigger(timeInterval: timeInterval, repeats: false)
+
+    let titleKey =
+      tx.type == .income
+      ? "notification.transaction.title.income" : "notification.transaction.title.expense"
+    let bodyKey =
+      tx.type == .income
+      ? "notification.transaction.body.income" : "notification.transaction.body.expense"
+
+    let amountString = tx.amount.currencyString
+    let title = titleKey.localized
+    let body = String(format: bodyKey.localized, amountString, tx.title)
+
+    let content = UNMutableNotificationContent()
+    content.title = title
+    content.body = body
+    content.sound = .default
+    content.categoryIdentifier = "TRANSACTION_REMINDER"
+    content.userInfo = ["transactionId": transactionId, "date": tx.date.timeIntervalSince1970]
+
+    let request = UNNotificationRequest(identifier: id, content: content, trigger: trigger)
+    UNUserNotificationCenter.current().add(request) { error in
+      if let error = error {
+        print("🔔 ❌ Error scheduling notification for \(tx.title): \(error)")
       } else {
-        print("🔔 ❌ Failed to schedule notifications automatically")
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd HH:mm"
+        print(
+          "🔔 ✅ Scheduled notification for \(tx.title) at \(formatter.string(from: notificationDate))"
+        )
+      }
+    }
+  }
+
+  /// Remove duplicate notifications based on content similarity
+  private func removeDuplicateNotifications() {
+    UNUserNotificationCenter.current().getPendingNotificationRequests { requests in
+      DispatchQueue.main.async {
+        // Group notifications by content (title + body combination)
+        var notificationGroups: [String: [UNNotificationRequest]] = [:]
+
+        for request in requests {
+          // Skip system notifications (monthly reminders, etc.)
+          if request.identifier.contains("monthly_") || request.identifier.contains("test_") {
+            continue
+          }
+
+          // Create a key based on title and body content
+          let contentKey = "\(request.content.title)_\(request.content.body)"
+
+          if notificationGroups[contentKey] == nil {
+            notificationGroups[contentKey] = []
+          }
+          notificationGroups[contentKey]?.append(request)
+        }
+
+        // Find and remove duplicates
+        var duplicatesFound = 0
+        var idsToRemove: [String] = []
+
+        for (contentKey, group) in notificationGroups {
+          if group.count > 1 {
+            print("🔔 🚨 Found \(group.count) duplicates for: \(contentKey)")
+            duplicatesFound += group.count - 1
+
+            // Keep the first one, remove the rest
+            let duplicatesToRemove = Array(group.dropFirst())
+            for duplicate in duplicatesToRemove {
+              idsToRemove.append(duplicate.identifier)
+              print("🔔 ❌ Will remove duplicate: \(duplicate.identifier)")
+            }
+          }
+        }
+
+        if duplicatesFound > 0 {
+          print("🔔 🧹 Removing \(duplicatesFound) duplicate notifications...")
+          UNUserNotificationCenter.current().removePendingNotificationRequests(
+            withIdentifiers: idsToRemove)
+          print("🔔 ✅ Removed duplicate notifications")
+        } else {
+          print("🔔 ✅ No duplicate notifications found")
+        }
       }
     }
   }

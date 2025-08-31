@@ -40,6 +40,8 @@ final class DashboardViewModel {
   func loadMonthlyCards() -> [MonthBudgetCardType] {
     let today = Date()
 
+    print("🔍 loadMonthlyCards() called with monthRange: \(monthRange)")
+
     let budgetsByAnchor: [Int: Int] = budgetRepo.fetchBudgets()
       .reduce(into: [:]) { acc, entry in
         acc[entry.monthDate] = entry.amount
@@ -61,17 +63,43 @@ final class DashboardViewModel {
         acc[tx.budgetMonthDate, default: 0] += tx.amount
       }
 
-    let anchors = monthRange.map { offset in
-      let dt = calendar.date(byAdding: .month, value: offset, to: today)!
-      return dt.monthAnchor
-    }.sorted()
+    // Generate month dates more reliably by working with year/month components
+    var anchors: [Int] = []
+    let currentComponents = calendar.dateComponents([.year, .month], from: today)
+    let currentYear = currentComponents.year!
+    let currentMonth = currentComponents.month!
+
+    for offset in monthRange {
+      let targetMonth = currentMonth + offset
+      let targetYear = currentYear + (targetMonth - 1) / 12
+      let normalizedMonth = ((targetMonth - 1) % 12) + 1
+
+      var components = DateComponents()
+      components.year = targetYear
+      components.month = normalizedMonth
+      components.day = 1
+      components.hour = 0
+      components.minute = 0
+      components.second = 0
+
+      let monthDate = calendar.date(from: components)!
+      let anchor = monthDate.monthAnchor
+
+      anchors.append(anchor)
+      print("🔍 Offset \(offset): \(monthDate) -> anchor \(anchor)")
+    }
+
+    print("🔍 Generated \(anchors.count) anchors: \(anchors)")
 
     var runningBalance = [Int: Int]()
     var previousAvailable = 0
 
-    let cards: [MonthBudgetCardType] = anchors.compactMap { anchor in
+    let cards: [MonthBudgetCardType] = anchors.map { anchor in
       let date = Date(timeIntervalSince1970: TimeInterval(anchor))
       let month = DateFormatter.monthFormatter.string(from: date)
+      let localizedMonth = "month.\(month.lowercased())".localized
+
+      print("🔍 Processing anchor \(anchor): \(date) -> \(month) -> \(localizedMonth)")
 
       let expense = expensesByAnchor[anchor] ?? 0
       let income = incomesByAnchor[anchor] ?? 0
@@ -93,7 +121,7 @@ final class DashboardViewModel {
 
       return MonthBudgetCardType(
         date: date,
-        month: "month.\(month.lowercased())".localized,
+        month: localizedMonth,
         usedValue: expense,
         budgetLimit: budgetLimit,
         finalBalance: available,
@@ -102,10 +130,13 @@ final class DashboardViewModel {
       )
     }
 
+    print("🔍 Final cards count: \(cards.count)")
+    print("🔍 Final card months: \(cards.map { $0.month })")
+
     // Monitorar saldo negativo após carregar os dados
     balanceMonitor.monitorCurrentMonthBalance()
 
-    return cards.sorted { $0.date < $1.date }
+    return cards
   }
 
   private func calculateCurrentBalance(
