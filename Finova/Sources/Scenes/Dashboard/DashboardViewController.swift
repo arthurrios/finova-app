@@ -381,8 +381,8 @@ final class DashboardViewController: UIViewController {
   @objc private func handleTransactionDataChanged() {
     print("🔄 Transaction data changed, invalidating ledger cache...")
 
-    // Invalidate the ledger cache to ensure fresh calculations
-    viewModel.transactionLedger.invalidateCache()
+    // Refresh current month balance specifically
+    viewModel.transactionLedger.refreshCurrentMonthBalance()
 
     // Debug: Check for duplicate transactions
     DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
@@ -452,6 +452,16 @@ final class DashboardViewController: UIViewController {
         self.resetNotificationStateForTesting()
       }
 
+      let duplicateAnalysisAction = UIAlertAction(title: "🔍 Analyze Duplicates", style: .default) {
+        _ in
+        self.analyzeDuplicateTransactions()
+      }
+
+      let duplicateCleanupAction = UIAlertAction(title: "🧹 Clean Duplicates", style: .default) {
+        _ in
+        self.cleanupDuplicateTransactions()
+      }
+
       let cancelAction = UIAlertAction(title: "Cancel", style: .cancel)
 
       alertController.addAction(debugAction)
@@ -463,11 +473,54 @@ final class DashboardViewController: UIViewController {
       alertController.addAction(testAction)
       alertController.addAction(rescheduleAction)
       alertController.addAction(resetAction)
+      alertController.addAction(duplicateAnalysisAction)
+      alertController.addAction(duplicateCleanupAction)
       alertController.addAction(cancelAction)
 
       present(alertController, animated: true)
     }
   #endif
+
+  // MARK: - Duplicate Transaction Management
+
+  private func analyzeDuplicateTransactions() {
+    let analysis = viewModel.analyzeDuplicateTransactions()
+
+    let alert = UIAlertController(
+      title: "🔍 Duplicate Analysis",
+      message: analysis,
+      preferredStyle: .alert
+    )
+
+    alert.addAction(UIAlertAction(title: "OK", style: .default))
+    present(alert, animated: true)
+  }
+
+  private func cleanupDuplicateTransactions() {
+    let alert = UIAlertController(
+      title: "🧹 Clean Duplicates",
+      message: "This will remove all duplicate transactions. Are you sure?",
+      preferredStyle: .alert
+    )
+
+    alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+    alert.addAction(
+      UIAlertAction(title: "Clean", style: .destructive) { _ in
+        self.viewModel.cleanupExistingDuplicates()
+
+        // Show completion alert
+        let completionAlert = UIAlertController(
+          title: "✅ Cleanup Complete",
+          message:
+            "Duplicate transactions have been removed. The dashboard will refresh automatically.",
+          preferredStyle: .alert
+        )
+        completionAlert.addAction(UIAlertAction(title: "OK", style: .default))
+        self.present(completionAlert, animated: true)
+      })
+
+    present(alert, animated: true)
+  }
 
   private func buildHierarchy() {
     setupContentViewToBounds(contentView: contentView, respectingSafeArea: false)
@@ -577,7 +630,10 @@ final class DashboardViewController: UIViewController {
     syncedViewModel.setMonthData(monthData)
     syncedViewModel.setTransactions(transactions)
 
-    // Clean up any existing duplicate transactions
+    // Analyze and clean up any existing duplicate transactions
+    let analysis = viewModel.analyzeDuplicateTransactions()
+    print(analysis)
+
     viewModel.cleanupExistingDuplicates()
 
     contentView.monthCarousel.layoutIfNeeded()

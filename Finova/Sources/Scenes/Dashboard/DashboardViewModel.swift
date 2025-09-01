@@ -49,6 +49,15 @@ final class DashboardViewModel {
     print("🔍 Final cards count: \(monthlyData.count)")
     print("🔍 Final card months: \(monthlyData.count > 0 ? monthlyData.map { $0.month } : [])")
 
+    // Log balance information for debugging
+    if let currentMonthData = monthlyData.first(where: {
+      Calendar.current.isDate($0.date, equalTo: Date(), toGranularity: .month)
+    }) {
+      print(
+        "💰 Current month balance - Final: \(currentMonthData.finalBalance ?? 0), Current: \(currentMonthData.currentBalance ?? 0), Previous: \(currentMonthData.previousBalance ?? 0)"
+      )
+    }
+
     // Monitor negative balance after loading data
     balanceMonitor.monitorCurrentMonthBalance()
 
@@ -57,7 +66,40 @@ final class DashboardViewModel {
 
   /// Clean up any existing duplicate transactions
   func cleanupExistingDuplicates() {
+    print("🧹 Starting duplicate transaction cleanup...")
     transactionLedger.cleanupDuplicateTransactions()
+    print("🧹 Duplicate transaction cleanup completed")
+  }
+
+  /// Get a summary of duplicate transactions (without removing them)
+  func analyzeDuplicateTransactions() -> String {
+    let allTransactions = transactionRepo.fetchAllTransactions()
+    let transactionsByMonth = Dictionary(grouping: allTransactions) { $0.budgetMonthDate }
+
+    var summary = "🔍 Duplicate Transaction Analysis:\n"
+    var totalDuplicates = 0
+
+    for (monthAnchor, transactions) in transactionsByMonth {
+      if transactions.count > 1 {
+        let date = Date(timeIntervalSince1970: TimeInterval(monthAnchor))
+        let monthName = DateFormatter.monthFormatter.string(from: date)
+        let year = Calendar.current.component(.year, from: date)
+
+        summary += "\n📅 \(monthName) \(year): \(transactions.count) transactions\n"
+
+        // Group by title to identify potential duplicates
+        let groupedByTitle = Dictionary(grouping: transactions) { $0.title }
+        for (title, titleGroup) in groupedByTitle {
+          if titleGroup.count > 1 {
+            summary += "   • \(title): \(titleGroup.count) instances\n"
+            totalDuplicates += titleGroup.count - 1
+          }
+        }
+      }
+    }
+
+    summary += "\n📊 Total potential duplicates: \(totalDuplicates)"
+    return summary
   }
 
   private func calculateCurrentBalance(
