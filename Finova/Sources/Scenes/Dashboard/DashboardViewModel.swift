@@ -15,6 +15,7 @@ final class DashboardViewModel {
   private let recurringManager: RecurringTransactionManager
   private let balanceMonitor: BalanceMonitorManager
   private let monthlyNotificationManager: MonthlyNotificationManager
+  let transactionLedger: TransactionLedgerService
   private let calendar = Calendar.current
 
   private let monthRange: ClosedRange<Int>
@@ -35,108 +36,28 @@ final class DashboardViewModel {
       transactionRepo: transactionRepo, budgetRepo: budgetRepo)
     self.monthlyNotificationManager = MonthlyNotificationManager(
       transactionRepo: transactionRepo, budgetRepo: budgetRepo)
+    self.transactionLedger = TransactionLedgerService(
+      transactionRepo: transactionRepo, budgetRepo: budgetRepo)
   }
 
   func loadMonthlyCards() -> [MonthBudgetCardType] {
-    let today = Date()
-
     print("🔍 loadMonthlyCards() called with monthRange: \(monthRange)")
 
-    let budgetsByAnchor: [Int: Int] = budgetRepo.fetchBudgets()
-      .reduce(into: [:]) { acc, entry in
-        acc[entry.monthDate] = entry.amount
-      }
+    // Use the transaction ledger service for all calculations
+    let monthlyData = transactionLedger.calculateMonthlyData(for: monthRange)
 
-    let allTxs = transactionRepo.fetchTransactions()
+    print("🔍 Final cards count: \(monthlyData.count)")
+    print("🔍 Final card months: \(monthlyData.count > 0 ? monthlyData.map { $0.month } : [])")
 
-    let expensesByAnchor =
-      allTxs
-      .filter { $0.type == .expense }
-      .reduce(into: [:]) { acc, tx in
-        acc[tx.budgetMonthDate, default: 0] += tx.amount
-      }
-
-    let incomesByAnchor =
-      allTxs
-      .filter { $0.type == .income }
-      .reduce(into: [:]) { acc, tx in
-        acc[tx.budgetMonthDate, default: 0] += tx.amount
-      }
-
-    // Generate month dates more reliably by working with year/month components
-    var anchors: [Int] = []
-    let currentComponents = calendar.dateComponents([.year, .month], from: today)
-    let currentYear = currentComponents.year!
-    let currentMonth = currentComponents.month!
-
-    for offset in monthRange {
-      let targetMonth = currentMonth + offset
-      let targetYear = currentYear + (targetMonth - 1) / 12
-      let normalizedMonth = ((targetMonth - 1) % 12) + 1
-
-      var components = DateComponents()
-      components.year = targetYear
-      components.month = normalizedMonth
-      components.day = 1
-      components.hour = 0
-      components.minute = 0
-      components.second = 0
-
-      let monthDate = calendar.date(from: components)!
-      let anchor = monthDate.monthAnchor
-
-      anchors.append(anchor)
-      print("🔍 Offset \(offset): \(monthDate) -> anchor \(anchor)")
-    }
-
-    print("🔍 Generated \(anchors.count) anchors: \(anchors)")
-
-    var runningBalance = [Int: Int]()
-    var previousAvailable = 0
-
-    let cards: [MonthBudgetCardType] = anchors.map { anchor in
-      let date = Date(timeIntervalSince1970: TimeInterval(anchor))
-      let month = DateFormatter.monthFormatter.string(from: date)
-      let localizedMonth = "month.\(month.lowercased())".localized
-
-      print("🔍 Processing anchor \(anchor): \(date) -> \(month) -> \(localizedMonth)")
-
-      let expense = expensesByAnchor[anchor] ?? 0
-      let income = incomesByAnchor[anchor] ?? 0
-      let budgetLimit = budgetsByAnchor[anchor]
-
-      let net = income - expense
-
-      let currentBalance = calculateCurrentBalance(
-        anchor: anchor,
-        allTransactions: allTxs,
-        previousBalance: previousAvailable  // Use the previous month's balance
-      )
-
-      let thisMonthPreviousBalance = previousAvailable
-
-      let available = previousAvailable + net
-      previousAvailable = available
-      runningBalance[anchor] = available
-
-      return MonthBudgetCardType(
-        date: date,
-        month: localizedMonth,
-        usedValue: expense,
-        budgetLimit: budgetLimit,
-        finalBalance: available,
-        currentBalance: currentBalance,
-        previousBalance: thisMonthPreviousBalance
-      )
-    }
-
-    print("🔍 Final cards count: \(cards.count)")
-    print("🔍 Final card months: \(cards.map { $0.month })")
-
-    // Monitorar saldo negativo após carregar os dados
+    // Monitor negative balance after loading data
     balanceMonitor.monitorCurrentMonthBalance()
 
-    return cards
+    return monthlyData
+  }
+
+  /// Clean up any existing duplicate transactions
+  func cleanupExistingDuplicates() {
+    transactionLedger.cleanupDuplicateTransactions()
   }
 
   private func calculateCurrentBalance(
@@ -205,6 +126,10 @@ final class DashboardViewModel {
           let notificationId = "transaction_\(transactionId)"
           notificationCenter.removePendingNotificationRequests(withIdentifiers: [notificationId])
         }
+
+        // Invalidate ledger cache since transactions changed
+        transactionLedger.invalidateCache()
+
         return .success(())
       }
 
@@ -262,6 +187,8 @@ final class DashboardViewModel {
 
           // Add a small delay to ensure database operations complete
           DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            // Invalidate ledger cache since transactions changed
+            self.transactionLedger.invalidateCache()
             completion(.success(()))
           }
           return
@@ -275,6 +202,8 @@ final class DashboardViewModel {
             cleanupOption: cleanupOption
           )
           DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            // Invalidate ledger cache since transactions changed
+            self.transactionLedger.invalidateCache()
             completion(.success(()))
           }
           return
@@ -288,6 +217,8 @@ final class DashboardViewModel {
             cleanupOption: cleanupOption
           )
           DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            // Invalidate ledger cache since transactions changed
+            self.transactionLedger.invalidateCache()
             completion(.success(()))
           }
           return
@@ -400,6 +331,11 @@ final class DashboardViewModel {
   /// Debug: Testa formatação de data para diferentes idiomas
   func debugDateFormatting() {
     balanceMonitor.debugDateFormatting()
+  }
+
+  /// Debug: Check for duplicate transactions
+  func debugDuplicateTransactions() {
+    transactionRepo.debugDuplicateTransactions()
   }
 
   // MARK: - Monthly Notification Functions

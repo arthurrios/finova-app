@@ -72,18 +72,21 @@ final class AddTransactionModalViewModel {
         try transactionRepo.updateParentTransactionId(
           transactionId: insertedId, parentId: insertedId)
 
-        // Use a more inclusive range to ensure the original transaction date is included
+        // Generate recurring instances for future months only (excluding the parent transaction's month)
         let today = Date()
+        let parentMonth = date.monthAnchor
+        let todayMonth = today.monthAnchor
 
-        // Calculate how many months back we need to go to include the transaction date
-        let monthsBack = max(
-          12, calendar.dateComponents([.month], from: date, to: today).month ?? 0)
-        let inclusiveRange = -monthsBack...24
+        // Start from the next month after the parent transaction
+        let startMonthOffset = 1
+        let endMonthOffset = 24
+
+        let futureRange = startMonthOffset...endMonthOffset
 
         recurringManager.generateRecurringTransactionsForRange(
-          inclusiveRange,
-          referenceDate: today,
-          transactionStartDate: date
+          futureRange,
+          referenceDate: date,  // Use the parent transaction date as reference
+          transactionStartDate: nil  // Let the manager use the parent's date as start
         )
 
         // Schedule notifications for all newly created recurring instances
@@ -91,6 +94,14 @@ final class AddTransactionModalViewModel {
 
         // Monitorar saldo negativo após adicionar transação recorrente
         monitorNegativeBalance()
+
+        // Invalidate ledger cache since transactions changed
+        invalidateLedgerCache()
+
+        // Debug: Check for duplicate transactions
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+          self.transactionRepo.debugDuplicateTransactions()
+        }
 
         return .success(())
       } catch {
@@ -115,6 +126,9 @@ final class AddTransactionModalViewModel {
 
         // Monitorar saldo negativo após adicionar transação simples
         monitorNegativeBalance()
+
+        // Invalidate ledger cache since transactions changed
+        invalidateLedgerCache()
 
         return .success(())
       } catch {
@@ -641,5 +655,14 @@ final class AddTransactionModalViewModel {
     balanceMonitor.monitorCurrentMonthBalance()
 
     print("🔔 💰 Balance monitoring completed after transaction addition")
+  }
+
+  // MARK: - Ledger Cache Management
+
+  /// Invalidates the transaction ledger cache to ensure fresh calculations
+  private func invalidateLedgerCache() {
+    // Post notification to invalidate ledger cache
+    NotificationCenter.default.post(name: .transactionDataChanged, object: nil)
+    print("🗑️ Ledger cache invalidation requested after transaction addition")
   }
 }

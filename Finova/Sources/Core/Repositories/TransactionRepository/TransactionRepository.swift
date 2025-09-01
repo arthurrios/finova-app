@@ -11,20 +11,17 @@ final class TransactionRepository: TransactionRepositoryProtocol {
   private let db = DBHelper.shared
 
   func fetchTransactions() -> [Transaction] {
-    // 🔒 Use SecureLocalDataManager for UID-isolated data access ONLY
-    let secureTransactions = SecureLocalDataManager.shared.loadTransactions()
+    // Return all transactions that should be visible in the UI
+    let allTransactions = fetchAllTransactions()
 
-    // Return secure data filtered for UI display
-    // NO fallback to SQLite - each user should only see their own data
-    return secureTransactions.filter { transaction in
-      // Filter out parent installment transactions - they should not be displayed in UI
-      if transaction.hasInstallments == true {
-        return false
+    return allTransactions.filter { transaction in
+      // Show all transaction instances (including recurring instances)
+      // Hide only the parent recurring/installment transactions
+      if transaction.isRecurring == true && transaction.parentTransactionId == nil {
+        return false  // Hide parent recurring transaction
       }
-      // Filter out parent recurring transactions - they should not be displayed in UI
-      // Only their instances (with parentTransactionId) should be shown
-      if transaction.isRecurring == true {
-        return false
+      if transaction.hasInstallments == true && transaction.parentTransactionId == nil {
+        return false  // Hide parent installment transaction
       }
       return true
     }
@@ -61,6 +58,9 @@ final class TransactionRepository: TransactionRepositoryProtocol {
 
     secureTransactions.append(Transaction(data: updatedData))
     SecureLocalDataManager.shared.saveTransactions(secureTransactions)
+
+    // Notify that data has changed (for cache invalidation)
+    NotificationCenter.default.post(name: .transactionDataChanged, object: nil)
   }
 
   func delete(id: Int) throws {
@@ -71,6 +71,9 @@ final class TransactionRepository: TransactionRepositoryProtocol {
     var secureTransactions = SecureLocalDataManager.shared.loadTransactions()
     secureTransactions.removeAll { $0.id == id }
     SecureLocalDataManager.shared.saveTransactions(secureTransactions)
+
+    // Notify that data has changed (for cache invalidation)
+    NotificationCenter.default.post(name: .transactionDataChanged, object: nil)
   }
 
   func fetchAllTransactions() -> [Transaction] {
@@ -99,6 +102,31 @@ final class TransactionRepository: TransactionRepositoryProtocol {
 
   func fetchAllRecurringInstances() -> [Transaction] {
     return fetchAllTransactions().filter { $0.parentTransactionId != nil }
+  }
+
+  // MARK: - Debug Methods
+
+  /// Debug method to check for duplicate transactions in the same month
+  func debugDuplicateTransactions() {
+    let allTransactions = fetchAllTransactions()
+    let transactionsByMonth = Dictionary(grouping: allTransactions) { $0.budgetMonthDate }
+
+    print("🔍 Debug: Checking for duplicate transactions by month...")
+
+    for (monthAnchor, transactions) in transactionsByMonth {
+      if transactions.count > 1 {
+        let date = Date(timeIntervalSince1970: TimeInterval(monthAnchor))
+        print("⚠️ Month \(date): Found \(transactions.count) transactions:")
+
+        for tx in transactions {
+          let isParent = tx.isRecurring == true && tx.parentTransactionId == nil
+          let isInstance = tx.parentTransactionId != nil
+          let type = isParent ? "PARENT" : (isInstance ? "INSTANCE" : "REGULAR")
+
+          print("   - \(tx.title) (ID: \(tx.id ?? -1), Type: \(type), Amount: \(tx.amount))")
+        }
+      }
+    }
   }
 
   func insertTransactionAndGetId(_ transaction: TransactionModel) throws -> Int {

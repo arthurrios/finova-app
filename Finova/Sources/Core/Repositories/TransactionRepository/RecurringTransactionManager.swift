@@ -38,51 +38,28 @@ final class RecurringTransactionManager {
     referenceDate: Date = Date(),
     transactionStartDate: Date? = nil
   ) {
-    let operationId = "generate_range_\(monthRange.lowerBound)_\(monthRange.upperBound)"
+    print("🔄 Generating recurring transactions for range \(monthRange)")
 
-    // Prevent concurrent generation operations
-    operationLock.lock()
-    defer { operationLock.unlock() }
+    // Use a serial queue to prevent concurrent operations and ensure data consistency
+    operationQueue.sync {
+      let recurringTransactions = transactionRepo.fetchRecurringTransactions()
 
-    guard !currentOperations.contains(operationId) else {
-      print("🔄 ⚠️ Generation already in progress for range \(monthRange), skipping")
-      return
-    }
-
-    currentOperations.insert(operationId)
-
-    operationQueue.async { [weak self] in
-      defer {
-        self?.operationLock.lock()
-        self?.currentOperations.remove(operationId)
-        self?.operationLock.unlock()
-      }
-
-      guard let self = self else { return }
-
-      let recurringTransactions = self.transactionRepo.fetchRecurringTransactions()
-
-      print("🔄 Generating recurring transactions for range \(monthRange)")
       print("📊 Found \(recurringTransactions.count) recurring transactions")
 
       for recurringTx in recurringTransactions {
-        // Verify the transaction still exists and is valid
         guard let recurringTxId = recurringTx.id else {
           print("⚠️ Skipping recurring transaction without ID: \(recurringTx.title)")
           continue
         }
 
-        // Double-check that this transaction still exists in the database
-        let allTransactions = self.transactionRepo.fetchAllTransactions()
-        let parentTransaction = allTransactions.first { $0.id == recurringTxId }
-
-        if parentTransaction == nil {
-          print(
-            "⚠️ Skipping deleted recurring transaction: \(recurringTx.title) (ID: \(recurringTxId))")
+        // Verify the transaction still exists
+        let allTransactions = transactionRepo.fetchAllTransactions()
+        guard allTransactions.contains(where: { $0.id == recurringTxId }) else {
+          print("⚠️ Skipping deleted recurring transaction: \(recurringTx.title)")
           continue
         }
 
-        self.generateInstancesForTransaction(
+        generateInstancesForTransaction(
           recurringTx,
           in: monthRange,
           referenceDate: referenceDate,
@@ -104,26 +81,26 @@ final class RecurringTransactionManager {
       "🔄 Generating instances for recurring transaction: '\(recurringTx.title)' (ID: \(recurringTxId))"
     )
     print("📅 Range: \(monthRange), Reference date: \(referenceDate)")
+    print("📅 Parent transaction month anchor: \(recurringTx.budgetMonthDate)")
+    print(
+      "📅 Parent transaction date: \(Date(timeIntervalSince1970: TimeInterval(recurringTx.dateTimestamp)))"
+    )
 
-    // Verify the parent transaction still exists before generating instances
-    let allTransactions = transactionRepo.fetchAllTransactions()
-    let parentTransaction = allTransactions.first { $0.id == recurringTxId }
-
-    if parentTransaction == nil {
-      print(
-        "⚠️ Parent recurring transaction \(recurringTxId) not found, skipping instance generation")
-      return
-    }
-
-    // Get existing instances for this specific recurring transaction only
+    // Get existing instances for this specific recurring transaction
     let existingInstances = transactionRepo.fetchTransactionInstancesForRecurring(recurringTxId)
     let existingAnchors = Set(existingInstances.map { $0.budgetMonthDate })
-    let recurringStartAnchor = recurringTx.budgetMonthDate
 
     print("📊 Existing instances: \(existingInstances.count)")
     print("📊 Existing anchors: \(existingAnchors)")
 
-    // Coletar todas as novas instâncias para agendar notificações otimizadas
+    // Determine the effective start anchor
+    let effectiveStartAnchor: Int
+    if let startDate = transactionStartDate {
+      effectiveStartAnchor = startDate.monthAnchor
+    } else {
+      effectiveStartAnchor = recurringTx.budgetMonthDate
+    }
+
     var newInstances: [TransactionModel] = []
 
     for monthOffset in monthRange {
@@ -132,31 +109,24 @@ final class RecurringTransactionManager {
 
       let targetAnchor = targetDate.monthAnchor
 
-      let effectiveStartAnchor: Int
-      if let startDate = transactionStartDate {
-        effectiveStartAnchor = startDate.monthAnchor
-      } else {
-        effectiveStartAnchor = recurringStartAnchor
-      }
-
-      print(
-        "📅 Processing month offset \(monthOffset): targetDate=\(targetDate), targetAnchor=\(targetAnchor)"
-      )
-
       // Skip if an instance already exists for this period
       if existingAnchors.contains(targetAnchor) {
         print("⏭️ Skipping month \(targetAnchor) - instance already exists")
         continue
       }
 
+      // IMPORTANT: Never create an instance for the same month as the parent transaction
+      if targetAnchor == recurringTx.budgetMonthDate {
+        print("⏭️ Skipping month \(targetAnchor) - same as parent transaction month")
+        continue
+      }
+
       // Create instances for the effective start anchor and all future periods
       if targetAnchor >= effectiveStartAnchor {
         let originalDate = Date(timeIntervalSince1970: TimeInterval(recurringTx.dateTimestamp))
+        let originalDay = calendar.component(.day, from: originalDate)
 
-        print("📅 Original date: \(originalDate)")
-        print("📅 Original day: \(calendar.component(.day, from: originalDate))")
-
-        // Usar a nova função para gerar data válida
+        // Generate a valid date for the target month
         let targetYear = calendar.component(.year, from: targetDate)
         let targetMonth = calendar.component(.month, from: targetDate)
         let instanceDate = generateValidDateForMonth(
@@ -165,35 +135,7 @@ final class RecurringTransactionManager {
           targetYear: targetYear
         )
 
-        print("📅 Generated date: \(instanceDate)")
-        print("📅 Generated day: \(calendar.component(.day, from: instanceDate))")
-
-        // Verificar se a data gerada está no mês correto
-        let generatedAnchor = instanceDate.monthAnchor
-        print("📊 Target anchor: \(targetAnchor), Generated anchor: \(generatedAnchor)")
-
-        // Usar o anchor gerado em vez do target anchor
-        let finalAnchor = generatedAnchor
-        print("🎯 Using final anchor: \(finalAnchor)")
-
-        // Verificação adicional: não criar se já existe uma instância para este mês
-        let existingInstancesForMonth = existingInstances.filter {
-          $0.budgetMonthDate == finalAnchor
-        }
-        if !existingInstancesForMonth.isEmpty {
-          print(
-            "⏭️ Skipping month \(finalAnchor) - already has \(existingInstancesForMonth.count) instance(s)"
-          )
-          continue
-        }
-
-        // Verificação adicional: não criar se já existe uma instância para este anchor específico
-        if existingAnchors.contains(finalAnchor) {
-          print("⏭️ Skipping final anchor \(finalAnchor) - already exists in existingAnchors")
-          continue
-        }
-
-        print("✅ Creating instance for anchor: \(finalAnchor)")
+        print("✅ Creating instance for anchor: \(targetAnchor) (month offset: \(monthOffset))")
 
         // Create the instance
         let instanceModel = TransactionModel(
@@ -202,15 +144,13 @@ final class RecurringTransactionManager {
           amount: recurringTx.amount,
           type: recurringTx.type.key,
           dateTimestamp: Int(instanceDate.timeIntervalSince1970),
-          budgetMonthDate: finalAnchor,
+          budgetMonthDate: targetAnchor,
           parentTransactionId: recurringTxId
         )
 
         do {
           try transactionRepo.insertTransaction(instanceModel)
           print("✅ Created recurring instance: \(recurringTx.title) for \(instanceDate)")
-
-          // Adicionar à lista para notificações otimizadas
           newInstances.append(instanceModel)
         } catch {
           print("❌ Error creating recurring transaction instance: \(error)")
@@ -218,7 +158,7 @@ final class RecurringTransactionManager {
       }
     }
 
-    // Agendar notificações otimizadas para todas as novas instâncias
+    // Schedule notifications for all newly created instances
     if !newInstances.isEmpty {
       scheduleOptimizedNotificationsForRecurringInstances(newInstances)
     }

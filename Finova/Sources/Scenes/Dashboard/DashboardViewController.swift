@@ -360,9 +360,39 @@ final class DashboardViewController: UIViewController {
     contentView.delegate = self
     syncedViewModel.delegate = self
 
+    // Setup notification observers for transaction data changes
+    setupNotificationObservers()
+
     #if DEBUG
       setupDebugGestures()
     #endif
+  }
+
+  private func setupNotificationObservers() {
+    // Listen for transaction data changes to invalidate ledger cache
+    NotificationCenter.default.addObserver(
+      self,
+      selector: #selector(handleTransactionDataChanged),
+      name: .transactionDataChanged,
+      object: nil
+    )
+  }
+
+  @objc private func handleTransactionDataChanged() {
+    print("🔄 Transaction data changed, invalidating ledger cache...")
+
+    // Invalidate the ledger cache to ensure fresh calculations
+    viewModel.transactionLedger.invalidateCache()
+
+    // Debug: Check for duplicate transactions
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+      self.viewModel.debugDuplicateTransactions()
+    }
+
+    // Refresh the dashboard data
+    DispatchQueue.main.async {
+      self.refreshDashboardData()
+    }
   }
 
   #if DEBUG
@@ -546,6 +576,9 @@ final class DashboardViewController: UIViewController {
 
     syncedViewModel.setMonthData(monthData)
     syncedViewModel.setTransactions(transactions)
+
+    // Clean up any existing duplicate transactions
+    viewModel.cleanupExistingDuplicates()
 
     contentView.monthCarousel.layoutIfNeeded()
 
