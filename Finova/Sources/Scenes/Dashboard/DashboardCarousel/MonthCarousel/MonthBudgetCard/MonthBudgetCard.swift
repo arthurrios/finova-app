@@ -454,15 +454,16 @@ class MonthBudgetCard: UIView {
 
   private func isCurrentMonth() -> Bool {
     guard let monthDate = currentMonthData?.date else { return false }
-    let utcCalendar = Calendar(identifier: .gregorian)
-    var utc = utcCalendar
-    utc.timeZone = TimeZone(secondsFromGMT: 0)!
+
+    // Use user's current timezone for consistency with monthAnchor calculations
+    var calendar = Calendar.current
+    calendar.timeZone = TimeZone.current
 
     let today = Date()
-    let month = utc.component(.month, from: monthDate)
-    let year = utc.component(.year, from: monthDate)
-    let todayMonth = utc.component(.month, from: today)
-    let todayYear = utc.component(.year, from: today)
+    let month = calendar.component(.month, from: monthDate)
+    let year = calendar.component(.year, from: monthDate)
+    let todayMonth = calendar.component(.month, from: today)
+    let todayYear = calendar.component(.year, from: today)
     let isCurrent = (month == todayMonth) && (year == todayYear)
     return isCurrent
   }

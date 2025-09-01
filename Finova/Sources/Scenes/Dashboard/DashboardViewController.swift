@@ -381,8 +381,8 @@ final class DashboardViewController: UIViewController {
   @objc private func handleTransactionDataChanged() {
     print("🔄 Transaction data changed, invalidating ledger cache...")
 
-    // Refresh current month balance specifically
-    viewModel.transactionLedger.refreshCurrentMonthBalance()
+    // Force refresh current month balance to ensure immediate update
+    viewModel.forceRefreshCurrentMonthBalance()
 
     // Debug: Check for duplicate transactions
     DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
@@ -462,6 +462,33 @@ final class DashboardViewController: UIViewController {
         self.cleanupDuplicateTransactions()
       }
 
+      let forceRefreshBalanceAction = UIAlertAction(
+        title: "💰 Force Refresh Balance", style: .default
+      ) {
+        _ in
+        self.forceRefreshCurrentMonthBalance()
+      }
+
+      let debugBalanceAction = UIAlertAction(title: "🔍 Debug Balance", style: .default) {
+        _ in
+        self.debugCurrentBalanceCalculation()
+      }
+
+      let debugAulaDeCantoAction = UIAlertAction(title: "🎵 Debug Aula de Canto", style: .default) {
+        _ in
+        self.debugAulaDeCantoTransaction()
+      }
+
+      let migrateBudgetsAction = UIAlertAction(title: "🔄 Migrate Budgets", style: .default) {
+        _ in
+        self.migrateBudgetsToNewTimezone()
+      }
+
+      let migrateAllDataAction = UIAlertAction(title: "🌍 Migrate All Data", style: .default) {
+        _ in
+        self.migrateAllDataToNewTimezone()
+      }
+
       let cancelAction = UIAlertAction(title: "Cancel", style: .cancel)
 
       alertController.addAction(debugAction)
@@ -475,6 +502,11 @@ final class DashboardViewController: UIViewController {
       alertController.addAction(resetAction)
       alertController.addAction(duplicateAnalysisAction)
       alertController.addAction(duplicateCleanupAction)
+      alertController.addAction(forceRefreshBalanceAction)
+      alertController.addAction(debugBalanceAction)
+      alertController.addAction(debugAulaDeCantoAction)
+      alertController.addAction(migrateBudgetsAction)
+      alertController.addAction(migrateAllDataAction)
       alertController.addAction(cancelAction)
 
       present(alertController, animated: true)
@@ -520,6 +552,211 @@ final class DashboardViewController: UIViewController {
       })
 
     present(alert, animated: true)
+  }
+
+  private func forceRefreshCurrentMonthBalance() {
+    print("🔄 Force refreshing current month balance from debug menu...")
+
+    // Force refresh the balance
+    viewModel.forceRefreshCurrentMonthBalance()
+
+    // Refresh the dashboard to show the updated balance
+    refreshDashboardData()
+
+    // Show completion alert
+    let alert = UIAlertController(
+      title: "✅ Balance Refreshed",
+      message:
+        "Current month balance has been force refreshed. Check the console for detailed logs.",
+      preferredStyle: .alert
+    )
+    alert.addAction(UIAlertAction(title: "OK", style: .default))
+    present(alert, animated: true)
+  }
+
+  private func debugCurrentBalanceCalculation() {
+    print("🔍 Debugging current balance calculation from debug menu...")
+
+    // Run the debug method
+    viewModel.debugCurrentBalanceCalculation()
+
+    // Show completion alert
+    let alert = UIAlertController(
+      title: "🔍 Debug Complete",
+      message: "Check the console for detailed balance calculation logs.",
+      preferredStyle: .alert
+    )
+    alert.addAction(UIAlertAction(title: "OK", style: .default))
+    present(alert, animated: true)
+  }
+
+  private func debugAulaDeCantoTransaction() {
+    print("🎵 Debugging 'Aula de canto' transaction from debug menu...")
+
+    // Run the debug method
+    viewModel.debugAulaDeCantoTransaction()
+
+    // Show completion alert
+    let alert = UIAlertController(
+      title: "🎵 Debug Complete",
+      message: "Check the console for detailed 'Aula de canto' transaction logs.",
+      preferredStyle: .alert
+    )
+    alert.addAction(UIAlertAction(title: "OK", style: .default))
+    present(alert, animated: true)
+  }
+
+  private func migrateBudgetsToNewTimezone() {
+    print("🔄 Starting budget migration from debug menu...")
+
+    // Show confirmation alert
+    let alert = UIAlertController(
+      title: "🔄 Migrate Budgets",
+      message:
+        "This will migrate existing budgets to use the new timezone-based month anchors. This is needed after the timezone fix. Continue?",
+      preferredStyle: .alert
+    )
+
+    alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+    alert.addAction(
+      UIAlertAction(title: "Migrate", style: .destructive) { _ in
+        // Run the migration
+        self.viewModel.migrateBudgetsToNewTimezone()
+
+        // Refresh the dashboard to show the updated data
+        self.refreshDashboardData()
+
+        // Show completion alert
+        let completionAlert = UIAlertController(
+          title: "✅ Migration Complete",
+          message:
+            "Budgets have been migrated to use new timezone-based month anchors. The dashboard will refresh automatically.",
+          preferredStyle: .alert
+        )
+        completionAlert.addAction(UIAlertAction(title: "OK", style: .default))
+        self.present(completionAlert, animated: true)
+      })
+
+    present(alert, animated: true)
+  }
+
+  private func migrateAllDataToNewTimezone() {
+    print("🌍 Starting comprehensive data migration from debug menu...")
+
+    // Show confirmation alert
+    let alert = UIAlertController(
+      title: "🌍 Migrate All Data",
+      message:
+        "This will migrate BOTH budgets AND transactions to use the new timezone-based month anchors. This is needed to fix the 0 balance issue. Continue?",
+      preferredStyle: .alert
+    )
+
+    alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+    alert.addAction(
+      UIAlertAction(title: "Migrate All", style: .destructive) { _ in
+        // Run the comprehensive migration
+        self.viewModel.migrateAllDataToNewTimezone()
+
+        // Refresh the dashboard to show the updated data
+        self.refreshDashboardData()
+
+        // Show completion alert
+        let completionAlert = UIAlertController(
+          title: "✅ Migration Complete",
+          message:
+            "All data has been migrated to use new timezone-based month anchors. The dashboard will refresh automatically.",
+          preferredStyle: .alert
+        )
+        completionAlert.addAction(UIAlertAction(title: "OK", style: .default))
+        self.present(completionAlert, animated: true)
+      })
+
+    present(alert, animated: true)
+  }
+
+  private func checkAndRunBudgetMigrationIfNeeded() {
+    // Check if migration has already been run for this user
+    let migrationKey = "budgetMigrationCompleted"
+    if UserDefaults.standard.bool(forKey: migrationKey) {
+      print("⏭️ Budget migration already completed, skipping")
+      return
+    }
+
+    print("🔄 Checking if budget migration is needed...")
+
+    // Check if there are any budgets that need migration
+    let budgetRepo = BudgetRepository()
+    let allBudgets = budgetRepo.fetchBudgets()
+
+    if allBudgets.isEmpty {
+      print("📊 No budgets found, migration not needed")
+      UserDefaults.standard.set(true, forKey: migrationKey)
+      return
+    }
+
+    // Check if any budget has the old UTC-based month anchor
+    let needsMigration = allBudgets.contains { budget in
+      let oldDate = Date(timeIntervalSince1970: TimeInterval(budget.monthDate))
+      let newMonthAnchor = oldDate.monthAnchor
+      return newMonthAnchor != budget.monthDate
+    }
+
+    if needsMigration {
+      print("🔄 Budget migration needed, running automatically...")
+
+      // Run the comprehensive migration (budgets + transactions)
+      viewModel.migrateAllDataToNewTimezone()
+
+      // Mark migration as completed
+      UserDefaults.standard.set(true, forKey: migrationKey)
+
+      print("✅ Comprehensive data migration completed automatically")
+    } else {
+      print("⏭️ No budget migration needed")
+      UserDefaults.standard.set(true, forKey: migrationKey)
+    }
+  }
+
+  private func checkAndRunTransactionMigrationIfNeeded() {
+    // Check if transaction migration has already been run for this user
+    let migrationKey = "transactionMigrationCompleted"
+    if UserDefaults.standard.bool(forKey: migrationKey) {
+      print("⏭️ Transaction migration already completed, skipping")
+      return
+    }
+
+    print("🔄 Checking if transaction migration is needed...")
+
+    // Check if there are any transactions that need migration
+    let allTransactions = viewModel.transactionRepo.fetchAllTransactions()
+
+    if allTransactions.isEmpty {
+      print("📊 No transactions found, migration not needed")
+      UserDefaults.standard.set(true, forKey: migrationKey)
+      return
+    }
+
+    // Check if any transaction has the old UTC-based month anchor
+    let needsMigration = allTransactions.contains { transaction in
+      let oldDate = Date(timeIntervalSince1970: TimeInterval(transaction.dateTimestamp))
+      let newMonthAnchor = oldDate.monthAnchor
+      return newMonthAnchor != transaction.budgetMonthDate
+    }
+
+    if needsMigration {
+      print("🔄 Transaction migration needed, running automatically...")
+
+      // Run the migration
+      viewModel.migrateAllDataToNewTimezone()
+
+      // Mark migration as completed
+      UserDefaults.standard.set(true, forKey: migrationKey)
+
+      print("✅ Transaction migration completed automatically")
+    } else {
+      print("⏭️ No transaction migration needed")
+      UserDefaults.standard.set(true, forKey: migrationKey)
+    }
   }
 
   private func buildHierarchy() {
@@ -618,6 +855,9 @@ final class DashboardViewController: UIViewController {
       print("❌ Dashboard: No user found in any UserDefaults system")
       contentView.welcomeTitleLabel.text = "dashboard.welcomeTitle".localized + "User!"
     }
+
+    // Check if budget migration is needed (run once)
+    checkAndRunBudgetMigrationIfNeeded()
 
     if let userImage = SecureLocalDataManager.shared.loadProfileImage() {
       contentView.avatar.userImage = userImage

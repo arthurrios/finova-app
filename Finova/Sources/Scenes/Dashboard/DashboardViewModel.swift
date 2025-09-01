@@ -71,10 +71,43 @@ final class DashboardViewModel {
     print("🧹 Duplicate transaction cleanup completed")
   }
 
+  /// Force refresh current month balance (useful for debugging)
+  func forceRefreshCurrentMonthBalance() {
+    print("🔄 Force refreshing current month balance...")
+    transactionLedger.forceRefreshCurrentMonthBalance()
+  }
+
+  /// Debug current balance calculation
+  func debugCurrentBalanceCalculation() {
+    print("🔍 Debugging current balance calculation...")
+    transactionLedger.debugCurrentBalanceCalculation()
+  }
+
+  /// Debug "Aula de canto" transaction specifically
+  func debugAulaDeCantoTransaction() {
+    print("🎵 Debugging 'Aula de canto' transaction...")
+    transactionLedger.debugAulaDeCantoTransaction()
+  }
+
+  /// Migrate budgets to new timezone-based month anchors
+  func migrateBudgetsToNewTimezone() {
+    print("🔄 Starting budget migration...")
+    transactionLedger.migrateBudgetsToNewTimezone()
+  }
+
+  /// Migrate all data (budgets and transactions) to new timezone-based month anchors
+  func migrateAllDataToNewTimezone() {
+    print("🔄 Starting comprehensive data migration...")
+    transactionLedger.migrateAllDataToNewTimezone()
+  }
+
   /// Get a summary of duplicate transactions (without removing them)
   func analyzeDuplicateTransactions() -> String {
     let allTransactions = transactionRepo.fetchAllTransactions()
-    let transactionsByMonth = Dictionary(grouping: allTransactions) { $0.budgetMonthDate }
+    let transactionsByMonth = Dictionary(grouping: allTransactions) { transaction in
+      let transactionDate = Date(timeIntervalSince1970: TimeInterval(transaction.dateTimestamp))
+      return transactionDate.monthAnchor
+    }
 
     var summary = "🔍 Duplicate Transaction Analysis:\n"
     var totalDuplicates = 0
@@ -108,9 +141,9 @@ final class DashboardViewModel {
     let today = Date()
     let monthDate = Date(timeIntervalSince1970: TimeInterval(anchor))
 
-    let utcCalendar = Calendar(identifier: .gregorian)
-    var calendar = utcCalendar
-    calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+    // Use user's current timezone for consistency with monthAnchor calculations
+    var calendar = Calendar.current
+    calendar.timeZone = TimeZone.current
 
     let transactionsUpToToday = allTransactions.filter { tx in
       let txDate = Date(timeIntervalSince1970: TimeInterval(tx.dateTimestamp))
