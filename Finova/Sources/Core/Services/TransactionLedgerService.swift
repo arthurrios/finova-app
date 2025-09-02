@@ -66,7 +66,11 @@ final class TransactionLedgerService {
       components.minute = 0
       components.second = 0
 
-      let monthDate = calendar.date(from: components)!
+      guard let monthDate = calendar.date(from: components) else {
+        print(
+          "❌ Failed to create date from components: year=\(targetYear), month=\(normalizedMonth)")
+        continue
+      }
       let anchor = monthDate.monthAnchor
       anchors.append(anchor)
     }
