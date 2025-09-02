@@ -250,21 +250,22 @@ final class DashboardViewModel {
               parentTransactionId: parentTransactionId,
               selectedTransactionDate: transaction.date,
               cleanupOption: cleanupOption
-            )
+            ) {
+              // Invalidate ledger cache since transactions changed
+              self.transactionLedger.invalidateCache()
+              completion(.success(()))
+            }
           } else {
             // This is an installment transaction
             self.recurringManager.cleanupInstallmentTransactionsFromDate(
               parentTransactionId: parentTransactionId,
               selectedTransactionDate: transaction.date,
               cleanupOption: cleanupOption
-            )
-          }
-
-          // Add a small delay to ensure database operations complete
-          DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-            // Invalidate ledger cache since transactions changed
-            self.transactionLedger.invalidateCache()
-            completion(.success(()))
+            ) {
+              // Invalidate ledger cache since transactions changed
+              self.transactionLedger.invalidateCache()
+              completion(.success(()))
+            }
           }
           return
         }
@@ -275,8 +276,7 @@ final class DashboardViewModel {
             parentTransactionId: transactionId,
             selectedTransactionDate: transaction.date,
             cleanupOption: cleanupOption
-          )
-          DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+          ) {
             // Invalidate ledger cache since transactions changed
             self.transactionLedger.invalidateCache()
             completion(.success(()))
@@ -290,8 +290,7 @@ final class DashboardViewModel {
             parentTransactionId: transactionId,
             selectedTransactionDate: transaction.date,
             cleanupOption: cleanupOption
-          )
-          DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+          ) {
             // Invalidate ledger cache since transactions changed
             self.transactionLedger.invalidateCache()
             completion(.success(()))

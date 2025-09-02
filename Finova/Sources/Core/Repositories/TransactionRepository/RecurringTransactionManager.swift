@@ -9,8 +9,9 @@ import Foundation
 import NotificationCenter
 
 enum RecurringCleanupOption {
-  case all
+  case currentSelection
   case futureOnly
+  case all
 }
 
 final class RecurringTransactionManager {
@@ -239,12 +240,15 @@ final class RecurringTransactionManager {
       let shouldDelete: Bool
 
       switch cleanupOption {
-      case .all:
-        shouldDelete =
-          !validAnchors.contains(instance.budgetMonthDate)
-          || (instance.parentTransactionId.map { parentId in
+      case .currentSelection:
+        // For general cleanup, currentSelection behaves like futureOnly
+        let isOutsideRange = !validAnchors.contains(instance.budgetMonthDate)
+        let isFutureInstance = instance.budgetMonthDate > currentAnchor
+        let isBeforeRecurringStart =
+          instance.parentTransactionId.map { parentId in
             instance.budgetMonthDate <= (recurringStartAnchors[parentId] ?? 0)
-          } ?? false)
+          } ?? false
+        shouldDelete = (isOutsideRange && isFutureInstance) || isBeforeRecurringStart
 
       case .futureOnly:
         let isOutsideRange = !validAnchors.contains(instance.budgetMonthDate)
@@ -253,8 +257,14 @@ final class RecurringTransactionManager {
           instance.parentTransactionId.map { parentId in
             instance.budgetMonthDate <= (recurringStartAnchors[parentId] ?? 0)
           } ?? false
-
         shouldDelete = (isOutsideRange && isFutureInstance) || isBeforeRecurringStart
+
+      case .all:
+        shouldDelete =
+          !validAnchors.contains(instance.budgetMonthDate)
+          || (instance.parentTransactionId.map { parentId in
+            instance.budgetMonthDate <= (recurringStartAnchors[parentId] ?? 0)
+          } ?? false)
       }
 
       guard let id = instance.id else { return }
@@ -284,7 +294,8 @@ final class RecurringTransactionManager {
   func cleanupRecurringInstancesFromDate(
     parentTransactionId: Int,
     selectedTransactionDate: Date,
-    cleanupOption: RecurringCleanupOption
+    cleanupOption: RecurringCleanupOption,
+    completion: (() -> Void)? = nil
   ) {
     let operationId = "cleanup_recurring_\(parentTransactionId)_\(cleanupOption)"
 
@@ -294,6 +305,7 @@ final class RecurringTransactionManager {
 
     guard !currentOperations.contains(operationId) else {
       print("🧹 ⚠️ Cleanup already in progress for transaction \(parentTransactionId), skipping")
+      DispatchQueue.main.async { completion?() }
       return
     }
 
@@ -304,9 +316,14 @@ final class RecurringTransactionManager {
         self?.operationLock.lock()
         self?.currentOperations.remove(operationId)
         self?.operationLock.unlock()
+        // Call completion on main thread
+        DispatchQueue.main.async { completion?() }
       }
 
-      guard let self = self else { return }
+      guard let self = self else {
+        DispatchQueue.main.async { completion?() }
+        return
+      }
 
       print(
         "🧹 Starting cleanup for recurring transaction \(parentTransactionId) with option: \(cleanupOption)"
@@ -328,10 +345,13 @@ final class RecurringTransactionManager {
         let shouldDelete: Bool
 
         switch cleanupOption {
-        case .all:
-          shouldDelete = true
+        case .currentSelection:
+          // Only delete the current selected transaction
+          shouldDelete = instance.budgetMonthDate == selectedAnchor
         case .futureOnly:
           shouldDelete = instance.budgetMonthDate >= selectedAnchor
+        case .all:
+          shouldDelete = true
         }
 
         if shouldDelete, let instanceId = instance.id {
@@ -368,7 +388,7 @@ final class RecurringTransactionManager {
           print("❌ Error deleting parent recurring transaction \(parentTransactionId): \(error)")
         }
       } else {
-        print("🧹 Skipping parent deletion for futureOnly cleanup")
+        print("🧹 Skipping parent deletion for \(cleanupOption) cleanup")
       }
 
       print("🧹 Completed cleanup for recurring transaction \(parentTransactionId)")
@@ -378,7 +398,8 @@ final class RecurringTransactionManager {
   func cleanupInstallmentTransactionsFromDate(
     parentTransactionId: Int,
     selectedTransactionDate: Date,
-    cleanupOption: RecurringCleanupOption
+    cleanupOption: RecurringCleanupOption,
+    completion: (() -> Void)? = nil
   ) {
     let operationId = "cleanup_installment_\(parentTransactionId)_\(cleanupOption)"
 
@@ -390,6 +411,7 @@ final class RecurringTransactionManager {
       print(
         "🧹 ⚠️ Installment cleanup already in progress for transaction \(parentTransactionId), skipping"
       )
+      DispatchQueue.main.async { completion?() }
       return
     }
 
@@ -400,9 +422,14 @@ final class RecurringTransactionManager {
         self?.operationLock.lock()
         self?.currentOperations.remove(operationId)
         self?.operationLock.unlock()
+        // Call completion on main thread
+        DispatchQueue.main.async { completion?() }
       }
 
-      guard let self = self else { return }
+      guard let self = self else {
+        DispatchQueue.main.async { completion?() }
+        return
+      }
 
       // Use the more efficient method to get only instances for this parent
       let installmentInstances = self.transactionRepo.fetchTransactionInstancesForRecurring(
@@ -415,10 +442,13 @@ final class RecurringTransactionManager {
         let shouldDelete: Bool
 
         switch cleanupOption {
-        case .all:
-          shouldDelete = true
+        case .currentSelection:
+          // Only delete the current selected transaction
+          shouldDelete = instance.date == selectedTransactionDate
         case .futureOnly:
           shouldDelete = instance.date >= selectedTransactionDate
+        case .all:
+          shouldDelete = true
         }
 
         if shouldDelete, let instanceId = instance.id {
@@ -453,6 +483,40 @@ final class RecurringTransactionManager {
         }
       }
     }
+  }
+
+  // MARK: - Recurring Transaction Linking
+
+  /// Find existing recurring transactions with the same characteristics
+  func findSimilarRecurringTransaction(
+    title: String,
+    category: String,
+    amount: Int,
+    type: String
+  ) -> Transaction? {
+    let recurringTransactions = transactionRepo.fetchRecurringTransactions()
+
+    return recurringTransactions.first { transaction in
+      transaction.title.lowercased() == title.lowercased() && transaction.category.key == category
+        && transaction.amount == amount && transaction.type.key == type
+        && transaction.parentTransactionId == nil  // Only parent transactions
+    }
+  }
+
+  /// Link a new recurring transaction to an existing similar one
+  func linkToExistingRecurringTransaction(
+    newTransactionId: Int,
+    existingParentId: Int
+  ) throws {
+    // Update the new transaction to be a child of the existing parent
+    try transactionRepo.updateParentTransactionId(
+      transactionId: newTransactionId,
+      parentId: existingParentId
+    )
+
+    print(
+      "🔗 Linked new recurring transaction \(newTransactionId) to existing parent \(existingParentId)"
+    )
   }
 
   // MARK: - Helper Methods

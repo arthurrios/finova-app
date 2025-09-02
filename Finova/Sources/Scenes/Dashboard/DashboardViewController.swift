@@ -20,6 +20,7 @@ final class DashboardViewController: UIViewController {
   private var currentCellTransactions: [Transaction] = []
   private var transactionsByMonth: [Int: [Transaction]] = [:]
   private var isInitialLoadComplete = false
+  private var isDeletionInProgress = false
 
   private var currentCell: MonthCarouselCell?
   weak var flowDelegate: DashboardFlowDelegate?
@@ -195,11 +196,25 @@ final class DashboardViewController: UIViewController {
             return txKey == key
           }.sorted { $0.date > $1.date }
 
-          // Animate table view update
-          UIView.transition(
-            with: cell.transactionTableView, duration: 0.3, options: .transitionCrossDissolve
-          ) {
-            cell.configure(with: monthData, transactions: filteredTransactions)
+          // Ensure the table view is in a good state before updating
+          DispatchQueue.main.async {
+            // Reset any gesture states that might be causing freezing
+            cell.transactionTableView.isUserInteractionEnabled = false
+
+            // Animate table view update with proper cleanup
+            UIView.transition(
+              with: cell.transactionTableView, duration: 0.3, options: .transitionCrossDissolve
+            ) {
+              cell.configure(with: monthData, transactions: filteredTransactions)
+            } completion: { _ in
+              // Re-enable interaction after animation completes
+              cell.transactionTableView.isUserInteractionEnabled = true
+              cell.transactionTableView.setNeedsLayout()
+              cell.transactionTableView.layoutIfNeeded()
+              print(
+                "✅ Updated cell for month: \(DateFormatter.monthFormatter.string(from: monthData.date))"
+              )
+            }
           }
         }
       }
@@ -381,8 +396,14 @@ final class DashboardViewController: UIViewController {
   @objc private func handleTransactionDataChanged() {
     print("🔄 Transaction data changed, invalidating ledger cache...")
 
-    // Force refresh current month balance to ensure immediate update
-    viewModel.forceRefreshCurrentMonthBalance()
+    // Only refresh if we're not currently in the middle of a deletion operation
+    // to prevent race conditions and double refreshes
+    if !isDeletionInProgress {
+      // Force refresh current month balance to ensure immediate update
+      viewModel.forceRefreshCurrentMonthBalance()
+    } else {
+      print("🔄 Skipping automatic refresh during deletion operation")
+    }
 
     // Debug: Check for duplicate transactions
     DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
@@ -1365,8 +1386,9 @@ extension DashboardViewController: UITableViewDataSource, UITableViewDelegate {
 private struct DeletionPromptContent {
   let title: String
   let message: String
-  let allTitle: String
+  let currentTitle: String
   let futureTitle: String
+  let allTitle: String
 }
 
 // MARK: - Loading State Management
@@ -1625,13 +1647,13 @@ extension DashboardViewController {
       preferredStyle: .alert
     )
 
-    let deleteAllAction = UIAlertAction(
-      title: content.allTitle,
-      style: .destructive
+    let deleteCurrentAction = UIAlertAction(
+      title: content.currentTitle,
+      style: .default
     ) { [weak self] _ in
       self?.performComplexTransactionDeletion(
         transactionId: transactionId,
-        cleanupOption: .all,
+        cleanupOption: .currentSelection,
         indexPath: indexPath,
         completion: completion
       )
@@ -1649,6 +1671,18 @@ extension DashboardViewController {
       )
     }
 
+    let deleteAllAction = UIAlertAction(
+      title: content.allTitle,
+      style: .destructive
+    ) { [weak self] _ in
+      self?.performComplexTransactionDeletion(
+        transactionId: transactionId,
+        cleanupOption: .all,
+        indexPath: indexPath,
+        completion: completion
+      )
+    }
+
     let cancelAction = UIAlertAction(
       title: "alert.cancel".localized,
       style: .cancel
@@ -1656,8 +1690,9 @@ extension DashboardViewController {
       completion(false)
     }
 
-    alertController.addAction(deleteAllAction)
+    alertController.addAction(deleteCurrentAction)
     alertController.addAction(deleteFutureAction)
+    alertController.addAction(deleteAllAction)
     alertController.addAction(cancelAction)
 
     present(alertController, animated: true)
@@ -1671,22 +1706,25 @@ extension DashboardViewController {
       return DeletionPromptContent(
         title: "recurring.delete.title".localized,
         message: "recurring.delete.message".localized,
-        allTitle: "recurring.delete.all".localized,
-        futureTitle: "recurring.delete.future".localized
+        currentTitle: "recurring.delete.current".localized,
+        futureTitle: "recurring.delete.future".localized,
+        allTitle: "recurring.delete.all".localized
       )
     case .installmentParent, .installmentInstance:
       return DeletionPromptContent(
         title: "installment.delete.title".localized,
         message: "installment.delete.message".localized,
-        allTitle: "installment.delete.all".localized,
-        futureTitle: "installment.delete.remaining".localized
+        currentTitle: "installment.delete.current".localized,
+        futureTitle: "installment.delete.remaining".localized,
+        allTitle: "installment.delete.all".localized
       )
     case .simple:
       return DeletionPromptContent(
         title: "transaction.delete.title".localized,
         message: "delete.confirmation".localized,
-        allTitle: "alert.delete".localized,
-        futureTitle: "alert.delete".localized
+        currentTitle: "alert.delete".localized,
+        futureTitle: "alert.delete".localized,
+        allTitle: "alert.delete".localized
       )
     }
   }
@@ -1697,6 +1735,9 @@ extension DashboardViewController {
     indexPath: IndexPath,
     completion: @escaping (Bool) -> Void
   ) {
+    // Set deletion flag to prevent race conditions
+    isDeletionInProgress = true
+
     // Show loading state for complex deletions that might affect multiple transactions
     showDeletionLoadingOverlay()
 
@@ -1718,6 +1759,8 @@ extension DashboardViewController {
           print("Error deleting complex transaction: \(error)")
           // Hide shimmer on error
           self?.hideShimmerOnAllCards()
+          // Reset deletion flag on error
+          self?.isDeletionInProgress = false
           completion(false)
         }
       }
@@ -1740,6 +1783,9 @@ extension DashboardViewController {
       // Hide shimmer after a brief moment to let users see the data has updated
       DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
         self.hideShimmerOnAllCards()
+        // Reset deletion flag after operation completes
+        self.isDeletionInProgress = false
+        print("✅ Deletion operation completed")
       }
     }
   }
@@ -1747,35 +1793,44 @@ extension DashboardViewController {
   private func refreshAfterTransactionDeletion() {
     print("🔄 Refreshing dashboard after transaction deletion...")
 
-    // Load fresh data immediately
-    let monthData = viewModel.loadMonthlyCards()
-    let transactions = viewModel.transactionRepo.fetchTransactions()
+    // Add a small delay to ensure all async deletion operations have completed
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+      guard let self = self else { return }
 
-    // Update the view models
-    syncedViewModel.setMonthData(monthData)
-    syncedViewModel.setTransactions(transactions)
+      print("🔄 Loading fresh data after deletion completion...")
 
-    // Update current cell data safely
-    if let currentCell = currentCell {
-      let currentIndex = contentView.monthCarousel.indexPathsForVisibleItems.first?.item ?? 0
+      // Load fresh data
+      let monthData = self.viewModel.loadMonthlyCards()
+      let transactions = self.viewModel.transactionRepo.fetchTransactions()
 
-      if currentIndex < syncedViewModel.monthData.count {
-        let monthData = syncedViewModel.monthData[currentIndex]
-        let key = DateFormatter.keyFormatter.string(from: monthData.date)
+      // Update the view models
+      self.syncedViewModel.setMonthData(monthData)
+      self.syncedViewModel.setTransactions(transactions)
 
-        let filteredTransactions = syncedViewModel.allTransactions.filter { tx in
-          let txDate = Date(timeIntervalSince1970: TimeInterval(tx.dateTimestamp))
-          let txKey = DateFormatter.keyFormatter.string(from: txDate)
-          return txKey == key
-        }.sorted { $0.date > $1.date }
+      // Update current cell data safely
+      if let currentCell = self.currentCell {
+        let currentIndex = self.contentView.monthCarousel.indexPathsForVisibleItems.first?.item ?? 0
 
-        // Safely update the cell with new transaction data
-        currentCell.configure(with: monthData, transactions: filteredTransactions)
+        if currentIndex < self.syncedViewModel.monthData.count {
+          let monthData = self.syncedViewModel.monthData[currentIndex]
+          let key = DateFormatter.keyFormatter.string(from: monthData.date)
+
+          let filteredTransactions = self.syncedViewModel.allTransactions.filter { tx in
+            let txDate = Date(timeIntervalSince1970: TimeInterval(tx.dateTimestamp))
+            let txKey = DateFormatter.keyFormatter.string(from: txDate)
+            return txKey == key
+          }.sorted { $0.date > $1.date }
+
+          // Safely update the cell with new transaction data
+          currentCell.configure(with: monthData, transactions: filteredTransactions)
+        }
       }
-    }
 
-    // Force refresh visible cells with animation for any other visible cells
-    refreshVisibleCellsWithAnimation()
+      // Force refresh visible cells with animation for any other visible cells
+      self.refreshVisibleCellsWithAnimation()
+
+      print("🔄 Dashboard refresh completed after deletion")
+    }
   }
 
   // MARK: - Automatic Notification Scheduling

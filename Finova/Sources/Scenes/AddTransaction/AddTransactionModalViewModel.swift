@@ -69,8 +69,25 @@ final class AddTransactionModalViewModel {
 
       do {
         let insertedId = try transactionRepo.insertTransactionAndGetId(model)
-        try transactionRepo.updateParentTransactionId(
-          transactionId: insertedId, parentId: insertedId)
+
+        // Check for similar existing recurring transactions
+        if let existingSimilar = recurringManager.findSimilarRecurringTransaction(
+          title: title,
+          category: category.key,
+          amount: amount,
+          type: type.key
+        ), let existingId = existingSimilar.id {
+          // Link to existing recurring transaction instead of creating a new parent
+          try recurringManager.linkToExistingRecurringTransaction(
+            newTransactionId: insertedId,
+            existingParentId: existingId
+          )
+          print("🔗 Linked to existing recurring transaction: \(existingSimilar.title)")
+        } else {
+          // No similar transaction found, make this a new parent
+          try transactionRepo.updateParentTransactionId(
+            transactionId: insertedId, parentId: insertedId)
+        }
 
         // Get the newly created transaction for efficient instance generation
         let allTransactions = transactionRepo.fetchAllTransactions()

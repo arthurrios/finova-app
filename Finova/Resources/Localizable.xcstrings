@@ -3458,13 +3458,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "All occurrences"
+            "value" : "All Recurring Transactions"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Todas"
+            "value" : "Todas as Transações Recorrentes"
           }
         }
       }
@@ -3475,13 +3475,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Future only"
+            "value" : "Future Occurrences"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Apenas futuras"
+            "value" : "Ocorrências Futuras"
           }
         }
       }
@@ -3492,13 +3492,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Delete all occurrences or just future ones?"
+            "value" : "Choose which recurring transactions to delete"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Apagar todas as ocorrências ou só as futuras?"
+            "value" : "Escolha quais transações recorrentes excluir"
           }
         }
       }
@@ -3509,13 +3509,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Delete Recurring"
+            "value" : "Delete Recurring Transaction"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Apagar Recorrente"
+            "value" : "Excluir Transação Recorrente"
           }
         }
       }
@@ -4094,6 +4094,108 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Sim"
+          }
+        }
+      }
+    },
+    "recurring.delete.current" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Current Selection"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Seleção Atual"
+          }
+        }
+      }
+    },
+    "installment.delete.current" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Current Selection"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Seleção Atual"
+          }
+        }
+      }
+    },
+    "installment.delete.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delete Installment"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Excluir Parcela"
+          }
+        }
+      }
+    },
+    "installment.delete.message" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choose which installments to delete"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Escolha quais parcelas excluir"
+          }
+        }
+      }
+    },
+    "installment.delete.all" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "All Installments"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Todas as Parcelas"
+          }
+        }
+      }
+    },
+    "installment.delete.remaining" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remaining Installments"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Parcelas Restantes"
           }
         }
       }
