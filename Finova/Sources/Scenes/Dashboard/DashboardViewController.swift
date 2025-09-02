@@ -196,25 +196,35 @@ final class DashboardViewController: UIViewController {
             return txKey == key
           }.sorted { $0.date > $1.date }
 
-          // Ensure the table view is in a good state before updating
-          DispatchQueue.main.async {
-            // Reset any gesture states that might be causing freezing
-            cell.transactionTableView.isUserInteractionEnabled = false
+          // Save current scroll position to restore after update
+          let currentContentOffset = cell.transactionTableView.contentOffset
 
-            // Animate table view update with proper cleanup
-            UIView.transition(
-              with: cell.transactionTableView, duration: 0.3, options: .transitionCrossDissolve
-            ) {
-              cell.configure(with: monthData, transactions: filteredTransactions)
-            } completion: { _ in
-              // Re-enable interaction after animation completes
-              cell.transactionTableView.isUserInteractionEnabled = true
-              cell.transactionTableView.setNeedsLayout()
-              cell.transactionTableView.layoutIfNeeded()
-              print(
-                "✅ Updated cell for month: \(DateFormatter.monthFormatter.string(from: monthData.date))"
-              )
+          // Reset any gesture states that might be causing freezing
+          cell.transactionTableView.isUserInteractionEnabled = false
+
+          // Reset scroll position and clear any ongoing gestures
+          cell.transactionTableView.setContentOffset(.zero, animated: false)
+
+          // Animate table view update with proper cleanup
+          UIView.transition(
+            with: cell.transactionTableView, duration: 0.3, options: .transitionCrossDissolve
+          ) {
+            cell.configure(with: monthData, transactions: filteredTransactions)
+          } completion: { _ in
+            // Restore scroll position if it was valid and reasonable
+            if currentContentOffset.y >= 0
+              && currentContentOffset.y <= cell.transactionTableView.contentSize.height
+            {
+              cell.transactionTableView.setContentOffset(currentContentOffset, animated: false)
             }
+
+            // Re-enable interaction after animation completes
+            cell.transactionTableView.isUserInteractionEnabled = true
+            cell.transactionTableView.setNeedsLayout()
+            cell.transactionTableView.layoutIfNeeded()
+            print(
+              "✅ Updated cell for month: \(DateFormatter.monthFormatter.string(from: monthData.date))"
+            )
           }
         }
       }
@@ -1807,7 +1817,7 @@ extension DashboardViewController {
       self.syncedViewModel.setMonthData(monthData)
       self.syncedViewModel.setTransactions(transactions)
 
-      // Update current cell data safely
+      // Update current cell data safely first
       if let currentCell = self.currentCell {
         let currentIndex = self.contentView.monthCarousel.indexPathsForVisibleItems.first?.item ?? 0
 
@@ -1821,15 +1831,18 @@ extension DashboardViewController {
             return txKey == key
           }.sorted { $0.date > $1.date }
 
-          // Safely update the cell with new transaction data
+          // Safely update the current cell with new transaction data
           currentCell.configure(with: monthData, transactions: filteredTransactions)
         }
       }
 
-      // Force refresh visible cells with animation for any other visible cells
-      self.refreshVisibleCellsWithAnimation()
+      // Add a small delay before updating other cells to prevent conflicts
+      DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+        // Force refresh visible cells with animation for any other visible cells
+        self.refreshVisibleCellsWithAnimation()
 
-      print("🔄 Dashboard refresh completed after deletion")
+        print("🔄 Dashboard refresh completed after deletion")
+      }
     }
   }
 
