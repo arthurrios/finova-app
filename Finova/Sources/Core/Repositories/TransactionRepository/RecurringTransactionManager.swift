@@ -40,11 +40,16 @@ final class RecurringTransactionManager {
   ) {
     print("🔄 Generating recurring transactions for range \(monthRange)")
 
-    // Use a serial queue to prevent concurrent operations and ensure data consistency
-    operationQueue.sync {
-      let recurringTransactions = transactionRepo.fetchRecurringTransactions()
+    // Use async queue to prevent blocking the main thread
+    operationQueue.async { [weak self] in
+      guard let self = self else { return }
 
+      let recurringTransactions = self.transactionRepo.fetchRecurringTransactions()
       print("📊 Found \(recurringTransactions.count) recurring transactions")
+
+      // Fetch all transactions once instead of per-transaction
+      let allTransactions = self.transactionRepo.fetchAllTransactions()
+      let allTransactionIds = Set(allTransactions.compactMap { $0.id })
 
       for recurringTx in recurringTransactions {
         guard let recurringTxId = recurringTx.id else {
@@ -52,14 +57,13 @@ final class RecurringTransactionManager {
           continue
         }
 
-        // Verify the transaction still exists
-        let allTransactions = transactionRepo.fetchAllTransactions()
-        guard allTransactions.contains(where: { $0.id == recurringTxId }) else {
+        // Use the pre-fetched set for efficient existence check
+        guard allTransactionIds.contains(recurringTxId) else {
           print("⚠️ Skipping deleted recurring transaction: \(recurringTx.title)")
           continue
         }
 
-        generateInstancesForTransaction(
+        self.generateInstancesForTransaction(
           recurringTx,
           in: monthRange,
           referenceDate: referenceDate,
@@ -69,8 +73,60 @@ final class RecurringTransactionManager {
     }
   }
 
+  /// Generate instances for a newly created recurring transaction (optimized for single transaction)
+  func generateInstancesForNewRecurringTransaction(
+    _ recurringTx: Transaction,
+    in monthRange: ClosedRange<Int>,
+    referenceDate: Date,
+    transactionStartDate: Date? = nil,
+    completion: (() -> Void)? = nil
+  ) {
+    guard let recurringTxId = recurringTx.id else {
+      completion?()
+      return
+    }
+
+    print(
+      "🔄 Generating instances for NEW recurring transaction: '\(recurringTx.title)' (ID: \(recurringTxId))"
+    )
+
+    // Use async queue to prevent blocking the main thread
+    operationQueue.async { [weak self] in
+      guard let self = self else {
+        DispatchQueue.main.async { completion?() }
+        return
+      }
+
+      self.performInstanceGeneration(
+        for: recurringTx,
+        in: monthRange,
+        referenceDate: referenceDate,
+        transactionStartDate: transactionStartDate
+      )
+
+      // Call completion on main thread
+      DispatchQueue.main.async { completion?() }
+    }
+  }
+
   func generateInstancesForTransaction(
     _ recurringTx: Transaction,
+    in monthRange: ClosedRange<Int>,
+    referenceDate: Date,
+    transactionStartDate: Date? = nil
+  ) {
+    performInstanceGeneration(
+      for: recurringTx,
+      in: monthRange,
+      referenceDate: referenceDate,
+      transactionStartDate: transactionStartDate
+    )
+  }
+
+  // MARK: - Private Instance Generation Logic
+
+  private func performInstanceGeneration(
+    for recurringTx: Transaction,
     in monthRange: ClosedRange<Int>,
     referenceDate: Date,
     transactionStartDate: Date? = nil
@@ -124,7 +180,6 @@ final class RecurringTransactionManager {
       // Create instances for the effective start anchor and all future periods
       if targetAnchor >= effectiveStartAnchor {
         let originalDate = Date(timeIntervalSince1970: TimeInterval(recurringTx.dateTimestamp))
-        let originalDay = calendar.component(.day, from: originalDate)
 
         // Generate a valid date for the target month
         let targetYear = calendar.component(.year, from: targetDate)
@@ -299,23 +354,16 @@ final class RecurringTransactionManager {
 
       if cleanupOption == .all {
         do {
-          // Verify the parent transaction still exists before trying to delete it
-          let allTransactions = self.transactionRepo.fetchAllTransactions()
-          let parentTransaction = allTransactions.first { $0.id == parentTransactionId }
+          // Try to delete the parent transaction directly - the repository will handle verification
+          try self.transactionRepo.delete(id: parentTransactionId)
+          print("🧹 Successfully deleted parent recurring transaction \(parentTransactionId)")
 
-          if parentTransaction != nil {
-            try self.transactionRepo.delete(id: parentTransactionId)
-            print("🧹 Successfully deleted parent recurring transaction \(parentTransactionId)")
-
-            // Clean up notification for deleted parent transaction
-            let notifID = "transaction_\(parentTransactionId)"
-            self.notificationCenter.removePendingNotificationRequests(withIdentifiers: [notifID])
-            print(
-              "🔔 🗑️ Removed notification for deleted parent recurring transaction: \(parentTransactionId)"
-            )
-          } else {
-            print("⚠️ Parent transaction \(parentTransactionId) was already deleted or not found")
-          }
+          // Clean up notification for deleted parent transaction
+          let notifID = "transaction_\(parentTransactionId)"
+          self.notificationCenter.removePendingNotificationRequests(withIdentifiers: [notifID])
+          print(
+            "🔔 🗑️ Removed notification for deleted parent recurring transaction: \(parentTransactionId)"
+          )
         } catch {
           print("❌ Error deleting parent recurring transaction \(parentTransactionId): \(error)")
         }
@@ -356,10 +404,9 @@ final class RecurringTransactionManager {
 
       guard let self = self else { return }
 
-      let allTransactions = self.transactionRepo.fetchAllTransactions()
-      let installmentInstances = allTransactions.filter {
-        $0.parentTransactionId == parentTransactionId
-      }
+      // Use the more efficient method to get only instances for this parent
+      let installmentInstances = self.transactionRepo.fetchTransactionInstancesForRecurring(
+        parentTransactionId)
 
       // Collect instances to delete first to avoid partial states
       var instancesToDelete: [Int] = []

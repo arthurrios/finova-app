@@ -72,35 +72,35 @@ final class AddTransactionModalViewModel {
         try transactionRepo.updateParentTransactionId(
           transactionId: insertedId, parentId: insertedId)
 
-        // Generate recurring instances for future months only (excluding the parent transaction's month)
-        let today = Date()
-        let parentMonth = date.monthAnchor
-        let todayMonth = today.monthAnchor
+        // Get the newly created transaction for efficient instance generation
+        let allTransactions = transactionRepo.fetchAllTransactions()
+        guard let newlyCreatedTransaction = allTransactions.first(where: { $0.id == insertedId })
+        else {
+          print("⚠️ Could not find newly created recurring transaction")
+          return .success(())
+        }
 
-        // Start from the next month after the parent transaction
+        // Generate recurring instances for future months only (excluding the parent transaction's month)
         let startMonthOffset = 1
         let endMonthOffset = 24
-
         let futureRange = startMonthOffset...endMonthOffset
 
-        recurringManager.generateRecurringTransactionsForRange(
-          futureRange,
+        // Use the optimized method for new recurring transactions
+        recurringManager.generateInstancesForNewRecurringTransaction(
+          newlyCreatedTransaction,
+          in: futureRange,
           referenceDate: date,  // Use the parent transaction date as reference
           transactionStartDate: nil  // Let the manager use the parent's date as start
-        )
+        ) { [weak self] in
+          // These operations run after instance generation completes
+          self?.scheduleNotificationsForRecurringTransactions()
+          self?.monitorNegativeBalance()
+          self?.invalidateLedgerCache()
 
-        // Schedule notifications for all newly created recurring instances
-        scheduleNotificationsForRecurringTransactions()
-
-        // Monitorar saldo negativo após adicionar transação recorrente
-        monitorNegativeBalance()
-
-        // Invalidate ledger cache since transactions changed
-        invalidateLedgerCache()
-
-        // Debug: Check for duplicate transactions
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-          self.transactionRepo.debugDuplicateTransactions()
+          // Debug: Check for duplicate transactions
+          DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            self?.transactionRepo.debugDuplicateTransactions()
+          }
         }
 
         return .success(())
