@@ -9,9 +9,10 @@ import Foundation
 import SwiftUI
 import UIKit
 
-enum BalanceDisplayMode {
+enum BalanceDisplayMode: Equatable {
   case final  // Final balance (available value)
   case current  // Current balance (budget limit - used)
+  case daySpecific(day: Int)  // Balance for a specific day
 }
 
 class MonthBudgetCard: UIView {
@@ -26,6 +27,12 @@ class MonthBudgetCard: UIView {
   private var animatedNumberContainer: UIView?
   private var currentDisplayValue: Int = 0
 
+  // Day slider properties
+  private var daySlider: DaySlider?
+  private var isDaySliderVisible: Bool = false
+  private var currentSelectedDay: Int = 1
+  private var lastUpdateTime: TimeInterval = 0
+
   private let gradientLayer = Colors.gradientBlack
 
   private lazy var mainStackView = UIStackView(
@@ -36,7 +43,7 @@ class MonthBudgetCard: UIView {
 
   private lazy var headerHorizontalStackView = UIStackView(
     axis: .horizontal,
-    arrangedSubviews: [headerDateStackView, hideValuesToggleContainer, configIcon])
+    arrangedSubviews: [headerDateStackView, configIcon])
 
   private lazy var headerDateStackView = UIStackView(
     axis: .horizontal, spacing: Metrics.spacing2, alignment: .center,
@@ -55,20 +62,20 @@ class MonthBudgetCard: UIView {
     container.addSubview(availableBudgetValueLabel)
     availableBudgetValueLabel.translatesAutoresizingMaskIntoConstraints = false
 
-    container.addSubview(balanceToggleContainer)
-    balanceToggleContainer.translatesAutoresizingMaskIntoConstraints = false
+    container.addSubview(hideValuesToggleContainer)
+    hideValuesToggleContainer.translatesAutoresizingMaskIntoConstraints = false
 
     NSLayoutConstraint.activate([
       availableBudgetValueLabel.leadingAnchor.constraint(equalTo: container.leadingAnchor),
       availableBudgetValueLabel.centerYAnchor.constraint(equalTo: container.centerYAnchor),
 
-      balanceToggleContainer.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-      balanceToggleContainer.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+      hideValuesToggleContainer.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+      hideValuesToggleContainer.centerYAnchor.constraint(equalTo: container.centerYAnchor),
 
-      balanceToggleContainer.leadingAnchor.constraint(
+      hideValuesToggleContainer.leadingAnchor.constraint(
         greaterThanOrEqualTo: availableBudgetValueLabel.trailingAnchor, constant: 8),
 
-      container.heightAnchor.constraint(equalTo: balanceToggleContainer.heightAnchor),
+      container.heightAnchor.constraint(equalTo: hideValuesToggleContainer.heightAnchor),
     ])
 
     return container
@@ -119,8 +126,8 @@ class MonthBudgetCard: UIView {
     NSLayoutConstraint.activate([
       hideValuesIcon.centerXAnchor.constraint(equalTo: container.centerXAnchor),
       hideValuesIcon.centerYAnchor.constraint(equalTo: container.centerYAnchor),
-      hideValuesIcon.widthAnchor.constraint(equalToConstant: 20),
-      hideValuesIcon.heightAnchor.constraint(equalToConstant: 20),
+      hideValuesIcon.widthAnchor.constraint(equalToConstant: 24),
+      hideValuesIcon.heightAnchor.constraint(equalToConstant: 24),
 
       container.widthAnchor.constraint(equalToConstant: 36),
       container.heightAnchor.constraint(equalToConstant: 36),
@@ -163,6 +170,8 @@ class MonthBudgetCard: UIView {
     return label
   }()
 
+  // MARK: - Commented out balance toggle button
+  /*
   private let balanceToggleIcon: UIImageView = {
     let imageView = UIImageView()
     imageView.image = UIImage(named: "lucide_arrowRightLeft")
@@ -170,29 +179,30 @@ class MonthBudgetCard: UIView {
     imageView.translatesAutoresizingMaskIntoConstraints = false
     return imageView
   }()
-
+  
   private lazy var balanceToggleContainer: UIView = {
     let container = UIView()
     container.backgroundColor = Colors.gray600
     container.translatesAutoresizingMaskIntoConstraints = false
-
+  
     // Aplicar cornerRadius desde o início
     container.layer.cornerRadius = 18
     container.layer.masksToBounds = true
-
+  
     container.addSubview(balanceToggleIcon)
     NSLayoutConstraint.activate([
       balanceToggleIcon.centerXAnchor.constraint(equalTo: container.centerXAnchor),
       balanceToggleIcon.centerYAnchor.constraint(equalTo: container.centerYAnchor),
       balanceToggleIcon.widthAnchor.constraint(equalToConstant: 24),
       balanceToggleIcon.heightAnchor.constraint(equalToConstant: 24),
-
+  
       container.widthAnchor.constraint(equalToConstant: 36),
       container.heightAnchor.constraint(equalToConstant: 36),
     ])
-
+  
     return container
   }()
+  */
 
   private let defineBudgetButton = Button(
     variant: .outlined, label: "monthCard.defineBudget".localized)
@@ -251,6 +261,7 @@ class MonthBudgetCard: UIView {
 
     setupView()
     setupAnimatedNumberContainer()
+    setupDaySlider()
     setupGestureRecognizers()
   }
 
@@ -277,6 +288,9 @@ class MonthBudgetCard: UIView {
     } else {
       displayMode = .final
     }
+
+    // Setup day slider for all months
+    setupDaySliderForMonth(data: data)
 
     updateAvailableBudgetDisplay()
     updateLimitSection(with: data)
@@ -320,77 +334,56 @@ class MonthBudgetCard: UIView {
   private func updateAvailableBudgetDisplay() {
     guard let data = currentMonthData else { return }
 
-    let shouldShowToggleButton =
-      data.budgetLimit != nil && data.budgetLimit! > 0 && isCurrentMonth()
-
     availableBudgetValueLabel.isHidden = false
-
-    balanceToggleContainer.isHidden = !shouldShowToggleButton
 
     if data.budgetLimit != nil && data.budgetLimit! > 0 {
       let displayValue: Int
       let textKey: String
 
-      if shouldShowToggleButton {
-        switch displayMode {
-        case .final:
-          displayValue = data.finalBalance ?? (data.budgetLimit! - data.usedValue)
-          textKey = "monthCard.availableBudget"
-          balanceToggleContainer.backgroundColor = Colors.gray600
-
-        case .current:
-          displayValue = data.currentBalance ?? (data.previousBalance ?? 0)
-          textKey = "monthCard.currentBalance"
-          balanceToggleContainer.backgroundColor = Colors.mainMagenta.withAlphaComponent(0.7)
-        }
-
-        // Garantir que o botão seja sempre redondo
-        balanceToggleContainer.layer.cornerRadius = 18
-        balanceToggleContainer.layer.masksToBounds = true
-
-        // Use animated SwiftUI view for current month
-        if isValuesHidden {
-          animatedNumberContainer?.isHidden = true
-          availableBudgetValueLabel.isHidden = false
-          availableBudgetValueLabel.text = getHiddenValueString()
-        } else {
-          animatedNumberContainer?.isHidden = false
-          availableBudgetValueLabel.isHidden = true
-          setupOrUpdateAnimatedNumber(value: displayValue)
-        }
-
-      } else {
-        // Other months - use regular UIKit label (no animation)
+      switch displayMode {
+      case .final:
         displayValue = data.finalBalance ?? (data.budgetLimit! - data.usedValue)
         textKey = "monthCard.availableBudget"
 
+      case .current:
+        displayValue = data.currentBalance ?? (data.previousBalance ?? 0)
+        textKey = "monthCard.currentBalance"
+
+      case .daySpecific(let day):
+        displayValue = calculateBalanceForDay(day)
+        textKey = formatBalanceOnDayString(for: day)
+      }
+
+      // Use animated SwiftUI view for current month
+      if isValuesHidden {
         animatedNumberContainer?.isHidden = true
         availableBudgetValueLabel.isHidden = false
-        availableBudgetValueLabel.text =
-          isValuesHidden ? getHiddenValueString() : displayValue.currencyString
+        availableBudgetValueLabel.text = getHiddenValueString()
+      } else {
+        animatedNumberContainer?.isHidden = false
+        availableBudgetValueLabel.isHidden = true
+        setupOrUpdateAnimatedNumber(value: displayValue)
       }
 
-      availableBudgetTextLabel.text = textKey.localized
-      availableBudgetValueWithToggleContainer.isHidden = false
-      defineBudgetButton.isHidden = true
-
-      if !availableBudgetStackView.arrangedSubviews.contains(
-        availableBudgetValueWithToggleContainer)
-      {
-        availableBudgetStackView.insertArrangedSubview(
-          availableBudgetValueWithToggleContainer, at: 1)
-      }
-
+      availableBudgetTextLabel.text = textKey
     } else {
-      // No budget - hide everything
+      // No budget defined - show available budget as 0
+      let displayValue = 0
+      availableBudgetTextLabel.text = "monthCard.availableBudget"
       animatedNumberContainer?.isHidden = true
-      availableBudgetValueWithToggleContainer.isHidden = true
-      defineBudgetButton.isHidden = false
+      availableBudgetValueLabel.isHidden = false
+      availableBudgetValueLabel.text =
+        isValuesHidden ? getHiddenValueString() : displayValue.currencyString
+    }
 
-      if availableBudgetStackView.arrangedSubviews.contains(availableBudgetValueWithToggleContainer)
-      {
-        availableBudgetStackView.removeArrangedSubview(availableBudgetValueWithToggleContainer)
-      }
+    availableBudgetValueWithToggleContainer.isHidden = false
+    defineBudgetButton.isHidden = true
+
+    if !availableBudgetStackView.arrangedSubviews.contains(
+      availableBudgetValueWithToggleContainer)
+    {
+      availableBudgetStackView.insertArrangedSubview(
+        availableBudgetValueWithToggleContainer, at: 1)
     }
   }
 
@@ -416,7 +409,7 @@ class MonthBudgetCard: UIView {
         right: Metrics.spacing6))
     mainStackView.setCustomSpacing(Metrics.spacing4, after: headerHorizontalStackView)
     mainStackView.setCustomSpacing(Metrics.spacing3, after: separator)
-    mainStackView.setCustomSpacing(Metrics.spacing5, after: availableBudgetStackView)
+    mainStackView.setCustomSpacing(Metrics.spacing2, after: availableBudgetStackView)
 
     setupProgressBar()
   }
@@ -440,10 +433,13 @@ class MonthBudgetCard: UIView {
     defineBudgetButton.addTarget(
       self, action: #selector(defineBudgetButtonTapped), for: .touchUpInside)
 
+    // MARK: - Commented out balance toggle gesture recognizer
+    /*
     let toggleBalanceTapGesture = UITapGestureRecognizer(
       target: self, action: #selector(toggleBalanceDisplay))
     balanceToggleContainer.addGestureRecognizer(toggleBalanceTapGesture)
     balanceToggleContainer.isUserInteractionEnabled = true
+    */
 
     let hideValuesTapGesture = UITapGestureRecognizer(
       target: self, action: #selector(toggleHideValues))
@@ -469,6 +465,13 @@ class MonthBudgetCard: UIView {
         equalTo: availableBudgetValueWithToggleContainer.centerYAnchor),
       container.widthAnchor.constraint(greaterThanOrEqualToConstant: 150),
     ])
+  }
+
+  private func setupDaySlider() {
+    daySlider = DaySlider()
+    daySlider?.delegate = self
+    daySlider?.translatesAutoresizingMaskIntoConstraints = false
+    daySlider?.isHidden = true
   }
 
   private func setupOrUpdateAnimatedNumber(value: Int) {
@@ -527,12 +530,32 @@ class MonthBudgetCard: UIView {
     delegate?.didTapDefineBudgetButton(budgetDate: budgetDate)
   }
 
+  // MARK: - Commented out balance toggle method
+  /*
   @objc
   private func toggleBalanceDisplay() {
-    displayMode = displayMode == .final ? .current : .final
-    UserDefaultsManager.setBalanceDisplayMode(displayMode)
+    switch displayMode {
+    case .final:
+      displayMode = .current
+    case .current:
+      displayMode = .final
+    case .daySpecific(let day):
+      // If in day-specific mode, toggle back to current
+      displayMode = .current
+    }
+  
+    // Only save to UserDefaults if it's a standard mode (not day-specific)
+    switch displayMode {
+    case .final, .current:
+      UserDefaultsManager.setBalanceDisplayMode(displayMode)
+    case .daySpecific:
+      // Don't save day-specific mode to UserDefaults
+      break
+    }
+  
     updateAvailableBudgetDisplay()
   }
+  */
 
   @objc
   private func toggleHideValues() {
@@ -558,14 +581,122 @@ class MonthBudgetCard: UIView {
     return "••••••"
   }
 
+  private func formatBalanceOnDayString(for day: Int) -> String {
+    let currentLanguage = Locale.current.language.languageCode?.identifier ?? "en"
+
+    if currentLanguage == "en" {
+      // English: Use ordinal suffixes (1st, 2nd, 3rd, etc.)
+      return String(format: "monthCard.balanceOnDay".localized, dayWithOrdinalSuffix(day))
+    } else {
+      // Other languages: Use plain number
+      return String(format: "monthCard.balanceOnDay".localized, day)
+    }
+  }
+
+  private func dayWithOrdinalSuffix(_ day: Int) -> String {
+    let suffix: String
+    if day >= 11 && day <= 13 {
+      suffix = "th"
+    } else {
+      switch day % 10 {
+      case 1: suffix = "st"
+      case 2: suffix = "nd"
+      case 3: suffix = "rd"
+      default: suffix = "th"
+      }
+    }
+    return "\(day)\(suffix)"
+  }
+
+  private func setupDaySliderForMonth(data: MonthBudgetCardType) {
+    guard let slider = daySlider else { return }
+
+    // Calculate current day and total days in month
+    let calendar = Calendar.current
+    let today = Date()
+    let monthDate = data.date
+    let totalDaysInMonth = calendar.range(of: .day, in: .month, for: monthDate)?.count ?? 31
+
+    // Calculate the actual current day of the month (for current month only)
+    let currentMonthDay: Int = isCurrentMonth() ? calendar.component(.day, from: today) : 0
+
+    // Determine the current day for this month (selected day)
+    let currentDay: Int
+    if isCurrentMonth() {
+      // For current month, use today's day
+      currentDay = calendar.component(.day, from: today)
+    } else {
+      // For all other months (past and future), default to the last day
+      currentDay = totalDaysInMonth
+    }
+
+    // Add slider to the stack view if not already added
+    if !isDaySliderVisible {
+      availableBudgetStackView.addArrangedSubview(slider)
+      isDaySliderVisible = true
+
+      // Set up constraints
+      NSLayoutConstraint.activate([
+        slider.heightAnchor.constraint(equalToConstant: 40),
+        slider.leadingAnchor.constraint(equalTo: availableBudgetStackView.leadingAnchor),
+        slider.trailingAnchor.constraint(equalTo: availableBudgetStackView.trailingAnchor),
+      ])
+    }
+
+    // Configure the slider
+    slider.configure(
+      currentDay: currentDay, totalDaysInMonth: totalDaysInMonth, currentMonthDay: currentMonthDay)
+    slider.isHidden = false
+    currentSelectedDay = currentDay
+
+    // Set the display mode to day-specific to show the correct balance
+    displayMode = .daySpecific(day: currentDay)
+  }
+
+  private func hideDaySlider() {
+    guard let slider = daySlider, isDaySliderVisible else { return }
+
+    slider.isHidden = true
+    availableBudgetStackView.removeArrangedSubview(slider)
+    slider.removeFromSuperview()
+    isDaySliderVisible = false
+  }
+
+  private func calculateBalanceForDay(_ day: Int) -> Int {
+    guard let data = currentMonthData else { return 0 }
+
+    // Use the TransactionLedgerService to calculate balance for specific day
+    let ledgerService = TransactionLedgerService()
+
+    if isCurrentMonth() {
+      // For current month, use the existing method
+      return ledgerService.calculateCurrentMonthBalanceForDay(day: day)
+    } else {
+      // For other months, calculate balance for that specific day in that month
+      let monthAnchor = data.date.monthAnchor
+
+      // Get previous month's final balance
+      let previousMonthAnchor = monthAnchor - 1
+      let previousMonthData = ledgerService.calculateMonthlyData(
+        for: previousMonthAnchor...previousMonthAnchor)
+      let previousBalance = previousMonthData.first?.finalBalance ?? 0
+
+      return ledgerService.calculateBalanceForDay(
+        day: day, monthAnchor: monthAnchor, previousMonthBalance: previousBalance)
+    }
+  }
+
   override func layoutSubviews() {
     super.layoutSubviews()
     gradientLayer.frame = bounds
 
+    // MARK: - Commented out balance toggle layout updates
+    /*
     // Garantir que o botão de toggle seja sempre redondo
     // Usar valor fixo baseado na constraint de largura (36)
     balanceToggleContainer.layer.cornerRadius = 18
     balanceToggleContainer.layer.masksToBounds = true
+    */
   }
 
   // MARK: - Enhanced Refresh with Animation
@@ -626,6 +757,34 @@ class MonthBudgetCard: UIView {
           container.transform = .identity
         }
       }
+    }
+  }
+}
+
+// MARK: - DaySliderDelegate
+extension MonthBudgetCard: DaySliderDelegate {
+  func daySlider(_ slider: DaySlider, didSelectDay day: Int) {
+    currentSelectedDay = day
+    displayMode = .daySpecific(day: day)
+    // Always update on final selection to ensure correct state
+    updateAvailableBudgetDisplay()
+  }
+
+  func daySlider(_ slider: DaySlider, didReachCurrentDay day: Int) {
+    // Optional: Add any special handling when reaching current day
+    // For example, could show a brief animation or change color
+  }
+
+  func daySlider(_ slider: DaySlider, didChangeDay day: Int) {
+    // Real-time updates during sliding with throttling
+    currentSelectedDay = day
+    displayMode = .daySpecific(day: day)
+
+    // Throttle updates to improve performance
+    let currentTime = CACurrentMediaTime()
+    if currentTime - lastUpdateTime > 0.05 {  // Update at most 20 times per second
+      lastUpdateTime = currentTime
+      updateAvailableBudgetDisplay()
     }
   }
 }

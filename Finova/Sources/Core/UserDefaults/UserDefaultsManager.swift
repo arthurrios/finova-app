@@ -46,7 +46,16 @@ class UserDefaultsManager {
   }
 
   static func setBalanceDisplayMode(_ mode: BalanceDisplayMode) {
-    let modeString = mode == .current ? "current" : "final"
+    let modeString: String
+    switch mode {
+    case .current:
+      modeString = "current"
+    case .final:
+      modeString = "final"
+    case .daySpecific:
+      // Don't save day-specific mode to UserDefaults
+      return
+    }
     UserDefaults.standard.set(modeString, forKey: balanceDisplayModeKey)
   }
 

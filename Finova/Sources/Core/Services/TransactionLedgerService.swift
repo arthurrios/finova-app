@@ -282,6 +282,87 @@ final class TransactionLedgerService {
 
   }
 
+  // MARK: - Daily Balance Calculations
+
+  /// Calculate balance for a specific day within a month
+  func calculateBalanceForDay(day: Int, monthAnchor: Int, previousMonthBalance: Int) -> Int {
+    let allTransactions = transactionRepo.fetchAllTransactions()
+
+    // Get the month date from anchor
+    let monthDate = Date(timeIntervalSince1970: TimeInterval(monthAnchor))
+
+    // Create target date for the specific day
+    var calendar = Calendar.current
+    calendar.timeZone = TimeZone.current
+
+    guard let targetDate = calendar.date(bySetting: .day, value: day, of: monthDate) else {
+      return previousMonthBalance
+    }
+
+    // Get all transactions up to the target date
+    let transactionsUpToTargetDate = allTransactions.filter { transaction in
+      let transactionDate = Date(timeIntervalSince1970: TimeInterval(transaction.dateTimestamp))
+      return transactionDate <= targetDate
+    }
+
+    // Calculate running balance from the beginning of time up to target date
+    var runningBalance = 0
+    var lastProcessedMonthAnchor = -1
+
+    // Group transactions by month
+    let transactionsByMonth = Dictionary(grouping: transactionsUpToTargetDate) { transaction in
+      let transactionDate = Date(timeIntervalSince1970: TimeInterval(transaction.dateTimestamp))
+      return transactionDate.monthAnchor
+    }
+
+    // Process months in chronological order
+    let sortedMonthAnchors = transactionsByMonth.keys.sorted()
+
+    for monthAnchor in sortedMonthAnchors {
+      let transactionsInMonth = transactionsByMonth[monthAnchor] ?? []
+
+      // For the target month, only include transactions up to the target day
+      let monthDate = Date(timeIntervalSince1970: TimeInterval(monthAnchor))
+      let isTargetMonth = calendar.isDate(monthDate, equalTo: targetDate, toGranularity: .month)
+
+      let relevantTransactions: [Transaction]
+      if isTargetMonth {
+        // Filter transactions up to the target day
+        relevantTransactions = transactionsInMonth.filter { transaction in
+          let transactionDate = Date(timeIntervalSince1970: TimeInterval(transaction.dateTimestamp))
+          return transactionDate <= targetDate
+        }
+      } else {
+        // Include all transactions for previous months
+        relevantTransactions = transactionsInMonth
+      }
+
+      // Calculate net change for this month
+      let netChange = relevantTransactions.reduce(0) { result, transaction in
+        transaction.type == .income ? result + transaction.amount : result - transaction.amount
+      }
+
+      runningBalance += netChange
+      lastProcessedMonthAnchor = monthAnchor
+    }
+
+    return runningBalance
+  }
+
+  /// Calculate balance for a specific day in the current month
+  func calculateCurrentMonthBalanceForDay(day: Int) -> Int {
+    let today = Date()
+    let currentMonthAnchor = today.monthAnchor
+
+    // Get previous month's final balance
+    let previousMonthAnchor = currentMonthAnchor - 1
+    let previousMonthData = calculateMonthlyData(for: previousMonthAnchor...previousMonthAnchor)
+    let previousBalance = previousMonthData.first?.finalBalance ?? 0
+
+    return calculateBalanceForDay(
+      day: day, monthAnchor: currentMonthAnchor, previousMonthBalance: previousBalance)
+  }
+
   /// Debug method to specifically check "Aula de canto" transaction
   func debugAulaDeCantoTransaction() {
     print("🎵 Debugging 'Aula de canto' transaction specifically...")
