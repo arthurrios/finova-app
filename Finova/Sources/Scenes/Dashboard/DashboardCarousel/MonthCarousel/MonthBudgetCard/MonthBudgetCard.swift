@@ -32,6 +32,9 @@ class MonthBudgetCard: UIView {
   private var isDaySliderVisible: Bool = false
   private var currentSelectedDay: Int = 1
   private var lastUpdateTime: TimeInterval = 0
+  private var hideValuesTapGesture: UITapGestureRecognizer?
+  private var headerToggleTapGesture: UITapGestureRecognizer?
+  private var headerToggleIcon: UIImageView?
 
   private let gradientLayer = Colors.gradientBlack
 
@@ -43,7 +46,7 @@ class MonthBudgetCard: UIView {
 
   private lazy var headerHorizontalStackView = UIStackView(
     axis: .horizontal,
-    arrangedSubviews: [headerDateStackView, configIcon])
+    arrangedSubviews: [headerDateStackView, headerToggleContainer, configIcon])
 
   private lazy var headerDateStackView = UIStackView(
     axis: .horizontal, spacing: Metrics.spacing2, alignment: .center,
@@ -132,6 +135,35 @@ class MonthBudgetCard: UIView {
       container.widthAnchor.constraint(equalToConstant: 36),
       container.heightAnchor.constraint(equalToConstant: 36),
     ])
+
+    return container
+  }()
+
+  private lazy var headerToggleContainer: UIView = {
+    let container = UIView()
+    container.backgroundColor = .clear
+    container.translatesAutoresizingMaskIntoConstraints = false
+    container.isUserInteractionEnabled = true
+    container.isHidden = true
+
+    let headerIcon = UIImageView()
+    headerIcon.contentMode = .scaleAspectFit
+    headerIcon.tintColor = Colors.gray100
+    headerIcon.translatesAutoresizingMaskIntoConstraints = false
+
+    container.addSubview(headerIcon)
+    NSLayoutConstraint.activate([
+      headerIcon.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+      headerIcon.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+      headerIcon.widthAnchor.constraint(equalToConstant: 24),
+      headerIcon.heightAnchor.constraint(equalToConstant: 24),
+
+      container.widthAnchor.constraint(equalToConstant: 36),
+      container.heightAnchor.constraint(equalToConstant: 36),
+    ])
+
+    // Store reference to the icon for updating
+    headerToggleIcon = headerIcon
 
     return container
   }()
@@ -263,6 +295,7 @@ class MonthBudgetCard: UIView {
     setupAnimatedNumberContainer()
     setupDaySlider()
     setupGestureRecognizers()
+    setupNotificationObserver()
   }
 
   required init?(coder: NSCoder) {
@@ -278,6 +311,7 @@ class MonthBudgetCard: UIView {
 
     // Initialize hide values state
     isValuesHidden = UserDefaultsManager.getHideValues()
+    updateTogglePositioning(with: data)
     updateHideValuesIcon()
 
     usedBudgetValueLabel.text =
@@ -289,8 +323,12 @@ class MonthBudgetCard: UIView {
       displayMode = .final
     }
 
-    // Setup day slider for all months
-    setupDaySliderForMonth(data: data)
+    // Setup day slider only if budget is set
+    if data.budgetLimit != nil && data.budgetLimit! > 0 {
+      setupDaySliderForMonth(data: data)
+    } else {
+      hideDaySlider()
+    }
 
     updateAvailableBudgetDisplay()
     updateLimitSection(with: data)
@@ -334,9 +372,13 @@ class MonthBudgetCard: UIView {
   private func updateAvailableBudgetDisplay() {
     guard let data = currentMonthData else { return }
 
-    availableBudgetValueLabel.isHidden = false
-
     if data.budgetLimit != nil && data.budgetLimit! > 0 {
+      // Budget is set - show budget information
+      availableBudgetValueLabel.isHidden = false
+      availableBudgetValueWithToggleContainer.isHidden = false
+      availableBudgetTextLabel.isHidden = false
+      defineBudgetButton.isHidden = true
+
       let displayValue: Int
       let textKey: String
 
@@ -354,36 +396,47 @@ class MonthBudgetCard: UIView {
         textKey = formatBalanceOnDayString(for: day)
       }
 
-      // Use animated SwiftUI view for current month
-      if isValuesHidden {
+      // Use animated SwiftUI view for current month only
+      if isCurrentMonth() {
+        if isValuesHidden {
+          animatedNumberContainer?.isHidden = true
+          availableBudgetValueLabel.isHidden = false
+          availableBudgetValueLabel.text = getHiddenValueString()
+        } else {
+          animatedNumberContainer?.isHidden = false
+          availableBudgetValueLabel.isHidden = true
+          setupOrUpdateAnimatedNumber(value: displayValue)
+        }
+      } else {
+        // For non-current months, always use the regular label
         animatedNumberContainer?.isHidden = true
         availableBudgetValueLabel.isHidden = false
-        availableBudgetValueLabel.text = getHiddenValueString()
-      } else {
-        animatedNumberContainer?.isHidden = false
-        availableBudgetValueLabel.isHidden = true
-        setupOrUpdateAnimatedNumber(value: displayValue)
+        availableBudgetValueLabel.text =
+          isValuesHidden ? getHiddenValueString() : displayValue.currencyString
       }
 
       availableBudgetTextLabel.text = textKey
+
+      if !availableBudgetStackView.arrangedSubviews.contains(
+        availableBudgetValueWithToggleContainer)
+      {
+        availableBudgetStackView.insertArrangedSubview(
+          availableBudgetValueWithToggleContainer, at: 1)
+      }
     } else {
-      // No budget defined - show available budget as 0
-      let displayValue = 0
-      availableBudgetTextLabel.text = "monthCard.availableBudget"
+      // No budget defined - hide budget information and show define button
+      availableBudgetValueLabel.isHidden = true
+      availableBudgetValueWithToggleContainer.isHidden = true
+      availableBudgetTextLabel.isHidden = true
       animatedNumberContainer?.isHidden = true
-      availableBudgetValueLabel.isHidden = false
-      availableBudgetValueLabel.text =
-        isValuesHidden ? getHiddenValueString() : displayValue.currencyString
-    }
+      defineBudgetButton.isHidden = false
 
-    availableBudgetValueWithToggleContainer.isHidden = false
-    defineBudgetButton.isHidden = true
-
-    if !availableBudgetStackView.arrangedSubviews.contains(
-      availableBudgetValueWithToggleContainer)
-    {
-      availableBudgetStackView.insertArrangedSubview(
-        availableBudgetValueWithToggleContainer, at: 1)
+      // Remove budget value container from stack if present
+      if availableBudgetStackView.arrangedSubviews.contains(
+        availableBudgetValueWithToggleContainer)
+      {
+        availableBudgetStackView.removeArrangedSubview(availableBudgetValueWithToggleContainer)
+      }
     }
   }
 
@@ -441,9 +494,37 @@ class MonthBudgetCard: UIView {
     balanceToggleContainer.isUserInteractionEnabled = true
     */
 
-    let hideValuesTapGesture = UITapGestureRecognizer(
+    hideValuesTapGesture = UITapGestureRecognizer(
       target: self, action: #selector(toggleHideValues))
-    hideValuesToggleContainer.addGestureRecognizer(hideValuesTapGesture)
+    hideValuesToggleContainer.addGestureRecognizer(hideValuesTapGesture!)
+
+    headerToggleTapGesture = UITapGestureRecognizer(
+      target: self, action: #selector(toggleHideValues))
+    headerToggleContainer.addGestureRecognizer(headerToggleTapGesture!)
+  }
+
+  private func setupNotificationObserver() {
+    NotificationCenter.default.addObserver(
+      self,
+      selector: #selector(handleBalanceVisibilityChanged),
+      name: NSNotification.Name("BalanceVisibilityChanged"),
+      object: nil
+    )
+  }
+
+  @objc private func handleBalanceVisibilityChanged(_ notification: Notification) {
+    guard let userInfo = notification.userInfo,
+      let isHidden = userInfo["isHidden"] as? Bool
+    else { return }
+
+    // Only update if the visibility state is different from current state
+    if isHidden != isValuesHidden {
+      updateBalanceVisibility(isHidden)
+    }
+  }
+
+  deinit {
+    NotificationCenter.default.removeObserver(self)
   }
 
   private func setupAnimatedNumberContainer() {
@@ -465,6 +546,19 @@ class MonthBudgetCard: UIView {
         equalTo: availableBudgetValueWithToggleContainer.centerYAnchor),
       container.widthAnchor.constraint(greaterThanOrEqualToConstant: 150),
     ])
+
+    // Ensure toggle is initially in the budget value container
+    if !availableBudgetValueWithToggleContainer.subviews.contains(hideValuesToggleContainer) {
+      availableBudgetValueWithToggleContainer.addSubview(hideValuesToggleContainer)
+      setupToggleConstraintsInBudgetContainer()
+    }
+
+    // Ensure gesture recognizer is set up initially
+    ensureToggleGestureRecognizer()
+
+    // Initialize header toggle icon
+    let iconName = isValuesHidden ? "eye" : "eye-closed"
+    headerToggleIcon?.image = UIImage(named: iconName)?.withRenderingMode(.alwaysTemplate)
   }
 
   private func setupDaySlider() {
@@ -570,15 +664,167 @@ class MonthBudgetCard: UIView {
       usedBudgetValueLabel.text =
         isValuesHidden ? getHiddenValueString() : data.usedValue.currencyString
     }
+
+    // Notify delegate to update all other cards
+    delegate?.didToggleBalanceVisibility(isValuesHidden)
   }
 
   private func updateHideValuesIcon() {
     let iconName = isValuesHidden ? "eye" : "eye-closed"
-    hideValuesIcon.image = UIImage(named: iconName)?.withRenderingMode(.alwaysTemplate)
+    let iconImage = UIImage(named: iconName)?.withRenderingMode(.alwaysTemplate)
+
+    // Update main toggle icon
+    hideValuesIcon.image = iconImage
+
+    // Update header toggle icon as well
+    headerToggleIcon?.image = iconImage
   }
 
   private func getHiddenValueString() -> String {
     return "••••••"
+  }
+
+  private func updateTogglePositioning(with data: MonthBudgetCardType) {
+    // Use separate toggles for header and budget value area
+    if data.budgetLimit == nil || data.budgetLimit! <= 0 {
+      // Show toggle in header (left of config icon) when no budget
+      headerToggleContainer.isHidden = false
+      hideValuesToggleContainer.isHidden = true
+    } else {
+      // Show toggle in budget value area when budget is set
+      headerToggleContainer.isHidden = true
+      hideValuesToggleContainer.isHidden = false
+
+      // Ensure toggle is in budget value container
+      if !availableBudgetValueWithToggleContainer.subviews.contains(hideValuesToggleContainer) {
+        availableBudgetValueWithToggleContainer.addSubview(hideValuesToggleContainer)
+        setupToggleConstraintsInBudgetContainer()
+      }
+    }
+  }
+
+  private func setupToggleConstraintsInBudgetContainer() {
+    hideValuesToggleContainer.translatesAutoresizingMaskIntoConstraints = false
+    NSLayoutConstraint.activate([
+      hideValuesToggleContainer.trailingAnchor.constraint(
+        equalTo: availableBudgetValueWithToggleContainer.trailingAnchor),
+      hideValuesToggleContainer.centerYAnchor.constraint(
+        equalTo: availableBudgetValueWithToggleContainer.centerYAnchor),
+      hideValuesToggleContainer.leadingAnchor.constraint(
+        greaterThanOrEqualTo: availableBudgetValueLabel.trailingAnchor, constant: 8),
+    ])
+
+    // Ensure gesture recognizer is properly set up
+    ensureToggleGestureRecognizer()
+  }
+
+  private func ensureToggleGestureRecognizer() {
+    // Ensure both toggles have their gesture recognizers
+    if hideValuesTapGesture == nil {
+      hideValuesTapGesture = UITapGestureRecognizer(
+        target: self, action: #selector(toggleHideValues))
+      hideValuesToggleContainer.addGestureRecognizer(hideValuesTapGesture!)
+    }
+
+    if headerToggleTapGesture == nil {
+      headerToggleTapGesture = UITapGestureRecognizer(
+        target: self, action: #selector(toggleHideValues))
+      headerToggleContainer.addGestureRecognizer(headerToggleTapGesture!)
+    }
+
+    hideValuesToggleContainer.isUserInteractionEnabled = true
+    headerToggleContainer.isUserInteractionEnabled = true
+  }
+
+  func updateBalanceVisibility(_ isHidden: Bool) {
+    isValuesHidden = isHidden
+    updateHideValuesIcon()
+
+    // Update used value directly
+    if let data = currentMonthData {
+      usedBudgetValueLabel.text =
+        isValuesHidden ? getHiddenValueString() : data.usedValue.currencyString
+    }
+
+    // Update limit section
+    updateLimitSection(with: currentMonthData!)
+
+    // Update available budget display with visibility state
+    updateAvailableBudgetDisplayWithVisibility()
+
+    // Ensure gesture recognizer is maintained after visibility update
+    ensureToggleGestureRecognizer()
+  }
+
+  private func updateAvailableBudgetDisplayWithVisibility() {
+    guard let data = currentMonthData else { return }
+
+    if data.budgetLimit != nil && data.budgetLimit! > 0 {
+      // Budget is set - show budget information
+      availableBudgetValueLabel.isHidden = false
+      availableBudgetValueWithToggleContainer.isHidden = false
+      availableBudgetTextLabel.isHidden = false
+      defineBudgetButton.isHidden = true
+
+      let displayValue: Int
+      let textKey: String
+
+      switch displayMode {
+      case .final:
+        displayValue = data.finalBalance ?? (data.budgetLimit! - data.usedValue)
+        textKey = "monthCard.availableBudget"
+
+      case .current:
+        displayValue = data.currentBalance ?? (data.previousBalance ?? 0)
+        textKey = "monthCard.currentBalance"
+
+      case .daySpecific(let day):
+        displayValue = calculateBalanceForDay(day)
+        textKey = formatBalanceOnDayString(for: day)
+      }
+
+      availableBudgetTextLabel.text = textKey
+
+      // Use animated SwiftUI view for current month only
+      if isCurrentMonth() {
+        if isValuesHidden {
+          animatedNumberContainer?.isHidden = true
+          availableBudgetValueLabel.isHidden = false
+          availableBudgetValueLabel.text = getHiddenValueString()
+        } else {
+          animatedNumberContainer?.isHidden = false
+          availableBudgetValueLabel.isHidden = true
+          setupOrUpdateAnimatedNumber(value: displayValue)
+        }
+      } else {
+        // For non-current months, always use the regular label
+        animatedNumberContainer?.isHidden = true
+        availableBudgetValueLabel.isHidden = false
+        availableBudgetValueLabel.text =
+          isValuesHidden ? getHiddenValueString() : displayValue.currencyString
+      }
+
+      if !availableBudgetStackView.arrangedSubviews.contains(
+        availableBudgetValueWithToggleContainer)
+      {
+        availableBudgetStackView.insertArrangedSubview(
+          availableBudgetValueWithToggleContainer, at: 1)
+      }
+    } else {
+      // No budget defined - hide budget information and show define button
+      availableBudgetValueLabel.isHidden = true
+      availableBudgetValueWithToggleContainer.isHidden = true
+      availableBudgetTextLabel.isHidden = true
+      animatedNumberContainer?.isHidden = true
+      defineBudgetButton.isHidden = false
+
+      // Remove budget value container from stack if present
+      if availableBudgetStackView.arrangedSubviews.contains(
+        availableBudgetValueWithToggleContainer)
+      {
+        availableBudgetStackView.removeArrangedSubview(availableBudgetValueWithToggleContainer)
+      }
+    }
   }
 
   private func formatBalanceOnDayString(for day: Int) -> String {
@@ -727,6 +973,19 @@ class MonthBudgetCard: UIView {
       displayMode = UserDefaultsManager.getBalanceDisplayMode()
     } else {
       displayMode = .final
+    }
+
+    // Update toggle positioning based on budget status
+    updateTogglePositioning(with: data)
+
+    // Update toggle icons
+    updateHideValuesIcon()
+
+    // Setup day slider only if budget is set
+    if data.budgetLimit != nil && data.budgetLimit! > 0 {
+      setupDaySliderForMonth(data: data)
+    } else {
+      hideDaySlider()
     }
 
     // Animate balance update with enhanced effect

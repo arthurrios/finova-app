@@ -1264,6 +1264,30 @@ extension DashboardViewController: MonthBudgetCardDelegate {
   func didTapDefineBudgetButton(budgetDate: Date) {
     flowDelegate?.navigateToBudgets(date: budgetDate)
   }
+
+  func didToggleBalanceVisibility(_ isHidden: Bool) {
+    // Update all month cards with the new visibility state
+    updateAllMonthCardsBalanceVisibility(isHidden)
+  }
+
+  private func updateAllMonthCardsBalanceVisibility(_ isHidden: Bool) {
+    // Store the global visibility state first
+    UserDefaultsManager.setHideValues(isHidden)
+
+    // Update all visible month cards immediately
+    for cell in contentView.monthCarousel.visibleCells {
+      if let monthCell = cell as? MonthCarouselCell {
+        monthCell.monthCard.updateBalanceVisibility(isHidden)
+      }
+    }
+
+    // Post a notification to update any other month cards that might be cached
+    NotificationCenter.default.post(
+      name: NSNotification.Name("BalanceVisibilityChanged"),
+      object: nil,
+      userInfo: ["isHidden": isHidden]
+    )
+  }
 }
 
 // MARK: - Transaction Table View Management
