@@ -170,7 +170,7 @@ public final class TransactionCell: UITableViewCell {
   private lazy var panGR: UIPanGestureRecognizer = {
     let gestureRecognizer = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
     gestureRecognizer.delegate = self
-    gestureRecognizer.cancelsTouchesInView = false
+    gestureRecognizer.cancelsTouchesInView = true
     gestureRecognizer.delaysTouchesBegan = false
     gestureRecognizer.delaysTouchesEnded = false
     return gestureRecognizer
@@ -448,20 +448,6 @@ public final class TransactionCell: UITableViewCell {
 }
 
 extension TransactionCell {
-  override public func gestureRecognizer(
-    _ gestureRecognizer: UIGestureRecognizer,
-    shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
-  ) -> Bool {
-    guard gestureRecognizer === panGR,
-      let otherPan = otherGestureRecognizer as? UIPanGestureRecognizer
-    else {
-      return false
-    }
-
-    let vel = otherPan.velocity(in: contentView)
-    return abs(vel.y) > abs(vel.x)
-  }
-
   override public func gestureRecognizerShouldBegin(_ gr: UIGestureRecognizer) -> Bool {
     guard let pan = gr as? UIPanGestureRecognizer else { return true }
     let velocity = pan.velocity(in: contentView)
@@ -480,5 +466,26 @@ extension TransactionCell {
     let vel = otherPan.velocity(in: contentView)
 
     return abs(vel.y) > abs(vel.x)
+  }
+
+  override public func gestureRecognizer(
+    _ gestureRecognizer: UIGestureRecognizer,
+    shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
+  ) -> Bool {
+    // Allow simultaneous recognition with table view gestures only for vertical scrolling
+    guard gestureRecognizer === panGR else { return false }
+
+    // If this is a horizontal pan (swipe), don't allow simultaneous recognition
+    // This prevents the table view's tap gesture from firing during swipe-to-delete
+    if let panGesture = gestureRecognizer as? UIPanGestureRecognizer {
+      let velocity = panGesture.velocity(in: contentView)
+      let isHorizontalSwipe = abs(velocity.x) > abs(velocity.y)
+
+      if isHorizontalSwipe {
+        return false
+      }
+    }
+
+    return true
   }
 }

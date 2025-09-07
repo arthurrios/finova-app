@@ -57,6 +57,9 @@ final class DashboardViewController: UIViewController {
 
     // Verificar e agendar notificações automaticamente
     checkAndScheduleNotificationsIfNeeded()
+
+    // 🔄 Attempt to recover transactions from SQLite (if they were accidentally deleted)
+    attemptTransactionRecovery()
   }
 
   override func viewWillAppear(_ animated: Bool) {
@@ -500,11 +503,6 @@ final class DashboardViewController: UIViewController {
         self.forceRefreshCurrentMonthBalance()
       }
 
-      let debugBalanceAction = UIAlertAction(title: "🔍 Debug Balance", style: .default) {
-        _ in
-        self.debugCurrentBalanceCalculation()
-      }
-
       let debugAulaDeCantoAction = UIAlertAction(title: "🎵 Debug Aula de Canto", style: .default) {
         _ in
         self.debugAulaDeCantoTransaction()
@@ -534,7 +532,6 @@ final class DashboardViewController: UIViewController {
       alertController.addAction(duplicateAnalysisAction)
       alertController.addAction(duplicateCleanupAction)
       alertController.addAction(forceRefreshBalanceAction)
-      alertController.addAction(debugBalanceAction)
       alertController.addAction(debugAulaDeCantoAction)
       alertController.addAction(migrateBudgetsAction)
       alertController.addAction(migrateAllDataAction)
@@ -599,22 +596,6 @@ final class DashboardViewController: UIViewController {
       title: "✅ Balance Refreshed",
       message:
         "Current month balance has been force refreshed. Check the console for detailed logs.",
-      preferredStyle: .alert
-    )
-    alert.addAction(UIAlertAction(title: "OK", style: .default))
-    present(alert, animated: true)
-  }
-
-  private func debugCurrentBalanceCalculation() {
-    print("🔍 Debugging current balance calculation from debug menu...")
-
-    // Run the debug method
-    viewModel.debugCurrentBalanceCalculation()
-
-    // Show completion alert
-    let alert = UIAlertController(
-      title: "🔍 Debug Complete",
-      message: "Check the console for detailed balance calculation logs.",
       preferredStyle: .alert
     )
     alert.addAction(UIAlertAction(title: "OK", style: .default))
@@ -1345,6 +1326,12 @@ extension DashboardViewController: UITableViewDataSource, UITableViewDelegate {
       guard let self = self else { return }
 
       let transactionType = self.viewModel.getTransactionType(id: tx.id!)
+      print("🔍 TRANSACTION DELETION DEBUG: Transaction '\(tx.title)' (ID: \(tx.id!))")
+      print("🔍 TRANSACTION DELETION DEBUG: Transaction mode: \(tx.mode)")
+      print("🔍 TRANSACTION DELETION DEBUG: Is recurring: \(tx.isRecurring ?? false)")
+      print("🔍 TRANSACTION DELETION DEBUG: Has installments: \(tx.hasInstallments ?? false)")
+      print("🔍 TRANSACTION DELETION DEBUG: Parent ID: \(tx.parentTransactionId ?? 0)")
+      print("🔍 TRANSACTION DELETION DEBUG: Detected type: \(transactionType)")
 
       if transactionType == .simple {
         // Handle simple transactions with basic confirmation
@@ -1389,7 +1376,28 @@ extension DashboardViewController: UITableViewDataSource, UITableViewDelegate {
   }
 
   func tableView(_ tableView: UITableView, willSelectRowAt indexPath: IndexPath) -> IndexPath? {
-    return nil
+    return indexPath
+  }
+
+  func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+    tableView.deselectRow(at: indexPath, animated: true)
+
+    guard let parentCell = tableView.superview(of: MonthCarouselCell.self),
+      parentCell.tag < syncedViewModel.monthData.count
+    else { return }
+
+    let model = syncedViewModel.monthData[parentCell.tag]
+    let key = DateFormatter.keyFormatter.string(from: model.date)
+    let txs = syncedViewModel.allTransactions
+      .filter { tx in
+        let txDate = Date(timeIntervalSince1970: TimeInterval(tx.dateTimestamp))
+        return DateFormatter.keyFormatter.string(from: txDate) == key
+      }
+      .sorted { $0.date > $1.date }
+
+    let selectedTransaction = txs[indexPath.row]
+
+    flowDelegate?.navigateToTransactionDetails(transaction: selectedTransaction)
   }
 }
 
@@ -2060,4 +2068,35 @@ extension DashboardViewController {
       }
     }
   }
+
+  // MARK: - Recovery Methods
+
+  /// Attempt to recover transactions from SQLite
+  private func attemptTransactionRecovery() {
+    print("🔄 DashboardViewController: Attempting transaction recovery...")
+
+    // Check if there are transactions in SQLite
+    let sqliteTransactions = viewModel.checkSQLiteRecovery()
+
+    if sqliteTransactions.count > 0 {
+      print("🔄 Found \(sqliteTransactions.count) transactions in SQLite, attempting recovery...")
+
+      // Attempt recovery
+      let recoverySuccess = viewModel.attemptTransactionRecovery()
+
+      if recoverySuccess {
+        print("✅ Transaction recovery successful! Refreshing dashboard...")
+
+        // Refresh the dashboard after recovery
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+          self.refreshDashboardData()
+        }
+      } else {
+        print("❌ Transaction recovery failed")
+      }
+    } else {
+      print("ℹ️ No transactions found in SQLite to recover")
+    }
+  }
+
 }

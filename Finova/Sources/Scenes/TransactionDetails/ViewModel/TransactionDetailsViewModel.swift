@@ -1,0 +1,245 @@
+//
+//  TransactionDetailsViewModel.swift
+//  Finova
+//
+//  Created by Arthur Rios on 05/09/25.
+//
+
+import Foundation
+import UIKit
+
+final class TransactionDetailsViewModel {
+  private let transactionRepository: TransactionRepositoryProtocol
+  private(set) var transaction: Transaction
+
+  init(transactionRepository: TransactionRepositoryProtocol, transaction: Transaction) {
+    self.transactionRepository = transactionRepository
+    self.transaction = transaction
+  }
+
+  func deleteTransaction() -> Result<Void, Error> {
+    guard let transactionId = transaction.id else {
+      return .failure(
+        NSError(
+          domain: "TransactionDetails", code: 1,
+          userInfo: [NSLocalizedDescriptionKey: "Invalid transaction ID"]))
+    }
+
+    do {
+      try transactionRepository.deleteTransactionAndRelated(id: transactionId)
+      return .success(())
+    } catch {
+      return .failure(error)
+    }
+  }
+
+  func deleteTransactionWithOption(transactionId: Int, option: RecurringCleanupOption) -> Result<
+    Void, Error
+  > {
+    do {
+      // Use the same logic as the transactions table for consistency
+      let allTransactions = transactionRepository.fetchAllTransactions()
+      guard let transaction = allTransactions.first(where: { $0.id == transactionId }) else {
+        return .failure(TransactionError.transactionNotFound)
+      }
+
+      // Handle simple transactions directly
+      if transaction.isRecurring != true && transaction.parentTransactionId == nil
+        && transaction.hasInstallments != true
+      {
+        try transactionRepository.delete(id: transactionId)
+        return .success(())
+      }
+
+      // For complex transactions, use the repository method that handles cleanup properly
+      try transactionRepository.deleteTransactionWithOption(id: transactionId, option: option)
+      return .success(())
+    } catch {
+      return .failure(error)
+    }
+  }
+
+  func getFormattedAmount() -> String {
+    let formatter = NumberFormatter()
+    formatter.numberStyle = .currency
+    formatter.locale = Locale.current
+
+    let amount = Double(transaction.amount) / 100.0
+    return formatter.string(from: NSNumber(value: amount)) ?? "$0.00"
+  }
+
+  func getFormattedDate() -> String {
+    return DateFormatter.fullDateFormatter.string(from: transaction.date)
+  }
+
+  func getCategoryDisplayName() -> String {
+    return transaction.category.rawValue.localized
+  }
+
+  func getTransactionTypeColor() -> UIColor {
+    return transaction.type == .income ? Colors.mainGreen : Colors.mainRed
+  }
+
+  func getTransactionModeDescription() -> String {
+    switch transaction.mode {
+    case .normal:
+      return "transaction.mode.normal".localized
+    case .recurring:
+      return "transaction.mode.recurring".localized
+    case .installments:
+      if let installmentNumber = transaction.installmentNumber,
+        let totalInstallments = transaction.totalInstallments
+      {
+        return String(
+          format: "transaction.mode.installment".localized, installmentNumber, totalInstallments)
+      }
+      return "transaction.mode.installments".localized
+    }
+  }
+
+  func getRelatedInstallments() -> [Transaction] {
+    // If this is an installment transaction, find all related installments
+    guard transaction.mode == .installments else { return [] }
+
+    // Get the parent transaction ID (either this transaction's parent or this transaction itself if it's the parent)
+    let parentId: Int?
+    if let currentParentId = transaction.parentTransactionId {
+      parentId = currentParentId
+    } else if transaction.hasInstallments == true {
+      parentId = transaction.id
+    } else {
+      return []
+    }
+
+    guard let targetParentId = parentId else { return [] }
+
+    // Fetch all transactions and filter for the same parent
+    let allTransactions = transactionRepository.fetchAllTransactions()
+    var relatedInstallments = allTransactions.filter { tx in
+      // Only include actual installment transactions (not the parent)
+      return tx.parentTransactionId == targetParentId && tx.installmentNumber != nil
+        && tx.totalInstallments != nil
+    }
+
+    // If no installments found with the current parent ID, try to find by title and date
+    // This handles cases where the parent ID changed after an update
+    if relatedInstallments.isEmpty {
+      print(
+        "🔄 INSTALLMENT LOOKUP: No installments found with parent ID \(targetParentId), trying fallback lookup"
+      )
+
+      // Look for installments with the same title and total installments count
+      if let totalInstallments = transaction.totalInstallments {
+        relatedInstallments = allTransactions.filter { tx in
+          return tx.title == transaction.title && tx.totalInstallments == totalInstallments
+            && tx.installmentNumber != nil && tx.mode == .installments
+        }
+
+        if !relatedInstallments.isEmpty {
+          print(
+            "🔄 INSTALLMENT LOOKUP: Found \(relatedInstallments.count) installments using fallback lookup"
+          )
+        }
+      }
+    }
+
+    // Sort by installment number
+    return relatedInstallments.sorted { first, second in
+      guard let firstInstallment = first.installmentNumber,
+        let secondInstallment = second.installmentNumber
+      else {
+        return false
+      }
+      return firstInstallment < secondInstallment
+    }
+  }
+
+  func getTransactionType(for transactionToCheck: Transaction) -> TransactionComplexityType {
+    guard let transactionId = transactionToCheck.id else { return .simple }
+
+    // Check if this is a recurring transaction instance
+    if let parentId = transactionToCheck.parentTransactionId {
+      let allTransactions = transactionRepository.fetchAllTransactions()
+      let parentTransaction = allTransactions.first(where: { $0.id == parentId })
+
+      if parentTransaction?.isRecurring == true {
+        return .recurringInstance
+      } else {
+        return .installmentInstance
+      }
+    }
+
+    // Check if this is a parent recurring transaction
+    if transactionToCheck.isRecurring == true {
+      return .recurringParent
+    }
+
+    // Check if this is a parent installment transaction
+    if transactionToCheck.hasInstallments == true {
+      return .installmentParent
+    }
+
+    return .simple
+  }
+
+  func refreshTransaction() {
+    // Reload the transaction from the repository to get fresh data
+    guard let transactionId = transaction.id else { return }
+
+    let allTransactions = transactionRepository.fetchAllTransactions()
+
+    // For installment transactions, we need to find the updated transaction by parent ID and installment number
+    // since the individual installment IDs change when we recreate the installment series
+    if transaction.mode == .installments,
+      let parentId = transaction.parentTransactionId,
+      let installmentNumber = transaction.installmentNumber
+    {
+      // First try to find by the same parent ID and installment number
+      if let updatedTransaction = allTransactions.first(where: {
+        $0.parentTransactionId == parentId && $0.installmentNumber == installmentNumber
+      }) {
+        print(
+          "🔄 REFRESH: Found updated installment transaction with new ID: \(updatedTransaction.id ?? 0)"
+        )
+        self.transaction = updatedTransaction
+        return
+      }
+
+      // If not found, the parent ID might have changed. Look for any installment with the same title and date
+      if let updatedTransaction = allTransactions.first(where: {
+        $0.title == transaction.title && $0.installmentNumber == installmentNumber
+          && $0.mode == .installments
+          && Calendar.current.isDate($0.date, inSameDayAs: transaction.date)
+      }) {
+        print(
+          "🔄 REFRESH: Found updated installment transaction by title/date with new ID: \(updatedTransaction.id ?? 0)"
+        )
+        self.transaction = updatedTransaction
+        return
+      }
+
+      print("⚠️ REFRESH: Could not find updated installment transaction")
+    } else {
+      // For normal and recurring transactions, find by ID
+      if let updatedTransaction = allTransactions.first(where: { $0.id == transactionId }) {
+        print("🔄 REFRESH: Found updated transaction with same ID: \(transactionId)")
+        self.transaction = updatedTransaction
+      } else {
+        print("⚠️ REFRESH: Could not find updated transaction with ID: \(transactionId)")
+      }
+    }
+  }
+
+  func refreshRelatedInstallments() {
+    // Force refresh of related installments data
+    // This is called after updating installment transactions to ensure the additional details are correct
+    if transaction.mode == .installments {
+      let relatedInstallments = getRelatedInstallments()
+      print("🔄 REFRESH: Found \(relatedInstallments.count) related installments after update")
+
+      // Log the parent ID being used for lookup
+      let parentId = transaction.parentTransactionId ?? transaction.id
+      print("🔄 REFRESH: Using parent ID: \(parentId ?? 0) for installment lookup")
+    }
+  }
+}

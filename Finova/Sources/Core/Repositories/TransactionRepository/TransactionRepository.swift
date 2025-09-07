@@ -14,7 +14,7 @@ final class TransactionRepository: TransactionRepositoryProtocol {
     // Return all transactions that should be visible in the UI
     let allTransactions = fetchAllTransactions()
 
-    return allTransactions.filter { transaction in
+    let filteredTransactions = allTransactions.filter { transaction in
       // Show all transaction instances (including recurring instances)
       // Hide only the parent recurring/installment transactions
       if transaction.isRecurring == true && transaction.parentTransactionId == nil {
@@ -25,6 +25,8 @@ final class TransactionRepository: TransactionRepositoryProtocol {
       }
       return true
     }
+
+    return filteredTransactions
   }
 
   func insertTransaction(_ transaction: TransactionModel) throws {
@@ -205,6 +207,330 @@ final class TransactionRepository: TransactionRepositoryProtocol {
     }
   }
 
+  func updateTransaction(_ transaction: TransactionModel) throws {
+    // Update all related transactions (for recurring/installments)
+
+    // First, find the transaction to determine its type
+    let existingTransactions = SecureLocalDataManager.shared.loadTransactions()
+    guard
+      let existingTransaction = existingTransactions.first(where: { $0.id == transaction.data.id })
+    else {
+      throw TransactionError.transactionNotFound
+    }
+
+    if existingTransaction.isRecurring == true {
+      // Update all recurring instances
+      try updateAllRecurringTransactions(
+        templateTransaction: transaction, existingTransaction: existingTransaction)
+    } else if existingTransaction.hasInstallments == true {
+      // Update all installment instances
+      try updateAllInstallmentTransactions(
+        templateTransaction: transaction, existingTransaction: existingTransaction)
+    } else {
+      // Normal transaction - just update this one
+      try updateSingleTransactionOnly(
+        id: transaction.data.id!,
+        title: transaction.data.title,
+        category: TransactionCategory.allCases.first(where: { $0.key == transaction.data.category })
+          ?? .miscellaneous,
+        type: TransactionType.allCases.first(where: {
+          String(describing: $0) == transaction.data.type
+        }) ?? .expense,
+        amount: transaction.data.amount,
+        date: Date(timeIntervalSince1970: TimeInterval(transaction.data.dateTimestamp))
+      )
+    }
+  }
+
+  private func updateAllRecurringTransactions(
+    templateTransaction: TransactionModel, existingTransaction: Transaction
+  ) throws {
+    // Find all transactions with the same recurring group
+    let recurringGroupId = existingTransaction.parentTransactionId ?? existingTransaction.id
+    let allTransactions = SecureLocalDataManager.shared.loadTransactions()
+    let relatedTransactions = allTransactions.filter { transaction in
+      transaction.id == recurringGroupId || transaction.parentTransactionId == recurringGroupId
+    }
+
+    // Get the new date from the template (this represents the new recurring day)
+    let newDate = Date(timeIntervalSince1970: TimeInterval(templateTransaction.data.dateTimestamp))
+    let newDay = Calendar.current.component(.day, from: newDate)
+
+    print("🔄 RECURRING UPDATE: Updating all recurring transactions to day \(newDay) of each month")
+
+    // Update each related transaction
+    for relatedTransaction in relatedTransactions {
+      // Calculate the correct date for this transaction's month
+      let originalDate = Date(timeIntervalSince1970: TimeInterval(relatedTransaction.dateTimestamp))
+      let originalMonth = Calendar.current.component(.month, from: originalDate)
+      let originalYear = Calendar.current.component(.year, from: originalDate)
+
+      // Create a new date with the same month/year but the new day
+      var dateComponents = DateComponents()
+      dateComponents.year = originalYear
+      dateComponents.month = originalMonth
+      dateComponents.day = newDay
+
+      // Handle cases where the new day doesn't exist in the month (e.g., Feb 30)
+      let calendar = Calendar.current
+      let adjustedDate: Date
+      if let newDateForMonth = calendar.date(from: dateComponents) {
+        adjustedDate = newDateForMonth
+      } else {
+        // If the day doesn't exist in this month, use the last day of the month
+        let lastDayOfMonth =
+          calendar.range(of: .day, in: .month, for: originalDate)?.upperBound ?? 1
+        dateComponents.day = lastDayOfMonth - 1
+        adjustedDate = calendar.date(from: dateComponents) ?? originalDate
+        print(
+          "⚠️ Day \(newDay) doesn't exist in month \(originalMonth), using day \(lastDayOfMonth - 1)"
+        )
+      }
+
+      print(
+        "🔄 Updating transaction \(relatedTransaction.id ?? 0) from \(originalDate) to \(adjustedDate)"
+      )
+
+      try updateSingleTransactionOnly(
+        id: relatedTransaction.id!,
+        title: templateTransaction.data.title,
+        category: TransactionCategory.allCases.first(where: {
+          $0.key == templateTransaction.data.category
+        }) ?? .miscellaneous,
+        type: TransactionType.allCases.first(where: {
+          String(describing: $0) == templateTransaction.data.type
+        }) ?? .expense,
+        amount: templateTransaction.data.amount,
+        date: adjustedDate
+      )
+    }
+  }
+
+  private func updateAllInstallmentTransactions(
+    templateTransaction: TransactionModel, existingTransaction: Transaction
+  ) throws {
+    // HYBRID APPROACH: Recreate entire installment series with new parameters
+    // This ensures data integrity and provides intuitive UX
+
+    let newDate = Date(timeIntervalSince1970: TimeInterval(templateTransaction.data.dateTimestamp))
+    let newTotalAmount = templateTransaction.data.amount
+    let newNumberOfInstallments = templateTransaction.data.totalInstallments ?? 1
+
+    print("🔄 INSTALLMENT UPDATE: Recreating series with:")
+    print("   - Total Amount: \(newTotalAmount)")
+    print("   - Number of Installments: \(newNumberOfInstallments)")
+    print("   - Initial Date: \(newDate)")
+
+    // Find the main installment transaction (the one being edited)
+    let allTransactions = SecureLocalDataManager.shared.loadTransactions()
+
+    // Determine the correct main installment transaction ID
+    let mainInstallmentTransactionId: Int
+    if let parentId = existingTransaction.parentTransactionId {
+      // This is an individual installment, find the main installment transaction
+      if let mainTransaction = allTransactions.first(where: {
+        $0.hasInstallments == true && $0.parentTransactionId == nil && $0.id == parentId
+      }) {
+        mainInstallmentTransactionId = parentId
+      } else {
+        // Try fallback: find any main installment transaction in the same month
+        let individualInstallmentMonth = existingTransaction.budgetMonthDate
+        if let fallbackMainTransaction = allTransactions.first(where: {
+          $0.hasInstallments == true && $0.parentTransactionId == nil
+            && $0.budgetMonthDate == individualInstallmentMonth && $0.amount == 0
+        }) {
+          mainInstallmentTransactionId = fallbackMainTransaction.id ?? 0
+        } else {
+          mainInstallmentTransactionId = parentId  // Use original parent ID as fallback
+        }
+      }
+    } else {
+      // This is already the main installment transaction
+      mainInstallmentTransactionId = existingTransaction.id ?? 0
+    }
+
+    print("   - Main installment transaction ID: \(mainInstallmentTransactionId)")
+
+    let relatedTransactions = allTransactions.filter { transaction in
+      transaction.id == mainInstallmentTransactionId
+        || transaction.parentTransactionId == mainInstallmentTransactionId
+    }
+
+    // Calculate individual installment amount (total divided by number of installments)
+    let individualAmount = newTotalAmount / newNumberOfInstallments
+
+    print("   - Individual Amount: \(individualAmount)")
+
+    // Delete all existing related transactions first
+    for relatedTransaction in relatedTransactions {
+      if let id = relatedTransaction.id {
+        print("   - Deleting old installment: \(id)")
+        try delete(id: id)
+      }
+    }
+
+    // Create new installment series
+    let calendar = Calendar.current
+    let startDate = newDate
+
+    for i in 0..<newNumberOfInstallments {
+      // Calculate date for this installment (add i months to start date)
+      let installmentDate = calendar.date(byAdding: .month, value: i, to: startDate) ?? startDate
+
+      // Create new installment transaction
+      let installmentData = UITransactionData(
+        id: nil,  // Will be assigned by database
+        title: templateTransaction.data.title,
+        amount: individualAmount,
+        dateTimestamp: Int(installmentDate.timeIntervalSince1970),
+        budgetMonthDate: installmentDate.monthAnchor,
+        isRecurring: false,
+        hasInstallments: true,
+        parentTransactionId: mainInstallmentTransactionId,
+        installmentNumber: i + 1,
+        totalInstallments: newNumberOfInstallments,
+        originalAmount: nil,
+        category: TransactionCategory.allCases.first(where: {
+          $0.key == templateTransaction.data.category
+        }) ?? .miscellaneous,
+        type: TransactionType.allCases.first(where: {
+          String(describing: $0) == templateTransaction.data.type
+        }) ?? .expense
+      )
+
+      let installmentTransaction = Transaction(data: installmentData)
+
+      // Save the new installment
+      let installmentModel = TransactionModel(
+        id: nil,
+        title: installmentTransaction.title,
+        category: installmentTransaction.category.key,
+        amount: installmentTransaction.amount,
+        type: String(describing: installmentTransaction.type),
+        dateTimestamp: Int(installmentTransaction.date.timeIntervalSince1970),
+        budgetMonthDate: installmentTransaction.budgetMonthDate,
+        isRecurring: false,
+        hasInstallments: true,
+        parentTransactionId: mainInstallmentTransactionId,
+        originalAmount: nil,
+        installmentNumber: i + 1,
+        totalInstallments: newNumberOfInstallments
+      )
+
+      do {
+        try insertTransaction(installmentModel)
+        print(
+          "   - Created installment \(i + 1)/\(newNumberOfInstallments): \(installmentDate) - \(individualAmount) - monthAnchor: \(installmentDate.monthAnchor)"
+        )
+      } catch {
+        print("❌ Failed to create installment \(i + 1): \(error)")
+        throw error
+      }
+    }
+
+    print("✅ INSTALLMENT UPDATE: Series recreated successfully")
+  }
+
+  func updateSingleTransactionOnly(
+    id: Int,
+    title: String,
+    category: TransactionCategory,
+    type: TransactionType,
+    amount: Int,
+    date: Date
+  ) throws {
+    // Create a transaction model with only the fields we want to update
+    let updatedTransaction = TransactionModel(
+      id: id,
+      title: title,
+      category: category.key,
+      amount: amount,
+      type: String(describing: type),
+      dateTimestamp: Int(date.timeIntervalSince1970),
+      budgetMonthDate: Int(DateFormatter.monthYearFormatter.string(from: date)) ?? 0,
+      isRecurring: false,  // Keep existing values - this will be handled by DB
+      hasInstallments: false,  // Keep existing values - this will be handled by DB
+      parentTransactionId: nil,  // Keep existing values
+      originalAmount: amount,
+      installmentNumber: nil,  // Keep existing values
+      totalInstallments: nil  // Keep existing values
+    )
+
+    // Update SQLite with partial update
+    try db.updateSingleTransaction(updatedTransaction)
+
+    // 🔒 Also update SecureLocalDataManager for UID-isolated storage
+    var secureTransactions = SecureLocalDataManager.shared.loadTransactions()
+
+    // Find and update only the specific transaction
+    if let index = secureTransactions.firstIndex(where: { $0.id == id }) {
+      let existingTransaction = secureTransactions[index]
+
+      // Create new UITransactionData with updated fields
+      let updatedData = UITransactionData(
+        id: existingTransaction.id,
+        title: title,
+        amount: amount,
+        dateTimestamp: Int(date.timeIntervalSince1970),
+        budgetMonthDate: existingTransaction.budgetMonthDate,
+        isRecurring: existingTransaction.isRecurring,
+        hasInstallments: existingTransaction.hasInstallments,
+        parentTransactionId: existingTransaction.parentTransactionId,
+        installmentNumber: existingTransaction.installmentNumber,
+        totalInstallments: existingTransaction.totalInstallments,
+        originalAmount: existingTransaction.originalAmount,
+        category: category,
+        type: type
+      )
+
+      // Create new Transaction instance
+      let updatedTransaction = Transaction(data: updatedData)
+      secureTransactions[index] = updatedTransaction
+      SecureLocalDataManager.shared.saveTransactions(secureTransactions)
+
+      print("🔒 Updated single transaction in secure storage: \(title)")
+    } else {
+      print("⚠️ Could not find transaction \(id) in secure storage to update")
+    }
+  }
+
+  func updateTransactionParentId(transactionId: Int, parentId: Int) throws {
+    try db.updateTransactionParentId(transactionId: transactionId, parentId: parentId)
+
+    // Also update SecureLocalDataManager for UID-isolated storage
+    var secureTransactions = SecureLocalDataManager.shared.loadTransactions()
+
+    if let index = secureTransactions.firstIndex(where: { $0.id == transactionId }) {
+      let existingTransaction = secureTransactions[index]
+
+      // Create new UITransactionData with updated parent ID
+      let updatedData = UITransactionData(
+        id: existingTransaction.id,
+        title: existingTransaction.title,
+        amount: existingTransaction.amount,
+        dateTimestamp: existingTransaction.dateTimestamp,
+        budgetMonthDate: existingTransaction.budgetMonthDate,
+        isRecurring: existingTransaction.isRecurring,
+        hasInstallments: existingTransaction.hasInstallments,
+        parentTransactionId: parentId,
+        installmentNumber: existingTransaction.installmentNumber,
+        totalInstallments: existingTransaction.totalInstallments,
+        originalAmount: existingTransaction.originalAmount,
+        category: existingTransaction.category,
+        type: existingTransaction.type
+      )
+
+      // Create new Transaction instance
+      let updatedTransaction = Transaction(data: updatedData)
+      secureTransactions[index] = updatedTransaction
+      SecureLocalDataManager.shared.saveTransactions(secureTransactions)
+
+      print("🔒 Updated transaction \(transactionId) parent ID to \(parentId) in secure storage")
+    } else {
+      print("⚠️ Could not find transaction \(transactionId) in secure storage to update parent ID")
+    }
+  }
+
   func deleteTransactionAndRelated(id: Int) throws {
     let allTransactions = fetchAllTransactions()
     guard let transaction = allTransactions.first(where: { $0.id == id }) else {
@@ -229,18 +555,111 @@ final class TransactionRepository: TransactionRepositoryProtocol {
     try delete(id: id)
   }
 
+  func deleteTransactionWithOption(id: Int, option: RecurringCleanupOption) throws {
+    let transaction = fetchAllTransactions().first { $0.id == id }
+
+    guard let transaction = transaction else {
+      throw TransactionError.transactionNotFound
+    }
+
+    switch option {
+    case .currentSelection:
+      // Delete only the current transaction instance
+      try delete(id: id)
+
+    case .futureOnly:
+      // For recurring transactions, delete future instances only
+      if transaction.isRecurring == true {
+        try deleteFutureRecurringInstances(transactionId: id)
+      } else {
+        // For non-recurring, just delete current
+        try delete(id: id)
+      }
+
+    case .all:
+      // Delete all related transactions
+      if transaction.isRecurring == true {
+        try deleteAllRecurringTransactionOccurrences(transactionId: id)
+      } else if transaction.mode == .installments {
+        try deleteInstallmentTransactionAndSiblings(parentId: id)
+      } else {
+        try delete(id: id)
+      }
+    }
+  }
+
   private func deleteRecurringTransactionAndInstances(transactionId: Int) throws {
+    // For recurring transactions, only delete the current instance
+    // Do not delete all future instances as that would be destructive
+    try delete(id: transactionId)
+  }
+
+  private func deleteAllRecurringTransactionOccurrences(transactionId: Int) throws {
+    // Find all transactions with the same recurring group
     let allTransactions = fetchAllTransactions()
+    let currentTransaction = allTransactions.first { $0.id == transactionId }
 
-    let instances = allTransactions.filter { $0.parentTransactionId == transactionId }
+    guard let current = currentTransaction else {
+      throw TransactionError.transactionNotFound
+    }
 
-    for instance in instances {
-      if let instanceId = instance.id {
-        try delete(id: instanceId)
+    // Get the recurring group ID (either the transaction's own ID or its parentTransactionId)
+    let recurringGroupId = current.parentTransactionId ?? current.id
+
+    // Find all related transactions in this recurring group
+    let relatedTransactions = allTransactions.filter { transaction in
+      transaction.id == recurringGroupId || transaction.parentTransactionId == recurringGroupId
+    }
+
+    print(
+      "🔄 RECURRING DELETE: Deleting \(relatedTransactions.count) occurrences of recurring transaction group \(recurringGroupId ?? 0)"
+    )
+
+    // Delete all related transactions
+    for relatedTransaction in relatedTransactions {
+      if let id = relatedTransaction.id {
+        try delete(id: id)
+        print("   - Deleted transaction \(id): \(relatedTransaction.title)")
       }
     }
 
-    try delete(id: transactionId)
+    print("✅ RECURRING DELETE: All occurrences deleted successfully")
+  }
+
+  private func deleteFutureRecurringInstances(transactionId: Int) throws {
+    // Find all transactions with the same recurring group
+    let allTransactions = fetchAllTransactions()
+    let currentTransaction = allTransactions.first { $0.id == transactionId }
+
+    guard let current = currentTransaction else {
+      throw TransactionError.transactionNotFound
+    }
+
+    // Get the recurring group ID (either the transaction's own ID or its parentTransactionId)
+    let recurringGroupId = current.parentTransactionId ?? current.id
+    let currentDate = current.date
+
+    // Find all related transactions in this recurring group that are in the future
+    let relatedTransactions = allTransactions.filter { transaction in
+      let isInGroup =
+        transaction.id == recurringGroupId || transaction.parentTransactionId == recurringGroupId
+      let isInFuture = transaction.date > currentDate
+      return isInGroup && isInFuture
+    }
+
+    print(
+      "🔄 RECURRING DELETE: Deleting \(relatedTransactions.count) future occurrences of recurring transaction group \(recurringGroupId ?? 0)"
+    )
+
+    // Delete all future related transactions
+    for relatedTransaction in relatedTransactions {
+      if let id = relatedTransaction.id {
+        try delete(id: id)
+        print("   - Deleted future transaction \(id): \(relatedTransaction.title)")
+      }
+    }
+
+    print("✅ RECURRING DELETE: Future occurrences deleted successfully")
   }
 
   private func deleteInstallmentTransactionAndSiblings(parentId: Int) throws {

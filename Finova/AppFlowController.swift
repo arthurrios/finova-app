@@ -81,6 +81,7 @@ extension AppFlowController: RegisterFlowDelegate {
 
 // MARK: - Dashboard Flow
 extension AppFlowController: DashboardFlowDelegate, SettingsFlowDelegate {
+
   func navigateToSettings() {
     navigationController?.dismiss(animated: false)
     let viewController = viewControllersFactory.makeSettingsViewController(flowDelegate: self)
@@ -150,5 +151,69 @@ extension AppFlowController: AddTransactionModalFlowDelegate {
         dashboardViewController.refreshAfterTransactionAdd()
       }
     }
+  }
+
+  func didUpdateTransaction() {
+    navigationController?.dismiss(animated: false)
+
+    // Refresh both Dashboard and Transaction Details after updating a transaction
+    DispatchQueue.main.async {
+      // Refresh Dashboard
+      if let dashboardViewController = self.navigationController?
+        .viewControllers
+        .compactMap({ $0 as? DashboardViewController })
+        .last
+      {
+        dashboardViewController.refreshAfterTransactionAdd()
+      }
+
+      // Refresh Transaction Details if it's currently displayed
+      if let transactionDetailsViewController = self.navigationController?
+        .viewControllers
+        .compactMap({ $0 as? TransactionDetailsViewController })
+        .last
+      {
+        transactionDetailsViewController.refreshTransactionData()
+      }
+    }
+  }
+}
+
+extension AppFlowController: TransactionDetailsFlowDelegate {
+  func dismissTransactionDetails() {
+    navigationController?.popViewController(animated: true)
+  }
+
+  func editTransaction(_ transaction: Transaction) {
+    let viewController = viewControllersFactory.makeEditTransactionModalViewController(
+      transaction: transaction,
+      flowDelegate: self
+    )
+    viewController.modalPresentationStyle = .overCurrentContext
+    viewController.modalTransitionStyle = .crossDissolve
+    navigationController?.present(viewController, animated: false) {
+      viewController.animateShow()
+    }
+  }
+
+  func didDeleteTransaction() {
+    navigationController?.popViewController(animated: true)
+
+    // Refresh Dashboard after deletion
+    DispatchQueue.main.async {
+      if let dashboardViewController = self.navigationController?
+        .viewControllers
+        .compactMap({ $0 as? DashboardViewController })
+        .last
+      {
+        dashboardViewController.refreshAfterTransactionAdd()
+      }
+    }
+  }
+
+  func navigateToTransactionDetails(transaction: Transaction) {
+    let viewController = viewControllersFactory.makeTransactionDetailsViewController(
+      flowDelegate: self, transaction: transaction)
+    navigationController?.pushViewController(viewController, animated: true)
   }
 }

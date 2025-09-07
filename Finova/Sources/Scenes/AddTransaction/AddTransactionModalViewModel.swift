@@ -33,9 +33,35 @@ final class AddTransactionModalViewModel {
     isRecurring: Bool? = nil
   ) -> Result<Void, Error> {
 
+    print("🔍 DEBUG: Attempting to parse date string: '\(dateString)'")
+    print(
+      "🔍 DEBUG: Using formatter with pattern: '\(DateFormatter.fullDateFormatter.dateFormat ?? "nil")'"
+    )
+    print(
+      "🔍 DEBUG: Formatter locale: \(DateFormatter.fullDateFormatter.locale?.identifier ?? "nil")")
+
     guard let date = DateFormatter.fullDateFormatter.date(from: dateString) else {
+      print("❌ ERROR: Failed to parse date string '\(dateString)' with dd/MM/yyyy format")
+
+      // Try alternative formats for debugging
+      let altFormatter1 = DateFormatter()
+      altFormatter1.dateFormat = "MM/dd/yyyy"
+      altFormatter1.locale = Locale(identifier: "en_US_POSIX")
+      if let altDate1 = altFormatter1.date(from: dateString) {
+        print("⚠️ DEBUG: Date string matches MM/dd/yyyy format instead")
+      }
+
+      let altFormatter2 = DateFormatter()
+      altFormatter2.dateFormat = "yyyy/MM/dd"
+      altFormatter2.locale = Locale(identifier: "en_US_POSIX")
+      if let altDate2 = altFormatter2.date(from: dateString) {
+        print("⚠️ DEBUG: Date string matches yyyy/MM/dd format instead")
+      }
+
       return .failure(TransactionError.invalidDateFormat)
     }
+
+    print("✅ DEBUG: Successfully parsed date: \(date)")
 
     let timestamp = Int(date.timeIntervalSince1970)
 
@@ -672,6 +698,397 @@ final class AddTransactionModalViewModel {
     balanceMonitor.monitorCurrentMonthBalance()
 
     print("🔔 💰 Balance monitoring completed after transaction addition")
+  }
+
+  // MARK: - Update Transaction Methods
+
+  func updateTransaction(
+    id: Int,
+    title: String,
+    amount: Int,
+    dateString: String,
+    categoryKey: String,
+    typeRaw: String,
+    isRecurring: Bool = false
+  ) -> Result<Void, Error> {
+
+    guard
+      let transactionCategory = TransactionCategory.allCases.first(where: { $0.key == categoryKey })
+    else {
+      return .failure(TransactionError.invalidCategory)
+    }
+
+    guard
+      let transactionType = TransactionType.allCases.first(where: {
+        String(describing: $0) == typeRaw
+      })
+    else {
+      return .failure(TransactionError.invalidType)
+    }
+
+    guard let dateObj = DateFormatter.fullDateFormatter.date(from: dateString) else {
+      return .failure(TransactionError.invalidDateFormat)
+    }
+
+    do {
+      let updatedTransaction = TransactionModel(
+        id: id,
+        title: title,
+        category: transactionCategory.key,
+        amount: amount,
+        type: String(describing: transactionType),
+        dateTimestamp: Int(dateObj.timeIntervalSince1970),
+        budgetMonthDate: Int(DateFormatter.monthYearFormatter.string(from: dateObj)) ?? 0,
+        isRecurring: isRecurring,
+        hasInstallments: false,
+        parentTransactionId: nil,
+        originalAmount: amount,
+        installmentNumber: nil,
+        totalInstallments: nil
+      )
+
+      try transactionRepo.updateTransaction(updatedTransaction)
+      invalidateLedgerCache()
+      return .success(())
+
+    } catch {
+      return .failure(error)
+    }
+  }
+
+  func updateTransactionWithInstallments(id: Int, _ data: InstallmentTransactionData) -> Result<
+    Void, Error
+  > {
+    guard
+      let transactionCategory = TransactionCategory.allCases.first(where: {
+        $0.key == data.category
+      })
+    else {
+      return .failure(TransactionError.invalidCategory)
+    }
+
+    guard
+      let transactionType = TransactionType.allCases.first(where: {
+        String(describing: $0) == data.transactionType
+      })
+    else {
+      return .failure(TransactionError.invalidType)
+    }
+
+    guard let dateObj = DateFormatter.fullDateFormatter.date(from: data.date) else {
+      return .failure(TransactionError.invalidDateFormat)
+    }
+
+    guard data.installments > 0 && data.installments <= 120 else {
+      return .failure(TransactionError.invalidInstallmentCount)
+    }
+
+    do {
+      // Find the existing transaction to get its parent ID
+      let existingTransactions = transactionRepo.fetchAllTransactions()
+      guard let existingTransaction = existingTransactions.first(where: { $0.id == id }) else {
+        print("❌ Could not find transaction with ID: \(id)")
+        return .failure(TransactionError.transactionNotFound)
+      }
+
+      print(
+        "🔍 Found existing transaction: ID=\(existingTransaction.id ?? 0), parentID=\(existingTransaction.parentTransactionId ?? 0), hasInstallments=\(existingTransaction.hasInstallments ?? false)"
+      )
+
+      // For installment transactions, we need to find the main installment transaction
+      // (the one with hasInstallments=true and parentTransactionId=nil)
+      let mainInstallmentTransaction: Transaction
+      if let parentId = existingTransaction.parentTransactionId {
+        // This is an individual installment, find the main installment transaction
+        print("🔍 Looking for main installment transaction with ID: \(parentId)")
+
+        // Debug: List all transactions to see what we have
+        print("🔍 All transactions in database:")
+        for tx in existingTransactions {
+          if tx.hasInstallments == true {
+            print(
+              "   - ID: \(tx.id ?? 0), parentID: \(tx.parentTransactionId ?? 0), hasInstallments: \(tx.hasInstallments ?? false)"
+            )
+          }
+        }
+
+        // The main installment transaction has hasInstallments=true and parentTransactionId=nil
+        // First try to find by exact ID match
+        if let mainTransaction = existingTransactions.first(where: {
+          $0.hasInstallments == true && $0.parentTransactionId == nil && $0.id == parentId
+        }) {
+          mainInstallmentTransaction = mainTransaction
+          print("✅ Found main installment transaction: ID=\(mainTransaction.id ?? 0)")
+        } else {
+          // Try to find the main installment transaction by looking for any transaction
+          // with hasInstallments=true and parentTransactionId=nil in the same month
+          print("⚠️ Main installment transaction not found by exact ID, trying fallback...")
+
+          let individualInstallmentMonth = existingTransaction.budgetMonthDate
+          if let fallbackMainTransaction = existingTransactions.first(where: {
+            $0.hasInstallments == true && $0.parentTransactionId == nil
+              && $0.budgetMonthDate == individualInstallmentMonth && $0.amount == 0  // Main installment transactions typically have amount 0
+          }) {
+            print(
+              "✅ Found main installment transaction via fallback: ID=\(fallbackMainTransaction.id ?? 0)"
+            )
+
+            // Update all individual installments to point to the correct main transaction
+            let individualInstallments = existingTransactions.filter {
+              $0.parentTransactionId == parentId
+            }
+
+            for installment in individualInstallments {
+              // Update the installment to point to the correct main transaction
+              try transactionRepo.updateSingleTransactionOnly(
+                id: installment.id ?? 0,
+                title: installment.title,
+                category: installment.category,
+                type: installment.type,
+                amount: installment.amount,
+                date: installment.date
+              )
+
+              print(
+                "✅ Updated individual installment ID: \(installment.id ?? 0) to point to main transaction ID: \(fallbackMainTransaction.id ?? 0)"
+              )
+            }
+
+            mainInstallmentTransaction = fallbackMainTransaction
+          } else {
+            // Main installment transaction is missing - this is a data inconsistency
+            // We'll create a new main installment transaction to fix this
+            print("⚠️ Main installment transaction missing, creating new one...")
+
+            // Find the first individual installment to get the basic info
+            guard
+              let firstInstallment = existingTransactions.first(where: {
+                $0.parentTransactionId == parentId
+              })
+            else {
+              print("❌ Could not find any individual installments for parent ID: \(parentId)")
+              return .failure(TransactionError.transactionNotFound)
+            }
+
+            // Create a new main installment transaction
+            let newMainTransaction = TransactionModel(
+              id: nil,  // Let the database auto-generate the ID
+              title: firstInstallment.title,
+              category: firstInstallment.category.key,
+              amount: 0,  // Zero amount for parent transaction
+              type: String(describing: firstInstallment.type),
+              dateTimestamp: Int(firstInstallment.date.timeIntervalSince1970),
+              budgetMonthDate: firstInstallment.budgetMonthDate,
+              isRecurring: false,
+              hasInstallments: true,
+              parentTransactionId: nil,
+              originalAmount: nil,
+              installmentNumber: nil,
+              totalInstallments: firstInstallment.totalInstallments
+            )
+
+            // Insert the new main transaction
+            let newMainTransactionId: Int
+            do {
+              newMainTransactionId = try transactionRepo.insertTransactionAndGetId(
+                newMainTransaction)
+              print("✅ Created new main installment transaction with ID: \(newMainTransactionId)")
+
+              // Delete the old main installment transaction if it exists
+              if let oldMainTransaction = existingTransactions.first(where: {
+                $0.hasInstallments == true && $0.parentTransactionId == nil
+                  && $0.budgetMonthDate == individualInstallmentMonth && $0.amount == 0
+                  && $0.id != parentId  // Don't delete the one we just created
+              }) {
+                try transactionRepo.delete(id: oldMainTransaction.id ?? 0)
+                print(
+                  "✅ Deleted old main installment transaction with ID: \(oldMainTransaction.id ?? 0)"
+                )
+              }
+
+              // Update all individual installments to point to the new main transaction
+              let individualInstallments = existingTransactions.filter {
+                $0.parentTransactionId == parentId
+              }
+
+              for installment in individualInstallments {
+                // Update the installment to point to the new main transaction
+                try transactionRepo.updateTransactionParentId(
+                  transactionId: installment.id ?? 0,
+                  parentId: newMainTransactionId
+                )
+
+                print(
+                  "✅ Updated individual installment ID: \(installment.id ?? 0) to point to new main transaction ID: \(newMainTransactionId)"
+                )
+              }
+
+            } catch {
+              print("❌ Failed to create main installment transaction: \(error)")
+              return .failure(error)
+            }
+
+            // Convert to Transaction for consistency
+            let newMainTransactionData = UITransactionData(
+              id: newMainTransactionId,
+              title: firstInstallment.title,
+              amount: 0,
+              dateTimestamp: Int(firstInstallment.date.timeIntervalSince1970),
+              budgetMonthDate: firstInstallment.budgetMonthDate,
+              isRecurring: false,
+              hasInstallments: true,
+              parentTransactionId: nil,
+              installmentNumber: nil,
+              totalInstallments: firstInstallment.totalInstallments,
+              originalAmount: nil,
+              category: firstInstallment.category,
+              type: firstInstallment.type
+            )
+
+            mainInstallmentTransaction = Transaction(data: newMainTransactionData)
+          }
+        }
+
+        // After finding/creating the main installment transaction, we need to ensure
+        // that the transaction details screen will show the correct individual installment
+        // We'll update the individual installment that was being edited to point to the correct main transaction
+        if let currentInstallmentId = existingTransaction.id {
+          // Update the current individual installment to ensure it points to the correct main transaction
+          try transactionRepo.updateSingleTransactionOnly(
+            id: currentInstallmentId,
+            title: existingTransaction.title,
+            category: existingTransaction.category,
+            type: existingTransaction.type,
+            amount: existingTransaction.amount,
+            date: existingTransaction.date
+          )
+          print(
+            "✅ Updated current individual installment ID: \(currentInstallmentId) to point to main transaction ID: \(mainInstallmentTransaction.id ?? 0)"
+          )
+        }
+      } else {
+        // This is already the main installment transaction
+        mainInstallmentTransaction = existingTransaction
+      }
+
+      let updatedTransaction = TransactionModel(
+        id: mainInstallmentTransaction.id,  // Use the main installment transaction ID
+        title: data.title,
+        category: transactionCategory.key,
+        amount: data.totalAmount,
+        type: String(describing: transactionType),
+        dateTimestamp: Int(dateObj.timeIntervalSince1970),
+        budgetMonthDate: Int(DateFormatter.monthYearFormatter.string(from: dateObj)) ?? 0,
+        isRecurring: false,
+        hasInstallments: true,
+        parentTransactionId: nil,
+        originalAmount: data.totalAmount,
+        installmentNumber: nil,
+        totalInstallments: data.installments
+      )
+
+      print(
+        "🔄 INSTALLMENT UPDATE: Updating transaction \(mainInstallmentTransaction.id ?? 0) with:")
+      print("   - Total Amount: \(data.totalAmount)")
+      print("   - Number of Installments: \(data.installments)")
+      print("   - Initial Date: \(dateObj)")
+
+      do {
+        try transactionRepo.updateTransaction(updatedTransaction)
+        invalidateLedgerCache()
+        return .success(())
+      } catch {
+        print("❌ INSTALLMENT UPDATE ERROR: \(error)")
+        return .failure(error)
+      }
+
+    } catch {
+      return .failure(error)
+    }
+  }
+
+  func updateSingleTransaction(
+    id: Int,
+    title: String,
+    amount: Int,
+    dateString: String,
+    categoryKey: String,
+    typeRaw: String
+  ) -> Result<Void, Error> {
+
+    guard
+      let transactionCategory = TransactionCategory.allCases.first(where: { $0.key == categoryKey })
+    else {
+      return .failure(TransactionError.invalidCategory)
+    }
+
+    guard
+      let transactionType = TransactionType.allCases.first(where: {
+        String(describing: $0) == typeRaw
+      })
+    else {
+      return .failure(TransactionError.invalidType)
+    }
+
+    guard let dateObj = DateFormatter.fullDateFormatter.date(from: dateString) else {
+      return .failure(TransactionError.invalidDateFormat)
+    }
+
+    do {
+      try transactionRepo.updateSingleTransactionOnly(
+        id: id,
+        title: title,
+        category: transactionCategory,
+        type: transactionType,
+        amount: amount,
+        date: dateObj
+      )
+      invalidateLedgerCache()
+      return .success(())
+
+    } catch {
+      return .failure(error)
+    }
+  }
+
+  func updateSingleTransactionWithInstallments(id: Int, _ data: InstallmentTransactionData)
+    -> Result<Void, Error>
+  {
+    guard
+      let transactionCategory = TransactionCategory.allCases.first(where: {
+        $0.key == data.category
+      })
+    else {
+      return .failure(TransactionError.invalidCategory)
+    }
+
+    guard
+      let transactionType = TransactionType.allCases.first(where: {
+        String(describing: $0) == data.transactionType
+      })
+    else {
+      return .failure(TransactionError.invalidType)
+    }
+
+    guard let dateObj = DateFormatter.fullDateFormatter.date(from: data.date) else {
+      return .failure(TransactionError.invalidDateFormat)
+    }
+
+    do {
+      try transactionRepo.updateSingleTransactionOnly(
+        id: id,
+        title: data.title,
+        category: transactionCategory,
+        type: transactionType,
+        amount: data.totalAmount,
+        date: dateObj
+      )
+      invalidateLedgerCache()
+      return .success(())
+
+    } catch {
+      return .failure(error)
+    }
   }
 
   // MARK: - Ledger Cache Management

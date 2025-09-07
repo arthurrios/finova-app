@@ -7,9 +7,10 @@
 
 import Foundation
 
-public protocol DashboardFlowDelegate: AnyObject {
-    func logout()
-    func navigateToBudgets(date: Date?)
-    func openAddTransactionModal()
-    func navigateToSettings()
+protocol DashboardFlowDelegate: AnyObject {
+  func logout()
+  func navigateToBudgets(date: Date?)
+  func openAddTransactionModal()
+  func navigateToSettings()
+  func navigateToTransactionDetails(transaction: Transaction)
 }

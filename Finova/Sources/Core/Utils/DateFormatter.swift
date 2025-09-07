@@ -37,6 +37,15 @@ extension DateFormatter {
     return formatter
   }()
 
+  // Debug formatter for troubleshooting
+  static let debugDateFormatter: DateFormatter = {
+    let formatter = DateFormatter()
+    formatter.dateFormat = "dd/MM/yyyy"
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.timeZone = TimeZone.current
+    return formatter
+  }()
+
   static let monthFormatter: DateFormatter = {
     let formatter = DateFormatter()
     formatter.dateFormat = "MMM"

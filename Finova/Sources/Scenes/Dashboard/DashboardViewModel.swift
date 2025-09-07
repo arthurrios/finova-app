@@ -77,12 +77,6 @@ final class DashboardViewModel {
     transactionLedger.forceRefreshCurrentMonthBalance()
   }
 
-  /// Debug current balance calculation
-  func debugCurrentBalanceCalculation() {
-    print("🔍 Debugging current balance calculation...")
-    transactionLedger.debugCurrentBalanceCalculation()
-  }
-
   /// Debug "Aula de canto" transaction specifically
   func debugAulaDeCantoTransaction() {
     print("🎵 Debugging 'Aula de canto' transaction...")
@@ -333,8 +327,15 @@ final class DashboardViewModel {
   func getTransactionType(id: Int) -> TransactionComplexityType {
     guard let transaction = transactionRepo.fetchAllTransactions().first(where: { $0.id == id })
     else {
+      print("🔍 GET TRANSACTION TYPE DEBUG: Transaction with ID \(id) not found")
       return .simple
     }
+
+    print("🔍 GET TRANSACTION TYPE DEBUG: Analyzing transaction '\(transaction.title)' (ID: \(id))")
+    print("🔍 GET TRANSACTION TYPE DEBUG: Mode: \(transaction.mode)")
+    print("🔍 GET TRANSACTION TYPE DEBUG: Is recurring: \(transaction.isRecurring ?? false)")
+    print("🔍 GET TRANSACTION TYPE DEBUG: Has installments: \(transaction.hasInstallments ?? false)")
+    print("🔍 GET TRANSACTION TYPE DEBUG: Parent ID: \(transaction.parentTransactionId ?? 0)")
 
     // Check if this is a recurring transaction instance
     if let parentId = transaction.parentTransactionId {
@@ -343,22 +344,27 @@ final class DashboardViewModel {
       }
       )
       if parentTransaction?.isRecurring == true {
+        print("🔍 GET TRANSACTION TYPE DEBUG: Detected as recurring instance")
         return .recurringInstance
       } else {
+        print("🔍 GET TRANSACTION TYPE DEBUG: Detected as installment instance")
         return .installmentInstance
       }
     }
 
     // Check if this is a parent recurring transaction
     if transaction.isRecurring == true {
+      print("🔍 GET TRANSACTION TYPE DEBUG: Detected as recurring parent")
       return .recurringParent
     }
 
     // Check if this is a parent installment transaction
     if transaction.hasInstallments == true {
+      print("🔍 GET TRANSACTION TYPE DEBUG: Detected as installment parent")
       return .installmentParent
     }
 
+    print("🔍 GET TRANSACTION TYPE DEBUG: Detected as simple transaction")
     return .simple
   }
 
@@ -427,6 +433,19 @@ final class DashboardViewModel {
   /// Configura o sistema de notificações mensais
   func setupMonthlyNotificationSystem() {
     monthlyNotificationManager.setupMonthlyNotificationSystem()
+  }
+
+  // MARK: - Recovery Methods
+
+  /// Attempt to recover transactions from SQLite
+  func attemptTransactionRecovery() -> Bool {
+    print("🔄 DashboardViewModel: Attempting transaction recovery...")
+    return transactionLedger.attemptTransactionRecovery()
+  }
+
+  /// Check if transactions exist in SQLite
+  func checkSQLiteRecovery() -> [Transaction] {
+    return transactionLedger.checkSQLiteRecovery()
   }
 
 }

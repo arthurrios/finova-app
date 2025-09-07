@@ -205,11 +205,11 @@ class MonthBudgetCard: UIView {
     return imageView
   }()
 
-  private let progressBar: UIProgressView = {
-    let progressBar = UIProgressView(progressViewStyle: .bar)
-    progressBar.progressViewStyle = .bar
+  private let progressBar: RoundedProgressBar = {
+    let progressBar = RoundedProgressBar()
     progressBar.trackTintColor = Colors.gray600
     progressBar.progressTintColor = Colors.mainMagenta
+    progressBar.cornerRadius = 4.0
     return progressBar
   }()
 
@@ -385,6 +385,7 @@ class MonthBudgetCard: UIView {
       progressBar.bottomAnchor.constraint(equalTo: bottomAnchor),
       progressBar.leadingAnchor.constraint(equalTo: leadingAnchor),
       progressBar.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor),
+      progressBar.heightAnchor.constraint(equalToConstant: 8.0),  // Ensure visible height
     ])
   }
 
@@ -489,7 +490,6 @@ class MonthBudgetCard: UIView {
   override func layoutSubviews() {
     super.layoutSubviews()
     gradientLayer.frame = bounds
-    progressBar.roundRightCornersFixedHeight(Metrics.spacing2)
 
     // Garantir que o botão de toggle seja sempre redondo
     // Usar valor fixo baseado na constraint de largura (36)

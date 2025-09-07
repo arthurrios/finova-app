@@ -29,5 +29,10 @@ public protocol AddTransactionModalViewDelegate: AnyObject {
   func sendTransactionData(_ data: AddTransactionData)
   func sendRecurringTransactionData(_ data: AddTransactionData)
   func sendInstallmentTransactionData(_ data: InstallmentTransactionData)
+  func updateTransactionData(id: Int, _ data: AddTransactionData)
+  func updateRecurringTransactionData(id: Int, _ data: AddTransactionData)
+  func updateInstallmentTransactionData(id: Int, _ data: InstallmentTransactionData)
+  func updateSingleRecurringTransactionData(id: Int, _ data: AddTransactionData)
+  func updateSingleInstallmentTransactionData(id: Int, _ data: InstallmentTransactionData)
   func closeModal()
 }
