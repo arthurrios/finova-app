@@ -20,6 +20,7 @@ class MonthBudgetCard: UIView {
 
   private var displayMode: BalanceDisplayMode = .final
   private var currentMonthData: MonthBudgetCardType?
+  private var isValuesHidden: Bool = false
 
   private var animatedNumberHost: UIHostingController<AnimatedNumberLabel>?
   private var animatedNumberContainer: UIView?
@@ -34,7 +35,8 @@ class MonthBudgetCard: UIView {
     ])
 
   private lazy var headerHorizontalStackView = UIStackView(
-    axis: .horizontal, arrangedSubviews: [headerDateStackView, configIcon])
+    axis: .horizontal,
+    arrangedSubviews: [headerDateStackView, hideValuesToggleContainer, configIcon])
 
   private lazy var headerDateStackView = UIStackView(
     axis: .horizontal, spacing: Metrics.spacing2, alignment: .center,
@@ -97,6 +99,34 @@ class MonthBudgetCard: UIView {
     label.font = Fonts.titleXS.font
     label.textColor = Colors.gray400
     return label
+  }()
+
+  private let hideValuesIcon: UIImageView = {
+    let imageView = UIImageView()
+    imageView.contentMode = .scaleAspectFit
+    imageView.tintColor = Colors.gray100
+    imageView.translatesAutoresizingMaskIntoConstraints = false
+    return imageView
+  }()
+
+  private lazy var hideValuesToggleContainer: UIView = {
+    let container = UIView()
+    container.backgroundColor = .clear
+    container.translatesAutoresizingMaskIntoConstraints = false
+    container.isUserInteractionEnabled = true
+
+    container.addSubview(hideValuesIcon)
+    NSLayoutConstraint.activate([
+      hideValuesIcon.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+      hideValuesIcon.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+      hideValuesIcon.widthAnchor.constraint(equalToConstant: 20),
+      hideValuesIcon.heightAnchor.constraint(equalToConstant: 20),
+
+      container.widthAnchor.constraint(equalToConstant: 36),
+      container.heightAnchor.constraint(equalToConstant: 36),
+    ])
+
+    return container
   }()
 
   private let configIcon: UIImageView = {
@@ -235,7 +265,12 @@ class MonthBudgetCard: UIView {
     monthLabel.applyStyle()
     yearLabel.text = "/ " + DateFormatter.yearFormatter.string(from: data.date)
 
-    usedBudgetValueLabel.text = data.usedValue.currencyString
+    // Initialize hide values state
+    isValuesHidden = UserDefaultsManager.getHideValues()
+    updateHideValuesIcon()
+
+    usedBudgetValueLabel.text =
+      isValuesHidden ? getHiddenValueString() : data.usedValue.currencyString
 
     if isCurrentMonth() {
       displayMode = UserDefaultsManager.getBalanceDisplayMode()
@@ -260,7 +295,8 @@ class MonthBudgetCard: UIView {
       return
     }
 
-    limitBudgetValueLabel.text = budgetLimit.currencyString
+    limitBudgetValueLabel.text =
+      isValuesHidden ? getHiddenValueString() : budgetLimit.currencyString
     limitBudgetValueLabel.isHidden = false
     infinitySymbol.isHidden = true
     progressBar.isHidden = false
@@ -313,9 +349,15 @@ class MonthBudgetCard: UIView {
         balanceToggleContainer.layer.masksToBounds = true
 
         // Use animated SwiftUI view for current month
-        animatedNumberContainer?.isHidden = false
-        availableBudgetValueLabel.isHidden = true
-        setupOrUpdateAnimatedNumber(value: displayValue)
+        if isValuesHidden {
+          animatedNumberContainer?.isHidden = true
+          availableBudgetValueLabel.isHidden = false
+          availableBudgetValueLabel.text = getHiddenValueString()
+        } else {
+          animatedNumberContainer?.isHidden = false
+          availableBudgetValueLabel.isHidden = true
+          setupOrUpdateAnimatedNumber(value: displayValue)
+        }
 
       } else {
         // Other months - use regular UIKit label (no animation)
@@ -324,7 +366,8 @@ class MonthBudgetCard: UIView {
 
         animatedNumberContainer?.isHidden = true
         availableBudgetValueLabel.isHidden = false
-        availableBudgetValueLabel.text = displayValue.currencyString
+        availableBudgetValueLabel.text =
+          isValuesHidden ? getHiddenValueString() : displayValue.currencyString
       }
 
       availableBudgetTextLabel.text = textKey.localized
@@ -401,6 +444,10 @@ class MonthBudgetCard: UIView {
       target: self, action: #selector(toggleBalanceDisplay))
     balanceToggleContainer.addGestureRecognizer(toggleBalanceTapGesture)
     balanceToggleContainer.isUserInteractionEnabled = true
+
+    let hideValuesTapGesture = UITapGestureRecognizer(
+      target: self, action: #selector(toggleHideValues))
+    hideValuesToggleContainer.addGestureRecognizer(hideValuesTapGesture)
   }
 
   private func setupAnimatedNumberContainer() {
@@ -487,6 +534,30 @@ class MonthBudgetCard: UIView {
     updateAvailableBudgetDisplay()
   }
 
+  @objc
+  private func toggleHideValues() {
+    isValuesHidden.toggle()
+    UserDefaultsManager.setHideValues(isValuesHidden)
+    updateHideValuesIcon()
+    updateAvailableBudgetDisplay()
+    updateLimitSection(with: currentMonthData!)
+
+    // Update used value directly
+    if let data = currentMonthData {
+      usedBudgetValueLabel.text =
+        isValuesHidden ? getHiddenValueString() : data.usedValue.currencyString
+    }
+  }
+
+  private func updateHideValuesIcon() {
+    let iconName = isValuesHidden ? "eye" : "eye-closed"
+    hideValuesIcon.image = UIImage(named: iconName)?.withRenderingMode(.alwaysTemplate)
+  }
+
+  private func getHiddenValueString() -> String {
+    return "••••••"
+  }
+
   override func layoutSubviews() {
     super.layoutSubviews()
     gradientLayer.frame = bounds
@@ -516,7 +587,8 @@ class MonthBudgetCard: UIView {
 
     UIView.transition(with: usedBudgetValueLabel, duration: 0.3, options: .transitionCrossDissolve)
     {
-      self.usedBudgetValueLabel.text = data.usedValue.currencyString
+      self.usedBudgetValueLabel.text =
+        self.isValuesHidden ? self.getHiddenValueString() : data.usedValue.currencyString
     }
 
     // Update display mode for current month
