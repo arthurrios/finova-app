@@ -52,6 +52,10 @@ final class UpdateToastManager {
     let hasNewerVersion = isNewerVersionAvailable(
       latestVersion: latestVersion, currentVersion: currentVersion)
 
+    print(
+      "📱 Version comparison: current=\(currentVersion), latest=\(latestVersion), hasNewer=\(hasNewerVersion)"
+    )
+
     if !hasNewerVersion {
       print("📱 No newer version available")
       return false
@@ -67,16 +71,16 @@ final class UpdateToastManager {
         as? Date
       {
         let timeSinceDismissal = Date().timeIntervalSince(lastDismissedDate)
-        let twentyFourHours: TimeInterval = 24 * 60 * 60  // 24 hours in seconds
+        let sixHours: TimeInterval = 6 * 60 * 60  // 6 hours in seconds
 
-        if timeSinceDismissal < twentyFourHours {
-          let hoursRemaining = (twentyFourHours - timeSinceDismissal) / 3600
+        if timeSinceDismissal < sixHours {
+          let hoursRemaining = (sixHours - timeSinceDismissal) / 3600
           print(
             "📱 Toast dismissed recently. Remaining time: \(String(format: "%.1f", hoursRemaining)) hours"
           )
           return false
         } else {
-          print("📱 24 hours have passed since dismissal. Showing reminder toast")
+          print("📱 6 hours have passed since dismissal. Showing reminder toast")
         }
       } else {
         print("📱 Toast was dismissed but no date recorded. Showing toast")
@@ -111,6 +115,24 @@ final class UpdateToastManager {
 
     // Return cached version or current version as fallback
     return UserDefaults.standard.string(forKey: latestVersionKey) ?? currentVersion
+  }
+
+  /// Check for updates from App Store
+  func checkForUpdatesFromAppStore(completion: @escaping (Bool) -> Void) {
+    VersionService.shared.checkForUpdates { [weak self] latestVersion in
+      guard let self = self, let latestVersion = latestVersion else {
+        completion(false)
+        return
+      }
+
+      // Update the cached version
+      UserDefaults.standard.set(latestVersion, forKey: self.latestVersionKey)
+
+      // Check if this is a newer version
+      let hasNewerVersion = self.isNewerVersionAvailable(
+        latestVersion: latestVersion, currentVersion: self.currentVersion)
+      completion(hasNewerVersion)
+    }
   }
 
   /// Check if a newer version is available
@@ -166,11 +188,11 @@ final class UpdateToastManager {
       print("🧪 Testing state reset")
     }
 
-    /// Simulate 24 hours passing for testing
-    func simulate24HoursPassed() {
-      let pastDate = Date().addingTimeInterval(-25 * 60 * 60)  // 25 hours ago
+    /// Simulate 6 hours passing for testing
+    func simulate6HoursPassed() {
+      let pastDate = Date().addingTimeInterval(-7 * 60 * 60)  // 7 hours ago
       UserDefaults.standard.set(pastDate, forKey: lastToastDismissedKey)
-      print("🧪 Simulated 24+ hours passing since last dismissal")
+      print("🧪 Simulated 6+ hours passing since last dismissal")
     }
   #endif
 }

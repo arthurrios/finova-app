@@ -23,6 +23,7 @@ final class DashboardViewController: UIViewController {
   private var isDeletionInProgress = false
   private let updateToastContainer = UpdateToastContainer()
   private let updateToastManager = UpdateToastManager.shared
+  private var updateToastTimer: Timer?
 
   private var currentCell: MonthCarouselCell?
   weak var flowDelegate: DashboardFlowDelegate?
@@ -49,6 +50,10 @@ final class DashboardViewController: UIViewController {
     fatalError("init(coder:) has not been implemented")
   }
 
+  deinit {
+    stopUpdateToastTimer()
+  }
+
   override func viewDidLoad() {
     super.viewDidLoad()
     setup()
@@ -57,6 +62,7 @@ final class DashboardViewController: UIViewController {
     syncedViewModel.selectMonth(at: todayMonthIndex, animated: false)
     contentView.frame = view.bounds
     setupUpdateToast()
+    setupPullToRefresh()
 
     #if DEBUG
       setupDebugGesture()
@@ -75,6 +81,9 @@ final class DashboardViewController: UIViewController {
     // Evitar refresh desnecessário na primeira vez que a view aparece
     if isInitialLoadComplete {
       refreshDashboardData()
+
+      // Recalculate current day for day slider when dashboard appears in foreground
+      recalculateCurrentDayForVisibleCell()
     }
   }
 
@@ -98,7 +107,10 @@ final class DashboardViewController: UIViewController {
       if selectedIndex < monthData.count {
         let currentMonthData = monthData[selectedIndex]
 
-        // Refresh the month budget card with fresh data
+        // Refresh the month budget card with fresh data (but preserve day slider state)
+        print(
+          "🔄 DashboardViewController: Refreshing current cell with budgetLimit: \(currentMonthData.budgetLimit ?? 0)"
+        )
         currentCell.monthCard.refresh(with: currentMonthData)
 
         // Update transactions for the current cell
@@ -109,31 +121,52 @@ final class DashboardViewController: UIViewController {
           return txKey == key
         }.sorted { $0.date > $1.date }
 
-        // Use the configure method to properly update the cell
-        currentCell.configure(with: currentMonthData, transactions: filteredTransactions)
+        // Update transactions without reconfiguring the month card (to preserve day slider)
+        currentCell.updateTransactions(filteredTransactions)
 
-        print("✅ Refreshed current cell at index \(selectedIndex)")
+        print("✅ Refreshed current cell at index \(selectedIndex) (preserving day slider)")
       }
     }
 
     // Also refresh all visible cells in the collection view
     DispatchQueue.main.async {
+      print("🔄 About to call refreshVisibleCells")
       self.refreshVisibleCells()
+      print("🔄 refreshVisibleCells completed")
     }
+  }
+
+  /// Recalculates the current day for the day slider in the visible cell
+  private func recalculateCurrentDayForVisibleCell(animated: Bool = false) {
+    guard let currentCell = currentCell else { return }
+
+    // Recalculate the current day for the day slider
+    currentCell.monthCard.recalculateCurrentDay(animated: animated)
+
+    print("📅 Recalculated current day for visible cell (animated: \(animated))")
+  }
+
+  /// Setup pull-to-refresh functionality
+  private func setupPullToRefresh() {
+    contentView.delegate = self
   }
 
   private func refreshVisibleCells() {
     let visibleIndexPaths = contentView.monthCarousel.indexPathsForVisibleItems
+    print("🔄 refreshVisibleCells: Found \(visibleIndexPaths.count) visible cells")
 
     for indexPath in visibleIndexPaths {
       if let cell = contentView.monthCarousel.cellForItem(at: indexPath) as? MonthCarouselCell {
         if indexPath.item < syncedViewModel.monthData.count {
           let monthData = syncedViewModel.monthData[indexPath.item]
 
-          // Refresh the month budget card
+          // Refresh the month budget card (preserving day slider state)
+          print(
+            "🔄 DashboardViewController: Refreshing visible cell \(indexPath.item) with budgetLimit: \(monthData.budgetLimit ?? 0)"
+          )
           cell.monthCard.refresh(with: monthData)
 
-          // Update transactions
+          // Update transactions without reconfiguring the month card
           let key = DateFormatter.keyFormatter.string(from: monthData.date)
           let filteredTransactions = syncedViewModel.allTransactions.filter { tx in
             let txDate = Date(timeIntervalSince1970: TimeInterval(tx.dateTimestamp))
@@ -141,7 +174,7 @@ final class DashboardViewController: UIViewController {
             return txKey == key
           }.sorted { $0.date > $1.date }
 
-          cell.configure(with: monthData, transactions: filteredTransactions)
+          cell.updateTransactions(filteredTransactions)
         }
       }
     }
@@ -219,7 +252,7 @@ final class DashboardViewController: UIViewController {
           UIView.transition(
             with: cell.transactionTableView, duration: 0.3, options: .transitionCrossDissolve
           ) {
-            cell.configure(with: monthData, transactions: filteredTransactions)
+            cell.updateTransactions(filteredTransactions)
           } completion: { _ in
             // Restore scroll position if it was valid and reasonable
             if currentContentOffset.y >= 0
@@ -429,16 +462,27 @@ final class DashboardViewController: UIViewController {
       // Reset testing state to ensure clean test
       updateToastManager.resetTestingState()
 
-      // Set mock version for testing
-      updateToastManager.setMockLatestVersion("2.0.0")
-      print("🧪 Mock version set to 2.0.0")
+    // Comment out mock version for production testing
+    // updateToastManager.setMockLatestVersion("2.0.0")
+    // print("🧪 Mock version set to 2.0.0")
     #endif
 
-    // Show toast with delay after dashboard loads (both debug and release)
-    DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-      print("🧪 About to check if toast should be shown...")
-      self.showUpdateToast()
+    // Clear cache to force fresh API call
+    VersionService.shared.clearCache()
+
+    // Check for updates from App Store first
+    updateToastManager.checkForUpdatesFromAppStore { [weak self] hasNewerVersion in
+      print("📱 App Store version check completed. Has newer version: \(hasNewerVersion)")
+
+      // Show toast with delay after dashboard loads (both debug and release)
+      DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+        print("🧪 About to check if toast should be shown...")
+        self?.showUpdateToast()
+      }
     }
+
+    // Start periodic timer to check for toast reminders
+    startUpdateToastTimer()
   }
 
   private func showUpdateToast() {
@@ -455,9 +499,28 @@ final class DashboardViewController: UIViewController {
   }
 
   private func hideUpdateToast() {
-    updateToastContainer.hideUpdateToast { [weak self] in
-      self?.updateToastManager.markToastAsDismissed()
+    updateToastContainer.hideUpdateToast()
+  }
+
+  private func startUpdateToastTimer() {
+    // Check every 30 minutes for toast reminders (6-hour interval)
+    updateToastTimer = Timer.scheduledTimer(withTimeInterval: 30 * 60, repeats: true) {
+      [weak self] _ in
+      self?.checkForUpdateToastReminder()
     }
+  }
+
+  private func checkForUpdateToastReminder() {
+    let shouldShow = updateToastManager.shouldShowUpdateToast()
+    if shouldShow {
+      print("🧪 Timer triggered: Showing reminder toast...")
+      showUpdateToast()
+    }
+  }
+
+  private func stopUpdateToastTimer() {
+    updateToastTimer?.invalidate()
+    updateToastTimer = nil
   }
 
   #if DEBUG
@@ -1017,6 +1080,23 @@ extension DashboardViewController: DashboardViewDelegate {
     print("✅ Complete logout performed")
     self.flowDelegate?.logout()
   }
+
+  func dashboardViewDidRequestRefresh(_ dashboardView: DashboardView) {
+    print("🔄 Pull-to-refresh triggered")
+
+    // Refresh dashboard data and recalculate current day with animation
+    refreshDashboardData()
+
+    // Add a small delay to ensure data is refreshed before animating
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+      self.recalculateCurrentDayForVisibleCell(animated: true)
+    }
+
+    // End the refresh animation
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+      dashboardView.endRefreshing()
+    }
+  }
 }
 
 extension DashboardViewController: UIImagePickerControllerDelegate, UINavigationControllerDelegate {
@@ -1105,7 +1185,9 @@ extension DashboardViewController: UICollectionViewDataSource {
 
       cell.tag = indexPath.item
       cell.transactions = txs
-      cell.configure(with: model, transactions: txs)
+      // Use refresh and updateTransactions to preserve day slider state
+      cell.monthCard.refresh(with: model)
+      cell.updateTransactions(txs)
 
       return cell
     } else {
@@ -1930,8 +2012,9 @@ extension DashboardViewController {
             return txKey == key
           }.sorted { $0.date > $1.date }
 
-          // Safely update the current cell with new transaction data
-          currentCell.configure(with: monthData, transactions: filteredTransactions)
+          // Safely update the current cell with new transaction data (preserving day slider)
+          currentCell.monthCard.refresh(with: monthData)
+          currentCell.updateTransactions(filteredTransactions)
         }
       }
 
@@ -2212,6 +2295,7 @@ extension DashboardViewController: UpdateToastViewDelegate {
   }
 
   func updateToastViewDidTapDismiss(_ toastView: UpdateToastView) {
+    updateToastManager.markToastAsDismissed()
     hideUpdateToast()
   }
 }

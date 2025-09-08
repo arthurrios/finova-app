@@ -10,7 +10,7 @@ import Foundation
 final class VersionService {
   static let shared = VersionService()
 
-  private let appStoreURL = "https://itunes.apple.com/lookup?bundleId=com.arthurrios.Finova"
+  private let appStoreURL = "https://itunes.apple.com/lookup?bundleId=com.arthurrios.FinanceApp"
   private let latestVersionKey = "latestAppVersion"
   private let lastVersionCheckKey = "lastVersionCheck"
 
@@ -29,6 +29,8 @@ final class VersionService {
       return
     }
 
+    print("📱 Checking App Store for updates with URL: \(appStoreURL)")
+
     let task = URLSession.shared.dataTask(with: url) { [weak self] data, response, error in
       guard let self = self else { return }
 
@@ -39,24 +41,50 @@ final class VersionService {
       }
 
       guard let data = data else {
+        print("❌ No data received from App Store API")
         completion(self.getCachedVersion())
         return
       }
 
       do {
-        if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-          let results = json["results"] as? [[String: Any]],
-          let firstResult = results.first,
-          let latestVersion = firstResult["version"] as? String
-        {
+        if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
+          print("📱 App Store API response: \(json)")
 
-          // Cache the latest version
-          UserDefaults.standard.set(latestVersion, forKey: self.latestVersionKey)
-          UserDefaults.standard.set(Date(), forKey: self.lastVersionCheckKey)
+          if let results = json["results"] as? [[String: Any]] {
+            print("📱 Found \(results.count) results from App Store")
 
-          print("📱 Latest version found: \(latestVersion)")
-          completion(latestVersion)
+            if let firstResult = results.first {
+              print("📱 First result: \(firstResult)")
+
+              if let latestVersion = firstResult["version"] as? String {
+                // Cache the latest version
+                UserDefaults.standard.set(latestVersion, forKey: self.latestVersionKey)
+                UserDefaults.standard.set(Date(), forKey: self.lastVersionCheckKey)
+
+                print("📱 Latest version found: \(latestVersion)")
+                completion(latestVersion)
+              } else {
+                print("❌ No version field found in App Store response")
+                completion(self.getCachedVersion())
+              }
+            } else {
+              print("📱 App not found in App Store (likely not published yet)")
+              print(
+                "📱 Using current version as fallback: \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0.0")"
+              )
+              // For unpublished apps, use current version as "latest" to prevent update prompts
+              let currentVersion =
+                Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0.0"
+              UserDefaults.standard.set(currentVersion, forKey: self.latestVersionKey)
+              UserDefaults.standard.set(Date(), forKey: self.lastVersionCheckKey)
+              completion(currentVersion)
+            }
+          } else {
+            print("❌ No results array found in App Store response")
+            completion(self.getCachedVersion())
+          }
         } else {
+          print("❌ Failed to parse JSON from App Store response")
           completion(self.getCachedVersion())
         }
       } catch {
@@ -81,5 +109,12 @@ final class VersionService {
 
     let oneDay: TimeInterval = 24 * 60 * 60
     return Date().timeIntervalSince(lastCheck) < oneDay
+  }
+
+  /// Clear cached version to force fresh API call (for debugging)
+  func clearCache() {
+    UserDefaults.standard.removeObject(forKey: latestVersionKey)
+    UserDefaults.standard.removeObject(forKey: lastVersionCheckKey)
+    print("📱 Version cache cleared")
   }
 }

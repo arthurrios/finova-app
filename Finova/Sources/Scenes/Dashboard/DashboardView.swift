@@ -215,6 +215,22 @@ final class DashboardView: UIView {
       for: .touchUpInside)
 
     setupImageGesture()
+    setupRefreshControl()
+  }
+
+  private func setupRefreshControl() {
+    let refreshControl = UIRefreshControl()
+    refreshControl.addTarget(self, action: #selector(handleRefresh), for: .valueChanged)
+    refreshControl.tintColor = Colors.mainMagenta
+    monthCarousel.refreshControl = refreshControl
+  }
+
+  @objc private func handleRefresh() {
+    delegate?.dashboardViewDidRequestRefresh(self)
+  }
+
+  func endRefreshing() {
+    monthCarousel.refreshControl?.endRefreshing()
   }
 
   private func setupLayout() {
@@ -293,6 +309,10 @@ final class DashboardView: UIView {
       addTransactionButton.heightAnchor.constraint(equalToConstant: Metrics.addButtonSize),
       addTransactionButton.widthAnchor.constraint(equalToConstant: Metrics.addButtonSize),
     ])
+
+    // Set up the month carousel height constraint
+    monthCarouselHeightConstraint = monthCarousel.heightAnchor.constraint(equalToConstant: 500)
+    monthCarouselHeightConstraint?.isActive = true
   }
 
   func hideShimmerViewsAndShowOriginals() {

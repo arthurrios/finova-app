@@ -395,6 +395,11 @@ class DaySlider: UIView {
     updateSliderToDay(clampedDay, animated: animated)
   }
 
+  /// Checks if day indicators are already set up
+  func hasDayIndicators() -> Bool {
+    return dayIndicatorViews.count > 0
+  }
+
   override func layoutSubviews() {
     super.layoutSubviews()
     updateSliderPosition()

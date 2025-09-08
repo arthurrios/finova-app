@@ -231,6 +231,22 @@ class MonthCarouselCell: UICollectionViewCell {
     emptyStateView.isHidden = !show
   }
 
+  // MARK: - Public Methods for Refresh
+
+  /// Updates the transaction count and empty state without reconfiguring the month card
+  func updateTransactionCount(_ count: Int) {
+    transactionNumberLabel.text = "\(count)"
+    toggleEmptyState(count == 0)
+  }
+
+  /// Updates the transactions array and reloads the table view
+  func updateTransactions(_ newTransactions: [Transaction]) {
+    transactions = newTransactions
+    transactionTableView.reloadData()
+    updateTransactionCount(newTransactions.count)
+    updateTableHeight(txsCount: newTransactions.count)
+  }
+
   private func addBordersExceptBottom(to view: UIView, color: UIColor, width: CGFloat = 1.0) {
     view.layer.sublayers?.removeAll(where: { $0.name == "customBorder" })
 

@@ -7,9 +7,10 @@
 
 import Foundation
 
-public protocol DashboardViewDelegate: AnyObject {
-    func didTapAddTransaction()
-    func didTapProfileImage()
-    func logout()
-    func didTapSettings()
+protocol DashboardViewDelegate: AnyObject {
+  func didTapAddTransaction()
+  func didTapProfileImage()
+  func logout()
+  func didTapSettings()
+  func dashboardViewDidRequestRefresh(_ dashboardView: DashboardView)
 }
