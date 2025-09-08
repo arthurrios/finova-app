@@ -393,14 +393,18 @@ class MonthBudgetCard: UIView {
       case .final:
         displayValue = data.finalBalance ?? (data.budgetLimit! - data.usedValue)
         // Use day-specific format for final balance (last day of month)
-        let lastDay = Calendar.current.range(of: .day, in: .month, for: data.date)?.upperBound ?? 31
-        textKey = formatBalanceOnDayString(for: lastDay - 1)
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone.current
+        let lastDay = calendar.range(of: .day, in: .month, for: data.date)?.upperBound ?? 31
+        textKey = formatBalanceOnDayString(for: lastDay)
         print("🔄 Using final balance mode")
 
       case .current:
         displayValue = data.currentBalance ?? (data.previousBalance ?? 0)
         // Use day-specific format instead of old text key
-        let today = Calendar.current.component(.day, from: Date())
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone.current
+        let today = calendar.component(.day, from: Date())
         textKey = formatBalanceOnDayString(for: today)
         print("🔄 Using current balance mode")
 
@@ -618,7 +622,7 @@ class MonthBudgetCard: UIView {
     guard let monthDate = currentMonthData?.date else { return false }
 
     // Use user's current timezone for consistency with monthAnchor calculations
-    var calendar = Calendar.current
+    var calendar = Calendar(identifier: .gregorian)
     calendar.timeZone = TimeZone.current
 
     let today = Date()
@@ -627,6 +631,8 @@ class MonthBudgetCard: UIView {
     let todayMonth = calendar.component(.month, from: today)
     let todayYear = calendar.component(.year, from: today)
     let isCurrent = (month == todayMonth) && (year == todayYear)
+
+
     return isCurrent
   }
 
@@ -791,14 +797,18 @@ class MonthBudgetCard: UIView {
       case .final:
         displayValue = data.finalBalance ?? (data.budgetLimit! - data.usedValue)
         // Use day-specific format for final balance (last day of month)
-        let lastDay = Calendar.current.range(of: .day, in: .month, for: data.date)?.upperBound ?? 31
-        textKey = formatBalanceOnDayString(for: lastDay - 1)
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone.current
+        let lastDay = calendar.range(of: .day, in: .month, for: data.date)?.upperBound ?? 31
+        textKey = formatBalanceOnDayString(for: lastDay)
         print("🔄 Using final balance mode")
 
       case .current:
         displayValue = data.currentBalance ?? (data.previousBalance ?? 0)
         // Use day-specific format instead of old text key
-        let today = Calendar.current.component(.day, from: Date())
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone.current
+        let today = calendar.component(.day, from: Date())
         textKey = formatBalanceOnDayString(for: today)
         print("🔄 Using current balance mode")
 
@@ -886,22 +896,42 @@ class MonthBudgetCard: UIView {
     guard let slider = daySlider else { return }
 
     // Calculate current day and total days in month
-    let calendar = Calendar.current
+    // Use the exact same calendar configuration as TransactionLedgerService
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = TimeZone.current
     let today = Date()
     let monthDate = data.date
-    let totalDaysInMonth = calendar.range(of: .day, in: .month, for: monthDate)?.count ?? 31
+
+
+    // Calculate total days in month using the correct method
+    let totalDaysInMonth: Int
+    if let range = calendar.range(of: .day, in: .month, for: monthDate) {
+      totalDaysInMonth = range.count
+      print(
+        "🔍 setupDaySliderForMonth: month=\(data.month), monthDate=\(monthDate), range=\(range), totalDaysInMonth=\(totalDaysInMonth)"
+      )
+    } else {
+      totalDaysInMonth = 31  // fallback
+      print(
+        "🔍 setupDaySliderForMonth: month=\(data.month), monthDate=\(monthDate), using fallback 31 days"
+      )
+    }
 
     // Calculate the actual current day of the month (for current month only)
     let currentMonthDay: Int = isCurrentMonth() ? calendar.component(.day, from: today) : 0
 
     // Determine the current day for this month (selected day)
     let currentDay: Int
-    if isCurrentMonth() {
+    let isCurrent = isCurrentMonth()
+    print("🔍 setupDaySliderForMonth: isCurrentMonth=\(isCurrent), month=\(data.month)")
+    if isCurrent {
       // For current month, use today's day
       currentDay = calendar.component(.day, from: today)
+      print("🔍 setupDaySliderForMonth: Using current day=\(currentDay)")
     } else {
       // For all other months (past and future), default to the last day
       currentDay = totalDaysInMonth
+      print("🔍 setupDaySliderForMonth: Using last day=\(currentDay)")
     }
 
     // Add slider to the stack view if not already added
@@ -918,13 +948,16 @@ class MonthBudgetCard: UIView {
     }
 
     // Configure the slider
+    print(
+      "🔍 setupDaySliderForMonth: Configuring slider with currentDay=\(currentDay), totalDaysInMonth=\(totalDaysInMonth), currentMonthDay=\(currentMonthDay)"
+    )
     slider.configure(
       currentDay: currentDay, totalDaysInMonth: totalDaysInMonth, currentMonthDay: currentMonthDay)
     slider.isHidden = false
     currentSelectedDay = currentDay
 
-    // Set the display mode to day-specific to show the correct balance
-    displayMode = .daySpecific(day: currentDay)
+    // Display mode will be set by the refresh method after day slider is configured
+    print("🔍 setupDaySliderForMonth: Day slider configured with currentDay=\(currentDay)")
   }
 
   // MARK: - Public Methods
@@ -937,7 +970,8 @@ class MonthBudgetCard: UIView {
       return
     }
 
-    let calendar = Calendar.current
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = TimeZone.current
     let today = Date()
     let monthDate = data.date
     let totalDaysInMonth = calendar.range(of: .day, in: .month, for: monthDate)?.count ?? 31
@@ -1079,22 +1113,9 @@ class MonthBudgetCard: UIView {
         self.isValuesHidden ? self.getHiddenValueString() : data.usedValue.currencyString
     }
 
-    // Update display mode for current month
-    if isCurrentMonth() {
-      print("🔄 Refresh: Current displayMode before = \(displayMode)")
-      // Preserve day-specific mode if day slider is visible and configured
-      if let slider = daySlider, isDaySliderVisible, slider.hasDayIndicators() {
-        // Keep the current display mode (likely .daySpecific) to preserve day-specific text
-        print("🔄 Refresh: Preserving day-specific display mode")
-      } else {
-        let newMode = UserDefaultsManager.getBalanceDisplayMode()
-        print("🔄 Refresh: Setting displayMode to \(newMode)")
-        displayMode = newMode
-      }
-      print("🔄 Refresh: Final displayMode = \(displayMode)")
-    } else {
-      displayMode = .final
-    }
+    // Store the current display mode before any changes
+    let previousDisplayMode = displayMode
+    print("🔄 Refresh: Previous displayMode = \(previousDisplayMode)")
 
     // Update toggle positioning based on budget status
     updateTogglePositioning(with: data)
@@ -1115,22 +1136,10 @@ class MonthBudgetCard: UIView {
           "🔄 Refresh: slider.superview = \(slider.superview != nil), slider.isHidden = \(slider.isHidden)"
         )
 
-        // Always reconfigure the slider to ensure current day indicator is updated
-        // This is especially important for the current month where the current day changes
-        if isCurrentMonth() {
-          print(
-            "🔄 Refresh: Reconfiguring day slider for current month to update current day indicator")
-          setupDaySliderForMonth(data: data)
-        } else {
-          print("🔄 Refresh: Preserving day slider state for non-current month")
-          // For non-current months, just update the data without reconfiguring
-          currentMonthData = data
-          // Update the display mode for the current day
-          displayMode = UserDefaultsManager.getBalanceDisplayMode()
-          // Ensure the slider is visible
-          slider.isHidden = false
-          isDaySliderVisible = true
-        }
+        // Always reconfigure the slider to ensure correct day indicator and day count
+        // This is important for all months to ensure correct state
+        print("🔄 Refresh: Reconfiguring day slider for month: \(data.month)")
+        setupDaySliderForMonth(data: data)
         print("🔄 Refresh: After preservation - isDaySliderVisible = \(isDaySliderVisible)")
       } else {
         print("🔄 Refresh: Setting up day slider for first time")
@@ -1143,6 +1152,75 @@ class MonthBudgetCard: UIView {
       print("🔄 Refresh: Budget limit is nil or 0, hiding day slider")
       hideDaySlider()
     }
+
+    // Calculate the correct day for this month
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = TimeZone.current
+    let today = Date()
+    let monthDate = data.date
+
+    print("🔍 Refresh: Starting day calculation for month=\(data.month), monthDate=\(monthDate)")
+
+    // Calculate total days in month
+    let totalDaysInMonth: Int
+    if let range = calendar.range(of: .day, in: .month, for: monthDate) {
+      totalDaysInMonth = range.count
+      print(
+        "🔍 Refresh: month=\(data.month), monthDate=\(monthDate), range=\(range), totalDaysInMonth=\(totalDaysInMonth)"
+      )
+    } else {
+      totalDaysInMonth = 31  // fallback
+      print("🔍 Refresh: month=\(data.month), monthDate=\(monthDate), using fallback 31 days")
+    }
+
+    // Calculate the correct day for this month
+    let isCurrent = isCurrentMonth()
+    let correctDay: Int
+    if isCurrent {
+      correctDay = calendar.component(.day, from: today)
+      print("🔄 Refresh: month=\(data.month) is CURRENT, using today's day=\(correctDay)")
+    } else {
+      correctDay = totalDaysInMonth
+      print("🔄 Refresh: month=\(data.month) is NOT current, using last day=\(correctDay)")
+    }
+
+    print(
+      "🔄 Refresh: month=\(data.month), correctDay=\(correctDay), totalDaysInMonth=\(totalDaysInMonth), isCurrent=\(isCurrent)"
+    )
+
+    // Update currentSelectedDay to match the correct day for this month
+    currentSelectedDay = correctDay
+
+    // Set display mode based on month type and day slider state
+    if isCurrentMonth() {
+      print("🔄 Refresh: Current month - setting display mode")
+      // For current month, use day-specific mode if day slider is configured
+      if let slider = daySlider, isDaySliderVisible, slider.hasDayIndicators() {
+        // Set to day-specific mode with the correct day for this month
+        displayMode = .daySpecific(day: correctDay)
+        print(
+          "🔄 Refresh: Setting displayMode to .daySpecific(day: \(correctDay)) for current month"
+        )
+      } else {
+        let newMode = UserDefaultsManager.getBalanceDisplayMode()
+        print("🔄 Refresh: Setting displayMode to \(newMode) for current month")
+        displayMode = newMode
+      }
+    } else {
+      print("🔄 Refresh: Non-current month - setting display mode")
+      // For non-current months, use day-specific mode if day slider is configured
+      if let slider = daySlider, isDaySliderVisible, slider.hasDayIndicators() {
+        // Set to day-specific mode with the correct day for this month
+        displayMode = .daySpecific(day: correctDay)
+        print(
+          "🔄 Refresh: Setting displayMode to .daySpecific(day: \(correctDay)) for non-current month"
+        )
+      } else {
+        displayMode = .final
+        print("🔄 Refresh: Setting displayMode to .final for non-current month")
+      }
+    }
+    print("🔄 Refresh: Final displayMode = \(displayMode)")
 
     // Update available budget display first
     updateAvailableBudgetDisplay()
@@ -1226,11 +1304,19 @@ class MonthBudgetCard: UIView {
     switch displayMode {
     case .final:
       // Use day-specific format for final balance (last day of month)
-      let lastDay = Calendar.current.range(of: .day, in: .month, for: Date())?.upperBound ?? 31
-      textKey = formatBalanceOnDayString(for: lastDay - 1)
+      var calendar = Calendar(identifier: .gregorian)
+      calendar.timeZone = TimeZone.current
+      let monthDate = currentMonthData?.date ?? Date()
+      let lastDay = calendar.range(of: .day, in: .month, for: monthDate)?.upperBound ?? 31
+      textKey = formatBalanceOnDayString(for: lastDay)
+      print(
+        "🔍 Balance Text: displayMode=final, monthDate=\(monthDate), lastDay=\(lastDay), textKey=\(textKey)"
+      )
     case .current:
       // Use day-specific format for current balance (today)
-      let today = Calendar.current.component(.day, from: Date())
+      var calendar = Calendar(identifier: .gregorian)
+      calendar.timeZone = TimeZone.current
+      let today = calendar.component(.day, from: Date())
       textKey = formatBalanceOnDayString(for: today)
     case .daySpecific(let day):
       textKey = formatBalanceOnDayString(for: day)

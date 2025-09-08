@@ -78,9 +78,45 @@ final class TransactionLedgerService {
     var previousAvailable = 0
 
     let monthlyData = anchors.map { anchor in
-      let date = Date(timeIntervalSince1970: TimeInterval(anchor))
+      // Reconstruct date using the same method as monthAnchor calculation
+      // This ensures timezone consistency
+      var calendar = Calendar(identifier: .gregorian)
+      calendar.timeZone = TimeZone.current
+
+      // Convert anchor back to date components
+      // The anchor is the timestamp of the first day of the month
+      let anchorDate = Date(timeIntervalSince1970: TimeInterval(anchor))
+      let components = calendar.dateComponents([.year, .month], from: anchorDate)
+
+      print(
+        "🔍 TransactionLedgerService: anchor=\(anchor), anchorDate=\(anchorDate), components=\(components)"
+      )
+
+      // Create a proper date in the user's timezone
+      guard let date = calendar.date(from: components) else {
+        print("❌ Failed to reconstruct date from anchor: \(anchor), components: \(components)")
+        // Return a fallback date if reconstruction fails
+        let fallbackDate = Date(timeIntervalSince1970: TimeInterval(anchor))
+        return MonthBudgetCardType(
+          date: fallbackDate,
+          month: "Unknown",
+          usedValue: 0,
+          budgetLimit: nil,
+          finalBalance: 0,
+          currentBalance: 0,
+          previousBalance: 0
+        )
+      }
+
       let month = DateFormatter.monthFormatter.string(from: date)
       let localizedMonth = "month.\(month.lowercased())".localized
+
+      // Debug logging
+      print("🔍 TransactionLedgerService: Month=\(localizedMonth), Date=\(date)")
+      let testRange = calendar.range(of: .day, in: .month, for: date)
+      print(
+        "🔍 TransactionLedgerService: Range=\(String(describing: testRange)), Days=\((testRange?.upperBound ?? 0) - (testRange?.lowerBound ?? 0))"
+      )
 
       // Get transactions for this month using DYNAMIC month anchor calculation
       // This fixes the timezone issue by calculating month anchors on-the-fly

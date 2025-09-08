@@ -152,6 +152,9 @@ class DaySlider: UIView {
 
   // MARK: - Configuration
   func configure(currentDay: Int, totalDaysInMonth: Int, currentMonthDay: Int) {
+    print(
+      "🔍 DaySlider: configure called with currentDay=\(currentDay), totalDaysInMonth=\(totalDaysInMonth), currentMonthDay=\(currentMonthDay)"
+    )
     self.currentDay = currentDay
     self.totalDaysInMonth = totalDaysInMonth
     self.currentMonthDay = currentMonthDay
@@ -164,6 +167,7 @@ class DaySlider: UIView {
     updateTooltip()
 
     // Interaction will be re-enabled when day indicators are ready
+    print("🔍 DaySlider: configure completed, dayIndicatorViews.count=\(dayIndicatorViews.count)")
   }
 
   // MARK: - Gesture Handlers
@@ -239,8 +243,8 @@ class DaySlider: UIView {
   }
 
   private func snapToValidDay(_ day: Int) -> Int {
-    // Snap to current day if within reasonable range
-    if abs(day - currentMonthDay) <= 2 {
+    // Snap to current day if within reasonable range (only for current month)
+    if currentMonthDay > 0 && abs(day - currentMonthDay) <= 2 {
       return currentMonthDay
     }
 
@@ -333,7 +337,8 @@ class DaySlider: UIView {
       indicator.backgroundColor = Colors.mainMagenta
       indicator.alpha = 1.0
       indicator.transform = CGAffineTransform(scaleX: 1.5, y: 1.5)
-    } else if day == currentMonthDay {
+    } else if day == currentMonthDay && currentMonthDay > 0 {
+      // Only show current day indicator for current month (currentMonthDay > 0)
       indicator.backgroundColor = Colors.gray100
       indicator.alpha = 1.0
       indicator.transform = .identity
@@ -360,7 +365,8 @@ class DaySlider: UIView {
         indicator.backgroundColor = Colors.mainMagenta
         indicator.alpha = 1.0
         indicator.transform = CGAffineTransform(scaleX: 1.5, y: 1.5)
-      } else if day == currentMonthDay {
+      } else if day == currentMonthDay && currentMonthDay > 0 {
+        // Only show current day indicator for current month (currentMonthDay > 0)
         indicator.backgroundColor = Colors.gray100
         indicator.alpha = 1.0
         indicator.transform = .identity
@@ -380,8 +386,8 @@ class DaySlider: UIView {
       lastHapticDay = day
     }
 
-    // Stronger haptic feedback for current day
-    if day == currentMonthDay && day != lastCurrentDayHaptic {
+    // Stronger haptic feedback for current day (only for current month)
+    if currentMonthDay > 0 && day == currentMonthDay && day != lastCurrentDayHaptic {
       let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
       impactFeedback.impactOccurred()
       lastCurrentDayHaptic = day
