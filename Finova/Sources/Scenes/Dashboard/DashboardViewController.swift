@@ -21,6 +21,8 @@ final class DashboardViewController: UIViewController {
   private var transactionsByMonth: [Int: [Transaction]] = [:]
   private var isInitialLoadComplete = false
   private var isDeletionInProgress = false
+  private let updateToastContainer = UpdateToastContainer()
+  private let updateToastManager = UpdateToastManager.shared
 
   private var currentCell: MonthCarouselCell?
   weak var flowDelegate: DashboardFlowDelegate?
@@ -54,6 +56,11 @@ final class DashboardViewController: UIViewController {
     setupCollectionViews()
     syncedViewModel.selectMonth(at: todayMonthIndex, animated: false)
     contentView.frame = view.bounds
+    setupUpdateToast()
+
+    #if DEBUG
+      setupDebugGesture()
+    #endif
 
     // Verificar e agendar notificações automaticamente
     checkAndScheduleNotificationsIfNeeded()
@@ -405,6 +412,66 @@ final class DashboardViewController: UIViewController {
       object: nil
     )
   }
+
+  private func setupUpdateToast() {
+    updateToastManager.delegate = self
+    updateToastContainer.translatesAutoresizingMaskIntoConstraints = false
+
+    view.addSubview(updateToastContainer)
+    NSLayoutConstraint.activate([
+      updateToastContainer.topAnchor.constraint(equalTo: view.topAnchor),
+      updateToastContainer.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+      updateToastContainer.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+      updateToastContainer.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+    ])
+
+    #if DEBUG
+      // Reset testing state to ensure clean test
+      updateToastManager.resetTestingState()
+
+      // Set mock version for testing
+      updateToastManager.setMockLatestVersion("2.0.0")
+      print("🧪 Mock version set to 2.0.0")
+    #endif
+
+    // Show toast with delay after dashboard loads (both debug and release)
+    DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+      print("🧪 About to check if toast should be shown...")
+      self.showUpdateToast()
+    }
+  }
+
+  private func showUpdateToast() {
+    // Check if toast should be shown based on version logic
+    let shouldShow = updateToastManager.shouldShowUpdateToast()
+    print("🧪 shouldShowUpdateToast returned: \(shouldShow)")
+
+    if shouldShow {
+      print("🧪 Showing update toast...")
+      updateToastContainer.showUpdateToast(delegate: self)
+    } else {
+      print("📱 Update toast not shown - conditions not met")
+    }
+  }
+
+  private func hideUpdateToast() {
+    updateToastContainer.hideUpdateToast { [weak self] in
+      self?.updateToastManager.markToastAsDismissed()
+    }
+  }
+
+  #if DEBUG
+    private func setupDebugGesture() {
+      let tripleTapGesture = UITapGestureRecognizer(
+        target: self, action: #selector(handleTripleTap))
+      tripleTapGesture.numberOfTapsRequired = 3
+      view.addGestureRecognizer(tripleTapGesture)
+    }
+
+    @objc private func handleTripleTap() {
+      UpdateToastDebugManager.shared.showDebugMenu(from: self)
+    }
+  #endif
 
   @objc private func handleTransactionDataChanged() {
     print("🔄 Transaction data changed, invalidating ledger cache...")
@@ -2122,5 +2189,29 @@ extension DashboardViewController {
       print("ℹ️ No transactions found in SQLite to recover")
     }
   }
+}
 
+// MARK: - UpdateToastManagerDelegate
+extension DashboardViewController: UpdateToastManagerDelegate {
+  func updateToastManager(_ manager: UpdateToastManager, shouldShowToast: Bool) {
+    if shouldShowToast {
+      showUpdateToast()
+    }
+  }
+
+  func updateToastManager(_ manager: UpdateToastManager, didDismissToast: Bool) {
+    // Handle toast dismissal if needed
+  }
+}
+
+// MARK: - UpdateToastViewDelegate
+extension DashboardViewController: UpdateToastViewDelegate {
+  func updateToastViewDidTapUpdate(_ toastView: UpdateToastView) {
+    updateToastManager.openAppStore()
+    hideUpdateToast()
+  }
+
+  func updateToastViewDidTapDismiss(_ toastView: UpdateToastView) {
+    hideUpdateToast()
+  }
 }
