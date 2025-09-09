@@ -16,6 +16,9 @@ final class AddTransactionModalViewController: UIViewController {
   // Height constraint for dynamic modal sizing
   private var heightConstraint: NSLayoutConstraint?
 
+  // Track if we're in edit mode for keyboard handling
+  private var isEditMode = false
+
   init(
     contentView: AddTransactionModalView, flowDelegate: AddTransactionModalFlowDelegate,
     viewModel: AddTransactionModalViewModel
@@ -64,6 +67,7 @@ final class AddTransactionModalViewController: UIViewController {
   }
 
   private func configureForEdit(with transaction: Transaction) {
+    isEditMode = true
     contentView.configureForEdit(with: transaction)
 
     // For installment transactions, set the total amount instead of individual amount
@@ -103,7 +107,17 @@ final class AddTransactionModalViewController: UIViewController {
 
   override func viewWillAppear(_ animated: Bool) {
     super.viewWillAppear(animated)
-    startKeyboardObservers()
+    startCustomKeyboardObservers()
+  }
+
+  override func viewWillDisappear(_ animated: Bool) {
+    super.viewWillDisappear(animated)
+    stopKeyboardObservers()
+  }
+
+  override func viewDidLayoutSubviews() {
+    super.viewDidLayoutSubviews()
+    print("🔍 KEYBOARD: viewDidLayoutSubviews - contentView frame: \(contentView.frame)")
   }
 
   private func setupView() {
@@ -313,5 +327,85 @@ extension AddTransactionModalViewController: AddTransactionModalViewDelegate,
 
   func closeModal() {
     dismissModal()
+  }
+
+  // MARK: - Custom Keyboard Handling
+  private func startCustomKeyboardObservers() {
+    print("🔍 KEYBOARD: Setting up keyboard observers, isEditMode: \(isEditMode)")
+    NotificationCenter.default.addObserver(
+      self,
+      selector: #selector(modalKeyboardWillShow(notification:)),
+      name: UIResponder.keyboardWillShowNotification,
+      object: nil
+    )
+    NotificationCenter.default.addObserver(
+      self,
+      selector: #selector(modalKeyboardWillHide(notification:)),
+      name: UIResponder.keyboardWillHideNotification,
+      object: nil
+    )
+  }
+
+  private func stopKeyboardObservers() {
+    NotificationCenter.default.removeObserver(
+      self, name: UIResponder.keyboardWillShowNotification, object: nil)
+    NotificationCenter.default.removeObserver(
+      self, name: UIResponder.keyboardWillHideNotification, object: nil)
+  }
+
+  @objc private func modalKeyboardWillShow(notification: Notification) {
+    print("🔍 KEYBOARD: modalKeyboardWillShow called, isEditMode: \(isEditMode)")
+
+    guard
+      let keyboardFrame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey]
+        as? CGRect,
+      let animationDuration = notification.userInfo?[
+        UIResponder.keyboardAnimationDurationUserInfoKey] as? Double
+    else {
+      print("🔍 KEYBOARD: Failed to get keyboard frame or animation duration")
+      return
+    }
+
+    // Calculate the available space above the keyboard
+    let keyboardHeight = keyboardFrame.height
+    let viewHeight = view.frame.height
+    let keyboardTopY = viewHeight - keyboardHeight
+
+    // Get the modal's current position and height
+    let modalHeight = contentView.frame.height
+    let modalTopY = contentView.frame.minY
+    let modalBottomY = contentView.frame.maxY
+
+    print("🔍 KEYBOARD: keyboardHeight: \(keyboardHeight), viewHeight: \(viewHeight)")
+    print(
+      "🔍 KEYBOARD: keyboardTopY: \(keyboardTopY), modalTopY: \(modalTopY), modalBottomY: \(modalBottomY)"
+    )
+
+    // Check if the modal is being covered by the keyboard
+    if modalBottomY > keyboardTopY {
+      // Modal is being covered - calculate how much to shift up
+      let overlap = modalBottomY - keyboardTopY
+      // Shift by more of the overlap to ensure keyboard clearance
+      let shiftAmount = min(overlap * 0.7, 200)  // Max 200px shift, or 70% of overlap
+
+      print("🔍 KEYBOARD: Modal is covered by keyboard, shifting up by: \(shiftAmount)")
+
+      UIView.animate(withDuration: animationDuration, delay: 0, options: [.curveEaseInOut]) {
+        self.contentView.transform = CGAffineTransform(translationX: 0, y: -shiftAmount)
+      }
+    } else {
+      print("🔍 KEYBOARD: Modal is not covered by keyboard")
+    }
+  }
+
+  @objc private func modalKeyboardWillHide(notification: Notification) {
+    guard
+      let animationDuration = notification.userInfo?[
+        UIResponder.keyboardAnimationDurationUserInfoKey] as? Double
+    else { return }
+
+    UIView.animate(withDuration: animationDuration, delay: 0, options: [.curveEaseInOut]) {
+      self.contentView.transform = .identity
+    }
   }
 }
