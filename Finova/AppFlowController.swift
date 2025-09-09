@@ -39,8 +39,7 @@ class AppFlowController {
 
   /// Handles app foreground refresh notification
   @objc private func handleAppDidEnterForeground() {
-    print("🔄 AppFlowController: Handling app foreground refresh")
-    print("🔄 AppFlowController: Refresh triggered at: \(Date())")
+    logDebug("AppFlowController: Handling app foreground refresh")
 
     // Refresh the current visible view controller if it's the dashboard
     refreshCurrentViewControllerIfNeeded()
@@ -49,7 +48,7 @@ class AppFlowController {
   /// Refreshes the current view controller if it supports refresh
   private func refreshCurrentViewControllerIfNeeded() {
     guard let navigationController = navigationController else {
-      print("🔄 AppFlowController: No navigation controller available for refresh")
+      logWarning("AppFlowController: No navigation controller available for refresh")
       return
     }
 
@@ -57,10 +56,10 @@ class AppFlowController {
     if let dashboardViewController = navigationController.topViewController
       as? DashboardViewController
     {
-      print("🔄 AppFlowController: Refreshing dashboard on foreground with animation")
+      logDebug("AppFlowController: Refreshing dashboard on foreground with animation")
       dashboardViewController.refreshOnForegroundWithAnimation()
     } else {
-      print("🔄 AppFlowController: Current view controller doesn't support refresh")
+      logDebug("AppFlowController: Current view controller doesn't support refresh")
     }
   }
 

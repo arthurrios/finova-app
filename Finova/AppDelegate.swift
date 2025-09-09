@@ -17,32 +17,36 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
+    // Only perform essential synchronous operations on main thread
     configureFirebase()
     registerForNotifications()
 
-    // 🧹 Perform one-time cleanup of global SQLite data
-    DataCleanupManager.shared.performGlobalDataCleanup()
+    // Move heavy operations to background thread for better performance
+    DispatchQueue.global(qos: .background).async { [weak self] in
+      // 🧹 Perform one-time cleanup of global SQLite data
+      DataCleanupManager.shared.performGlobalDataCleanup()
 
-    // 🔄 Perform one-time migrations (including global profile image cleanup)
-    OneTimeMigrations.shared.performAllMigrations()
+      // 🔄 Perform one-time migrations (including global profile image cleanup)
+      OneTimeMigrations.shared.performAllMigrations()
 
-    // 🔔 Setup monthly notification system
-    setupMonthlyNotificationSystem()
+      // 🔔 Setup monthly notification system
+      self?.setupMonthlyNotificationSystem()
 
-    // 🔔 Check if this is first time opening app in new month and schedule notifications
-    checkAndScheduleMonthlyNotificationsOnFirstLaunch()
+      // 🔔 Check if this is first time opening app in new month and schedule notifications
+      self?.checkAndScheduleMonthlyNotificationsOnFirstLaunch()
 
-    #if DEBUG
-      // 🧪 Debug: Show data status on app launch
-      DebugDataManager.shared.showDataStatus()
-    #endif
+      #if DEBUG
+        // 🧪 Debug: Show data status on app launch (only in debug mode)
+        DebugDataManager.shared.showDataStatus()
+      #endif
+    }
 
     return true
   }
 
   func applicationWillEnterForeground(_ application: UIApplication) {
     // Called as part of the transition from the background to the active state; here you can undo many of the changes made on entering the background.
-    print("🔄 App will enter foreground")
+    logInfo("App will enter foreground")
 
     // Reagendar notificações para transações próximas
     rescheduleNearbyNotifications()
@@ -84,46 +88,46 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
 
   private func configureFirebase() {
     guard let path = Bundle.main.path(forResource: "GoogleService-Info", ofType: "plist") else {
-      print(
-        "⚠️ GoogleService-Info.plist not found - Firebase configuration skipped (likely in test environment)"
+      logWarning(
+        "GoogleService-Info.plist not found - Firebase configuration skipped (likely in test environment)"
       )
       return
     }
 
     if FileManager.default.fileExists(atPath: path) {
-      print("🔥 Configuring Firebase...")
+      logInfo("Configuring Firebase...")
       FirebaseApp.configure()
-      print("✅ Firebase configured successfully")
+      logInfo("Firebase configured successfully")
 
       // Verify Firebase is working
       if let app = FirebaseApp.app() {
-        print("✅ Firebase app instance: \(app)")
-        print("✅ Firebase project ID: \(app.options.projectID ?? "Unknown")")
+        logDebug("Firebase app instance: \(app)")
+        logDebug("Firebase project ID: \(app.options.projectID ?? "Unknown")")
       } else {
-        print("❌ Firebase app instance is nil!")
+        logError("Firebase app instance is nil!")
       }
 
       // Test Auth instance
       let auth = Auth.auth()
-      print("✅ Firebase Auth instance: \(auth)")
+      logDebug("Firebase Auth instance: \(auth)")
 
       // Configure Google Sign-In
       guard let plist = NSDictionary(contentsOfFile: path),
         let clientId = plist["CLIENT_ID"] as? String
       else {
-        print("⚠️ CLIENT_ID not found in GoogleService-Info.plist")
+        logWarning("CLIENT_ID not found in GoogleService-Info.plist")
         return
       }
 
-      print("🔑 CLIENT_ID: \(clientId)")
+      logDebug("CLIENT_ID: \(clientId)")
       GIDSignIn.sharedInstance.configuration = GIDConfiguration(clientID: clientId)
-      print("✅ Google Sign-In configured successfully")
+      logInfo("Google Sign-In configured successfully")
 
       #if DEBUG
         // AuthTestHelper.testAuthenticationFlow()
       #endif
     } else {
-      print("⚠️ GoogleService-Info.plist file not accessible - Firebase configuration skipped")
+      logWarning("GoogleService-Info.plist file not accessible - Firebase configuration skipped")
     }
   }
 

@@ -871,4 +871,52 @@ class DBHelper {
       throw DBError.stepFailed(message: msg)
     }
   }
+
+  // MARK: - Batch Operations for Performance
+
+  /// Deletes all transactions from the database (for cleanup operations)
+  func deleteAllTransactions() throws {
+    guard isInitialized else {
+      logWarning("Database not initialized, skipping batch transaction delete")
+      return
+    }
+
+    let deleteQuery = "DELETE FROM Transactions;"
+    var statement: OpaquePointer?
+
+    guard sqlite3_prepare_v2(db, deleteQuery, -1, &statement, nil) == SQLITE_OK else {
+      let msg = String(cString: sqlite3_errmsg(db))
+      throw DBError.prepareFailed(message: msg)
+    }
+
+    defer { sqlite3_finalize(statement) }
+
+    guard sqlite3_step(statement) == SQLITE_DONE else {
+      let msg = String(cString: sqlite3_errmsg(db))
+      throw DBError.stepFailed(message: msg)
+    }
+  }
+
+  /// Deletes all budgets from the database (for cleanup operations)
+  func deleteAllBudgets() throws {
+    guard isInitialized else {
+      logWarning("Database not initialized, skipping batch budget delete")
+      return
+    }
+
+    let deleteQuery = "DELETE FROM Budgets;"
+    var statement: OpaquePointer?
+
+    guard sqlite3_prepare_v2(db, deleteQuery, -1, &statement, nil) == SQLITE_OK else {
+      let msg = String(cString: sqlite3_errmsg(db))
+      throw DBError.prepareFailed(message: msg)
+    }
+
+    defer { sqlite3_finalize(statement) }
+
+    guard sqlite3_step(statement) == SQLITE_DONE else {
+      let msg = String(cString: sqlite3_errmsg(db))
+      throw DBError.stepFailed(message: msg)
+    }
+  }
 }

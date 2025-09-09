@@ -16,12 +16,12 @@ class OneTimeMigrations {
 
   /// Performs all necessary one-time migrations
   func performAllMigrations() {
-    print("🔄 Checking for one-time migrations...")
+    logInfo("Checking for one-time migrations...")
 
     // Migration 1: Remove global profile images (v1.0.0)
     migrateGlobalProfileImages()
 
-    print("✅ One-time migrations completed")
+    logInfo("One-time migrations completed")
   }
 
   // MARK: - Individual Migrations
@@ -30,7 +30,7 @@ class OneTimeMigrations {
     let migrationKey = "migration_global_profile_images_removed_v1.0.0"
 
     if !UserDefaults.standard.bool(forKey: migrationKey) {
-      print("🔄 Performing one-time global profile image cleanup...")
+      logInfo("Performing one-time global profile image cleanup...")
 
       // Remove all possible global profile image storage
       ProfileImageCleanup.shared.clearAllGlobalProfileImages()
@@ -39,9 +39,9 @@ class OneTimeMigrations {
       UserDefaults.standard.set(true, forKey: migrationKey)
       UserDefaults.standard.synchronize()
 
-      print("✅ Global profile image cleanup migration completed")
+      logInfo("Global profile image cleanup migration completed")
     } else {
-      print("ℹ️ Global profile image cleanup already performed")
+      logDebug("Global profile image cleanup already performed")
     }
   }
 }

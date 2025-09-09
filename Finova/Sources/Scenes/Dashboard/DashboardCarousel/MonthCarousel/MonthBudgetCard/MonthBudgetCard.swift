@@ -373,9 +373,7 @@ class MonthBudgetCard: UIView {
   }
 
   private func updateAvailableBudgetDisplay() {
-    print("🔄 updateAvailableBudgetDisplay called with displayMode = \(displayMode)")
-    print("🔄 updateAvailableBudgetDisplay: isCurrentMonth = \(isCurrentMonth())")
-    print("🔄 Stack trace: \(Thread.callStackSymbols.prefix(5).joined(separator: "\n"))")
+    logDebug("updateAvailableBudgetDisplay called with displayMode = \(displayMode)")
     guard let data = currentMonthData else { return }
 
     if data.budgetLimit != nil && data.budgetLimit! > 0 {
@@ -397,7 +395,6 @@ class MonthBudgetCard: UIView {
         calendar.timeZone = TimeZone.current
         let lastDay = calendar.range(of: .day, in: .month, for: data.date)?.upperBound ?? 31
         textKey = formatBalanceOnDayString(for: lastDay)
-        print("🔄 Using final balance mode")
 
       case .current:
         displayValue = data.currentBalance ?? (data.previousBalance ?? 0)
@@ -406,12 +403,10 @@ class MonthBudgetCard: UIView {
         calendar.timeZone = TimeZone.current
         let today = calendar.component(.day, from: Date())
         textKey = formatBalanceOnDayString(for: today)
-        print("🔄 Using current balance mode")
 
       case .daySpecific(let day):
         displayValue = calculateBalanceForDay(day)
         textKey = formatBalanceOnDayString(for: day)
-        print("🔄 Using day-specific mode for day \(day)")
       }
 
       // Use animated SwiftUI view for all months
@@ -425,10 +420,7 @@ class MonthBudgetCard: UIView {
         setupOrUpdateAnimatedNumber(value: displayValue)
       }
 
-      print("🔄 Setting text label to: \(textKey.localized)")
-      print("🔄 Current text label value before: '\(availableBudgetTextLabel.text ?? "nil")'")
       availableBudgetTextLabel.text = textKey.localized
-      print("🔄 Current text label value after: '\(availableBudgetTextLabel.text ?? "nil")'")
 
       if !availableBudgetStackView.arrangedSubviews.contains(
         availableBudgetValueWithToggleContainer)
@@ -792,7 +784,6 @@ class MonthBudgetCard: UIView {
         calendar.timeZone = TimeZone.current
         let lastDay = calendar.range(of: .day, in: .month, for: data.date)?.upperBound ?? 31
         textKey = formatBalanceOnDayString(for: lastDay)
-        print("🔄 Using final balance mode")
 
       case .current:
         displayValue = data.currentBalance ?? (data.previousBalance ?? 0)
@@ -801,18 +792,13 @@ class MonthBudgetCard: UIView {
         calendar.timeZone = TimeZone.current
         let today = calendar.component(.day, from: Date())
         textKey = formatBalanceOnDayString(for: today)
-        print("🔄 Using current balance mode")
 
       case .daySpecific(let day):
         displayValue = calculateBalanceForDay(day)
         textKey = formatBalanceOnDayString(for: day)
-        print("🔄 Using day-specific mode for day \(day)")
       }
 
-      print("🔄 Setting text label to: \(textKey.localized)")
-      print("🔄 Current text label value before: '\(availableBudgetTextLabel.text ?? "nil")'")
       availableBudgetTextLabel.text = textKey.localized
-      print("🔄 Current text label value after: '\(availableBudgetTextLabel.text ?? "nil")'")
 
       // Use animated SwiftUI view for all months
       if isValuesHidden {
@@ -946,9 +932,9 @@ class MonthBudgetCard: UIView {
 
   /// Recalculates the current day for the day slider when dashboard appears in foreground
   func recalculateCurrentDay(animated: Bool = false) {
-    print("📅 recalculateCurrentDay called with animated: \(animated)")
+    logDebug("recalculateCurrentDay called with animated: \(animated)")
     guard let data = currentMonthData, isCurrentMonth() else {
-      print("📅 recalculateCurrentDay: No data or not current month")
+      logDebug("recalculateCurrentDay: No data or not current month")
       return
     }
 
@@ -974,11 +960,8 @@ class MonthBudgetCard: UIView {
       let shouldAnimate = animated
       let dayChanged = currentSelectedDay != currentDay
 
-      print("📅 recalculateCurrentDay: shouldAnimate=\(shouldAnimate), dayChanged=\(dayChanged)")
-
       // Check if day indicators are already set up
       if slider.hasDayIndicators() {
-        print("📅 recalculateCurrentDay: Day indicators already exist, preserving them")
         // Day indicators already exist, just update the current day without reconfiguring
         currentSelectedDay = currentDay
 
@@ -989,14 +972,11 @@ class MonthBudgetCard: UIView {
         if shouldAnimate {
           if dayChanged {
             slider.setDay(currentDay, animated: true)
-            print("📅 Day slider animated to current day: \(currentDay)")
           } else {
             // Day hasn't changed, but we want to show refresh animation
             slider.animateForegroundRefresh()
-            print("📅 Day slider foreground refresh animation triggered")
           }
         } else {
-          print("📅 Day slider updated to current day: \(currentDay)")
         }
       } else {
         print("📅 recalculateCurrentDay: Day indicators not set up, configuring")
@@ -1033,9 +1013,9 @@ class MonthBudgetCard: UIView {
   }
 
   private func calculateBalanceForDay(_ day: Int) -> Int {
-    print("🔄 calculateBalanceForDay called with day: \(day)")
+    logDebug("calculateBalanceForDay called with day: \(day)")
     guard let data = currentMonthData else {
-      print("🔄 calculateBalanceForDay: No currentMonthData, returning 0")
+      logDebug("calculateBalanceForDay: No currentMonthData, returning 0")
       return 0
     }
 
@@ -1081,8 +1061,7 @@ class MonthBudgetCard: UIView {
 
   /// Refreshes the card data with smooth animations
   func refresh(with data: MonthBudgetCardType) {
-    print("🔄 refresh called with budgetLimit: \(data.budgetLimit ?? 0)")
-    print("🔄 refresh: isDaySliderVisible before = \(isDaySliderVisible)")
+    logDebug("refresh called with budgetLimit: \(data.budgetLimit ?? 0)")
     currentMonthData = data
     budgetDate = data.date
 
@@ -1104,7 +1083,6 @@ class MonthBudgetCard: UIView {
 
     // Store the current display mode before any changes
     let previousDisplayMode = displayMode
-    print("🔄 Refresh: Previous displayMode = \(previousDisplayMode)")
 
     // Update toggle positioning based on budget status
     updateTogglePositioning(with: data)
@@ -1114,31 +1092,17 @@ class MonthBudgetCard: UIView {
 
     // Setup day slider only if budget is set
     if data.budgetLimit != nil && data.budgetLimit! > 0 {
-      print(
-        "🔄 Refresh: Budget limit is \(data.budgetLimit!), isDaySliderVisible: \(isDaySliderVisible)"
-      )
 
       // Check if day slider exists and is configured (not just visible in view hierarchy)
       if let slider = daySlider, slider.superview != nil {
-        print("🔄 Refresh: Day slider exists and is configured")
-        print(
-          "🔄 Refresh: slider.superview = \(slider.superview != nil), slider.isHidden = \(slider.isHidden)"
-        )
 
         // Always reconfigure the slider to ensure correct day indicator and day count
         // This is important for all months to ensure correct state
-        print("🔄 Refresh: Reconfiguring day slider for month: \(data.month)")
         setupDaySliderForMonth(data: data)
-        print("🔄 Refresh: After preservation - isDaySliderVisible = \(isDaySliderVisible)")
       } else {
-        print("🔄 Refresh: Setting up day slider for first time")
-        print(
-          "🔄 Refresh: daySlider exists = \(daySlider != nil), superview = \(daySlider?.superview != nil)"
-        )
         setupDaySliderForMonth(data: data)
       }
     } else {
-      print("🔄 Refresh: Budget limit is nil or 0, hiding day slider")
       hideDaySlider()
     }
 

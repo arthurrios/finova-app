@@ -52,7 +52,7 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
   func sceneWillEnterForeground(_ scene: UIScene) {
     // Called as the scene transitions from the background to the foreground.
     // Use this method to undo the changes made on entering the background.
-    print("🔄 Scene will enter foreground - triggering app refresh")
+    logInfo("Scene will enter foreground - triggering app refresh")
     triggerAppRefresh()
   }
 
@@ -66,8 +66,7 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
 
   /// Triggers a comprehensive app refresh when the app comes into the foreground
   private func triggerAppRefresh() {
-    print("🔄 Starting comprehensive app refresh...")
-    print("🔄 App refresh triggered at: \(Date())")
+    logInfo("Starting comprehensive app refresh...")
 
     // Add a small delay to ensure the app is fully loaded and ready
     DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
@@ -82,7 +81,7 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
   /// Refreshes the dashboard if it's currently the top view controller
   private func refreshDashboardIfVisible() {
     guard let navigationController = window?.rootViewController as? UINavigationController else {
-      print("🔄 No navigation controller found for refresh")
+      logWarning("No navigation controller found for refresh")
       return
     }
 
@@ -90,16 +89,16 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     if let dashboardViewController = navigationController.topViewController
       as? DashboardViewController
     {
-      print("🔄 Dashboard is visible - triggering refresh with animation")
+      logDebug("Dashboard is visible - triggering refresh with animation")
       dashboardViewController.refreshOnForegroundWithAnimation()
     } else {
-      print("🔄 Dashboard not visible - skipping dashboard refresh")
+      logDebug("Dashboard not visible - skipping dashboard refresh")
     }
   }
 
   /// Performs app-wide refresh operations
   private func performAppWideRefresh() {
-    print("🔄 Performing app-wide refresh operations...")
+    logDebug("Performing app-wide refresh operations...")
 
     // Post a notification that the app has entered foreground
     // This can be used by other parts of the app that need to refresh

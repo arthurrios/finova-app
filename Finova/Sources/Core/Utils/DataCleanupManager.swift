@@ -21,11 +21,11 @@ class DataCleanupManager {
 
     // Check if cleanup already performed
     if UserDefaults.standard.bool(forKey: cleanupKey) {
-      print("✅ Global SQLite cleanup already completed")
+      logInfo("Global SQLite cleanup already completed")
       return
     }
 
-    print("🧹 Starting global SQLite data cleanup...")
+    logInfo("Starting global SQLite data cleanup...")
 
     // Clear all global SQLite transactions
     clearGlobalTransactions()
@@ -37,26 +37,24 @@ class DataCleanupManager {
     UserDefaults.standard.set(true, forKey: cleanupKey)
     UserDefaults.standard.synchronize()
 
-    print("✅ Global SQLite data cleanup completed")
+    logInfo("Global SQLite data cleanup completed")
   }
 
   /// Clear all transactions from global SQLite database
   private func clearGlobalTransactions() {
     do {
-      let transactionRepo = TransactionRepository()
       let allTransactions = try DBHelper.shared.getTransactions()
 
-      print("🗑️ Clearing \(allTransactions.count) global transactions from SQLite...")
+      if !allTransactions.isEmpty {
+        logInfo("Clearing \(allTransactions.count) global transactions from SQLite...")
 
-      for transaction in allTransactions {
-        if let id = transaction.id {
-          try DBHelper.shared.deleteTransaction(id: id)
-        }
+        // Use batch delete for better performance
+        try DBHelper.shared.deleteAllTransactions()
+
+        logInfo("Global transactions cleared from SQLite")
       }
-
-      print("✅ Global transactions cleared from SQLite")
     } catch {
-      print("❌ Failed to clear global transactions: \(error)")
+      logError("Failed to clear global transactions: \(error)")
     }
   }
 
@@ -65,15 +63,16 @@ class DataCleanupManager {
     do {
       let allBudgets = try DBHelper.shared.getBudgets()
 
-      print("🗑️ Clearing \(allBudgets.count) global budgets from SQLite...")
+      if !allBudgets.isEmpty {
+        logInfo("Clearing \(allBudgets.count) global budgets from SQLite...")
 
-      for budget in allBudgets {
-        try DBHelper.shared.deleteBudget(monthDate: budget.monthDate)
+        // Use batch delete for better performance
+        try DBHelper.shared.deleteAllBudgets()
+
+        logInfo("Global budgets cleared from SQLite")
       }
-
-      print("✅ Global budgets cleared from SQLite")
     } catch {
-      print("❌ Failed to clear global budgets: \(error)")
+      logError("Failed to clear global budgets: \(error)")
     }
   }
 
