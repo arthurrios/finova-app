@@ -57,8 +57,8 @@ class AppFlowController {
     if let dashboardViewController = navigationController.topViewController
       as? DashboardViewController
     {
-      print("🔄 AppFlowController: Refreshing dashboard on foreground")
-      dashboardViewController.refreshAfterTransactionAdd()
+      print("🔄 AppFlowController: Refreshing dashboard on foreground with animation")
+      dashboardViewController.refreshOnForegroundWithAnimation()
     } else {
       print("🔄 AppFlowController: Current view controller doesn't support refresh")
     }

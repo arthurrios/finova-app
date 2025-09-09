@@ -146,6 +146,19 @@ final class DashboardViewController: UIViewController {
     print("📅 Recalculated current day for visible cell (animated: \(animated))")
   }
 
+  /// Called specifically when app comes into foreground to refresh with animation
+  func refreshOnForegroundWithAnimation() {
+    print("🔄 DashboardViewController: Refreshing on foreground with animation")
+
+    // First refresh the data
+    refreshAfterTransactionAdd()
+
+    // Then animate the day slider after a short delay
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+      self.recalculateCurrentDayForVisibleCell(animated: true)
+    }
+  }
+
   /// Setup pull-to-refresh functionality
   private func setupPullToRefresh() {
     contentView.delegate = self

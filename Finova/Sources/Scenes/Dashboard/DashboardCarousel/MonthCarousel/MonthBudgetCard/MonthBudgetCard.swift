@@ -414,23 +414,15 @@ class MonthBudgetCard: UIView {
         print("🔄 Using day-specific mode for day \(day)")
       }
 
-      // Use animated SwiftUI view for current month only
-      if isCurrentMonth() {
-        if isValuesHidden {
-          animatedNumberContainer?.isHidden = true
-          availableBudgetValueLabel.isHidden = false
-          availableBudgetValueLabel.text = getHiddenValueString()
-        } else {
-          animatedNumberContainer?.isHidden = false
-          availableBudgetValueLabel.isHidden = true
-          setupOrUpdateAnimatedNumber(value: displayValue)
-        }
-      } else {
-        // For non-current months, always use the regular label
+      // Use animated SwiftUI view for all months
+      if isValuesHidden {
         animatedNumberContainer?.isHidden = true
         availableBudgetValueLabel.isHidden = false
-        availableBudgetValueLabel.text =
-          isValuesHidden ? getHiddenValueString() : displayValue.currencyString
+        availableBudgetValueLabel.text = getHiddenValueString()
+      } else {
+        animatedNumberContainer?.isHidden = false
+        availableBudgetValueLabel.isHidden = true
+        setupOrUpdateAnimatedNumber(value: displayValue)
       }
 
       print("🔄 Setting text label to: \(textKey.localized)")
@@ -632,7 +624,6 @@ class MonthBudgetCard: UIView {
     let todayYear = calendar.component(.year, from: today)
     let isCurrent = (month == todayMonth) && (year == todayYear)
 
-
     return isCurrent
   }
 
@@ -823,23 +814,15 @@ class MonthBudgetCard: UIView {
       availableBudgetTextLabel.text = textKey.localized
       print("🔄 Current text label value after: '\(availableBudgetTextLabel.text ?? "nil")'")
 
-      // Use animated SwiftUI view for current month only
-      if isCurrentMonth() {
-        if isValuesHidden {
-          animatedNumberContainer?.isHidden = true
-          availableBudgetValueLabel.isHidden = false
-          availableBudgetValueLabel.text = getHiddenValueString()
-        } else {
-          animatedNumberContainer?.isHidden = false
-          availableBudgetValueLabel.isHidden = true
-          setupOrUpdateAnimatedNumber(value: displayValue)
-        }
-      } else {
-        // For non-current months, always use the regular label
+      // Use animated SwiftUI view for all months
+      if isValuesHidden {
         animatedNumberContainer?.isHidden = true
         availableBudgetValueLabel.isHidden = false
-        availableBudgetValueLabel.text =
-          isValuesHidden ? getHiddenValueString() : displayValue.currencyString
+        availableBudgetValueLabel.text = getHiddenValueString()
+      } else {
+        animatedNumberContainer?.isHidden = false
+        availableBudgetValueLabel.isHidden = true
+        setupOrUpdateAnimatedNumber(value: displayValue)
       }
 
       if !availableBudgetStackView.arrangedSubviews.contains(
@@ -901,7 +884,6 @@ class MonthBudgetCard: UIView {
     calendar.timeZone = TimeZone.current
     let today = Date()
     let monthDate = data.date
-
 
     // Calculate total days in month using the correct method
     let totalDaysInMonth: Int
@@ -988,10 +970,11 @@ class MonthBudgetCard: UIView {
 
     // Update the slider if it's visible
     if let slider = daySlider, isDaySliderVisible {
-      // Check if we need to animate before updating currentSelectedDay
-      let shouldAnimate = animated && currentSelectedDay != currentDay
+      // Check if we need to animate - always animate if explicitly requested
+      let shouldAnimate = animated
+      let dayChanged = currentSelectedDay != currentDay
 
-      print("📅 recalculateCurrentDay: shouldAnimate=\(shouldAnimate)")
+      print("📅 recalculateCurrentDay: shouldAnimate=\(shouldAnimate), dayChanged=\(dayChanged)")
 
       // Check if day indicators are already set up
       if slider.hasDayIndicators() {
@@ -1004,8 +987,14 @@ class MonthBudgetCard: UIView {
 
         // If we need to animate, animate to the new day
         if shouldAnimate {
-          slider.setDay(currentDay, animated: true)
-          print("📅 Day slider animated to current day: \(currentDay)")
+          if dayChanged {
+            slider.setDay(currentDay, animated: true)
+            print("📅 Day slider animated to current day: \(currentDay)")
+          } else {
+            // Day hasn't changed, but we want to show refresh animation
+            slider.animateForegroundRefresh()
+            print("📅 Day slider foreground refresh animation triggered")
+          }
         } else {
           print("📅 Day slider updated to current day: \(currentDay)")
         }
@@ -1338,45 +1327,34 @@ class MonthBudgetCard: UIView {
     availableBudgetTextLabel.text = textKey.localized
 
     // Update only the animated SwiftUI view without touching the text label
-    if isCurrentMonth() {
-      if isValuesHidden {
-        // If values are hidden, show the regular label with hidden text
-        print("🔄 updateAnimatedValue: Values are hidden, showing regular label")
-        animatedNumberContainer?.isHidden = true
-        availableBudgetValueLabel.isHidden = false
-        availableBudgetValueLabel.text = getHiddenValueString()
-        print(
-          "🔄 updateAnimatedValue: After hiding values - availableBudgetValueLabel.isHidden = \(availableBudgetValueLabel.isHidden)"
-        )
-      } else {
-        // If values are visible, show the animated view
-        print("🔄 updateAnimatedValue: Values are visible, showing animated view")
-        animatedNumberContainer?.isHidden = false
-        availableBudgetValueLabel.isHidden = true
-        print(
-          "🔄 updateAnimatedValue: After showing animated view - availableBudgetValueLabel.isHidden = \(availableBudgetValueLabel.isHidden)"
-        )
-
-        if let host = animatedNumberHost {
-          let currentFont = availableBudgetValueLabel.font ?? Fonts.titleLG.font
-          let currentColor = availableBudgetValueLabel.textColor ?? Colors.gray100
-
-          host.rootView = AnimatedNumberLabel(
-            value: value,
-            font: currentFont,
-            color: currentColor
-          )
-        }
-      }
-    } else {
-      // For non-current months, always use the regular label
+    if isValuesHidden {
+      // If values are hidden, show the regular label with hidden text
+      print("🔄 updateAnimatedValue: Values are hidden, showing regular label")
       animatedNumberContainer?.isHidden = true
       availableBudgetValueLabel.isHidden = false
-      availableBudgetValueLabel.text =
-        isValuesHidden ? getHiddenValueString() : value.currencyString
+      availableBudgetValueLabel.text = getHiddenValueString()
       print(
-        "🔄 updateAnimatedValue: Non-current month - availableBudgetValueLabel.isHidden = \(availableBudgetValueLabel.isHidden)"
+        "🔄 updateAnimatedValue: After hiding values - availableBudgetValueLabel.isHidden = \(availableBudgetValueLabel.isHidden)"
       )
+    } else {
+      // If values are visible, show the animated view for all months
+      print("🔄 updateAnimatedValue: Values are visible, showing animated view")
+      animatedNumberContainer?.isHidden = false
+      availableBudgetValueLabel.isHidden = true
+      print(
+        "🔄 updateAnimatedValue: After showing animated view - availableBudgetValueLabel.isHidden = \(availableBudgetValueLabel.isHidden)"
+      )
+
+      if let host = animatedNumberHost {
+        let currentFont = availableBudgetValueLabel.font ?? Fonts.titleLG.font
+        let currentColor = availableBudgetValueLabel.textColor ?? Colors.gray100
+
+        host.rootView = AnimatedNumberLabel(
+          value: value,
+          font: currentFont,
+          color: currentColor
+        )
+      }
     }
   }
 }

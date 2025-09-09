@@ -268,7 +268,10 @@ class DaySlider: UIView {
     let progressWidth = position
 
     if animated {
-      UIView.animate(withDuration: 0.2, delay: 0, options: [.curveEaseInOut]) {
+      // Use a slightly longer duration for smoother foreground refresh animation
+      UIView.animate(
+        withDuration: 0.4, delay: 0, options: [.curveEaseInOut, .allowUserInteraction]
+      ) {
         self.thumbCenterConstraint?.constant = position
         self.progressWidthConstraint?.constant = progressWidth
         self.tooltipCenterConstraint?.constant = 0
@@ -398,7 +401,43 @@ class DaySlider: UIView {
   // MARK: - Public Methods
   func setDay(_ day: Int, animated: Bool = true) {
     let clampedDay = max(1, min(day, totalDaysInMonth))
+    let previousDay = currentDay
     updateSliderToDay(clampedDay, animated: animated)
+
+    // Add subtle haptic feedback for foreground refresh animation
+    if animated && previousDay != clampedDay {
+      DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+        let impactFeedback = UIImpactFeedbackGenerator(style: .light)
+        impactFeedback.impactOccurred()
+      }
+    }
+  }
+
+  /// Animates the slider to the current day with a subtle bounce effect for foreground refresh
+  func animateForegroundRefresh() {
+    let currentDay = self.currentDay
+    print("📅 DaySlider: Animating foreground refresh to day \(currentDay)")
+
+    // Create a subtle bounce animation by temporarily moving slightly and then back
+    let bounceOffset: CGFloat = 10
+    let originalPosition = positionFromDay(currentDay)
+
+    // First, animate to a slightly offset position
+    UIView.animate(withDuration: 0.15, delay: 0, options: [.curveEaseOut]) {
+      self.thumbCenterConstraint?.constant = originalPosition + bounceOffset
+      self.layoutIfNeeded()
+    } completion: { _ in
+      // Then animate back to the correct position
+      UIView.animate(withDuration: 0.25, delay: 0, options: [.curveEaseInOut]) {
+        self.thumbCenterConstraint?.constant = originalPosition
+        self.progressWidthConstraint?.constant = originalPosition
+        self.layoutIfNeeded()
+      } completion: { _ in
+        // Add haptic feedback
+        let impactFeedback = UIImpactFeedbackGenerator(style: .light)
+        impactFeedback.impactOccurred()
+      }
+    }
   }
 
   /// Checks if day indicators are already set up

@@ -90,8 +90,8 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     if let dashboardViewController = navigationController.topViewController
       as? DashboardViewController
     {
-      print("🔄 Dashboard is visible - triggering refresh")
-      dashboardViewController.refreshAfterTransactionAdd()
+      print("🔄 Dashboard is visible - triggering refresh with animation")
+      dashboardViewController.refreshOnForegroundWithAnimation()
     } else {
       print("🔄 Dashboard not visible - skipping dashboard refresh")
     }
