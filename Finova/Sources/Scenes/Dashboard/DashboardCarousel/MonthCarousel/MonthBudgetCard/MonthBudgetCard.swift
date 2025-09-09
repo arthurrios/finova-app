@@ -931,11 +931,13 @@ class MonthBudgetCard: UIView {
   // MARK: - Public Methods
 
   /// Recalculates the current day for the day slider when dashboard appears in foreground
-  func recalculateCurrentDay(animated: Bool = false) {
+  /// Returns true if a refresh was needed, false if slider was already on current day
+  @discardableResult
+  func recalculateCurrentDay(animated: Bool = false) -> Bool {
     logDebug("recalculateCurrentDay called with animated: \(animated)")
     guard let data = currentMonthData, isCurrentMonth() else {
       logDebug("recalculateCurrentDay: No data or not current month")
-      return
+      return false
     }
 
     var calendar = Calendar(identifier: .gregorian)
@@ -953,6 +955,13 @@ class MonthBudgetCard: UIView {
     print(
       "📅 recalculateCurrentDay: currentDay=\(currentDay), currentSelectedDay=\(currentSelectedDay), isDaySliderVisible=\(isDaySliderVisible)"
     )
+
+    // Check if slider is already on current day - if so, no refresh needed
+    if currentSelectedDay == currentDay && isDaySliderVisible {
+      print(
+        "📅 recalculateCurrentDay: Slider already on current day (\(currentDay)), no refresh needed")
+      return false
+    }
 
     // Update the slider if it's visible
     if let slider = daySlider, isDaySliderVisible {
@@ -996,6 +1005,8 @@ class MonthBudgetCard: UIView {
     } else {
       print("📅 recalculateCurrentDay: Day slider not available or not visible")
     }
+
+    return true  // Refresh was needed
   }
 
   private func hideDaySlider() {

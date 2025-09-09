@@ -137,25 +137,36 @@ final class DashboardViewController: UIViewController {
   }
 
   /// Recalculates the current day for the day slider in the visible cell
-  private func recalculateCurrentDayForVisibleCell(animated: Bool = false) {
-    guard let currentCell = currentCell else { return }
+  private func recalculateCurrentDayForVisibleCell(animated: Bool = false) -> Bool {
+    guard let currentCell = currentCell else { return false }
 
     // Recalculate the current day for the day slider
-    currentCell.monthCard.recalculateCurrentDay(animated: animated)
+    let refreshNeeded = currentCell.monthCard.recalculateCurrentDay(animated: animated)
 
-    print("📅 Recalculated current day for visible cell (animated: \(animated))")
+    print(
+      "📅 Recalculated current day for visible cell (animated: \(animated), refreshNeeded: \(refreshNeeded))"
+    )
+    return refreshNeeded
   }
 
   /// Called specifically when app comes into foreground to refresh with animation
   func refreshOnForegroundWithAnimation() {
     print("🔄 DashboardViewController: Refreshing on foreground with animation")
 
-    // First refresh the data
-    refreshAfterTransactionAdd()
+    // First check if the day slider needs to be updated
+    let sliderRefreshNeeded = recalculateCurrentDayForVisibleCell(animated: false)
 
-    // Then animate the day slider after a short delay
-    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-      self.recalculateCurrentDayForVisibleCell(animated: true)
+    if sliderRefreshNeeded {
+      print("🔄 DashboardViewController: Slider position changed, refreshing data and animating")
+      // Only refresh data if slider position changed
+      refreshAfterTransactionAdd()
+
+      // Then animate the day slider after a short delay
+      DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+        self.recalculateCurrentDayForVisibleCell(animated: true)
+      }
+    } else {
+      print("🔄 DashboardViewController: Slider already on current day, skipping data refresh")
     }
   }
 
