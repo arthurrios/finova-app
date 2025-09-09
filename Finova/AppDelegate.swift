@@ -49,6 +49,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
 
     // Monitorar saldo negativo quando o app voltar ao foreground
     monitorNegativeBalance()
+
+    // Post notification for app-wide refresh (SceneDelegate will handle the main refresh logic)
+    NotificationCenter.default.post(name: .appDidEnterForeground, object: nil)
   }
 
   // MARK: UISceneSession Lifecycle

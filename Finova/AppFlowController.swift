@@ -15,6 +15,7 @@ class AppFlowController {
   // MARK: - init
   public init() {
     viewControllersFactory = ViewControllersFactory()
+    setupAppRefreshObserver()
   }
 
   // MARK: - startFlow
@@ -22,6 +23,49 @@ class AppFlowController {
     let viewController = viewControllersFactory.makeSplashViewController(flowDelegate: self)
     navigationController = UINavigationController(rootViewController: viewController)
     return navigationController
+  }
+
+  // MARK: - App Refresh on Foreground
+
+  /// Sets up observer for app foreground refresh notifications
+  private func setupAppRefreshObserver() {
+    NotificationCenter.default.addObserver(
+      self,
+      selector: #selector(handleAppDidEnterForeground),
+      name: .appDidEnterForeground,
+      object: nil
+    )
+  }
+
+  /// Handles app foreground refresh notification
+  @objc private func handleAppDidEnterForeground() {
+    print("🔄 AppFlowController: Handling app foreground refresh")
+    print("🔄 AppFlowController: Refresh triggered at: \(Date())")
+
+    // Refresh the current visible view controller if it's the dashboard
+    refreshCurrentViewControllerIfNeeded()
+  }
+
+  /// Refreshes the current view controller if it supports refresh
+  private func refreshCurrentViewControllerIfNeeded() {
+    guard let navigationController = navigationController else {
+      print("🔄 AppFlowController: No navigation controller available for refresh")
+      return
+    }
+
+    // Check if the top view controller is the dashboard
+    if let dashboardViewController = navigationController.topViewController
+      as? DashboardViewController
+    {
+      print("🔄 AppFlowController: Refreshing dashboard on foreground")
+      dashboardViewController.refreshAfterTransactionAdd()
+    } else {
+      print("🔄 AppFlowController: Current view controller doesn't support refresh")
+    }
+  }
+
+  deinit {
+    NotificationCenter.default.removeObserver(self)
   }
 }
 

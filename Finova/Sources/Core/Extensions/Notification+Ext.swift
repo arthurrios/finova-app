@@ -9,4 +9,5 @@ import Foundation
 
 extension Notification.Name {
   static let transactionDataChanged = Notification.Name("transactionDataChanged")
+  static let appDidEnterForeground = Notification.Name("appDidEnterForeground")
 }
