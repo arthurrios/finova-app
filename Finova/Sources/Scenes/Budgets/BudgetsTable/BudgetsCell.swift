@@ -13,6 +13,7 @@ public class BudgetsCell: UITableViewCell {
 
   static let reuseID = "BudgetsCell"
   var isPreviousMonth: Bool = false
+  private var isDeletionInProgress = false
 
   private let iconView: UIImageView = {
     let imageView = UIImageView()
@@ -103,12 +104,21 @@ public class BudgetsCell: UITableViewCell {
   private var actionContainerWidthConstraint: NSLayoutConstraint!
   private var panStartX: CGFloat = 0
 
+  private lazy var panGR: UIPanGestureRecognizer = {
+    let gestureRecognizer = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
+    gestureRecognizer.delegate = self
+    gestureRecognizer.cancelsTouchesInView = true
+    gestureRecognizer.delaysTouchesBegan = false
+    gestureRecognizer.delaysTouchesEnded = false
+    return gestureRecognizer
+  }()
+
   override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
     super.init(style: style, reuseIdentifier: reuseIdentifier)
     setupView()
-    setupPanGesture()
     clipsToBounds = false
     contentView.clipsToBounds = false
+    contentView.addGestureRecognizer(panGR)
   }
 
   required init?(coder: NSCoder) {
@@ -165,7 +175,7 @@ public class BudgetsCell: UITableViewCell {
 
       actionLabel.leadingAnchor.constraint(
         equalTo: actionIconView.trailingAnchor, constant: Metrics.spacing3),
-      actionLabel.centerYAnchor.constraint(equalTo: actionContainerView.centerYAnchor)
+      actionLabel.centerYAnchor.constraint(equalTo: actionContainerView.centerYAnchor),
     ])
 
     actionContainerWidthConstraint = actionContainerView.widthAnchor.constraint(
@@ -189,14 +199,12 @@ public class BudgetsCell: UITableViewCell {
     applyStyleForDate(isPreviousMonth: isPreviousMonth)
   }
 
-  private func setupPanGesture() {
-    let pan = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
-    contentView.addGestureRecognizer(pan)
-  }
-
   override public func prepareForReuse() {
     super.prepareForReuse()
     contentView.frame.origin.x = 0
+    isDeletionInProgress = false
+    contentView.alpha = 1.0
+    isUserInteractionEnabled = true
   }
 
   private func applyStyleForDate(isPreviousMonth: Bool) {
@@ -239,13 +247,32 @@ public class BudgetsCell: UITableViewCell {
           self.contentView.frame.origin.x = shouldOpen ? -fullWidth : 0
         },
         completion: { _ in
-          if shouldOpen && self.contentView.frame.origin.x <= -fullWidth + 0.1 {
-            self.delegate?.budgetCellDidRequestDelete(self) { [weak self] didDelete in
-              guard let self = self else { return }
+          guard shouldOpen else { return }
 
-              guard !didDelete else { return }
-              UIView.animate(withDuration: 0.2) {
-                self.contentView.frame.origin.x = 0
+          // Prevent multiple deletion attempts
+          guard !self.isDeletionInProgress else {
+            UIView.animate(withDuration: 0.2) {
+              self.contentView.frame.origin.x = 0
+            }
+            return
+          }
+
+          self.isDeletionInProgress = true
+          self.showDeletionLoadingState()
+
+          self.delegate?.budgetCellDidRequestDelete(self) { [weak self] didDelete in
+            DispatchQueue.main.async {
+              self?.isDeletionInProgress = false
+
+              if didDelete {
+                // Keep the cell in deleted state
+                return
+              } else {
+                // Reset cell to normal state
+                self?.hideDeletionLoadingState()
+                UIView.animate(withDuration: 0.2) {
+                  self?.contentView.frame.origin.x = 0
+                }
               }
             }
           }
@@ -254,5 +281,83 @@ public class BudgetsCell: UITableViewCell {
     default:
       break
     }
+  }
+
+  // MARK: - Loading State Management
+
+  private func showDeletionLoadingState() {
+    // Disable user interaction to prevent multiple taps
+    isUserInteractionEnabled = false
+
+    // Add subtle loading indication
+    UIView.animate(withDuration: 0.3) {
+      self.contentView.alpha = 0.6
+    }
+
+    // Optional: Add a subtle pulsing animation
+    let pulseAnimation = CABasicAnimation(keyPath: "opacity")
+    pulseAnimation.duration = 0.8
+    pulseAnimation.fromValue = 0.6
+    pulseAnimation.toValue = 0.8
+    pulseAnimation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+    pulseAnimation.autoreverses = true
+    pulseAnimation.repeatCount = .infinity
+    contentView.layer.add(pulseAnimation, forKey: "deletionPulse")
+  }
+
+  private func hideDeletionLoadingState() {
+    // Re-enable user interaction
+    isUserInteractionEnabled = true
+
+    // Remove loading animations
+    contentView.layer.removeAnimation(forKey: "deletionPulse")
+
+    // Restore normal appearance
+    UIView.animate(withDuration: 0.3) {
+      self.contentView.alpha = 1.0
+    }
+  }
+}
+
+extension BudgetsCell {
+  override public func gestureRecognizerShouldBegin(_ gr: UIGestureRecognizer) -> Bool {
+    guard let pan = gr as? UIPanGestureRecognizer else { return true }
+    let velocity = pan.velocity(in: contentView)
+    return abs(velocity.x) > abs(velocity.y)
+  }
+
+  override public func gestureRecognizer(
+    _ gestureRecognizer: UIGestureRecognizer,
+    shouldBeRequiredToFailBy otherGestureRecognizer: UIGestureRecognizer
+  ) -> Bool {
+    guard gestureRecognizer === panGR,
+      let otherPan = otherGestureRecognizer as? UIPanGestureRecognizer
+    else {
+      return false
+    }
+    let vel = otherPan.velocity(in: contentView)
+
+    return abs(vel.y) > abs(vel.x)
+  }
+
+  override public func gestureRecognizer(
+    _ gestureRecognizer: UIGestureRecognizer,
+    shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
+  ) -> Bool {
+    // Allow simultaneous recognition with table view gestures only for vertical scrolling
+    guard gestureRecognizer === panGR else { return false }
+
+    // If this is a horizontal pan (swipe), don't allow simultaneous recognition
+    // This prevents the table view's tap gesture from firing during swipe-to-delete
+    if let panGesture = gestureRecognizer as? UIPanGestureRecognizer {
+      let velocity = panGesture.velocity(in: contentView)
+      let isHorizontalSwipe = abs(velocity.x) > abs(velocity.y)
+
+      if isHorizontalSwipe {
+        return false
+      }
+    }
+
+    return true
   }
 }
