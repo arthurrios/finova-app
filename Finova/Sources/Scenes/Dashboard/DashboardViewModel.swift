@@ -77,6 +77,12 @@ final class DashboardViewModel {
     transactionLedger.forceRefreshCurrentMonthBalance()
   }
 
+  /// Force refresh all balance calculations (useful after fixing date comparison issues)
+  func forceRefreshAllBalances() {
+    print("🔄 Force refreshing all balance calculations...")
+    transactionLedger.forceRefreshAllBalances()
+  }
+
   /// Debug "Aula de canto" transaction specifically
   func debugAulaDeCantoTransaction() {
     print("🎵 Debugging 'Aula de canto' transaction...")

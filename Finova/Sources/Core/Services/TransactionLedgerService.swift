@@ -216,10 +216,40 @@ final class TransactionLedgerService {
       return transactionMonthAnchor == anchor
     }
 
-    // Then filter by date (up to today) - simple comparison without complex timezone conversion
+    // Get today's date components for proper date comparison
+    let todayComponents = calendar.dateComponents([.year, .month, .day], from: today)
+    let todayStart = calendar.date(from: todayComponents) ?? today
+
+    // Filter transactions up to and including today using date components comparison
+    // This ensures we include all transactions for the current day regardless of time
     let transactionsUpToToday = transactionsInCurrentMonth.filter { transaction in
       let transactionDate = Date(timeIntervalSince1970: TimeInterval(transaction.dateTimestamp))
-      return transactionDate <= today
+      let transactionComponents = calendar.dateComponents(
+        [.year, .month, .day], from: transactionDate)
+      let transactionDateOnly = calendar.date(from: transactionComponents) ?? transactionDate
+
+      // Include transactions from today and earlier
+      return transactionDateOnly <= todayStart
+    }
+
+    // Debug logging to track transaction inclusion
+    print(
+      "🔍 calculateCurrentBalanceForMonth: Found \(transactionsInCurrentMonth.count) transactions in current month"
+    )
+    print(
+      "🔍 calculateCurrentBalanceForMonth: Including \(transactionsUpToToday.count) transactions up to today"
+    )
+
+    // Log transactions for today specifically
+    let todayTransactions = transactionsInCurrentMonth.filter { transaction in
+      let transactionDate = Date(timeIntervalSince1970: TimeInterval(transaction.dateTimestamp))
+      return calendar.isDate(transactionDate, inSameDayAs: today)
+    }
+    print(
+      "🔍 calculateCurrentBalanceForMonth: Found \(todayTransactions.count) transactions for today")
+    for transaction in todayTransactions {
+      print(
+        "🔍 Today's transaction: \(transaction.title) - \(transaction.amount) (\(transaction.type))")
     }
 
     // Calculate net change from all transactions up to today
@@ -229,6 +259,10 @@ final class TransactionLedgerService {
 
     // Current balance = previous month's balance + net change up to today
     let currentBalance = previousBalance + netUpToToday
+
+    print(
+      "🔍 calculateCurrentBalanceForMonth: Previous balance: \(previousBalance), Net up to today: \(netUpToToday), Current balance: \(currentBalance)"
+    )
 
     return currentBalance
   }
@@ -314,8 +348,34 @@ final class TransactionLedgerService {
     // Force recalculate current month
     let freshData = calculateMonthlyData(for: currentMonthAnchor...currentMonthAnchor)
     if let currentMonthData = freshData.first {
+      print(
+        "💰 Fresh current month data - Final: \(currentMonthData.finalBalance ?? 0), Current: \(currentMonthData.currentBalance ?? 0)"
+      )
     }
 
+  }
+
+  /// Force refresh all balance calculations (useful after fixing date comparison issues)
+  func forceRefreshAllBalances() {
+    print("🔄 Force refreshing all balance calculations...")
+
+    // Clear all cache
+    monthlyDataCache.removeAll()
+    lastCacheUpdate = Date.distantPast
+
+    // Force recalculate a range of months to ensure fresh data
+    let today = Date()
+    let currentMonthAnchor = today.monthAnchor
+    let monthRange = (currentMonthAnchor - 2)...(currentMonthAnchor + 1)  // Include previous and next month
+
+    let freshData = calculateMonthlyData(for: monthRange)
+    print("💰 Refreshed \(freshData.count) months of data")
+
+    for monthData in freshData {
+      print(
+        "💰 Month \(monthData.month): Final=\(monthData.finalBalance ?? 0), Current=\(monthData.currentBalance ?? 0)"
+      )
+    }
   }
 
   // MARK: - Daily Balance Calculations
@@ -335,10 +395,18 @@ final class TransactionLedgerService {
       return previousMonthBalance
     }
 
-    // Get all transactions up to the target date
+    // Get all transactions up to the target date using robust date comparison
+    let targetDateComponents = calendar.dateComponents([.year, .month, .day], from: targetDate)
+    let targetDateOnly = calendar.date(from: targetDateComponents) ?? targetDate
+
     let transactionsUpToTargetDate = allTransactions.filter { transaction in
       let transactionDate = Date(timeIntervalSince1970: TimeInterval(transaction.dateTimestamp))
-      return transactionDate <= targetDate
+      let transactionComponents = calendar.dateComponents(
+        [.year, .month, .day], from: transactionDate)
+      let transactionDateOnly = calendar.date(from: transactionComponents) ?? transactionDate
+
+      // Include transactions from target date and earlier
+      return transactionDateOnly <= targetDateOnly
     }
 
     // Calculate running balance from the beginning of time up to target date
@@ -363,10 +431,15 @@ final class TransactionLedgerService {
 
       let relevantTransactions: [Transaction]
       if isTargetMonth {
-        // Filter transactions up to the target day
+        // Filter transactions up to the target day using robust date comparison
         relevantTransactions = transactionsInMonth.filter { transaction in
           let transactionDate = Date(timeIntervalSince1970: TimeInterval(transaction.dateTimestamp))
-          return transactionDate <= targetDate
+          let transactionComponents = calendar.dateComponents(
+            [.year, .month, .day], from: transactionDate)
+          let transactionDateOnly = calendar.date(from: transactionComponents) ?? transactionDate
+
+          // Include transactions from target date and earlier
+          return transactionDateOnly <= targetDateOnly
         }
       } else {
         // Include all transactions for previous months
@@ -376,6 +449,21 @@ final class TransactionLedgerService {
       // Calculate net change for this month
       let netChange = relevantTransactions.reduce(0) { result, transaction in
         transaction.type == .income ? result + transaction.amount : result - transaction.amount
+      }
+
+      // Debug logging for target month
+      if isTargetMonth {
+        print(
+          "🔍 calculateBalanceForDay: Target month (day \(day)) - Found \(relevantTransactions.count) transactions"
+        )
+        for transaction in relevantTransactions {
+          let transactionDate = Date(timeIntervalSince1970: TimeInterval(transaction.dateTimestamp))
+          let dayComponent = calendar.component(.day, from: transactionDate)
+          print(
+            "🔍 Day \(dayComponent) transaction: \(transaction.title) - \(transaction.amount) (\(transaction.type))"
+          )
+        }
+        print("🔍 Net change for target month: \(netChange)")
       }
 
       runningBalance += netChange
