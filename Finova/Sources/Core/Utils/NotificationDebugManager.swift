@@ -349,7 +349,9 @@ final class NotificationDebugManager {
 
         for request in requests {
           // Skip system notifications (monthly reminders, etc.)
-          if request.identifier.contains("monthly_") || request.identifier.contains("test_") {
+          if request.identifier.contains("monthly_") || request.identifier.contains("test_")
+            || request.identifier.contains("recurring_")
+          {
             continue
           }
 
@@ -362,13 +364,35 @@ final class NotificationDebugManager {
           notificationGroups[contentKey]?.append(request)
         }
 
-        // Find and remove duplicates
+        // Find and remove duplicates, but be more careful about recurring transactions
         var duplicatesFound = 0
         var idsToRemove: [String] = []
 
         for (contentKey, group) in notificationGroups {
           if group.count > 1 {
-            print("🔔 🚨 Found \(group.count) duplicates for: \(contentKey)")
+            print("🔔 🚨 Found \(group.count) notifications with same content: \(contentKey)")
+
+            // Check if these are legitimate recurring/installment notifications
+            let areRecurringNotifications = group.allSatisfy { request in
+              // Check if this is a recurring or installment notification by looking at the identifier
+              // Recurring notifications have identifiers like "transaction_123" where 123 is the transaction ID
+              if request.identifier.hasPrefix("transaction_") {
+                let transactionIdString = String(request.identifier.dropFirst("transaction_".count))
+                if let transactionId = Int(transactionIdString) {
+                  // Check if this transaction is a recurring instance
+                  return self.isRecurringTransactionInstance(transactionId: transactionId)
+                }
+              }
+              return false
+            }
+
+            if areRecurringNotifications {
+              print("🔔 ✅ These are legitimate recurring notifications - keeping all \(group.count)")
+              continue
+            }
+
+            // Only remove if they're not recurring notifications
+            print("🔔 🚨 These appear to be actual duplicates - removing \(group.count - 1)")
             duplicatesFound += group.count - 1
 
             // Keep the first one, remove the rest
@@ -399,6 +423,30 @@ final class NotificationDebugManager {
         }
       }
     }
+  }
+
+  /// Check if a transaction ID corresponds to a recurring transaction instance
+  private func isRecurringTransactionInstance(transactionId: Int) -> Bool {
+    // Check if user is authenticated
+    guard let user = UserDefaultsManager.getUser(),
+      let firebaseUID = user.firebaseUID
+    else {
+      return false
+    }
+
+    // Authenticate SecureLocalDataManager
+    SecureLocalDataManager.shared.authenticateUser(firebaseUID: firebaseUID)
+
+    let transactionRepo = TransactionRepository()
+    let allTransactions = transactionRepo.fetchAllTransactions()
+
+    // Find the transaction with this ID
+    if let transaction = allTransactions.first(where: { $0.id == transactionId }) {
+      // Check if it's a recurring instance (has a parent transaction ID)
+      return transaction.parentTransactionId != nil
+    }
+
+    return false
   }
 
   /// Force reschedule all notifications

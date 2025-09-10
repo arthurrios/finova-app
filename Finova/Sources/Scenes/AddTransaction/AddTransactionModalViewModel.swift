@@ -738,13 +738,17 @@ final class AddTransactionModalViewModel {
         amount: amount,
         type: String(describing: transactionType),
         dateTimestamp: Int(dateObj.timeIntervalSince1970),
-        budgetMonthDate: Int(DateFormatter.monthYearFormatter.string(from: dateObj)) ?? 0,
+        budgetMonthDate: dateObj.monthAnchor,
         isRecurring: isRecurring,
         hasInstallments: false,
         parentTransactionId: nil,
         originalAmount: amount,
         installmentNumber: nil,
         totalInstallments: nil
+      )
+
+      print(
+        "🔧 DEBUG ViewModel: Created TransactionModel - title: '\(updatedTransaction.data.title)', category: '\(updatedTransaction.data.category)', type: '\(updatedTransaction.data.type)'"
       )
 
       try transactionRepo.updateTransaction(updatedTransaction)
@@ -978,7 +982,7 @@ final class AddTransactionModalViewModel {
         amount: data.totalAmount,
         type: String(describing: transactionType),
         dateTimestamp: Int(dateObj.timeIntervalSince1970),
-        budgetMonthDate: Int(DateFormatter.monthYearFormatter.string(from: dateObj)) ?? 0,
+        budgetMonthDate: dateObj.monthAnchor,
         isRecurring: false,
         hasInstallments: true,
         parentTransactionId: nil,
@@ -1094,6 +1098,106 @@ final class AddTransactionModalViewModel {
   // MARK: - Ledger Cache Management
 
   /// Invalidates the transaction ledger cache to ensure fresh calculations
+  func updateRecurringTransactionWithOption(
+    id: Int,
+    title: String,
+    amount: Int,
+    dateString: String,
+    categoryKey: String,
+    typeRaw: String,
+    editOption: RecurringEditOption
+  ) -> Result<Void, Error> {
+
+    guard
+      let transactionCategory = TransactionCategory.allCases.first(where: { $0.key == categoryKey })
+    else {
+      return .failure(TransactionError.invalidCategory)
+    }
+
+    guard
+      let transactionType = TransactionType.allCases.first(where: {
+        String(describing: $0) == typeRaw
+      })
+    else {
+      return .failure(TransactionError.invalidType)
+    }
+
+    print("✏️ DEBUG ViewModel: Parsing date string: '\(dateString)'")
+    guard let dateObj = DateFormatter.fullDateFormatter.date(from: dateString) else {
+      return .failure(TransactionError.invalidDateFormat)
+    }
+    print("✏️ DEBUG ViewModel: Parsed date object: \(dateObj)")
+    print(
+      "✏️ DEBUG ViewModel: Date components - Day: \(Calendar.current.component(.day, from: dateObj)), Month: \(Calendar.current.component(.month, from: dateObj)), Year: \(Calendar.current.component(.year, from: dateObj))"
+    )
+
+    do {
+      // Find the existing transaction to get its parent ID and determine if it's a recurring transaction
+      let existingTransactions = transactionRepo.fetchAllTransactions()
+      guard let existingTransaction = existingTransactions.first(where: { $0.id == id }) else {
+        print("❌ Could not find transaction with ID: \(id)")
+        return .failure(TransactionError.transactionNotFound)
+      }
+
+      // Determine the parent transaction ID for recurring transactions
+      let parentTransactionId: Int
+      if let parentId = existingTransaction.parentTransactionId {
+        // This is a recurring instance, use the parent ID
+        parentTransactionId = parentId
+        print("✏️ DEBUG ViewModel: Found recurring instance with parent ID: \(parentId)")
+      } else if existingTransaction.isRecurring == true {
+        // This is the parent recurring transaction
+        parentTransactionId = id
+        print("✏️ DEBUG ViewModel: Found parent recurring transaction with ID: \(id)")
+      } else {
+        // Not a recurring transaction, use regular update
+        print("✏️ DEBUG ViewModel: Not a recurring transaction, using regular update")
+        return updateTransaction(
+          id: id,
+          title: title,
+          amount: amount,
+          dateString: dateString,
+          categoryKey: categoryKey,
+          typeRaw: typeRaw,
+          isRecurring: true
+        )
+      }
+
+      print("✏️ DEBUG ViewModel: Using parent transaction ID: \(parentTransactionId)")
+
+      // Create the new transaction data
+      let newTransactionData = TransactionModel(
+        id: id,
+        title: title,
+        category: transactionCategory.key,
+        amount: amount,
+        type: String(describing: transactionType),
+        dateTimestamp: Int(dateObj.timeIntervalSince1970),
+        budgetMonthDate: dateObj.monthAnchor,
+        isRecurring: true,
+        hasInstallments: false,
+        parentTransactionId: parentTransactionId,
+        originalAmount: amount,
+        installmentNumber: nil,
+        totalInstallments: nil
+      )
+
+      // Use the recurring transaction manager to handle the edit with the specified option
+      try recurringManager.editRecurringTransactionsFromDate(
+        parentTransactionId: parentTransactionId,
+        selectedTransactionDate: dateObj,
+        editOption: editOption,
+        newData: newTransactionData
+      )
+
+      invalidateLedgerCache()
+      return .success(())
+
+    } catch {
+      return .failure(error)
+    }
+  }
+
   private func invalidateLedgerCache() {
     // Post notification to invalidate ledger cache
     NotificationCenter.default.post(name: .transactionDataChanged, object: nil)

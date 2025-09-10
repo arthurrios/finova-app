@@ -93,6 +93,18 @@ final class DashboardViewController: UIViewController {
     // Load fresh data from repositories
     let monthData = viewModel.loadMonthlyCards()
     let transactions = viewModel.transactionRepo.fetchTransactions()
+    print("🔍 DEBUG: Dashboard refresh - Loaded \(transactions.count) total transactions")
+
+    // Debug recurring transactions specifically
+    let recurringTransactions = transactions.filter { $0.isRecurring == true }
+    print(
+      "🔍 DEBUG: Dashboard refresh - Found \(recurringTransactions.count) recurring transactions")
+    for tx in recurringTransactions {
+      let txDate = Date(timeIntervalSince1970: TimeInterval(tx.dateTimestamp))
+      print(
+        "🔍 DEBUG: Dashboard refresh - Recurring transaction \(tx.id ?? -1) - Date: \(txDate), ParentID: \(tx.parentTransactionId ?? -1)"
+      )
+    }
 
     // Update the view models with fresh data
     syncedViewModel.setMonthData(monthData)
@@ -115,11 +127,19 @@ final class DashboardViewController: UIViewController {
 
         // Update transactions for the current cell
         let key = DateFormatter.keyFormatter.string(from: currentMonthData.date)
+        print("🔍 DEBUG: Filtering transactions for month key: \(key)")
         let filteredTransactions = transactions.filter { tx in
           let txDate = Date(timeIntervalSince1970: TimeInterval(tx.dateTimestamp))
           let txKey = DateFormatter.keyFormatter.string(from: txDate)
-          return txKey == key
+          let matches = txKey == key
+          if tx.isRecurring == true {
+            print(
+              "🔍 DEBUG: Recurring transaction \(tx.id ?? -1) - Date: \(txDate), Key: \(txKey), Matches: \(matches)"
+            )
+          }
+          return matches
         }.sorted { $0.date > $1.date }
+        print("🔍 DEBUG: Found \(filteredTransactions.count) transactions for month \(key)")
 
         // Update transactions without reconfiguring the month card (to preserve day slider)
         currentCell.updateTransactions(filteredTransactions)
@@ -1030,6 +1050,17 @@ final class DashboardViewController: UIViewController {
     }
 
     transactions = viewModel.transactionRepo.fetchTransactions()
+    print("🔍 DEBUG: App reload - Loaded \(transactions.count) total transactions")
+
+    // Debug recurring transactions specifically
+    let recurringTransactions = transactions.filter { $0.isRecurring == true }
+    print("🔍 DEBUG: App reload - Found \(recurringTransactions.count) recurring transactions")
+    for tx in recurringTransactions {
+      let txDate = Date(timeIntervalSince1970: TimeInterval(tx.dateTimestamp))
+      print(
+        "🔍 DEBUG: App reload - Recurring transaction \(tx.id ?? -1) - Date: \(txDate), ParentID: \(tx.parentTransactionId ?? -1)"
+      )
+    }
 
     let monthData = viewModel.loadMonthlyCards()
 
@@ -1322,13 +1353,21 @@ extension DashboardViewController: SyncedCollectionsViewModelDelegate {
     if index < syncedViewModel.monthData.count {
       let model = syncedViewModel.monthData[index]
       let key = DateFormatter.keyFormatter.string(from: model.date)
+      print("🔍 DEBUG: Month navigation - Filtering for key: \(key)")
       let txs = syncedViewModel.allTransactions.filter { tx in
         let txDate = Date(timeIntervalSince1970: TimeInterval(tx.dateTimestamp))
         let txKey = DateFormatter.keyFormatter.string(from: txDate)
-        return txKey == key
+        let matches = txKey == key
+        if tx.isRecurring == true {
+          print(
+            "🔍 DEBUG: Month navigation - Recurring transaction \(tx.id ?? -1) - Date: \(txDate), Key: \(txKey), Matches: \(matches)"
+          )
+        }
+        return matches
       }.sorted { (tx1, tx2) -> Bool in
         return tx1.date > tx2.date
       }
+      print("🔍 DEBUG: Month navigation - Found \(txs.count) transactions for month \(key)")
       currentCellTransactions = txs
     }
 
@@ -2217,54 +2256,8 @@ extension DashboardViewController {
 
   /// Remove duplicate notifications based on content similarity
   private func removeDuplicateNotifications() {
-    UNUserNotificationCenter.current().getPendingNotificationRequests { requests in
-      DispatchQueue.main.async {
-        // Group notifications by content (title + body combination)
-        var notificationGroups: [String: [UNNotificationRequest]] = [:]
-
-        for request in requests {
-          // Skip system notifications (monthly reminders, etc.)
-          if request.identifier.contains("monthly_") || request.identifier.contains("test_") {
-            continue
-          }
-
-          // Create a key based on title and body content
-          let contentKey = "\(request.content.title)_\(request.content.body)"
-
-          if notificationGroups[contentKey] == nil {
-            notificationGroups[contentKey] = []
-          }
-          notificationGroups[contentKey]?.append(request)
-        }
-
-        // Find and remove duplicates
-        var duplicatesFound = 0
-        var idsToRemove: [String] = []
-
-        for (contentKey, group) in notificationGroups {
-          if group.count > 1 {
-            print("🔔 🚨 Found \(group.count) duplicates for: \(contentKey)")
-            duplicatesFound += group.count - 1
-
-            // Keep the first one, remove the rest
-            let duplicatesToRemove = Array(group.dropFirst())
-            for duplicate in duplicatesToRemove {
-              idsToRemove.append(duplicate.identifier)
-              print("🔔 ❌ Will remove duplicate: \(duplicate.identifier)")
-            }
-          }
-        }
-
-        if duplicatesFound > 0 {
-          print("🔔 🧹 Removing \(duplicatesFound) duplicate notifications...")
-          UNUserNotificationCenter.current().removePendingNotificationRequests(
-            withIdentifiers: idsToRemove)
-          print("🔔 ✅ Removed duplicate notifications")
-        } else {
-          print("🔔 ✅ No duplicate notifications found")
-        }
-      }
-    }
+    // Use the improved logic from NotificationDebugManager
+    NotificationDebugManager.shared.removeDuplicateNotifications()
   }
 
   // MARK: - Recovery Methods

@@ -591,6 +591,11 @@ final class AddTransactionModalView: UIView {
     let selectedRow = categoryPickerView.selectedPickerIndex
     let categoryKey = rawValues.indices.contains(selectedRow) ? rawValues[selectedRow] : ""
 
+    // Debug form field values
+    print(
+      "🔍 DEBUG: Form field values - title: '\(title)', categoryKey: '\(categoryKey)', selectedRow: \(selectedRow), rawValues: \(rawValues)"
+    )
+
     // Get amount and date based on transaction mode
     let amount: Int
     let date: String
@@ -617,11 +622,13 @@ final class AddTransactionModalView: UIView {
       typeEnum = editingTransaction.type
       typeKey = String(describing: typeEnum)
       selectedMode = editingTransaction.mode
+      print("🔍 DEBUG: Edit mode - typeEnum: \(typeEnum), typeKey: '\(typeKey)'")
     } else {
       // In add mode, get from UI controls
       typeEnum = incomeSelectorButton.variant == .selected ? .income : .expense
       typeKey = String(describing: typeEnum)
       selectedMode = transactionModelControl.getSelectedMode()
+      print("🔍 DEBUG: Add mode - typeEnum: \(typeEnum), typeKey: '\(typeKey)'")
     }
 
     // Determine if this is add or edit mode
@@ -831,13 +838,23 @@ final class AddTransactionModalView: UIView {
       alert.addAction(editAllAction)
       alert.addAction(cancelAction)
     } else {
-      // For recurring transactions, allow both options
+      // For recurring transactions, allow three options
       // Edit only this transaction
       let editSingleAction = UIAlertAction(
         title: "editTransaction.alert.editSingle".localized,
         style: .default
       ) { [weak self] _ in
         self?.performSingleEdit(
+          transactionId: transactionId, transactionData: transactionData,
+          installmentData: installmentData, mode: mode)
+      }
+
+      // Edit future occurrences only
+      let editFutureAction = UIAlertAction(
+        title: "recurring.edit.future".localized,
+        style: .default
+      ) { [weak self] _ in
+        self?.performFutureEdit(
           transactionId: transactionId, transactionData: transactionData,
           installmentData: installmentData, mode: mode)
       }
@@ -855,6 +872,7 @@ final class AddTransactionModalView: UIView {
       let cancelAction = UIAlertAction(title: "alert.cancel".localized, style: .cancel)
 
       alert.addAction(editSingleAction)
+      alert.addAction(editFutureAction)
       alert.addAction(editAllAction)
       alert.addAction(cancelAction)
     }
@@ -880,6 +898,25 @@ final class AddTransactionModalView: UIView {
     }
   }
 
+  private func performFutureEdit(
+    transactionId: Int,
+    transactionData: AddTransactionData,
+    installmentData: InstallmentTransactionData?,
+    mode: TransactionMode
+  ) {
+    switch mode {
+    case .normal:
+      delegate?.updateTransactionData(id: transactionId, transactionData)
+    case .recurring:
+      delegate?.updateRecurringTransactionDataWithOption(
+        id: transactionId, transactionData, editOption: .futureOnly)
+    case .installments:
+      if let installmentData = installmentData {
+        delegate?.updateInstallmentTransactionData(id: transactionId, installmentData)
+      }
+    }
+  }
+
   private func performAllEdit(
     transactionId: Int,
     transactionData: AddTransactionData,
@@ -890,7 +927,8 @@ final class AddTransactionModalView: UIView {
     case .normal:
       delegate?.updateTransactionData(id: transactionId, transactionData)
     case .recurring:
-      delegate?.updateRecurringTransactionData(id: transactionId, transactionData)
+      delegate?.updateRecurringTransactionDataWithOption(
+        id: transactionId, transactionData, editOption: .all)
     case .installments:
       if let installmentData = installmentData {
         delegate?.updateInstallmentTransactionData(id: transactionId, installmentData)

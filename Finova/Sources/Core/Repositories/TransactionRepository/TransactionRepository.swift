@@ -165,6 +165,105 @@ final class TransactionRepository: TransactionRepositoryProtocol {
     return insertedId
   }
 
+  func updateTransactionDirectly(_ transaction: TransactionModel) throws {
+    print("🔧 DEBUG: updateTransactionDirectly called for transaction \(transaction.data.id ?? -1)")
+    print(
+      "🔧 DEBUG: Transaction data - title: '\(transaction.data.title)', amount: \(transaction.data.amount), dateTimestamp: \(transaction.data.dateTimestamp), budgetMonthDate: \(transaction.data.budgetMonthDate)"
+    )
+    print("🔧 DEBUG: Call stack: \(Thread.callStackSymbols.prefix(5).joined(separator: "\n"))")
+
+    // Update SQLite directly
+    try db.updateTransaction(transaction)
+    print("🔧 DEBUG: SQLite update completed")
+
+    // Also update SecureLocalDataManager to keep it in sync
+    var secureTransactions = SecureLocalDataManager.shared.loadTransactions()
+    print("🔧 DEBUG: Loaded \(secureTransactions.count) transactions from SecureLocalDataManager")
+
+    // Debug: Log all transactions to see what we have
+    for (idx, tx) in secureTransactions.enumerated() {
+      if idx < 5 {  // Only log first 5 to avoid spam
+        print(
+          "🔧 DEBUG: Transaction \(idx): ID=\(tx.id ?? -1), Title='\(tx.title)', Category=\(tx.category)"
+        )
+      }
+    }
+
+    if let index = secureTransactions.firstIndex(where: { $0.id == transaction.data.id }) {
+      let existingTransaction = secureTransactions[index]
+      print("🔧 DEBUG: Found existing transaction at index \(index)")
+      print(
+        "🔧 DEBUG: Existing transaction - ID: \(existingTransaction.id ?? -1), Title: '\(existingTransaction.title)', Category: \(existingTransaction.category)"
+      )
+
+      // Debug the input values
+      print(
+        "🔧 DEBUG: Input values - title: '\(transaction.data.title)', category: '\(transaction.data.category)', type: '\(transaction.data.type)'"
+      )
+
+      // Convert string category and type to enum values
+      let categoryEnum =
+        TransactionCategory.allCases.first(where: { $0.key == transaction.data.category })
+        ?? .miscellaneous
+      let typeEnum =
+        TransactionType.allCases.first(where: { String(describing: $0) == transaction.data.type })
+        ?? .expense
+
+      print("🔧 DEBUG: About to create updatedData with:")
+      print("🔧 DEBUG: - id: \(existingTransaction.id ?? -1)")
+      print("🔧 DEBUG: - title:  '\(transaction.data.title)'")
+      print("🔧 DEBUG: - amount: \(transaction.data.amount)")
+      print("🔧 DEBUG: - dateTimestamp: \(transaction.data.dateTimestamp)")
+      print("🔧 DEBUG: - budgetMonthDate: \(transaction.data.budgetMonthDate)")
+      print("🔧 DEBUG: - category: \(categoryEnum)")
+      print("🔧 DEBUG: - type: \(typeEnum)")
+
+      let updatedData = UITransactionData(
+        id: existingTransaction.id,
+        title: transaction.data.title,
+        amount: transaction.data.amount,
+        dateTimestamp: transaction.data.dateTimestamp,
+        budgetMonthDate: transaction.data.budgetMonthDate,
+        isRecurring: existingTransaction.isRecurring,
+        hasInstallments: existingTransaction.hasInstallments,
+        parentTransactionId: existingTransaction.parentTransactionId,
+        installmentNumber: existingTransaction.installmentNumber,
+        totalInstallments: existingTransaction.totalInstallments,
+        originalAmount: existingTransaction.originalAmount,
+        category: categoryEnum,
+        type: typeEnum
+      )
+
+      print(
+        "🔧 DEBUG: Created UITransactionData - title: '\(updatedData.title)', category: \(updatedData.category), type: \(updatedData.type)"
+      )
+
+      // Debug: Check what we're about to save
+      let transactionToSave = Transaction(data: updatedData)
+      print(
+        "🔧 DEBUG: Transaction to save - title: '\(transactionToSave.title)', category: \(transactionToSave.category), type: \(transactionToSave.type)"
+      )
+
+      secureTransactions[index] = transactionToSave
+      print("🔧 DEBUG: Updated transaction at index \(index)")
+      print(
+        "🔧 DEBUG: Updated transaction - ID: \(secureTransactions[index].id ?? -1), Title: '\(secureTransactions[index].title)', Category: \(secureTransactions[index].category)"
+      )
+      print(
+        "🔧 DEBUG: About to save \(secureTransactions.count) transactions to SecureLocalDataManager")
+
+      SecureLocalDataManager.shared.saveTransactions(secureTransactions)
+      print("🔧 DEBUG: SecureLocalDataManager update completed")
+    } else {
+      print(
+        "❌ DEBUG: Transaction \(transaction.data.id ?? -1) NOT FOUND in SecureLocalDataManager!")
+    }
+
+    // Notify that data has changed (for cache invalidation)
+    NotificationCenter.default.post(name: .transactionDataChanged, object: nil)
+    print("🔧 DEBUG: Cache invalidation notification sent")
+  }
+
   func updateParentTransactionId(transactionId: Int, parentId: Int) throws {
     // Update SQLite first
     try db.updateTransactionParentId(transactionId: transactionId, parentId: parentId)
@@ -208,6 +307,12 @@ final class TransactionRepository: TransactionRepositoryProtocol {
   }
 
   func updateTransaction(_ transaction: TransactionModel) throws {
+    print("🔧 DEBUG: updateTransaction called for transaction \(transaction.data.id ?? -1)")
+    print(
+      "🔧 DEBUG: Transaction data - title: '\(transaction.data.title)', category: '\(transaction.data.category)', type: '\(transaction.data.type)'"
+    )
+    print("🔧 DEBUG: Call stack: \(Thread.callStackSymbols.prefix(5).joined(separator: "\n"))")
+
     // Update all related transactions (for recurring/installments)
 
     // First, find the transaction to determine its type
@@ -215,30 +320,28 @@ final class TransactionRepository: TransactionRepositoryProtocol {
     guard
       let existingTransaction = existingTransactions.first(where: { $0.id == transaction.data.id })
     else {
+      print("❌ DEBUG: Transaction not found in SecureLocalDataManager")
       throw TransactionError.transactionNotFound
     }
 
+    print(
+      "🔧 DEBUG: Found existing transaction - isRecurring: \(existingTransaction.isRecurring ?? false), hasInstallments: \(existingTransaction.hasInstallments ?? false)"
+    )
+
     if existingTransaction.isRecurring == true {
+      print("🔧 DEBUG: Taking recurring path")
       // Update all recurring instances
       try updateAllRecurringTransactions(
         templateTransaction: transaction, existingTransaction: existingTransaction)
     } else if existingTransaction.hasInstallments == true {
+      print("🔧 DEBUG: Taking installment path")
       // Update all installment instances
       try updateAllInstallmentTransactions(
         templateTransaction: transaction, existingTransaction: existingTransaction)
     } else {
-      // Normal transaction - just update this one
-      try updateSingleTransactionOnly(
-        id: transaction.data.id!,
-        title: transaction.data.title,
-        category: TransactionCategory.allCases.first(where: { $0.key == transaction.data.category })
-          ?? .miscellaneous,
-        type: TransactionType.allCases.first(where: {
-          String(describing: $0) == transaction.data.type
-        }) ?? .expense,
-        amount: transaction.data.amount,
-        date: Date(timeIntervalSince1970: TimeInterval(transaction.data.dateTimestamp))
-      )
+      print("🔧 DEBUG: Taking normal transaction path - calling updateTransactionDirectly")
+      // Normal transaction - use updateTransactionDirectly to avoid conflicts
+      try updateTransactionDirectly(transaction)
     }
   }
 
@@ -447,7 +550,7 @@ final class TransactionRepository: TransactionRepositoryProtocol {
       amount: amount,
       type: String(describing: type),
       dateTimestamp: Int(date.timeIntervalSince1970),
-      budgetMonthDate: Int(DateFormatter.monthYearFormatter.string(from: date)) ?? 0,
+      budgetMonthDate: date.monthAnchor,
       isRecurring: false,  // Keep existing values - this will be handled by DB
       hasInstallments: false,  // Keep existing values - this will be handled by DB
       parentTransactionId: nil,  // Keep existing values
@@ -472,7 +575,7 @@ final class TransactionRepository: TransactionRepositoryProtocol {
         title: title,
         amount: amount,
         dateTimestamp: Int(date.timeIntervalSince1970),
-        budgetMonthDate: existingTransaction.budgetMonthDate,
+        budgetMonthDate: date.monthAnchor,
         isRecurring: existingTransaction.isRecurring,
         hasInstallments: existingTransaction.hasInstallments,
         parentTransactionId: existingTransaction.parentTransactionId,

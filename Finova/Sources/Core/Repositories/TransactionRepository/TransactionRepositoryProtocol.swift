@@ -13,6 +13,7 @@ protocol TransactionRepositoryProtocol {
   func fetchParentInstallmentTransactions() -> [Transaction]
   func insertTransaction(_ transaction: TransactionModel) throws
   func updateTransaction(_ transaction: TransactionModel) throws
+  func updateTransactionDirectly(_ transaction: TransactionModel) throws
   func updateSingleTransactionOnly(
     id: Int,
     title: String,

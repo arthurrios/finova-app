@@ -14,6 +14,12 @@ enum RecurringCleanupOption {
   case all
 }
 
+enum RecurringEditOption {
+  case currentSelection
+  case futureOnly
+  case all
+}
+
 final class RecurringTransactionManager {
   private let transactionRepo: TransactionRepository
   private let calendar: Calendar
@@ -482,6 +488,245 @@ final class RecurringTransactionManager {
           print("Error deleting parent installment transaction: \(error)")
         }
       }
+    }
+  }
+
+  // MARK: - Recurring Transaction Editing
+
+  /// Edit recurring transactions based on the selected option
+  func editRecurringTransactionsFromDate(
+    parentTransactionId: Int,
+    selectedTransactionDate: Date,
+    editOption: RecurringEditOption,
+    newData: TransactionModel
+  ) throws {
+    print(
+      "✏️ Starting edit for recurring transaction \(parentTransactionId) with option: \(editOption)"
+    )
+
+    // Debug the input data
+    print(
+      "✏️ DEBUG: Input newData - title: '\(newData.data.title)', category: '\(newData.data.category)', type: '\(newData.data.type)'"
+    )
+
+    let selectedAnchor = selectedTransactionDate.monthAnchor
+    let allInstances = transactionRepo.fetchAllRecurringInstances()
+
+    let relatedInstances = allInstances.filter {
+      $0.parentTransactionId == parentTransactionId || $0.id == parentTransactionId
+    }
+
+    print("✏️ Found \(relatedInstances.count) related instances for parent \(parentTransactionId)")
+    print("✏️ DEBUG: Related instances:")
+    for instance in relatedInstances {
+      let instanceDate = Date(timeIntervalSince1970: TimeInterval(instance.dateTimestamp))
+      let isParent = instance.id == parentTransactionId
+      let isChild = instance.parentTransactionId == parentTransactionId
+      print(
+        "✏️ DEBUG: - Instance \(instance.id ?? -1): Date=\(instanceDate), IsParent=\(isParent), IsChild=\(isChild)"
+      )
+    }
+
+    // Update instances based on edit option
+    var instancesToUpdate: [Int] = []
+
+    for instance in relatedInstances {
+      // Calculate the month anchor from the actual transaction date
+      // This fixes the issue where budgetMonthDate might contain transaction timestamps instead of month anchors
+      let instanceDate = Date(timeIntervalSince1970: TimeInterval(instance.dateTimestamp))
+      let instanceMonthAnchor = instanceDate.monthAnchor
+
+      let shouldUpdate: Bool
+
+      switch editOption {
+      case .currentSelection:
+        // Only update the current selected transaction
+        shouldUpdate = instanceMonthAnchor == selectedAnchor
+        print(
+          "✏️ DEBUG: Current selection - instance anchor: \(instanceMonthAnchor), selected anchor: \(selectedAnchor), shouldUpdate: \(shouldUpdate)"
+        )
+      case .futureOnly:
+        shouldUpdate = instanceMonthAnchor >= selectedAnchor
+        print(
+          "✏️ DEBUG: Future only - instance anchor: \(instanceMonthAnchor), selected anchor: \(selectedAnchor), shouldUpdate: \(shouldUpdate)"
+        )
+      case .all:
+        shouldUpdate = true
+        print(
+          "✏️ DEBUG: All - instance anchor: \(instanceMonthAnchor), shouldUpdate: \(shouldUpdate)"
+        )
+      }
+
+      if shouldUpdate, let instanceId = instance.id {
+        instancesToUpdate.append(instanceId)
+        print("✏️ DEBUG: Added instance \(instanceId) to update list")
+      }
+    }
+
+    // Get the new day from the selected transaction date
+    // Use local calendar to extract day to avoid timezone issues
+    let localCalendar = Calendar.current
+    let newDay = localCalendar.component(.day, from: selectedTransactionDate)
+    print("✏️ DEBUG: Selected transaction date: \(selectedTransactionDate)")
+    print("✏️ DEBUG: Extracted new day (local): \(newDay)")
+    print("✏️ DEBUG: Instances to update: \(instancesToUpdate.count)")
+
+    // Parent transaction is now included in relatedInstances, so no need for separate logic
+
+    // Perform updates atomically
+    print("✏️ DEBUG: Starting to update \(instancesToUpdate.count) instances")
+    for instanceId in instancesToUpdate {
+      print("✏️ DEBUG: Processing instance \(instanceId)")
+      // Find the original instance to get its month/year
+      guard let originalInstance = relatedInstances.first(where: { $0.id == instanceId }) else {
+        print("❌ Could not find original instance \(instanceId)")
+        continue
+      }
+      print("✏️ DEBUG: Found original instance \(instanceId) with date: \(originalInstance.date)")
+
+      // Calculate the new date for this instance (same day, same month/year as original)
+      let originalDate = originalInstance.date
+      let originalYear = calendar.component(.year, from: originalDate)
+      let originalMonth = calendar.component(.month, from: originalDate)
+
+      // Create new date with the updated day but same month/year
+      var dateComponents = DateComponents()
+      dateComponents.year = originalYear
+      dateComponents.month = originalMonth
+      dateComponents.day = newDay
+      dateComponents.hour = 0
+      dateComponents.minute = 0
+      dateComponents.second = 0
+
+      print(
+        "✏️ DEBUG: Creating date for instance \(instanceId) - Year: \(originalYear), Month: \(originalMonth), Day: \(newDay)"
+      )
+      print("✏️ DEBUG: Original date was: \(originalDate)")
+      print("✏️ DEBUG: Date components: \(dateComponents)")
+
+      // Try to create the date with the new day using local calendar
+      var newDate = localCalendar.date(from: dateComponents)
+
+      // If the date is invalid (e.g., Feb 31), adjust to the last valid day of the month
+      if newDate == nil {
+        let lastDayOfMonth =
+          localCalendar.range(of: .day, in: .month, for: originalDate)?.upperBound ?? 31
+        let actualLastDay = lastDayOfMonth - 1  // upperBound is exclusive
+        dateComponents.day = actualLastDay
+        newDate = localCalendar.date(from: dateComponents)
+        print("✏️ DEBUG: Invalid date, adjusted to last day of month: \(actualLastDay)")
+      }
+
+      guard let finalDate = newDate else {
+        print("❌ Could not create new date for instance \(instanceId)")
+        continue
+      }
+
+      print("✏️ DEBUG: Final date created: \(finalDate)")
+      print("✏️ DEBUG: Final day component (UTC): \(calendar.component(.day, from: finalDate))")
+      print(
+        "✏️ DEBUG: Final day component (local): \(localCalendar.component(.day, from: finalDate))")
+
+      let newTimestamp = Int(finalDate.timeIntervalSince1970)
+      let newBudgetMonthDate = finalDate.monthAnchor
+
+      // Create updated transaction model with new data and updated date
+      let updatedModel = TransactionModel(
+        id: instanceId,
+        title: newData.data.title,
+        category: newData.data.category,
+        amount: newData.data.amount,
+        type: newData.data.type,
+        dateTimestamp: newTimestamp,
+        budgetMonthDate: newBudgetMonthDate,
+        parentTransactionId: parentTransactionId
+      )
+
+      print(
+        "✏️ DEBUG: About to update transaction \(instanceId) with new timestamp: \(newTimestamp)")
+      print(
+        "✏️ DEBUG: Updated model data - title: '\(updatedModel.data.title)', amount: \(updatedModel.data.amount), dateTimestamp: \(updatedModel.data.dateTimestamp), budgetMonthDate: \(updatedModel.data.budgetMonthDate)"
+      )
+
+      do {
+        // Use updateSingleTransactionOnly to avoid TransactionRepository's recurring logic
+        let category =
+          TransactionCategory.allCases.first(where: { $0.key == updatedModel.data.category })
+          ?? .miscellaneous
+        let type =
+          TransactionType.allCases.first(where: { String(describing: $0) == updatedModel.data.type }
+          ) ?? .expense
+
+        // Create a custom update that preserves the correct budgetMonthDate
+        let updatedTransaction = TransactionModel(
+          id: instanceId,
+          title: updatedModel.data.title,
+          category: updatedModel.data.category,
+          amount: updatedModel.data.amount,
+          type: updatedModel.data.type,
+          dateTimestamp: Int(finalDate.timeIntervalSince1970),
+          budgetMonthDate: finalDate.monthAnchor,  // Use proper month anchor calculation
+          isRecurring: updatedModel.data.isRecurring,
+          hasInstallments: updatedModel.data.hasInstallments,
+          parentTransactionId: updatedModel.data.parentTransactionId,
+          originalAmount: updatedModel.data.originalAmount,
+          installmentNumber: updatedModel.data.installmentNumber,
+          totalInstallments: updatedModel.data.totalInstallments
+        )
+
+        // Use the new direct update method that preserves correct budgetMonthDate
+        try transactionRepo.updateTransactionDirectly(updatedTransaction)
+
+        // Verify the update was successful by fetching the transaction
+        let allTransactions = transactionRepo.fetchAllTransactions()
+        if let updatedTransaction = allTransactions.first(where: { $0.id == instanceId }) {
+          let updatedDate = Date(
+            timeIntervalSince1970: TimeInterval(updatedTransaction.dateTimestamp))
+          print(
+            "✅ VERIFICATION: Transaction \(instanceId) updated successfully - Date: \(updatedDate), Day: \(Calendar.current.component(.day, from: updatedDate)), BudgetMonthDate: \(updatedTransaction.budgetMonthDate)"
+          )
+        } else {
+          print("❌ VERIFICATION: Transaction \(instanceId) NOT FOUND after update!")
+        }
+
+        print(
+          "✅ Successfully updated instance \(instanceId) for parent \(parentTransactionId) (updated date from \(originalDate) to \(finalDate))"
+        )
+      } catch {
+        print("❌ Failed to update instance \(instanceId): \(error)")
+        throw error
+      }
+    }
+
+    // Parent transaction is now handled in the main update loop above
+
+    print("✏️ Completed edit for recurring transaction \(parentTransactionId)")
+
+    // Verify the updates were successful
+    let updatedInstances = transactionRepo.fetchAllRecurringInstances().filter {
+      $0.parentTransactionId == parentTransactionId || $0.id == parentTransactionId
+    }
+    print("✏️ DEBUG: Verification - Found \(updatedInstances.count) instances after update")
+    for instance in updatedInstances {
+      let instanceDate = Date(timeIntervalSince1970: TimeInterval(instance.dateTimestamp))
+      print(
+        "✏️ DEBUG: Instance \(instance.id ?? -1) - Date: \(instanceDate), Day: \(Calendar.current.component(.day, from: instanceDate))"
+      )
+    }
+
+    // Additional verification: Check if all instances are still in the main transaction list
+    let allTransactions = transactionRepo.fetchAllTransactions()
+    let relatedTransactionsInMainList = allTransactions.filter {
+      $0.parentTransactionId == parentTransactionId || $0.id == parentTransactionId
+    }
+    print(
+      "✏️ DEBUG: Verification - Found \(relatedTransactionsInMainList.count) related transactions in main list"
+    )
+    for tx in relatedTransactionsInMainList {
+      let txDate = Date(timeIntervalSince1970: TimeInterval(tx.dateTimestamp))
+      print(
+        "✏️ DEBUG: Main list transaction \(tx.id ?? -1) - Date: \(txDate), Day: \(Calendar.current.component(.day, from: txDate))"
+      )
     }
   }
 

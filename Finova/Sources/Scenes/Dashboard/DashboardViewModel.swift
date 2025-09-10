@@ -345,16 +345,23 @@ final class DashboardViewModel {
 
     // Check if this is a recurring transaction instance
     if let parentId = transaction.parentTransactionId {
-      let parentTransaction = transactionRepo.fetchAllTransactions().first(where: {
-        $0.id == parentId
-      }
-      )
-      if parentTransaction?.isRecurring == true {
-        print("🔍 GET TRANSACTION TYPE DEBUG: Detected as recurring instance")
-        return .recurringInstance
+      // Special case: if parentTransactionId points to itself, treat it as a parent transaction
+      if parentId == id {
+        print(
+          "🔍 GET TRANSACTION TYPE DEBUG: Parent ID points to self, treating as parent transaction")
+        // Continue to parent transaction checks below
       } else {
-        print("🔍 GET TRANSACTION TYPE DEBUG: Detected as installment instance")
-        return .installmentInstance
+        let parentTransaction = transactionRepo.fetchAllTransactions().first(where: {
+          $0.id == parentId
+        }
+        )
+        if parentTransaction?.isRecurring == true {
+          print("🔍 GET TRANSACTION TYPE DEBUG: Detected as recurring instance")
+          return .recurringInstance
+        } else {
+          print("🔍 GET TRANSACTION TYPE DEBUG: Detected as installment instance")
+          return .installmentInstance
+        }
       }
     }
 
@@ -364,8 +371,16 @@ final class DashboardViewModel {
       return .recurringParent
     }
 
-    // Check if this is a parent installment transaction
-    if transaction.hasInstallments == true {
+    // Special case: if mode is recurring but isRecurring is false (data corruption), treat as recurring parent
+    if transaction.mode == .recurring && transaction.isRecurring != true {
+      print(
+        "🔍 GET TRANSACTION TYPE DEBUG: Mode is recurring but isRecurring is false (data corruption), treating as recurring parent"
+      )
+      return .recurringParent
+    }
+
+    // Check if this is a parent installment transaction (only if not recurring)
+    if transaction.hasInstallments == true && transaction.isRecurring != true {
       print("🔍 GET TRANSACTION TYPE DEBUG: Detected as installment parent")
       return .installmentParent
     }

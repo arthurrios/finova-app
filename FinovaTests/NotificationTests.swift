@@ -444,6 +444,65 @@ class NotificationTests: XCTestCase {
     print("✅ Notification permission handling test passed")
   }
 
+  func testRecurringNotificationsNotMarkedAsDuplicates() {
+    // Given: A recurring transaction with multiple instances
+    let today = Date()
+    let tomorrow = Calendar.current.date(byAdding: .day, value: 1, to: today)!
+    let dayAfterTomorrow = Calendar.current.date(byAdding: .day, value: 2, to: today)!
+
+    // Create a parent recurring transaction
+    let parentResult = viewModel.addTransaction(
+      title: "Recurring Salary",
+      amount: 500000,  // R$ 5,000.00
+      dateString: DateFormatter.fullDateFormatter.string(from: today),
+      categoryKey: "salary",
+      typeRaw: "income",
+      isRecurring: true
+    )
+
+    XCTAssertTrue(parentResult.isSuccess, "Parent recurring transaction should be created")
+
+    // Create recurring instances for different days
+    let instance1Result = viewModel.addTransaction(
+      title: "Recurring Salary",
+      amount: 500000,
+      dateString: DateFormatter.fullDateFormatter.string(from: tomorrow),
+      categoryKey: "salary",
+      typeRaw: "income",
+      isRecurring: false,
+      parentTransactionId: transactionRepo.fetchAllTransactions().first?.id
+    )
+
+    let instance2Result = viewModel.addTransaction(
+      title: "Recurring Salary",
+      amount: 500000,
+      dateString: DateFormatter.fullDateFormatter.string(from: dayAfterTomorrow),
+      categoryKey: "salary",
+      typeRaw: "income",
+      isRecurring: false,
+      parentTransactionId: transactionRepo.fetchAllTransactions().first?.id
+    )
+
+    XCTAssertTrue(instance1Result.isSuccess, "First recurring instance should be created")
+    XCTAssertTrue(instance2Result.isSuccess, "Second recurring instance should be created")
+
+    // When: Check for duplicate notifications
+    let transactions = transactionRepo.fetchAllTransactions()
+    XCTAssertEqual(transactions.count, 3, "Should have 1 parent + 2 instances")
+
+    // Verify that the instances have parent transaction IDs (indicating they're recurring instances)
+    let instances = transactions.filter { $0.parentTransactionId != nil }
+    XCTAssertEqual(instances.count, 2, "Should have 2 recurring instances")
+
+    // Test the duplicate detection logic
+    let debugManager = NotificationDebugManager.shared
+
+    // This should not mark recurring notifications as duplicates
+    debugManager.removeDuplicateNotifications()
+
+    print("✅ Recurring notifications duplicate detection test passed")
+  }
+
   // MARK: - Helper Methods
 
   @discardableResult

@@ -159,13 +159,18 @@ final class TransactionDetailsViewModel {
 
     // Check if this is a recurring transaction instance
     if let parentId = transactionToCheck.parentTransactionId {
-      let allTransactions = transactionRepository.fetchAllTransactions()
-      let parentTransaction = allTransactions.first(where: { $0.id == parentId })
-
-      if parentTransaction?.isRecurring == true {
-        return .recurringInstance
+      // Special case: if parentTransactionId points to itself, treat it as a parent transaction
+      if parentId == transactionId {
+        // Continue to parent transaction checks below
       } else {
-        return .installmentInstance
+        let allTransactions = transactionRepository.fetchAllTransactions()
+        let parentTransaction = allTransactions.first(where: { $0.id == parentId })
+
+        if parentTransaction?.isRecurring == true {
+          return .recurringInstance
+        } else {
+          return .installmentInstance
+        }
       }
     }
 
@@ -174,8 +179,13 @@ final class TransactionDetailsViewModel {
       return .recurringParent
     }
 
-    // Check if this is a parent installment transaction
-    if transactionToCheck.hasInstallments == true {
+    // Special case: if mode is recurring but isRecurring is false (data corruption), treat as recurring parent
+    if transactionToCheck.mode == .recurring && transactionToCheck.isRecurring != true {
+      return .recurringParent
+    }
+
+    // Check if this is a parent installment transaction (only if not recurring)
+    if transactionToCheck.hasInstallments == true && transactionToCheck.isRecurring != true {
       return .installmentParent
     }
 

@@ -264,6 +264,21 @@ extension AddTransactionModalViewController: AddTransactionModalViewDelegate,
     handleUpdateResult(result)
   }
 
+  func updateRecurringTransactionDataWithOption(
+    id: Int, _ data: AddTransactionData, editOption: RecurringEditOption
+  ) {
+    let result = viewModel.updateRecurringTransactionWithOption(
+      id: id,
+      title: data.title,
+      amount: data.amount,
+      dateString: data.date,
+      categoryKey: data.category,
+      typeRaw: data.transactionType,
+      editOption: editOption
+    )
+    handleUpdateResult(result)
+  }
+
   private func handleTransactionResult(_ result: Result<Void, Error>) {
     switch result {
     case .success:

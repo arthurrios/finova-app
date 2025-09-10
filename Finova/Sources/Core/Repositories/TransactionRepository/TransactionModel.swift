@@ -18,17 +18,27 @@ struct Transaction: Codable {
   }
 
   var mode: TransactionMode {
+    // First check if this is a recurring transaction (parent or instance)
     if isRecurring == true {
       return .recurring
-    } else if hasInstallments == true {
-      return .installments
-    } else if parentTransactionId != nil && installmentNumber != nil && totalInstallments != nil {
-      return .installments
-    } else if parentTransactionId != nil && isRecurring != true && installmentNumber == nil {
-      return .recurring
-    } else {
-      return .normal
     }
+
+    // Check if this is an installment transaction (parent)
+    if hasInstallments == true {
+      return .installments
+    }
+
+    // Check if this is an installment instance
+    if parentTransactionId != nil && installmentNumber != nil && totalInstallments != nil {
+      return .installments
+    }
+
+    // Check if this is a recurring instance (has parent but no installment fields)
+    if parentTransactionId != nil && installmentNumber == nil && totalInstallments == nil {
+      return .recurring
+    }
+
+    return .normal
   }
 
   var id: Int? { data.id }
@@ -47,6 +57,109 @@ struct Transaction: Codable {
 
   init(data: UITransactionData) {
     self.data = data
+  }
+
+  // Custom Codable implementation to serialize/deserialize correctly
+  enum CodingKeys: String, CodingKey {
+    case id, title, amount, dateTimestamp, budgetMonthDate
+    case isRecurring, hasInstallments, parentTransactionId
+    case installmentNumber, totalInstallments, originalAmount
+    case category, type
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+
+    let id = try container.decodeIfPresent(Int.self, forKey: .id)
+    let title = try container.decode(String.self, forKey: .title)
+    let amount = try container.decode(Int.self, forKey: .amount)
+    let dateTimestamp = try container.decode(Int.self, forKey: .dateTimestamp)
+    let budgetMonthDate = try container.decode(Int.self, forKey: .budgetMonthDate)
+    let isRecurring = try container.decodeIfPresent(Bool.self, forKey: .isRecurring)
+    let hasInstallments = try container.decodeIfPresent(Bool.self, forKey: .hasInstallments)
+    let parentTransactionId = try container.decodeIfPresent(Int.self, forKey: .parentTransactionId)
+    let installmentNumber = try container.decodeIfPresent(Int.self, forKey: .installmentNumber)
+    let totalInstallments = try container.decodeIfPresent(Int.self, forKey: .totalInstallments)
+    let originalAmount = try container.decodeIfPresent(Int.self, forKey: .originalAmount)
+
+    // Decode category and type as strings, then convert to enums
+    let categoryString = try container.decode(String.self, forKey: .category)
+    let typeString = try container.decode(String.self, forKey: .type)
+
+    // Debug: Log the decoded values
+    if let transactionId = id, transactionId == 419 {
+      print(
+        "🔧 DEBUG: Decoding transaction \(transactionId) - title: '\(title)', categoryString: '\(categoryString)', typeString: '\(typeString)'"
+      )
+    }
+
+    guard let category = TransactionCategory.allCases.first(where: { $0.key == categoryString })
+    else {
+      print("❌ DEBUG: Failed to find category for key: '\(categoryString)'")
+      print("❌ DEBUG: Available category keys: \(TransactionCategory.allCases.map { $0.key })")
+      throw TransactionError.invalidCategory
+    }
+
+    guard let type = TransactionType.allCases.first(where: { String(describing: $0) == typeString })
+    else {
+      print("❌ DEBUG: Failed to find type for key: '\(typeString)'")
+      print(
+        "❌ DEBUG: Available type keys: \(TransactionType.allCases.map { String(describing: $0) })")
+      throw TransactionError.invalidType
+    }
+
+    // Debug: Log the input values before creating UITransactionData
+    if let transactionId = id, transactionId == 419 || transactionId == 420 {
+      print("🔧 DEBUG: Creating UITransactionData for \(transactionId) with input values:")
+      print("🔧 DEBUG: - title: '\(title)'")
+      print("🔧 DEBUG: - category: \(category)")
+      print("🔧 DEBUG: - type: \(type)")
+    }
+
+    let uiData = UITransactionData(
+      id: id,
+      title: title,
+      amount: amount,
+      dateTimestamp: dateTimestamp,
+      budgetMonthDate: budgetMonthDate,
+      isRecurring: isRecurring,
+      hasInstallments: hasInstallments,
+      parentTransactionId: parentTransactionId,
+      installmentNumber: installmentNumber,
+      totalInstallments: totalInstallments,
+      originalAmount: originalAmount,
+      category: category,
+      type: type
+    )
+
+    // Debug: Log the final UITransactionData
+    if let transactionId = id, transactionId == 419 {
+      print(
+        "🔧 DEBUG: Created UITransactionData for \(transactionId) - title: '\(uiData.title)', category: \(uiData.category), type: \(uiData.type)"
+      )
+    }
+
+    self.data = uiData
+  }
+
+  func encode(to encoder: Encoder) throws {
+    var container = encoder.container(keyedBy: CodingKeys.self)
+
+    try container.encodeIfPresent(data.id, forKey: .id)
+    try container.encode(data.title, forKey: .title)
+    try container.encode(data.amount, forKey: .amount)
+    try container.encode(data.dateTimestamp, forKey: .dateTimestamp)
+    try container.encode(data.budgetMonthDate, forKey: .budgetMonthDate)
+    try container.encodeIfPresent(data.isRecurring, forKey: .isRecurring)
+    try container.encodeIfPresent(data.hasInstallments, forKey: .hasInstallments)
+    try container.encodeIfPresent(data.parentTransactionId, forKey: .parentTransactionId)
+    try container.encodeIfPresent(data.installmentNumber, forKey: .installmentNumber)
+    try container.encodeIfPresent(data.totalInstallments, forKey: .totalInstallments)
+    try container.encodeIfPresent(data.originalAmount, forKey: .originalAmount)
+
+    // Encode category and type as strings
+    try container.encode(data.category.key, forKey: .category)
+    try container.encode(String(describing: data.type), forKey: .type)
   }
 }
 
@@ -92,39 +205,51 @@ extension UITransactionData {
   init(from db: DBTransactionData) throws {
     var cat: TransactionCategory?
 
-    cat = TransactionCategory.allCases.first(where: { $0.key == db.category })
+    // Handle empty or nil categories by defaulting to miscellaneous
+    let categoryKey = db.category.isEmpty ? "miscellaneous" : db.category
+
+    cat = TransactionCategory.allCases.first(where: { $0.key == categoryKey })
 
     if cat == nil {
-      cat = TransactionCategory.allCases.first(where: { $0.rawValue == db.category })
+      cat = TransactionCategory.allCases.first(where: { $0.rawValue == categoryKey })
     }
 
     if cat == nil {
       cat = TransactionCategory.allCases.first(where: {
-        $0.key.lowercased() == db.category.lowercased()
+        $0.key.lowercased() == categoryKey.lowercased()
       })
     }
 
     if cat == nil {
-      let cleanCategory = db.category.replacingOccurrences(of: "category.", with: "")
+      let cleanCategory = categoryKey.replacingOccurrences(of: "category.", with: "")
       cat = TransactionCategory.allCases.first(where: {
         $0.key.lowercased() == cleanCategory.lowercased()
       })
     }
 
-    guard let finalCategory = cat else {
-      print("⚠️ Failed to find category for key: '\(db.category)'")
+    let finalCategory: TransactionCategory
+    if let category = cat {
+      finalCategory = category
+    } else {
+      print("⚠️ Failed to find category for key: '\(db.category)' (processed as: '\(categoryKey)')")
       print("⚠️ Available category keys: \(TransactionCategory.allCases.map { $0.key })")
       print("⚠️ Available category raw values: \(TransactionCategory.allCases.map { $0.rawValue })")
-      throw TransactionError.invalidCategory
+
+      // Fallback to miscellaneous instead of throwing an error
+      print("⚠️ Using fallback category: miscellaneous")
+      finalCategory = .miscellaneous
     }
 
-    guard
-      let ty = TransactionType.allCases
-        .first(where: { String(describing: $0) == db.type })
-    else {
+    let finalType: TransactionType
+    if let ty = TransactionType.allCases.first(where: { String(describing: $0) == db.type }) {
+      finalType = ty
+    } else {
       print("⚠️ Failed to find transaction type for key: '\(db.type)'")
       print("⚠️ Available type keys: \(TransactionType.allCases.map { String(describing: $0) })")
-      throw TransactionError.invalidType
+
+      // Fallback to expense instead of throwing an error
+      print("⚠️ Using fallback type: expense")
+      finalType = .expense
     }
 
     self = .init(
@@ -140,7 +265,7 @@ extension UITransactionData {
       totalInstallments: db.totalInstallments,
       originalAmount: db.originalAmount,
       category: finalCategory,
-      type: ty
+      type: finalType
     )
   }
 }

@@ -945,9 +945,22 @@ final class TransactionLedgerService {
 
   /// Attempt to recover transactions from SQLite to SecureLocalDataManager
   func attemptTransactionRecovery() -> Bool {
+    // First check if SecureLocalDataManager already has transactions
+    let existingTransactions = SecureLocalDataManager.shared.loadTransactions()
+
+    if existingTransactions.count > 0 {
+      print(
+        "🔒 DEBUG: SecureLocalDataManager already has \(existingTransactions.count) transactions, skipping recovery"
+      )
+      return false
+    }
+
     let sqliteTransactions = checkSQLiteRecovery()
 
     if sqliteTransactions.count > 0 {
+      print(
+        "🔒 DEBUG: Recovering \(sqliteTransactions.count) transactions from SQLite to SecureLocalDataManager"
+      )
       // Save recovered transactions to SecureLocalDataManager
       SecureLocalDataManager.shared.saveTransactions(sqliteTransactions)
 
