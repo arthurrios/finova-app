@@ -39,7 +39,7 @@ class Input: UIView {
         return true
       case (.currency, .currency):
         return true
-      case let (.date(style1), .date(style2)):
+      case (.date(let style1), .date(let style2)):
         return style1 == style2
       default:
         return false
@@ -336,11 +336,12 @@ class Input: UIView {
     case .fullDate:
       let picker = UIDatePicker()
       picker.datePickerMode = .date
-      picker.preferredDatePickerStyle = .wheels
+      picker.preferredDatePickerStyle = .inline
       picker.locale = Locale.current
       picker.addTarget(self, action: #selector(dateChanged(_:)), for: .valueChanged)
       datePicker = picker
       textField.inputView = picker
+      textField.addTarget(self, action: #selector(dateFieldDidBeginEditing), for: .editingDidBegin)
     }
 
     let toolbar = UIToolbar()
@@ -757,5 +758,20 @@ extension Input: UITextFieldDelegate {
     guard let datePicker = datePicker else { return }
     datePicker.minimumDate = minimumDate
     datePicker.maximumDate = maximumDate
+  }
+
+  // MARK: - Set Initial Date
+  func setInitialDateFromTextField() {
+    guard let datePicker = datePicker, let text = textField.text, !text.isEmpty else { return }
+
+    // Try to parse the current text as a date
+    if let date = DateFormatter.fullDateFormatter.date(from: text) {
+      datePicker.date = date
+      dateValue = date
+    }
+  }
+
+  @objc private func dateFieldDidBeginEditing() {
+    setInitialDateFromTextField()
   }
 }
