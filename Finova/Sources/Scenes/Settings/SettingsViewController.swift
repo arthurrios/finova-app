@@ -102,6 +102,16 @@ extension SettingsViewController: SettingsViewModelDelegate {
             LoadingManager.shared.hideLoading()
         }
     }
+    
+    func didCompleteDataRecovery(success: Bool, message: String) {
+        let alert = UIAlertController(
+            title: success ? "✅ Recovery Complete" : "❌ Recovery Failed",
+            message: message,
+            preferredStyle: .alert
+        )
+        alert.addAction(UIAlertAction(title: "OK", style: .default))
+        present(alert, animated: true)
+    }
 }
 
 // MARK: - Alert Methods

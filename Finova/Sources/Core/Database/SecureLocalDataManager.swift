@@ -438,6 +438,15 @@ class SecureLocalDataManager {
   // MARK: - Security & Data Ownership
 
   private func validateDataOwnership(for firebaseUID: String, email: String) -> Bool {
+    // 🚨 EMERGENCY RECOVERY: Check if this is a first-time recovery attempt
+    let emergencyRecoveryKey = "emergency_recovery_attempted_\(firebaseUID)"
+    if !UserDefaults.standard.bool(forKey: emergencyRecoveryKey) {
+      UserDefaults.standard.set(true, forKey: emergencyRecoveryKey)
+      print("🚨 EMERGENCY RECOVERY: Allowing first migration attempt for \(firebaseUID)")
+      print("🚨 This bypasses ownership validation to recover user data from v1.1.0 issue")
+      return true
+    }
+
     // Check if data has already been claimed by another user
     if let existingOwnerUID = getDataOwnerUID() {
       if existingOwnerUID != firebaseUID {

@@ -6,11 +6,12 @@
 //
 
 protocol SettingsViewModelDelegate: AnyObject {
-    func didUpdateBiometricUI(isEnabled: Bool, isAvailable: Bool, biometricType: String)
-    func didUpdateAppVersion(version: String)
-    func didEncounterBiometricError(title: String, message: String)
-    func didRequestReAuthentication()
-    func didCompleteAccountDeletion()
-    func didFailAccountDeletion(title: String, message: String)
-    func shouldShowLoading(_ show: Bool, message: String?)
+  func didUpdateBiometricUI(isEnabled: Bool, isAvailable: Bool, biometricType: String)
+  func didUpdateAppVersion(version: String)
+  func didEncounterBiometricError(title: String, message: String)
+  func didRequestReAuthentication()
+  func didCompleteAccountDeletion()
+  func didFailAccountDeletion(title: String, message: String)
+  func shouldShowLoading(_ show: Bool, message: String?)
+  func didCompleteDataRecovery(success: Bool, message: String)
 }
