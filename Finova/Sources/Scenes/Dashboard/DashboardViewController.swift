@@ -24,7 +24,7 @@ final class DashboardViewController: UIViewController {
   private let updateToastContainer = UpdateToastContainer()
   private let updateToastManager = UpdateToastManager.shared
   private var updateToastTimer: Timer?
-  
+
   // MARK: - Data Recovery Toast
   private let recoveryToastContainer = DataRecoveryToastContainer()
   private let recoveryToastManager = DataRecoveryToastManager.shared
@@ -534,11 +534,11 @@ final class DashboardViewController: UIViewController {
     // Start periodic timer to check for toast reminders
     startUpdateToastTimer()
   }
-  
+
   private func setupRecoveryToast() {
     recoveryToastManager.delegate = self
     recoveryToastContainer.translatesAutoresizingMaskIntoConstraints = false
-    
+
     view.addSubview(recoveryToastContainer)
     NSLayoutConstraint.activate([
       recoveryToastContainer.topAnchor.constraint(equalTo: view.topAnchor),
@@ -546,7 +546,7 @@ final class DashboardViewController: UIViewController {
       recoveryToastContainer.trailingAnchor.constraint(equalTo: view.trailingAnchor),
       recoveryToastContainer.bottomAnchor.constraint(equalTo: view.bottomAnchor),
     ])
-    
+
     // Check for recovery toast after dashboard loads
     DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
       print("🚨 Checking if recovery toast should be shown...")
@@ -570,12 +570,12 @@ final class DashboardViewController: UIViewController {
   private func hideUpdateToast() {
     updateToastContainer.hideUpdateToast()
   }
-  
+
   private func showRecoveryToast() {
     // Check if recovery toast should be shown
     let shouldShow = recoveryToastManager.shouldShowRecoveryToast()
     print("🚨 shouldShowRecoveryToast returned: \(shouldShow)")
-    
+
     if shouldShow {
       print("🚨 Showing data recovery toast...")
       recoveryToastContainer.showRecoveryToast(delegate: self)
@@ -583,7 +583,7 @@ final class DashboardViewController: UIViewController {
       print("📱 Recovery toast not shown - conditions not met")
     }
   }
-  
+
   private func hideRecoveryToast() {
     recoveryToastContainer.hideRecoveryToast()
   }
@@ -1074,6 +1074,15 @@ final class DashboardViewController: UIViewController {
       if let firebaseUID = user.firebaseUID {
         SecureLocalDataManager.shared.authenticateUser(firebaseUID: firebaseUID)
         print("🔒 SecureLocalDataManager authenticated for user: \(firebaseUID)")
+
+        // Ensure user settings are properly created in UID-based system
+        if UIDUserDefaultsManager.shared.getUserSettings(for: firebaseUID) == nil {
+          print("🆕 Creating missing user settings in Dashboard for UID: \(firebaseUID)")
+          UserDefaultsManager.updateCurrentUserSavedStatus(saved: user.isUserSaved)
+          if user.hasFaceIdEnabled {
+            UserDefaultsManager.updateCurrentUserFaceID(enabled: true)
+          }
+        }
       }
 
       contentView.welcomeTitleLabel.text = "dashboard.welcomeTitle".localized + "\(user.name)!"
@@ -2366,7 +2375,7 @@ extension DashboardViewController: DataRecoveryToastManagerDelegate {
       showRecoveryToast()
     }
   }
-  
+
   func dataRecoveryToastManager(_ manager: DataRecoveryToastManager, didDismissToast: Bool) {
     // Handle toast dismissal if needed
   }
@@ -2376,33 +2385,34 @@ extension DashboardViewController: DataRecoveryToastManagerDelegate {
 extension DashboardViewController: DataRecoveryToastViewDelegate {
   func dataRecoveryToastViewDidTapRecover(_ toastView: DataRecoveryToastView) {
     hideRecoveryToast()
-    
+
     // Show loading state
     LoadingManager.shared.showLoading(on: self, message: "Recovering your data...")
-    
+
     // Perform recovery
     recoveryToastManager.performDataRecovery { [weak self] success, message in
       DispatchQueue.main.async {
         LoadingManager.shared.hideLoading()
-        
+
         let alert = UIAlertController(
           title: success ? "✅ Recovery Complete" : "❌ Recovery Failed",
           message: message,
           preferredStyle: .alert
         )
-        
-        alert.addAction(UIAlertAction(title: "OK", style: .default) { _ in
-          if success {
-            // Refresh dashboard to show recovered data
-            self?.refreshDashboardData()
-          }
-        })
-        
+
+        alert.addAction(
+          UIAlertAction(title: "OK", style: .default) { _ in
+            if success {
+              // Refresh dashboard to show recovered data
+              self?.refreshDashboardData()
+            }
+          })
+
         self?.present(alert, animated: true)
       }
     }
   }
-  
+
   func dataRecoveryToastViewDidTapDismiss(_ toastView: DataRecoveryToastView) {
     recoveryToastManager.markToastAsDismissedTemporarily()
     hideRecoveryToast()

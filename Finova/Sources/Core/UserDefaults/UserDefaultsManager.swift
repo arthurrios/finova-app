@@ -143,27 +143,51 @@ class UserDefaultsManager {
   }
 
   static func updateCurrentUserFaceID(enabled: Bool) {
-    guard let uid = UIDUserDefaultsManager.shared.currentUserUID,
-      var settings = UIDUserDefaultsManager.shared.getUserSettings(for: uid)
-    else {
-      print("❌ Cannot update Face ID: No current user settings")
-      // Fallback to updating global user
-      if var globalUser = getUser() {
-        let updatedUser = User(
-          firebaseUID: globalUser.firebaseUID,
-          name: globalUser.name,
-          email: globalUser.email,
-          isUserSaved: globalUser.isUserSaved,
-          hasFaceIdEnabled: enabled
-        )
-        saveUser(user: updatedUser)
-      }
+    guard let uid = UIDUserDefaultsManager.shared.currentUserUID else {
+      print("❌ Cannot update Face ID: No current user UID")
       return
     }
 
-    settings.hasFaceIdEnabled = enabled
-    settings.lastSignIn = Date()
-    UIDUserDefaultsManager.shared.saveUserSettings(for: uid, settings: settings)
+    // Try to get existing settings, or create new ones if they don't exist
+    var settings = UIDUserDefaultsManager.shared.getUserSettings(for: uid)
+
+    if settings == nil {
+      // Create new settings for this user
+      print("🆕 Creating new user settings for Face ID update, UID: \(uid)")
+
+      // Try to get user info from Firebase or global settings
+      var userName = "User"
+      var userEmail = ""
+      var isUserSaved = false
+
+      if let firebaseUser = AuthenticationManager.shared.currentUser {
+        userName = firebaseUser.displayName ?? "User"
+        userEmail = firebaseUser.email ?? ""
+        isUserSaved = true  // Firebase users are considered saved
+      } else if let globalUser = getUser() {
+        userName = globalUser.name
+        userEmail = globalUser.email
+        isUserSaved = globalUser.isUserSaved
+      }
+
+      settings = UserSettings(
+        name: userName,
+        email: userEmail,
+        hasFaceIdEnabled: false,
+        isUserSaved: isUserSaved,
+        createdAt: Date(),
+        lastSignIn: Date()
+      )
+    }
+
+    guard var userSettings = settings else {
+      print("❌ Failed to create or retrieve user settings for Face ID update")
+      return
+    }
+
+    userSettings.hasFaceIdEnabled = enabled
+    userSettings.lastSignIn = Date()
+    UIDUserDefaultsManager.shared.saveUserSettings(for: uid, settings: userSettings)
 
     // Update global user as well for backward compatibility
     if var globalUser = getUser() {
@@ -181,16 +205,48 @@ class UserDefaultsManager {
   }
 
   static func updateCurrentUserSavedStatus(saved: Bool) {
-    guard let uid = UIDUserDefaultsManager.shared.currentUserUID,
-      var settings = UIDUserDefaultsManager.shared.getUserSettings(for: uid)
-    else {
-      print("❌ Cannot update saved status: No current user settings")
+    guard let uid = UIDUserDefaultsManager.shared.currentUserUID else {
+      print("❌ Cannot update saved status: No current user UID")
       return
     }
 
-    settings.isUserSaved = saved
-    settings.lastSignIn = Date()
-    UIDUserDefaultsManager.shared.saveUserSettings(for: uid, settings: settings)
+    // Try to get existing settings, or create new ones if they don't exist
+    var settings = UIDUserDefaultsManager.shared.getUserSettings(for: uid)
+
+    if settings == nil {
+      // Create new settings for this user
+      print("🆕 Creating new user settings for UID: \(uid)")
+
+      // Try to get user info from Firebase or global settings
+      var userName = "User"
+      var userEmail = ""
+
+      if let firebaseUser = AuthenticationManager.shared.currentUser {
+        userName = firebaseUser.displayName ?? "User"
+        userEmail = firebaseUser.email ?? ""
+      } else if let globalUser = getUser() {
+        userName = globalUser.name
+        userEmail = globalUser.email
+      }
+
+      settings = UserSettings(
+        name: userName,
+        email: userEmail,
+        hasFaceIdEnabled: false,
+        isUserSaved: false,
+        createdAt: Date(),
+        lastSignIn: Date()
+      )
+    }
+
+    guard var userSettings = settings else {
+      print("❌ Failed to create or retrieve user settings")
+      return
+    }
+
+    userSettings.isUserSaved = saved
+    userSettings.lastSignIn = Date()
+    UIDUserDefaultsManager.shared.saveUserSettings(for: uid, settings: userSettings)
 
     // Update global user as well
     if var globalUser = getUser() {
