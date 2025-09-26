@@ -90,6 +90,9 @@ final class DashboardViewController: UIViewController {
 
       // Recalculate current day for day slider when dashboard appears in foreground
       recalculateCurrentDayForVisibleCell()
+
+      // Check for update toast when dashboard appears
+      checkForUpdateToastOnForeground()
     }
   }
 
@@ -194,6 +197,9 @@ final class DashboardViewController: UIViewController {
     } else {
       print("🔄 DashboardViewController: Slider already on current day, skipping data refresh")
     }
+
+    // Check for update toast when app comes to foreground
+    checkForUpdateToastOnForeground()
   }
 
   /// Setup pull-to-refresh functionality
@@ -562,6 +568,8 @@ final class DashboardViewController: UIViewController {
     if shouldShow {
       print("🧪 Showing update toast...")
       updateToastContainer.showUpdateToast(delegate: self)
+      // Mark toast as shown for cooldown tracking
+      updateToastManager.markToastAsShown()
     } else {
       print("📱 Update toast not shown - conditions not met")
     }
@@ -601,6 +609,21 @@ final class DashboardViewController: UIViewController {
     if shouldShow {
       print("🧪 Timer triggered: Showing reminder toast...")
       showUpdateToast()
+    }
+  }
+
+  /// Check for update toast when app comes to foreground
+  private func checkForUpdateToastOnForeground() {
+    print("📱 DashboardViewController: Checking for update toast on foreground")
+
+    // Check for updates from App Store first
+    updateToastManager.checkForUpdatesFromAppStore { [weak self] hasNewerVersion in
+      print("📱 Foreground version check completed. Has newer version: \(hasNewerVersion)")
+
+      // Show toast with a small delay to ensure smooth transition
+      DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+        self?.showUpdateToast()
+      }
     }
   }
 
@@ -1209,6 +1232,9 @@ extension DashboardViewController: DashboardViewDelegate {
     DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
       self.recalculateCurrentDayForVisibleCell(animated: true)
     }
+
+    // Check for update toast on pull-to-refresh
+    checkForUpdateToastOnForeground()
 
     // End the refresh animation
     DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {

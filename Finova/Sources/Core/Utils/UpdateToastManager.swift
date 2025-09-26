@@ -22,6 +22,7 @@ final class UpdateToastManager {
   private let currentVersion: String
   private let latestVersionKey = "latestAppVersion"
   private let lastToastDismissedKey = "lastToastDismissed"
+  private let lastToastShownKey = "lastToastShown"
   private let toastDismissedForVersionKey = "toastDismissedForVersion"
 
   // MARK: - Testing Properties
@@ -66,7 +67,7 @@ final class UpdateToastManager {
       forKey: "\(toastDismissedForVersionKey)_\(currentVersion)")
 
     if dismissedForCurrentVersion {
-      // Check if 24 hours have passed since last dismissal
+      // Check if 6 hours have passed since last dismissal
       if let lastDismissedDate = UserDefaults.standard.object(forKey: lastToastDismissedKey)
         as? Date
       {
@@ -84,6 +85,24 @@ final class UpdateToastManager {
         }
       } else {
         print("📱 Toast was dismissed but no date recorded. Showing toast")
+      }
+    } else {
+      // Toast was not dismissed, check if it was shown recently
+      if let lastShownDate = UserDefaults.standard.object(forKey: lastToastShownKey) as? Date {
+        let timeSinceShown = Date().timeIntervalSince(lastShownDate)
+        let thirtyMinutes: TimeInterval = 30 * 60  // 30 minutes in seconds
+
+        if timeSinceShown < thirtyMinutes {
+          let minutesRemaining = (thirtyMinutes - timeSinceShown) / 60
+          print(
+            "📱 Toast shown recently. Remaining time: \(String(format: "%.1f", minutesRemaining)) minutes"
+          )
+          return false
+        } else {
+          print("📱 30 minutes have passed since last shown. Showing toast again")
+        }
+      } else {
+        print("📱 Toast never shown before. Showing toast")
       }
     }
 
@@ -103,6 +122,12 @@ final class UpdateToastManager {
     UserDefaults.standard.set(true, forKey: "\(toastDismissedForVersionKey)_\(currentVersion)")
     UserDefaults.standard.set(Date(), forKey: lastToastDismissedKey)
     print("📱 Update toast dismissed for version \(currentVersion)")
+  }
+
+  /// Mark toast as shown (for cooldown tracking)
+  func markToastAsShown() {
+    UserDefaults.standard.set(Date(), forKey: lastToastShownKey)
+    print("📱 Update toast shown for version \(currentVersion)")
   }
 
   /// Get the latest version from App Store or cache
