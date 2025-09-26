@@ -1083,6 +1083,15 @@ final class DashboardViewController: UIViewController {
             UserDefaultsManager.updateCurrentUserFaceID(enabled: true)
           }
         }
+
+        // Double-check authentication is working
+        let currentUID = SecureLocalDataManager.shared.getCurrentUserUID()
+        if currentUID != firebaseUID {
+          print("⚠️ Authentication mismatch! Expected: \(firebaseUID), Got: \(currentUID ?? "nil")")
+          // Re-authenticate
+          SecureLocalDataManager.shared.authenticateUser(firebaseUID: firebaseUID)
+          print("🔒 Re-authenticated SecureLocalDataManager")
+        }
       }
 
       contentView.welcomeTitleLabel.text = "dashboard.welcomeTitle".localized + "\(user.name)!"
@@ -1100,6 +1109,7 @@ final class DashboardViewController: UIViewController {
       contentView.avatar.userImage = userImage
     }
 
+    // Safely load transactions with authentication check
     transactions = viewModel.transactionRepo.fetchTransactions()
     print("🔍 DEBUG: App reload - Loaded \(transactions.count) total transactions")
 
@@ -1113,7 +1123,9 @@ final class DashboardViewController: UIViewController {
       )
     }
 
+    // Safely load monthly cards data
     let monthData = viewModel.loadMonthlyCards()
+    print("🔍 DEBUG: App reload - Loaded \(monthData.count) monthly cards")
 
     syncedViewModel.setMonthData(monthData)
     syncedViewModel.setTransactions(transactions)

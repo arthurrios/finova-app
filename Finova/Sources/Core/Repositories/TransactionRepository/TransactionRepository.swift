@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import UserNotifications
 
 final class TransactionRepository: TransactionRepositoryProtocol {
   private let db = DBHelper.shared
@@ -259,6 +260,9 @@ final class TransactionRepository: TransactionRepositoryProtocol {
         "❌ DEBUG: Transaction \(transaction.data.id ?? -1) NOT FOUND in SecureLocalDataManager!")
     }
 
+    // Reschedule notification for the updated transaction
+    rescheduleNotificationForTransaction(transactionId: transaction.data.id)
+
     // Notify that data has changed (for cache invalidation)
     NotificationCenter.default.post(name: .transactionDataChanged, object: nil)
     print("🔧 DEBUG: Cache invalidation notification sent")
@@ -406,6 +410,9 @@ final class TransactionRepository: TransactionRepositoryProtocol {
         amount: templateTransaction.data.amount,
         date: adjustedDate
       )
+
+      // Reschedule notification for this updated transaction
+      rescheduleNotificationForTransaction(transactionId: relatedTransaction.id)
     }
   }
 
@@ -592,6 +599,9 @@ final class TransactionRepository: TransactionRepositoryProtocol {
       SecureLocalDataManager.shared.saveTransactions(secureTransactions)
 
       print("🔒 Updated single transaction in secure storage: \(title)")
+
+      // Reschedule notification for the updated transaction
+      rescheduleNotificationForTransaction(transactionId: id)
     } else {
       print("⚠️ Could not find transaction \(id) in secure storage to update")
     }
@@ -796,6 +806,105 @@ final class TransactionRepository: TransactionRepositoryProtocol {
         if let id = transaction.id {
           try? delete(id: id)
         }
+      }
+    }
+  }
+
+  // MARK: - Notification Management
+
+  /// Reschedules notification for a specific transaction after it has been updated
+  private func rescheduleNotificationForTransaction(transactionId: Int?) {
+    guard let transactionId = transactionId else { return }
+
+    print("🔔 Rescheduling notification for transaction \(transactionId)")
+
+    // Remove existing notification for this transaction
+    let notificationId = "transaction_\(transactionId)"
+    UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: [
+      notificationId
+    ])
+    print("🔔 🧹 Removed existing notification for transaction \(transactionId)")
+
+    // Get the updated transaction data
+    let allTransactions = fetchAllTransactions()
+    guard let updatedTransaction = allTransactions.first(where: { $0.id == transactionId }) else {
+      print("🔔 ❌ Could not find updated transaction \(transactionId) for notification rescheduling")
+      return
+    }
+
+    // Schedule new notification using the same logic as AppDelegate
+    scheduleNotificationForTransaction(updatedTransaction)
+  }
+
+  /// Schedules a notification for a single transaction (reused from AppDelegate logic)
+  private func scheduleNotificationForTransaction(_ tx: Transaction) {
+    guard let transactionId = tx.id else { return }
+
+    let id = "transaction_\(transactionId)"
+    let now = Date()
+    var calendar = Calendar.current
+    calendar.timeZone = TimeZone.current
+
+    // Create notification time (8 AM) in local timezone
+    var notificationDate = calendar.startOfDay(for: tx.date)
+    notificationDate =
+      calendar.date(byAdding: .hour, value: 8, to: notificationDate) ?? notificationDate
+
+    // Only schedule if notification time is in the future
+    guard notificationDate > now else {
+      print("🔔 ⚠️ Skipping notification for \(tx.title) - date is in the past")
+      return
+    }
+
+    // Check if date is too far in the future (more than 1 year)
+    let oneYearFromNow = Calendar.current.date(byAdding: .year, value: 1, to: Date()) ?? Date()
+    if tx.date > oneYearFromNow {
+      print("🔔 ⚠️ Skipping notification for \(tx.title) - date too far in future")
+      return
+    }
+
+    // Calculate time interval from now to notification date
+    let timeInterval = notificationDate.timeIntervalSinceNow
+
+    // Check if interval is too large (more than 30 days)
+    let thirtyDaysInSeconds: TimeInterval = 30 * 24 * 60 * 60
+    if timeInterval > thirtyDaysInSeconds {
+      print("🔔 ⚠️ Skipping notification for \(tx.title) - more than 30 days away")
+      return
+    }
+
+    let trigger = UNTimeIntervalNotificationTrigger(timeInterval: timeInterval, repeats: false)
+
+    let titleKey =
+      tx.type == .income
+      ? "notification.transaction.title.income"
+      : "notification.transaction.title.expense"
+    let bodyKey =
+      tx.type == .income
+      ? "notification.transaction.body.income"
+      : "notification.transaction.body.expense"
+
+    let amountString = tx.amount.currencyString
+    let title = titleKey.localized
+    let body = String(format: bodyKey.localized, amountString, tx.title)
+
+    let content = UNMutableNotificationContent()
+    content.title = title
+    content.body = body
+    content.sound = .default
+    content.categoryIdentifier = "TRANSACTION_REMINDER"
+    content.userInfo = ["transactionId": transactionId, "date": tx.date.timeIntervalSince1970]
+
+    let request = UNNotificationRequest(identifier: id, content: content, trigger: trigger)
+    UNUserNotificationCenter.current().add(request) { error in
+      if let error = error {
+        print("🔔 ❌ Error rescheduling notification for \(tx.title): \(error)")
+      } else {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd HH:mm"
+        print(
+          "🔔 ✅ Rescheduled notification for \(tx.title) at \(formatter.string(from: notificationDate))"
+        )
       }
     }
   }

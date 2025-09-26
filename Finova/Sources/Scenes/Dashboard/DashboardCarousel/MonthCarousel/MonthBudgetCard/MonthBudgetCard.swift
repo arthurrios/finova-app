@@ -842,7 +842,7 @@ class MonthBudgetCard: UIView {
       return String(format: "monthCard.balanceOnDay".localized, dayWithOrdinalSuffix(day))
     } else {
       // Other languages: Use plain number
-      return String(format: "monthCard.balanceOnDay".localized, day)
+      return String(format: "monthCard.balanceOnDay".localized, String(day))
     }
   }
 
