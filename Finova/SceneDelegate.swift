@@ -70,11 +70,11 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
 
     // Add a small delay to ensure the app is fully loaded and ready
     DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-      // Refresh the dashboard if it's currently visible
-      self.refreshDashboardIfVisible()
-
-      // Trigger any other app-wide refresh logic
+      // First post the notification for app-wide refresh
       self.performAppWideRefresh()
+
+      // Then refresh the dashboard if it's currently visible
+      self.refreshDashboardIfVisible()
     }
   }
 
