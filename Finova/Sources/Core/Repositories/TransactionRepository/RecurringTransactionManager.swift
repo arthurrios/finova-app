@@ -394,7 +394,28 @@ final class RecurringTransactionManager {
           print("❌ Error deleting parent recurring transaction \(parentTransactionId): \(error)")
         }
       } else {
-        print("🧹 Skipping parent deletion for \(cleanupOption) cleanup")
+        // For non-"all" deletions, check if parent is now orphaned (no remaining instances)
+        let remainingInstances = self.transactionRepo.fetchTransactionInstancesForRecurring(
+          parentTransactionId)
+        if remainingInstances.isEmpty {
+          print(
+            "🧹 Parent \(parentTransactionId) has no remaining instances after \(cleanupOption) deletion"
+          )
+          // Delete orphaned parent to prevent resurrection bugs
+          do {
+            try self.transactionRepo.delete(id: parentTransactionId)
+            print("🧹 Deleted orphaned parent recurring transaction \(parentTransactionId)")
+
+            let notifID = "transaction_\(parentTransactionId)"
+            self.notificationCenter.removePendingNotificationRequests(withIdentifiers: [notifID])
+          } catch {
+            print("❌ Error deleting orphaned parent transaction \(parentTransactionId): \(error)")
+          }
+        } else {
+          print(
+            "🧹 Parent \(parentTransactionId) still has \(remainingInstances.count) instances, keeping it"
+          )
+        }
       }
 
       print("🧹 Completed cleanup for recurring transaction \(parentTransactionId)")
@@ -741,10 +762,31 @@ final class RecurringTransactionManager {
   ) -> Transaction? {
     let recurringTransactions = transactionRepo.fetchRecurringTransactions()
 
+    // A parent recurring transaction is identified by:
+    // 1. isRecurring == true
+    // 2. parentTransactionId == nil OR parentTransactionId == self.id (self-referencing)
+    // 3. Has instances linked to it (not orphaned)
     return recurringTransactions.first { transaction in
-      transaction.title.lowercased() == title.lowercased() && transaction.category.key == category
-        && transaction.amount == amount && transaction.type.key == type
-        && transaction.parentTransactionId == nil  // Only parent transactions
+      let isSameDetails = transaction.title.lowercased() == title.lowercased()
+        && transaction.category.key == category
+        && transaction.amount == amount
+        && transaction.type.key == type
+
+      // Parent transactions either have no parent or point to themselves
+      let isParent = transaction.parentTransactionId == nil
+        || transaction.parentTransactionId == transaction.id
+
+      // Make sure this parent transaction actually has active instances
+      // to avoid linking to orphaned parents from partial deletions
+      let hasActiveInstances: Bool
+      if isParent, let txId = transaction.id {
+        let instances = transactionRepo.fetchTransactionInstancesForRecurring(txId)
+        hasActiveInstances = !instances.isEmpty
+      } else {
+        hasActiveInstances = false
+      }
+
+      return isSameDetails && isParent && hasActiveInstances
     }
   }
 

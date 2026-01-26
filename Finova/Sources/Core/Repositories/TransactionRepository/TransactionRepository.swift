@@ -650,22 +650,23 @@ final class TransactionRepository: TransactionRepositoryProtocol {
       throw TransactionError.transactionNotFound
     }
 
-    if transaction.isRecurring == true {
+    // Use mode property to correctly identify transaction type
+    // This handles both parent transactions AND their instances
+    switch transaction.mode {
+    case .recurring:
+      // For recurring transactions (parent or instance), delete only this instance
       try deleteRecurringTransactionAndInstances(transactionId: id)
       return
-    }
 
-    if let parentId = transaction.parentTransactionId {
+    case .installments:
+      // For installment transactions, delete all siblings
+      let parentId = transaction.parentTransactionId ?? id
       try deleteInstallmentTransactionAndSiblings(parentId: parentId)
       return
-    }
 
-    if transaction.hasInstallments == true {
-      try deleteInstallmentTransactionAndSiblings(parentId: id)
-      return
+    case .normal:
+      try delete(id: id)
     }
-
-    try delete(id: id)
   }
 
   func deleteTransactionWithOption(id: Int, option: RecurringCleanupOption) throws {
@@ -675,15 +676,26 @@ final class TransactionRepository: TransactionRepositoryProtocol {
       throw TransactionError.transactionNotFound
     }
 
+    // Use mode property to correctly identify recurring transactions
+    // (both parent transactions with isRecurring=true AND instances with parentTransactionId)
+    let isRecurringTransaction = transaction.mode == .recurring
+
+    print(
+      "🔄 DELETE DEBUG: Transaction \(id) - isRecurring: \(transaction.isRecurring ?? false), parentId: \(transaction.parentTransactionId ?? 0), mode: \(transaction.mode), isRecurringTransaction: \(isRecurringTransaction)"
+    )
+
     switch option {
     case .currentSelection:
       // Delete only the current transaction instance
       try delete(id: id)
 
     case .futureOnly:
-      // For recurring transactions, delete future instances only
-      if transaction.isRecurring == true {
+      // For recurring transactions, delete future instances only (including current)
+      if isRecurringTransaction {
         try deleteFutureRecurringInstances(transactionId: id)
+      } else if transaction.mode == .installments {
+        // For installment transactions, delete future installments
+        try deleteFutureInstallmentInstances(transactionId: id)
       } else {
         // For non-recurring, just delete current
         try delete(id: id)
@@ -691,10 +703,12 @@ final class TransactionRepository: TransactionRepositoryProtocol {
 
     case .all:
       // Delete all related transactions
-      if transaction.isRecurring == true {
+      if isRecurringTransaction {
         try deleteAllRecurringTransactionOccurrences(transactionId: id)
       } else if transaction.mode == .installments {
-        try deleteInstallmentTransactionAndSiblings(parentId: id)
+        // For installment transactions, get the correct parent ID
+        let parentId = transaction.parentTransactionId ?? id
+        try deleteInstallmentTransactionAndSiblings(parentId: parentId)
       } else {
         try delete(id: id)
       }
@@ -752,19 +766,20 @@ final class TransactionRepository: TransactionRepositoryProtocol {
     let recurringGroupId = current.parentTransactionId ?? current.id
     let currentDate = current.date
 
-    // Find all related transactions in this recurring group that are in the future
+    // Find all related transactions in this recurring group that are in the future (including current)
     let relatedTransactions = allTransactions.filter { transaction in
       let isInGroup =
         transaction.id == recurringGroupId || transaction.parentTransactionId == recurringGroupId
-      let isInFuture = transaction.date > currentDate
-      return isInGroup && isInFuture
+      // Include current transaction and all future ones (>= instead of >)
+      let isFutureOrCurrent = transaction.date >= currentDate
+      return isInGroup && isFutureOrCurrent
     }
 
     print(
       "🔄 RECURRING DELETE: Deleting \(relatedTransactions.count) future occurrences of recurring transaction group \(recurringGroupId ?? 0)"
     )
 
-    // Delete all future related transactions
+    // Delete all future related transactions (including current)
     for relatedTransaction in relatedTransactions {
       if let id = relatedTransaction.id {
         try delete(id: id)
@@ -772,7 +787,64 @@ final class TransactionRepository: TransactionRepositoryProtocol {
       }
     }
 
+    // After deleting future instances, check if the parent is now orphaned (no instances left)
+    // If so, delete the parent to prevent resurrection bugs
+    if let parentId = recurringGroupId {
+      let remainingInstances = fetchTransactionInstancesForRecurring(parentId)
+      if remainingInstances.isEmpty {
+        // Check if parent still exists and is orphaned
+        let updatedTransactions = fetchAllTransactions()
+        if let orphanedParent = updatedTransactions.first(where: {
+          $0.id == parentId && $0.isRecurring == true
+        }) {
+          print(
+            "🧹 RECURRING DELETE: Parent \(parentId) has no remaining instances, cleaning up orphaned parent"
+          )
+          try delete(id: parentId)
+          print("   - Deleted orphaned parent transaction \(parentId): \(orphanedParent.title)")
+        }
+      }
+    }
+
     print("✅ RECURRING DELETE: Future occurrences deleted successfully")
+  }
+
+  private func deleteFutureInstallmentInstances(transactionId: Int) throws {
+    // Find all transactions with the same installment group
+    let allTransactions = fetchAllTransactions()
+    let currentTransaction = allTransactions.first { $0.id == transactionId }
+
+    guard let current = currentTransaction else {
+      throw TransactionError.transactionNotFound
+    }
+
+    // Get the installment group ID (either the transaction's own ID or its parentTransactionId)
+    let installmentGroupId = current.parentTransactionId ?? current.id
+    let currentInstallmentNumber = current.installmentNumber ?? 1
+
+    // Find all related transactions in this installment group that are current or future
+    let relatedTransactions = allTransactions.filter { transaction in
+      let isInGroup =
+        transaction.id == installmentGroupId
+        || transaction.parentTransactionId == installmentGroupId
+      // Include current installment and all future ones
+      let isFutureOrCurrent = (transaction.installmentNumber ?? 0) >= currentInstallmentNumber
+      return isInGroup && isFutureOrCurrent
+    }
+
+    print(
+      "🔄 INSTALLMENT DELETE: Deleting \(relatedTransactions.count) future installments of group \(installmentGroupId ?? 0)"
+    )
+
+    // Delete all future related transactions (including current)
+    for relatedTransaction in relatedTransactions {
+      if let id = relatedTransaction.id {
+        try delete(id: id)
+        print("   - Deleted installment \(id): \(relatedTransaction.title)")
+      }
+    }
+
+    print("✅ INSTALLMENT DELETE: Future installments deleted successfully")
   }
 
   private func deleteInstallmentTransactionAndSiblings(parentId: Int) throws {

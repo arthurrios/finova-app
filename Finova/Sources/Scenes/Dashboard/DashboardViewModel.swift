@@ -240,40 +240,14 @@ final class DashboardViewModel {
           return
         }
 
-        // Handle recurring transaction instances
-        if let parentTransactionId = transaction.parentTransactionId {
-          let parentTransaction = allTransactions.first(where: { $0.id == parentTransactionId })
-
-          if parentTransaction?.isRecurring == true {
-            // This is a recurring transaction instance
-            self.recurringManager.cleanupRecurringInstancesFromDate(
-              parentTransactionId: parentTransactionId,
-              selectedTransactionDate: transaction.date,
-              cleanupOption: cleanupOption
-            ) {
-              // Invalidate ledger cache since transactions changed
-              self.transactionLedger.invalidateCache()
-              completion(.success(()))
-            }
-          } else {
-            // This is an installment transaction
-            self.recurringManager.cleanupInstallmentTransactionsFromDate(
-              parentTransactionId: parentTransactionId,
-              selectedTransactionDate: transaction.date,
-              cleanupOption: cleanupOption
-            ) {
-              // Invalidate ledger cache since transactions changed
-              self.transactionLedger.invalidateCache()
-              completion(.success(()))
-            }
-          }
-          return
-        }
-
-        // Handle parent recurring transaction
-        if transaction.isRecurring == true {
+        // Use mode property to correctly identify transaction type
+        // This is more reliable than looking up parent transactions
+        switch transaction.mode {
+        case .recurring:
+          // Handle recurring transactions (both parent and instances)
+          let parentId = transaction.parentTransactionId ?? transactionId
           self.recurringManager.cleanupRecurringInstancesFromDate(
-            parentTransactionId: transactionId,
+            parentTransactionId: parentId,
             selectedTransactionDate: transaction.date,
             cleanupOption: cleanupOption
           ) {
@@ -282,12 +256,12 @@ final class DashboardViewModel {
             completion(.success(()))
           }
           return
-        }
 
-        // Handle parent installment transaction
-        if transaction.hasInstallments == true {
+        case .installments:
+          // Handle installment transactions (both parent and instances)
+          let parentId = transaction.parentTransactionId ?? transactionId
           self.recurringManager.cleanupInstallmentTransactionsFromDate(
-            parentTransactionId: transactionId,
+            parentTransactionId: parentId,
             selectedTransactionDate: transaction.date,
             cleanupOption: cleanupOption
           ) {
@@ -296,12 +270,16 @@ final class DashboardViewModel {
             completion(.success(()))
           }
           return
-        }
 
-        DispatchQueue.main.async {
-          completion(.failure(TransactionError.transactionNotFound))
+        case .normal:
+          // Handle simple transaction - should not reach here from complex deletion
+          // but handle gracefully just in case
+          try self.transactionRepo.delete(id: transactionId)
+          self.transactionLedger.invalidateCache()
+          DispatchQueue.main.async {
+            completion(.success(()))
+          }
         }
-
       } catch {
         DispatchQueue.main.async {
           completion(.failure(error))
@@ -326,8 +304,9 @@ final class DashboardViewModel {
       return false
     }
 
-    // Return true if it's a parent recurring transaction OR a recurring instance
-    return transaction.isRecurring == true || transaction.parentTransactionId != nil
+    // Use the mode property to correctly identify recurring transactions
+    // This handles both parent recurring transactions AND their instances
+    return transaction.mode == .recurring
   }
 
   func getTransactionType(id: Int) -> TransactionComplexityType {
