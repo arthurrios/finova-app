@@ -60,7 +60,7 @@ enum Metrics {
   static let budgetsTableHeight: CGFloat = 400
 
   // MARK: - Dashboard Screen
-  static let transactionsTableHeight: CGFloat = 290  // Reduced by 40 to accommodate day slider
+  static let transactionsTableHeight: CGFloat = 250  // Reduced by 40 to accommodate day slider
 
   // MARK: - Budgets Screen
   static let newBudgetContentContainerHeight: CGFloat = 158

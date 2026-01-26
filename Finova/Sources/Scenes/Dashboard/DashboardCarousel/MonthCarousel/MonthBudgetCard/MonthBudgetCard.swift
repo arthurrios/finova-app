@@ -35,6 +35,10 @@ class MonthBudgetCard: UIView {
   private var hideValuesTapGesture: UITapGestureRecognizer?
   private var headerToggleTapGesture: UITapGestureRecognizer?
   private var headerToggleIcon: UIImageView?
+  
+  // Filter state properties
+  private var isFilterActive: Bool = false
+  private var filteredSum: Int = 0
 
   private let gradientLayer = Colors.gradientBlack
 
@@ -55,8 +59,36 @@ class MonthBudgetCard: UIView {
   private lazy var availableBudgetStackView = UIStackView(
     axis: .vertical, spacing: Metrics.spacing3,
     arrangedSubviews: [
-      availableBudgetTextLabel, availableBudgetValueWithToggleContainer, defineBudgetButton,
+      availableBudgetTextLabelContainer, availableBudgetValueWithToggleContainer, defineBudgetButton,
     ])
+  
+  private lazy var availableBudgetTextLabelContainer: UIView = {
+    let container = UIView()
+    container.translatesAutoresizingMaskIntoConstraints = false
+    
+    container.addSubview(availableBudgetTextLabel)
+    availableBudgetTextLabel.translatesAutoresizingMaskIntoConstraints = false
+    
+    filteredIndicatorContainer.addArrangedSubview(filteredIndicatorBadge)
+    filteredIndicatorContainer.addArrangedSubview(filteredTextLabel)
+    container.addSubview(filteredIndicatorContainer)
+    
+    NSLayoutConstraint.activate([
+      availableBudgetTextLabel.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+      availableBudgetTextLabel.topAnchor.constraint(equalTo: container.topAnchor),
+      availableBudgetTextLabel.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+      availableBudgetTextLabel.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor),
+      
+      filteredIndicatorContainer.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+      filteredIndicatorContainer.topAnchor.constraint(equalTo: container.topAnchor),
+      filteredIndicatorContainer.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+      filteredIndicatorContainer.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor),
+      
+      container.heightAnchor.constraint(greaterThanOrEqualToConstant: 20),
+    ])
+    
+    return container
+  }()
 
   private lazy var availableBudgetValueWithToggleContainer: UIView = {
     let container = UIView()
@@ -190,6 +222,52 @@ class MonthBudgetCard: UIView {
     let label = UILabel()
     label.font = Fonts.textSM.font
     label.textColor = Colors.gray400
+    label.numberOfLines = 1
+    label.setContentHuggingPriority(.required, for: .vertical)
+    label.setContentCompressionResistancePriority(.required, for: .vertical)
+    return label
+  }()
+  
+  private lazy var filteredIndicatorContainer: UIStackView = {
+    let stackView = UIStackView()
+    stackView.axis = .horizontal
+    stackView.spacing = Metrics.spacing2
+    stackView.alignment = .center
+    stackView.isHidden = true
+    stackView.translatesAutoresizingMaskIntoConstraints = false
+    return stackView
+  }()
+  
+  private let filteredIndicatorBadge: UIView = {
+    let view = UIView()
+    view.backgroundColor = Colors.mainMagenta
+    view.layer.cornerRadius = 4
+    view.translatesAutoresizingMaskIntoConstraints = false
+    
+    let iconImageView = UIImageView()
+    iconImageView.image = UIImage(named: "filter")?.withRenderingMode(.alwaysTemplate)
+    iconImageView.tintColor = Colors.gray100
+    iconImageView.contentMode = .scaleAspectFit
+    iconImageView.translatesAutoresizingMaskIntoConstraints = false
+    
+    view.addSubview(iconImageView)
+    NSLayoutConstraint.activate([
+      iconImageView.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+      iconImageView.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+      iconImageView.widthAnchor.constraint(equalToConstant: 12),
+      iconImageView.heightAnchor.constraint(equalToConstant: 12),
+      view.widthAnchor.constraint(equalToConstant: 20),
+      view.heightAnchor.constraint(equalToConstant: 20),
+    ])
+    
+    return view
+  }()
+  
+  private let filteredTextLabel: UILabel = {
+    let label = UILabel()
+    label.font = Fonts.textSM.font
+    label.textColor = Colors.mainMagenta
+    label.text = "filter.result.label".localized
     label.numberOfLines = 1
     label.setContentHuggingPriority(.required, for: .vertical)
     label.setContentCompressionResistancePriority(.required, for: .vertical)
@@ -468,6 +546,10 @@ class MonthBudgetCard: UIView {
     mainStackView.setCustomSpacing(Metrics.spacing4, after: headerHorizontalStackView)
     mainStackView.setCustomSpacing(Metrics.spacing3, after: separator)
     mainStackView.setCustomSpacing(Metrics.spacing2, after: availableBudgetStackView)
+    
+    // Set high priority to prevent compression of the main stack view
+    mainStackView.setContentHuggingPriority(.required, for: .vertical)
+    mainStackView.setContentCompressionResistancePriority(.required, for: .vertical)
 
     setupProgressBar()
   }
@@ -760,6 +842,50 @@ class MonthBudgetCard: UIView {
 
     // Ensure gesture recognizer is maintained after visibility update
     ensureToggleGestureRecognizer()
+  }
+  
+  // MARK: - Filter State
+  
+  /// Updates the card to show filtered transaction sum
+  /// - Parameters:
+  ///   - isActive: Whether filters are currently active
+  ///   - sum: The sum of filtered transactions (in cents)
+  func updateFilteredState(isActive: Bool, sum: Int) {
+    isFilterActive = isActive
+    filteredSum = sum
+    
+    if isActive {
+      // Show filtered indicator, hide normal label
+      availableBudgetTextLabel.isHidden = true
+      filteredIndicatorContainer.isHidden = false
+      
+      // Update the value to show filtered sum
+      if isValuesHidden {
+        availableBudgetValueLabel.text = getHiddenValueString()
+        availableBudgetValueLabel.isHidden = false
+        animatedNumberContainer?.isHidden = true
+      } else {
+        setupOrUpdateAnimatedNumber(value: sum)
+        animatedNumberContainer?.isHidden = false
+        availableBudgetValueLabel.isHidden = true
+      }
+      
+      // Hide the toggle icon when filtering
+      hideValuesToggleContainer.isHidden = true
+    } else {
+      // Restore normal display
+      availableBudgetTextLabel.isHidden = false
+      filteredIndicatorContainer.isHidden = true
+      hideValuesToggleContainer.isHidden = false
+      
+      // Restore normal budget display
+      updateAvailableBudgetDisplay()
+    }
+  }
+  
+  /// Clears the filter state and restores normal display
+  func clearFilteredState() {
+    updateFilteredState(isActive: false, sum: 0)
   }
 
   private func updateAvailableBudgetDisplayWithVisibility() {

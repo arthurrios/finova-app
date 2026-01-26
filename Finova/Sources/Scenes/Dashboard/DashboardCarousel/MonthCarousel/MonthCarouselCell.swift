@@ -8,12 +8,39 @@
 import Foundation
 import UIKit
 
+protocol MonthCarouselCellDelegate: AnyObject {
+  func monthCarouselCell(_ cell: MonthCarouselCell, didChangeSearchText text: String)
+  func monthCarouselCellDidTapFilter(_ cell: MonthCarouselCell)
+}
+
+struct TransactionFilters {
+  var categories: Set<TransactionCategory> = []
+  var types: Set<TransactionType> = []
+  var modes: Set<TransactionMode> = []
+
+  var isEmpty: Bool {
+    return categories.isEmpty && types.isEmpty && modes.isEmpty
+  }
+
+  mutating func clear() {
+    categories.removeAll()
+    types.removeAll()
+    modes.removeAll()
+  }
+}
+
 class MonthCarouselCell: UICollectionViewCell {
   static let reuseID = "MonthCarouselCell"
 
+  weak var searchDelegate: MonthCarouselCellDelegate?
+
   let monthCard = MonthBudgetCard()
   var transactions: [Transaction] = []
+  var filteredTransactions: [Transaction] = []
   private var tableHeightConstraint: NSLayoutConstraint?
+  private var monthCardHeightConstraint: NSLayoutConstraint?
+  private var isSearchActive: Bool = false
+  var currentFilters = TransactionFilters()
 
   private let tableHeaderView: UIStackView = {
     let stackView = UIStackView()
@@ -66,6 +93,41 @@ class MonthCarouselCell: UICollectionViewCell {
     return label
   }()
 
+  private lazy var searchContainerView: UIView = {
+    let view = UIView()
+    view.translatesAutoresizingMaskIntoConstraints = false
+    return view
+  }()
+
+  private lazy var searchInput: Input = {
+    let input = Input(
+      type: .normal,
+      placeholder: "transactions.search.placeholder".localized,
+      icon: UIImage(named: "search")?.withRenderingMode(.alwaysTemplate),
+      iconPosition: .left
+    )
+    input.layer.backgroundColor = Colors.gray100.cgColor
+    input.textField.addTarget(self, action: #selector(searchTextChanged), for: .editingChanged)
+    input.textField.returnKeyType = .search
+    input.textField.delegate = self
+    input.translatesAutoresizingMaskIntoConstraints = false
+    return input
+  }()
+
+  private lazy var filterButton: UIButton = {
+    let button = UIButton(type: .system)
+    let image = UIImage(named: "filter")?.withRenderingMode(.alwaysTemplate)
+    button.setImage(image, for: .normal)
+    button.tintColor = Colors.gray600
+    button.backgroundColor = Colors.gray100
+    button.layer.cornerRadius = Metrics.inputHeight / 2
+    button.layer.borderWidth = 1
+    button.layer.borderColor = Colors.gray300.cgColor
+    button.addTarget(self, action: #selector(filterButtonTapped), for: .touchUpInside)
+    button.translatesAutoresizingMaskIntoConstraints = false
+    return button
+  }()
+
   private let emptyStateView: UIView = {
     let view = UIView()
     view.backgroundColor = Colors.gray100
@@ -109,6 +171,11 @@ class MonthCarouselCell: UICollectionViewCell {
     tableView.clipsToBounds = true
     tableView.separatorColor = Colors.gray300
     tableView.translatesAutoresizingMaskIntoConstraints = false
+
+    // Set lower priority so the table gets constrained instead of the card
+    tableView.setContentHuggingPriority(.defaultLow, for: .vertical)
+    tableView.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
+
     return tableView
   }()
 
@@ -124,7 +191,31 @@ class MonthCarouselCell: UICollectionViewCell {
   private func setupViews() {
     monthCard.translatesAutoresizingMaskIntoConstraints = false
 
+    // Set high priority for content hugging and compression resistance
+    // to prevent the card from being compressed when the table grows
+    monthCard.setContentHuggingPriority(.required, for: .vertical)
+    monthCard.setContentCompressionResistancePriority(.required, for: .vertical)
+
+    // Set high priority for search container to prevent compression
+    searchContainerView.setContentHuggingPriority(.required, for: .vertical)
+    searchContainerView.setContentCompressionResistancePriority(.required, for: .vertical)
+
+    // Set high priority for search input to maintain its height
+    searchInput.setContentHuggingPriority(.required, for: .vertical)
+    searchInput.setContentCompressionResistancePriority(.required, for: .vertical)
+
+    // Set high priority for filter button to maintain its height
+    filterButton.setContentHuggingPriority(.required, for: .vertical)
+    filterButton.setContentCompressionResistancePriority(.required, for: .vertical)
+
+    // Set high priority for table header to prevent compression
+    tableHeaderView.setContentHuggingPriority(.required, for: .vertical)
+    tableHeaderView.setContentCompressionResistancePriority(.required, for: .vertical)
+
     contentView.addSubview(monthCard)
+    contentView.addSubview(searchContainerView)
+    searchContainerView.addSubview(searchInput)
+    searchContainerView.addSubview(filterButton)
     contentView.addSubview(transactionTableView)
 
     contentView.addSubview(tableHeaderView)
@@ -146,16 +237,34 @@ class MonthCarouselCell: UICollectionViewCell {
       monthCard.trailingAnchor.constraint(
         equalTo: contentView.trailingAnchor, constant: -Metrics.spacing4),
 
-      tableHeaderView.topAnchor.constraint(
+      searchContainerView.topAnchor.constraint(
         equalTo: monthCard.bottomAnchor, constant: Metrics.spacing4),
+      searchContainerView.leadingAnchor.constraint(equalTo: monthCard.leadingAnchor),
+      searchContainerView.trailingAnchor.constraint(equalTo: monthCard.trailingAnchor),
+      searchContainerView.heightAnchor.constraint(equalToConstant: Metrics.inputHeight),
+
+      searchInput.topAnchor.constraint(equalTo: searchContainerView.topAnchor),
+      searchInput.leadingAnchor.constraint(equalTo: searchContainerView.leadingAnchor),
+      searchInput.bottomAnchor.constraint(equalTo: searchContainerView.bottomAnchor),
+      searchInput.trailingAnchor.constraint(
+        equalTo: filterButton.leadingAnchor, constant: -Metrics.spacing2),
+
+      filterButton.centerYAnchor.constraint(equalTo: searchContainerView.centerYAnchor),
+      filterButton.trailingAnchor.constraint(equalTo: searchContainerView.trailingAnchor),
+      filterButton.widthAnchor.constraint(equalToConstant: Metrics.inputHeight),
+      filterButton.heightAnchor.constraint(equalToConstant: Metrics.inputHeight),
+
+      tableHeaderView.topAnchor.constraint(
+        equalTo: searchContainerView.bottomAnchor, constant: Metrics.spacing3),
       tableHeaderView.leadingAnchor.constraint(equalTo: monthCard.leadingAnchor),
       tableHeaderView.trailingAnchor.constraint(equalTo: monthCard.trailingAnchor),
 
       transactionTableView.topAnchor.constraint(equalTo: tableHeaderView.bottomAnchor),
       transactionTableView.leadingAnchor.constraint(equalTo: monthCard.leadingAnchor),
       transactionTableView.trailingAnchor.constraint(equalTo: monthCard.trailingAnchor),
-      transactionTableView.bottomAnchor.constraint(
-        lessThanOrEqualTo: contentView.bottomAnchor, constant: -Metrics.spacing4),
+      // Remove bottom constraint - we'll use height constraint only to prevent compression
+      // transactionTableView.bottomAnchor.constraint(
+      //   lessThanOrEqualTo: contentView.bottomAnchor, constant: -Metrics.spacing4),
 
       emptyStateView.topAnchor.constraint(equalTo: tableHeaderView.bottomAnchor),
       emptyStateView.leadingAnchor.constraint(equalTo: monthCard.leadingAnchor),
@@ -197,11 +306,50 @@ class MonthCarouselCell: UICollectionViewCell {
       emptyStateView.isHidden = true
     }
 
-    updateTableHeight(txsCount: transactions.count)
-
-    // Ensure layout is updated
+    // Force layout to get accurate card measurements first
     setNeedsLayout()
     layoutIfNeeded()
+
+    // Set fixed height constraint based on the card's natural size
+    // This must happen before calculating table height
+    updateMonthCardMinHeight()
+
+    // Now update table height with the correct available space
+    updateTableHeight(txsCount: transactions.count)
+  }
+
+  private func updateMonthCardMinHeight() {
+    // Calculate the card's natural height using systemLayoutSizeFitting
+    // This gives us the height the card wants to be, not what it currently is
+    guard monthCard.bounds.width > 0 else { return }
+
+    // Force the card to layout to get accurate measurements
+    monthCard.setNeedsLayout()
+    monthCard.layoutIfNeeded()
+
+    let targetSize = CGSize(
+      width: monthCard.bounds.width, height: UIView.layoutFittingExpandedSize.height)
+    let cardHeight = monthCard.systemLayoutSizeFitting(
+      targetSize,
+      withHorizontalFittingPriority: .required,
+      verticalFittingPriority: .fittingSizeLevel
+    ).height
+
+    // Only set fixed height if we have a valid height and it's greater than 0
+    guard cardHeight > 0 else { return }
+
+    if monthCardHeightConstraint == nil {
+      // Use equal height constraint (not minimum) to fix the card's height
+      // Set priority to required to ensure it's never compressed
+      monthCardHeightConstraint = monthCard.heightAnchor.constraint(equalToConstant: cardHeight)
+      monthCardHeightConstraint?.priority = .required
+      monthCardHeightConstraint?.isActive = true
+    } else {
+      // Only update if the natural height is different and larger
+      if abs(cardHeight - monthCardHeightConstraint!.constant) > 1 {
+        monthCardHeightConstraint?.constant = cardHeight
+      }
+    }
   }
 
   func updateTableHeight(txsCount: Int) {
@@ -209,12 +357,15 @@ class MonthCarouselCell: UICollectionViewCell {
     let separatorHeight = CGFloat(max(0, txsCount - 1)) * 1.0
     let contentHeight = CGFloat(txsCount) * rowHeight + separatorHeight
 
-    let maxTableHeight: CGFloat = Metrics.transactionsTableHeight
+    // Calculate available space dynamically based on the cell's height
+    let availableHeight = calculateAvailableHeightForTable()
+    let maxTableHeight = max(0, availableHeight)  // Ensure non-negative
     let finalHeight = min(contentHeight, maxTableHeight)
 
     if tableHeightConstraint == nil {
       tableHeightConstraint = transactionTableView.heightAnchor.constraint(
         equalToConstant: finalHeight)
+      tableHeightConstraint?.priority = .required
       tableHeightConstraint?.isActive = true
     } else {
       tableHeightConstraint?.constant = finalHeight
@@ -224,6 +375,47 @@ class MonthCarouselCell: UICollectionViewCell {
     transactionTableView.showsVerticalScrollIndicator = false
 
     layoutIfNeeded()
+  }
+
+  private func calculateAvailableHeightForTable() -> CGFloat {
+    // Get the cell's available height (use contentView for collection view cells)
+    let cellHeight = contentView.bounds.height > 0 ? contentView.bounds.height : bounds.height
+    guard cellHeight > 0 else {
+      // Fallback to default if bounds not set yet
+      return Metrics.transactionsTableHeight
+    }
+
+    // Calculate all fixed-height components and spacing
+    let topPadding = Metrics.spacing4
+    // Use the constraint value if available, otherwise use bounds (but prefer constraint)
+    let monthCardHeight: CGFloat
+    if let constraintHeight = monthCardHeightConstraint?.constant, constraintHeight > 0 {
+      monthCardHeight = constraintHeight
+    } else if monthCard.bounds.height > 0 {
+      monthCardHeight = monthCard.bounds.height
+    } else {
+      // If card height not set yet, use a conservative estimate
+      // This should rarely happen, but prevents crashes
+      return Metrics.transactionsTableHeight
+    }
+    let spacingAfterCard = Metrics.spacing4
+    let searchContainerHeight = Metrics.inputHeight
+    let spacingAfterSearch = Metrics.spacing3
+    let tableHeaderHeight = Metrics.spacing11
+    let bottomPadding = Metrics.spacing4
+
+    // Sum of all fixed components
+    let fixedComponentsHeight =
+      topPadding + monthCardHeight + spacingAfterCard + searchContainerHeight + spacingAfterSearch
+      + tableHeaderHeight + bottomPadding
+
+    // Available height for table is total height minus fixed components
+    let availableHeight = cellHeight - fixedComponentsHeight
+
+    // Return the available height, but ensure it's at least 0 and not more than the default max
+    // Use a minimum of 100 to ensure at least one row can be shown
+    // Add a small buffer (10 points) to ensure we don't compress the card
+    return max(100, min(availableHeight - 10, Metrics.transactionsTableHeight))
   }
 
   func toggleEmptyState(_ show: Bool) {
@@ -242,9 +434,107 @@ class MonthCarouselCell: UICollectionViewCell {
   /// Updates the transactions array and reloads the table view
   func updateTransactions(_ newTransactions: [Transaction]) {
     transactions = newTransactions
+    applyFilters()
+  }
+
+  /// Clears the search input and resets all filters
+  func clearSearch() {
+    searchInput.text = ""
+    currentFilters.clear()
+    isSearchActive = false
+    monthCard.clearFilteredState()
+    applyFilters()
+  }
+
+  /// Returns the current displayed transactions (filtered or all)
+  func getDisplayedTransactions() -> [Transaction] {
+    return isSearchActive ? filteredTransactions : transactions
+  }
+
+  // MARK: - Search Handling
+
+  @objc private func searchTextChanged() {
+    let searchText = searchInput.text ?? ""
+    isSearchActive = !searchText.isEmpty || !currentFilters.isEmpty
+    applyFilters()
+    searchDelegate?.monthCarouselCell(self, didChangeSearchText: searchText)
+  }
+
+  @objc private func filterButtonTapped() {
+    searchDelegate?.monthCarouselCellDidTapFilter(self)
+  }
+
+  func applyFilters(_ filters: TransactionFilters? = nil) {
+    if let filters = filters {
+      currentFilters = filters
+    }
+
+    let searchText = searchInput.text?.lowercased() ?? ""
+    isSearchActive = !searchText.isEmpty || !currentFilters.isEmpty
+
+    filteredTransactions = transactions.filter { transaction in
+      // Search text filter
+      let matchesSearch = searchText.isEmpty || transaction.title.lowercased().contains(searchText)
+
+      // Category filter
+      let matchesCategory =
+        currentFilters.categories.isEmpty
+        || currentFilters.categories.contains(transaction.category)
+
+      // Type filter
+      let matchesType =
+        currentFilters.types.isEmpty || currentFilters.types.contains(transaction.type)
+
+      // Mode filter
+      let matchesMode =
+        currentFilters.modes.isEmpty || currentFilters.modes.contains(transaction.mode)
+
+      return matchesSearch && matchesCategory && matchesType && matchesMode
+    }
+
+    updateFilterButtonAppearance()
+    updateMonthCardFilterState()
     transactionTableView.reloadData()
-    updateTransactionCount(newTransactions.count)
-    updateTableHeight(txsCount: newTransactions.count)
+    updateTransactionCount(filteredTransactions.count)
+    updateTableHeight(txsCount: filteredTransactions.count)
+  }
+
+  private func updateMonthCardFilterState() {
+    if isSearchActive {
+      // Calculate sum of filtered transactions
+      // Expenses are negative, income is positive
+      let sum = filteredTransactions.reduce(0) { result, transaction in
+        if transaction.type == .expense {
+          return result - transaction.amount
+        } else {
+          return result + transaction.amount
+        }
+      }
+      monthCard.updateFilteredState(isActive: true, sum: sum)
+    } else {
+      monthCard.clearFilteredState()
+    }
+  }
+
+  private func updateFilterButtonAppearance() {
+    if currentFilters.isEmpty {
+      // Inactive state - gray background with border
+      filterButton.backgroundColor = Colors.gray100
+      filterButton.tintColor = Colors.gray600
+      filterButton.layer.borderWidth = 1
+      filterButton.layer.borderColor = Colors.gray300.cgColor
+    } else {
+      // Active state - magenta filled with white icon
+      filterButton.backgroundColor = Colors.mainMagenta
+      filterButton.tintColor = Colors.gray100
+      filterButton.layer.borderWidth = 0
+    }
+  }
+
+  func clearFilters() {
+    currentFilters.clear()
+    monthCard.clearFilteredState()
+    applyFilters()
   }
 
   private func addBordersExceptBottom(to view: UIView, color: UIColor, width: CGFloat = 1.0) {
@@ -291,6 +581,18 @@ class MonthCarouselCell: UICollectionViewCell {
   override func layoutSubviews() {
     super.layoutSubviews()
 
+    // Only update card height constraint if it hasn't been set yet
+    // This prevents unnecessary recalculations during layout cycles
+    if monthCardHeightConstraint == nil && monthCard.bounds.width > 0 {
+      updateMonthCardMinHeight()
+    }
+
+    // Recalculate table height after layout to account for actual available space
+    if monthCardHeightConstraint != nil {
+      let currentCount = isSearchActive ? filteredTransactions.count : transactions.count
+      updateTableHeight(txsCount: currentCount)
+    }
+
     transactionsNumberContainerView.layoutIfNeeded()
 
     let size = min(
@@ -302,5 +604,18 @@ class MonthCarouselCell: UICollectionViewCell {
     tableHeaderView.layer.sublayers?.removeAll(where: { $0 is CAShapeLayer })
     tableHeaderView.layoutIfNeeded()
     addBordersExceptBottom(to: tableHeaderView, color: Colors.gray300)
+  }
+
+  override func prepareForReuse() {
+    super.prepareForReuse()
+    clearSearch()
+  }
+}
+
+// MARK: - UITextFieldDelegate
+extension MonthCarouselCell: UITextFieldDelegate {
+  func textFieldShouldReturn(_ textField: UITextField) -> Bool {
+    textField.resignFirstResponder()
+    return true
   }
 }

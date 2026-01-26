@@ -1307,6 +1307,7 @@ extension DashboardViewController: UICollectionViewDataSource {
       }
 
       cell.monthCard.delegate = self
+      cell.searchDelegate = self
 
       cell.transactionTableView.dataSource = self
       cell.transactionTableView.delegate = self
@@ -1600,16 +1601,7 @@ extension DashboardViewController: UITableViewDataSource, UITableViewDelegate {
       parentCell.tag < syncedViewModel.monthData.count
     else { return 0 }
 
-    let model = syncedViewModel.monthData[parentCell.tag]
-    let key = DateFormatter.keyFormatter.string(from: model.date)
-    let txs = syncedViewModel.allTransactions
-      .filter { tx in
-        let txDate = Date(timeIntervalSince1970: TimeInterval(tx.dateTimestamp))
-        return DateFormatter.keyFormatter.string(from: txDate) == key
-      }
-      .sorted { $0.date > $1.date }
-
-    return txs.count
+    return parentCell.getDisplayedTransactions().count
   }
 
   func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
@@ -1624,14 +1616,8 @@ extension DashboardViewController: UITableViewDataSource, UITableViewDelegate {
       return cell
     }
 
-    let model = syncedViewModel.monthData[parentCell.tag]
-    let key = DateFormatter.keyFormatter.string(from: model.date)
-    let txs = syncedViewModel.allTransactions
-      .filter { tx in
-        let txDate = Date(timeIntervalSince1970: TimeInterval(tx.dateTimestamp))
-        return DateFormatter.keyFormatter.string(from: txDate) == key
-      }
-      .sorted { $0.date > $1.date }
+    let txs = parentCell.getDisplayedTransactions()
+    guard indexPath.row < txs.count else { return cell }
 
     let tx = txs[indexPath.row]
 
@@ -1711,14 +1697,8 @@ extension DashboardViewController: UITableViewDataSource, UITableViewDelegate {
       parentCell.tag < syncedViewModel.monthData.count
     else { return }
 
-    let model = syncedViewModel.monthData[parentCell.tag]
-    let key = DateFormatter.keyFormatter.string(from: model.date)
-    let txs = syncedViewModel.allTransactions
-      .filter { tx in
-        let txDate = Date(timeIntervalSince1970: TimeInterval(tx.dateTimestamp))
-        return DateFormatter.keyFormatter.string(from: txDate) == key
-      }
-      .sorted { $0.date > $1.date }
+    let txs = parentCell.getDisplayedTransactions()
+    guard indexPath.row < txs.count else { return }
 
     let selectedTransaction = txs[indexPath.row]
 
@@ -2454,5 +2434,30 @@ extension DashboardViewController: DataRecoveryToastViewDelegate {
   func dataRecoveryToastViewDidTapDismiss(_ toastView: DataRecoveryToastView) {
     recoveryToastManager.markToastAsDismissedTemporarily()
     hideRecoveryToast()
+  }
+}
+
+// MARK: - MonthCarouselCellDelegate
+extension DashboardViewController: MonthCarouselCellDelegate {
+  func monthCarouselCell(_ cell: MonthCarouselCell, didChangeSearchText text: String) {
+    // The cell handles filtering internally, we can add analytics or other logic here if needed
+    print("🔍 Search text changed: '\(text)'")
+  }
+  
+  func monthCarouselCellDidTapFilter(_ cell: MonthCarouselCell) {
+    let filterModal = TransactionFilterModalViewController(currentFilters: cell.currentFilters)
+    filterModal.delegate = self
+    present(filterModal, animated: false)
+  }
+}
+
+// MARK: - TransactionFilterModalDelegate
+extension DashboardViewController: TransactionFilterModalDelegate {
+  func transactionFilterModal(_ modal: TransactionFilterModalViewController, didApplyFilters filters: TransactionFilters) {
+    currentCell?.applyFilters(filters)
+  }
+  
+  func transactionFilterModalDidClear(_ modal: TransactionFilterModalViewController) {
+    currentCell?.clearFilters()
   }
 }
