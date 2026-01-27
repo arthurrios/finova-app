@@ -106,7 +106,31 @@ class MonthCarouselCell: UICollectionViewCell {
     return view
   }()
 
-  private lazy var searchInput: Input = {
+  private lazy var clearButton: UIButton = {
+    let button = UIButton(type: .system)
+
+    // Resize the image to be 30% smaller (70% of original size)
+    if let originalImage = UIImage(named: "x") {
+      let originalSize = Metrics.inputIconSize
+      let scaledSize = originalSize * 0.8
+      let newSize = CGSize(width: scaledSize, height: scaledSize)
+      UIGraphicsBeginImageContextWithOptions(newSize, false, 0.0)
+      originalImage.draw(in: CGRect(origin: .zero, size: newSize))
+      let resizedImage = UIGraphicsGetImageFromCurrentImageContext()
+      UIGraphicsEndImageContext()
+      button.setImage(resizedImage?.withRenderingMode(.alwaysTemplate), for: .normal)
+    }
+
+    button.tintColor = Colors.gray600
+    button.addTarget(self, action: #selector(clearButtonTapped), for: .touchUpInside)
+    // Add padding for better touch target (icon size + padding on each side)
+    let buttonSize = Metrics.inputIconSize + Metrics.spacing2 * 2
+    button.frame = CGRect(x: 0, y: 0, width: buttonSize, height: buttonSize)
+    button.imageView?.contentMode = .center
+    return button
+  }()
+
+  lazy var searchInput: Input = {
     let input = Input(
       type: .normal,
       placeholder: "transactions.search.placeholder".localized,
@@ -117,6 +141,8 @@ class MonthCarouselCell: UICollectionViewCell {
     input.textField.addTarget(self, action: #selector(searchTextChanged), for: .editingChanged)
     input.textField.returnKeyType = .search
     input.textField.delegate = self
+    input.textField.rightView = clearButton
+    input.textField.rightViewMode = .never
     input.translatesAutoresizingMaskIntoConstraints = false
     return input
   }()
@@ -260,7 +286,9 @@ class MonthCarouselCell: UICollectionViewCell {
       filterButton.trailingAnchor.constraint(equalTo: searchContainerView.trailingAnchor),
       filterButton.widthAnchor.constraint(equalToConstant: Metrics.inputHeight),
       filterButton.heightAnchor.constraint(equalToConstant: Metrics.inputHeight),
+    ])
 
+    NSLayoutConstraint.activate([
       tableHeaderView.topAnchor.constraint(
         equalTo: searchContainerView.bottomAnchor, constant: Metrics.spacing3),
       tableHeaderView.leadingAnchor.constraint(equalTo: monthCard.leadingAnchor),
@@ -450,6 +478,7 @@ class MonthCarouselCell: UICollectionViewCell {
     currentFilters.clear()
     isSearchActive = false
     monthCard.clearFilteredState()
+    updateClearButtonVisibility()
     applyFilters()
   }
 
@@ -461,10 +490,24 @@ class MonthCarouselCell: UICollectionViewCell {
   // MARK: - Search Handling
 
   @objc private func searchTextChanged() {
-    let searchText = searchInput.text ?? ""
+    let searchText = (searchInput.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
     isSearchActive = !searchText.isEmpty || !currentFilters.isEmpty
+    updateClearButtonVisibility()
     applyFilters()
     searchDelegate?.monthCarouselCell(self, didChangeSearchText: searchText)
+  }
+
+  @objc private func clearButtonTapped() {
+    searchInput.text = ""
+    searchInput.textField.resignFirstResponder()
+    updateClearButtonVisibility()
+    searchTextChanged()
+  }
+
+  private func updateClearButtonVisibility() {
+    let hasText =
+      !(searchInput.text?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+    searchInput.textField.rightViewMode = hasText ? .always : .never
   }
 
   @objc private func filterButtonTapped() {
@@ -476,7 +519,7 @@ class MonthCarouselCell: UICollectionViewCell {
       currentFilters = filters
     }
 
-    let searchText = searchInput.text ?? ""
+    let searchText = (searchInput.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
     isSearchActive = !searchText.isEmpty || !currentFilters.isEmpty
 
     filteredTransactions = transactions.filter { transaction in
@@ -646,5 +689,31 @@ extension MonthCarouselCell: UITextFieldDelegate {
   func textFieldShouldReturn(_ textField: UITextField) -> Bool {
     textField.resignFirstResponder()
     return true
+  }
+}
+
+// MARK: - Keyboard Handling
+extension MonthCarouselCell {
+  func adjustTableForKeyboard(keyboardHeight: CGFloat, animationDuration: Double) {
+    UIView.animate(withDuration: animationDuration, delay: 0, options: [.curveEaseInOut]) {
+      if keyboardHeight > 0 {
+        // Keyboard is showing - adjust content inset to make table scrollable above keyboard
+        // This allows the table content to scroll above the keyboard
+        self.transactionTableView.contentInset.bottom = keyboardHeight
+        self.transactionTableView.scrollIndicatorInsets.bottom = keyboardHeight
+
+        // Ensure the table can scroll by checking if content size exceeds visible area
+        let contentHeight = self.transactionTableView.contentSize.height
+        let visibleHeight = self.transactionTableView.bounds.height
+        if contentHeight > visibleHeight - keyboardHeight {
+          // Content is scrollable, ensure we can see it
+          self.transactionTableView.isScrollEnabled = true
+        }
+      } else {
+        // Keyboard is hiding - reset insets
+        self.transactionTableView.contentInset.bottom = 0
+        self.transactionTableView.scrollIndicatorInsets.bottom = 0
+      }
+    }
   }
 }
