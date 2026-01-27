@@ -20,4 +20,10 @@ extension String {
       arguments: args
     )
   }
+  
+  /// Normalizes a string for search by removing accents and converting to lowercase
+  /// Example: "Dízimo" becomes "dizimo"
+  func normalizedForSearch() -> String {
+    return self.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: nil).lowercased()
+  }
 }

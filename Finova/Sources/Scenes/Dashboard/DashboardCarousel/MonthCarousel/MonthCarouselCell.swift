@@ -476,12 +476,15 @@ class MonthCarouselCell: UICollectionViewCell {
       currentFilters = filters
     }
 
-    let searchText = searchInput.text?.lowercased() ?? ""
+    let searchText = searchInput.text ?? ""
     isSearchActive = !searchText.isEmpty || !currentFilters.isEmpty
 
     filteredTransactions = transactions.filter { transaction in
-      // Search text filter
-      let matchesSearch = searchText.isEmpty || transaction.title.lowercased().contains(searchText)
+      // Search text filter (case-insensitive and accent-insensitive)
+      let normalizedSearchText = searchText.normalizedForSearch()
+      let normalizedTitle = transaction.title.normalizedForSearch()
+      let matchesSearch =
+        normalizedSearchText.isEmpty || normalizedTitle.contains(normalizedSearchText)
 
       // Category filter
       let matchesCategory =
