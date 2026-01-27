@@ -496,13 +496,21 @@ class MonthCarouselCell: UICollectionViewCell {
       let matchesMode =
         currentFilters.modes.isEmpty || currentFilters.modes.contains(transaction.mode)
 
-      // Day range filter
+      // Day range filter (supports inverted ranges)
       let matchesDayRange: Bool
       if let startDay = currentFilters.startDay, let endDay = currentFilters.endDay {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone.current
         let transactionDay = calendar.component(.day, from: transaction.date)
-        matchesDayRange = transactionDay >= startDay && transactionDay <= endDay
+
+        if startDay > endDay {
+          // Inverted range: match days from startDay to end of month OR from start of month to endDay
+          // Example: startDay=20, endDay=13 matches days 1-13 and 20-31
+          matchesDayRange = (transactionDay >= startDay) || (transactionDay <= endDay)
+        } else {
+          // Normal range: match days from startDay to endDay
+          matchesDayRange = transactionDay >= startDay && transactionDay <= endDay
+        }
       } else {
         matchesDayRange = true  // No day filter applied
       }

@@ -448,9 +448,10 @@ class TransactionFilterModalView: UIView {
 
 // MARK: - DayRangeSliderDelegate
 extension TransactionFilterModalView: DayRangeSliderDelegate {
-  func dayRangeSlider(_ slider: DayRangeSlider, didChangeStartDay startDay: Int, endDay: Int) {
+  func dayRangeSlider(_ slider: DayRangeSlider, didChangeStartDay startDay: Int, endDay: Int, isInverted: Bool) {
     selectedStartDay = startDay
     selectedEndDay = endDay
+    // Note: isInverted is handled automatically by the filtering logic
   }
 }
 
