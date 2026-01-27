@@ -20,6 +20,10 @@ class TransactionFilterModalView: UIView {
   private var selectedCategories: Set<TransactionCategory> = []
   private var selectedTypes: Set<TransactionType> = []
   private var selectedModes: Set<TransactionMode> = []
+  private var selectedStartDay: Int?
+  private var selectedEndDay: Int?
+  private var monthDate: Date?
+  private var totalDaysInMonth: Int = 31
   
   // MARK: - UI Components
   
@@ -90,6 +94,17 @@ class TransactionFilterModalView: UIView {
     let view = UIView()
     view.translatesAutoresizingMaskIntoConstraints = false
     return view
+  }()
+  
+  // Day Range Section
+  private lazy var dayRangeSectionView = createSectionView(title: "filter.dayRange.title".localized)
+  
+  private lazy var dayRangeSlider: DayRangeSlider = {
+    let slider = DayRangeSlider()
+    slider.delegate = self
+    slider.translatesAutoresizingMaskIntoConstraints = false
+    slider.heightAnchor.constraint(equalToConstant: 40).isActive = true
+    return slider
   }()
   
   // Buttons
@@ -172,9 +187,13 @@ class TransactionFilterModalView: UIView {
     addSubview(scrollView)
     scrollView.addSubview(contentStackView)
     
+    // Day range section first
+    contentStackView.addArrangedSubview(dayRangeSectionView)
     contentStackView.addArrangedSubview(typeSectionView)
     contentStackView.addArrangedSubview(modeSectionView)
     contentStackView.addArrangedSubview(categorySectionView)
+    
+    setupDayRangeSection()
     
     addSubview(buttonStackView)
     buttonStackView.addArrangedSubview(clearButton)
@@ -268,6 +287,10 @@ class TransactionFilterModalView: UIView {
     categorySectionView.addArrangedSubview(categoryFlowLayout)
   }
   
+  private func setupDayRangeSection() {
+    dayRangeSectionView.addArrangedSubview(dayRangeSlider)
+  }
+  
   private func createChip(title: String) -> UIButton {
     let button = UIButton(type: .system)
     button.setTitle(title, for: .normal)
@@ -305,22 +328,35 @@ class TransactionFilterModalView: UIView {
     selectedCategories.removeAll()
     selectedTypes.removeAll()
     selectedModes.removeAll()
+    selectedStartDay = nil
+    selectedEndDay = nil
     
     typeChips.values.forEach { updateChipAppearance($0, isSelected: false) }
     modeChips.values.forEach { updateChipAppearance($0, isSelected: false) }
     categoryChips.values.forEach { updateChipAppearance($0, isSelected: false) }
     
+    // Reset slider to first and last day (covering all days)
+    if totalDaysInMonth > 0 {
+      dayRangeSlider.configure(startDay: 1, endDay: totalDaysInMonth, totalDaysInMonth: totalDaysInMonth)
+      selectedStartDay = 1
+      selectedEndDay = totalDaysInMonth
+    }
+    
     delegate?.didTapClear()
   }
   
   @objc private func applyButtonTapped() {
-    let filters = TransactionFilters(
+    var filters = TransactionFilters(
       categories: selectedCategories,
       types: selectedTypes,
-      modes: selectedModes
+      modes: selectedModes,
+      startDay: selectedStartDay,
+      endDay: selectedEndDay
     )
+    filters.totalDaysInMonth = totalDaysInMonth
     delegate?.didTapApply(filters: filters)
   }
+  
   
   @objc private func typeChipTapped(_ sender: UIButton) {
     guard let type = typeChips.first(where: { $0.value == sender })?.key else { return }
@@ -360,10 +396,40 @@ class TransactionFilterModalView: UIView {
   
   // MARK: - Configuration
   
-  func configure(with filters: TransactionFilters) {
+  func configure(with filters: TransactionFilters, monthDate: Date) {
     selectedCategories = filters.categories
     selectedTypes = filters.types
     selectedModes = filters.modes
+    selectedStartDay = filters.startDay
+    selectedEndDay = filters.endDay
+    self.monthDate = monthDate
+    
+    // Calculate total days in month
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = TimeZone.current
+    if let range = calendar.range(of: .day, in: .month, for: monthDate) {
+      totalDaysInMonth = range.count
+    } else {
+      totalDaysInMonth = 31
+    }
+    
+    // Set initial values: first day and last day (covering all days by default)
+    let initialStartDay = selectedStartDay ?? 1
+    let initialEndDay = selectedEndDay ?? totalDaysInMonth
+    
+    selectedStartDay = initialStartDay
+    selectedEndDay = initialEndDay
+    
+    // Configure the range slider
+    // Use DispatchQueue to ensure layout has happened
+    DispatchQueue.main.async { [weak self] in
+      guard let self = self else { return }
+      self.dayRangeSlider.configure(
+        startDay: initialStartDay,
+        endDay: initialEndDay,
+        totalDaysInMonth: totalDaysInMonth
+      )
+    }
     
     // Update chip appearances
     for (type, chip) in typeChips {
@@ -377,6 +443,14 @@ class TransactionFilterModalView: UIView {
     for (category, chip) in categoryChips {
       updateChipAppearance(chip, isSelected: selectedCategories.contains(category))
     }
+  }
+}
+
+// MARK: - DayRangeSliderDelegate
+extension TransactionFilterModalView: DayRangeSliderDelegate {
+  func dayRangeSlider(_ slider: DayRangeSlider, didChangeStartDay startDay: Int, endDay: Int) {
+    selectedStartDay = startDay
+    selectedEndDay = endDay
   }
 }
 

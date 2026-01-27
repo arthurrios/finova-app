@@ -17,15 +17,22 @@ struct TransactionFilters {
   var categories: Set<TransactionCategory> = []
   var types: Set<TransactionType> = []
   var modes: Set<TransactionMode> = []
+  var startDay: Int? = nil
+  var endDay: Int? = nil
+  var totalDaysInMonth: Int = 31
 
   var isEmpty: Bool {
-    return categories.isEmpty && types.isEmpty && modes.isEmpty
+    let hasDayFilter =
+      startDay != nil && endDay != nil && !(startDay == 1 && endDay == totalDaysInMonth)
+    return categories.isEmpty && types.isEmpty && modes.isEmpty && !hasDayFilter
   }
 
   mutating func clear() {
     categories.removeAll()
     types.removeAll()
     modes.removeAll()
+    startDay = nil
+    endDay = nil
   }
 }
 
@@ -489,7 +496,18 @@ class MonthCarouselCell: UICollectionViewCell {
       let matchesMode =
         currentFilters.modes.isEmpty || currentFilters.modes.contains(transaction.mode)
 
-      return matchesSearch && matchesCategory && matchesType && matchesMode
+      // Day range filter
+      let matchesDayRange: Bool
+      if let startDay = currentFilters.startDay, let endDay = currentFilters.endDay {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone.current
+        let transactionDay = calendar.component(.day, from: transaction.date)
+        matchesDayRange = transactionDay >= startDay && transactionDay <= endDay
+      } else {
+        matchesDayRange = true  // No day filter applied
+      }
+
+      return matchesSearch && matchesCategory && matchesType && matchesMode && matchesDayRange
     }
 
     updateFilterButtonAppearance()

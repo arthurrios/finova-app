@@ -18,9 +18,11 @@ final class TransactionFilterModalViewController: UIViewController {
   
   private let contentView = TransactionFilterModalView()
   private var currentFilters: TransactionFilters
+  private var monthDate: Date
   
-  init(currentFilters: TransactionFilters = TransactionFilters()) {
+  init(currentFilters: TransactionFilters = TransactionFilters(), monthDate: Date) {
     self.currentFilters = currentFilters
+    self.monthDate = monthDate
     super.init(nibName: nil, bundle: nil)
     modalPresentationStyle = .overFullScreen
     modalTransitionStyle = .crossDissolve
@@ -33,7 +35,7 @@ final class TransactionFilterModalViewController: UIViewController {
   override func viewDidLoad() {
     super.viewDidLoad()
     setup()
-    contentView.configure(with: currentFilters)
+    contentView.configure(with: currentFilters, monthDate: monthDate)
   }
   
   override func viewDidAppear(_ animated: Bool) {

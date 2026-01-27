@@ -2445,7 +2445,17 @@ extension DashboardViewController: MonthCarouselCellDelegate {
   }
   
   func monthCarouselCellDidTapFilter(_ cell: MonthCarouselCell) {
-    let filterModal = TransactionFilterModalViewController(currentFilters: cell.currentFilters)
+    // Get the month date from the current month data
+    let monthDate: Date
+    let currentIndex = syncedViewModel.selectedIndex
+    if currentIndex < syncedViewModel.monthData.count {
+      monthDate = syncedViewModel.monthData[currentIndex].date
+    } else {
+      // Fallback to current date if we can't find the month
+      monthDate = Date()
+    }
+    
+    let filterModal = TransactionFilterModalViewController(currentFilters: cell.currentFilters, monthDate: monthDate)
     filterModal.delegate = self
     present(filterModal, animated: false)
   }

@@ -185,6 +185,45 @@ class DaySliderTooltip: UIView {
       arrowLayer.strokeColor = Colors.gray600.cgColor
     }
   }
+  
+  // MARK: - Customization
+  func setDarkerAppearance() {
+    // Remove existing blur views
+    backgroundView.subviews.forEach { $0.removeFromSuperview() }
+    dayLabel.removeFromSuperview()
+    
+    // Use darker, less transparent background
+    backgroundView.backgroundColor = Colors.gray700.withAlphaComponent(0.95)
+    backgroundView.layer.cornerRadius = 8
+    backgroundView.layer.masksToBounds = true
+    
+    // Add shadow for depth
+    backgroundView.layer.shadowColor = Colors.gray700.cgColor
+    backgroundView.layer.shadowOffset = CGSize(width: 0, height: 2)
+    backgroundView.layer.shadowRadius = 4
+    backgroundView.layer.shadowOpacity = 0.5
+    
+    // Add border
+    backgroundView.layer.borderWidth = 0.5
+    backgroundView.layer.borderColor = UIColor.white.withAlphaComponent(0.3).cgColor
+    
+    // Add day label back
+    backgroundView.addSubview(dayLabel)
+    NSLayoutConstraint.activate([
+      dayLabel.centerXAnchor.constraint(equalTo: backgroundView.centerXAnchor),
+      dayLabel.centerYAnchor.constraint(equalTo: backgroundView.centerYAnchor),
+      dayLabel.leadingAnchor.constraint(
+        greaterThanOrEqualTo: backgroundView.leadingAnchor, constant: 8),
+      dayLabel.trailingAnchor.constraint(
+        lessThanOrEqualTo: backgroundView.trailingAnchor, constant: -8),
+    ])
+    
+    // Update arrow color
+    if let arrowLayer = arrowView.layer.sublayers?.first as? CAShapeLayer {
+      arrowLayer.fillColor = Colors.gray700.cgColor
+      arrowLayer.strokeColor = Colors.gray700.cgColor
+    }
+  }
 
   private func setupArrowShape() {
     // Create arrow shape using CAShapeLayer
