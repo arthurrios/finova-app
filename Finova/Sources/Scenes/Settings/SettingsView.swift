@@ -117,6 +117,8 @@ final class SettingsView: UIView {
         return label
     }()
     
+
+    
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
@@ -152,6 +154,8 @@ final class SettingsView: UIView {
         contentStackView.addArrangedSubview(accountHeaderView)
         setupDeleteAccountContainer()
         contentStackView.addArrangedSubview(deleteAccountContainer)
+        
+
     }
     
     private func setupBiometricContainer() {
@@ -201,6 +205,8 @@ final class SettingsView: UIView {
         ])
     }
     
+
+    
     private func setupConstraints() {
         NSLayoutConstraint.activate([
             scrollView.topAnchor.constraint(equalTo: topAnchor),
@@ -238,6 +244,8 @@ final class SettingsView: UIView {
         
         let deleteAccountTap = UITapGestureRecognizer(target: self, action: #selector(deleteAccountTapped))
         deleteAccountContainer.addGestureRecognizer(deleteAccountTap)
+        
+
     }
     
     @objc
@@ -249,6 +257,8 @@ final class SettingsView: UIView {
     private func deleteAccountTapped() {
         delegate?.didTapDeleteAccount()
     }
+    
+
     
     @objc
     private func handleDidTapBackButton() {

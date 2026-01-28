@@ -39,7 +39,7 @@ class Input: UIView {
         return true
       case (.currency, .currency):
         return true
-      case let (.date(style1), .date(style2)):
+      case (.date(let style1), .date(let style2)):
         return style1 == style2
       default:
         return false
@@ -241,7 +241,7 @@ class Input: UIView {
     NSLayoutConstraint.activate([
       iconImageView.widthAnchor.constraint(equalToConstant: Defaults.iconSize),
       iconImageView.heightAnchor.constraint(equalToConstant: Defaults.iconSize),
-      iconImageView.centerYAnchor.constraint(equalTo: centerYAnchor)
+      iconImageView.centerYAnchor.constraint(equalTo: centerYAnchor),
     ])
 
     if case .currency = type {
@@ -256,14 +256,14 @@ class Input: UIView {
           equalTo: prefixLabel.trailingAnchor, constant: Metrics.spacing2),
         textField.centerYAnchor.constraint(equalTo: centerYAnchor),
         textField.trailingAnchor.constraint(
-          equalTo: trailingAnchor, constant: -Defaults.horizontalPadding)
+          equalTo: trailingAnchor, constant: -Defaults.horizontalPadding),
       ])
       return
     }
 
     NSLayoutConstraint.activate([
       textField.topAnchor.constraint(equalTo: topAnchor, constant: Defaults.verticalPadding),
-      textField.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -Defaults.verticalPadding)
+      textField.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -Defaults.verticalPadding),
     ])
 
     switch effectiveIconPosition {
@@ -275,7 +275,7 @@ class Input: UIView {
         textField.leadingAnchor.constraint(
           equalTo: iconImageView.trailingAnchor, constant: Metrics.spacing2),
         textField.trailingAnchor.constraint(
-          equalTo: trailingAnchor, constant: -Defaults.horizontalPadding)
+          equalTo: trailingAnchor, constant: -Defaults.horizontalPadding),
       ])
 
     case .right:
@@ -286,7 +286,7 @@ class Input: UIView {
         textField.leadingAnchor.constraint(
           equalTo: leadingAnchor, constant: Defaults.horizontalPadding),
         textField.trailingAnchor.constraint(
-          equalTo: iconImageView.leadingAnchor, constant: -Metrics.spacing2)
+          equalTo: iconImageView.leadingAnchor, constant: -Metrics.spacing2),
       ])
 
     case .none:
@@ -294,7 +294,7 @@ class Input: UIView {
         textField.leadingAnchor.constraint(
           equalTo: leadingAnchor, constant: Defaults.horizontalPadding),
         textField.trailingAnchor.constraint(
-          equalTo: trailingAnchor, constant: -Defaults.horizontalPadding)
+          equalTo: trailingAnchor, constant: -Defaults.horizontalPadding),
       ])
     }
   }
@@ -302,7 +302,7 @@ class Input: UIView {
   private func addObservers() {
     let events: [UIControl.Event] = [
       .editingDidBegin,
-      .editingDidEnd
+      .editingDidEnd,
     ]
     events.forEach {
       textField.addTarget(
@@ -336,11 +336,12 @@ class Input: UIView {
     case .fullDate:
       let picker = UIDatePicker()
       picker.datePickerMode = .date
-      picker.preferredDatePickerStyle = .wheels
+      picker.preferredDatePickerStyle = .inline
       picker.locale = Locale.current
       picker.addTarget(self, action: #selector(dateChanged(_:)), for: .valueChanged)
       datePicker = picker
       textField.inputView = picker
+      textField.addTarget(self, action: #selector(dateFieldDidBeginEditing), for: .editingDidBegin)
     }
 
     let toolbar = UIToolbar()
@@ -354,6 +355,50 @@ class Input: UIView {
     textField.inputAccessoryView = toolbar
     textField.tintColor = .clear
   }
+
+  // MARK: - Recurring Transaction Date Configuration
+
+  /// Configures the date picker for recurring transactions to only allow day selection
+  /// - Parameter referenceDate: The original date of the recurring transaction
+  func configureForRecurringTransaction(referenceDate: Date) {
+    guard let picker = datePicker, datePickerStyle == .fullDate else { return }
+
+    // Store the reference date for day-only selection
+    self.referenceDate = referenceDate
+    self.isRecurringMode = true
+
+    // Set date restrictions to only allow day changes within the same month
+    let calendar = Calendar.current
+    let year = calendar.component(.year, from: referenceDate)
+    let month = calendar.component(.month, from: referenceDate)
+
+    // Create minimum date (first day of the month)
+    var minComponents = DateComponents()
+    minComponents.year = year
+    minComponents.month = month
+    minComponents.day = 1
+    let minDate = calendar.date(from: minComponents) ?? referenceDate
+
+    // Create maximum date (last day of the month)
+    let lastDayOfMonth = calendar.range(of: .day, in: .month, for: referenceDate)?.upperBound ?? 31
+    var maxComponents = DateComponents()
+    maxComponents.year = year
+    maxComponents.month = month
+    maxComponents.day = lastDayOfMonth - 1  // Subtract 1 because range.upperBound is exclusive
+    let maxDate = calendar.date(from: maxComponents) ?? referenceDate
+
+    // Set the date restrictions
+    picker.minimumDate = minDate
+    picker.maximumDate = maxDate
+    picker.date = referenceDate
+
+    // Update the text field to show the full date format
+    textField.text = DateFormatter.fullDateFormatter.string(from: referenceDate)
+  }
+
+  // MARK: - Private Properties for Recurring Mode
+  private var referenceDate: Date?
+  private var isRecurringMode: Bool = false
 
   private let calendar = Calendar.current
   private let currentYear = Calendar.current.component(.year, from: Date())
@@ -398,8 +443,52 @@ class Input: UIView {
 
   @objc
   private func dateChanged(_ picker: UIDatePicker) {
-    dateValue = picker.date
-    textField.text = DateFormatter.fullDateFormatter.string(from: picker.date)
+    // For recurring transactions, validate that only the day has changed
+    if isRecurringMode, let refDate = referenceDate {
+      let calendar = Calendar.current
+      let newDate = picker.date
+
+      // Check if month or year has changed
+      let refMonth = calendar.component(.month, from: refDate)
+      let refYear = calendar.component(.year, from: refDate)
+      let newMonth = calendar.component(.month, from: newDate)
+      let newYear = calendar.component(.year, from: newDate)
+
+      if newMonth != refMonth || newYear != refYear {
+        // Month or year changed - revert to original date with new day
+        let newDay = calendar.component(.day, from: newDate)
+
+        var dateComponents = DateComponents()
+        dateComponents.year = refYear
+        dateComponents.month = refMonth
+        dateComponents.day = newDay
+
+        // Handle cases where the day doesn't exist in the month
+        let correctedDate: Date
+        if let validDate = calendar.date(from: dateComponents) {
+          correctedDate = validDate
+        } else {
+          // If the day doesn't exist, use the last day of the month
+          let lastDayOfMonth = calendar.range(of: .day, in: .month, for: refDate)?.upperBound ?? 1
+          dateComponents.day = lastDayOfMonth - 1
+          correctedDate = calendar.date(from: dateComponents) ?? refDate
+        }
+
+        // Update the picker to show the corrected date
+        picker.setDate(correctedDate, animated: true)
+        dateValue = correctedDate
+        textField.text = DateFormatter.fullDateFormatter.string(from: correctedDate)
+      } else {
+        // Only day changed - allow it
+        dateValue = newDate
+        textField.text = DateFormatter.fullDateFormatter.string(from: newDate)
+      }
+    } else {
+      // Normal date picker behavior
+      dateValue = picker.date
+      textField.text = DateFormatter.fullDateFormatter.string(from: picker.date)
+    }
+
     textField.sendActions(for: .editingChanged)
   }
 
@@ -548,6 +637,7 @@ extension Input: UIPickerViewDataSource, UIPickerViewDelegate {
     if pickerValues != nil {
       return pickerValues?.count ?? 0
     }
+
     switch component {
     case 0:
       return monthOptionsCount()
@@ -559,7 +649,8 @@ extension Input: UIPickerViewDataSource, UIPickerViewDelegate {
   }
 
   func pickerView(_ pickerView: UIPickerView, titleForRow row: Int, forComponent component: Int)
-    -> String? {
+    -> String?
+  {
     if let rawValues = pickerValues {
       let key = rawValues[row]
       if let cat = TransactionCategory.allCases.first(where: { $0.key == key }) {
@@ -599,6 +690,7 @@ extension Input: UIPickerViewDataSource, UIPickerViewDelegate {
       }
       return
     }
+
     switch component {
     case 1:
       selectedYear = years[row]
@@ -659,5 +751,27 @@ extension Input: UITextFieldDelegate {
     let allowedCharacters = CharacterSet.decimalDigits
     let characterSet = CharacterSet(charactersIn: string)
     return allowedCharacters.isSuperset(of: characterSet)
+  }
+
+  // MARK: - Date Restrictions
+  func setDateRestrictions(minimumDate: Date? = nil, maximumDate: Date? = nil) {
+    guard let datePicker = datePicker else { return }
+    datePicker.minimumDate = minimumDate
+    datePicker.maximumDate = maximumDate
+  }
+
+  // MARK: - Set Initial Date
+  func setInitialDateFromTextField() {
+    guard let datePicker = datePicker, let text = textField.text, !text.isEmpty else { return }
+
+    // Try to parse the current text as a date
+    if let date = DateFormatter.fullDateFormatter.date(from: text) {
+      datePicker.date = date
+      dateValue = date
+    }
+  }
+
+  @objc private func dateFieldDidBeginEditing() {
+    setInitialDateFromTextField()
   }
 }

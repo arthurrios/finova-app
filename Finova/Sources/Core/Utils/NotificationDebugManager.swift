@@ -336,6 +336,119 @@ final class NotificationDebugManager {
     }
   }
 
+  /// Remove duplicate notifications based on content similarity
+  func removeDuplicateNotifications() {
+    print("🔔 🔍 CHECKING FOR DUPLICATE NOTIFICATIONS...")
+
+    UNUserNotificationCenter.current().getPendingNotificationRequests { requests in
+      DispatchQueue.main.async {
+        print("🔔 📊 Analyzing \(requests.count) pending notifications for duplicates...")
+
+        // Group notifications by content (title + body combination)
+        var notificationGroups: [String: [UNNotificationRequest]] = [:]
+
+        for request in requests {
+          // Skip system notifications (monthly reminders, etc.)
+          if request.identifier.contains("monthly_") || request.identifier.contains("test_")
+            || request.identifier.contains("recurring_")
+          {
+            continue
+          }
+
+          // Create a key based on title and body content
+          let contentKey = "\(request.content.title)_\(request.content.body)"
+
+          if notificationGroups[contentKey] == nil {
+            notificationGroups[contentKey] = []
+          }
+          notificationGroups[contentKey]?.append(request)
+        }
+
+        // Find and remove duplicates, but be more careful about recurring transactions
+        var duplicatesFound = 0
+        var idsToRemove: [String] = []
+
+        for (contentKey, group) in notificationGroups {
+          if group.count > 1 {
+            print("🔔 🚨 Found \(group.count) notifications with same content: \(contentKey)")
+
+            // Check if these are legitimate recurring/installment notifications
+            let areRecurringNotifications = group.allSatisfy { request in
+              // Check if this is a recurring or installment notification by looking at the identifier
+              // Recurring notifications have identifiers like "transaction_123" where 123 is the transaction ID
+              if request.identifier.hasPrefix("transaction_") {
+                let transactionIdString = String(request.identifier.dropFirst("transaction_".count))
+                if let transactionId = Int(transactionIdString) {
+                  // Check if this transaction is a recurring instance
+                  return self.isRecurringTransactionInstance(transactionId: transactionId)
+                }
+              }
+              return false
+            }
+
+            if areRecurringNotifications {
+              print("🔔 ✅ These are legitimate recurring notifications - keeping all \(group.count)")
+              continue
+            }
+
+            // Only remove if they're not recurring notifications
+            print("🔔 🚨 These appear to be actual duplicates - removing \(group.count - 1)")
+            duplicatesFound += group.count - 1
+
+            // Keep the first one, remove the rest
+            let duplicatesToRemove = Array(group.dropFirst())
+            for duplicate in duplicatesToRemove {
+              idsToRemove.append(duplicate.identifier)
+              print("🔔 ❌ Will remove duplicate: \(duplicate.identifier)")
+            }
+          }
+        }
+
+        if duplicatesFound > 0 {
+          print("🔔 🧹 Removing \(duplicatesFound) duplicate notifications...")
+          UNUserNotificationCenter.current().removePendingNotificationRequests(
+            withIdentifiers: idsToRemove)
+          print("🔔 ✅ Removed duplicate notifications")
+
+          // Show results after cleanup
+          DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            UNUserNotificationCenter.current().getPendingNotificationRequests { updatedRequests in
+              DispatchQueue.main.async {
+                print("🔔 📊 After cleanup: \(updatedRequests.count) notifications remaining")
+              }
+            }
+          }
+        } else {
+          print("🔔 ✅ No duplicate notifications found")
+        }
+      }
+    }
+  }
+
+  /// Check if a transaction ID corresponds to a recurring transaction instance
+  private func isRecurringTransactionInstance(transactionId: Int) -> Bool {
+    // Check if user is authenticated
+    guard let user = UserDefaultsManager.getUser(),
+      let firebaseUID = user.firebaseUID
+    else {
+      return false
+    }
+
+    // Authenticate SecureLocalDataManager
+    SecureLocalDataManager.shared.authenticateUser(firebaseUID: firebaseUID)
+
+    let transactionRepo = TransactionRepository()
+    let allTransactions = transactionRepo.fetchAllTransactions()
+
+    // Find the transaction with this ID
+    if let transaction = allTransactions.first(where: { $0.id == transactionId }) {
+      // Check if it's a recurring instance (has a parent transaction ID)
+      return transaction.parentTransactionId != nil
+    }
+
+    return false
+  }
+
   /// Force reschedule all notifications
   func forceRescheduleAllNotifications() {
     print("🔔 🔄 FORCE RESCHEDULING ALL NOTIFICATIONS...")

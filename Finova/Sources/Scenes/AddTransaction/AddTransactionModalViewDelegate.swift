@@ -24,10 +24,17 @@ public struct InstallmentTransactionData {
   let installments: Int
 }
 
-public protocol AddTransactionModalViewDelegate: AnyObject {
+protocol AddTransactionModalViewDelegate: AnyObject {
   func handleError(title: String, message: String)
   func sendTransactionData(_ data: AddTransactionData)
   func sendRecurringTransactionData(_ data: AddTransactionData)
   func sendInstallmentTransactionData(_ data: InstallmentTransactionData)
+  func updateTransactionData(id: Int, _ data: AddTransactionData)
+  func updateRecurringTransactionData(id: Int, _ data: AddTransactionData)
+  func updateInstallmentTransactionData(id: Int, _ data: InstallmentTransactionData)
+  func updateSingleRecurringTransactionData(id: Int, _ data: AddTransactionData)
+  func updateSingleInstallmentTransactionData(id: Int, _ data: InstallmentTransactionData)
+  func updateRecurringTransactionDataWithOption(
+    id: Int, _ data: AddTransactionData, editOption: RecurringEditOption)
   func closeModal()
 }

@@ -25,7 +25,7 @@ extension DateFormatter {
       locale: Locale.current
     )
     fmt.locale = Locale.current
-    fmt.timeZone = TimeZone(secondsFromGMT: 0)
+    fmt.timeZone = TimeZone.current  // Use user's timezone instead of UTC
     return fmt
   }()
 
@@ -37,11 +37,20 @@ extension DateFormatter {
     return formatter
   }()
 
+  // Debug formatter for troubleshooting
+  static let debugDateFormatter: DateFormatter = {
+    let formatter = DateFormatter()
+    formatter.dateFormat = "dd/MM/yyyy"
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.timeZone = TimeZone.current
+    return formatter
+  }()
+
   static let monthFormatter: DateFormatter = {
     let formatter = DateFormatter()
     formatter.dateFormat = "MMM"
     formatter.locale = Locale(identifier: "en_US_POSIX")
-    formatter.timeZone = TimeZone(secondsFromGMT: 0)
+    formatter.timeZone = TimeZone.current  // Use user's timezone instead of UTC
     return formatter
   }()
 
@@ -56,7 +65,7 @@ extension DateFormatter {
   static let keyFormatter: DateFormatter = {
     let df = DateFormatter()
     df.locale = Locale(identifier: "en_US_POSIX")
-    df.timeZone = TimeZone(secondsFromGMT: 0)
+    df.timeZone = TimeZone.current  // Use user's timezone instead of UTC
     df.dateFormat = "yyyy-MM"
     return df
   }()

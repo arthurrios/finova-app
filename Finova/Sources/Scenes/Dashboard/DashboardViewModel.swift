@@ -15,6 +15,7 @@ final class DashboardViewModel {
   private let recurringManager: RecurringTransactionManager
   private let balanceMonitor: BalanceMonitorManager
   private let monthlyNotificationManager: MonthlyNotificationManager
+  let transactionLedger: TransactionLedgerService
   private let calendar = Calendar.current
 
   private let monthRange: ClosedRange<Int>
@@ -31,79 +32,107 @@ final class DashboardViewModel {
     self.transactionRepo = transactionRepo
     self.monthRange = monthRange
     self.recurringManager = RecurringTransactionManager(transactionRepo: transactionRepo)
-    self.balanceMonitor = BalanceMonitorManager(transactionRepo: transactionRepo, budgetRepo: budgetRepo)
-    self.monthlyNotificationManager = MonthlyNotificationManager(transactionRepo: transactionRepo, budgetRepo: budgetRepo)
+    self.balanceMonitor = BalanceMonitorManager(
+      transactionRepo: transactionRepo, budgetRepo: budgetRepo)
+    self.monthlyNotificationManager = MonthlyNotificationManager(
+      transactionRepo: transactionRepo, budgetRepo: budgetRepo)
+    self.transactionLedger = TransactionLedgerService(
+      transactionRepo: transactionRepo, budgetRepo: budgetRepo)
   }
 
   func loadMonthlyCards() -> [MonthBudgetCardType] {
-    let today = Date()
+    print("🔍 loadMonthlyCards() called with monthRange: \(monthRange)")
 
-    let budgetsByAnchor: [Int: Int] = budgetRepo.fetchBudgets()
-      .reduce(into: [:]) { acc, entry in
-        acc[entry.monthDate] = entry.amount
-      }
+    // Use the transaction ledger service for all calculations
+    let monthlyData = transactionLedger.calculateMonthlyData(for: monthRange)
 
-    let allTxs = transactionRepo.fetchTransactions()
+    print("🔍 Final cards count: \(monthlyData.count)")
+    print("🔍 Final card months: \(monthlyData.count > 0 ? monthlyData.map { $0.month } : [])")
 
-    let expensesByAnchor =
-      allTxs
-      .filter { $0.type == .expense }
-      .reduce(into: [:]) { acc, tx in
-        acc[tx.budgetMonthDate, default: 0] += tx.amount
-      }
-
-    let incomesByAnchor =
-      allTxs
-      .filter { $0.type == .income }
-      .reduce(into: [:]) { acc, tx in
-        acc[tx.budgetMonthDate, default: 0] += tx.amount
-      }
-
-    let anchors = monthRange.map { offset in
-      let dt = calendar.date(byAdding: .month, value: offset, to: today)!
-      return dt.monthAnchor
-    }.sorted()
-
-    var runningBalance = [Int: Int]()
-    var previousAvailable = 0
-
-    let cards: [MonthBudgetCardType] = anchors.compactMap { anchor in
-      let date = Date(timeIntervalSince1970: TimeInterval(anchor))
-      let month = DateFormatter.monthFormatter.string(from: date)
-
-      let expense = expensesByAnchor[anchor] ?? 0
-      let income = incomesByAnchor[anchor] ?? 0
-      let budgetLimit = budgetsByAnchor[anchor]
-
-      let net = income - expense
-
-      let currentBalance = calculateCurrentBalance(
-        anchor: anchor,
-        allTransactions: allTxs,
-        previousBalance: previousAvailable  // Use the previous month's balance
-      )
-
-      let thisMonthPreviousBalance = previousAvailable
-
-      let available = previousAvailable + net
-      previousAvailable = available
-      runningBalance[anchor] = available
-
-      return MonthBudgetCardType(
-        date: date,
-        month: "month.\(month.lowercased())".localized,
-        usedValue: expense,
-        budgetLimit: budgetLimit,
-        finalBalance: available,
-        currentBalance: currentBalance,
-        previousBalance: thisMonthPreviousBalance
+    // Log balance information for debugging
+    if let currentMonthData = monthlyData.first(where: {
+      Calendar.current.isDate($0.date, equalTo: Date(), toGranularity: .month)
+    }) {
+      print(
+        "💰 Current month balance - Final: \(currentMonthData.finalBalance ?? 0), Current: \(currentMonthData.currentBalance ?? 0), Previous: \(currentMonthData.previousBalance ?? 0)"
       )
     }
 
-    // Monitorar saldo negativo após carregar os dados
+    // Monitor negative balance after loading data
     balanceMonitor.monitorCurrentMonthBalance()
 
-    return cards.sorted { $0.date < $1.date }
+    return monthlyData
+  }
+
+  /// Clean up any existing duplicate transactions
+  func cleanupExistingDuplicates() {
+    print("🧹 Starting duplicate transaction cleanup...")
+    transactionLedger.cleanupDuplicateTransactions()
+    print("🧹 Duplicate transaction cleanup completed")
+  }
+
+  /// Force refresh current month balance (useful for debugging)
+  func forceRefreshCurrentMonthBalance() {
+    print("🔄 Force refreshing current month balance...")
+    transactionLedger.forceRefreshCurrentMonthBalance()
+  }
+
+  /// Force refresh all balance calculations (useful after fixing date comparison issues)
+  func forceRefreshAllBalances() {
+    print("🔄 Force refreshing all balance calculations...")
+    transactionLedger.forceRefreshAllBalances()
+  }
+
+  /// Debug "Aula de canto" transaction specifically
+  func debugAulaDeCantoTransaction() {
+    print("🎵 Debugging 'Aula de canto' transaction...")
+    transactionLedger.debugAulaDeCantoTransaction()
+  }
+
+  /// Migrate budgets to new timezone-based month anchors
+  func migrateBudgetsToNewTimezone() {
+    print("🔄 Starting budget migration...")
+    transactionLedger.migrateBudgetsToNewTimezone()
+  }
+
+  /// Migrate all data (budgets and transactions) to new timezone-based month anchors
+  func migrateAllDataToNewTimezone() {
+    print("🔄 Starting comprehensive data migration...")
+    transactionLedger.migrateAllDataToNewTimezone()
+  }
+
+  /// Get a summary of duplicate transactions (without removing them)
+  func analyzeDuplicateTransactions() -> String {
+    let allTransactions = transactionRepo.fetchAllTransactions()
+    let transactionsByMonth = Dictionary(grouping: allTransactions) { transaction in
+      let transactionDate = Date(timeIntervalSince1970: TimeInterval(transaction.dateTimestamp))
+      return transactionDate.monthAnchor
+    }
+
+    var summary = "🔍 Duplicate Transaction Analysis:\n"
+    var totalDuplicates = 0
+
+    for (monthAnchor, transactions) in transactionsByMonth {
+      if transactions.count > 1 {
+        let date = Date(timeIntervalSince1970: TimeInterval(monthAnchor))
+        let monthName = DateFormatter.monthFormatter.string(from: date)
+        let year = Calendar.current.component(.year, from: date)
+
+        summary += "\n📅 \(monthName) \(year): \(transactions.count) transactions\n"
+
+        // Group by title to identify potential duplicates
+        let groupedByTitle = Dictionary(grouping: transactions) { $0.title }
+        for (title, titleGroup) in groupedByTitle {
+          if titleGroup.count > 1 {
+            summary += "   • \(title): \(titleGroup.count) instances\n"
+            totalDuplicates += titleGroup.count - 1
+          }
+        }
+      }
+    }
+
+    summary += "\n📊 Total potential duplicates: \(totalDuplicates)"
+    return summary
   }
 
   private func calculateCurrentBalance(
@@ -112,9 +141,9 @@ final class DashboardViewModel {
     let today = Date()
     let monthDate = Date(timeIntervalSince1970: TimeInterval(anchor))
 
-    let utcCalendar = Calendar(identifier: .gregorian)
-    var calendar = utcCalendar
-    calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+    // Use user's current timezone for consistency with monthAnchor calculations
+    var calendar = Calendar.current
+    calendar.timeZone = TimeZone.current
 
     let transactionsUpToToday = allTransactions.filter { tx in
       let txDate = Date(timeIntervalSince1970: TimeInterval(tx.dateTimestamp))
@@ -172,6 +201,10 @@ final class DashboardViewModel {
           let notificationId = "transaction_\(transactionId)"
           notificationCenter.removePendingNotificationRequests(withIdentifiers: [notificationId])
         }
+
+        // Invalidate ledger cache since transactions changed
+        transactionLedger.invalidateCache()
+
         return .success(())
       }
 
@@ -189,63 +222,69 @@ final class DashboardViewModel {
     cleanupOption: RecurringCleanupOption,
     completion: @escaping (Result<Void, Error>) -> Void
   ) {
-    do {
-      let allTransactions = transactionRepo.fetchAllTransactions()
-      guard let transaction = allTransactions.first(where: { $0.id == transactionId }) else {
-        completion(.failure(TransactionError.transactionNotFound))
+    // Perform deletion on background queue to avoid blocking UI
+    DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+      guard let self = self else {
+        DispatchQueue.main.async {
+          completion(.failure(TransactionError.transactionNotFound))
+        }
         return
       }
 
-      // Handle recurring transaction instances
-      if let parentTransactionId = transaction.parentTransactionId {
-        let parentTransaction = allTransactions.first(where: { $0.id == parentTransactionId })
-
-        if parentTransaction?.isRecurring == true {
-          // This is a recurring transaction instance
-          recurringManager.cleanupRecurringInstancesFromDate(
-            parentTransactionId: parentTransactionId,
-            selectedTransactionDate: transaction.date,
-            cleanupOption: cleanupOption
-          )
-        } else {
-          // This is an installment transaction
-          recurringManager.cleanupInstallmentTransactionsFromDate(
-            parentTransactionId: parentTransactionId,
-            selectedTransactionDate: transaction.date,
-            cleanupOption: cleanupOption
-          )
+      do {
+        let allTransactions = self.transactionRepo.fetchAllTransactions()
+        guard let transaction = allTransactions.first(where: { $0.id == transactionId }) else {
+          DispatchQueue.main.async {
+            completion(.failure(TransactionError.transactionNotFound))
+          }
+          return
         }
 
-        completion(.success(()))
-        return
+        // Use mode property to correctly identify transaction type
+        // This is more reliable than looking up parent transactions
+        switch transaction.mode {
+        case .recurring:
+          // Handle recurring transactions (both parent and instances)
+          let parentId = transaction.parentTransactionId ?? transactionId
+          self.recurringManager.cleanupRecurringInstancesFromDate(
+            parentTransactionId: parentId,
+            selectedTransactionDate: transaction.date,
+            cleanupOption: cleanupOption
+          ) {
+            // Invalidate ledger cache since transactions changed
+            self.transactionLedger.invalidateCache()
+            completion(.success(()))
+          }
+          return
+
+        case .installments:
+          // Handle installment transactions (both parent and instances)
+          let parentId = transaction.parentTransactionId ?? transactionId
+          self.recurringManager.cleanupInstallmentTransactionsFromDate(
+            parentTransactionId: parentId,
+            selectedTransactionDate: transaction.date,
+            cleanupOption: cleanupOption
+          ) {
+            // Invalidate ledger cache since transactions changed
+            self.transactionLedger.invalidateCache()
+            completion(.success(()))
+          }
+          return
+
+        case .normal:
+          // Handle simple transaction - should not reach here from complex deletion
+          // but handle gracefully just in case
+          try self.transactionRepo.delete(id: transactionId)
+          self.transactionLedger.invalidateCache()
+          DispatchQueue.main.async {
+            completion(.success(()))
+          }
+        }
+      } catch {
+        DispatchQueue.main.async {
+          completion(.failure(error))
+        }
       }
-
-      // Handle parent recurring transaction
-      if transaction.isRecurring == true {
-        recurringManager.cleanupRecurringInstancesFromDate(
-          parentTransactionId: transactionId,
-          selectedTransactionDate: transaction.date,
-          cleanupOption: cleanupOption
-        )
-        completion(.success(()))
-        return
-      }
-
-      // Handle parent installment transaction
-      if transaction.hasInstallments == true {
-        recurringManager.cleanupInstallmentTransactionsFromDate(
-          parentTransactionId: transactionId,
-          selectedTransactionDate: transaction.date,
-          cleanupOption: cleanupOption
-        )
-        completion(.success(()))
-        return
-      }
-
-      completion(.failure(TransactionError.transactionNotFound))
-
-    } catch {
-      completion(.failure(error))
     }
   }
 
@@ -265,39 +304,67 @@ final class DashboardViewModel {
       return false
     }
 
-    // Return true if it's a parent recurring transaction OR a recurring instance
-    return transaction.isRecurring == true || transaction.parentTransactionId != nil
+    // Use the mode property to correctly identify recurring transactions
+    // This handles both parent recurring transactions AND their instances
+    return transaction.mode == .recurring
   }
 
   func getTransactionType(id: Int) -> TransactionComplexityType {
     guard let transaction = transactionRepo.fetchAllTransactions().first(where: { $0.id == id })
     else {
+      print("🔍 GET TRANSACTION TYPE DEBUG: Transaction with ID \(id) not found")
       return .simple
     }
 
+    print("🔍 GET TRANSACTION TYPE DEBUG: Analyzing transaction '\(transaction.title)' (ID: \(id))")
+    print("🔍 GET TRANSACTION TYPE DEBUG: Mode: \(transaction.mode)")
+    print("🔍 GET TRANSACTION TYPE DEBUG: Is recurring: \(transaction.isRecurring ?? false)")
+    print("🔍 GET TRANSACTION TYPE DEBUG: Has installments: \(transaction.hasInstallments ?? false)")
+    print("🔍 GET TRANSACTION TYPE DEBUG: Parent ID: \(transaction.parentTransactionId ?? 0)")
+
     // Check if this is a recurring transaction instance
     if let parentId = transaction.parentTransactionId {
-      let parentTransaction = transactionRepo.fetchAllTransactions().first(where: {
-        $0.id == parentId
-      }
-      )
-      if parentTransaction?.isRecurring == true {
-        return .recurringInstance
+      // Special case: if parentTransactionId points to itself, treat it as a parent transaction
+      if parentId == id {
+        print(
+          "🔍 GET TRANSACTION TYPE DEBUG: Parent ID points to self, treating as parent transaction")
+        // Continue to parent transaction checks below
       } else {
-        return .installmentInstance
+        let parentTransaction = transactionRepo.fetchAllTransactions().first(where: {
+          $0.id == parentId
+        }
+        )
+        if parentTransaction?.isRecurring == true {
+          print("🔍 GET TRANSACTION TYPE DEBUG: Detected as recurring instance")
+          return .recurringInstance
+        } else {
+          print("🔍 GET TRANSACTION TYPE DEBUG: Detected as installment instance")
+          return .installmentInstance
+        }
       }
     }
 
     // Check if this is a parent recurring transaction
     if transaction.isRecurring == true {
+      print("🔍 GET TRANSACTION TYPE DEBUG: Detected as recurring parent")
       return .recurringParent
     }
 
-    // Check if this is a parent installment transaction
-    if transaction.hasInstallments == true {
+    // Special case: if mode is recurring but isRecurring is false (data corruption), treat as recurring parent
+    if transaction.mode == .recurring && transaction.isRecurring != true {
+      print(
+        "🔍 GET TRANSACTION TYPE DEBUG: Mode is recurring but isRecurring is false (data corruption), treating as recurring parent"
+      )
+      return .recurringParent
+    }
+
+    // Check if this is a parent installment transaction (only if not recurring)
+    if transaction.hasInstallments == true && transaction.isRecurring != true {
+      print("🔍 GET TRANSACTION TYPE DEBUG: Detected as installment parent")
       return .installmentParent
     }
 
+    print("🔍 GET TRANSACTION TYPE DEBUG: Detected as simple transaction")
     return .simple
   }
 
@@ -318,49 +385,67 @@ final class DashboardViewModel {
       }
     }
   }
-  
+
   // MARK: - Balance Monitor Functions
-  
+
   /// Força o monitoramento de saldo negativo
   func forceBalanceMonitoring() {
     balanceMonitor.monitorCurrentMonthBalance()
   }
-  
+
   /// Remove todas as notificações de saldo negativo
   func removeNegativeBalanceNotifications() {
     balanceMonitor.removeNegativeBalanceNotifications()
   }
-  
+
   /// Verifica se há notificações de saldo negativo agendadas
   func hasNegativeBalanceNotifications() -> Bool {
     return balanceMonitor.hasNegativeBalanceNotifications()
   }
-  
+
   /// Debug: Lista todas as notificações de saldo negativo
   func debugNegativeBalanceNotifications() {
     balanceMonitor.debugNegativeBalanceNotifications()
   }
-  
+
   /// Debug: Testa formatação de data para diferentes idiomas
   func debugDateFormatting() {
     balanceMonitor.debugDateFormatting()
   }
-  
+
+  /// Debug: Check for duplicate transactions
+  func debugDuplicateTransactions() {
+    transactionRepo.debugDuplicateTransactions()
+  }
+
   // MARK: - Monthly Notification Functions
-  
+
   /// Agenda todas as notificações do mês atual
   func scheduleAllMonthlyNotifications(showAlert: Bool = true) -> Bool {
     return monthlyNotificationManager.scheduleAllMonthlyNotifications(showAlert: showAlert)
   }
-  
+
   /// Verifica o status das notificações mensais
   func checkMonthlyNotificationsStatus() -> MonthlyNotificationStatus {
     return monthlyNotificationManager.checkMonthlyNotificationsStatus()
   }
-  
+
   /// Configura o sistema de notificações mensais
   func setupMonthlyNotificationSystem() {
     monthlyNotificationManager.setupMonthlyNotificationSystem()
+  }
+
+  // MARK: - Recovery Methods
+
+  /// Attempt to recover transactions from SQLite
+  func attemptTransactionRecovery() -> Bool {
+    print("🔄 DashboardViewModel: Attempting transaction recovery...")
+    return transactionLedger.attemptTransactionRecovery()
+  }
+
+  /// Check if transactions exist in SQLite
+  func checkSQLiteRecovery() -> [Transaction] {
+    return transactionLedger.checkSQLiteRecovery()
   }
 
 }

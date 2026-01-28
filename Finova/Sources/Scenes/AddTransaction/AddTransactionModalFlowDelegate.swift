@@ -8,5 +8,6 @@
 import Foundation
 
 public protocol AddTransactionModalFlowDelegate: AnyObject {
-    func didAddTransaction()
+  func didAddTransaction()
+  func didUpdateTransaction()
 }
