@@ -6,12 +6,15 @@
 //
 
 import Firebase
+import FirebaseMessaging
 import GoogleSignIn
 import UIKit
 import UserNotifications
 
 @main
-class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterDelegate {
+class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterDelegate,
+  MessagingDelegate
+{
 
   func application(
     _ application: UIApplication,
@@ -138,6 +141,8 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
       DispatchQueue.main.async {
         if granted {
           print("✅ User granted permission for notifications")
+          // Register for remote notifications (required for FCM)
+          UIApplication.shared.registerForRemoteNotifications()
         } else if let error = error {
           print("❌ \(error) - User did not grant permission for notifications")
         } else {
@@ -145,6 +150,47 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
         }
       }
     }
+
+    // Set FCM messaging delegate
+    Messaging.messaging().delegate = self
+
+    // Subscribe to app updates topic for version notifications
+    Messaging.messaging().subscribe(toTopic: "app_updates") { error in
+      if let error = error {
+        print("❌ Failed to subscribe to app_updates topic: \(error.localizedDescription)")
+      } else {
+        print("✅ Subscribed to app_updates topic for version notifications")
+      }
+    }
+  }
+
+  // MARK: - APNs Token Handling
+
+  func application(
+    _ application: UIApplication,
+    didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data
+  ) {
+    // Pass device token to Firebase
+    Messaging.messaging().apnsToken = deviceToken
+    let tokenString = deviceToken.map { String(format: "%02.2hhx", $0) }.joined()
+    print("📱 APNs device token: \(tokenString)")
+  }
+
+  func application(
+    _ application: UIApplication,
+    didFailToRegisterForRemoteNotificationsWithError error: Error
+  ) {
+    print("❌ Failed to register for remote notifications: \(error.localizedDescription)")
+  }
+
+  // MARK: - MessagingDelegate
+
+  func messaging(_ messaging: Messaging, didReceiveRegistrationToken fcmToken: String?) {
+    guard let fcmToken = fcmToken else { return }
+    print("📱 FCM registration token: \(fcmToken)")
+
+    // You can send this token to your server if needed for targeted notifications
+    // For topic-based notifications (app_updates), this is not required
   }
 
   // MARK: - Notification Scheduling on Launch
@@ -439,6 +485,11 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
             UserDefaults.standard.set("failure", forKey: "notificationAlertType")
           }
         }
+
+      case "app_update":
+        print("🔔 📲 App update notification tapped - opening App Store")
+        // Open App Store to update the app
+        UpdateToastManager.shared.openAppStore()
 
       default:
         print("🔔 📱 Other notification type tapped: \(notificationType)")
