@@ -18,6 +18,9 @@ final class NotificationHistoryViewController: UIViewController {
   private let viewModel: NotificationHistoryViewModel
   weak var flowDelegate: NotificationHistoryFlowDelegate?
 
+  /// Tracks which notifications are expanded (by notification ID)
+  private var expandedNotificationIds: Set<String> = []
+
   init(
     contentView: NotificationHistoryView,
     viewModel: NotificationHistoryViewModel,
@@ -50,12 +53,18 @@ final class NotificationHistoryViewController: UIViewController {
     view.addSubview(contentView)
     buildHierarchy()
     setupDelegates()
+    setupTableView()
   }
 
   private func setupDelegates() {
     contentView.delegate = self
     contentView.tableView.delegate = self
     contentView.tableView.dataSource = self
+  }
+
+  private func setupTableView() {
+    contentView.tableView.estimatedRowHeight = 72
+    contentView.tableView.rowHeight = UITableView.automaticDimension
   }
 
   private func buildHierarchy() {
@@ -89,7 +98,8 @@ extension NotificationHistoryViewController: NotificationHistoryViewModelDelegat
     let indexPath = IndexPath(row: index, section: 0)
     if let cell = contentView.tableView.cellForRow(at: indexPath) as? NotificationHistoryCell,
        let item = viewModel.notification(at: index) {
-      cell.configure(with: item)
+      let isExpanded = expandedNotificationIds.contains(item.id)
+      cell.configure(with: item, isExpanded: isExpanded)
     }
   }
 
@@ -117,17 +127,15 @@ extension NotificationHistoryViewController: UITableViewDataSource {
       return UITableViewCell()
     }
 
-    cell.configure(with: item)
+    let isExpanded = expandedNotificationIds.contains(item.id)
+    cell.configure(with: item, isExpanded: isExpanded)
+    cell.delegate = self
     return cell
   }
 }
 
 // MARK: - UITableViewDelegate
 extension NotificationHistoryViewController: UITableViewDelegate {
-  func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
-    return 98
-  }
-
   func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
     viewModel.didSelectNotification(at: indexPath.row)
   }
@@ -135,5 +143,27 @@ extension NotificationHistoryViewController: UITableViewDelegate {
   func tableView(_ tableView: UITableView, willDisplay cell: UITableViewCell, forRowAt indexPath: IndexPath) {
     // Mark notification as read when it becomes visible
     viewModel.notificationBecameVisible(at: indexPath.row)
+  }
+}
+
+// MARK: - NotificationHistoryCellDelegate
+extension NotificationHistoryViewController: NotificationHistoryCellDelegate {
+  func cellDidRequestExpand(_ cell: NotificationHistoryCell) {
+    guard let indexPath = contentView.tableView.indexPath(for: cell),
+          let item = viewModel.notification(at: indexPath.row) else {
+      return
+    }
+
+    // Toggle expanded state
+    if expandedNotificationIds.contains(item.id) {
+      expandedNotificationIds.remove(item.id)
+    } else {
+      expandedNotificationIds.insert(item.id)
+    }
+
+    // Reload the cell with animation
+    contentView.tableView.beginUpdates()
+    contentView.tableView.reloadRows(at: [indexPath], with: .automatic)
+    contentView.tableView.endUpdates()
   }
 }
