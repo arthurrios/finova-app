@@ -24,82 +24,82 @@ admin.initializeApp();
  * Sends a push notification to all devices subscribed to 'app_updates' topic.
  */
 exports.notifyNewVersion = functions.firestore
-    .document("app_config/version")
-    .onUpdate(async (change, context) => {
-      const newData = change.after.data();
-      const oldData = change.before.data();
+  .document("app_config/version")
+  .onUpdate(async (change, context) => {
+    const newData = change.after.data();
+    const oldData = change.before.data();
 
-      const newVersion = newData.latest;
-      const oldVersion = oldData.latest;
+    const newVersion = newData.latest;
+    const oldVersion = oldData.latest;
 
-      // Only send notification if version actually changed
-      if (newVersion === oldVersion) {
-        console.log("Version unchanged, skipping notification");
-        return null;
-      }
+    // Only send notification if version actually changed
+    if (newVersion === oldVersion) {
+      console.log("Version unchanged, skipping notification");
+      return null;
+    }
 
-      console.log(`Version changed: ${oldVersion} → ${newVersion}`);
+    console.log(`Version changed: ${oldVersion} → ${newVersion}`);
 
-      // Construct the notification message
-      const message = {
-        topic: "app_updates",
-        notification: {
-          title: "New Update Available! 🎉",
-          body: `Finova ${newVersion} is now available on the App Store. Update now for the latest features!`,
+    // Construct the notification message
+    const message = {
+      topic: "app_updates",
+      notification: {
+        title: "New Update Available! 🎉",
+        body: `Finova ${newVersion} is now available on the App Store. Update now for the latest features!`,
+      },
+      data: {
+        type: "app_update",
+        version: newVersion,
+        oldVersion: oldVersion || "",
+      },
+      apns: {
+        headers: {
+          "apns-priority": "10",
         },
-        data: {
-          type: "app_update",
-          version: newVersion,
-          oldVersion: oldVersion || "",
-        },
-        apns: {
-          headers: {
-            "apns-priority": "10",
+        payload: {
+          aps: {
+            "sound": "default",
+            "badge": 1,
+            "content-available": 1,
           },
-          payload: {
-            aps: {
-              sound: "default",
-              badge: 1,
-              "content-available": 1,
-            },
-          },
         },
-      };
+      },
+    };
 
-      try {
-        // Send notification to all subscribers of 'app_updates' topic
-        const response = await admin.messaging().send(message);
-        console.log("✅ Notification sent successfully:", response);
-        console.log(`   Version: ${newVersion}`);
-        console.log(`   Topic: app_updates`);
+    try {
+      // Send notification to all subscribers of 'app_updates' topic
+      const response = await admin.messaging().send(message);
+      console.log("✅ Notification sent successfully:", response);
+      console.log(`   Version: ${newVersion}`);
+      console.log(`   Topic: app_updates`);
 
-        // Optionally, log to Firestore for tracking
-        await admin.firestore().collection("notification_logs").add({
-          type: "app_update",
-          version: newVersion,
-          previousVersion: oldVersion,
-          sentAt: admin.firestore.FieldValue.serverTimestamp(),
-          messageId: response,
-          success: true,
-        });
+      // Optionally, log to Firestore for tracking
+      await admin.firestore().collection("notification_logs").add({
+        type: "app_update",
+        version: newVersion,
+        previousVersion: oldVersion,
+        sentAt: admin.firestore.FieldValue.serverTimestamp(),
+        messageId: response,
+        success: true,
+      });
 
-        return response;
-      } catch (error) {
-        console.error("❌ Error sending notification:", error);
+      return response;
+    } catch (error) {
+      console.error("❌ Error sending notification:", error);
 
-        // Log the error
-        await admin.firestore().collection("notification_logs").add({
-          type: "app_update",
-          version: newVersion,
-          previousVersion: oldVersion,
-          sentAt: admin.firestore.FieldValue.serverTimestamp(),
-          success: false,
-          error: error.message,
-        });
+      // Log the error
+      await admin.firestore().collection("notification_logs").add({
+        type: "app_update",
+        version: newVersion,
+        previousVersion: oldVersion,
+        sentAt: admin.firestore.FieldValue.serverTimestamp(),
+        success: false,
+        error: error.message,
+      });
 
-        throw error;
-      }
-    });
+      throw error;
+    }
+  });
 
 /**
  * HTTP endpoint to manually trigger a version notification (for testing).
