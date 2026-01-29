@@ -176,7 +176,7 @@ extension NotificationHistoryViewController: UITableViewDelegate {
       completionHandler(true)
     }
     deleteAction.image = UIImage(systemName: "trash")
-    deleteAction.backgroundColor = Colors.error
+    deleteAction.backgroundColor = Colors.mainRed
 
     let configuration = UISwipeActionsConfiguration(actions: [deleteAction])
     configuration.performsFirstActionWithFullSwipe = true
