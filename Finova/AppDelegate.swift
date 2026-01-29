@@ -438,11 +438,16 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     withCompletionHandler completionHandler: @escaping () -> Void
   ) {
     // Handle notification tap
-    let userInfo = response.notification.request.content.userInfo
+    let notification = response.notification
+    let userInfo = notification.request.content.userInfo
     print("📱 User tapped notification: \(userInfo)")
 
+    // Add notification to history if it's not already there (handles background/killed app cases)
+    // This ensures push notifications that bypassed willPresent are tracked
+    NotificationHistoryManager.shared.handleDeliveredLocalNotification(notification)
+
     // Mark notification as read when tapped
-    let notificationId = response.notification.request.identifier
+    let notificationId = notification.request.identifier
     NotificationHistoryManager.shared.markAsRead(id: notificationId)
 
     // Check if this is a monthly notification that should trigger success alert

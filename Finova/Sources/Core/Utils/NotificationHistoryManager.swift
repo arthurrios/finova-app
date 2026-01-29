@@ -148,11 +148,24 @@ final class NotificationHistoryManager {
     addNotification(id: id, title: title, body: body, type: type)
   }
 
-  /// Handles a delivered local notification
+  /// Handles a delivered notification (local or push)
   func handleDeliveredLocalNotification(_ notification: UNNotification) {
     let content = notification.request.content
     let id = notification.request.identifier
-    let type = determineNotificationType(fromIdentifier: id)
+
+    // Skip if already exists (avoid duplicates when called from both willPresent and didReceive)
+    guard !history.contains(where: { $0.id == id }) else {
+      return
+    }
+
+    // Determine type from userInfo first (for push notifications), then from identifier
+    let userInfo = content.userInfo
+    let type: NotificationHistoryItem.NotificationType
+    if let typeString = userInfo["type"] as? String {
+      type = determineNotificationType(from: userInfo)
+    } else {
+      type = determineNotificationType(fromIdentifier: id)
+    }
 
     addNotification(id: id, title: content.title, body: content.body, type: type)
   }
