@@ -379,7 +379,7 @@ final class NotificationHistoryCell: UITableViewCell {
 
     // Calculate the size needed for full text in single line
     let textSize = (currentBodyText as NSString).boundingRect(
-      with: CGSize(width: .greatestFiniteMagnitude, height: .greatestFiniteMagnitude),
+      with: CGSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude),
       options: .usesLineFragmentOrigin,
       attributes: [.font: font],
       context: nil
