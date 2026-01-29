@@ -336,10 +336,13 @@ final class NotificationHistoryCell: UITableViewCell {
     ])
   }
 
+  private var currentBodyText: String = ""
+
   func configure(with item: NotificationHistoryItem, isExpanded: Bool = false) {
     self.isExpanded = isExpanded
     titleLabel.text = item.title
     bodyLabel.text = item.body
+    currentBodyText = item.body
     dateLabel.text = formatDate(item.date)
 
     // Update read/unread state
@@ -357,11 +360,34 @@ final class NotificationHistoryCell: UITableViewCell {
       for: .normal
     )
 
-    // Check if text is truncated and show expand button accordingly
-    setNeedsLayout()
-    layoutIfNeeded()
-    let isTruncated = bodyLabel.isTruncated
-    expandButton.isHidden = !isTruncated && !isExpanded
+    // Initially hide expand button, will show in layoutSubviews if needed
+    expandButton.isHidden = true
+  }
+
+  override func layoutSubviews() {
+    super.layoutSubviews()
+
+    // Check if text would be truncated when limited to 1 line
+    guard !currentBodyText.isEmpty, let font = bodyLabel.font else {
+      expandButton.isHidden = true
+      return
+    }
+
+    // Calculate available width for body text
+    let availableWidth = bodyLabel.bounds.width
+    guard availableWidth > 0 else { return }
+
+    // Calculate the size needed for full text in single line
+    let textSize = (currentBodyText as NSString).boundingRect(
+      with: CGSize(width: .greatestFiniteMagnitude, height: .greatestFiniteMagnitude),
+      options: .usesLineFragmentOrigin,
+      attributes: [.font: font],
+      context: nil
+    ).size
+
+    // Show expand button only if text would be truncated (wider than available space)
+    let wouldBeTruncated = textSize.width > availableWidth
+    expandButton.isHidden = !wouldBeTruncated && !isExpanded
   }
 
   @objc private func expandButtonTapped() {
@@ -404,17 +430,3 @@ final class NotificationHistoryCell: UITableViewCell {
   }
 }
 
-// MARK: - UILabel Extension for Truncation Check
-extension UILabel {
-  var isTruncated: Bool {
-    guard let text = text, let font = font else { return false }
-    let size = CGSize(width: bounds.width, height: .greatestFiniteMagnitude)
-    let textSize = (text as NSString).boundingRect(
-      with: size,
-      options: .usesLineFragmentOrigin,
-      attributes: [.font: font],
-      context: nil
-    ).size
-    return textSize.height > bounds.height + 1
-  }
-}
