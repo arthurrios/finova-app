@@ -104,8 +104,107 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     // This can be used by other parts of the app that need to refresh
     NotificationCenter.default.post(name: .appDidEnterForeground, object: nil)
 
-    // Any other app-wide refresh logic can be added here
-    // For example: refresh cached data, check for updates, etc.
+    // Check for app updates from App Store (works on any screen)
+    checkForAppUpdates()
+  }
+
+  /// Check for app updates and show toast if newer version available
+  private func checkForAppUpdates() {
+    logDebug("Checking for app updates on foreground...")
+
+    UpdateToastManager.shared.checkForUpdatesFromAppStore { [weak self] hasNewerVersion in
+      guard hasNewerVersion else {
+        logDebug("No newer version available")
+        return
+      }
+
+      // Check if we should show the toast (respects cooldowns)
+      guard UpdateToastManager.shared.shouldShowUpdateToast() else {
+        logDebug("Update available but toast cooldown active")
+        return
+      }
+
+      // Show the update toast on the current window
+      DispatchQueue.main.async {
+        self?.showUpdateToastOnCurrentWindow()
+      }
+    }
+  }
+
+  /// Shows the update toast on the current window regardless of which screen is visible
+  private func showUpdateToastOnCurrentWindow() {
+    guard let window = window else {
+      logWarning("No window available to show update toast")
+      return
+    }
+
+    // Check if toast is already being shown
+    if window.viewWithTag(UpdateToastWindowTag) != nil {
+      logDebug("Update toast already visible")
+      return
+    }
+
+    let toastContainer = UpdateToastContainer()
+    toastContainer.tag = UpdateToastWindowTag
+    toastContainer.translatesAutoresizingMaskIntoConstraints = false
+
+    window.addSubview(toastContainer)
+    NSLayoutConstraint.activate([
+      toastContainer.topAnchor.constraint(equalTo: window.topAnchor),
+      toastContainer.leadingAnchor.constraint(equalTo: window.leadingAnchor),
+      toastContainer.trailingAnchor.constraint(equalTo: window.trailingAnchor),
+      toastContainer.bottomAnchor.constraint(equalTo: window.bottomAnchor),
+    ])
+
+    // Create a delegate handler for the toast
+    let handler = UpdateToastWindowHandler(container: toastContainer)
+    toastContainer.showUpdateToast(delegate: handler)
+    UpdateToastManager.shared.markToastAsShown()
+
+    // Store handler to prevent deallocation
+    objc_setAssociatedObject(
+      toastContainer, &AssociatedKeys.handlerKey, handler, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+
+    logInfo("Update toast shown on window")
+  }
+}
+
+// MARK: - Constants
+
+private let UpdateToastWindowTag = 99999
+
+// MARK: - Associated Keys for objc_setAssociatedObject
+
+private struct AssociatedKeys {
+  static var handlerKey = "updateToastHandlerKey"
+}
+
+// MARK: - Update Toast Window Handler
+
+/// Handles update toast actions when shown from SceneDelegate (window-level)
+private class UpdateToastWindowHandler: NSObject, UpdateToastViewDelegate {
+  weak var container: UpdateToastContainer?
+
+  init(container: UpdateToastContainer) {
+    self.container = container
+    super.init()
+  }
+
+  func updateToastViewDidTapUpdate(_ view: UpdateToastView) {
+    UpdateToastManager.shared.openAppStore()
+    hideToast()
+  }
+
+  func updateToastViewDidTapDismiss(_ view: UpdateToastView) {
+    UpdateToastManager.shared.markToastAsDismissed()
+    hideToast()
+  }
+
+  private func hideToast() {
+    container?.hideUpdateToast(animated: true)
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+      self?.container?.removeFromSuperview()
+    }
   }
 
 }
