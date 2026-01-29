@@ -9,4 +9,5 @@ protocol SettingsViewDelegate: AnyObject {
     func handleDidTapBackButton()
     func didToggleBiometric(_ isEnabled: Bool)
     func didTapDeleteAccount()
+    func didTapNotifications()
 }

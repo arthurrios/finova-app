@@ -95,4 +95,17 @@ final class ViewControllersFactory: ViewControllersFactoryProtocol {
     )
     return viewController
   }
+
+  func makeNotificationSettingsViewController(
+    flowDelegate: NotificationSettingsFlowDelegate
+  ) -> NotificationSettingsViewController {
+    let contentView = NotificationSettingsView()
+    let viewModel = NotificationSettingsViewModel()
+    let viewController = NotificationSettingsViewController(
+      contentView: contentView,
+      viewModel: viewModel,
+      flowDelegate: flowDelegate
+    )
+    return viewController
+  }
 }

@@ -13,6 +13,7 @@ final class BalanceMonitorManager {
   private let budgetRepo: BudgetRepository
   private let notificationCenter = UNUserNotificationCenter.current()
   private let calendar = Calendar.current
+  private let preferencesManager = NotificationPreferencesManager.shared
 
   // Controle para evitar execuções muito frequentes
   private var lastMonitoringTime: Date?
@@ -30,6 +31,14 @@ final class BalanceMonitorManager {
 
   /// Monitora o saldo do mês atual e agenda notificações se necessário
   func monitorCurrentMonthBalance() {
+    // Check if notifications are disabled
+    guard !preferencesManager.allNotificationsDisabled,
+          preferencesManager.negativeBalanceNotificationsEnabled else {
+      print("🔔 ⏸️ Negative balance notifications disabled by user preference")
+      removeNegativeBalanceNotifications()
+      return
+    }
+
     // Verificar se já foi executado recentemente
     if let lastTime = lastMonitoringTime {
       let timeSinceLastMonitoring = Date().timeIntervalSince(lastTime)
@@ -66,6 +75,14 @@ final class BalanceMonitorManager {
 
   /// Monitora o saldo usando dados do dashboard (método preferido)
   func monitorCurrentMonthBalance(with currentMonthData: MonthBudgetCardType) {
+    // Check if notifications are disabled
+    guard !preferencesManager.allNotificationsDisabled,
+          preferencesManager.negativeBalanceNotificationsEnabled else {
+      print("🔔 ⏸️ Negative balance notifications disabled by user preference")
+      removeNegativeBalanceNotifications()
+      return
+    }
+
     // Verificar se já foi executado recentemente
     if let lastTime = lastMonitoringTime {
       let timeSinceLastMonitoring = Date().timeIntervalSince(lastTime)

@@ -56,11 +56,15 @@ extension SettingsViewController: SettingsViewDelegate {
     func didTapDeleteAccount() {
         showDeleteAccountConfirmation()
     }
-    
+
     func didToggleBiometric(_ isEnabled: Bool) {
         viewModel.toggleBiometric(isEnabled)
     }
-    
+
+    func didTapNotifications() {
+        flowDelegate?.navigateToNotificationSettings()
+    }
+
     func handleDidTapBackButton() {
         self.flowDelegate?.dismissSettings()
     }

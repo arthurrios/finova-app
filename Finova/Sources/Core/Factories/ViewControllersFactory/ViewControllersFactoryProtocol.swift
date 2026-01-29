@@ -26,4 +26,7 @@ protocol ViewControllersFactoryProtocol: AnyObject {
     flowDelegate: TransactionDetailsFlowDelegate,
     transaction: Transaction
   ) -> TransactionDetailsViewController
+  func makeNotificationSettingsViewController(
+    flowDelegate: NotificationSettingsFlowDelegate
+  ) -> NotificationSettingsViewController
 }

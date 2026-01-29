@@ -123,12 +123,22 @@ extension AppFlowController: RegisterFlowDelegate {
 }
 
 // MARK: - Dashboard Flow
-extension AppFlowController: DashboardFlowDelegate, SettingsFlowDelegate {
+extension AppFlowController: DashboardFlowDelegate, SettingsFlowDelegate, NotificationSettingsFlowDelegate {
 
   func navigateToSettings() {
     navigationController?.dismiss(animated: false)
     let viewController = viewControllersFactory.makeSettingsViewController(flowDelegate: self)
     navigationController?.pushViewController(viewController, animated: true)
+  }
+
+  func navigateToNotificationSettings() {
+    let viewController = viewControllersFactory.makeNotificationSettingsViewController(
+      flowDelegate: self)
+    navigationController?.pushViewController(viewController, animated: true)
+  }
+
+  func dismissNotificationSettings() {
+    navigationController?.popViewController(animated: true)
   }
 
   func openAddTransactionModal() {

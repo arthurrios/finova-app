@@ -76,7 +76,7 @@ final class SettingsView: UIView {
     
     // Security Section
     private let securityHeaderView = createSectionHeader(title: "settings.section.security".localized)
-    
+
     let biometricContainer = createSettingContainer()
     private let biometricIconView = createIconView(imageName: "faceid")
     let biometricLabel = createSettingLabel(text: "Face ID / Touch ID")
@@ -86,7 +86,19 @@ final class SettingsView: UIView {
         toggle.translatesAutoresizingMaskIntoConstraints = false
         return toggle
     }()
-    
+
+    // Notifications Section
+    private let notificationsHeaderView = createSectionHeader(title: "settings.section.notifications".localized)
+
+    private let notificationsContainer: UIView = {
+        let container = createSettingContainer()
+        container.isUserInteractionEnabled = true
+        return container
+    }()
+    private let notificationsIconView = createIconView(imageName: "bell.fill")
+    private let notificationsLabel = createSettingLabel(text: "settings.notifications.title".localized)
+    private let notificationsChevron = createChevronView()
+
     // About Section
     private let aboutHeaderView = createSectionHeader(title: "settings.section.about".localized)
     
@@ -144,34 +156,54 @@ final class SettingsView: UIView {
         contentStackView.addArrangedSubview(securityHeaderView)
         setupBiometricContainer()
         contentStackView.addArrangedSubview(biometricContainer)
-        
+
+        // Notifications section
+        contentStackView.addArrangedSubview(notificationsHeaderView)
+        setupNotificationsContainer()
+        contentStackView.addArrangedSubview(notificationsContainer)
+
         // About section
         contentStackView.addArrangedSubview(aboutHeaderView)
         setupVersionContainer()
         contentStackView.addArrangedSubview(versionContainer)
-        
+
         // Account Section
         contentStackView.addArrangedSubview(accountHeaderView)
         setupDeleteAccountContainer()
         contentStackView.addArrangedSubview(deleteAccountContainer)
-        
-
     }
     
     private func setupBiometricContainer() {
         biometricContainer.addSubview(biometricIconView)
         biometricContainer.addSubview(biometricLabel)
         biometricContainer.addSubview(biometricSwitch)
-        
+
         NSLayoutConstraint.activate([
             biometricIconView.leadingAnchor.constraint(equalTo: biometricContainer.leadingAnchor, constant: Metrics.spacing4),
             biometricIconView.centerYAnchor.constraint(equalTo: biometricContainer.centerYAnchor),
-            
+
             biometricLabel.leadingAnchor.constraint(equalTo: biometricIconView.trailingAnchor, constant: Metrics.spacing3),
             biometricLabel.centerYAnchor.constraint(equalTo: biometricContainer.centerYAnchor),
-            
+
             biometricSwitch.trailingAnchor.constraint(equalTo: biometricContainer.trailingAnchor, constant: -Metrics.spacing4),
             biometricSwitch.centerYAnchor.constraint(equalTo: biometricContainer.centerYAnchor)
+        ])
+    }
+
+    private func setupNotificationsContainer() {
+        notificationsContainer.addSubview(notificationsIconView)
+        notificationsContainer.addSubview(notificationsLabel)
+        notificationsContainer.addSubview(notificationsChevron)
+
+        NSLayoutConstraint.activate([
+            notificationsIconView.leadingAnchor.constraint(equalTo: notificationsContainer.leadingAnchor, constant: Metrics.spacing4),
+            notificationsIconView.centerYAnchor.constraint(equalTo: notificationsContainer.centerYAnchor),
+
+            notificationsLabel.leadingAnchor.constraint(equalTo: notificationsIconView.trailingAnchor, constant: Metrics.spacing3),
+            notificationsLabel.centerYAnchor.constraint(equalTo: notificationsContainer.centerYAnchor),
+
+            notificationsChevron.trailingAnchor.constraint(equalTo: notificationsContainer.trailingAnchor, constant: -Metrics.spacing4),
+            notificationsChevron.centerYAnchor.constraint(equalTo: notificationsContainer.centerYAnchor)
         ])
     }
     
@@ -241,11 +273,12 @@ final class SettingsView: UIView {
     
     private func setupActions() {
         biometricSwitch.addTarget(self, action: #selector(biometricToggled), for: .valueChanged)
-        
+
         let deleteAccountTap = UITapGestureRecognizer(target: self, action: #selector(deleteAccountTapped))
         deleteAccountContainer.addGestureRecognizer(deleteAccountTap)
-        
 
+        let notificationsTap = UITapGestureRecognizer(target: self, action: #selector(notificationsTapped))
+        notificationsContainer.addGestureRecognizer(notificationsTap)
     }
     
     @objc
@@ -257,9 +290,12 @@ final class SettingsView: UIView {
     private func deleteAccountTapped() {
         delegate?.didTapDeleteAccount()
     }
-    
 
-    
+    @objc
+    private func notificationsTapped() {
+        delegate?.didTapNotifications()
+    }
+
     @objc
     private func handleDidTapBackButton() {
         delegate?.handleDidTapBackButton()
