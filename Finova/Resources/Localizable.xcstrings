@@ -3792,6 +3792,57 @@
         }
       }
     },
+    "notificationHistory.clearAll" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Clear All"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Limpar Tudo"
+          }
+        }
+      }
+    },
+    "notificationHistory.clearAll.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Clear All Notifications"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Limpar Todas as Notificações"
+          }
+        }
+      }
+    },
+    "notificationHistory.clearAll.message" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Are you sure you want to clear all notifications? This action cannot be undone."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tem certeza que deseja limpar todas as notificações? Esta ação não pode ser desfeita."
+          }
+        }
+      }
+    },
     "password.mustContain" : {
       "extractionState" : "manual",
       "localizations" : {

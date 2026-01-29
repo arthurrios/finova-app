@@ -9,6 +9,7 @@ import UIKit
 
 protocol NotificationHistoryViewDelegate: AnyObject {
   func handleDidTapBackButton()
+  func handleDidTapClearAll()
   func didSelectNotification(at index: Int)
   func viewDidAppear()
 }
@@ -63,6 +64,15 @@ final class NotificationHistoryView: UIView {
     label.textAlignment = .left
     label.translatesAutoresizingMaskIntoConstraints = false
     return label
+  }()
+
+  private let clearAllButton: UIButton = {
+    let button = UIButton(type: .system)
+    button.setTitle("notificationHistory.clearAll".localized, for: .normal)
+    button.titleLabel?.font = Fonts.textSM.font
+    button.setTitleColor(Colors.mainMagenta, for: .normal)
+    button.translatesAutoresizingMaskIntoConstraints = false
+    return button
   }()
 
   let tableView: UITableView = {
@@ -124,11 +134,13 @@ final class NotificationHistoryView: UIView {
     backgroundColor = Colors.gray200
 
     backButton.addTarget(self, action: #selector(handleDidTapBackButton), for: .touchUpInside)
+    clearAllButton.addTarget(self, action: #selector(handleDidTapClearAll), for: .touchUpInside)
 
     addSubview(headerContainerView)
     headerContainerView.addSubview(headerItemsView)
     headerItemsView.addSubview(backButton)
     headerItemsView.addSubview(headerTitleLabel)
+    headerItemsView.addSubview(clearAllButton)
 
     addSubview(tableView)
     addSubview(emptyStateView)
@@ -155,6 +167,9 @@ final class NotificationHistoryView: UIView {
 
       headerTitleLabel.leadingAnchor.constraint(equalTo: backButton.trailingAnchor, constant: Metrics.spacing4),
       headerTitleLabel.centerYAnchor.constraint(equalTo: backButton.centerYAnchor),
+
+      clearAllButton.trailingAnchor.constraint(equalTo: headerItemsView.layoutMarginsGuide.trailingAnchor),
+      clearAllButton.centerYAnchor.constraint(equalTo: backButton.centerYAnchor),
 
       tableView.topAnchor.constraint(equalTo: headerContainerView.bottomAnchor),
       tableView.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -184,11 +199,17 @@ final class NotificationHistoryView: UIView {
   func showEmptyState(_ show: Bool) {
     emptyStateView.isHidden = !show
     tableView.isHidden = show
+    clearAllButton.isHidden = show
   }
 
   @objc
   private func handleDidTapBackButton() {
     delegate?.handleDidTapBackButton()
+  }
+
+  @objc
+  private func handleDidTapClearAll() {
+    delegate?.handleDidTapClearAll()
   }
 }
 

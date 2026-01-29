@@ -10,6 +10,8 @@ import Foundation
 protocol NotificationHistoryViewModelDelegate: AnyObject {
   func didUpdateNotifications(_ notifications: [NotificationHistoryItem])
   func didMarkNotificationAsRead(at index: Int)
+  func didDeleteNotification(at index: Int)
+  func didClearAllNotifications()
   func didRequestOpenAppStore()
   func didRequestNavigateToTransaction(id: Int)
 }
@@ -94,5 +96,21 @@ final class NotificationHistoryViewModel {
     if !unreadVisibleIds.isEmpty {
       historyManager.markAsRead(ids: unreadVisibleIds)
     }
+  }
+
+  /// Deletes a notification at the specified index
+  func deleteNotification(at index: Int) {
+    guard index >= 0 && index < notifications.count else { return }
+    let notification = notifications[index]
+    historyManager.deleteNotification(id: notification.id)
+    notifications.remove(at: index)
+    delegate?.didDeleteNotification(at: index)
+  }
+
+  /// Clears all notifications
+  func clearAllNotifications() {
+    historyManager.clearHistory()
+    notifications.removeAll()
+    delegate?.didClearAllNotifications()
   }
 }

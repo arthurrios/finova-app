@@ -78,6 +78,19 @@ extension NotificationHistoryViewController: NotificationHistoryViewDelegate {
     flowDelegate?.dismissNotificationHistory()
   }
 
+  func handleDidTapClearAll() {
+    let alert = UIAlertController(
+      title: "notificationHistory.clearAll.title".localized,
+      message: "notificationHistory.clearAll.message".localized,
+      preferredStyle: .alert
+    )
+    alert.addAction(UIAlertAction(title: "alert.cancel".localized, style: .cancel))
+    alert.addAction(UIAlertAction(title: "notificationHistory.clearAll".localized, style: .destructive) { [weak self] _ in
+      self?.viewModel.clearAllNotifications()
+    })
+    present(alert, animated: true)
+  }
+
   func didSelectNotification(at index: Int) {
     viewModel.didSelectNotification(at: index)
   }
@@ -101,6 +114,18 @@ extension NotificationHistoryViewController: NotificationHistoryViewModelDelegat
       let isExpanded = expandedNotificationIds.contains(item.id)
       cell.configure(with: item, isExpanded: isExpanded)
     }
+  }
+
+  func didDeleteNotification(at index: Int) {
+    let indexPath = IndexPath(row: index, section: 0)
+    contentView.tableView.deleteRows(at: [indexPath], with: .automatic)
+    contentView.showEmptyState(viewModel.numberOfNotifications() == 0)
+  }
+
+  func didClearAllNotifications() {
+    expandedNotificationIds.removeAll()
+    contentView.tableView.reloadData()
+    contentView.showEmptyState(true)
   }
 
   func didRequestOpenAppStore() {
@@ -143,6 +168,19 @@ extension NotificationHistoryViewController: UITableViewDelegate {
   func tableView(_ tableView: UITableView, willDisplay cell: UITableViewCell, forRowAt indexPath: IndexPath) {
     // Mark notification as read when it becomes visible
     viewModel.notificationBecameVisible(at: indexPath.row)
+  }
+
+  func tableView(_ tableView: UITableView, trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath) -> UISwipeActionsConfiguration? {
+    let deleteAction = UIContextualAction(style: .destructive, title: nil) { [weak self] _, _, completionHandler in
+      self?.viewModel.deleteNotification(at: indexPath.row)
+      completionHandler(true)
+    }
+    deleteAction.image = UIImage(systemName: "trash")
+    deleteAction.backgroundColor = Colors.error
+
+    let configuration = UISwipeActionsConfiguration(actions: [deleteAction])
+    configuration.performsFirstActionWithFullSwipe = true
+    return configuration
   }
 }
 

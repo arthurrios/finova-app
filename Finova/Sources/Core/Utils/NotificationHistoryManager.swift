@@ -134,6 +134,24 @@ final class NotificationHistoryManager {
     notifyUnreadCountChanged()
   }
 
+  /// Deletes a specific notification from history
+  func deleteNotification(id: String) {
+    history.removeAll { $0.id == id }
+    saveHistory()
+    notifyUnreadCountChanged()
+  }
+
+  /// Deletes notification at specific index
+  func deleteNotification(at index: Int) {
+    guard index >= 0 && index < history.count else { return }
+    // History is sorted by date (newest first), so we need to find the right item
+    let sortedHistory = history.sorted { $0.date > $1.date }
+    let itemToDelete = sortedHistory[index]
+    history.removeAll { $0.id == itemToDelete.id }
+    saveHistory()
+    notifyUnreadCountChanged()
+  }
+
   /// Handles a received notification and adds it to history
   func handleReceivedNotification(userInfo: [AnyHashable: Any]) {
     guard let aps = userInfo["aps"] as? [String: Any],
