@@ -43,9 +43,9 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     // Called when the scene has moved from an inactive state to an active state.
     // Use this method to restart any tasks that were paused (or not yet started) when the scene was inactive.
 
-    // Sync the app badge with the unread notification count instead of clearing it
-    // The badge will only be cleared when user opens the notification history screen
-    NotificationHistoryManager.shared.syncAppBadge()
+    // Sync delivered notifications from notification center to history
+    // This captures notifications that arrived while app was in background
+    NotificationHistoryManager.shared.syncDeliveredNotifications()
   }
 
   func sceneWillResignActive(_ scene: UIScene) {

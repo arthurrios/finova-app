@@ -200,6 +200,63 @@ final class NotificationHistoryManager {
     }
   }
 
+  /// Syncs delivered notifications from the notification center to history
+  /// Call this when the app becomes active to capture notifications delivered while in background
+  func syncDeliveredNotifications() {
+    UNUserNotificationCenter.current().getDeliveredNotifications { [weak self] notifications in
+      guard let self = self else { return }
+
+      var hasNewNotifications = false
+
+      for notification in notifications {
+        let content = notification.request.content
+        let id = notification.request.identifier
+
+        // Skip if already in history
+        guard !self.history.contains(where: { $0.id == id }) else {
+          continue
+        }
+
+        // Determine type from userInfo first (for push notifications), then from identifier
+        let userInfo = content.userInfo
+        let type: NotificationHistoryItem.NotificationType
+        if userInfo["type"] as? String != nil {
+          type = self.determineNotificationType(from: userInfo)
+        } else {
+          type = self.determineNotificationType(fromIdentifier: id)
+        }
+
+        let item = NotificationHistoryItem(
+          id: id,
+          title: content.title,
+          body: content.body,
+          date: notification.date,
+          type: type,
+          isRead: false
+        )
+
+        self.history.insert(item, at: 0)
+        hasNewNotifications = true
+        print("🔔 📥 Synced notification from background: \(content.title)")
+      }
+
+      if hasNewNotifications {
+        // Trim old items
+        if self.history.count > self.maxHistoryItems {
+          self.history = Array(self.history.prefix(self.maxHistoryItems))
+        }
+
+        // Sort by date (newest first)
+        self.history.sort { $0.date > $1.date }
+
+        self.saveHistory()
+        DispatchQueue.main.async {
+          self.notifyUnreadCountChanged()
+        }
+      }
+    }
+  }
+
   private func determineNotificationType(from userInfo: [AnyHashable: Any]) -> NotificationHistoryItem.NotificationType {
     if let type = userInfo["type"] as? String {
       switch type {
