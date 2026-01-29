@@ -125,7 +125,7 @@ extension NotificationHistoryViewController: UITableViewDataSource {
 // MARK: - UITableViewDelegate
 extension NotificationHistoryViewController: UITableViewDelegate {
   func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
-    return 104
+    return 98
   }
 
   func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
