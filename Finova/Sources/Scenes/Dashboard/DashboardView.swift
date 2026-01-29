@@ -61,7 +61,7 @@ final class DashboardView: UIView {
 
   private let notificationButton: UIButton = {
     let btn = UIButton(type: .system)
-    btn.setImage(UIImage(systemName: "bell"), for: .normal)
+    btn.setImage(UIImage(named: "bell"), for: .normal)
     btn.tintColor = Colors.gray500
     btn.translatesAutoresizingMaskIntoConstraints = false
     return btn
