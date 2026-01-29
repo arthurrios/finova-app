@@ -450,6 +450,21 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     let notificationId = notification.request.identifier
     NotificationHistoryManager.shared.markAsRead(id: notificationId)
 
+    // Check if this is a transaction notification (has transactionId in userInfo)
+    if let transactionId = userInfo["transactionId"] as? Int {
+      print("🔔 📱 Transaction notification tapped - navigating to transaction \(transactionId)")
+      // Post notification to navigate to transaction details
+      DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+        NotificationCenter.default.post(
+          name: .navigateToTransactionDetails,
+          object: nil,
+          userInfo: ["transactionId": transactionId]
+        )
+      }
+      completionHandler()
+      return
+    }
+
     // Check if this is a monthly notification that should trigger success alert
     if let notificationType = userInfo["type"] as? String {
       switch notificationType {

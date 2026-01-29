@@ -35,6 +35,54 @@ class AppFlowController {
       name: .appDidEnterForeground,
       object: nil
     )
+
+    NotificationCenter.default.addObserver(
+      self,
+      selector: #selector(handleNavigateToTransactionDetails(_:)),
+      name: .navigateToTransactionDetails,
+      object: nil
+    )
+  }
+
+  /// Handles navigation to transaction details from notification tap
+  @objc private func handleNavigateToTransactionDetails(_ notification: Notification) {
+    guard let transactionId = notification.userInfo?["transactionId"] as? Int else {
+      logWarning("AppFlowController: No transactionId found in navigation notification")
+      return
+    }
+
+    logDebug("AppFlowController: Navigating to transaction details for ID: \(transactionId)")
+
+    // Find the transaction by ID
+    let transactionRepo = TransactionRepository()
+    let allTransactions = transactionRepo.fetchAllTransactions()
+
+    guard let transaction = allTransactions.first(where: { $0.id == transactionId }) else {
+      logWarning("AppFlowController: Could not find transaction with ID: \(transactionId)")
+      return
+    }
+
+    // Navigate to transaction details
+    DispatchQueue.main.async { [weak self] in
+      guard let self = self else { return }
+
+      // Make sure we're on the dashboard first
+      self.navigationController?.dismiss(animated: false)
+
+      // Check if we need to navigate to dashboard first
+      if !(self.navigationController?.topViewController is DashboardViewController) {
+        // Pop to root and then push dashboard if needed
+        self.navigationController?.popToRootViewController(animated: false)
+        let dashboardViewController = self.viewControllersFactory.makeDashboardViewController(
+          flowDelegate: self)
+        self.navigationController?.pushViewController(dashboardViewController, animated: false)
+      }
+
+      // Navigate to transaction details
+      let viewController = self.viewControllersFactory.makeTransactionDetailsViewController(
+        flowDelegate: self, transaction: transaction)
+      self.navigationController?.pushViewController(viewController, animated: true)
+    }
   }
 
   /// Handles app foreground refresh notification
@@ -150,6 +198,29 @@ extension AppFlowController: DashboardFlowDelegate, SettingsFlowDelegate, Notifi
 
   func dismissNotificationHistory() {
     navigationController?.popViewController(animated: true)
+  }
+
+  func openAppStoreFromNotificationHistory() {
+    // Pop back to dashboard first, then open App Store
+    navigationController?.popViewController(animated: true)
+    UpdateToastManager.shared.openAppStore()
+  }
+
+  func navigateToTransactionDetailsFromNotificationHistory(transactionId: Int) {
+    // Find the transaction by ID
+    let transactionRepo = TransactionRepository()
+    let allTransactions = transactionRepo.fetchAllTransactions()
+
+    guard let transaction = allTransactions.first(where: { $0.id == transactionId }) else {
+      logWarning("AppFlowController: Could not find transaction with ID: \(transactionId)")
+      return
+    }
+
+    // Pop notification history and navigate to transaction details
+    navigationController?.popViewController(animated: false)
+    let viewController = viewControllersFactory.makeTransactionDetailsViewController(
+      flowDelegate: self, transaction: transaction)
+    navigationController?.pushViewController(viewController, animated: true)
   }
 
   func openAddTransactionModal() {

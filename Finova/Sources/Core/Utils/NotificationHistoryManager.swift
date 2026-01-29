@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import UIKit
 import UserNotifications
 
 /// Represents a notification item in the history
@@ -186,7 +187,17 @@ final class NotificationHistoryManager {
   }
 
   private func notifyUnreadCountChanged() {
-    onUnreadCountChanged?(unreadCount)
+    let count = unreadCount
+    onUnreadCountChanged?(count)
+    syncAppBadge(count: count)
+  }
+
+  /// Syncs the app badge with the current unread count
+  func syncAppBadge(count: Int? = nil) {
+    let badgeCount = count ?? unreadCount
+    DispatchQueue.main.async {
+      UIApplication.shared.applicationIconBadgeNumber = badgeCount
+    }
   }
 
   private func determineNotificationType(from userInfo: [AnyHashable: Any]) -> NotificationHistoryItem.NotificationType {

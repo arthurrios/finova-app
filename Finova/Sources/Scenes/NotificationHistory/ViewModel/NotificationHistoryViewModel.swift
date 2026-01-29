@@ -10,6 +10,8 @@ import Foundation
 protocol NotificationHistoryViewModelDelegate: AnyObject {
   func didUpdateNotifications(_ notifications: [NotificationHistoryItem])
   func didMarkNotificationAsRead(at index: Int)
+  func didRequestOpenAppStore()
+  func didRequestNavigateToTransaction(id: Int)
 }
 
 final class NotificationHistoryViewModel {
@@ -61,6 +63,22 @@ final class NotificationHistoryViewModel {
       historyManager.markAsRead(id: notification.id)
       notifications[index].isRead = true
       delegate?.didMarkNotificationAsRead(at: index)
+    }
+
+    // Handle navigation based on notification type
+    switch notification.type {
+    case .appUpdate:
+      delegate?.didRequestOpenAppStore()
+    case .transaction, .negativeBalance, .installment, .recurring:
+      // Try to extract transaction ID from notification ID (format: transaction_<id>)
+      if notification.id.hasPrefix("transaction_"),
+         let transactionIdString = notification.id.split(separator: "_").last,
+         let transactionId = Int(transactionIdString) {
+        delegate?.didRequestNavigateToTransaction(id: transactionId)
+      }
+    case .monthly, .other:
+      // No navigation for these types
+      break
     }
   }
 

@@ -9,6 +9,8 @@ import UIKit
 
 protocol NotificationHistoryFlowDelegate: AnyObject {
   func dismissNotificationHistory()
+  func openAppStoreFromNotificationHistory()
+  func navigateToTransactionDetailsFromNotificationHistory(transactionId: Int)
 }
 
 final class NotificationHistoryViewController: UIViewController {
@@ -89,6 +91,14 @@ extension NotificationHistoryViewController: NotificationHistoryViewModelDelegat
        let item = viewModel.notification(at: index) {
       cell.configure(with: item)
     }
+  }
+
+  func didRequestOpenAppStore() {
+    flowDelegate?.openAppStoreFromNotificationHistory()
+  }
+
+  func didRequestNavigateToTransaction(id: Int) {
+    flowDelegate?.navigateToTransactionDetailsFromNotificationHistory(transactionId: id)
   }
 }
 
