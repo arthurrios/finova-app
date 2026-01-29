@@ -272,7 +272,7 @@ final class NotificationHistoryCell: UITableViewCell {
       containerView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: Metrics.spacing4),
       containerView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: Metrics.spacing4),
       containerView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -Metrics.spacing4),
-      containerView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -Metrics.spacing2),
+      containerView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
 
       unreadBadge.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: Metrics.spacing3),
       unreadBadge.centerYAnchor.constraint(equalTo: containerView.centerYAnchor),
