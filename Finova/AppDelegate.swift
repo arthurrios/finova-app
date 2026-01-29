@@ -153,15 +153,6 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
 
     // Set FCM messaging delegate
     Messaging.messaging().delegate = self
-
-    // Subscribe to app updates topic for version notifications
-    Messaging.messaging().subscribe(toTopic: "app_updates") { error in
-      if let error = error {
-        print("❌ Failed to subscribe to app_updates topic: \(error.localizedDescription)")
-      } else {
-        print("✅ Subscribed to app_updates topic for version notifications")
-      }
-    }
   }
 
   // MARK: - APNs Token Handling
@@ -189,8 +180,20 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     guard let fcmToken = fcmToken else { return }
     print("📱 FCM registration token: \(fcmToken)")
 
-    // You can send this token to your server if needed for targeted notifications
-    // For topic-based notifications (app_updates), this is not required
+    // Subscribe to app updates topic for version notifications
+    // This is done here (after receiving FCM token) to ensure APNs token is ready
+    subscribeToAppUpdatesTopic()
+  }
+
+  /// Subscribe to the app_updates topic for push notifications about new versions
+  private func subscribeToAppUpdatesTopic() {
+    Messaging.messaging().subscribe(toTopic: "app_updates") { error in
+      if let error = error {
+        print("❌ Failed to subscribe to app_updates topic: \(error.localizedDescription)")
+      } else {
+        print("✅ Subscribed to app_updates topic for version notifications")
+      }
+    }
   }
 
   // MARK: - Notification Scheduling on Launch
