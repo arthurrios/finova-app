@@ -128,9 +128,31 @@ final class SettingsView: UIView {
         label.textColor = Colors.mainRed
         return label
     }()
-    
 
-    
+    // Logout Button
+    private let logoutContainer: UIView = {
+        let container = createSettingContainer()
+        container.isUserInteractionEnabled = true
+        return container
+    }()
+
+    private let logoutIconView: UIImageView = {
+        let imageView = UIImageView()
+        imageView.image = UIImage(named: "logout")
+        imageView.tintColor = Colors.gray600
+        imageView.contentMode = .scaleAspectFit
+        imageView.translatesAutoresizingMaskIntoConstraints = false
+
+        NSLayoutConstraint.activate([
+            imageView.heightAnchor.constraint(equalToConstant: 20),
+            imageView.widthAnchor.constraint(equalToConstant: 20)
+        ])
+
+        return imageView
+    }()
+
+    private let logoutLabel = createSettingLabel(text: "settings.logout.title".localized)
+
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
@@ -171,6 +193,8 @@ final class SettingsView: UIView {
         contentStackView.addArrangedSubview(accountHeaderView)
         setupDeleteAccountContainer()
         contentStackView.addArrangedSubview(deleteAccountContainer)
+        setupLogoutContainer()
+        contentStackView.addArrangedSubview(logoutContainer)
     }
     
     private func setupBiometricContainer() {
@@ -227,18 +251,29 @@ final class SettingsView: UIView {
     private func setupDeleteAccountContainer() {
         deleteAccountContainer.addSubview(deleteAccountIconView)
         deleteAccountContainer.addSubview(deleteAccountLabel)
-        
+
         NSLayoutConstraint.activate([
             deleteAccountIconView.leadingAnchor.constraint(equalTo: deleteAccountContainer.leadingAnchor, constant: Metrics.spacing4),
             deleteAccountIconView.centerYAnchor.constraint(equalTo: deleteAccountContainer.centerYAnchor),
-            
+
             deleteAccountLabel.leadingAnchor.constraint(equalTo: deleteAccountIconView.trailingAnchor, constant: Metrics.spacing3),
             deleteAccountLabel.centerYAnchor.constraint(equalTo: deleteAccountContainer.centerYAnchor)
         ])
     }
-    
 
-    
+    private func setupLogoutContainer() {
+        logoutContainer.addSubview(logoutIconView)
+        logoutContainer.addSubview(logoutLabel)
+
+        NSLayoutConstraint.activate([
+            logoutIconView.leadingAnchor.constraint(equalTo: logoutContainer.leadingAnchor, constant: Metrics.spacing4),
+            logoutIconView.centerYAnchor.constraint(equalTo: logoutContainer.centerYAnchor),
+
+            logoutLabel.leadingAnchor.constraint(equalTo: logoutIconView.trailingAnchor, constant: Metrics.spacing3),
+            logoutLabel.centerYAnchor.constraint(equalTo: logoutContainer.centerYAnchor)
+        ])
+    }
+
     private func setupConstraints() {
         NSLayoutConstraint.activate([
             scrollView.topAnchor.constraint(equalTo: topAnchor),
@@ -279,13 +314,16 @@ final class SettingsView: UIView {
 
         let notificationsTap = UITapGestureRecognizer(target: self, action: #selector(notificationsTapped))
         notificationsContainer.addGestureRecognizer(notificationsTap)
+
+        let logoutTap = UITapGestureRecognizer(target: self, action: #selector(logoutTapped))
+        logoutContainer.addGestureRecognizer(logoutTap)
     }
-    
+
     @objc
     private func biometricToggled() {
         delegate?.didToggleBiometric(biometricSwitch.isOn)
     }
-    
+
     @objc
     private func deleteAccountTapped() {
         delegate?.didTapDeleteAccount()
@@ -294,6 +332,11 @@ final class SettingsView: UIView {
     @objc
     private func notificationsTapped() {
         delegate?.didTapNotifications()
+    }
+
+    @objc
+    private func logoutTapped() {
+        delegate?.didTapLogout()
     }
 
     @objc

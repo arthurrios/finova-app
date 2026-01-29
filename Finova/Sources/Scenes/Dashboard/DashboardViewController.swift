@@ -78,24 +78,44 @@ final class DashboardViewController: UIViewController {
         
         // Verificar e agendar notificações automaticamente
         checkAndScheduleNotificationsIfNeeded()
-        
+
+        // Setup notification badge
+        setupNotificationBadge()
+
         // 🔄 Attempt to recover transactions from SQLite (if they were accidentally deleted)
         attemptTransactionRecovery()
     }
-    
+
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
-        
+
+        // Update notification badge count
+        updateNotificationBadge()
+
         // Evitar refresh desnecessário na primeira vez que a view aparece
         if isInitialLoadComplete {
             refreshDashboardData()
-            
+
             // Recalculate current day for day slider when dashboard appears in foreground
             recalculateCurrentDayForVisibleCell()
-            
+
             // Check for update toast when dashboard appears
             checkForUpdateToastOnForeground()
         }
+    }
+
+    private func setupNotificationBadge() {
+        NotificationHistoryManager.shared.onUnreadCountChanged = { [weak self] count in
+            DispatchQueue.main.async {
+                self?.contentView.updateNotificationBadge(count: count)
+            }
+        }
+        updateNotificationBadge()
+    }
+
+    private func updateNotificationBadge() {
+        let count = NotificationHistoryManager.shared.unreadCount
+        contentView.updateNotificationBadge(count: count)
     }
     
     private func refreshDashboardData() {
@@ -1215,13 +1235,8 @@ extension DashboardViewController: DashboardViewDelegate {
         self.flowDelegate?.openAddTransactionModal()
     }
     
-    func logout() {
-        AuthenticationManager.shared.signOut()
-        SecureLocalDataManager.shared.signOut()
-        UserDefaultsManager.signOutCurrentUser()
-        
-        print("✅ Complete logout performed")
-        self.flowDelegate?.logout()
+    func didTapNotifications() {
+        self.flowDelegate?.navigateToNotificationHistory()
     }
     
     func dashboardViewDidRequestRefresh(_ dashboardView: DashboardView) {

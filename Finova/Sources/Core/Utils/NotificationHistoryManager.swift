@@ -1,0 +1,213 @@
+//
+//  NotificationHistoryManager.swift
+//  Finova
+//
+//  Created by Claude on 29/01/2026.
+//
+
+import Foundation
+import UserNotifications
+
+/// Represents a notification item in the history
+struct NotificationHistoryItem: Codable, Identifiable {
+  let id: String
+  let title: String
+  let body: String
+  let date: Date
+  let type: NotificationType
+  var isRead: Bool
+
+  enum NotificationType: String, Codable {
+    case transaction
+    case negativeBalance
+    case appUpdate
+    case installment
+    case recurring
+    case monthly
+    case other
+  }
+}
+
+/// Manages notification history and read states
+final class NotificationHistoryManager {
+  static let shared = NotificationHistoryManager()
+
+  private let userDefaultsKey = "notification_history"
+  private let unreadCountKey = "unread_notification_count"
+  private let maxHistoryItems = 50
+
+  private var history: [NotificationHistoryItem] = []
+
+  /// Callback when unread count changes
+  var onUnreadCountChanged: ((Int) -> Void)?
+
+  private init() {
+    loadHistory()
+  }
+
+  // MARK: - Public Methods
+
+  /// Returns the current unread count
+  var unreadCount: Int {
+    return history.filter { !$0.isRead }.count
+  }
+
+  /// Returns all notification history items sorted by date (newest first)
+  var allNotifications: [NotificationHistoryItem] {
+    return history.sorted { $0.date > $1.date }
+  }
+
+  /// Adds a notification to history
+  func addNotification(
+    id: String,
+    title: String,
+    body: String,
+    type: NotificationHistoryItem.NotificationType
+  ) {
+    let item = NotificationHistoryItem(
+      id: id,
+      title: title,
+      body: body,
+      date: Date(),
+      type: type,
+      isRead: false
+    )
+
+    // Remove duplicate if exists
+    history.removeAll { $0.id == id }
+
+    // Add new item
+    history.insert(item, at: 0)
+
+    // Trim old items
+    if history.count > maxHistoryItems {
+      history = Array(history.prefix(maxHistoryItems))
+    }
+
+    saveHistory()
+    notifyUnreadCountChanged()
+  }
+
+  /// Marks a specific notification as read
+  func markAsRead(id: String) {
+    guard let index = history.firstIndex(where: { $0.id == id }) else { return }
+    history[index].isRead = true
+    saveHistory()
+    notifyUnreadCountChanged()
+  }
+
+  /// Marks all visible notifications as read (when user views the list)
+  func markAllVisibleAsRead() {
+    var changed = false
+    for index in history.indices {
+      if !history[index].isRead {
+        history[index].isRead = true
+        changed = true
+      }
+    }
+    if changed {
+      saveHistory()
+      notifyUnreadCountChanged()
+    }
+  }
+
+  /// Marks notifications as read by their IDs
+  func markAsRead(ids: [String]) {
+    var changed = false
+    for id in ids {
+      if let index = history.firstIndex(where: { $0.id == id && !$0.isRead }) {
+        history[index].isRead = true
+        changed = true
+      }
+    }
+    if changed {
+      saveHistory()
+      notifyUnreadCountChanged()
+    }
+  }
+
+  /// Clears all notification history
+  func clearHistory() {
+    history.removeAll()
+    saveHistory()
+    notifyUnreadCountChanged()
+  }
+
+  /// Handles a received notification and adds it to history
+  func handleReceivedNotification(userInfo: [AnyHashable: Any]) {
+    guard let aps = userInfo["aps"] as? [String: Any],
+          let alert = aps["alert"] as? [String: Any],
+          let title = alert["title"] as? String,
+          let body = alert["body"] as? String else {
+      return
+    }
+
+    let id = UUID().uuidString
+    let type = determineNotificationType(from: userInfo)
+
+    addNotification(id: id, title: title, body: body, type: type)
+  }
+
+  /// Handles a delivered local notification
+  func handleDeliveredLocalNotification(_ notification: UNNotification) {
+    let content = notification.request.content
+    let id = notification.request.identifier
+    let type = determineNotificationType(fromIdentifier: id)
+
+    addNotification(id: id, title: content.title, body: content.body, type: type)
+  }
+
+  // MARK: - Private Methods
+
+  private func loadHistory() {
+    guard let data = UserDefaults.standard.data(forKey: userDefaultsKey),
+          let decoded = try? JSONDecoder().decode([NotificationHistoryItem].self, from: data) else {
+      return
+    }
+    history = decoded
+  }
+
+  private func saveHistory() {
+    guard let data = try? JSONEncoder().encode(history) else { return }
+    UserDefaults.standard.set(data, forKey: userDefaultsKey)
+  }
+
+  private func notifyUnreadCountChanged() {
+    onUnreadCountChanged?(unreadCount)
+  }
+
+  private func determineNotificationType(from userInfo: [AnyHashable: Any]) -> NotificationHistoryItem.NotificationType {
+    if let type = userInfo["type"] as? String {
+      switch type {
+      case "app_update":
+        return .appUpdate
+      case "negative_balance":
+        return .negativeBalance
+      case "transaction":
+        return .transaction
+      case "installment":
+        return .installment
+      case "recurring":
+        return .recurring
+      default:
+        return .other
+      }
+    }
+    return .other
+  }
+
+  private func determineNotificationType(fromIdentifier id: String) -> NotificationHistoryItem.NotificationType {
+    if id.hasPrefix("transaction_") {
+      return .transaction
+    } else if id.hasPrefix("negative_balance_") {
+      return .negativeBalance
+    } else if id.hasPrefix("installment_") {
+      return .installment
+    } else if id.hasPrefix("recurring_") {
+      return .recurring
+    } else if id.hasPrefix("monthly_") {
+      return .monthly
+    }
+    return .other
+  }
+}

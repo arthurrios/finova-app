@@ -65,6 +65,15 @@ extension SettingsViewController: SettingsViewDelegate {
         flowDelegate?.navigateToNotificationSettings()
     }
 
+    func didTapLogout() {
+        AuthenticationManager.shared.signOut()
+        SecureLocalDataManager.shared.signOut()
+        UserDefaultsManager.signOutCurrentUser()
+
+        print("✅ Complete logout performed")
+        flowDelegate?.logout()
+    }
+
     func handleDidTapBackButton() {
         self.flowDelegate?.dismissSettings()
     }

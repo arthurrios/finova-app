@@ -123,7 +123,7 @@ extension AppFlowController: RegisterFlowDelegate {
 }
 
 // MARK: - Dashboard Flow
-extension AppFlowController: DashboardFlowDelegate, SettingsFlowDelegate, NotificationSettingsFlowDelegate {
+extension AppFlowController: DashboardFlowDelegate, SettingsFlowDelegate, NotificationSettingsFlowDelegate, NotificationHistoryFlowDelegate {
 
   func navigateToSettings() {
     navigationController?.dismiss(animated: false)
@@ -138,6 +138,17 @@ extension AppFlowController: DashboardFlowDelegate, SettingsFlowDelegate, Notifi
   }
 
   func dismissNotificationSettings() {
+    navigationController?.popViewController(animated: true)
+  }
+
+  func navigateToNotificationHistory() {
+    navigationController?.dismiss(animated: false)
+    let viewController = viewControllersFactory.makeNotificationHistoryViewController(
+      flowDelegate: self)
+    navigationController?.pushViewController(viewController, animated: true)
+  }
+
+  func dismissNotificationHistory() {
     navigationController?.popViewController(animated: true)
   }
 

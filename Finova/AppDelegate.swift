@@ -425,6 +425,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     willPresent notification: UNNotification,
     withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
   ) {
+    // Track notification in history
+    NotificationHistoryManager.shared.handleDeliveredLocalNotification(notification)
+
     // Show notification even when app is in foreground
     completionHandler([.alert, .sound, .badge])
   }
@@ -437,6 +440,10 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     // Handle notification tap
     let userInfo = response.notification.request.content.userInfo
     print("📱 User tapped notification: \(userInfo)")
+
+    // Mark notification as read when tapped
+    let notificationId = response.notification.request.identifier
+    NotificationHistoryManager.shared.markAsRead(id: notificationId)
 
     // Check if this is a monthly notification that should trigger success alert
     if let notificationType = userInfo["type"] as? String {

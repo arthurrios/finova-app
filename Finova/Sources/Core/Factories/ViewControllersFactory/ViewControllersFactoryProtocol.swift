@@ -29,4 +29,7 @@ protocol ViewControllersFactoryProtocol: AnyObject {
   func makeNotificationSettingsViewController(
     flowDelegate: NotificationSettingsFlowDelegate
   ) -> NotificationSettingsViewController
+  func makeNotificationHistoryViewController(
+    flowDelegate: NotificationHistoryFlowDelegate
+  ) -> NotificationHistoryViewController
 }

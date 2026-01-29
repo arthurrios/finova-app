@@ -59,12 +59,31 @@ final class DashboardView: UIView {
     return btn
   }()
 
-  private let logoutButton: UIButton = {
+  private let notificationButton: UIButton = {
     let btn = UIButton(type: .system)
-    btn.setImage(UIImage(named: "logout"), for: .normal)
+    btn.setImage(UIImage(systemName: "bell"), for: .normal)
     btn.tintColor = Colors.gray500
     btn.translatesAutoresizingMaskIntoConstraints = false
     return btn
+  }()
+
+  private let notificationBadge: UIView = {
+    let badge = UIView()
+    badge.backgroundColor = Colors.mainMagenta
+    badge.layer.borderColor = Colors.gray100.cgColor
+    badge.layer.borderWidth = 2
+    badge.translatesAutoresizingMaskIntoConstraints = false
+    badge.isHidden = true
+    return badge
+  }()
+
+  private let notificationBadgeLabel: UILabel = {
+    let label = UILabel()
+    label.font = UIFont.systemFont(ofSize: 10, weight: .bold)
+    label.textColor = .white
+    label.textAlignment = .center
+    label.translatesAutoresizingMaskIntoConstraints = false
+    return label
   }()
 
   lazy var monthSelectorView: MonthSelectorView = {
@@ -189,7 +208,9 @@ final class DashboardView: UIView {
     headerItemsView.addSubview(welcomeTitleLabel)
     headerItemsView.addSubview(welcomeSubtitleLabel)
     headerItemsView.addSubview(settingsButton)
-    headerItemsView.addSubview(logoutButton)
+    headerItemsView.addSubview(notificationButton)
+    headerItemsView.addSubview(notificationBadge)
+    notificationBadge.addSubview(notificationBadgeLabel)
 
     addSubview(monthSelectorShimmerView)
     addSubview(monthCardShimmerView)
@@ -204,9 +225,9 @@ final class DashboardView: UIView {
 
     settingsButton.addTarget(self, action: #selector(settingsTapped), for: .touchUpInside)
 
-    logoutButton.addTarget(
+    notificationButton.addTarget(
       self,
-      action: #selector(logoutTapped),
+      action: #selector(notificationsTapped),
       for: .touchUpInside)
 
     addTransactionButton.addTarget(
@@ -255,17 +276,27 @@ final class DashboardView: UIView {
         equalTo: welcomeTitleLabel.bottomAnchor, constant: Metrics.spacing1),
       welcomeSubtitleLabel.leadingAnchor.constraint(equalTo: welcomeTitleLabel.leadingAnchor),
 
-      logoutButton.centerYAnchor.constraint(equalTo: avatar.centerYAnchor),
-      logoutButton.trailingAnchor.constraint(
-        equalTo: headerItemsView.layoutMarginsGuide.trailingAnchor),
-      logoutButton.heightAnchor.constraint(equalToConstant: Metrics.logoutButtonSize),
-      logoutButton.widthAnchor.constraint(equalToConstant: Metrics.logoutButtonSize),
-
       settingsButton.centerYAnchor.constraint(equalTo: avatar.centerYAnchor),
       settingsButton.trailingAnchor.constraint(
-        equalTo: logoutButton.leadingAnchor, constant: -Metrics.spacing3),
+        equalTo: headerItemsView.layoutMarginsGuide.trailingAnchor),
       settingsButton.heightAnchor.constraint(equalToConstant: Metrics.logoutButtonSize),
       settingsButton.widthAnchor.constraint(equalToConstant: Metrics.logoutButtonSize),
+
+      notificationButton.centerYAnchor.constraint(equalTo: avatar.centerYAnchor),
+      notificationButton.trailingAnchor.constraint(
+        equalTo: settingsButton.leadingAnchor, constant: -Metrics.spacing3),
+      notificationButton.heightAnchor.constraint(equalToConstant: Metrics.logoutButtonSize),
+      notificationButton.widthAnchor.constraint(equalToConstant: Metrics.logoutButtonSize),
+
+      notificationBadge.topAnchor.constraint(equalTo: notificationButton.topAnchor, constant: -2),
+      notificationBadge.trailingAnchor.constraint(equalTo: notificationButton.trailingAnchor, constant: 4),
+      notificationBadge.widthAnchor.constraint(greaterThanOrEqualToConstant: 18),
+      notificationBadge.heightAnchor.constraint(equalToConstant: 18),
+
+      notificationBadgeLabel.centerXAnchor.constraint(equalTo: notificationBadge.centerXAnchor),
+      notificationBadgeLabel.centerYAnchor.constraint(equalTo: notificationBadge.centerYAnchor),
+      notificationBadgeLabel.leadingAnchor.constraint(greaterThanOrEqualTo: notificationBadge.leadingAnchor, constant: 4),
+      notificationBadgeLabel.trailingAnchor.constraint(lessThanOrEqualTo: notificationBadge.trailingAnchor, constant: -4),
 
       monthSelectorView.topAnchor.constraint(
         equalTo: headerContainerView.bottomAnchor, constant: Metrics.spacing5),
@@ -338,12 +369,18 @@ final class DashboardView: UIView {
       })
   }
 
-  @objc private func logoutTapped() {
-    delegate?.logout()
+  @objc private func notificationsTapped() {
+    delegate?.didTapNotifications()
   }
 
   @objc private func settingsTapped() {
     delegate?.didTapSettings()
+  }
+
+  /// Updates the notification badge visibility and count
+  func updateNotificationBadge(count: Int) {
+    notificationBadge.isHidden = count == 0
+    notificationBadgeLabel.text = count > 99 ? "99+" : "\(count)"
   }
 
   private func setupImageGesture() {
@@ -361,6 +398,7 @@ final class DashboardView: UIView {
     super.layoutSubviews()
 
     addTransactionButton.layer.cornerRadius = addTransactionButton.bounds.height / 2
+    notificationBadge.layer.cornerRadius = notificationBadge.bounds.height / 2
 
     addTransactionButton.layer.shadowPath =
       UIBezierPath(

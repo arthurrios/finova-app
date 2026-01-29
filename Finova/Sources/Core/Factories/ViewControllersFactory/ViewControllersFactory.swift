@@ -108,4 +108,17 @@ final class ViewControllersFactory: ViewControllersFactoryProtocol {
     )
     return viewController
   }
+
+  func makeNotificationHistoryViewController(
+    flowDelegate: NotificationHistoryFlowDelegate
+  ) -> NotificationHistoryViewController {
+    let contentView = NotificationHistoryView()
+    let viewModel = NotificationHistoryViewModel()
+    let viewController = NotificationHistoryViewController(
+      contentView: contentView,
+      viewModel: viewModel,
+      flowDelegate: flowDelegate
+    )
+    return viewController
+  }
 }
