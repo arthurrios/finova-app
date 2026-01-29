@@ -122,20 +122,31 @@ final class DashboardView: UIView {
       btn.setImage(resizedImage, for: .normal)
     }
 
-    btn.tintColor = Colors.gray100
-    btn.backgroundColor = Colors.gray700
-
     btn.imageView?.contentMode = .center
-
-    btn.layer.shadowColor = UIColor.black.cgColor
-    btn.layer.shadowOffset = CGSize(width: 0, height: 4)
-    btn.layer.shadowOpacity = 0.25
-    btn.layer.shadowRadius = 4
-    btn.layer.shouldRasterize = true
-    btn.layer.rasterizationScale = UIScreen.main.scale
-
     btn.translatesAutoresizingMaskIntoConstraints = false
+
+    // Apply Liquid Glass style for iOS 26+, fallback for older versions
+    if #available(iOS 26.0, *) {
+      btn.tintColor = Colors.mainMagenta
+      btn.backgroundColor = .clear
+    } else {
+      btn.tintColor = Colors.gray100
+      btn.backgroundColor = Colors.gray700
+      btn.layer.shadowColor = UIColor.black.cgColor
+      btn.layer.shadowOffset = CGSize(width: 0, height: 4)
+      btn.layer.shadowOpacity = 0.25
+      btn.layer.shadowRadius = 4
+      btn.layer.shouldRasterize = true
+      btn.layer.rasterizationScale = UIScreen.main.scale
+    }
+
     return btn
+  }()
+
+  private lazy var addButtonGlassContainer: UIView = {
+    let container = UIView()
+    container.translatesAutoresizingMaskIntoConstraints = false
+    return container
   }()
 
   let monthSelectorShimmerView: ShimmerView = {
@@ -219,9 +230,11 @@ final class DashboardView: UIView {
     addSubview(monthSelectorView)
     addSubview(monthCarousel)
 
-    addSubview(addTransactionButton)
+    addSubview(addButtonGlassContainer)
+    addButtonGlassContainer.addSubview(addTransactionButton)
+    setupAddButtonGlassEffect()
 
-    bringSubviewToFront(addTransactionButton)
+    bringSubviewToFront(addButtonGlassContainer)
 
     settingsButton.addTarget(self, action: #selector(settingsTapped), for: .touchUpInside)
 
@@ -237,6 +250,24 @@ final class DashboardView: UIView {
 
     setupImageGesture()
     setupRefreshControl()
+  }
+
+  private func setupAddButtonGlassEffect() {
+    if #available(iOS 26.0, *) {
+      let glassEffect = UIGlassEffect()
+      glassEffect.isInteractive = true
+      let glassView = UIVisualEffectView(effect: glassEffect)
+      glassView.translatesAutoresizingMaskIntoConstraints = false
+
+      addButtonGlassContainer.insertSubview(glassView, at: 0)
+
+      NSLayoutConstraint.activate([
+        glassView.topAnchor.constraint(equalTo: addButtonGlassContainer.topAnchor),
+        glassView.leadingAnchor.constraint(equalTo: addButtonGlassContainer.leadingAnchor),
+        glassView.trailingAnchor.constraint(equalTo: addButtonGlassContainer.trailingAnchor),
+        glassView.bottomAnchor.constraint(equalTo: addButtonGlassContainer.bottomAnchor),
+      ])
+    }
   }
 
   private func setupRefreshControl() {
@@ -335,10 +366,15 @@ final class DashboardView: UIView {
       transactionsTableShimmerView.bottomAnchor.constraint(
         equalTo: bottomAnchor, constant: -Metrics.spacing4),
 
-      addTransactionButton.centerXAnchor.constraint(equalTo: centerXAnchor),
-      addTransactionButton.bottomAnchor.constraint(equalTo: safeAreaLayoutGuide.bottomAnchor),
-      addTransactionButton.heightAnchor.constraint(equalToConstant: Metrics.addButtonSize),
-      addTransactionButton.widthAnchor.constraint(equalToConstant: Metrics.addButtonSize),
+      addButtonGlassContainer.centerXAnchor.constraint(equalTo: centerXAnchor),
+      addButtonGlassContainer.bottomAnchor.constraint(equalTo: safeAreaLayoutGuide.bottomAnchor),
+      addButtonGlassContainer.heightAnchor.constraint(equalToConstant: Metrics.addButtonSize),
+      addButtonGlassContainer.widthAnchor.constraint(equalToConstant: Metrics.addButtonSize),
+
+      addTransactionButton.topAnchor.constraint(equalTo: addButtonGlassContainer.topAnchor),
+      addTransactionButton.leadingAnchor.constraint(equalTo: addButtonGlassContainer.leadingAnchor),
+      addTransactionButton.trailingAnchor.constraint(equalTo: addButtonGlassContainer.trailingAnchor),
+      addTransactionButton.bottomAnchor.constraint(equalTo: addButtonGlassContainer.bottomAnchor),
     ])
 
     // Set up the month carousel height constraint
@@ -362,7 +398,7 @@ final class DashboardView: UIView {
         self.monthCardShimmerView.removeFromSuperview()
         self.transactionsTableShimmerView.removeFromSuperview()
 
-        self.bringSubviewToFront(self.addTransactionButton)
+        self.bringSubviewToFront(self.addButtonGlassContainer)
 
         self.setNeedsLayout()
         self.layoutIfNeeded()
@@ -397,14 +433,20 @@ final class DashboardView: UIView {
   override func layoutSubviews() {
     super.layoutSubviews()
 
-    addTransactionButton.layer.cornerRadius = addTransactionButton.bounds.height / 2
+    let cornerRadius = addButtonGlassContainer.bounds.height / 2
+    addButtonGlassContainer.layer.cornerRadius = cornerRadius
+    addButtonGlassContainer.clipsToBounds = true
     notificationBadge.layer.cornerRadius = notificationBadge.bounds.height / 2
 
-    addTransactionButton.layer.shadowPath =
-      UIBezierPath(
-        roundedRect: addTransactionButton.bounds,
-        cornerRadius: addTransactionButton.layer.cornerRadius
-      ).cgPath
+    // Only apply shadow for pre-iOS 26
+    if #unavailable(iOS 26.0) {
+      addTransactionButton.layer.cornerRadius = cornerRadius
+      addTransactionButton.layer.shadowPath =
+        UIBezierPath(
+          roundedRect: addTransactionButton.bounds,
+          cornerRadius: cornerRadius
+        ).cgPath
+    }
   }
 
   @objc

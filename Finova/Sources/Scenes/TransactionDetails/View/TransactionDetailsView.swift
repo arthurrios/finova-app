@@ -66,9 +66,21 @@ final class TransactionDetailsView: UIView {
     }
 
     button.imageView?.contentMode = .scaleAspectFit
-    button.tintColor = Colors.gray500
     button.translatesAutoresizingMaskIntoConstraints = false
+
+    if #available(iOS 26.0, *) {
+      button.tintColor = Colors.gray700
+    } else {
+      button.tintColor = Colors.gray500
+    }
+
     return button
+  }()
+
+  private lazy var backButtonGlassContainer: UIView = {
+    let container = UIView()
+    container.translatesAutoresizingMaskIntoConstraints = false
+    return container
   }()
 
   lazy var headerTextStackView = UIStackView(
@@ -359,7 +371,9 @@ final class TransactionDetailsView: UIView {
     // Setup hierarchy (following budgets pattern)
     addSubview(headerContainerView)
     headerContainerView.addSubview(headerItemsView)
-    headerItemsView.addSubview(backButton)
+    headerItemsView.addSubview(backButtonGlassContainer)
+    backButtonGlassContainer.addSubview(backButton)
+    setupBackButtonGlassEffect()
     headerItemsView.addSubview(headerTextStackView)
 
     addSubview(scrollView)
@@ -401,6 +415,8 @@ final class TransactionDetailsView: UIView {
     actionButtonsContainerView.addSubview(actionButtonsStackView)
 
     // Setup actions
+    backButtonGlassContainer.addGestureRecognizer(
+      UITapGestureRecognizer(target: self, action: #selector(didTapBack)))
     backButton.addTarget(self, action: #selector(didTapBack), for: .touchUpInside)
     editButton.addTarget(self, action: #selector(didTapEdit), for: .touchUpInside)
     deleteButton.addTarget(self, action: #selector(didTapDelete), for: .touchUpInside)
@@ -432,13 +448,20 @@ final class TransactionDetailsView: UIView {
       headerItemsView.trailingAnchor.constraint(equalTo: headerContainerView.trailingAnchor),
       headerItemsView.bottomAnchor.constraint(equalTo: headerContainerView.bottomAnchor),
 
-      backButton.topAnchor.constraint(equalTo: headerItemsView.layoutMarginsGuide.topAnchor),
-      backButton.leadingAnchor.constraint(
+      backButtonGlassContainer.topAnchor.constraint(equalTo: headerItemsView.layoutMarginsGuide.topAnchor),
+      backButtonGlassContainer.leadingAnchor.constraint(
         equalTo: headerItemsView.layoutMarginsGuide.leadingAnchor),
+      backButtonGlassContainer.widthAnchor.constraint(equalToConstant: 36),
+      backButtonGlassContainer.heightAnchor.constraint(equalToConstant: 36),
+
+      backButton.topAnchor.constraint(equalTo: backButtonGlassContainer.topAnchor),
+      backButton.leadingAnchor.constraint(equalTo: backButtonGlassContainer.leadingAnchor),
+      backButton.trailingAnchor.constraint(equalTo: backButtonGlassContainer.trailingAnchor),
+      backButton.bottomAnchor.constraint(equalTo: backButtonGlassContainer.bottomAnchor),
 
       headerTextStackView.leadingAnchor.constraint(
-        equalTo: backButton.trailingAnchor, constant: Metrics.spacing4),
-      headerTextStackView.centerYAnchor.constraint(equalTo: backButton.centerYAnchor),
+        equalTo: backButtonGlassContainer.trailingAnchor, constant: Metrics.spacing4),
+      headerTextStackView.centerYAnchor.constraint(equalTo: backButtonGlassContainer.centerYAnchor),
 
       // Scroll view
       scrollView.topAnchor.constraint(equalTo: headerContainerView.bottomAnchor),
@@ -530,6 +553,26 @@ final class TransactionDetailsView: UIView {
       actionButtonsStackView.bottomAnchor.constraint(
         equalTo: actionButtonsContainerView.bottomAnchor),
     ])
+  }
+
+  private func setupBackButtonGlassEffect() {
+    if #available(iOS 26.0, *) {
+      let glassEffect = UIGlassEffect()
+      glassEffect.isInteractive = true
+      let glassView = UIVisualEffectView(effect: glassEffect)
+      glassView.translatesAutoresizingMaskIntoConstraints = false
+
+      backButtonGlassContainer.insertSubview(glassView, at: 0)
+      backButtonGlassContainer.layer.cornerRadius = 18
+      backButtonGlassContainer.clipsToBounds = true
+
+      NSLayoutConstraint.activate([
+        glassView.topAnchor.constraint(equalTo: backButtonGlassContainer.topAnchor),
+        glassView.leadingAnchor.constraint(equalTo: backButtonGlassContainer.leadingAnchor),
+        glassView.trailingAnchor.constraint(equalTo: backButtonGlassContainer.trailingAnchor),
+        glassView.bottomAnchor.constraint(equalTo: backButtonGlassContainer.bottomAnchor),
+      ])
+    }
   }
 
   private func createDetailRow(

@@ -44,23 +44,35 @@ final class SettingsView: UIView {
     
     private let backButton: UIButton = {
         let button = UIButton(type: .system)
-        
+
         if let originalImage = UIImage(named: "chevronLeft") {
             let size = CGSize(width: Metrics.backButtonSize, height: Metrics.backButtonSize)
             UIGraphicsBeginImageContextWithOptions(size, false, 0.0)
             originalImage.draw(in: CGRect(origin: .zero, size: size))
             let resizedImage = UIGraphicsGetImageFromCurrentImageContext()
             UIGraphicsEndImageContext()
-            
+
             button.setImage(resizedImage, for: .normal)
         } else {
             button.setImage(UIImage(named: "chevronLeft"), for: .normal)
         }
-        
+
         button.imageView?.contentMode = .scaleAspectFit
-        button.tintColor = Colors.gray500
         button.translatesAutoresizingMaskIntoConstraints = false
+
+        if #available(iOS 26.0, *) {
+            button.tintColor = Colors.gray700
+        } else {
+            button.tintColor = Colors.gray500
+        }
+
         return button
+    }()
+
+    private lazy var backButtonGlassContainer: UIView = {
+        let container = UIView()
+        container.translatesAutoresizingMaskIntoConstraints = false
+        return container
     }()
     
     private let headerTitleLabel: UILabel = {
@@ -166,9 +178,11 @@ final class SettingsView: UIView {
         scrollView.addSubview(headerContainerView)
         scrollView.addSubview(contentStackView)
         headerContainerView.addSubview(headerItemsView)
-        headerItemsView.addSubview(backButton)
+        headerItemsView.addSubview(backButtonGlassContainer)
+        backButtonGlassContainer.addSubview(backButton)
+        setupBackButtonGlassEffect()
         headerItemsView.addSubview(headerTitleLabel)
-        
+
         setupSections()
         setupConstraints()
     }
@@ -290,13 +304,20 @@ final class SettingsView: UIView {
             headerItemsView.trailingAnchor.constraint(equalTo: headerContainerView.trailingAnchor),
             headerItemsView.bottomAnchor.constraint(equalTo: headerContainerView.bottomAnchor),
             
-            backButton.topAnchor.constraint(equalTo: headerItemsView.layoutMarginsGuide.topAnchor),
-            backButton.leadingAnchor.constraint(
+            backButtonGlassContainer.topAnchor.constraint(equalTo: headerItemsView.layoutMarginsGuide.topAnchor),
+            backButtonGlassContainer.leadingAnchor.constraint(
                 equalTo: headerItemsView.layoutMarginsGuide.leadingAnchor),
-            
+            backButtonGlassContainer.widthAnchor.constraint(equalToConstant: 36),
+            backButtonGlassContainer.heightAnchor.constraint(equalToConstant: 36),
+
+            backButton.topAnchor.constraint(equalTo: backButtonGlassContainer.topAnchor),
+            backButton.leadingAnchor.constraint(equalTo: backButtonGlassContainer.leadingAnchor),
+            backButton.trailingAnchor.constraint(equalTo: backButtonGlassContainer.trailingAnchor),
+            backButton.bottomAnchor.constraint(equalTo: backButtonGlassContainer.bottomAnchor),
+
             headerTitleLabel.leadingAnchor.constraint(
-                equalTo: backButton.trailingAnchor, constant: Metrics.spacing4),
-            headerTitleLabel.centerYAnchor.constraint(equalTo: backButton.centerYAnchor),
+                equalTo: backButtonGlassContainer.trailingAnchor, constant: Metrics.spacing4),
+            headerTitleLabel.centerYAnchor.constraint(equalTo: backButtonGlassContainer.centerYAnchor),
             
             contentStackView.topAnchor.constraint(equalTo: headerContainerView.bottomAnchor, constant: Metrics.spacing4),
             contentStackView.leadingAnchor.constraint(equalTo: scrollView.leadingAnchor, constant: Metrics.spacing4),
@@ -305,7 +326,27 @@ final class SettingsView: UIView {
             contentStackView.widthAnchor.constraint(equalTo: scrollView.widthAnchor, constant: -2 * Metrics.spacing4)
         ])
     }
-    
+
+    private func setupBackButtonGlassEffect() {
+        if #available(iOS 26.0, *) {
+            let glassEffect = UIGlassEffect()
+            glassEffect.isInteractive = true
+            let glassView = UIVisualEffectView(effect: glassEffect)
+            glassView.translatesAutoresizingMaskIntoConstraints = false
+
+            backButtonGlassContainer.insertSubview(glassView, at: 0)
+            backButtonGlassContainer.layer.cornerRadius = 18
+            backButtonGlassContainer.clipsToBounds = true
+
+            NSLayoutConstraint.activate([
+                glassView.topAnchor.constraint(equalTo: backButtonGlassContainer.topAnchor),
+                glassView.leadingAnchor.constraint(equalTo: backButtonGlassContainer.leadingAnchor),
+                glassView.trailingAnchor.constraint(equalTo: backButtonGlassContainer.trailingAnchor),
+                glassView.bottomAnchor.constraint(equalTo: backButtonGlassContainer.bottomAnchor),
+            ])
+        }
+    }
+
     private func setupActions() {
         biometricSwitch.addTarget(self, action: #selector(biometricToggled), for: .valueChanged)
 
