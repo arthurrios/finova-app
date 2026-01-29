@@ -269,7 +269,7 @@ final class NotificationHistoryCell: UITableViewCell {
     containerView.addSubview(dateLabel)
 
     NSLayoutConstraint.activate([
-      containerView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: Metrics.spacing2),
+      containerView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: Metrics.spacing4),
       containerView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: Metrics.spacing4),
       containerView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -Metrics.spacing4),
       containerView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -Metrics.spacing2),
