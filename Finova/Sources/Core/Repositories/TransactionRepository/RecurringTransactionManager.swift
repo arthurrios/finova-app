@@ -514,9 +514,52 @@ final class RecurringTransactionManager {
 
   // MARK: - Recurring Transaction Editing
 
-  /// Edit recurring transactions based on the selected option
+  /// Edit recurring transactions based on the selected option (async version)
+  /// Runs on background queue and calls completion when done
+  func editRecurringTransactionsFromDateAsync(
+    parentTransactionId: Int,
+    selectedTransactionDate: Date,
+    editOption: RecurringEditOption,
+    newData: TransactionModel,
+    completion: @escaping (Result<Void, Error>) -> Void
+  ) {
+    operationQueue.async { [weak self] in
+      guard let self = self else {
+        DispatchQueue.main.async { completion(.failure(TransactionError.repositoryUnavailable)) }
+        return
+      }
+      do {
+        try self.editRecurringTransactionsFromDateSync(
+          parentTransactionId: parentTransactionId,
+          selectedTransactionDate: selectedTransactionDate,
+          editOption: editOption,
+          newData: newData
+        )
+        DispatchQueue.main.async { completion(.success(())) }
+      } catch {
+        DispatchQueue.main.async { completion(.failure(error)) }
+      }
+    }
+  }
+
+  /// Edit recurring transactions based on the selected option (sync version)
   /// Optimized to minimize database calls and remove excessive logging
   func editRecurringTransactionsFromDate(
+    parentTransactionId: Int,
+    selectedTransactionDate: Date,
+    editOption: RecurringEditOption,
+    newData: TransactionModel
+  ) throws {
+    try editRecurringTransactionsFromDateSync(
+      parentTransactionId: parentTransactionId,
+      selectedTransactionDate: selectedTransactionDate,
+      editOption: editOption,
+      newData: newData
+    )
+  }
+
+  /// Internal sync implementation
+  private func editRecurringTransactionsFromDateSync(
     parentTransactionId: Int,
     selectedTransactionDate: Date,
     editOption: RecurringEditOption,
@@ -854,7 +897,8 @@ final class RecurringTransactionManager {
         print("🔄 LAZY: Created \(newInstancesCreated) new instances")
       }
 
-      DispatchQueue.main.async { completion?() }
+      // Call completion on current (background) queue - callers should dispatch to main if needed
+      completion?()
     }
   }
 
