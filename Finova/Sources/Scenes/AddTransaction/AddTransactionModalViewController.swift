@@ -267,11 +267,7 @@ extension AddTransactionModalViewController: AddTransactionModalViewDelegate,
   func updateRecurringTransactionDataWithOption(
     id: Int, _ data: AddTransactionData, editOption: RecurringEditOption
   ) {
-    // Dismiss modal immediately for better UX (optimistic update)
-    dismissModal()
-
-    // Run editing in background
-    viewModel.updateRecurringTransactionWithOptionAsync(
+    let result = viewModel.updateRecurringTransactionWithOption(
       id: id,
       title: data.title,
       amount: data.amount,
@@ -279,16 +275,8 @@ extension AddTransactionModalViewController: AddTransactionModalViewDelegate,
       categoryKey: data.category,
       typeRaw: data.transactionType,
       editOption: editOption
-    ) { [weak self] result in
-      switch result {
-      case .success:
-        // Notify delegate to refresh data
-        self?.flowDelegate?.didUpdateTransaction()
-      case .failure(let error):
-        // Show error alert even after modal is dismissed
-        print("❌ Error updating recurring transaction: \(error)")
-      }
-    }
+    )
+    handleUpdateResult(result)
   }
 
   private func handleTransactionResult(_ result: Result<Void, Error>) {

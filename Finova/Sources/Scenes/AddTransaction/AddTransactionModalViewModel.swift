@@ -132,16 +132,11 @@ final class AddTransactionModalViewModel {
         )
 
         // Generate only the immediate window of instances
-        // Completion runs on background queue - heavy work stays there
         recurringManager.generateInstancesLazilyForMonths(immediateMonthAnchors) { [weak self] in
-          guard let self = self else { return }
-          // These operations run on background thread (no UI blocking)
-          self.scheduleNotificationsForRecurringTransactions()
-          self.monitorNegativeBalance()
-          // Only the notification post needs main thread
-          DispatchQueue.main.async {
-            self.invalidateLedgerCache()
-          }
+          // These operations run after instance generation completes
+          self?.scheduleNotificationsForRecurringTransactions()
+          self?.monitorNegativeBalance()
+          self?.invalidateLedgerCache()
         }
 
         return .success(())
@@ -1202,107 +1197,6 @@ final class AddTransactionModalViewModel {
 
     } catch {
       return .failure(error)
-    }
-  }
-
-  /// Async version that doesn't block the UI
-  func updateRecurringTransactionWithOptionAsync(
-    id: Int,
-    title: String,
-    amount: Int,
-    dateString: String,
-    categoryKey: String,
-    typeRaw: String,
-    editOption: RecurringEditOption,
-    completion: @escaping (Result<Void, Error>) -> Void
-  ) {
-    guard
-      let transactionCategory = TransactionCategory.allCases.first(where: { $0.key == categoryKey })
-    else {
-      completion(.failure(TransactionError.invalidCategory))
-      return
-    }
-
-    guard
-      let transactionType = TransactionType.allCases.first(where: {
-        String(describing: $0) == typeRaw
-      })
-    else {
-      completion(.failure(TransactionError.invalidType))
-      return
-    }
-
-    guard let dateObj = DateFormatter.fullDateFormatter.date(from: dateString) else {
-      completion(.failure(TransactionError.invalidDateFormat))
-      return
-    }
-
-    // Run heavy work on background queue
-    DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-      guard let self = self else {
-        DispatchQueue.main.async { completion(.failure(TransactionError.repositoryUnavailable)) }
-        return
-      }
-
-      // Find the existing transaction to get its parent ID
-      let existingTransactions = self.transactionRepo.fetchAllTransactions()
-      guard let existingTransaction = existingTransactions.first(where: { $0.id == id }) else {
-        DispatchQueue.main.async { completion(.failure(TransactionError.transactionNotFound)) }
-        return
-      }
-
-      // Determine the parent transaction ID for recurring transactions
-      let parentTransactionId: Int
-      if let parentId = existingTransaction.parentTransactionId {
-        parentTransactionId = parentId
-      } else if existingTransaction.isRecurring == true {
-        parentTransactionId = id
-      } else {
-        // Not a recurring transaction - fallback to sync update
-        DispatchQueue.main.async {
-          let result = self.updateTransaction(
-            id: id,
-            title: title,
-            amount: amount,
-            dateString: dateString,
-            categoryKey: categoryKey,
-            typeRaw: typeRaw,
-            isRecurring: true
-          )
-          completion(result)
-        }
-        return
-      }
-
-      // Create the new transaction data
-      let newTransactionData = TransactionModel(
-        id: id,
-        title: title,
-        category: transactionCategory.key,
-        amount: amount,
-        type: String(describing: transactionType),
-        dateTimestamp: Int(dateObj.timeIntervalSince1970),
-        budgetMonthDate: dateObj.monthAnchor,
-        isRecurring: true,
-        hasInstallments: false,
-        parentTransactionId: parentTransactionId,
-        originalAmount: amount,
-        installmentNumber: nil,
-        totalInstallments: nil
-      )
-
-      // Use async editing method
-      self.recurringManager.editRecurringTransactionsFromDateAsync(
-        parentTransactionId: parentTransactionId,
-        selectedTransactionDate: dateObj,
-        editOption: editOption,
-        newData: newTransactionData
-      ) { [weak self] result in
-        if case .success = result {
-          self?.invalidateLedgerCache()
-        }
-        completion(result)
-      }
     }
   }
 

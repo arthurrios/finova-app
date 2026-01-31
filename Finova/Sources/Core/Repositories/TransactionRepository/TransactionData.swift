@@ -34,7 +34,6 @@ enum TransactionError: Error, Equatable {
   case notARecurringTransaction
   case parentTransactionNotFound
   case concurrentModificationError
-  case repositoryUnavailable
 }
 
 enum TransactionMode: Int, CaseIterable, Codable {
