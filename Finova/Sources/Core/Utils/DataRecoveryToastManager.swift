@@ -30,19 +30,16 @@ final class DataRecoveryToastManager {
   func shouldShowRecoveryToast() -> Bool {
     // Don't show if recovery was already completed
     if UserDefaults.standard.bool(forKey: dataRecoveryCompletedKey) {
-      print("📱 Recovery already completed - not showing toast")
       return false
     }
 
     // Don't show if user permanently dismissed the toast
     if UserDefaults.standard.bool(forKey: recoveryToastDismissedKey) {
-      print("📱 Recovery toast permanently dismissed")
       return false
     }
 
     // Check if we have a currently authenticated user
     guard let currentUser = AuthenticationManager.shared.currentUser else {
-      print("📱 No authenticated user - not showing recovery toast")
       return false
     }
 
@@ -58,7 +55,6 @@ final class DataRecoveryToastManager {
       // Check if there's actually data to recover (SQLite has data)
       let hasExistingData = checkForExistingDataInSQLite()
       if hasExistingData {
-        print("📱 User has SQLite data but migration not completed - showing recovery toast")
         return true
       }
     }
@@ -69,18 +65,12 @@ final class DataRecoveryToastManager {
     {
       let hoursSinceDismissal = Date().timeIntervalSince(lastDismissedDate) / 3600
       if hoursSinceDismissal < 24 {
-        let hoursRemaining = 24 - hoursSinceDismissal
-        print(
-          "📱 Recovery toast dismissed recently. Remaining time: \(String(format: "%.1f", hoursRemaining)) hours"
-        )
         return false
       } else {
-        print("📱 24 hours have passed since dismissal. Showing reminder toast")
         return true
       }
     }
 
-    print("📱 Recovery toast conditions not met")
     return false
   }
 
@@ -91,12 +81,9 @@ final class DataRecoveryToastManager {
       let budgets = try DBHelper.shared.getBudgets()
 
       let hasData = !transactions.isEmpty || !budgets.isEmpty
-      print(
-        "📱 SQLite data check: \(transactions.count) transactions, \(budgets.count) budgets - hasData: \(hasData)"
-      )
       return hasData
     } catch {
-      print("📱 Error checking SQLite data: \(error)")
+      logError("Error checking SQLite data: \(error)")
       return false
     }
   }
@@ -104,20 +91,17 @@ final class DataRecoveryToastManager {
   /// Mark toast as dismissed temporarily (24 hours)
   func markToastAsDismissedTemporarily() {
     UserDefaults.standard.set(Date(), forKey: lastRecoveryToastDismissedKey)
-    print("📱 Recovery toast dismissed temporarily")
   }
 
   /// Mark toast as permanently dismissed
   func markToastAsPermanentlyDismissed() {
     UserDefaults.standard.set(true, forKey: recoveryToastDismissedKey)
     UserDefaults.standard.set(Date(), forKey: lastRecoveryToastDismissedKey)
-    print("📱 Recovery toast permanently dismissed")
   }
 
   /// Mark data recovery as completed (prevents toast from showing again)
   func markDataRecoveryAsCompleted() {
     UserDefaults.standard.set(true, forKey: dataRecoveryCompletedKey)
-    print("📱 Data recovery marked as completed")
   }
 
   /// Reset recovery state (for testing/debugging)
@@ -125,7 +109,6 @@ final class DataRecoveryToastManager {
     UserDefaults.standard.removeObject(forKey: recoveryToastDismissedKey)
     UserDefaults.standard.removeObject(forKey: lastRecoveryToastDismissedKey)
     UserDefaults.standard.removeObject(forKey: dataRecoveryCompletedKey)
-    print("📱 Recovery toast state reset")
   }
 
   /// Trigger recovery process
@@ -134,8 +117,6 @@ final class DataRecoveryToastManager {
       completion(false, "No authenticated user found")
       return
     }
-
-    print("🚨 TOAST RECOVERY: Starting data recovery for \(currentUser.uid)")
 
     // Clear migration flags to force re-attempt
     let migrationKey = "data_migrated_to_firebase_\(currentUser.uid)"
@@ -158,12 +139,11 @@ final class DataRecoveryToastManager {
     ) { [weak self] success in
       DispatchQueue.main.async {
         if success {
-          print("✅ TOAST RECOVERY: Data recovery successful!")
           self?.markDataRecoveryAsCompleted()
           completion(
             true, "Data recovery successful! Your transactions and budgets have been restored.")
         } else {
-          print("❌ TOAST RECOVERY: Data recovery failed")
+          logError("Data recovery failed")
           completion(false, "Data recovery failed. Please try again or contact support.")
         }
       }

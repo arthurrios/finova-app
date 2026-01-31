@@ -82,9 +82,6 @@ final class AddTransactionModalViewController: UIViewController {
       if !relatedTransactions.isEmpty {
         let totalAmount = relatedTransactions.reduce(0) { $0 + $1.amount }
         contentView.setTotalAmountForInstallment(totalAmount)
-        print(
-          "🔍 INSTALLMENT EDIT: Calculated total amount \(totalAmount) from \(relatedTransactions.count) installments"
-        )
       }
     }
   }
@@ -92,10 +89,8 @@ final class AddTransactionModalViewController: UIViewController {
   override func viewDidLoad() {
     super.viewDidLoad()
 
-    // 🔒 Authenticate SecureLocalDataManager for UID-isolated data access
     if let user = UserDefaultsManager.getUser(), let firebaseUID = user.firebaseUID {
       SecureLocalDataManager.shared.authenticateUser(firebaseUID: firebaseUID)
-      print("🔒 AddTransactionModal: SecureLocalDataManager authenticated for user: \(firebaseUID)")
     }
 
     contentView.delegate = self
@@ -117,7 +112,6 @@ final class AddTransactionModalViewController: UIViewController {
 
   override func viewDidLayoutSubviews() {
     super.viewDidLayoutSubviews()
-    print("🔍 KEYBOARD: viewDidLayoutSubviews - contentView frame: \(contentView.frame)")
   }
 
   private func setupView() {
@@ -183,8 +177,36 @@ extension AddTransactionModalViewController: AddTransactionModalViewDelegate,
 {
 
   func sendInstallmentTransactionData(_ data: InstallmentTransactionData) {
-    let result = viewModel.addTransactionWithInstallments(data)
-    handleTransactionResult(result)
+    // Show loading state
+    contentView.saveButton.startLoading()
+
+    // Use async version
+    viewModel.addTransactionWithInstallmentsAsync(data) { [weak self] result in
+      DispatchQueue.main.async {
+        self?.contentView.saveButton.stopLoading()
+
+        switch result {
+        case .success:
+          self?.dismissModal()
+          self?.flowDelegate?.didAddTransaction()
+        case .failure(let error):
+          let message: String
+          switch error {
+          case TransactionError.invalidDateFormat:
+            message = "alert.error.invalidDateFormat".localized
+          case TransactionError.invalidCategory:
+            message = "alert.error.invalidCategory".localized
+          case TransactionError.invalidType:
+            message = "alert.error.invalidTransactionType".localized
+          case TransactionError.invalidInstallmentCount:
+            message = "alert.error.invalidInstallmentCount".localized
+          default:
+            message = "alert.error.defaultMessage".localized
+          }
+          self?.handleError(title: "alert.error.title".localized, message: message)
+        }
+      }
+    }
   }
 
   func handleError(title: String, message: String) {
@@ -206,16 +228,40 @@ extension AddTransactionModalViewController: AddTransactionModalViewDelegate,
   }
 
   func sendRecurringTransactionData(_ data: AddTransactionData) {
-    let result = viewModel.addTransaction(
+    // Show loading state
+    contentView.saveButton.startLoading()
+
+    // Use async version that waits for instance generation
+    viewModel.addRecurringTransactionAsync(
       title: data.title,
       amount: data.amount,
       dateString: data.date,
       categoryKey: data.category,
-      typeRaw: data.transactionType,
-      isRecurring: true
-    )
+      typeRaw: data.transactionType
+    ) { [weak self] result in
+      DispatchQueue.main.async {
+        self?.contentView.saveButton.stopLoading()
 
-    handleTransactionResult(result)
+        switch result {
+        case .success:
+          self?.dismissModal()
+          self?.flowDelegate?.didAddTransaction()
+        case .failure(let error):
+          let message: String
+          switch error {
+          case TransactionError.invalidDateFormat:
+            message = "alert.error.invalidDateFormat".localized
+          case TransactionError.invalidCategory:
+            message = "alert.error.invalidCategory".localized
+          case TransactionError.invalidType:
+            message = "alert.error.invalidTransactionType".localized
+          default:
+            message = "alert.error.defaultMessage".localized
+          }
+          self?.handleError(title: "alert.error.title".localized, message: message)
+        }
+      }
+    }
   }
 
   func updateTransactionData(id: Int, _ data: AddTransactionData) {
@@ -267,7 +313,11 @@ extension AddTransactionModalViewController: AddTransactionModalViewDelegate,
   func updateRecurringTransactionDataWithOption(
     id: Int, _ data: AddTransactionData, editOption: RecurringEditOption
   ) {
-    let result = viewModel.updateRecurringTransactionWithOption(
+    // Show loading state
+    contentView.saveButton.startLoading()
+
+    // Run editing in background
+    viewModel.updateRecurringTransactionWithOptionAsync(
       id: id,
       title: data.title,
       amount: data.amount,
@@ -275,8 +325,23 @@ extension AddTransactionModalViewController: AddTransactionModalViewDelegate,
       categoryKey: data.category,
       typeRaw: data.transactionType,
       editOption: editOption
-    )
-    handleUpdateResult(result)
+    ) { [weak self] result in
+      DispatchQueue.main.async {
+        self?.contentView.saveButton.stopLoading()
+
+        switch result {
+        case .success:
+          self?.dismissModal()
+          self?.flowDelegate?.didUpdateTransaction()
+        case .failure(let error):
+          // Show error alert, keep modal open for retry
+          self?.handleError(
+            title: "alert.error.title".localized,
+            message: "alert.error.defaultMessage".localized
+          )
+        }
+      }
+    }
   }
 
   private func handleTransactionResult(_ result: Result<Void, Error>) {
@@ -346,7 +411,6 @@ extension AddTransactionModalViewController: AddTransactionModalViewDelegate,
 
   // MARK: - Custom Keyboard Handling
   private func startCustomKeyboardObservers() {
-    print("🔍 KEYBOARD: Setting up keyboard observers, isEditMode: \(isEditMode)")
     NotificationCenter.default.addObserver(
       self,
       selector: #selector(modalKeyboardWillShow(notification:)),
@@ -369,15 +433,12 @@ extension AddTransactionModalViewController: AddTransactionModalViewDelegate,
   }
 
   @objc private func modalKeyboardWillShow(notification: Notification) {
-    print("🔍 KEYBOARD: modalKeyboardWillShow called, isEditMode: \(isEditMode)")
-
     guard
       let keyboardFrame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey]
         as? CGRect,
       let animationDuration = notification.userInfo?[
         UIResponder.keyboardAnimationDurationUserInfoKey] as? Double
     else {
-      print("🔍 KEYBOARD: Failed to get keyboard frame or animation duration")
       return
     }
 
@@ -386,15 +447,8 @@ extension AddTransactionModalViewController: AddTransactionModalViewDelegate,
     let viewHeight = view.frame.height
     let keyboardTopY = viewHeight - keyboardHeight
 
-    // Get the modal's current position and height
-    let modalHeight = contentView.frame.height
-    let modalTopY = contentView.frame.minY
+    // Get the modal's current position
     let modalBottomY = contentView.frame.maxY
-
-    print("🔍 KEYBOARD: keyboardHeight: \(keyboardHeight), viewHeight: \(viewHeight)")
-    print(
-      "🔍 KEYBOARD: keyboardTopY: \(keyboardTopY), modalTopY: \(modalTopY), modalBottomY: \(modalBottomY)"
-    )
 
     // Check if the modal is being covered by the keyboard
     if modalBottomY > keyboardTopY {
@@ -403,13 +457,9 @@ extension AddTransactionModalViewController: AddTransactionModalViewDelegate,
       // Shift by more of the overlap to ensure keyboard clearance
       let shiftAmount = min(overlap * 0.7, 200)  // Max 200px shift, or 70% of overlap
 
-      print("🔍 KEYBOARD: Modal is covered by keyboard, shifting up by: \(shiftAmount)")
-
       UIView.animate(withDuration: animationDuration, delay: 0, options: [.curveEaseInOut]) {
         self.contentView.transform = CGAffineTransform(translationX: 0, y: -shiftAmount)
       }
-    } else {
-      print("🔍 KEYBOARD: Modal is not covered by keyboard")
     }
   }
 

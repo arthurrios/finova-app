@@ -29,15 +29,6 @@ class DataMigrationManager {
 
     // Check if global migration has already been performed
     if UserDefaults.standard.bool(forKey: globalMigrationKey) {
-      let existingOwner = UserDefaults.standard.string(forKey: migratedDataOwnerKey) ?? "unknown"
-
-      if existingOwner == firebaseUID {
-//        print("✅ This user (\(firebaseUID)) already owns the migrated data")
-      } else {
-//        print("ℹ️ Local data already migrated to different user (\(existingOwner))")
-//        print("ℹ️ User \(firebaseUID) will start with empty account (privacy protection)")
-      }
-
       completion(true)
       return
     }
@@ -46,13 +37,11 @@ class DataMigrationManager {
     let hasExistingData = checkForExistingData()
 
     if !hasExistingData {
-//      print("ℹ️ No existing local data found - marking global migration as complete")
       markGlobalMigrationComplete(for: firebaseUID)
       completion(true)
       return
     }
 
-//    print("📦 Existing local data found - performing one-time migration to first Firebase user...")
     performFirstUserMigration(for: firebaseUID, userEmail: userEmail, completion: completion)
   }
 
@@ -60,8 +49,6 @@ class DataMigrationManager {
   func forceMigration(
     for firebaseUID: String, userEmail: String, completion: @escaping (Bool) -> Void
   ) {
-//    print(
-//      "🔄 DataMigrationManager: Force migration for user: \(firebaseUID) with email: \(userEmail)")
     performMigration(for: firebaseUID, userEmail: userEmail, completion: completion)
   }
 
@@ -106,27 +93,15 @@ class DataMigrationManager {
       !existingTransactions.isEmpty || !existingBudgets.isEmpty || hasProfileImage
       || currentMonthIndex != 0
 
-//    print("🔍 Existing local data check (SQLite direct):")
-//    print("   Transactions: \(existingTransactions.count)")
-//    print("   Budgets: \(existingBudgets.count)")
-//    print("   Profile Image: \(hasProfileImage)")
-//    print("   Month Index: \(currentMonthIndex)")
-//    print("   Has Data: \(hasData)")
-
     return hasData
   }
 
   private func performFirstUserMigration(
     for firebaseUID: String, userEmail: String, completion: @escaping (Bool) -> Void
   ) {
-//    print("🎯 Performing first-user migration for: \(firebaseUID) with email: \(userEmail)")
-
     performMigration(for: firebaseUID, userEmail: userEmail) { [weak self] success in
       if success {
-//        print("✅ First-user migration completed successfully")
         self?.markGlobalMigrationComplete(for: firebaseUID)
-      } else {
-//        print("❌ First-user migration failed")
       }
       completion(success)
     }
@@ -140,13 +115,8 @@ class DataMigrationManager {
       firebaseUID: firebaseUID, userEmail: userEmail
     ) { [weak self] success in
       if success {
-//        print("✅ DataMigrationManager: Migration completed successfully")
-
         // Verify migration
-        let verification = self?.verifyMigration(for: firebaseUID)
-//        print("🔍 Migration verification: \(verification?.isComplete == true ? "PASSED" : "FAILED")")
-      } else {
-//        print("❌ DataMigrationManager: Migration failed")
+        _ = self?.verifyMigration(for: firebaseUID)
       }
       completion(success)
     }
@@ -155,7 +125,6 @@ class DataMigrationManager {
   private func markGlobalMigrationComplete(for firebaseUID: String) {
     UserDefaults.standard.set(true, forKey: globalMigrationKey)
     UserDefaults.standard.set(firebaseUID, forKey: migratedDataOwnerKey)
-    print("🔒 Global migration marked complete for owner: \(firebaseUID)")
   }
 
   // MARK: - Migration Statistics
@@ -185,7 +154,6 @@ class DataMigrationManager {
 
   /// Resets migration state (for testing purposes only)
   func resetMigrationState() {
-//    print("🔄 Resetting migration state (testing only)")
     UserDefaults.standard.removeObject(forKey: globalMigrationKey)
     UserDefaults.standard.removeObject(forKey: migratedDataOwnerKey)
   }
@@ -194,22 +162,19 @@ class DataMigrationManager {
   func resetCurrentUserMigrationState() {
     // Get current user from SecureLocalDataManager
     guard let currentUID = SecureLocalDataManager.shared.getCurrentUserUID() else {
-      print("❌ Cannot reset migration state: No authenticated user")
+      logError("Cannot reset migration state: No authenticated user")
       return
     }
-    
+
     // Reset migration flags for current user only
     // Do not affect other users' migration states
     UserDefaults.standard.removeObject(forKey: "migration_completed_\(currentUID)")
-    
+
     // Only reset global migration if current user is the data owner
     let currentDataOwner = UserDefaults.standard.string(forKey: migratedDataOwnerKey)
     if currentDataOwner == currentUID {
       UserDefaults.standard.removeObject(forKey: globalMigrationKey)
       UserDefaults.standard.removeObject(forKey: migratedDataOwnerKey)
-      print("✅ Current user migration state reset (was data owner)")
-    } else {
-      print("✅ Current user migration state reset (preserving other users)")
     }
   }
 
@@ -230,18 +195,12 @@ class DataMigrationManager {
   /// Clears old data after successful migration (use with caution!)
   func clearOldDataAfterMigration(confirmation: String) -> Bool {
     guard confirmation == "CONFIRM_DELETE_OLD_DATA" else {
-//      print("❌ Invalid confirmation string for data deletion")
       return false
     }
 
-//    print("🗑️ Clearing old data after migration...")
-
     // This would clear the SQLite database and UserDefaults
-    // For now, we'll just log what would be cleared
-//    print("⚠️ Old data cleanup not yet implemented for safety")
-//    print("   Would clear: SQLite transactions, budgets, UserDefaults profile data")
-
-    return false  // Return false until actual implementation
+    // Not yet implemented for safety
+    return false
   }
 }
 
@@ -258,10 +217,10 @@ struct MigrationStatistics {
   var summary: String {
     return """
       Migration Statistics:
-      • Transactions: \(migratedTransactionCount)/\(originalTransactionCount) migrated
-      • Budgets: \(migratedBudgetCount)/\(originalBudgetCount) migrated
-      • Status: \(migrationComplete ? "✅ Complete" : "⚠️ Incomplete")
-      • Data Owner: \(isDataOwner ? "✅ Yes" : "❌ No")
+      - Transactions: \(migratedTransactionCount)/\(originalTransactionCount) migrated
+      - Budgets: \(migratedBudgetCount)/\(originalBudgetCount) migrated
+      - Status: \(migrationComplete ? "Complete" : "Incomplete")
+      - Data Owner: \(isDataOwner ? "Yes" : "No")
       """
   }
 }
@@ -274,9 +233,9 @@ struct MigrationState {
   var summary: String {
     return """
       Migration State:
-      • Global Migration Complete: \(isGlobalMigrationComplete ? "✅ Yes" : "❌ No")
-      • Data Owner: \(dataOwner ?? "None")
-      • Has Existing Data: \(hasExistingData ? "✅ Yes" : "❌ No")
+      - Global Migration Complete: \(isGlobalMigrationComplete ? "Yes" : "No")
+      - Data Owner: \(dataOwner ?? "None")
+      - Has Existing Data: \(hasExistingData ? "Yes" : "No")
       """
   }
 }

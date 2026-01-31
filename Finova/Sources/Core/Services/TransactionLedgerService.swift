@@ -65,8 +65,8 @@ final class TransactionLedgerService {
       components.second = 0
 
       guard let monthDate = calendar.date(from: components) else {
-        print(
-          "❌ Failed to create date from components: year=\(targetYear), month=\(normalizedMonth)")
+        logError(
+          "Failed to create date from components: year=\(targetYear), month=\(normalizedMonth)")
         continue
       }
       let anchor = monthDate.monthAnchor
@@ -88,13 +88,9 @@ final class TransactionLedgerService {
       let anchorDate = Date(timeIntervalSince1970: TimeInterval(anchor))
       let components = calendar.dateComponents([.year, .month], from: anchorDate)
 
-      print(
-        "🔍 TransactionLedgerService: anchor=\(anchor), anchorDate=\(anchorDate), components=\(components)"
-      )
-
       // Create a proper date in the user's timezone
       guard let date = calendar.date(from: components) else {
-        print("❌ Failed to reconstruct date from anchor: \(anchor), components: \(components)")
+        logError("Failed to reconstruct date from anchor: \(anchor), components: \(components)")
         // Return a fallback date if reconstruction fails
         let fallbackDate = Date(timeIntervalSince1970: TimeInterval(anchor))
         return MonthBudgetCardType(
@@ -110,13 +106,6 @@ final class TransactionLedgerService {
 
       let month = DateFormatter.monthFormatter.string(from: date)
       let localizedMonth = "month.\(month.lowercased())".localized
-
-      // Debug logging
-      print("🔍 TransactionLedgerService: Month=\(localizedMonth), Date=\(date)")
-      let testRange = calendar.range(of: .day, in: .month, for: date)
-      print(
-        "🔍 TransactionLedgerService: Range=\(String(describing: testRange)), Days=\((testRange?.upperBound ?? 0) - (testRange?.lowerBound ?? 0))"
-      )
 
       // Get transactions for this month using DYNAMIC month anchor calculation
       // This fixes the timezone issue by calculating month anchors on-the-fly
@@ -232,26 +221,6 @@ final class TransactionLedgerService {
       return transactionDateOnly <= todayStart
     }
 
-    // Debug logging to track transaction inclusion
-    print(
-      "🔍 calculateCurrentBalanceForMonth: Found \(transactionsInCurrentMonth.count) transactions in current month"
-    )
-    print(
-      "🔍 calculateCurrentBalanceForMonth: Including \(transactionsUpToToday.count) transactions up to today"
-    )
-
-    // Log transactions for today specifically
-    let todayTransactions = transactionsInCurrentMonth.filter { transaction in
-      let transactionDate = Date(timeIntervalSince1970: TimeInterval(transaction.dateTimestamp))
-      return calendar.isDate(transactionDate, inSameDayAs: today)
-    }
-    print(
-      "🔍 calculateCurrentBalanceForMonth: Found \(todayTransactions.count) transactions for today")
-    for transaction in todayTransactions {
-      print(
-        "🔍 Today's transaction: \(transaction.title) - \(transaction.amount) (\(transaction.type))")
-    }
-
     // Calculate net change from all transactions up to today
     let netUpToToday = transactionsUpToToday.reduce(0) { result, transaction in
       transaction.type == .income ? result + transaction.amount : result - transaction.amount
@@ -259,10 +228,6 @@ final class TransactionLedgerService {
 
     // Current balance = previous month's balance + net change up to today
     let currentBalance = previousBalance + netUpToToday
-
-    print(
-      "🔍 calculateCurrentBalanceForMonth: Previous balance: \(previousBalance), Net up to today: \(netUpToToday), Current balance: \(currentBalance)"
-    )
 
     return currentBalance
   }
@@ -304,14 +269,38 @@ final class TransactionLedgerService {
 
   /// Get the current balance for a specific month (up to current date if it's the current month)
   func getCurrentBalance(for monthAnchor: Int) -> Int? {
-    let monthlyData = calculateMonthlyData(for: monthAnchor...monthAnchor)
+    let offset = monthOffsetFromAnchor(monthAnchor)
+    let monthlyData = calculateMonthlyData(for: offset...offset)
     return monthlyData.first?.currentBalance
   }
 
   /// Get the final balance for a specific month (end-of-month balance)
   func getFinalBalance(for monthAnchor: Int) -> Int? {
-    let monthlyData = calculateMonthlyData(for: monthAnchor...monthAnchor)
+    let offset = monthOffsetFromAnchor(monthAnchor)
+    let monthlyData = calculateMonthlyData(for: offset...offset)
     return monthlyData.first?.finalBalance
+  }
+
+  /// Get monthly data for a specific month anchor
+  func getMonthlyData(for monthAnchor: Int) -> MonthBudgetCardType? {
+    let offset = monthOffsetFromAnchor(monthAnchor)
+    let monthlyData = calculateMonthlyData(for: offset...offset)
+    return monthlyData.first
+  }
+
+  /// Convert a month anchor to an offset from the current month
+  func monthOffsetFromAnchor(_ anchor: Int) -> Int {
+    let anchorDate = Date(timeIntervalSince1970: TimeInterval(anchor))
+    let anchorComponents = calendar.dateComponents([.year, .month], from: anchorDate)
+    let currentComponents = calendar.dateComponents([.year, .month], from: Date())
+
+    guard let anchorYear = anchorComponents.year, let anchorMonth = anchorComponents.month,
+      let currentYear = currentComponents.year, let currentMonth = currentComponents.month
+    else {
+      return 0
+    }
+
+    return (anchorYear - currentYear) * 12 + (anchorMonth - currentMonth)
   }
 
   /// Refresh the current balance for the current month (useful after transaction changes)
@@ -328,54 +317,23 @@ final class TransactionLedgerService {
 
   /// Force refresh current month balance with detailed logging
   func forceRefreshCurrentMonthBalance() {
-    let today = Date()
-
-    // Use user's current timezone for month anchor calculation
-    let userTimeZone = TimeZone.current
-    var userCalendar = Calendar.current
-    userCalendar.timeZone = userTimeZone
-
-    // Calculate current month anchor using user's timezone
-    let todayInUserTZ =
-      userCalendar.date(byAdding: .second, value: userTimeZone.secondsFromGMT(), to: today)
-      ?? today
-    let currentMonthAnchor = todayInUserTZ.monthAnchor
-
     // Clear all cache to ensure fresh calculation
     monthlyDataCache.removeAll()
     lastCacheUpdate = Date.distantPast
 
-    // Force recalculate current month
-    let freshData = calculateMonthlyData(for: currentMonthAnchor...currentMonthAnchor)
-    if let currentMonthData = freshData.first {
-      print(
-        "💰 Fresh current month data - Final: \(currentMonthData.finalBalance ?? 0), Current: \(currentMonthData.currentBalance ?? 0)"
-      )
-    }
-
+    // Force recalculate current month (offset 0 = current month)
+    _ = calculateMonthlyData(for: 0...0)
   }
 
   /// Force refresh all balance calculations (useful after fixing date comparison issues)
   func forceRefreshAllBalances() {
-    print("🔄 Force refreshing all balance calculations...")
-
     // Clear all cache
     monthlyDataCache.removeAll()
     lastCacheUpdate = Date.distantPast
 
     // Force recalculate a range of months to ensure fresh data
-    let today = Date()
-    let currentMonthAnchor = today.monthAnchor
-    let monthRange = (currentMonthAnchor - 2)...(currentMonthAnchor + 1)  // Include previous and next month
-
-    let freshData = calculateMonthlyData(for: monthRange)
-    print("💰 Refreshed \(freshData.count) months of data")
-
-    for monthData in freshData {
-      print(
-        "💰 Month \(monthData.month): Final=\(monthData.finalBalance ?? 0), Current=\(monthData.currentBalance ?? 0)"
-      )
-    }
+    // Use offsets: -2 (2 months ago) to +1 (next month)
+    _ = calculateMonthlyData(for: -2...1)
   }
 
   // MARK: - Daily Balance Calculations
@@ -451,21 +409,6 @@ final class TransactionLedgerService {
         transaction.type == .income ? result + transaction.amount : result - transaction.amount
       }
 
-      // Debug logging for target month
-      if isTargetMonth {
-        print(
-          "🔍 calculateBalanceForDay: Target month (day \(day)) - Found \(relevantTransactions.count) transactions"
-        )
-        for transaction in relevantTransactions {
-          let transactionDate = Date(timeIntervalSince1970: TimeInterval(transaction.dateTimestamp))
-          let dayComponent = calendar.component(.day, from: transactionDate)
-          print(
-            "🔍 Day \(dayComponent) transaction: \(transaction.title) - \(transaction.amount) (\(transaction.type))"
-          )
-        }
-        print("🔍 Net change for target month: \(netChange)")
-      }
-
       runningBalance += netChange
       lastProcessedMonthAnchor = monthAnchor
     }
@@ -478,127 +421,30 @@ final class TransactionLedgerService {
     let today = Date()
     let currentMonthAnchor = today.monthAnchor
 
-    // Get previous month's final balance
-    let previousMonthAnchor = currentMonthAnchor - 1
-    let previousMonthData = calculateMonthlyData(for: previousMonthAnchor...previousMonthAnchor)
+    // Get previous month's final balance using offset -1 (previous month)
+    let previousMonthData = calculateMonthlyData(for: -1...(-1))
     let previousBalance = previousMonthData.first?.finalBalance ?? 0
 
     return calculateBalanceForDay(
       day: day, monthAnchor: currentMonthAnchor, previousMonthBalance: previousBalance)
   }
 
-  /// Debug method to specifically check "Aula de canto" transaction
-  func debugAulaDeCantoTransaction() {
-    print("🎵 Debugging 'Aula de canto' transaction specifically...")
-
-    let allTransactions = transactionRepo.fetchAllTransactions()
-    let aulaDeCantoTransactions = allTransactions.filter { $0.title.contains("Aula de canto") }
-
-    if aulaDeCantoTransactions.isEmpty {
-      print("❌ No 'Aula de canto' transactions found in the system")
-      return
-    }
-
-    print("🎵 Found \(aulaDeCantoTransactions.count) 'Aula de canto' transactions:")
-
-    for (index, tx) in aulaDeCantoTransactions.enumerated() {
-      print("🎵 Transaction \(index + 1):")
-      print("   - ID: \(tx.id ?? -1)")
-      print("   - Title: '\(tx.title)'")
-      print("   - Amount: \(tx.amount)")
-      print("   - Date: \(tx.date)")
-      print("   - Date Timestamp: \(tx.dateTimestamp)")
-      let txMonthAnchor = tx.date.monthAnchor
-      print("   - Month Anchor (calculated): \(txMonthAnchor)")
-      print("   - Is Recurring: \(tx.isRecurring ?? false)")
-      print("   - Parent Transaction ID: \(tx.parentTransactionId ?? -1)")
-      print("   - Category: \(tx.category.key)")
-      print("   - Type: \(tx.type.key)")
-
-      // Check if it's in current month using dynamic month anchor calculation
-      let today = Date()
-      let currentMonthAnchor = today.monthAnchor
-      let currentMonthAnchorUTC = today.monthAnchorUTC
-      let isCurrentMonth = txMonthAnchor == currentMonthAnchor
-      let isUpToToday = tx.date <= today
-
-      print("   - Is Current Month: \(isCurrentMonth)")
-      print("   - Is Up To Today: \(isUpToToday)")
-      print("   - Should Affect Current Balance: \(isCurrentMonth && isUpToToday)")
-      print("   - Current month anchor (User TZ): \(currentMonthAnchor)")
-      print("   - Current month anchor (UTC): \(currentMonthAnchorUTC)")
-      print("   - Transaction month anchor (calculated): \(txMonthAnchor)")
-      print("   - Month anchor difference: \(txMonthAnchor - currentMonthAnchor)")
-    }
-
-    // Check if it's affecting the current balance calculation
-    let today = Date()
-
-    // Use user's current timezone for month anchor calculation
-    let userTimeZone = TimeZone.current
-    var userCalendar = Calendar.current
-    userCalendar.timeZone = userTimeZone
-
-    let todayInUserTZ =
-      userCalendar.date(byAdding: .second, value: userTimeZone.secondsFromGMT(), to: today)
-      ?? today
-    let currentMonthAnchor = todayInUserTZ.monthAnchor
-
-    let currentMonthTransactions = allTransactions.filter { transaction in
-      let transactionDate = Date(timeIntervalSince1970: TimeInterval(transaction.dateTimestamp))
-      let transactionMonthAnchor = transactionDate.monthAnchor
-      return transactionMonthAnchor == currentMonthAnchor
-    }
-    let transactionsUpToToday = allTransactions.filter { transaction in
-      let transactionDate = Date(timeIntervalSince1970: TimeInterval(transaction.dateTimestamp))
-      let transactionDateInUserTZ =
-        userCalendar.date(
-          byAdding: .second, value: userTimeZone.secondsFromGMT(), to: transactionDate)
-        ?? transactionDate
-      return transactionDateInUserTZ <= todayInUserTZ
-    }
-
-    // Check if "Aula de canto" is in transactions up to today
-    let aulaDeCantoUpToToday = transactionsUpToToday.filter { $0.title.contains("Aula de canto") }
-    print("   - 'Aula de canto' transactions up to today: \(aulaDeCantoUpToToday.count)")
-
-    if !aulaDeCantoUpToToday.isEmpty {
-      print("✅ 'Aula de canto' IS being considered in current balance calculation")
-    } else {
-      print("❌ 'Aula de canto' is NOT being considered in current balance calculation")
-
-      // Check why it's not being included
-      for tx in aulaDeCantoTransactions {
-        let transactionDate = Date(timeIntervalSince1970: TimeInterval(tx.dateTimestamp))
-        let transactionDateInUserTZ =
-          userCalendar.date(
-            byAdding: .second, value: userTimeZone.secondsFromGMT(), to: transactionDate)
-          ?? transactionDate
-        print(
-          "   - '\(tx.title)' date (UTC): \(transactionDate), date (User TZ): \(transactionDateInUserTZ), today (User TZ): \(todayInUserTZ), isBeforeOrToday: \(transactionDateInUserTZ <= todayInUserTZ)"
-        )
-      }
-    }
-  }
 
   // MARK: - Cache Management
 
   func invalidateCache() {
     monthlyDataCache.removeAll()
     lastCacheUpdate = Date.distantPast
-    print("🗑️ Transaction ledger cache invalidated")
   }
 
   /// Invalidate cache for specific month (useful for targeted updates)
   func invalidateCacheForMonth(_ monthAnchor: Int) {
     monthlyDataCache.removeValue(forKey: monthAnchor)
-    print("🗑️ Transaction ledger cache invalidated for month anchor: \(monthAnchor)")
   }
 
   func clearCache() {
     monthlyDataCache.removeAll()
     lastCacheUpdate = Date.distantPast
-    print("🗑️ Transaction ledger cache cleared")
   }
 
   // MARK: - Data Cleanup
@@ -624,10 +470,6 @@ final class TransactionLedgerService {
 
       // If the month anchor changed, update the budget
       if newMonthAnchor != budget.monthDate {
-        print(
-          "🔄 Migrating budget: \(oldDate) (old anchor: \(budget.monthDate) → new anchor: \(newMonthAnchor))"
-        )
-
         do {
           // Create new budget with new month anchor
           let newBudget = BudgetModel(monthDate: newMonthAnchor, amount: budget.amount)
@@ -639,12 +481,9 @@ final class TransactionLedgerService {
           try budgetRepo.insert(budget: newBudget)
 
           migratedCount += 1
-          print("✅ Successfully migrated budget for \(oldDate)")
         } catch {
-          print("❌ Failed to migrate budget for \(oldDate): \(error)")
+          logError("Failed to migrate budget for \(oldDate): \(error)")
         }
-      } else {
-        print("⏭️ Budget for \(oldDate) already has correct month anchor: \(budget.monthDate)")
       }
     }
 
@@ -672,40 +511,11 @@ final class TransactionLedgerService {
 
       // If the month anchor changed, we need to adjust the dateTimestamp
       if newMonthAnchor != transaction.budgetMonthDate {
-        print(
-          "🔄 Migrating transaction '\(transaction.title)': \(oldDate) (old anchor: \(transaction.budgetMonthDate) → new anchor: \(newMonthAnchor))"
-        )
-
-        // Calculate the adjustment needed
-        let oldMonthAnchor = transaction.budgetMonthDate
-        let adjustment = newMonthAnchor - oldMonthAnchor
-
-        // Adjust the dateTimestamp to match the new month anchor
-        let newDateTimestamp = transaction.dateTimestamp + adjustment
-
-        print(
-          "   - Adjusting dateTimestamp: \(transaction.dateTimestamp) → \(newDateTimestamp) (adjustment: \(adjustment))"
-        )
-
         // Since we can't directly update transactions, we'll need to recreate them
-        // For now, let's just log the migration and clear the cache
         // The actual migration will happen when transactions are recreated
         migratedCount += 1
-        print(
-          "✅ Marked transaction '\(transaction.title)' for migration (date adjustment: \(adjustment) seconds)"
-        )
-      } else {
-        print(
-          "⏭️ Transaction '\(transaction.title)' already has correct month anchor: \(transaction.budgetMonthDate)"
-        )
       }
     }
-
-    print(
-      "🔄 Transaction migration analysis completed. \(migratedCount) transactions need date adjustment."
-    )
-    print("⚠️ Note: Transaction migration requires recreating transactions with adjusted dates.")
-    print("⚠️ This will be handled automatically when the app processes transactions.")
 
     // Clear cache to ensure fresh data
     invalidateCache()
@@ -715,35 +525,18 @@ final class TransactionLedgerService {
   func cleanupDuplicateTransactions() {
     let allTransactions = transactionRepo.fetchAllTransactions()
 
-    print("🧹 Cleaning up duplicate transactions...")
-
     // Group transactions by month for easier processing
     let transactionsByMonth = Dictionary(grouping: allTransactions) { transaction in
       let transactionDate = Date(timeIntervalSince1970: TimeInterval(transaction.dateTimestamp))
       return transactionDate.monthAnchor
     }
 
-    var totalDuplicatesRemoved = 0
-
     for (monthAnchor, transactions) in transactionsByMonth {
       if transactions.count > 1 {
-        let date = Date(timeIntervalSince1970: TimeInterval(monthAnchor))
-        print(
-          "⚠️ Month \(date): Found \(transactions.count) transactions, checking for duplicates...")
-
         // Find exact duplicates based on name, date, amount, and category
-        let duplicatesRemoved = removeExactDuplicates(from: transactions, monthAnchor: monthAnchor)
-        totalDuplicatesRemoved += duplicatesRemoved
-
-        if duplicatesRemoved > 0 {
-          print("✅ Removed \(duplicatesRemoved) exact duplicates from month \(date)")
-        }
+        _ = removeExactDuplicates(from: transactions, monthAnchor: monthAnchor)
       }
     }
-
-    print(
-      "🧹 Duplicate transaction cleanup completed. Total duplicates removed: \(totalDuplicatesRemoved)"
-    )
   }
 
   /// Remove exact duplicates based on name, date, amount, and category
@@ -784,19 +577,14 @@ final class TransactionLedgerService {
       }
 
       if !duplicateInstances.isEmpty {
-        print(
-          "🔄 Found \(duplicateInstances.count) recurring instances for parent '\(parent.title)' in same month"
-        )
-
         // Remove all instances for the same month (keep the parent)
         for instance in duplicateInstances {
           if let instanceId = instance.id {
             do {
               try transactionRepo.delete(id: instanceId)
               duplicatesRemoved += 1
-              print("✅ Deleted recurring duplicate: \(instance.title) (ID: \(instanceId))")
             } catch {
-              print("❌ Failed to delete recurring duplicate: \(error)")
+              logError("Failed to delete recurring duplicate: \(error)")
             }
           }
         }
@@ -828,11 +616,7 @@ final class TransactionLedgerService {
 
         // Sort by ID to keep the oldest (lowest ID)
         let sortedGroup = group.sorted { ($0.id ?? 0) < ($1.id ?? 0) }
-        let parentToKeep = sortedGroup.first!
         let duplicatesToRemove = Array(sortedGroup.dropFirst())
-
-        print("📌 Keeping parent recurring transaction ID: \(parentToKeep.id ?? -1) (oldest)")
-        print("🗑️ Removing \(duplicatesToRemove.count) duplicate parents...")
 
         // Remove duplicate parents and all their instances
         for duplicateParent in duplicatesToRemove {
@@ -844,10 +628,8 @@ final class TransactionLedgerService {
               if let instanceId = instance.id {
                 do {
                   try transactionRepo.delete(id: instanceId)
-                  print(
-                    "✅ Deleted instance of duplicate parent: \(instance.title) (ID: \(instanceId))")
                 } catch {
-                  print("❌ Failed to delete instance: \(error)")
+                  logError("Failed to delete instance: \(error)")
                 }
               }
             }
@@ -856,10 +638,8 @@ final class TransactionLedgerService {
             do {
               try transactionRepo.delete(id: duplicateParentId)
               duplicatesRemoved += 1
-              print(
-                "✅ Deleted duplicate parent: \(duplicateParent.title) (ID: \(duplicateParentId))")
             } catch {
-              print("❌ Failed to delete duplicate parent: \(error)")
+              logError("Failed to delete duplicate parent: \(error)")
             }
           }
         }
@@ -890,11 +670,7 @@ final class TransactionLedgerService {
 
         // Sort by ID to ensure we keep the oldest transaction (lowest ID)
         let sortedGroup = group.sorted { ($0.id ?? 0) < ($1.id ?? 0) }
-        let transactionToKeep = sortedGroup.first!
         let duplicatesToRemove = Array(sortedGroup.dropFirst())
-
-        print("📌 Keeping transaction ID: \(transactionToKeep.id ?? -1) (oldest)")
-        print("🗑️ Removing \(duplicatesToRemove.count) duplicates...")
 
         // Remove duplicates
         for duplicate in duplicatesToRemove {
@@ -902,9 +678,8 @@ final class TransactionLedgerService {
             do {
               try transactionRepo.delete(id: duplicateId)
               duplicatesRemoved += 1
-              print("✅ Deleted duplicate: \(duplicate.title) (ID: \(duplicateId))")
             } catch {
-              print("❌ Failed to delete duplicate: \(error)")
+              logError("Failed to delete duplicate: \(error)")
             }
           }
         }
@@ -929,7 +704,6 @@ final class TransactionLedgerService {
   func clearAllCache() {
     monthlyDataCache.removeAll()
     lastCacheUpdate = Date.distantPast
-    print("🧹 Cleared all monthly data cache")
   }
 
   /// Check if transactions can be recovered from SQLite
@@ -949,18 +723,12 @@ final class TransactionLedgerService {
     let existingTransactions = SecureLocalDataManager.shared.loadTransactions()
 
     if existingTransactions.count > 0 {
-      print(
-        "🔒 DEBUG: SecureLocalDataManager already has \(existingTransactions.count) transactions, skipping recovery"
-      )
       return false
     }
 
     let sqliteTransactions = checkSQLiteRecovery()
 
     if sqliteTransactions.count > 0 {
-      print(
-        "🔒 DEBUG: Recovering \(sqliteTransactions.count) transactions from SQLite to SecureLocalDataManager"
-      )
       // Save recovered transactions to SecureLocalDataManager
       SecureLocalDataManager.shared.saveTransactions(sqliteTransactions)
 

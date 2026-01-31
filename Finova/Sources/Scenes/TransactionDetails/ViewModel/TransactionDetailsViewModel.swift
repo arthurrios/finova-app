@@ -124,21 +124,11 @@ final class TransactionDetailsViewModel {
     // If no installments found with the current parent ID, try to find by title and date
     // This handles cases where the parent ID changed after an update
     if relatedInstallments.isEmpty {
-      print(
-        "🔄 INSTALLMENT LOOKUP: No installments found with parent ID \(targetParentId), trying fallback lookup"
-      )
-
       // Look for installments with the same title and total installments count
       if let totalInstallments = transaction.totalInstallments {
         relatedInstallments = allTransactions.filter { tx in
           return tx.title == transaction.title && tx.totalInstallments == totalInstallments
             && tx.installmentNumber != nil && tx.mode == .installments
-        }
-
-        if !relatedInstallments.isEmpty {
-          print(
-            "🔄 INSTALLMENT LOOKUP: Found \(relatedInstallments.count) installments using fallback lookup"
-          )
         }
       }
     }
@@ -208,9 +198,6 @@ final class TransactionDetailsViewModel {
       if let updatedTransaction = allTransactions.first(where: {
         $0.parentTransactionId == parentId && $0.installmentNumber == installmentNumber
       }) {
-        print(
-          "🔄 REFRESH: Found updated installment transaction with new ID: \(updatedTransaction.id ?? 0)"
-        )
         self.transaction = updatedTransaction
         return
       }
@@ -221,21 +208,13 @@ final class TransactionDetailsViewModel {
           && $0.mode == .installments
           && Calendar.current.isDate($0.date, inSameDayAs: transaction.date)
       }) {
-        print(
-          "🔄 REFRESH: Found updated installment transaction by title/date with new ID: \(updatedTransaction.id ?? 0)"
-        )
         self.transaction = updatedTransaction
         return
       }
-
-      print("⚠️ REFRESH: Could not find updated installment transaction")
     } else {
       // For normal and recurring transactions, find by ID
       if let updatedTransaction = allTransactions.first(where: { $0.id == transactionId }) {
-        print("🔄 REFRESH: Found updated transaction with same ID: \(transactionId)")
         self.transaction = updatedTransaction
-      } else {
-        print("⚠️ REFRESH: Could not find updated transaction with ID: \(transactionId)")
       }
     }
   }
@@ -244,12 +223,7 @@ final class TransactionDetailsViewModel {
     // Force refresh of related installments data
     // This is called after updating installment transactions to ensure the additional details are correct
     if transaction.mode == .installments {
-      let relatedInstallments = getRelatedInstallments()
-      print("🔄 REFRESH: Found \(relatedInstallments.count) related installments after update")
-
-      // Log the parent ID being used for lookup
-      let parentId = transaction.parentTransactionId ?? transaction.id
-      print("🔄 REFRESH: Using parent ID: \(parentId ?? 0) for installment lookup")
+      _ = getRelatedInstallments()
     }
   }
 }
