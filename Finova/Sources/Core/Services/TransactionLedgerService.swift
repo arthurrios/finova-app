@@ -188,48 +188,51 @@ final class TransactionLedgerService {
     let today = Date()
     let monthDate = Date(timeIntervalSince1970: TimeInterval(anchor))
 
-    // Check if this is the current month using simple month comparison
     let calendar = Calendar.current
-    let isCurrentMonth = calendar.isDate(monthDate, equalTo: today, toGranularity: .month)
 
-    if !isCurrentMonth {
-      // For past/future months, return the final balance (end-of-month)
-      return previousBalance
-    }
-
-    // For current month, calculate balance up to today
-    // First filter by month using monthAnchor (which already handles timezone correctly)
-    let transactionsInCurrentMonth = allTransactions.filter { transaction in
+    // Get transactions for this month
+    let transactionsInMonth = allTransactions.filter { transaction in
       let transactionDate = Date(timeIntervalSince1970: TimeInterval(transaction.dateTimestamp))
       let transactionMonthAnchor = transactionDate.monthAnchor
       return transactionMonthAnchor == anchor
     }
 
-    // Get today's date components for proper date comparison
+    // Check if this month is in the past, current, or future
+    let isCurrentMonth = calendar.isDate(monthDate, equalTo: today, toGranularity: .month)
+    let isPastMonth = monthDate < today && !isCurrentMonth
+
+    if isPastMonth {
+      // For past months, current balance = final balance (all transactions)
+      let netForMonth = transactionsInMonth.reduce(0) { result, transaction in
+        transaction.type == .income ? result + transaction.amount : result - transaction.amount
+      }
+      return previousBalance + netForMonth
+    }
+
+    if !isCurrentMonth {
+      // For future months, no transactions have happened yet
+      return previousBalance
+    }
+
+    // For current month, calculate balance up to today
     let todayComponents = calendar.dateComponents([.year, .month, .day], from: today)
     let todayStart = calendar.date(from: todayComponents) ?? today
 
-    // Filter transactions up to and including today using date components comparison
-    // This ensures we include all transactions for the current day regardless of time
-    let transactionsUpToToday = transactionsInCurrentMonth.filter { transaction in
+    // Filter transactions up to and including today
+    let transactionsUpToToday = transactionsInMonth.filter { transaction in
       let transactionDate = Date(timeIntervalSince1970: TimeInterval(transaction.dateTimestamp))
       let transactionComponents = calendar.dateComponents(
         [.year, .month, .day], from: transactionDate)
       let transactionDateOnly = calendar.date(from: transactionComponents) ?? transactionDate
-
-      // Include transactions from today and earlier
       return transactionDateOnly <= todayStart
     }
 
-    // Calculate net change from all transactions up to today
+    // Calculate net change from transactions up to today
     let netUpToToday = transactionsUpToToday.reduce(0) { result, transaction in
       transaction.type == .income ? result + transaction.amount : result - transaction.amount
     }
 
-    // Current balance = previous month's balance + net change up to today
-    let currentBalance = previousBalance + netUpToToday
-
-    return currentBalance
+    return previousBalance + netUpToToday
   }
 
   func calculateCurrentBalance(for monthAnchor: Int) -> Int {

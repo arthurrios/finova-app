@@ -327,6 +327,12 @@ class MonthCarouselCell: UICollectionViewCell {
     // Reset table view to a clean state before reloading
     transactionTableView.setContentOffset(.zero, animated: false)
     transactionTableView.isUserInteractionEnabled = true
+    transactionTableView.contentInset = .zero
+    transactionTableView.scrollIndicatorInsets = .zero
+
+    // Reset height constraint to force fresh calculation
+    tableHeightConstraint?.isActive = false
+    tableHeightConstraint = nil
 
     // Reload data
     transactionTableView.reloadData()
@@ -686,6 +692,15 @@ class MonthCarouselCell: UICollectionViewCell {
     monthCardHeightConstraint?.isActive = false
     monthCardHeightConstraint = nil
 
+    // Reset table height constraint to force recalculation
+    tableHeightConstraint?.isActive = false
+    tableHeightConstraint = nil
+
+    // Reset scroll state to default
+    transactionTableView.isScrollEnabled = false
+    transactionTableView.contentInset = .zero
+    transactionTableView.scrollIndicatorInsets = .zero
+
     clearSearch()
   }
 }
@@ -719,6 +734,11 @@ extension MonthCarouselCell {
         // Keyboard is hiding - reset insets
         self.transactionTableView.contentInset.bottom = 0
         self.transactionTableView.scrollIndicatorInsets.bottom = 0
+
+        // Recalculate scroll enabled state based on actual content
+        let contentHeight = self.transactionTableView.contentSize.height
+        let tableHeight = self.tableHeightConstraint?.constant ?? self.transactionTableView.bounds.height
+        self.transactionTableView.isScrollEnabled = (contentHeight > tableHeight)
       }
     }
   }
