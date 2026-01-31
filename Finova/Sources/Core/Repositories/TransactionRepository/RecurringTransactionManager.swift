@@ -515,6 +515,7 @@ final class RecurringTransactionManager {
   // MARK: - Recurring Transaction Editing
 
   /// Edit recurring transactions based on the selected option
+  /// Optimized to minimize database calls and remove excessive logging
   func editRecurringTransactionsFromDate(
     parentTransactionId: Int,
     selectedTransactionDate: Date,
@@ -522,91 +523,61 @@ final class RecurringTransactionManager {
     newData: TransactionModel
   ) throws {
     print(
-      "✏️ Starting edit for recurring transaction \(parentTransactionId) with option: \(editOption)"
-    )
-
-    // Debug the input data
-    print(
-      "✏️ DEBUG: Input newData - title: '\(newData.data.title)', category: '\(newData.data.category)', type: '\(newData.data.type)'"
+      "✏️ Editing recurring transaction \(parentTransactionId) with option: \(editOption)"
     )
 
     let selectedAnchor = selectedTransactionDate.monthAnchor
-    let allInstances = transactionRepo.fetchAllRecurringInstances()
 
-    let relatedInstances = allInstances.filter {
+    // Fetch all transactions ONCE
+    let allTransactions = transactionRepo.fetchAllTransactions()
+
+    // Filter to related instances
+    let relatedInstances = allTransactions.filter {
       $0.parentTransactionId == parentTransactionId || $0.id == parentTransactionId
     }
 
-    print("✏️ Found \(relatedInstances.count) related instances for parent \(parentTransactionId)")
-    print("✏️ DEBUG: Related instances:")
-    for instance in relatedInstances {
-      let instanceDate = Date(timeIntervalSince1970: TimeInterval(instance.dateTimestamp))
-      let isParent = instance.id == parentTransactionId
-      let isChild = instance.parentTransactionId == parentTransactionId
-      print(
-        "✏️ DEBUG: - Instance \(instance.id ?? -1): Date=\(instanceDate), IsParent=\(isParent), IsChild=\(isChild)"
-      )
+    guard !relatedInstances.isEmpty else {
+      print("❌ No related instances found for parent \(parentTransactionId)")
+      return
     }
 
-    // Update instances based on edit option
-    var instancesToUpdate: [Int] = []
+    // Build list of instances to update based on edit option
+    var instancesToUpdate: [(id: Int, originalDate: Date)] = []
 
     for instance in relatedInstances {
-      // Calculate the month anchor from the actual transaction date
-      // This fixes the issue where budgetMonthDate might contain transaction timestamps instead of month anchors
+      guard let instanceId = instance.id else { continue }
+
       let instanceDate = Date(timeIntervalSince1970: TimeInterval(instance.dateTimestamp))
       let instanceMonthAnchor = instanceDate.monthAnchor
 
       let shouldUpdate: Bool
-
       switch editOption {
       case .currentSelection:
-        // Only update the current selected transaction
         shouldUpdate = instanceMonthAnchor == selectedAnchor
-        print(
-          "✏️ DEBUG: Current selection - instance anchor: \(instanceMonthAnchor), selected anchor: \(selectedAnchor), shouldUpdate: \(shouldUpdate)"
-        )
       case .futureOnly:
         shouldUpdate = instanceMonthAnchor >= selectedAnchor
-        print(
-          "✏️ DEBUG: Future only - instance anchor: \(instanceMonthAnchor), selected anchor: \(selectedAnchor), shouldUpdate: \(shouldUpdate)"
-        )
       case .all:
         shouldUpdate = true
-        print(
-          "✏️ DEBUG: All - instance anchor: \(instanceMonthAnchor), shouldUpdate: \(shouldUpdate)"
-        )
       }
 
-      if shouldUpdate, let instanceId = instance.id {
-        instancesToUpdate.append(instanceId)
-        print("✏️ DEBUG: Added instance \(instanceId) to update list")
+      if shouldUpdate {
+        instancesToUpdate.append((id: instanceId, originalDate: instanceDate))
       }
     }
 
+    guard !instancesToUpdate.isEmpty else {
+      print("✏️ No instances matched the edit criteria")
+      return
+    }
+
+    print("✏️ Updating \(instancesToUpdate.count) instances")
+
     // Get the new day from the selected transaction date
-    // Use local calendar to extract day to avoid timezone issues
     let localCalendar = Calendar.current
     let newDay = localCalendar.component(.day, from: selectedTransactionDate)
-    print("✏️ DEBUG: Selected transaction date: \(selectedTransactionDate)")
-    print("✏️ DEBUG: Extracted new day (local): \(newDay)")
-    print("✏️ DEBUG: Instances to update: \(instancesToUpdate.count)")
 
-    // Parent transaction is now included in relatedInstances, so no need for separate logic
-
-    // Perform updates atomically
-    print("✏️ DEBUG: Starting to update \(instancesToUpdate.count) instances")
-    for instanceId in instancesToUpdate {
-      print("✏️ DEBUG: Processing instance \(instanceId)")
-      // Find the original instance to get its month/year
-      guard let originalInstance = relatedInstances.first(where: { $0.id == instanceId }) else {
-        print("❌ Could not find original instance \(instanceId)")
-        continue
-      }
-      print("✏️ DEBUG: Found original instance \(instanceId) with date: \(originalInstance.date)")
-
-      // Calculate the new date for this instance (same day, same month/year as original)
-      let originalDate = originalInstance.date
+    // Perform all updates
+    for (instanceId, originalDate) in instancesToUpdate {
       let originalYear = calendar.component(.year, from: originalDate)
       let originalMonth = calendar.component(.month, from: originalDate)
 
@@ -619,136 +590,39 @@ final class RecurringTransactionManager {
       dateComponents.minute = 0
       dateComponents.second = 0
 
-      print(
-        "✏️ DEBUG: Creating date for instance \(instanceId) - Year: \(originalYear), Month: \(originalMonth), Day: \(newDay)"
-      )
-      print("✏️ DEBUG: Original date was: \(originalDate)")
-      print("✏️ DEBUG: Date components: \(dateComponents)")
-
-      // Try to create the date with the new day using local calendar
       var newDate = localCalendar.date(from: dateComponents)
 
       // If the date is invalid (e.g., Feb 31), adjust to the last valid day of the month
       if newDate == nil {
         let lastDayOfMonth =
           localCalendar.range(of: .day, in: .month, for: originalDate)?.upperBound ?? 31
-        let actualLastDay = lastDayOfMonth - 1  // upperBound is exclusive
+        let actualLastDay = lastDayOfMonth - 1
         dateComponents.day = actualLastDay
         newDate = localCalendar.date(from: dateComponents)
-        print("✏️ DEBUG: Invalid date, adjusted to last day of month: \(actualLastDay)")
       }
 
-      guard let finalDate = newDate else {
-        print("❌ Could not create new date for instance \(instanceId)")
-        continue
-      }
+      guard let finalDate = newDate else { continue }
 
-      print("✏️ DEBUG: Final date created: \(finalDate)")
-      print("✏️ DEBUG: Final day component (UTC): \(calendar.component(.day, from: finalDate))")
-      print(
-        "✏️ DEBUG: Final day component (local): \(localCalendar.component(.day, from: finalDate))")
-
-      let newTimestamp = Int(finalDate.timeIntervalSince1970)
-      let newBudgetMonthDate = finalDate.monthAnchor
-
-      // Create updated transaction model with new data and updated date
-      let updatedModel = TransactionModel(
+      let updatedTransaction = TransactionModel(
         id: instanceId,
         title: newData.data.title,
         category: newData.data.category,
         amount: newData.data.amount,
         type: newData.data.type,
-        dateTimestamp: newTimestamp,
-        budgetMonthDate: newBudgetMonthDate,
-        parentTransactionId: parentTransactionId
+        dateTimestamp: Int(finalDate.timeIntervalSince1970),
+        budgetMonthDate: finalDate.monthAnchor,
+        isRecurring: newData.data.isRecurring,
+        hasInstallments: newData.data.hasInstallments,
+        parentTransactionId: parentTransactionId,
+        originalAmount: newData.data.originalAmount,
+        installmentNumber: newData.data.installmentNumber,
+        totalInstallments: newData.data.totalInstallments
       )
 
-      print(
-        "✏️ DEBUG: About to update transaction \(instanceId) with new timestamp: \(newTimestamp)")
-      print(
-        "✏️ DEBUG: Updated model data - title: '\(updatedModel.data.title)', amount: \(updatedModel.data.amount), dateTimestamp: \(updatedModel.data.dateTimestamp), budgetMonthDate: \(updatedModel.data.budgetMonthDate)"
-      )
-
-      do {
-        // Use updateSingleTransactionOnly to avoid TransactionRepository's recurring logic
-        let category =
-          TransactionCategory.allCases.first(where: { $0.key == updatedModel.data.category })
-          ?? .miscellaneous
-        let type =
-          TransactionType.allCases.first(where: { String(describing: $0) == updatedModel.data.type }
-          ) ?? .expense
-
-        // Create a custom update that preserves the correct budgetMonthDate
-        let updatedTransaction = TransactionModel(
-          id: instanceId,
-          title: updatedModel.data.title,
-          category: updatedModel.data.category,
-          amount: updatedModel.data.amount,
-          type: updatedModel.data.type,
-          dateTimestamp: Int(finalDate.timeIntervalSince1970),
-          budgetMonthDate: finalDate.monthAnchor,  // Use proper month anchor calculation
-          isRecurring: updatedModel.data.isRecurring,
-          hasInstallments: updatedModel.data.hasInstallments,
-          parentTransactionId: updatedModel.data.parentTransactionId,
-          originalAmount: updatedModel.data.originalAmount,
-          installmentNumber: updatedModel.data.installmentNumber,
-          totalInstallments: updatedModel.data.totalInstallments
-        )
-
-        // Use the new direct update method that preserves correct budgetMonthDate
-        try transactionRepo.updateTransactionDirectly(updatedTransaction)
-
-        // Verify the update was successful by fetching the transaction
-        let allTransactions = transactionRepo.fetchAllTransactions()
-        if let updatedTransaction = allTransactions.first(where: { $0.id == instanceId }) {
-          let updatedDate = Date(
-            timeIntervalSince1970: TimeInterval(updatedTransaction.dateTimestamp))
-          print(
-            "✅ VERIFICATION: Transaction \(instanceId) updated successfully - Date: \(updatedDate), Day: \(Calendar.current.component(.day, from: updatedDate)), BudgetMonthDate: \(updatedTransaction.budgetMonthDate)"
-          )
-        } else {
-          print("❌ VERIFICATION: Transaction \(instanceId) NOT FOUND after update!")
-        }
-
-        print(
-          "✅ Successfully updated instance \(instanceId) for parent \(parentTransactionId) (updated date from \(originalDate) to \(finalDate))"
-        )
-      } catch {
-        print("❌ Failed to update instance \(instanceId): \(error)")
-        throw error
-      }
+      try transactionRepo.updateTransactionDirectly(updatedTransaction)
     }
 
-    // Parent transaction is now handled in the main update loop above
-
-    print("✏️ Completed edit for recurring transaction \(parentTransactionId)")
-
-    // Verify the updates were successful
-    let updatedInstances = transactionRepo.fetchAllRecurringInstances().filter {
-      $0.parentTransactionId == parentTransactionId || $0.id == parentTransactionId
-    }
-    print("✏️ DEBUG: Verification - Found \(updatedInstances.count) instances after update")
-    for instance in updatedInstances {
-      let instanceDate = Date(timeIntervalSince1970: TimeInterval(instance.dateTimestamp))
-      print(
-        "✏️ DEBUG: Instance \(instance.id ?? -1) - Date: \(instanceDate), Day: \(Calendar.current.component(.day, from: instanceDate))"
-      )
-    }
-
-    // Additional verification: Check if all instances are still in the main transaction list
-    let allTransactions = transactionRepo.fetchAllTransactions()
-    let relatedTransactionsInMainList = allTransactions.filter {
-      $0.parentTransactionId == parentTransactionId || $0.id == parentTransactionId
-    }
-    print(
-      "✏️ DEBUG: Verification - Found \(relatedTransactionsInMainList.count) related transactions in main list"
-    )
-    for tx in relatedTransactionsInMainList {
-      let txDate = Date(timeIntervalSince1970: TimeInterval(tx.dateTimestamp))
-      print(
-        "✏️ DEBUG: Main list transaction \(tx.id ?? -1) - Date: \(txDate), Day: \(Calendar.current.component(.day, from: txDate))"
-      )
-    }
+    print("✏️ Completed editing \(instancesToUpdate.count) recurring instances")
   }
 
   // MARK: - Recurring Transaction Linking
@@ -809,7 +683,7 @@ final class RecurringTransactionManager {
   // MARK: - Lazy Generation Methods
 
   /// Lazily generates recurring transaction instances only for the specified month anchors.
-  /// This method is called when the user navigates to months that don't yet have instances generated.
+  /// This method is optimized to minimize database calls and skip unnecessary work.
   /// - Parameters:
   ///   - monthAnchors: Set of month anchors to generate instances for
   ///   - completion: Optional completion handler called when generation is complete
@@ -818,11 +692,9 @@ final class RecurringTransactionManager {
     completion: (() -> Void)? = nil
   ) {
     guard !monthAnchors.isEmpty else {
-      completion?()
+      DispatchQueue.main.async { completion?() }
       return
     }
-
-    print("🔄 LAZY: Generating instances for \(monthAnchors.count) months lazily")
 
     operationQueue.async { [weak self] in
       guard let self = self else {
@@ -830,34 +702,68 @@ final class RecurringTransactionManager {
         return
       }
 
-      let recurringTransactions = self.transactionRepo.fetchRecurringTransactions()
+      // Fetch ALL transactions ONCE for efficiency
       let allTransactions = self.transactionRepo.fetchAllTransactions()
+
+      // Early exit if no transactions
+      guard !allTransactions.isEmpty else {
+        DispatchQueue.main.async { completion?() }
+        return
+      }
+
+      // Build lookup tables ONCE
       let allTransactionIds = Set(allTransactions.compactMap { $0.id })
 
-      print("📊 LAZY: Found \(recurringTransactions.count) recurring parent transactions")
+      // Group transactions by parent ID for efficient instance lookup
+      var instancesByParentId: [Int: Set<Int>] = [:]  // parentId -> Set of monthAnchors
+      for tx in allTransactions {
+        if let parentId = tx.parentTransactionId {
+          if instancesByParentId[parentId] == nil {
+            instancesByParentId[parentId] = []
+          }
+          instancesByParentId[parentId]?.insert(tx.budgetMonthDate)
+        }
+      }
+
+      // Filter recurring parents and installment parents
+      let recurringParents = allTransactions.filter {
+        $0.isRecurring == true && ($0.parentTransactionId == nil || $0.parentTransactionId == $0.id)
+      }
+
+      let installmentParents = allTransactions.filter {
+        $0.hasInstallments == true && $0.parentTransactionId == nil
+      }
+
+      // Early exit if no parents to process
+      guard !recurringParents.isEmpty || !installmentParents.isEmpty else {
+        DispatchQueue.main.async { completion?() }
+        return
+      }
 
       var newInstancesCreated = 0
 
-      for recurringTx in recurringTransactions {
+      // Process recurring transactions
+      for recurringTx in recurringParents {
         guard let recurringTxId = recurringTx.id else { continue }
         guard allTransactionIds.contains(recurringTxId) else { continue }
 
-        // Get existing instances for this recurring transaction
-        let existingInstances = self.transactionRepo.fetchTransactionInstancesForRecurring(
-          recurringTxId)
-        let existingAnchors = Set(existingInstances.map { $0.budgetMonthDate })
+        // Get existing anchors from pre-built lookup
+        let existingAnchors = instancesByParentId[recurringTxId] ?? []
 
         // Only generate for months that don't have instances yet
         let missingAnchors = monthAnchors.subtracting(existingAnchors)
           .filter { $0 != recurringTx.budgetMonthDate }  // Don't create for parent's month
           .filter { $0 > recurringTx.budgetMonthDate }  // Only future months
 
+        guard !missingAnchors.isEmpty else { continue }
+
+        let originalDate = Date(timeIntervalSince1970: TimeInterval(recurringTx.dateTimestamp))
+
         for targetAnchor in missingAnchors {
           let targetDate = Date(timeIntervalSince1970: TimeInterval(targetAnchor))
           let targetYear = self.calendar.component(.year, from: targetDate)
           let targetMonth = self.calendar.component(.month, from: targetDate)
 
-          let originalDate = Date(timeIntervalSince1970: TimeInterval(recurringTx.dateTimestamp))
           let instanceDate = self.generateValidDateForMonth(
             originalDate: originalDate,
             targetMonth: targetMonth,
@@ -877,155 +783,93 @@ final class RecurringTransactionManager {
           do {
             try self.transactionRepo.insertTransaction(instanceModel)
             newInstancesCreated += 1
-            print(
-              "✅ LAZY: Created instance for '\(recurringTx.title)' in month \(targetMonth)/\(targetYear)"
-            )
           } catch {
-            print("❌ LAZY: Error creating instance: \(error)")
+            print("❌ LAZY: Error creating recurring instance: \(error)")
           }
         }
       }
 
-      // Also handle installment transactions lazily
-      self.generateInstallmentInstancesLazilyForMonths(monthAnchors)
+      // Process installment transactions
+      for parent in installmentParents {
+        guard let parentId = parent.id,
+          let totalInstallments = parent.totalInstallments,
+          totalInstallments > 1
+        else { continue }
 
-      print("🔄 LAZY: Completed - created \(newInstancesCreated) new recurring instances")
+        let existingAnchors = instancesByParentId[parentId] ?? []
+        let parentDate = parent.date
+        let originalAmount = parent.originalAmount ?? parent.amount
+        let amountPerInstallment = originalAmount / totalInstallments
+        let remainder = originalAmount % totalInstallments
+        let cleanTitle = parent.title.replacingOccurrences(of: " - Installment Parent", with: "")
+
+        for installmentNumber in 1...totalInstallments {
+          guard
+            let targetDate = self.calendar.date(
+              byAdding: .month, value: installmentNumber - 1, to: parentDate)
+          else { continue }
+
+          let targetAnchor = targetDate.monthAnchor
+
+          // Only generate if this month is requested AND doesn't exist yet
+          guard monthAnchors.contains(targetAnchor), !existingAnchors.contains(targetAnchor) else {
+            continue
+          }
+
+          let targetYear = self.calendar.component(.year, from: targetDate)
+          let targetMonth = self.calendar.component(.month, from: targetDate)
+
+          let installmentDate = self.generateValidDateForMonth(
+            originalDate: parentDate,
+            targetMonth: targetMonth,
+            targetYear: targetYear
+          )
+
+          let installmentAmount =
+            installmentNumber == 1 ? amountPerInstallment + remainder : amountPerInstallment
+
+          let installmentModel = TransactionModel(
+            title: cleanTitle,
+            category: parent.category.key,
+            amount: installmentAmount,
+            type: parent.type.key,
+            dateTimestamp: Int(installmentDate.timeIntervalSince1970),
+            budgetMonthDate: targetAnchor,
+            parentTransactionId: parentId,
+            originalAmount: originalAmount,
+            installmentNumber: installmentNumber,
+            totalInstallments: totalInstallments
+          )
+
+          do {
+            try self.transactionRepo.insertTransaction(installmentModel)
+            newInstancesCreated += 1
+          } catch {
+            print("❌ LAZY: Error creating installment instance: \(error)")
+          }
+        }
+      }
+
+      if newInstancesCreated > 0 {
+        print("🔄 LAZY: Created \(newInstancesCreated) new instances")
+      }
 
       DispatchQueue.main.async { completion?() }
     }
   }
 
-  /// Lazily generates installment transaction instances only for the specified month anchors.
-  private func generateInstallmentInstancesLazilyForMonths(_ monthAnchors: Set<Int>) {
-    // Fetch all parent installment transactions (hasInstallments = true, parentTransactionId = nil)
-    let allTransactions = transactionRepo.fetchAllTransactions()
-    let installmentParents = allTransactions.filter {
-      $0.hasInstallments == true && $0.parentTransactionId == nil
-    }
-
-    print("📊 LAZY: Found \(installmentParents.count) installment parent transactions")
-
-    for parent in installmentParents {
-      guard let parentId = parent.id,
-        let totalInstallments = parent.totalInstallments,
-        totalInstallments > 1
-      else { continue }
-
-      // Get existing installment instances
-      let existingInstances = transactionRepo.fetchTransactionInstancesForRecurring(parentId)
-      let existingAnchors = Set(existingInstances.map { $0.budgetMonthDate })
-
-      // Calculate which months should have installments
-      let parentDate = parent.date
-      let parentAnchor = parentDate.monthAnchor
-
-      for installmentNumber in 1...totalInstallments {
-        guard
-          let targetDate = calendar.date(
-            byAdding: .month, value: installmentNumber - 1, to: parentDate)
-        else { continue }
-
-        let targetAnchor = targetDate.monthAnchor
-
-        // Only generate if this month is requested AND doesn't exist yet
-        guard monthAnchors.contains(targetAnchor), !existingAnchors.contains(targetAnchor) else {
-          continue
-        }
-
-        let targetYear = calendar.component(.year, from: targetDate)
-        let targetMonth = calendar.component(.month, from: targetDate)
-
-        let installmentDate = generateValidDateForMonth(
-          originalDate: parentDate,
-          targetMonth: targetMonth,
-          targetYear: targetYear
-        )
-
-        // Calculate installment amount
-        let originalAmount = parent.originalAmount ?? parent.amount
-        let amountPerInstallment = originalAmount / totalInstallments
-        let remainder = originalAmount % totalInstallments
-        let installmentAmount =
-          installmentNumber == 1 ? amountPerInstallment + remainder : amountPerInstallment
-
-        let installmentModel = TransactionModel(
-          title: parent.title.replacingOccurrences(of: " - Installment Parent", with: ""),
-          category: parent.category.key,
-          amount: installmentAmount,
-          type: parent.type.key,
-          dateTimestamp: Int(installmentDate.timeIntervalSince1970),
-          budgetMonthDate: targetAnchor,
-          parentTransactionId: parentId,
-          originalAmount: originalAmount,
-          installmentNumber: installmentNumber,
-          totalInstallments: totalInstallments
-        )
-
-        do {
-          try transactionRepo.insertTransaction(installmentModel)
-          print(
-            "✅ LAZY: Created installment \(installmentNumber)/\(totalInstallments) for '\(parent.title)'"
-          )
-        } catch {
-          print("❌ LAZY: Error creating installment instance: \(error)")
-        }
-      }
-    }
-  }
-
-  /// Check if lazy generation is needed for the given month anchors
-  /// Returns true if any recurring/installment transactions are missing instances for these months
+  /// Check if lazy generation is needed for the given month anchors (lightweight check)
+  /// Note: This is now only used for debugging - the generation method handles its own checks
   func needsLazyGeneration(for monthAnchors: Set<Int>) -> Bool {
-    let recurringTransactions = transactionRepo.fetchRecurringTransactions()
+    // This is intentionally a fast approximate check
+    // The actual generation method will do the detailed check
+    let recurringCount = transactionRepo.fetchRecurringTransactions().count
     let allTransactions = transactionRepo.fetchAllTransactions()
-
-    for recurringTx in recurringTransactions {
-      guard let recurringTxId = recurringTx.id else { continue }
-
-      let existingInstances = transactionRepo.fetchTransactionInstancesForRecurring(recurringTxId)
-      let existingAnchors = Set(existingInstances.map { $0.budgetMonthDate })
-
-      // Check if any requested month is missing (and is after the parent's month)
-      let missingAnchors = monthAnchors.subtracting(existingAnchors)
-        .filter { $0 != recurringTx.budgetMonthDate }
-        .filter { $0 > recurringTx.budgetMonthDate }
-
-      if !missingAnchors.isEmpty {
-        return true
-      }
-    }
-
-    // Also check installment parents
-    let installmentParents = allTransactions.filter {
+    let installmentParentCount = allTransactions.filter {
       $0.hasInstallments == true && $0.parentTransactionId == nil
-    }
+    }.count
 
-    for parent in installmentParents {
-      guard let parentId = parent.id,
-        let totalInstallments = parent.totalInstallments,
-        totalInstallments > 1
-      else { continue }
-
-      let existingInstances = transactionRepo.fetchTransactionInstancesForRecurring(parentId)
-      let existingAnchors = Set(existingInstances.map { $0.budgetMonthDate })
-
-      let parentDate = parent.date
-
-      for installmentNumber in 1...totalInstallments {
-        guard
-          let targetDate = calendar.date(
-            byAdding: .month, value: installmentNumber - 1, to: parentDate)
-        else { continue }
-
-        let targetAnchor = targetDate.monthAnchor
-
-        if monthAnchors.contains(targetAnchor) && !existingAnchors.contains(targetAnchor) {
-          return true
-        }
-      }
-    }
-
-    return false
+    return recurringCount > 0 || installmentParentCount > 0
   }
 
   // MARK: - Helper Methods

@@ -23,6 +23,12 @@ final class DashboardViewModel {
 
   var onCleanupChoiceNeeded: ((RecurringCleanupOption) -> Void)?
 
+  /// Callback to notify UI that data has changed and needs refresh
+  var onDataNeedsRefresh: (() -> Void)?
+
+  /// Track if lazy generation is in progress to avoid duplicate runs
+  private var isLazyGenerationInProgress = false
+
   init(
     budgetRepo: BudgetRepository = BudgetRepository(),
     transactionRepo: TransactionRepository = TransactionRepository(),
@@ -43,9 +49,6 @@ final class DashboardViewModel {
   func loadMonthlyCards() -> [MonthBudgetCardType] {
     print("🔍 loadMonthlyCards() called with monthRange: \(monthRange)")
 
-    // LAZY GENERATION: Trigger lazy generation for visible months before loading data
-    triggerLazyGenerationForVisibleMonths()
-
     // Use the transaction ledger service for all calculations
     let monthlyData = transactionLedger.calculateMonthlyData(for: monthRange)
 
@@ -64,43 +67,61 @@ final class DashboardViewModel {
     // Monitor negative balance after loading data
     balanceMonitor.monitorCurrentMonthBalance()
 
+    // Trigger lazy generation AFTER returning data (non-blocking)
+    triggerLazyGenerationInBackground()
+
     return monthlyData
   }
 
-  /// Triggers lazy generation for months in the visible range
-  /// This ensures recurring and installment instances are created when needed
-  private func triggerLazyGenerationForVisibleMonths() {
-    let now = Date()
-    var monthAnchors = Set<Int>()
-
-    // Generate anchors for all months in the range
-    for offset in monthRange {
-      if let date = calendar.date(byAdding: .month, value: offset, to: now) {
-        monthAnchors.insert(date.monthAnchor)
-      }
+  /// Triggers lazy generation in background without blocking UI
+  /// This is called after loadMonthlyCards returns to avoid blocking
+  private func triggerLazyGenerationInBackground() {
+    guard !isLazyGenerationInProgress else {
+      print("🔄 LAZY: Generation already in progress, skipping")
+      return
     }
 
-    // Check if lazy generation is needed and trigger it
-    if recurringManager.needsLazyGeneration(for: monthAnchors) {
-      print("🔄 LAZY: Dashboard triggering lazy generation for \(monthAnchors.count) months")
-      recurringManager.generateInstancesLazilyForMonths(monthAnchors) { [weak self] in
-        // Invalidate ledger cache after lazy generation
-        self?.transactionLedger.invalidateCache()
-        print("🔄 LAZY: Dashboard lazy generation completed")
+    isLazyGenerationInProgress = true
+
+    // Run everything on background queue to avoid blocking main thread
+    DispatchQueue.global(qos: .utility).async { [weak self] in
+      guard let self = self else { return }
+
+      let now = Date()
+      var monthAnchors = Set<Int>()
+
+      // Generate anchors for all months in the range
+      for offset in self.monthRange {
+        if let date = self.calendar.date(byAdding: .month, value: offset, to: now) {
+          monthAnchors.insert(date.monthAnchor)
+        }
+      }
+
+      // Generate instances (the manager will handle checking what's needed)
+      self.recurringManager.generateInstancesLazilyForMonths(monthAnchors) { [weak self] in
+        guard let self = self else { return }
+
+        self.isLazyGenerationInProgress = false
+        self.transactionLedger.invalidateCache()
+
+        // Notify UI to refresh if new instances were created
+        DispatchQueue.main.async {
+          self.onDataNeedsRefresh?()
+        }
+        print("🔄 LAZY: Background generation completed")
       }
     }
   }
 
   /// Triggers lazy generation for a specific set of months (e.g., when user scrolls to new months)
   func triggerLazyGenerationForMonths(_ monthAnchors: Set<Int>, completion: (() -> Void)? = nil) {
-    if recurringManager.needsLazyGeneration(for: monthAnchors) {
-      print("🔄 LAZY: On-demand lazy generation for \(monthAnchors.count) months")
-      recurringManager.generateInstancesLazilyForMonths(monthAnchors) { [weak self] in
+    DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+      self?.recurringManager.generateInstancesLazilyForMonths(monthAnchors) { [weak self] in
         self?.transactionLedger.invalidateCache()
-        completion?()
+        DispatchQueue.main.async {
+          completion?()
+        }
       }
-    } else {
-      completion?()
     }
   }
 
