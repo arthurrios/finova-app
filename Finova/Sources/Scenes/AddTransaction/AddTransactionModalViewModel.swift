@@ -115,35 +115,28 @@ final class AddTransactionModalViewModel {
             transactionId: insertedId, parentId: insertedId)
         }
 
-        // Get the newly created transaction for efficient instance generation
-        let allTransactions = transactionRepo.fetchAllTransactions()
-        guard let newlyCreatedTransaction = allTransactions.first(where: { $0.id == insertedId })
-        else {
-          print("⚠️ Could not find newly created recurring transaction")
-          return .success(())
-        }
+        // LAZY GENERATION: Only generate instances for a small window (next 2 months)
+        // Additional instances will be generated lazily when the user navigates to those months
+        let immediateMonthAnchors: Set<Int> = {
+          var anchors = Set<Int>()
+          for monthOffset in 1...2 {
+            if let futureDate = calendar.date(byAdding: .month, value: monthOffset, to: date) {
+              anchors.insert(futureDate.monthAnchor)
+            }
+          }
+          return anchors
+        }()
 
-        // Generate recurring instances for future months only (excluding the parent transaction's month)
-        let startMonthOffset = 1
-        let endMonthOffset = 24
-        let futureRange = startMonthOffset...endMonthOffset
+        print(
+          "🔄 LAZY: Creating recurring transaction with immediate window of \(immediateMonthAnchors.count) months"
+        )
 
-        // Use the optimized method for new recurring transactions
-        recurringManager.generateInstancesForNewRecurringTransaction(
-          newlyCreatedTransaction,
-          in: futureRange,
-          referenceDate: date,  // Use the parent transaction date as reference
-          transactionStartDate: nil  // Let the manager use the parent's date as start
-        ) { [weak self] in
+        // Generate only the immediate window of instances
+        recurringManager.generateInstancesLazilyForMonths(immediateMonthAnchors) { [weak self] in
           // These operations run after instance generation completes
           self?.scheduleNotificationsForRecurringTransactions()
           self?.monitorNegativeBalance()
           self?.invalidateLedgerCache()
-
-          // Debug: Check for duplicate transactions
-          DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            self?.transactionRepo.debugDuplicateTransactions()
-          }
         }
 
         return .success(())
@@ -226,10 +219,17 @@ final class AddTransactionModalViewModel {
 
       let parentId = try transactionRepo.insertTransactionAndGetId(parentModel)
 
-      // Coletar todas as parcelas para agendar notificações otimizadas
+      // LAZY GENERATION: Only create immediate installments (first 3 months)
+      // Additional installments will be generated lazily when the user navigates to those months
+      let immediateInstallmentCount = min(3, totalInstallments)
+
+      print(
+        "🔄 LAZY: Creating \(immediateInstallmentCount) immediate installments out of \(totalInstallments) total"
+      )
+
       var allInstallments: [TransactionModel] = []
 
-      for installmentNumber in 1...totalInstallments {
+      for installmentNumber in 1...immediateInstallmentCount {
         // Calcular a data da parcela usando a função de geração de datas válidas
         let targetDate =
           calendar.date(byAdding: .month, value: installmentNumber - 1, to: startDate) ?? startDate
@@ -237,7 +237,7 @@ final class AddTransactionModalViewModel {
         let targetMonth = calendar.component(.month, from: targetDate)
 
         print(
-          "🔄 Creating installment \(installmentNumber)/\(totalInstallments) for month \(targetMonth)/\(targetYear)"
+          "🔄 LAZY: Creating installment \(installmentNumber)/\(totalInstallments) for month \(targetMonth)/\(targetYear)"
         )
 
         let installmentDate = generateValidDateForMonth(
@@ -245,8 +245,6 @@ final class AddTransactionModalViewModel {
           targetMonth: targetMonth,
           targetYear: targetYear
         )
-
-        print("📅 Installment \(installmentNumber) date: \(installmentDate)")
 
         let installmentAmount =
           installmentNumber == 1 ? amountPerInstallment + remainder : amountPerInstallment
@@ -264,18 +262,22 @@ final class AddTransactionModalViewModel {
           totalInstallments: totalInstallments
         )
 
-        let installmentId = try transactionRepo.insertTransactionAndGetId(installmentModel)
-        print("✅ Created installment \(installmentNumber): \(data.title) for \(installmentDate)")
+        _ = try transactionRepo.insertTransactionAndGetId(installmentModel)
+        print(
+          "✅ LAZY: Created installment \(installmentNumber): \(data.title) for \(installmentDate)")
 
         // Adicionar à lista para notificações otimizadas
         allInstallments.append(installmentModel)
       }
 
-      // Agendar notificações otimizadas para todas as parcelas
+      // Agendar notificações otimizadas para as parcelas criadas
       scheduleOptimizedNotificationsForInstallments(allInstallments)
 
       // Monitorar saldo negativo após adicionar transação parcelada
       monitorNegativeBalance()
+
+      // Invalidate ledger cache since transactions changed
+      invalidateLedgerCache()
 
       return .success(())
     } catch {

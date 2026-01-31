@@ -43,6 +43,9 @@ final class DashboardViewModel {
   func loadMonthlyCards() -> [MonthBudgetCardType] {
     print("🔍 loadMonthlyCards() called with monthRange: \(monthRange)")
 
+    // LAZY GENERATION: Trigger lazy generation for visible months before loading data
+    triggerLazyGenerationForVisibleMonths()
+
     // Use the transaction ledger service for all calculations
     let monthlyData = transactionLedger.calculateMonthlyData(for: monthRange)
 
@@ -62,6 +65,43 @@ final class DashboardViewModel {
     balanceMonitor.monitorCurrentMonthBalance()
 
     return monthlyData
+  }
+
+  /// Triggers lazy generation for months in the visible range
+  /// This ensures recurring and installment instances are created when needed
+  private func triggerLazyGenerationForVisibleMonths() {
+    let now = Date()
+    var monthAnchors = Set<Int>()
+
+    // Generate anchors for all months in the range
+    for offset in monthRange {
+      if let date = calendar.date(byAdding: .month, value: offset, to: now) {
+        monthAnchors.insert(date.monthAnchor)
+      }
+    }
+
+    // Check if lazy generation is needed and trigger it
+    if recurringManager.needsLazyGeneration(for: monthAnchors) {
+      print("🔄 LAZY: Dashboard triggering lazy generation for \(monthAnchors.count) months")
+      recurringManager.generateInstancesLazilyForMonths(monthAnchors) { [weak self] in
+        // Invalidate ledger cache after lazy generation
+        self?.transactionLedger.invalidateCache()
+        print("🔄 LAZY: Dashboard lazy generation completed")
+      }
+    }
+  }
+
+  /// Triggers lazy generation for a specific set of months (e.g., when user scrolls to new months)
+  func triggerLazyGenerationForMonths(_ monthAnchors: Set<Int>, completion: (() -> Void)? = nil) {
+    if recurringManager.needsLazyGeneration(for: monthAnchors) {
+      print("🔄 LAZY: On-demand lazy generation for \(monthAnchors.count) months")
+      recurringManager.generateInstancesLazilyForMonths(monthAnchors) { [weak self] in
+        self?.transactionLedger.invalidateCache()
+        completion?()
+      }
+    } else {
+      completion?()
+    }
   }
 
   /// Clean up any existing duplicate transactions
@@ -170,15 +210,15 @@ final class DashboardViewModel {
   }
 
   private func updateRecurringTransactions() {
-    recurringManager.generateRecurringTransactionsForRange(monthRange)
-    recurringManager.cleanupRecurringInstancesOutsideRange(
-      monthRange, referenceDate: Date(), cleanupOption: .futureOnly)
+    // LAZY GENERATION: Use lazy generation instead of eager generation
+    triggerLazyGenerationForVisibleMonths()
   }
 
   func updateRecurringTransactionsWithCleanupChoice(
     cleanupOption: RecurringCleanupOption = .futureOnly
   ) {
-    recurringManager.generateRecurringTransactionsForRange(monthRange)
+    // LAZY GENERATION: Use lazy generation instead of eager generation
+    // Cleanup is still needed when user explicitly requests deletion
     recurringManager.cleanupRecurringInstancesOutsideRange(
       monthRange, referenceDate: Date(), cleanupOption: cleanupOption)
   }

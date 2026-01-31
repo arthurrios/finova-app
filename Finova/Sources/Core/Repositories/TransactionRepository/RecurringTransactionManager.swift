@@ -806,6 +806,228 @@ final class RecurringTransactionManager {
     )
   }
 
+  // MARK: - Lazy Generation Methods
+
+  /// Lazily generates recurring transaction instances only for the specified month anchors.
+  /// This method is called when the user navigates to months that don't yet have instances generated.
+  /// - Parameters:
+  ///   - monthAnchors: Set of month anchors to generate instances for
+  ///   - completion: Optional completion handler called when generation is complete
+  func generateInstancesLazilyForMonths(
+    _ monthAnchors: Set<Int>,
+    completion: (() -> Void)? = nil
+  ) {
+    guard !monthAnchors.isEmpty else {
+      completion?()
+      return
+    }
+
+    print("🔄 LAZY: Generating instances for \(monthAnchors.count) months lazily")
+
+    operationQueue.async { [weak self] in
+      guard let self = self else {
+        DispatchQueue.main.async { completion?() }
+        return
+      }
+
+      let recurringTransactions = self.transactionRepo.fetchRecurringTransactions()
+      let allTransactions = self.transactionRepo.fetchAllTransactions()
+      let allTransactionIds = Set(allTransactions.compactMap { $0.id })
+
+      print("📊 LAZY: Found \(recurringTransactions.count) recurring parent transactions")
+
+      var newInstancesCreated = 0
+
+      for recurringTx in recurringTransactions {
+        guard let recurringTxId = recurringTx.id else { continue }
+        guard allTransactionIds.contains(recurringTxId) else { continue }
+
+        // Get existing instances for this recurring transaction
+        let existingInstances = self.transactionRepo.fetchTransactionInstancesForRecurring(
+          recurringTxId)
+        let existingAnchors = Set(existingInstances.map { $0.budgetMonthDate })
+
+        // Only generate for months that don't have instances yet
+        let missingAnchors = monthAnchors.subtracting(existingAnchors)
+          .filter { $0 != recurringTx.budgetMonthDate }  // Don't create for parent's month
+          .filter { $0 > recurringTx.budgetMonthDate }  // Only future months
+
+        for targetAnchor in missingAnchors {
+          let targetDate = Date(timeIntervalSince1970: TimeInterval(targetAnchor))
+          let targetYear = self.calendar.component(.year, from: targetDate)
+          let targetMonth = self.calendar.component(.month, from: targetDate)
+
+          let originalDate = Date(timeIntervalSince1970: TimeInterval(recurringTx.dateTimestamp))
+          let instanceDate = self.generateValidDateForMonth(
+            originalDate: originalDate,
+            targetMonth: targetMonth,
+            targetYear: targetYear
+          )
+
+          let instanceModel = TransactionModel(
+            title: recurringTx.title,
+            category: recurringTx.category.key,
+            amount: recurringTx.amount,
+            type: recurringTx.type.key,
+            dateTimestamp: Int(instanceDate.timeIntervalSince1970),
+            budgetMonthDate: targetAnchor,
+            parentTransactionId: recurringTxId
+          )
+
+          do {
+            try self.transactionRepo.insertTransaction(instanceModel)
+            newInstancesCreated += 1
+            print(
+              "✅ LAZY: Created instance for '\(recurringTx.title)' in month \(targetMonth)/\(targetYear)"
+            )
+          } catch {
+            print("❌ LAZY: Error creating instance: \(error)")
+          }
+        }
+      }
+
+      // Also handle installment transactions lazily
+      self.generateInstallmentInstancesLazilyForMonths(monthAnchors)
+
+      print("🔄 LAZY: Completed - created \(newInstancesCreated) new recurring instances")
+
+      DispatchQueue.main.async { completion?() }
+    }
+  }
+
+  /// Lazily generates installment transaction instances only for the specified month anchors.
+  private func generateInstallmentInstancesLazilyForMonths(_ monthAnchors: Set<Int>) {
+    // Fetch all parent installment transactions (hasInstallments = true, parentTransactionId = nil)
+    let allTransactions = transactionRepo.fetchAllTransactions()
+    let installmentParents = allTransactions.filter {
+      $0.hasInstallments == true && $0.parentTransactionId == nil
+    }
+
+    print("📊 LAZY: Found \(installmentParents.count) installment parent transactions")
+
+    for parent in installmentParents {
+      guard let parentId = parent.id,
+        let totalInstallments = parent.totalInstallments,
+        totalInstallments > 1
+      else { continue }
+
+      // Get existing installment instances
+      let existingInstances = transactionRepo.fetchTransactionInstancesForRecurring(parentId)
+      let existingAnchors = Set(existingInstances.map { $0.budgetMonthDate })
+
+      // Calculate which months should have installments
+      let parentDate = parent.date
+      let parentAnchor = parentDate.monthAnchor
+
+      for installmentNumber in 1...totalInstallments {
+        guard
+          let targetDate = calendar.date(
+            byAdding: .month, value: installmentNumber - 1, to: parentDate)
+        else { continue }
+
+        let targetAnchor = targetDate.monthAnchor
+
+        // Only generate if this month is requested AND doesn't exist yet
+        guard monthAnchors.contains(targetAnchor), !existingAnchors.contains(targetAnchor) else {
+          continue
+        }
+
+        let targetYear = calendar.component(.year, from: targetDate)
+        let targetMonth = calendar.component(.month, from: targetDate)
+
+        let installmentDate = generateValidDateForMonth(
+          originalDate: parentDate,
+          targetMonth: targetMonth,
+          targetYear: targetYear
+        )
+
+        // Calculate installment amount
+        let originalAmount = parent.originalAmount ?? parent.amount
+        let amountPerInstallment = originalAmount / totalInstallments
+        let remainder = originalAmount % totalInstallments
+        let installmentAmount =
+          installmentNumber == 1 ? amountPerInstallment + remainder : amountPerInstallment
+
+        let installmentModel = TransactionModel(
+          title: parent.title.replacingOccurrences(of: " - Installment Parent", with: ""),
+          category: parent.category.key,
+          amount: installmentAmount,
+          type: parent.type.key,
+          dateTimestamp: Int(installmentDate.timeIntervalSince1970),
+          budgetMonthDate: targetAnchor,
+          parentTransactionId: parentId,
+          originalAmount: originalAmount,
+          installmentNumber: installmentNumber,
+          totalInstallments: totalInstallments
+        )
+
+        do {
+          try transactionRepo.insertTransaction(installmentModel)
+          print(
+            "✅ LAZY: Created installment \(installmentNumber)/\(totalInstallments) for '\(parent.title)'"
+          )
+        } catch {
+          print("❌ LAZY: Error creating installment instance: \(error)")
+        }
+      }
+    }
+  }
+
+  /// Check if lazy generation is needed for the given month anchors
+  /// Returns true if any recurring/installment transactions are missing instances for these months
+  func needsLazyGeneration(for monthAnchors: Set<Int>) -> Bool {
+    let recurringTransactions = transactionRepo.fetchRecurringTransactions()
+    let allTransactions = transactionRepo.fetchAllTransactions()
+
+    for recurringTx in recurringTransactions {
+      guard let recurringTxId = recurringTx.id else { continue }
+
+      let existingInstances = transactionRepo.fetchTransactionInstancesForRecurring(recurringTxId)
+      let existingAnchors = Set(existingInstances.map { $0.budgetMonthDate })
+
+      // Check if any requested month is missing (and is after the parent's month)
+      let missingAnchors = monthAnchors.subtracting(existingAnchors)
+        .filter { $0 != recurringTx.budgetMonthDate }
+        .filter { $0 > recurringTx.budgetMonthDate }
+
+      if !missingAnchors.isEmpty {
+        return true
+      }
+    }
+
+    // Also check installment parents
+    let installmentParents = allTransactions.filter {
+      $0.hasInstallments == true && $0.parentTransactionId == nil
+    }
+
+    for parent in installmentParents {
+      guard let parentId = parent.id,
+        let totalInstallments = parent.totalInstallments,
+        totalInstallments > 1
+      else { continue }
+
+      let existingInstances = transactionRepo.fetchTransactionInstancesForRecurring(parentId)
+      let existingAnchors = Set(existingInstances.map { $0.budgetMonthDate })
+
+      let parentDate = parent.date
+
+      for installmentNumber in 1...totalInstallments {
+        guard
+          let targetDate = calendar.date(
+            byAdding: .month, value: installmentNumber - 1, to: parentDate)
+        else { continue }
+
+        let targetAnchor = targetDate.monthAnchor
+
+        if monthAnchors.contains(targetAnchor) && !existingAnchors.contains(targetAnchor) {
+          return true
+        }
+      }
+    }
+
+    return false
+  }
+
   // MARK: - Helper Methods
 
   /// Gera uma data válida para o mês especificado, lidando com dias que não existem
