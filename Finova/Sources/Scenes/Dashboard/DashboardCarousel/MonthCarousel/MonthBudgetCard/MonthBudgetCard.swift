@@ -501,6 +501,12 @@ class MonthBudgetCard: UIView {
 
       availableBudgetTextLabel.text = textKey.localized
 
+      // Ensure text label container is in stack at position 0
+      if !availableBudgetStackView.arrangedSubviews.contains(availableBudgetTextLabelContainer) {
+        availableBudgetStackView.insertArrangedSubview(availableBudgetTextLabelContainer, at: 0)
+      }
+
+      // Ensure value container is in stack at position 1
       if !availableBudgetStackView.arrangedSubviews.contains(
         availableBudgetValueWithToggleContainer)
       {
@@ -515,7 +521,10 @@ class MonthBudgetCard: UIView {
       animatedNumberContainer?.isHidden = true
       defineBudgetButton.isHidden = false
 
-      // Remove budget value container from stack if present
+      // Remove containers from stack to eliminate spacing issues
+      if availableBudgetStackView.arrangedSubviews.contains(availableBudgetTextLabelContainer) {
+        availableBudgetStackView.removeArrangedSubview(availableBudgetTextLabelContainer)
+      }
       if availableBudgetStackView.arrangedSubviews.contains(
         availableBudgetValueWithToggleContainer)
       {
@@ -862,6 +871,16 @@ class MonthBudgetCard: UIView {
       filteredIndicatorContainer.isHidden = false
       availableBudgetValueWithToggleContainer.isHidden = false
 
+      // Ensure containers are in arranged subviews for filter display
+      if !availableBudgetStackView.arrangedSubviews.contains(availableBudgetTextLabelContainer) {
+        availableBudgetStackView.insertArrangedSubview(availableBudgetTextLabelContainer, at: 0)
+      }
+      if !availableBudgetStackView.arrangedSubviews.contains(availableBudgetValueWithToggleContainer)
+      {
+        availableBudgetStackView.insertArrangedSubview(
+          availableBudgetValueWithToggleContainer, at: 1)
+      }
+
       // Update the value to show filtered sum
       if isValuesHidden {
         availableBudgetValueLabel.text = getHiddenValueString()
@@ -939,6 +958,12 @@ class MonthBudgetCard: UIView {
         setupOrUpdateAnimatedNumber(value: displayValue)
       }
 
+      // Ensure text label container is in stack at position 0
+      if !availableBudgetStackView.arrangedSubviews.contains(availableBudgetTextLabelContainer) {
+        availableBudgetStackView.insertArrangedSubview(availableBudgetTextLabelContainer, at: 0)
+      }
+
+      // Ensure value container is in stack at position 1
       if !availableBudgetStackView.arrangedSubviews.contains(
         availableBudgetValueWithToggleContainer)
       {
@@ -953,7 +978,10 @@ class MonthBudgetCard: UIView {
       animatedNumberContainer?.isHidden = true
       defineBudgetButton.isHidden = false
 
-      // Remove budget value container from stack if present
+      // Remove containers from stack to eliminate spacing issues
+      if availableBudgetStackView.arrangedSubviews.contains(availableBudgetTextLabelContainer) {
+        availableBudgetStackView.removeArrangedSubview(availableBudgetTextLabelContainer)
+      }
       if availableBudgetStackView.arrangedSubviews.contains(
         availableBudgetValueWithToggleContainer)
       {
