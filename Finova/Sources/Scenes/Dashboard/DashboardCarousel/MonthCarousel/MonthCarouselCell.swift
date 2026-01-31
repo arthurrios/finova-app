@@ -680,6 +680,12 @@ class MonthCarouselCell: UICollectionViewCell {
 
   override func prepareForReuse() {
     super.prepareForReuse()
+    monthCard.resetForReuse()
+
+    // Reset height constraint to force recalculation for new content
+    monthCardHeightConstraint?.isActive = false
+    monthCardHeightConstraint = nil
+
     clearSearch()
   }
 }

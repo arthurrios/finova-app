@@ -1121,6 +1121,49 @@ class MonthBudgetCard: UIView {
     isDaySliderVisible = false
   }
 
+  /// Resets the card state for cell reuse to ensure consistent layout
+  func resetForReuse() {
+    // Force remove day slider from stack view regardless of isDaySliderVisible flag
+    // This handles edge cases where the flag might be out of sync with view hierarchy
+    if let slider = daySlider {
+      if availableBudgetStackView.arrangedSubviews.contains(slider) {
+        availableBudgetStackView.removeArrangedSubview(slider)
+      }
+      slider.removeFromSuperview()
+      slider.isHidden = true
+    }
+    isDaySliderVisible = false
+
+    // Remove all views from stack and re-add in correct order
+    // This ensures clean state with no residual spacing issues
+    availableBudgetStackView.arrangedSubviews.forEach { view in
+      availableBudgetStackView.removeArrangedSubview(view)
+      view.removeFromSuperview()
+    }
+
+    // Re-add views in correct order
+    availableBudgetStackView.addArrangedSubview(availableBudgetTextLabelContainer)
+    availableBudgetStackView.addArrangedSubview(availableBudgetValueWithToggleContainer)
+    availableBudgetStackView.addArrangedSubview(defineBudgetButton)
+
+    // Reset visibility to default (no budget) state
+    availableBudgetTextLabelContainer.isHidden = true
+    availableBudgetValueWithToggleContainer.isHidden = true
+    defineBudgetButton.isHidden = false
+    filteredIndicatorContainer.isHidden = true
+    animatedNumberContainer?.isHidden = true
+
+    // Reset filter state
+    isFilterActive = false
+    filteredSum = 0
+
+    // Force complete layout invalidation
+    availableBudgetStackView.setNeedsLayout()
+    availableBudgetStackView.layoutIfNeeded()
+    setNeedsLayout()
+    layoutIfNeeded()
+  }
+
   private func calculateBalanceForDay(_ day: Int) -> Int {
     logDebug("calculateBalanceForDay called with day: \(day)")
     guard let data = currentMonthData else {
