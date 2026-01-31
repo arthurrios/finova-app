@@ -119,107 +119,71 @@ final class DashboardViewController: UIViewController {
     }
     
     private func refreshDashboardData() {
-        print("🔄 Refreshing dashboard data...")
-        
         // Load fresh data from repositories
         let monthData = viewModel.loadMonthlyCards()
         let transactions = viewModel.transactionRepo.fetchTransactions()
-        print("🔍 DEBUG: Dashboard refresh - Loaded \(transactions.count) total transactions")
-        
-        // Debug recurring transactions specifically
-        let recurringTransactions = transactions.filter { $0.isRecurring == true }
-        print(
-            "🔍 DEBUG: Dashboard refresh - Found \(recurringTransactions.count) recurring transactions")
-        for tx in recurringTransactions {
-            let txDate = Date(timeIntervalSince1970: TimeInterval(tx.dateTimestamp))
-            print(
-                "🔍 DEBUG: Dashboard refresh - Recurring transaction \(tx.id ?? -1) - Date: \(txDate), ParentID: \(tx.parentTransactionId ?? -1)"
-            )
-        }
-        
+
         // Update the view models with fresh data
         syncedViewModel.setMonthData(monthData)
         syncedViewModel.setTransactions(transactions)
-        
+
         // Schedule notifications for any new transactions in the next 30 days
         scheduleNext30DaysNotifications()
-        
+
         // Force refresh the current visible cell if it exists
         if let currentCell = currentCell {
             let selectedIndex = syncedViewModel.selectedIndex
             if selectedIndex < monthData.count {
                 let currentMonthData = monthData[selectedIndex]
-                
+
                 // Refresh the month budget card with fresh data (but preserve day slider state)
-                print(
-                    "🔄 DashboardViewController: Refreshing current cell with budgetLimit: \(currentMonthData.budgetLimit ?? 0)"
-                )
                 currentCell.monthCard.refresh(with: currentMonthData)
-                
+
                 // Update transactions for the current cell
                 let key = DateFormatter.keyFormatter.string(from: currentMonthData.date)
-                print("🔍 DEBUG: Filtering transactions for month key: \(key)")
                 let filteredTransactions = transactions.filter { tx in
                     let txDate = Date(timeIntervalSince1970: TimeInterval(tx.dateTimestamp))
                     let txKey = DateFormatter.keyFormatter.string(from: txDate)
                     let matches = txKey == key
-                    if tx.isRecurring == true {
-                        print(
-                            "🔍 DEBUG: Recurring transaction \(tx.id ?? -1) - Date: \(txDate), Key: \(txKey), Matches: \(matches)"
-                        )
-                    }
                     return matches
                 }.sorted { $0.date > $1.date }
-                print("🔍 DEBUG: Found \(filteredTransactions.count) transactions for month \(key)")
-                
+
                 // Update transactions without reconfiguring the month card (to preserve day slider)
                 currentCell.updateTransactions(filteredTransactions)
-                
-                print("✅ Refreshed current cell at index \(selectedIndex) (preserving day slider)")
             }
         }
-        
+
         // Also refresh all visible cells in the collection view
         DispatchQueue.main.async {
-            print("🔄 About to call refreshVisibleCells")
             self.refreshVisibleCells()
-            print("🔄 refreshVisibleCells completed")
         }
     }
     
     /// Recalculates the current day for the day slider in the visible cell
     private func recalculateCurrentDayForVisibleCell(animated: Bool = false) -> Bool {
         guard let currentCell = currentCell else { return false }
-        
+
         // Recalculate the current day for the day slider
         let refreshNeeded = currentCell.monthCard.recalculateCurrentDay(animated: animated)
-        
-        print(
-            "📅 Recalculated current day for visible cell (animated: \(animated), refreshNeeded: \(refreshNeeded))"
-        )
+
         return refreshNeeded
     }
     
     /// Called specifically when app comes into foreground to refresh with animation
     func refreshOnForegroundWithAnimation() {
-        print("🔄 DashboardViewController: Refreshing on foreground with animation")
-        
         // First check if the day slider needs to be updated
         let sliderRefreshNeeded = recalculateCurrentDayForVisibleCell(animated: false)
-        
+
         if sliderRefreshNeeded {
-            print("🔄 DashboardViewController: Slider position changed, refreshing data and animating")
             // Only refresh data if slider position changed
             refreshAfterTransactionAdd()
-            
+
             // Then animate the day slider after a short delay
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                 self.recalculateCurrentDayForVisibleCell(animated: true)
             }
-        } else {
-            print("🔄 DashboardViewController: Slider already on current day, skipping data refresh")
         }
-        
+
         // Check for update toast when app comes to foreground
         checkForUpdateToastOnForeground()
     }
@@ -231,19 +195,15 @@ final class DashboardViewController: UIViewController {
     
     private func refreshVisibleCells() {
         let visibleIndexPaths = contentView.monthCarousel.indexPathsForVisibleItems
-        print("🔄 refreshVisibleCells: Found \(visibleIndexPaths.count) visible cells")
-        
+
         for indexPath in visibleIndexPaths {
             if let cell = contentView.monthCarousel.cellForItem(at: indexPath) as? MonthCarouselCell {
                 if indexPath.item < syncedViewModel.monthData.count {
                     let monthData = syncedViewModel.monthData[indexPath.item]
-                    
+
                     // Refresh the month budget card (preserving day slider state)
-                    print(
-                        "🔄 DashboardViewController: Refreshing visible cell \(indexPath.item) with budgetLimit: \(monthData.budgetLimit ?? 0)"
-                    )
                     cell.monthCard.refresh(with: monthData)
-                    
+
                     // Update transactions without reconfiguring the month card
                     let key = DateFormatter.keyFormatter.string(from: monthData.date)
                     let filteredTransactions = syncedViewModel.allTransactions.filter { tx in
@@ -251,18 +211,15 @@ final class DashboardViewController: UIViewController {
                         let txKey = DateFormatter.keyFormatter.string(from: txDate)
                         return txKey == key
                     }.sorted { $0.date > $1.date }
-                    
+
                     cell.updateTransactions(filteredTransactions)
                 }
             }
         }
-        
-        print("✅ Refreshed all visible cells")
     }
     
     /// Called when a transaction is added to immediately refresh the dashboard
     func refreshAfterTransactionAdd() {
-        print("🔄 Refreshing dashboard after transaction addition...")
         
         // For transaction addition, we need to be more conservative since we don't know
         // which months will be affected (installments/recurring can span many months)
@@ -338,20 +295,15 @@ final class DashboardViewController: UIViewController {
                         {
                             cell.transactionTableView.setContentOffset(currentContentOffset, animated: false)
                         }
-                        
+
                         // Re-enable interaction after animation completes
                         cell.transactionTableView.isUserInteractionEnabled = true
                         cell.transactionTableView.setNeedsLayout()
                         cell.transactionTableView.layoutIfNeeded()
-                        print(
-                            "✅ Updated cell for month: \(DateFormatter.monthFormatter.string(from: monthData.date))"
-                        )
                     }
                 }
             }
         }
-        
-        print("✅ Refreshed all visible cells with animation")
     }
     
     override func viewDidAppear(_ animated: Bool) {
@@ -484,7 +436,6 @@ final class DashboardViewController: UIViewController {
         UserDefaults.standard.removeObject(forKey: "shouldShowNotificationSuccessAlert")
         UserDefaults.standard.removeObject(forKey: "notificationAlertType")
         
-        print("🔔 🧪 Reset notification state for testing")
         
         // Show confirmation alert
         let alert = UIAlertController(
@@ -542,19 +493,15 @@ final class DashboardViewController: UIViewController {
         
         // Comment out mock version for production testing
         // updateToastManager.setMockLatestVersion("2.0.0")
-        // print("🧪 Mock version set to 2.0.0")
 #endif
-        
+
         // Clear cache to force fresh API call
         VersionService.shared.clearCache()
-        
+
         // Check for updates from App Store first
         updateToastManager.checkForUpdatesFromAppStore { [weak self] hasNewerVersion in
-            print("📱 App Store version check completed. Has newer version: \(hasNewerVersion)")
-            
             // Show toast with delay after dashboard loads (both debug and release)
             DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-                print("🧪 About to check if toast should be shown...")
                 self?.showUpdateToast()
             }
         }
@@ -577,7 +524,6 @@ final class DashboardViewController: UIViewController {
         
         // Check for recovery toast after dashboard loads
         DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
-            print("🚨 Checking if recovery toast should be shown...")
             self.showRecoveryToast()
         }
     }
@@ -585,15 +531,11 @@ final class DashboardViewController: UIViewController {
     private func showUpdateToast() {
         // Check if toast should be shown based on version logic
         let shouldShow = updateToastManager.shouldShowUpdateToast()
-        print("🧪 shouldShowUpdateToast returned: \(shouldShow)")
-        
+
         if shouldShow {
-            print("🧪 Showing update toast...")
             updateToastContainer.showUpdateToast(delegate: self)
             // Mark toast as shown for cooldown tracking
             updateToastManager.markToastAsShown()
-        } else {
-            print("📱 Update toast not shown - conditions not met")
         }
     }
     
@@ -604,13 +546,9 @@ final class DashboardViewController: UIViewController {
     private func showRecoveryToast() {
         // Check if recovery toast should be shown
         let shouldShow = recoveryToastManager.shouldShowRecoveryToast()
-        print("🚨 shouldShowRecoveryToast returned: \(shouldShow)")
-        
+
         if shouldShow {
-            print("🚨 Showing data recovery toast...")
             recoveryToastContainer.showRecoveryToast(delegate: self)
-        } else {
-            print("📱 Recovery toast not shown - conditions not met")
         }
     }
     
@@ -629,19 +567,14 @@ final class DashboardViewController: UIViewController {
     private func checkForUpdateToastReminder() {
         let shouldShow = updateToastManager.shouldShowUpdateToast()
         if shouldShow {
-            print("🧪 Timer triggered: Showing reminder toast...")
             showUpdateToast()
         }
     }
     
     /// Check for update toast when app comes to foreground
     private func checkForUpdateToastOnForeground() {
-        print("📱 DashboardViewController: Checking for update toast on foreground")
-        
         // Check for updates from App Store first
         updateToastManager.checkForUpdatesFromAppStore { [weak self] hasNewerVersion in
-            print("📱 Foreground version check completed. Has newer version: \(hasNewerVersion)")
-            
             // Show toast with a small delay to ensure smooth transition
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
                 self?.showUpdateToast()
@@ -668,22 +601,13 @@ final class DashboardViewController: UIViewController {
 #endif
     
     @objc private func handleTransactionDataChanged() {
-        print("🔄 Transaction data changed, invalidating ledger cache...")
-        
         // Only refresh if we're not currently in the middle of a deletion operation
         // to prevent race conditions and double refreshes
         if !isDeletionInProgress {
             // Force refresh current month balance to ensure immediate update
             viewModel.forceRefreshCurrentMonthBalance()
-        } else {
-            print("🔄 Skipping automatic refresh during deletion operation")
         }
-        
-        // Debug: Check for duplicate transactions
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-            self.viewModel.debugDuplicateTransactions()
-        }
-        
+
         // Refresh the dashboard data
         DispatchQueue.main.async {
             self.refreshDashboardData()
@@ -764,11 +688,6 @@ final class DashboardViewController: UIViewController {
             self.forceRefreshCurrentMonthBalance()
         }
         
-        let debugAulaDeCantoAction = UIAlertAction(title: "🎵 Debug Aula de Canto", style: .default) {
-            _ in
-            self.debugAulaDeCantoTransaction()
-        }
-        
         let migrateBudgetsAction = UIAlertAction(title: "🔄 Migrate Budgets", style: .default) {
             _ in
             self.migrateBudgetsToNewTimezone()
@@ -793,7 +712,6 @@ final class DashboardViewController: UIViewController {
         alertController.addAction(duplicateAnalysisAction)
         alertController.addAction(duplicateCleanupAction)
         alertController.addAction(forceRefreshBalanceAction)
-        alertController.addAction(debugAulaDeCantoAction)
         alertController.addAction(migrateBudgetsAction)
         alertController.addAction(migrateAllDataAction)
         alertController.addAction(cancelAction)
@@ -844,8 +762,6 @@ final class DashboardViewController: UIViewController {
     }
     
     private func forceRefreshCurrentMonthBalance() {
-        print("🔄 Force refreshing current month balance from debug menu...")
-        
         // Force refresh the balance
         viewModel.forceRefreshCurrentMonthBalance()
         
@@ -862,26 +778,8 @@ final class DashboardViewController: UIViewController {
         alert.addAction(UIAlertAction(title: "OK", style: .default))
         present(alert, animated: true)
     }
-    
-    private func debugAulaDeCantoTransaction() {
-        print("🎵 Debugging 'Aula de canto' transaction from debug menu...")
-        
-        // Run the debug method
-        viewModel.debugAulaDeCantoTransaction()
-        
-        // Show completion alert
-        let alert = UIAlertController(
-            title: "🎵 Debug Complete",
-            message: "Check the console for detailed 'Aula de canto' transaction logs.",
-            preferredStyle: .alert
-        )
-        alert.addAction(UIAlertAction(title: "OK", style: .default))
-        present(alert, animated: true)
-    }
-    
+
     private func migrateBudgetsToNewTimezone() {
-        print("🔄 Starting budget migration from debug menu...")
-        
         // Show confirmation alert
         let alert = UIAlertController(
             title: "🔄 Migrate Budgets",
@@ -914,8 +812,6 @@ final class DashboardViewController: UIViewController {
     }
     
     private func migrateAllDataToNewTimezone() {
-        print("🌍 Starting comprehensive data migration from debug menu...")
-        
         // Show confirmation alert
         let alert = UIAlertController(
             title: "🌍 Migrate All Data",
@@ -951,41 +847,32 @@ final class DashboardViewController: UIViewController {
         // Check if migration has already been run for this user
         let migrationKey = "budgetMigrationCompleted"
         if UserDefaults.standard.bool(forKey: migrationKey) {
-            print("⏭️ Budget migration already completed, skipping")
             return
         }
-        
-        print("🔄 Checking if budget migration is needed...")
-        
+
         // Check if there are any budgets that need migration
         let budgetRepo = BudgetRepository()
         let allBudgets = budgetRepo.fetchBudgets()
-        
+
         if allBudgets.isEmpty {
-            print("📊 No budgets found, migration not needed")
             UserDefaults.standard.set(true, forKey: migrationKey)
             return
         }
-        
+
         // Check if any budget has the old UTC-based month anchor
         let needsMigration = allBudgets.contains { budget in
             let oldDate = Date(timeIntervalSince1970: TimeInterval(budget.monthDate))
             let newMonthAnchor = oldDate.monthAnchor
             return newMonthAnchor != budget.monthDate
         }
-        
+
         if needsMigration {
-            print("🔄 Budget migration needed, running automatically...")
-            
             // Run the comprehensive migration (budgets + transactions)
             viewModel.migrateAllDataToNewTimezone()
-            
+
             // Mark migration as completed
             UserDefaults.standard.set(true, forKey: migrationKey)
-            
-            print("✅ Comprehensive data migration completed automatically")
         } else {
-            print("⏭️ No budget migration needed")
             UserDefaults.standard.set(true, forKey: migrationKey)
         }
     }
@@ -994,40 +881,31 @@ final class DashboardViewController: UIViewController {
         // Check if transaction migration has already been run for this user
         let migrationKey = "transactionMigrationCompleted"
         if UserDefaults.standard.bool(forKey: migrationKey) {
-            print("⏭️ Transaction migration already completed, skipping")
             return
         }
-        
-        print("🔄 Checking if transaction migration is needed...")
-        
+
         // Check if there are any transactions that need migration
         let allTransactions = viewModel.transactionRepo.fetchAllTransactions()
-        
+
         if allTransactions.isEmpty {
-            print("📊 No transactions found, migration not needed")
             UserDefaults.standard.set(true, forKey: migrationKey)
             return
         }
-        
+
         // Check if any transaction has the old UTC-based month anchor
         let needsMigration = allTransactions.contains { transaction in
             let oldDate = Date(timeIntervalSince1970: TimeInterval(transaction.dateTimestamp))
             let newMonthAnchor = oldDate.monthAnchor
             return newMonthAnchor != transaction.budgetMonthDate
         }
-        
+
         if needsMigration {
-            print("🔄 Transaction migration needed, running automatically...")
-            
             // Run the migration
             viewModel.migrateAllDataToNewTimezone()
-            
+
             // Mark migration as completed
             UserDefaults.standard.set(true, forKey: migrationKey)
-            
-            print("✅ Transaction migration completed automatically")
         } else {
-            print("⏭️ No transaction migration needed")
             UserDefaults.standard.set(true, forKey: migrationKey)
         }
     }
@@ -1037,8 +915,6 @@ final class DashboardViewController: UIViewController {
     }
     
     func loadData() {
-        print("📱 DashboardViewController.loadData() called")
-        
         // Get user from UID-based settings first, fallback to global UserDefaults
         var displayUser: User?
         
@@ -1046,8 +922,7 @@ final class DashboardViewController: UIViewController {
         if let firebaseUser = AuthenticationManager.shared.currentUser {
             // Ensure current UID is set
             UIDUserDefaultsManager.shared.currentUserUID = firebaseUser.uid
-            print("🔧 Set current UID to: \(firebaseUser.uid)")
-            
+
             // Try to get UID-based settings
             if let uidSettings = UIDUserDefaultsManager.shared.getUserSettings(for: firebaseUser.uid) {
                 displayUser = User(
@@ -1057,17 +932,11 @@ final class DashboardViewController: UIViewController {
                     isUserSaved: uidSettings.isUserSaved,
                     hasFaceIdEnabled: uidSettings.hasFaceIdEnabled
                 )
-                print(
-                    "📱 Dashboard loading UID-based user: '\(uidSettings.name)' with UID: '\(firebaseUser.uid)'"
-                )
             } else {
                 // No UID settings found, check global and migrate
                 if let globalUser = UserDefaultsManager.getUserWithUID() {
                     displayUser = globalUser
-                    print(
-                        "📱 Dashboard loading global user: '\(globalUser.name)' with UID: '\(globalUser.firebaseUID ?? "nil")'"
-                    )
-                    
+
                     // Migrate to UID-based system if same user
                     if globalUser.firebaseUID == firebaseUser.uid {
                         let userSettings = UserSettings(
@@ -1078,7 +947,6 @@ final class DashboardViewController: UIViewController {
                         )
                         UIDUserDefaultsManager.shared.saveUserSettings(
                             for: firebaseUser.uid, settings: userSettings)
-                        print("✅ Migrated user settings to UID-based system")
                     }
                 } else {
                     // Create basic user from Firebase
@@ -1089,7 +957,6 @@ final class DashboardViewController: UIViewController {
                         isUserSaved: true,
                         hasFaceIdEnabled: false
                     )
-                    print("📱 Created basic user from Firebase: '\(displayUser!.name)'")
                 }
             }
         }
@@ -1104,46 +971,37 @@ final class DashboardViewController: UIViewController {
                 isUserSaved: uidSettings.isUserSaved,
                 hasFaceIdEnabled: uidSettings.hasFaceIdEnabled
             )
-            print("📱 Dashboard loading UID-based user: '\(uidSettings.name)' with UID: '\(currentUID)'")
         }
         // Final fallback to global UserDefaults
         else if let globalUser = UserDefaultsManager.getUserWithUID() {
             displayUser = globalUser
-            print(
-                "📱 Dashboard loading global user: '\(globalUser.name)' with UID: '\(globalUser.firebaseUID ?? "nil")'"
-            )
         }
         
         if let user = displayUser {
-            // 🔒 Authenticate SecureLocalDataManager for UID-isolated data access
+            // Authenticate SecureLocalDataManager for UID-isolated data access
             if let firebaseUID = user.firebaseUID {
                 SecureLocalDataManager.shared.authenticateUser(firebaseUID: firebaseUID)
-                print("🔒 SecureLocalDataManager authenticated for user: \(firebaseUID)")
-                
+
                 // Ensure user settings are properly created in UID-based system
                 if UIDUserDefaultsManager.shared.getUserSettings(for: firebaseUID) == nil {
-                    print("🆕 Creating missing user settings in Dashboard for UID: \(firebaseUID)")
                     UserDefaultsManager.updateCurrentUserSavedStatus(saved: user.isUserSaved)
                     if user.hasFaceIdEnabled {
                         UserDefaultsManager.updateCurrentUserFaceID(enabled: true)
                     }
                 }
-                
+
                 // Double-check authentication is working
                 let currentUID = SecureLocalDataManager.shared.getCurrentUserUID()
                 if currentUID != firebaseUID {
-                    print("⚠️ Authentication mismatch! Expected: \(firebaseUID), Got: \(currentUID ?? "nil")")
                     // Re-authenticate
                     SecureLocalDataManager.shared.authenticateUser(firebaseUID: firebaseUID)
-                    print("🔒 Re-authenticated SecureLocalDataManager")
                 }
             }
-            
+
             contentView.welcomeTitleLabel.text = "dashboard.welcomeTitle".localized + "\(user.name)!"
             contentView.welcomeTitleLabel.applyStyle()
-            print("📱 Dashboard welcome text set to: '\(contentView.welcomeTitleLabel.text ?? "nil")'")
         } else {
-            print("❌ Dashboard: No user found in any UserDefaults system")
+            logError("Dashboard: No user found in any UserDefaults system")
             contentView.welcomeTitleLabel.text = "dashboard.welcomeTitle".localized + "User!"
         }
         
@@ -1156,29 +1014,16 @@ final class DashboardViewController: UIViewController {
         
         // Safely load transactions with authentication check
         transactions = viewModel.transactionRepo.fetchTransactions()
-        print("🔍 DEBUG: App reload - Loaded \(transactions.count) total transactions")
-        
-        // Debug recurring transactions specifically
-        let recurringTransactions = transactions.filter { $0.isRecurring == true }
-        print("🔍 DEBUG: App reload - Found \(recurringTransactions.count) recurring transactions")
-        for tx in recurringTransactions {
-            let txDate = Date(timeIntervalSince1970: TimeInterval(tx.dateTimestamp))
-            print(
-                "🔍 DEBUG: App reload - Recurring transaction \(tx.id ?? -1) - Date: \(txDate), ParentID: \(tx.parentTransactionId ?? -1)"
-            )
-        }
-        
+
         // Safely load monthly cards data
         let monthData = viewModel.loadMonthlyCards()
-        print("🔍 DEBUG: App reload - Loaded \(monthData.count) monthly cards")
         
         syncedViewModel.setMonthData(monthData)
         syncedViewModel.setTransactions(transactions)
         
         // Analyze and clean up any existing duplicate transactions
-        let analysis = viewModel.analyzeDuplicateTransactions()
-        print(analysis)
-        
+        _ = viewModel.analyzeDuplicateTransactions()
+
         viewModel.cleanupExistingDuplicates()
         
         contentView.monthCarousel.layoutIfNeeded()
@@ -1186,18 +1031,13 @@ final class DashboardViewController: UIViewController {
         // Marcar que o carregamento inicial foi concluído
         isInitialLoadComplete = true
         isLoadingInitialData = false
-        
-        print("✅ Initial data loading completed")
     }
     
     private func setupCollectionViews() {
         // Verificar se já foi configurado
         guard contentView.monthSelectorView.collectionView.delegate == nil else {
-            print("⏭️ Collection views already configured, skipping setup")
             return
         }
-        
-        print("🔄 Setting up collection views...")
         
         contentView.monthSelectorView.collectionView.delegate = self
         contentView.monthSelectorView.collectionView.dataSource = self
@@ -1217,8 +1057,6 @@ final class DashboardViewController: UIViewController {
         
         contentView.monthSelectorView.layoutIfNeeded()
         contentView.monthCarousel.layoutIfNeeded()
-        
-        print("✅ Collection views setup completed")
     }
 }
 
@@ -1240,8 +1078,6 @@ extension DashboardViewController: DashboardViewDelegate {
     }
     
     func dashboardViewDidRequestRefresh(_ dashboardView: DashboardView) {
-        print("🔄 Pull-to-refresh triggered")
-        
         // Refresh dashboard data and recalculate current day with animation
         refreshDashboardData()
         
@@ -1427,11 +1263,9 @@ extension DashboardViewController: UIScrollViewDelegate {
             
             // Clean up any lingering shimmer when user scrolls to new month
             if !cardsWithActiveShimmer.isEmpty {
-                print(
-                    "🔄 Cleaning up \(cardsWithActiveShimmer.count) cards with lingering shimmer after scroll")
                 hideShimmerOnAllCards()
             }
-            
+
             // Only run emergency cleanup occasionally to avoid interference
             // Check if there are any visible shimmer views that shouldn't be there
             let hasOrphanedShimmer = contentView.monthCarousel.visibleCells.contains { cell in
@@ -1440,9 +1274,8 @@ extension DashboardViewController: UIScrollViewDelegate {
                 }
                 return false
             }
-            
+
             if hasOrphanedShimmer {
-                print("🚨 Found orphaned shimmer views, cleaning up")
                 emergencyShimmerCleanup()
             }
         }
@@ -1460,21 +1293,13 @@ extension DashboardViewController: SyncedCollectionsViewModelDelegate {
         if index < syncedViewModel.monthData.count {
             let model = syncedViewModel.monthData[index]
             let key = DateFormatter.keyFormatter.string(from: model.date)
-            print("🔍 DEBUG: Month navigation - Filtering for key: \(key)")
             let txs = syncedViewModel.allTransactions.filter { tx in
                 let txDate = Date(timeIntervalSince1970: TimeInterval(tx.dateTimestamp))
                 let txKey = DateFormatter.keyFormatter.string(from: txDate)
-                let matches = txKey == key
-                if tx.isRecurring == true {
-                    print(
-                        "🔍 DEBUG: Month navigation - Recurring transaction \(tx.id ?? -1) - Date: \(txDate), Key: \(txKey), Matches: \(matches)"
-                    )
-                }
-                return matches
+                return txKey == key
             }.sorted { (tx1, tx2) -> Bool in
                 return tx1.date > tx2.date
             }
-            print("🔍 DEBUG: Month navigation - Found \(txs.count) transactions for month \(key)")
             currentCellTransactions = txs
         }
         
@@ -1503,25 +1328,6 @@ extension DashboardViewController: SyncedCollectionsViewModelDelegate {
         let currentMonths = contentView.monthSelectorView.months
         let newMonths = data.map { $0.month }
         let monthsChanged = currentMonths != newMonths
-        
-        print("🔍 didUpdateMonthData called with \(data.count) items")
-        print("🔍 New months array: \(newMonths)")
-        
-        // Check for duplicates in the incoming data
-        let uniqueMonths = Set(newMonths)
-        if uniqueMonths.count != newMonths.count {
-            print("⚠️ DUPLICATES FOUND in incoming data!")
-            let duplicates = newMonths.filter { month in
-                newMonths.filter { $0 == month }.count > 1
-            }
-            print("⚠️ Duplicate months: \(Array(Set(duplicates)))")
-            
-            // Check if the issue is in the data itself
-            print("🔍 Checking MonthBudgetCardType data:")
-            for (index, card) in data.enumerated() {
-                print("  \(index): \(card.date) -> \(card.month)")
-            }
-        }
         
         if monthsChanged {
             contentView.monthSelectorView.configure(
@@ -1654,12 +1460,6 @@ extension DashboardViewController: UITableViewDataSource, UITableViewDelegate {
             guard let self = self else { return }
             
             let transactionType = self.viewModel.getTransactionType(id: tx.id!)
-            print("🔍 TRANSACTION DELETION DEBUG: Transaction '\(tx.title)' (ID: \(tx.id!))")
-            print("🔍 TRANSACTION DELETION DEBUG: Transaction mode: \(tx.mode)")
-            print("🔍 TRANSACTION DELETION DEBUG: Is recurring: \(tx.isRecurring ?? false)")
-            print("🔍 TRANSACTION DELETION DEBUG: Has installments: \(tx.hasInstallments ?? false)")
-            print("🔍 TRANSACTION DELETION DEBUG: Parent ID: \(tx.parentTransactionId ?? 0)")
-            print("🔍 TRANSACTION DELETION DEBUG: Detected type: \(transactionType)")
             
             if transactionType == .simple {
                 // Handle simple transactions with basic confirmation
@@ -1676,7 +1476,7 @@ extension DashboardViewController: UITableViewDataSource, UITableViewDelegate {
                         self.handleTransactionDeletionSuccess(at: indexPath, transactionId: tx.id!)
                         completion(true)
                     case .failure(let error):
-                        print(error)
+                        logError("Failed to delete transaction: \(error)")
                         // Hide shimmer on error
                         self.hideShimmerOnAllCards()
                         completion(false)
@@ -1854,7 +1654,6 @@ extension DashboardViewController {
         
         // Safety mechanism for single card
         DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
-            print("⚠️ Single card shimmer safety timeout triggered")
             self.hideShimmerOnAllCards()
         }
     }
@@ -1872,7 +1671,6 @@ extension DashboardViewController {
         // Safety mechanism: ensure shimmer doesn't get stuck for more than 3 seconds
         // This is only a fallback - normal operation should hide shimmer immediately after data updates
         DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
-            print("⚠️ Shimmer safety timeout triggered after 3 seconds - investigating potential issue")
             self.hideShimmerOnAllCards()
         }
     }
@@ -1893,16 +1691,13 @@ extension DashboardViewController {
     
     private func hideShimmerOnAllCards() {
         // Hide shimmer on all cards that might have it, not just visible ones
-        print("🔄 Cleaning up shimmer on all potentially affected cards")
-        
+
         // First try visible cards
         hideShimmerOnAllVisibleCards()
-        
+
         // For comprehensive cleanup, we need a different approach for non-visible cells
         // We'll schedule a cleanup that triggers when users scroll to affected months
         if !cardsWithActiveShimmer.isEmpty {
-            print("🔄 Scheduling cleanup for \(cardsWithActiveShimmer.count) cards with potential shimmer")
-            
             // Force cleanup by trying to access cells that might exist
             for cardIndex in cardsWithActiveShimmer {
                 let indexPath = IndexPath(item: cardIndex, section: 0)
@@ -1923,13 +1718,11 @@ extension DashboardViewController {
     
     private func emergencyShimmerCleanup() {
         // Last resort cleanup - remove any shimmer views that might be stuck
-        print("🚨 Emergency shimmer cleanup triggered")
-        
+
         // Check all currently loaded cells for shimmer views
         for case let cell as MonthCarouselCell in contentView.monthCarousel.visibleCells {
             if let shimmerView = cell.monthCard.viewWithTag(998) {
                 shimmerView.removeFromSuperview()
-                print("🧹 Removed orphaned shimmer view")
             }
         }
     }
@@ -2096,7 +1889,7 @@ extension DashboardViewController {
                     self?.handleTransactionDeletionSuccess(at: indexPath, transactionId: transactionId)
                     completion(true)
                 case .failure(let error):
-                    print("Error deleting complex transaction: \(error)")
+                    logError("Error deleting complex transaction: \(error)")
                     // Hide shimmer on error
                     self?.hideShimmerOnAllCards()
                     // Reset deletion flag on error
@@ -2125,19 +1918,14 @@ extension DashboardViewController {
                 self.hideShimmerOnAllCards()
                 // Reset deletion flag after operation completes
                 self.isDeletionInProgress = false
-                print("✅ Deletion operation completed")
             }
         }
     }
     
     private func refreshAfterTransactionDeletion() {
-        print("🔄 Refreshing dashboard after transaction deletion...")
-        
         // Add a small delay to ensure all async deletion operations have completed
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
             guard let self = self else { return }
-            
-            print("🔄 Loading fresh data after deletion completion...")
             
             // Load fresh data
             let monthData = self.viewModel.loadMonthlyCards()
@@ -2171,8 +1959,6 @@ extension DashboardViewController {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                 // Force refresh visible cells with animation for any other visible cells
                 self.refreshVisibleCellsWithAnimation()
-                
-                print("🔄 Dashboard refresh completed after deletion")
             }
         }
     }
@@ -2185,15 +1971,12 @@ extension DashboardViewController {
         
         switch status {
         case .notConfigured:
-            print("🔔 📅 No notifications configured, scheduling automatically...")
             scheduleNotificationsAutomatically()
-            
+
         case .outdated:
-            print("🔔 📅 Notifications are outdated, updating...")
             scheduleNotificationsAutomatically()
-            
+
         case .configured:
-            print("🔔 📅 Notifications are already configured for this month")
             break
         }
     }
@@ -2207,13 +1990,10 @@ extension DashboardViewController {
     
     /// Smart notification scheduling for the next 30 days
     private func scheduleNext30DaysNotifications() {
-        print("🔔 📅 Starting smart notification scheduling for next 30 days...")
-        
         // Check if user is authenticated first
         guard let user = UserDefaultsManager.getUser(),
               let firebaseUID = user.firebaseUID
         else {
-            print("🔔 ❌ Cannot schedule notifications: User not authenticated")
             return
         }
         
@@ -2247,8 +2027,6 @@ extension DashboardViewController {
             return notificationDate > now && tx.date <= thirtyDaysFromNow
         }.sorted { $0.date < $1.date }  // Sort by date (closest first)
         
-        print("🔔 📅 Found \(next30DaysTxs.count) transactions in next 30 days")
-        
         // Get currently pending notifications to avoid duplicates
         UNUserNotificationCenter.current().getPendingNotificationRequests { [weak self] requests in
             DispatchQueue.main.async {
@@ -2262,9 +2040,8 @@ extension DashboardViewController {
                     guard let transactionId = tx.id else { continue }
                     
                     let notificationId = "transaction_\(transactionId)"
-                    
+
                     if existingNotificationIds.contains(notificationId) {
-                        print("🔔 ⏭️ Skipping transaction \(tx.title) - notification already exists")
                         skippedCount += 1
                         continue
                     }
@@ -2275,16 +2052,10 @@ extension DashboardViewController {
                     
                     // Respect iOS limit - stop at 50 total (but prioritize by date)
                     if scheduledCount >= 50 {
-                        print("🔔 ⚠️ Reached iOS notification limit (50), stopping")
                         break
                     }
                 }
-                
-                print("🔔 ✅ Smart scheduling complete:")
-                print("🔔    📊 Scheduled: \(scheduledCount) new notifications")
-                print("🔔    ⏭️ Skipped: \(skippedCount) existing notifications")
-                print("🔔    📅 Total in next 30 days: \(next30DaysTxs.count)")
-                
+
                 // Clean up any duplicate notifications
                 self?.removeDuplicateNotifications()
             }
@@ -2329,13 +2100,7 @@ extension DashboardViewController {
         let request = UNNotificationRequest(identifier: id, content: content, trigger: trigger)
         UNUserNotificationCenter.current().add(request) { error in
             if let error = error {
-                print("🔔 ❌ Error scheduling notification for \(tx.title): \(error)")
-            } else {
-                let formatter = DateFormatter()
-                formatter.dateFormat = "yyyy-MM-dd HH:mm"
-                print(
-                    "🔔 ✅ Scheduled notification for \(tx.title) at \(formatter.string(from: notificationDate))"
-                )
+                logError("Error scheduling notification for \(tx.title): \(error)")
             }
         }
     }
@@ -2350,29 +2115,21 @@ extension DashboardViewController {
     
     /// Attempt to recover transactions from SQLite
     private func attemptTransactionRecovery() {
-        print("🔄 DashboardViewController: Attempting transaction recovery...")
-        
         // Check if there are transactions in SQLite
         let sqliteTransactions = viewModel.checkSQLiteRecovery()
-        
+
         if sqliteTransactions.count > 0 {
-            print("🔄 Found \(sqliteTransactions.count) transactions in SQLite, attempting recovery...")
-            
             // Attempt recovery
             let recoverySuccess = viewModel.attemptTransactionRecovery()
-            
+
             if recoverySuccess {
-                print("✅ Transaction recovery successful! Refreshing dashboard...")
-                
                 // Refresh the dashboard after recovery
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                     self.refreshDashboardData()
                 }
             } else {
-                print("❌ Transaction recovery failed")
+                logError("Transaction recovery failed")
             }
-        } else {
-            print("ℹ️ No transactions found in SQLite to recover")
         }
     }
 }
@@ -2458,7 +2215,6 @@ extension DashboardViewController: DataRecoveryToastViewDelegate {
 extension DashboardViewController: MonthCarouselCellDelegate {
     func monthCarouselCell(_ cell: MonthCarouselCell, didChangeSearchText text: String) {
         // The cell handles filtering internally, we can add analytics or other logic here if needed
-        print("🔍 Search text changed: '\(text)'")
     }
     
     func monthCarouselCellDidTapFilter(_ cell: MonthCarouselCell) {

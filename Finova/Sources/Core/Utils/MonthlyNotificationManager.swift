@@ -37,11 +37,8 @@ final class MonthlyNotificationManager {
 
   /// Agenda todas as notificações do mês atual
   func scheduleAllMonthlyNotifications(showAlert: Bool = true) -> Bool {
-    print("🔔 📅 Scheduling all monthly notifications...")
-
     // Check if all notifications are disabled
     guard !preferencesManager.allNotificationsDisabled else {
-      print("🔔 ⏸️ All notifications disabled by user preference")
       clearExistingMonthlyNotifications()
       return true
     }
@@ -58,7 +55,6 @@ final class MonthlyNotificationManager {
     semaphore.wait()
 
     guard hasPermission else {
-      print("🔔 ❌ Notification permission not granted")
       if showAlert {
         showPermissionDeniedAlert()
       }
@@ -87,7 +83,6 @@ final class MonthlyNotificationManager {
     let overallSuccess = transactionSuccess && balanceSuccess && recurringSuccess
 
     if overallSuccess {
-      print("🔔 ✅ All monthly notifications scheduled successfully")
       if showAlert {
         if alreadyScheduled {
           showRescheduledAlert()
@@ -96,7 +91,6 @@ final class MonthlyNotificationManager {
         }
       }
     } else {
-      print("🔔 ⚠️ Some notifications failed to schedule")
       if showAlert {
         showFailureAlert()
       }
@@ -190,9 +184,7 @@ final class MonthlyNotificationManager {
 
     notificationCenter.add(request) { error in
       if let error = error {
-        print("🔔 ❌ Error scheduling monthly reminder: \(error)")
-      } else {
-        print("🔔 ✅ Monthly reminder scheduled for \(notificationDate)")
+        logError("Error scheduling monthly reminder: \(error)")
       }
     }
   }
@@ -231,9 +223,7 @@ final class MonthlyNotificationManager {
 
     notificationCenter.add(request) { error in
       if let error = error {
-        print("🔔 ❌ Error scheduling monthly fallback: \(error)")
-      } else {
-        print("🔔 ✅ Monthly fallback scheduled for \(notificationDate)")
+        logError("Error scheduling monthly fallback: \(error)")
       }
     }
   }
@@ -253,7 +243,6 @@ final class MonthlyNotificationManager {
 
       if !monthlyIds.isEmpty {
         self.notificationCenter.removePendingNotificationRequests(withIdentifiers: monthlyIds)
-        print("🔔 🧹 Cleared \(monthlyIds.count) existing monthly notifications")
       }
     }
   }
@@ -306,7 +295,6 @@ final class MonthlyNotificationManager {
       scheduleTransactionNotification(for: tx, calendar: calendar)
     }
 
-    print("🔔 📊 Scheduled \(limitedTxs.count) transaction notifications")
     return true
   }
 
@@ -362,7 +350,7 @@ final class MonthlyNotificationManager {
     let request = UNNotificationRequest(identifier: id, content: content, trigger: trigger)
     notificationCenter.add(request) { error in
       if let error = error {
-        print("🔔 ❌ Error scheduling transaction notification: \(error)")
+        logError("Error scheduling transaction notification: \(error)")
       }
     }
   }

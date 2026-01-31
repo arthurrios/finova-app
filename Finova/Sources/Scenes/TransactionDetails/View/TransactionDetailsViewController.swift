@@ -51,10 +51,8 @@ final class TransactionDetailsViewController: UIViewController {
   }
 
   private func setup() {
-    // 🔒 Authenticate SecureLocalDataManager for UID-isolated data access
     if let user = UserDefaultsManager.getUser(), let firebaseUID = user.firebaseUID {
       SecureLocalDataManager.shared.authenticateUser(firebaseUID: firebaseUID)
-      print("🔒 TransactionDetails: SecureLocalDataManager authenticated for user: \(firebaseUID)")
     }
 
     view.addSubview(contentView)
@@ -79,23 +77,7 @@ extension TransactionDetailsViewController: TransactionDetailsViewDelegate {
   }
 
   func didTapDelete() {
-    // Get transaction type to determine deletion options
     let transactionType = viewModel.getTransactionType(for: viewModel.transaction)
-
-    print(
-      "🔍 TRANSACTION DETAILS DELETE DEBUG: Transaction '\(viewModel.transaction.title)' (ID: \(viewModel.transaction.id ?? 0))"
-    )
-    print("🔍 TRANSACTION DETAILS DELETE DEBUG: Transaction mode: \(viewModel.transaction.mode)")
-    print(
-      "🔍 TRANSACTION DETAILS DELETE DEBUG: Is recurring: \(viewModel.transaction.isRecurring ?? false)"
-    )
-    print(
-      "🔍 TRANSACTION DETAILS DELETE DEBUG: Has installments: \(viewModel.transaction.hasInstallments ?? false)"
-    )
-    print(
-      "🔍 TRANSACTION DETAILS DELETE DEBUG: Parent ID: \(viewModel.transaction.parentTransactionId ?? 0)"
-    )
-    print("🔍 TRANSACTION DETAILS DELETE DEBUG: Detected type: \(transactionType)")
 
     if transactionType == .simple {
       // Handle simple transactions with basic confirmation

@@ -34,7 +34,6 @@ final class UpdateToastManager {
   private init() {
     self.currentVersion =
       Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0.0"
-    print("📱 Current app version: \(currentVersion)")
   }
 
   // MARK: - Public Methods
@@ -53,12 +52,7 @@ final class UpdateToastManager {
     let hasNewerVersion = isNewerVersionAvailable(
       latestVersion: latestVersion, currentVersion: currentVersion)
 
-    print(
-      "📱 Version comparison: current=\(currentVersion), latest=\(latestVersion), hasNewer=\(hasNewerVersion)"
-    )
-
     if !hasNewerVersion {
-      print("📱 No newer version available")
       return false
     }
 
@@ -75,16 +69,8 @@ final class UpdateToastManager {
         let sixHours: TimeInterval = 6 * 60 * 60  // 6 hours in seconds
 
         if timeSinceDismissal < sixHours {
-          let hoursRemaining = (sixHours - timeSinceDismissal) / 3600
-          print(
-            "📱 Toast dismissed recently. Remaining time: \(String(format: "%.1f", hoursRemaining)) hours"
-          )
           return false
-        } else {
-          print("📱 6 hours have passed since dismissal. Showing reminder toast")
         }
-      } else {
-        print("📱 Toast was dismissed but no date recorded. Showing toast")
       }
     } else {
       // Toast was not dismissed, check if it was shown recently
@@ -93,22 +79,10 @@ final class UpdateToastManager {
         let thirtyMinutes: TimeInterval = 30 * 60  // 30 minutes in seconds
 
         if timeSinceShown < thirtyMinutes {
-          let minutesRemaining = (thirtyMinutes - timeSinceShown) / 60
-          print(
-            "📱 Toast shown recently. Remaining time: \(String(format: "%.1f", minutesRemaining)) minutes"
-          )
           return false
-        } else {
-          print("📱 30 minutes have passed since last shown. Showing toast again")
         }
-      } else {
-        print("📱 Toast never shown before. Showing toast")
       }
     }
-
-    print(
-      "📱 Version check: current=\(currentVersion), latest=\(latestVersion), shouldShow=true"
-    )
 
     #if DEBUG
       print("🧪 Mock version test: Showing toast with version \(latestVersion)")
@@ -121,13 +95,11 @@ final class UpdateToastManager {
   func markToastAsDismissed() {
     UserDefaults.standard.set(true, forKey: "\(toastDismissedForVersionKey)_\(currentVersion)")
     UserDefaults.standard.set(Date(), forKey: lastToastDismissedKey)
-    print("📱 Update toast dismissed for version \(currentVersion)")
   }
 
   /// Mark toast as shown (for cooldown tracking)
   func markToastAsShown() {
     UserDefaults.standard.set(Date(), forKey: lastToastShownKey)
-    print("📱 Update toast shown for version \(currentVersion)")
   }
 
   /// Get the latest version from App Store or cache
@@ -168,14 +140,12 @@ final class UpdateToastManager {
   /// Open App Store to update page
   func openAppStore() {
     guard let appStoreURL = URL(string: "https://apps.apple.com/app/id6748543666") else {
-      print("❌ Invalid App Store URL")
+      logError("Invalid App Store URL")
       return
     }
 
     if UIApplication.shared.canOpenURL(appStoreURL) {
-      UIApplication.shared.open(appStoreURL, options: [:]) { success in
-        print("📱 App Store opened: \(success)")
-      }
+      UIApplication.shared.open(appStoreURL, options: [:], completionHandler: nil)
     }
   }
 

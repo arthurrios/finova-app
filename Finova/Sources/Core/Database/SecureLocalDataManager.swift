@@ -18,19 +18,17 @@ class SecureLocalDataManager {
   private var currentUserUID: String?
   private var encryptionKey: SymmetricKey?
 
+  /// Serial queue for thread-safe file operations
+  private let fileQueue = DispatchQueue(label: "com.finova.secureLocalDataManager.fileQueue")
+
   private init() {}
 
   // MARK: - User Session Management
 
   func authenticateUser(firebaseUID: String) {
-    print("🔒 Authenticating user for secure data access: \(firebaseUID)")
     self.currentUserUID = firebaseUID
     self.encryptionKey = generateEncryptionKey(for: firebaseUID)
-
-    // Create user data directory if first time
     createUserDataDirectoryIfNeeded(for: firebaseUID)
-
-    print("✅ User authenticated for secure data access")
   }
 
   func getCurrentUserUID() -> String? {
@@ -38,7 +36,6 @@ class SecureLocalDataManager {
   }
 
   func signOut() {
-    print("🔒 Signing out from secure data manager")
     self.currentUserUID = nil
     self.encryptionKey = nil
   }
@@ -47,89 +44,28 @@ class SecureLocalDataManager {
 
   func saveData<T: Codable>(_ data: T, filename: String) {
     guard let uid = currentUserUID else {
-      print("❌ Cannot save data: No authenticated user")
+      logError("Cannot save data: No authenticated user")
       return
     }
-
-    print("🔒 DEBUG: saveData called for \(filename) with UID: \(uid)")
     saveEncryptedData(data, for: uid, filename: filename)
-    print("🔒 DEBUG: saveData completed for \(filename)")
   }
 
   func loadData<T: Codable>(type: T.Type, filename: String) -> T? {
     guard let uid = currentUserUID else {
-      print("❌ Cannot load data: No authenticated user")
+      logError("Cannot load data: No authenticated user")
       return nil
     }
-
     return loadEncryptedData(type: type, for: uid, filename: filename)
   }
 
   // MARK: - Specific Data Access Methods
 
   func saveTransactions(_ transactions: [Transaction]) {
-    print("🔒 DEBUG: saveTransactions called with \(transactions.count) transactions")
-    print("🔒 DEBUG: Call stack: \(Thread.callStackSymbols.prefix(5).joined(separator: "\n"))")
-
-    // Debug: Log details of transactions being saved
-    for (index, tx) in transactions.enumerated() {
-      if index < 3 {  // Only log first 3 to avoid spam
-        let txDate = Date(timeIntervalSince1970: TimeInterval(tx.dateTimestamp))
-        print(
-          "🔒 DEBUG: Saving transaction \(tx.id ?? -1) - Title: '\(tx.title)', Category: \(tx.category), Type: \(tx.type), Date: \(txDate), BudgetMonthDate: \(tx.budgetMonthDate)"
-        )
-      }
-    }
-
-    // Check if this is a duplicate call with corrupted data
-    if transactions.count > 0 {
-      let firstTx = transactions[0]
-      if firstTx.title.isEmpty && firstTx.category == .miscellaneous {
-        print("🚨 WARNING: Detected corrupted data in saveTransactions call!")
-        print("🚨 This appears to be a duplicate call that's overwriting correct data")
-        print("🚨 Full call stack:")
-        for (index, symbol) in Thread.callStackSymbols.enumerated() {
-          print("🚨   \(index): \(symbol)")
-        }
-      }
-    }
-
-    print("🔒 DEBUG: About to call saveData with \(transactions.count) transactions")
     saveData(transactions, filename: "transactions.json")
-    print("🔒 DEBUG: saveData completed")
-
-    // Verify what was actually saved by loading it back
-    print("🔒 DEBUG: Verifying saved data by loading it back...")
-    let loadedTransactions = loadData(type: [Transaction].self, filename: "transactions.json") ?? []
-    print("🔒 DEBUG: Loaded back \(loadedTransactions.count) transactions")
-    for (index, tx) in loadedTransactions.enumerated() {
-      if index < 3 {  // Only log first 3 to avoid spam
-        let txDate = Date(timeIntervalSince1970: TimeInterval(tx.dateTimestamp))
-        print(
-          "🔒 DEBUG: Loaded back transaction \(tx.id ?? -1) - Title: '\(tx.title)', Category: \(tx.category), Type: \(tx.type), Date: \(txDate), BudgetMonthDate: \(tx.budgetMonthDate)"
-        )
-      }
-    }
-
-    print("🔒 DEBUG: saveTransactions completed")
   }
 
   func loadTransactions() -> [Transaction] {
-    print("🔒 DEBUG: loadTransactions called")
-    let transactions = loadData(type: [Transaction].self, filename: "transactions.json") ?? []
-
-    // Debug: Log details of loaded transactions
-    print("🔒 DEBUG: Loaded \(transactions.count) transactions from SecureLocalDataManager")
-    for (index, tx) in transactions.enumerated() {
-      if index < 3 {  // Only log first 3 to avoid spam
-        let txDate = Date(timeIntervalSince1970: TimeInterval(tx.dateTimestamp))
-        print(
-          "🔒 DEBUG: Transaction \(tx.id ?? -1) - Title: '\(tx.title)', Category: \(tx.category), Type: \(tx.type), Date: \(txDate), BudgetMonthDate: \(tx.budgetMonthDate)"
-        )
-      }
-    }
-
-    return transactions
+    return loadData(type: [Transaction].self, filename: "transactions.json") ?? []
   }
 
   func saveBudgets(_ budgets: [BudgetModel]) {
@@ -151,8 +87,8 @@ class SecureLocalDataManager {
   // MARK: - Profile Image Methods (User-Specific)
 
   func saveProfileImage(_ image: UIImage) {
-    guard let uid = currentUserUID else {
-      print("❌ Cannot save profile image: No authenticated user")
+    guard currentUserUID != nil else {
+      logError("Cannot save profile image: No authenticated user")
       return
     }
 
@@ -170,30 +106,26 @@ class SecureLocalDataManager {
 
     // Save updated profile
     saveUserProfile(userProfile)
-    print("✅ Profile image saved for user: \(uid)")
   }
 
   func loadProfileImage() -> UIImage? {
-    guard let uid = currentUserUID else {
-      print("❌ Cannot load profile image: No authenticated user")
+    guard currentUserUID != nil else {
+      logError("Cannot load profile image: No authenticated user")
       return nil
     }
 
     guard let userProfile = loadUserProfile(),
       let imageData = userProfile.profileImageData
     else {
-      print("ℹ️ No profile image found for user: \(uid)")
       return nil
     }
 
-    let image = UIImage(data: imageData)
-    print("✅ Profile image loaded for user: \(uid)")
-    return image
+    return UIImage(data: imageData)
   }
 
   func removeProfileImage() {
-    guard let uid = currentUserUID else {
-      print("❌ Cannot remove profile image: No authenticated user")
+    guard currentUserUID != nil else {
+      logError("Cannot remove profile image: No authenticated user")
       return
     }
 
@@ -207,7 +139,6 @@ class SecureLocalDataManager {
 
     userProfile.profileImageData = nil
     saveUserProfile(userProfile)
-    print("✅ Profile image removed for user: \(uid)")
   }
 
   // MARK: - Data Migration from Old Local Storage
@@ -215,19 +146,15 @@ class SecureLocalDataManager {
   func migrateOldDataToUser(
     firebaseUID: String, userEmail: String, completion: @escaping (Bool) -> Void
   ) {
-    print(
-      "🔄 Starting comprehensive data migration for user: \(firebaseUID) with email: \(userEmail)")
-
     let migrationKey = "data_migrated_to_firebase_\(firebaseUID)"
     if UserDefaults.standard.bool(forKey: migrationKey) {
-      print("✅ Migration already completed for this user")
       completion(true)
       return
     }
 
-    // 🔒 SECURITY CHECK: Validate ownership before migration
+    // SECURITY CHECK: Validate ownership before migration
     guard validateDataOwnership(for: firebaseUID, email: userEmail) else {
-      print("❌ Migration denied: User does not own existing data")
+      logError("Migration denied: User does not own existing data")
       completion(false)
       return
     }
@@ -238,44 +165,36 @@ class SecureLocalDataManager {
     var migrationSuccess = true
 
     // Step 1: Migrate Transactions from SQLite
-    print("📊 Migrating transactions from SQLite...")
     let transactionMigrationResult = migrateTransactionsFromSQLite(validatedFor: userEmail)
     if !transactionMigrationResult {
-      print("⚠️ Transaction migration failed")
       migrationSuccess = false
     }
 
     // Step 2: Migrate Budgets from SQLite
-    print("💰 Migrating budgets from SQLite...")
     let budgetMigrationResult = migrateBudgetsFromSQLite(validatedFor: userEmail)
     if !budgetMigrationResult {
-      print("⚠️ Budget migration failed")
       migrationSuccess = false
     }
 
     // Step 3: Migrate User Profile Data
-    print("👤 Migrating user profile data...")
     let profileMigrationResult = migrateUserProfileData(validatedFor: userEmail)
     if !profileMigrationResult {
-      print("⚠️ Profile migration failed")
       migrationSuccess = false
     }
 
     // Step 4: Backup old data (don't delete immediately for safety)
     if migrationSuccess {
-      print("📦 Creating backup of old data...")
       createBackupOfOldData()
 
-      // 🔒 SECURITY: Mark data as owned by this user
+      // SECURITY: Mark data as owned by this user
       markDataOwnership(for: firebaseUID, email: userEmail)
     }
 
     // Mark migration as completed only if successful
     if migrationSuccess {
       UserDefaults.standard.set(true, forKey: migrationKey)
-      print("✅ Complete data migration successful for user: \(firebaseUID)")
     } else {
-      print("❌ Data migration failed for user: \(firebaseUID)")
+      logError("Data migration failed for user: \(firebaseUID)")
     }
 
     completion(migrationSuccess)
@@ -284,95 +203,72 @@ class SecureLocalDataManager {
   // MARK: - Private Migration Methods
 
   private func migrateTransactionsFromSQLite(validatedFor email: String) -> Bool {
-    do {
-      // Use existing repository to get all transactions
-      let transactionRepo = TransactionRepository()
-      let allTransactions = transactionRepo.fetchAllTransactions()
+    // Use existing repository to get all transactions
+    let transactionRepo = TransactionRepository()
+    let allTransactions = transactionRepo.fetchAllTransactions()
 
-      print("📊 Found \(allTransactions.count) transactions to migrate for \(email)")
-
-      if !allTransactions.isEmpty {
-        // 🔒 SECURITY: Only migrate if data belongs to this user
-        if validateTransactionOwnership(allTransactions, for: email) {
-          saveTransactions(allTransactions)
-          print("✅ Successfully migrated \(allTransactions.count) transactions")
-        } else {
-          print("❌ Transaction ownership validation failed")
-          return false
-        }
+    if !allTransactions.isEmpty {
+      // SECURITY: Only migrate if data belongs to this user
+      if validateTransactionOwnership(allTransactions, for: email) {
+        saveTransactions(allTransactions)
+      } else {
+        logError("Transaction ownership validation failed")
+        return false
       }
-
-      return true
-    } catch {
-      print("❌ Failed to migrate transactions: \(error)")
-      return false
     }
+
+    return true
   }
 
   private func migrateBudgetsFromSQLite(validatedFor email: String) -> Bool {
-    do {
-      // Use existing repository to get all budgets
-      let budgetRepo = BudgetRepository()
-      let allBudgets = budgetRepo.fetchBudgets()
+    // Use existing repository to get all budgets
+    let budgetRepo = BudgetRepository()
+    let allBudgets = budgetRepo.fetchBudgets()
 
-      print("💰 Found \(allBudgets.count) budgets to migrate for \(email)")
-
-      if !allBudgets.isEmpty {
-        // 🔒 SECURITY: Only migrate if data belongs to this user
-        if validateBudgetOwnership(allBudgets, for: email) {
-          saveBudgets(allBudgets)
-          print("✅ Successfully migrated \(allBudgets.count) budgets")
-        } else {
-          print("❌ Budget ownership validation failed")
-          return false
-        }
+    if !allBudgets.isEmpty {
+      // SECURITY: Only migrate if data belongs to this user
+      if validateBudgetOwnership(allBudgets, for: email) {
+        saveBudgets(allBudgets)
+      } else {
+        logError("Budget ownership validation failed")
+        return false
       }
-
-      return true
-    } catch {
-      print("❌ Failed to migrate budgets: \(error)")
-      return false
     }
+
+    return true
   }
 
   private func migrateUserProfileData(validatedFor email: String) -> Bool {
-    do {
-      // 🔒 SECURITY: Validate profile belongs to this user
-      if let existingUser = UserDefaultsManager.getUser() {
-        if existingUser.email.lowercased() != email.lowercased() {
-          print("❌ Profile email mismatch - migration denied")
-          return false
-        }
+    // SECURITY: Validate profile belongs to this user
+    if let existingUser = UserDefaultsManager.getUser() {
+      if existingUser.email.lowercased() != email.lowercased() {
+        logError("Profile email mismatch - migration denied")
+        return false
       }
-
-      // Migrate user profile image from any global storage location
-      var profileImageData: Data?
-      if let profileImage = ProfileImageCleanup.shared.loadGlobalProfileImageIfExists() {
-        profileImageData = profileImage.jpegData(compressionQuality: 0.8)
-        print("👤 Found global profile image to migrate")
-      }
-
-      // Migrate current month index
-      let currentMonthIndex = UserDefaultsManager.getCurrentMonthIndex()
-
-      // Create user profile object
-      let userProfile = UserProfile(
-        profileImageData: profileImageData,
-        currentMonthIndex: currentMonthIndex,
-        preferences: UserPreferences()
-      )
-
-      saveUserProfile(userProfile)
-      print("✅ Successfully migrated user profile data")
-
-      // 🧹 Comprehensive cleanup of all global profile images after migration
-      ProfileImageCleanup.shared.clearAllGlobalProfileImages()
-
-      return true
-    } catch {
-      print("❌ Failed to migrate user profile: \(error)")
-      return false
     }
+
+    // Migrate user profile image from any global storage location
+    var profileImageData: Data?
+    if let profileImage = ProfileImageCleanup.shared.loadGlobalProfileImageIfExists() {
+      profileImageData = profileImage.jpegData(compressionQuality: 0.8)
+    }
+
+    // Migrate current month index
+    let currentMonthIndex = UserDefaultsManager.getCurrentMonthIndex()
+
+    // Create user profile object
+    let userProfile = UserProfile(
+      profileImageData: profileImageData,
+      currentMonthIndex: currentMonthIndex,
+      preferences: UserPreferences()
+    )
+
+    saveUserProfile(userProfile)
+
+    // Comprehensive cleanup of all global profile images after migration
+    ProfileImageCleanup.shared.clearAllGlobalProfileImages()
+
+    return true
   }
 
   private func createBackupOfOldData() {
@@ -382,7 +278,6 @@ class SecureLocalDataManager {
 
     // Mark that backup was created (for reference)
     UserDefaults.standard.set(true, forKey: backupKey)
-    print("📦 Backup reference created: \(backupKey)")
   }
 
   // MARK: - Migration Verification
@@ -410,7 +305,6 @@ class SecureLocalDataManager {
       errors: []
     )
 
-    print("🔍 Migration verification: \(result)")
     return result
   }
 
@@ -428,29 +322,25 @@ class SecureLocalDataManager {
     do {
       if FileManager.default.fileExists(atPath: userDirectory.path) {
         try FileManager.default.removeItem(at: userDirectory)
-        print("✅ User data cleared successfully")
       }
     } catch {
-      print("❌ Failed to clear user data: \(error)")
+      logError("Failed to clear user data: \(error)")
     }
   }
 
   // MARK: - Security & Data Ownership
 
   private func validateDataOwnership(for firebaseUID: String, email: String) -> Bool {
-    // 🚨 EMERGENCY RECOVERY: Check if this is a first-time recovery attempt
+    // EMERGENCY RECOVERY: Check if this is a first-time recovery attempt
     let emergencyRecoveryKey = "emergency_recovery_attempted_\(firebaseUID)"
     if !UserDefaults.standard.bool(forKey: emergencyRecoveryKey) {
       UserDefaults.standard.set(true, forKey: emergencyRecoveryKey)
-      print("🚨 EMERGENCY RECOVERY: Allowing first migration attempt for \(firebaseUID)")
-      print("🚨 This bypasses ownership validation to recover user data from v1.1.0 issue")
       return true
     }
 
     // Check if data has already been claimed by another user
     if let existingOwnerUID = getDataOwnerUID() {
       if existingOwnerUID != firebaseUID {
-        print("🔒 Data already owned by different user: \(existingOwnerUID)")
         return false
       }
     }
@@ -458,7 +348,6 @@ class SecureLocalDataManager {
     // Check if existing local user data matches this email
     if let existingUser = UserDefaultsManager.getUser() {
       if existingUser.email.lowercased() != email.lowercased() {
-        print("🔒 Email mismatch: existing=\(existingUser.email), new=\(email)")
         return false
       }
     }
@@ -468,10 +357,8 @@ class SecureLocalDataManager {
   }
 
   private func validateDeviceDataAccess(for email: String) -> Bool {
-    print("🔍 Validating device data access for: \(email)")
     let deviceUserKey = "device_users"
     var deviceUsers = UserDefaults.standard.stringArray(forKey: deviceUserKey) ?? []
-    print("📋 Current device users: \(deviceUsers)")
 
     let normalizedEmail = email.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
     deviceUsers = deviceUsers.map {
@@ -483,9 +370,6 @@ class SecureLocalDataManager {
     if !deviceUsers.contains(normalizedEmail) {
       deviceUsers.append(normalizedEmail)
       UserDefaults.standard.set(deviceUsers, forKey: deviceUserKey)
-      print("✅ New Firebase user added to device - access granted")
-    } else {
-      print("✅ Email found in device users - access granted")
     }
 
     return true  // Always allow access for Firebase authenticated users
@@ -495,26 +379,23 @@ class SecureLocalDataManager {
     UserDefaults.standard.set(firebaseUID, forKey: "data_owner_uid")
     UserDefaults.standard.set(email.lowercased(), forKey: "data_owner_email")
     UserDefaults.standard.set(Date(), forKey: "data_ownership_date")
-    print("🔒 Data ownership marked for: \(email) (\(firebaseUID))")
   }
 
   private func updateDataOwnership(for firebaseUID: String, email: String) {
     UserDefaults.standard.set(firebaseUID, forKey: "data_owner_uid")
     UserDefaults.standard.set(email.lowercased(), forKey: "data_owner_email")
     UserDefaults.standard.set(Date(), forKey: "data_ownership_date")
-    print("🔄 Data ownership updated for: \(email) (\(firebaseUID))")
   }
 
   func clearDataOwnership() {
     UserDefaults.standard.removeObject(forKey: "data_owner_uid")
     UserDefaults.standard.removeObject(forKey: "data_owner_email")
     UserDefaults.standard.removeObject(forKey: "data_ownership_date")
-    print("🧹 Data ownership cleared - ready for new user")
   }
 
   func clearCurrentUserDataOwnership() {
     guard let uid = currentUserUID else {
-      print("❌ Cannot clear data ownership: No authenticated user")
+      logError("Cannot clear data ownership: No authenticated user")
       return
     }
 
@@ -524,9 +405,6 @@ class SecureLocalDataManager {
       UserDefaults.standard.removeObject(forKey: "data_owner_uid")
       UserDefaults.standard.removeObject(forKey: "data_owner_email")
       UserDefaults.standard.removeObject(forKey: "data_ownership_date")
-      print("✅ Current user data ownership cleared")
-    } else {
-      print("📋 Current user is not data owner, no ownership to clear")
     }
   }
 
@@ -534,13 +412,10 @@ class SecureLocalDataManager {
     let deviceUserKey = "device_users"
     let normalizedEmail = email.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
 
-    print("🔧 Manually updating device users to: \(normalizedEmail)")
     UserDefaults.standard.set([normalizedEmail], forKey: deviceUserKey)
-    print("✅ Device users manually updated")
   }
 
   func reclaimDataOwnership(for firebaseUID: String, email: String) {
-    print("🔗 Reclaiming data ownership for: \(email) (\(firebaseUID))")
     updateDataOwnership(for: firebaseUID, email: email)
 
     // Also update the user in UserDefaults if needed
@@ -554,16 +429,14 @@ class SecureLocalDataManager {
           hasFaceIdEnabled: existingUser.hasFaceIdEnabled
         )
         UserDefaultsManager.saveUser(user: updatedUser)
-        print("✅ Updated user email in UserDefaults")
       }
     }
 
     // Add reclaimed email to device users
     let deviceUserKey = "device_users"
     var deviceUsers = UserDefaults.standard.stringArray(forKey: deviceUserKey) ?? []
-    print("📋 Before reclaim - device users: \(deviceUsers)")
 
-    // Remove the old email (jack@email.com) and add the new one
+    // Remove the old email and add the new one
     let normalizedEmail = email.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
     deviceUsers = deviceUsers.map {
       $0.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
@@ -576,13 +449,9 @@ class SecureLocalDataManager {
     }
 
     UserDefaults.standard.set(deviceUsers, forKey: deviceUserKey)
-    print("📋 After reclaim - device users: \(deviceUsers)")
-    print("✅ Updated device users list with reclaimed email")
 
     // Also manually ensure the device users list is correct
     manuallyUpdateDeviceUsers(to: email)
-
-    print("✅ Data ownership successfully reclaimed")
   }
 
   private func getDataOwnerUID() -> String? {
@@ -623,7 +492,7 @@ class SecureLocalDataManager {
         try FileManager.default.createDirectory(
           at: userDirectory, withIntermediateDirectories: true)
       } catch {
-        print("❌ Failed to create user data directory: \(error)")
+        logError("Failed to create user data directory: \(error)")
       }
     }
   }
@@ -639,45 +508,23 @@ class SecureLocalDataManager {
 
   private func saveEncryptedData<T: Codable>(_ data: T, for userUID: String, filename: String) {
     guard let encryptionKey = encryptionKey else {
-      print("❌ Cannot save: No encryption key available")
+      logError("Cannot save: No encryption key available")
       return
     }
 
-    do {
-      // Debug: Log the data before encoding
-      if filename == "transactions.json" {
-        print("🔒 DEBUG: About to encode data for \(filename)")
-        if let transactions = data as? [Transaction] {
-          for (index, tx) in transactions.enumerated() {
-            if index < 5 {  // Log first 5 to see more transactions
-              let txDate = Date(timeIntervalSince1970: TimeInterval(tx.dateTimestamp))
-              print(
-                "🔒 DEBUG: Encoding transaction \(tx.id ?? -1) - Title: '\(tx.title)', Category: \(tx.category), Type: \(tx.type), Date: \(txDate), BudgetMonthDate: \(tx.budgetMonthDate)"
-              )
-            }
-          }
-        }
+    // Use serial queue for thread-safe file operations
+    fileQueue.sync {
+      do {
+        let jsonData = try JSONEncoder().encode(data)
+        let encryptedData = try AES.GCM.seal(jsonData, using: encryptionKey)
+
+        let userDirectory = getUserDataDirectory(for: userUID)
+        let fileURL = userDirectory.appendingPathComponent(filename)
+
+        try encryptedData.combined?.write(to: fileURL)
+      } catch {
+        logError("Failed to save encrypted data: \(error)")
       }
-
-      let jsonData = try JSONEncoder().encode(data)
-
-      // Debug: Log the encoded JSON
-      if filename == "transactions.json" {
-        if let jsonString = String(data: jsonData, encoding: .utf8) {
-          let preview = String(jsonString.prefix(200))
-          print("🔒 DEBUG: Encoded JSON preview: \(preview)...")
-        }
-      }
-
-      let encryptedData = try AES.GCM.seal(jsonData, using: encryptionKey)
-
-      let userDirectory = getUserDataDirectory(for: userUID)
-      let fileURL = userDirectory.appendingPathComponent(filename)
-
-      try encryptedData.combined?.write(to: fileURL)
-      print("✅ Encrypted data saved: \(filename)")
-    } catch {
-      print("❌ Failed to save encrypted data: \(error)")
     }
   }
 
@@ -685,38 +532,29 @@ class SecureLocalDataManager {
     -> T?
   {
     guard let encryptionKey = encryptionKey else {
-      print("❌ Cannot load: No encryption key available")
+      logError("Cannot load: No encryption key available")
       return nil
     }
 
-    do {
-      let userDirectory = getUserDataDirectory(for: userUID)
-      let fileURL = userDirectory.appendingPathComponent(filename)
+    // Use serial queue for thread-safe file operations
+    return fileQueue.sync {
+      do {
+        let userDirectory = getUserDataDirectory(for: userUID)
+        let fileURL = userDirectory.appendingPathComponent(filename)
 
-      guard FileManager.default.fileExists(atPath: fileURL.path) else {
-        print("ℹ️ Data file does not exist: \(filename)")
+        guard FileManager.default.fileExists(atPath: fileURL.path) else {
+          return nil
+        }
+
+        let encryptedData = try Data(contentsOf: fileURL)
+        let sealedBox = try AES.GCM.SealedBox(combined: encryptedData)
+        let decryptedData = try AES.GCM.open(sealedBox, using: encryptionKey)
+        let result = try JSONDecoder().decode(type, from: decryptedData)
+        return result
+      } catch {
+        logError("Failed to load encrypted data: \(error)")
         return nil
       }
-
-      let encryptedData = try Data(contentsOf: fileURL)
-      let sealedBox = try AES.GCM.SealedBox(combined: encryptedData)
-      let decryptedData = try AES.GCM.open(sealedBox, using: encryptionKey)
-
-      // Debug: Log the decrypted data before decoding
-      if filename == "transactions.json" {
-        print("🔒 DEBUG: Decrypted data size: \(decryptedData.count) bytes")
-        if let jsonString = String(data: decryptedData, encoding: .utf8) {
-          let preview = String(jsonString.prefix(500))
-          print("🔒 DEBUG: Decrypted JSON preview: \(preview)...")
-        }
-      }
-
-      let result = try JSONDecoder().decode(type, from: decryptedData)
-      print("✅ Encrypted data loaded: \(filename)")
-      return result
-    } catch {
-      print("❌ Failed to load encrypted data: \(error)")
-      return nil
     }
   }
 }
@@ -756,7 +594,8 @@ struct MigrationVerificationResult {
 
 extension SecureLocalDataManager {
   func printDebugInfo() {
-    print("🔍 SecureLocalDataManager Debug Info:")
+    #if DEBUG
+    print("SecureLocalDataManager Debug Info:")
     print("   Current User UID: \(currentUserUID ?? "None")")
     print("   Encryption Key: \(encryptionKey != nil ? "Available" : "None")")
     if let directory = getUserDataDirectory() {
@@ -771,6 +610,7 @@ extension SecureLocalDataManager {
         print("   Files: Unable to list (\(error))")
       }
     }
+    #endif
   }
 }
 
@@ -797,63 +637,41 @@ extension SecureLocalDataManager {
   func validateDataOwnershipWithBiometrics(for firebaseUID: String, email: String)
     -> AccountValidationResult
   {
-    print("🔍 Validating data ownership for: \(email) (UID: \(firebaseUID))")
-
     // First check if this email has been used on this device before
     if let existingUser = UserDefaultsManager.getUser() {
-      print("📱 Found existing user: \(existingUser.email)")
       if existingUser.email.lowercased() == email.lowercased() {  // Same email - allow access regardless of Firebase UID
-        print("✅ Same email detected - allowing access for: \(email)")
         return .valid
       } else {
-        print("🔒 Email mismatch detected:")
-        print("   Existing: \(existingUser.email)")
-        print("   New: \(email)")
         if BiometricDataManager.shared.hasBiometricData() {
           return .requiresBiometricVerification(existingEmail: existingUser.email, newEmail: email)
         } else {
           return .valid
         }
       }
-    } else {
-      print("📱 No existing user found in UserDefaults")
     }
 
     // Check if data has been claimed by a different UID
     if let existingOwnerUID = getDataOwnerUID() {
-      print("🔒 Found existing data owner UID: \(existingOwnerUID)")
       if existingOwnerUID != firebaseUID {  // Check if the existing owner has the same email
         if let existingOwnerEmail = getDataOwnerEmail() {
-          print("📧 Existing owner email: \(existingOwnerEmail)")
           if existingOwnerEmail.lowercased() == email.lowercased() {
-            print("✅ Same email for existing owner - updating ownership for: \(email)")
             updateDataOwnership(for: firebaseUID, email: email)
             return .valid
           } else {
-            print("❌ Email mismatch with existing owner")
-            print("🔒 Data already owned by different user: \(existingOwnerUID)")
             return .ownedByDifferentUser(existingEmail: existingOwnerEmail, newEmail: email)
           }
         } else {
-          print("⚠️ No email stored for existing owner")
-          print("🔒 Data already owned by different user: \(existingOwnerUID)")
           return .ownedByDifferentUser(existingEmail: "Unknown", newEmail: email)
         }
-      } else {
-        print("✅ Same UID - allowing access")
       }
-    } else {
-      print("🔒 No existing data owner found")
     }
 
     // Check device access - if it fails, we need to handle the conflict
     let deviceAccess = validateDeviceDataAccess(for: email)
-    print("📱 Device data access validation: \(deviceAccess)")
 
     if !deviceAccess {
       // Device access failed - check if we have existing owner data to reclaim
       if let existingOwnerEmail = getDataOwnerEmail() {
-        print("🔒 Device access denied - triggering data ownership conflict")
         return .ownedByDifferentUser(existingEmail: existingOwnerEmail, newEmail: email)
       }
     }
@@ -867,7 +685,6 @@ extension SecureLocalDataManager {
     completion: @escaping (Bool) -> Void
   ) {
     guard BiometricDataManager.shared.isBiometricAvailable() else {
-      print("ℹ️ Biometric authentication not available - proceeding without registration")
       authenticateUser(firebaseUID: firebaseUID)
       completion(true)
       return
@@ -875,16 +692,13 @@ extension SecureLocalDataManager {
 
     // Check if biometric data already exists
     if BiometricDataManager.shared.hasBiometricData() {
-      print("ℹ️ Biometric data already exists - skipping registration")
       authenticateUser(firebaseUID: firebaseUID)
       completion(true)
       return
     }
     BiometricDataManager.shared.registerUserBiometric(for: email) { [weak self] success, error in
-      if success {
-        print("✅ Biometric registration successful for: \(email)")
-      } else {
-        print("⚠️ Biometric registration failed: \(error?.localizedDescription ?? "Unknown error")")
+      if !success {
+        logError("Biometric registration failed: \(error?.localizedDescription ?? "Unknown error")")
       }
       self?.authenticateUser(firebaseUID: firebaseUID)
       completion(true)
@@ -899,7 +713,6 @@ extension SecureLocalDataManager {
   ) {
     if linkToExistingData {
       if let existingUser = UserDefaultsManager.getUser() {
-        print("🔗 Linking accounts via biometric verification: keeping existing data")
         let linkedUser = User(
           firebaseUID: existingUser.firebaseUID,
           name: existingUser.name,
@@ -914,14 +727,12 @@ extension SecureLocalDataManager {
           newEmail: newEmail
         )
         authenticateUser(firebaseUID: existingUser.firebaseUID ?? "")
-        print("✅ Biometric account linking successful")
         completion(true)
       } else {
-        print("❌ No existing user found for linking")
+        logError("No existing user found for linking")
         completion(false)
       }
     } else {
-      print("🆕 Starting fresh with new account")
       registerFirstTimeUserWithBiometrics(
         firebaseUID: newFirebaseUID,
         email: newEmail,
@@ -939,12 +750,11 @@ extension SecureLocalDataManager {
       "linking_date": ISO8601DateFormatter().string(from: Date()),
     ]
     UserDefaults.standard.set(linkingInfo, forKey: "biometric_linking_\(originalUID)")
-    print("🔗 Biometric account linking recorded")
   }
 
   func deleteAllUserData() {
     guard currentUserUID != nil else {
-      print("❌ Cannot delete user data: No authenticated user")
+      logError("Cannot delete user data: No authenticated user")
       return
     }
 
@@ -953,7 +763,5 @@ extension SecureLocalDataManager {
 
     // Clear data ownership records
     clearDataOwnership()
-
-    print("✅ All user data deleted for account deletion")
   }
 }

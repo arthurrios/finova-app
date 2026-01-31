@@ -111,25 +111,7 @@ final class TransactionRepository: TransactionRepositoryProtocol {
 
   /// Debug method to check for duplicate transactions in the same month
   func debugDuplicateTransactions() {
-    let allTransactions = fetchAllTransactions()
-    let transactionsByMonth = Dictionary(grouping: allTransactions) { $0.budgetMonthDate }
-
-    print("🔍 Debug: Checking for duplicate transactions by month...")
-
-    for (monthAnchor, transactions) in transactionsByMonth {
-      if transactions.count > 1 {
-        let date = Date(timeIntervalSince1970: TimeInterval(monthAnchor))
-        print("⚠️ Month \(date): Found \(transactions.count) transactions:")
-
-        for tx in transactions {
-          let isParent = tx.isRecurring == true && tx.parentTransactionId == nil
-          let isInstance = tx.parentTransactionId != nil
-          let type = isParent ? "PARENT" : (isInstance ? "INSTANCE" : "REGULAR")
-
-          print("   - \(tx.title) (ID: \(tx.id ?? -1), Type: \(type), Amount: \(tx.amount))")
-        }
-      }
-    }
+    // No-op in production
   }
 
   func insertTransactionAndGetId(_ transaction: TransactionModel) throws -> Int {
@@ -167,40 +149,14 @@ final class TransactionRepository: TransactionRepositoryProtocol {
   }
 
   func updateTransactionDirectly(_ transaction: TransactionModel) throws {
-    print("🔧 DEBUG: updateTransactionDirectly called for transaction \(transaction.data.id ?? -1)")
-    print(
-      "🔧 DEBUG: Transaction data - title: '\(transaction.data.title)', amount: \(transaction.data.amount), dateTimestamp: \(transaction.data.dateTimestamp), budgetMonthDate: \(transaction.data.budgetMonthDate)"
-    )
-    print("🔧 DEBUG: Call stack: \(Thread.callStackSymbols.prefix(5).joined(separator: "\n"))")
-
     // Update SQLite directly
     try db.updateTransaction(transaction)
-    print("🔧 DEBUG: SQLite update completed")
 
     // Also update SecureLocalDataManager to keep it in sync
     var secureTransactions = SecureLocalDataManager.shared.loadTransactions()
-    print("🔧 DEBUG: Loaded \(secureTransactions.count) transactions from SecureLocalDataManager")
-
-    // Debug: Log all transactions to see what we have
-    for (idx, tx) in secureTransactions.enumerated() {
-      if idx < 5 {  // Only log first 5 to avoid spam
-        print(
-          "🔧 DEBUG: Transaction \(idx): ID=\(tx.id ?? -1), Title='\(tx.title)', Category=\(tx.category)"
-        )
-      }
-    }
 
     if let index = secureTransactions.firstIndex(where: { $0.id == transaction.data.id }) {
       let existingTransaction = secureTransactions[index]
-      print("🔧 DEBUG: Found existing transaction at index \(index)")
-      print(
-        "🔧 DEBUG: Existing transaction - ID: \(existingTransaction.id ?? -1), Title: '\(existingTransaction.title)', Category: \(existingTransaction.category)"
-      )
-
-      // Debug the input values
-      print(
-        "🔧 DEBUG: Input values - title: '\(transaction.data.title)', category: '\(transaction.data.category)', type: '\(transaction.data.type)'"
-      )
 
       // Convert string category and type to enum values
       let categoryEnum =
@@ -209,15 +165,6 @@ final class TransactionRepository: TransactionRepositoryProtocol {
       let typeEnum =
         TransactionType.allCases.first(where: { String(describing: $0) == transaction.data.type })
         ?? .expense
-
-      print("🔧 DEBUG: About to create updatedData with:")
-      print("🔧 DEBUG: - id: \(existingTransaction.id ?? -1)")
-      print("🔧 DEBUG: - title:  '\(transaction.data.title)'")
-      print("🔧 DEBUG: - amount: \(transaction.data.amount)")
-      print("🔧 DEBUG: - dateTimestamp: \(transaction.data.dateTimestamp)")
-      print("🔧 DEBUG: - budgetMonthDate: \(transaction.data.budgetMonthDate)")
-      print("🔧 DEBUG: - category: \(categoryEnum)")
-      print("🔧 DEBUG: - type: \(typeEnum)")
 
       let updatedData = UITransactionData(
         id: existingTransaction.id,
@@ -235,29 +182,12 @@ final class TransactionRepository: TransactionRepositoryProtocol {
         type: typeEnum
       )
 
-      print(
-        "🔧 DEBUG: Created UITransactionData - title: '\(updatedData.title)', category: \(updatedData.category), type: \(updatedData.type)"
-      )
-
-      // Debug: Check what we're about to save
       let transactionToSave = Transaction(data: updatedData)
-      print(
-        "🔧 DEBUG: Transaction to save - title: '\(transactionToSave.title)', category: \(transactionToSave.category), type: \(transactionToSave.type)"
-      )
-
       secureTransactions[index] = transactionToSave
-      print("🔧 DEBUG: Updated transaction at index \(index)")
-      print(
-        "🔧 DEBUG: Updated transaction - ID: \(secureTransactions[index].id ?? -1), Title: '\(secureTransactions[index].title)', Category: \(secureTransactions[index].category)"
-      )
-      print(
-        "🔧 DEBUG: About to save \(secureTransactions.count) transactions to SecureLocalDataManager")
 
       SecureLocalDataManager.shared.saveTransactions(secureTransactions)
-      print("🔧 DEBUG: SecureLocalDataManager update completed")
     } else {
-      print(
-        "❌ DEBUG: Transaction \(transaction.data.id ?? -1) NOT FOUND in SecureLocalDataManager!")
+      logError("Transaction \(transaction.data.id ?? -1) NOT FOUND in SecureLocalDataManager")
     }
 
     // Reschedule notification for the updated transaction
@@ -265,7 +195,6 @@ final class TransactionRepository: TransactionRepositoryProtocol {
 
     // Notify that data has changed (for cache invalidation)
     NotificationCenter.default.post(name: .transactionDataChanged, object: nil)
-    print("🔧 DEBUG: Cache invalidation notification sent")
   }
 
   func updateParentTransactionId(transactionId: Int, parentId: Int) throws {
@@ -302,21 +231,10 @@ final class TransactionRepository: TransactionRepositoryProtocol {
       // Save back to secure storage
       SecureLocalDataManager.shared.saveTransactions(secureTransactions)
 
-      print(
-        "🔒 Updated parent transaction ID in secure storage: \(transactionId) -> parent: \(parentId)"
-      )
-    } else {
-      print("⚠️ Could not find transaction \(transactionId) in secure storage to update parent ID")
     }
   }
 
   func updateTransaction(_ transaction: TransactionModel) throws {
-    print("🔧 DEBUG: updateTransaction called for transaction \(transaction.data.id ?? -1)")
-    print(
-      "🔧 DEBUG: Transaction data - title: '\(transaction.data.title)', category: '\(transaction.data.category)', type: '\(transaction.data.type)'"
-    )
-    print("🔧 DEBUG: Call stack: \(Thread.callStackSymbols.prefix(5).joined(separator: "\n"))")
-
     // Update all related transactions (for recurring/installments)
 
     // First, find the transaction to determine its type
@@ -324,26 +242,18 @@ final class TransactionRepository: TransactionRepositoryProtocol {
     guard
       let existingTransaction = existingTransactions.first(where: { $0.id == transaction.data.id })
     else {
-      print("❌ DEBUG: Transaction not found in SecureLocalDataManager")
       throw TransactionError.transactionNotFound
     }
 
-    print(
-      "🔧 DEBUG: Found existing transaction - isRecurring: \(existingTransaction.isRecurring ?? false), hasInstallments: \(existingTransaction.hasInstallments ?? false)"
-    )
-
     if existingTransaction.isRecurring == true {
-      print("🔧 DEBUG: Taking recurring path")
       // Update all recurring instances
       try updateAllRecurringTransactions(
         templateTransaction: transaction, existingTransaction: existingTransaction)
     } else if existingTransaction.hasInstallments == true {
-      print("🔧 DEBUG: Taking installment path")
       // Update all installment instances
       try updateAllInstallmentTransactions(
         templateTransaction: transaction, existingTransaction: existingTransaction)
     } else {
-      print("🔧 DEBUG: Taking normal transaction path - calling updateTransactionDirectly")
       // Normal transaction - use updateTransactionDirectly to avoid conflicts
       try updateTransactionDirectly(transaction)
     }
@@ -362,8 +272,6 @@ final class TransactionRepository: TransactionRepositoryProtocol {
     // Get the new date from the template (this represents the new recurring day)
     let newDate = Date(timeIntervalSince1970: TimeInterval(templateTransaction.data.dateTimestamp))
     let newDay = Calendar.current.component(.day, from: newDate)
-
-    print("🔄 RECURRING UPDATE: Updating all recurring transactions to day \(newDay) of each month")
 
     // Update each related transaction
     for relatedTransaction in relatedTransactions {
@@ -389,14 +297,7 @@ final class TransactionRepository: TransactionRepositoryProtocol {
           calendar.range(of: .day, in: .month, for: originalDate)?.upperBound ?? 1
         dateComponents.day = lastDayOfMonth - 1
         adjustedDate = calendar.date(from: dateComponents) ?? originalDate
-        print(
-          "⚠️ Day \(newDay) doesn't exist in month \(originalMonth), using day \(lastDayOfMonth - 1)"
-        )
       }
-
-      print(
-        "🔄 Updating transaction \(relatedTransaction.id ?? 0) from \(originalDate) to \(adjustedDate)"
-      )
 
       try updateSingleTransactionOnly(
         id: relatedTransaction.id!,
@@ -426,11 +327,6 @@ final class TransactionRepository: TransactionRepositoryProtocol {
     let newTotalAmount = templateTransaction.data.amount
     let newNumberOfInstallments = templateTransaction.data.totalInstallments ?? 1
 
-    print("🔄 INSTALLMENT UPDATE: Recreating series with:")
-    print("   - Total Amount: \(newTotalAmount)")
-    print("   - Number of Installments: \(newNumberOfInstallments)")
-    print("   - Initial Date: \(newDate)")
-
     // Find the main installment transaction (the one being edited)
     let allTransactions = SecureLocalDataManager.shared.loadTransactions()
 
@@ -459,8 +355,6 @@ final class TransactionRepository: TransactionRepositoryProtocol {
       mainInstallmentTransactionId = existingTransaction.id ?? 0
     }
 
-    print("   - Main installment transaction ID: \(mainInstallmentTransactionId)")
-
     let relatedTransactions = allTransactions.filter { transaction in
       transaction.id == mainInstallmentTransactionId
         || transaction.parentTransactionId == mainInstallmentTransactionId
@@ -469,12 +363,9 @@ final class TransactionRepository: TransactionRepositoryProtocol {
     // Calculate individual installment amount (total divided by number of installments)
     let individualAmount = newTotalAmount / newNumberOfInstallments
 
-    print("   - Individual Amount: \(individualAmount)")
-
     // Delete all existing related transactions first
     for relatedTransaction in relatedTransactions {
       if let id = relatedTransaction.id {
-        print("   - Deleting old installment: \(id)")
         try delete(id: id)
       }
     }
@@ -529,16 +420,11 @@ final class TransactionRepository: TransactionRepositoryProtocol {
 
       do {
         try insertTransaction(installmentModel)
-        print(
-          "   - Created installment \(i + 1)/\(newNumberOfInstallments): \(installmentDate) - \(individualAmount) - monthAnchor: \(installmentDate.monthAnchor)"
-        )
       } catch {
-        print("❌ Failed to create installment \(i + 1): \(error)")
+        logError("Failed to create installment \(i + 1): \(error)")
         throw error
       }
     }
-
-    print("✅ INSTALLMENT UPDATE: Series recreated successfully")
   }
 
   func updateSingleTransactionOnly(
@@ -598,12 +484,8 @@ final class TransactionRepository: TransactionRepositoryProtocol {
       secureTransactions[index] = updatedTransaction
       SecureLocalDataManager.shared.saveTransactions(secureTransactions)
 
-      print("🔒 Updated single transaction in secure storage: \(title)")
-
       // Reschedule notification for the updated transaction
       rescheduleNotificationForTransaction(transactionId: id)
-    } else {
-      print("⚠️ Could not find transaction \(id) in secure storage to update")
     }
   }
 
@@ -637,10 +519,6 @@ final class TransactionRepository: TransactionRepositoryProtocol {
       let updatedTransaction = Transaction(data: updatedData)
       secureTransactions[index] = updatedTransaction
       SecureLocalDataManager.shared.saveTransactions(secureTransactions)
-
-      print("🔒 Updated transaction \(transactionId) parent ID to \(parentId) in secure storage")
-    } else {
-      print("⚠️ Could not find transaction \(transactionId) in secure storage to update parent ID")
     }
   }
 
@@ -679,10 +557,6 @@ final class TransactionRepository: TransactionRepositoryProtocol {
     // Use mode property to correctly identify recurring transactions
     // (both parent transactions with isRecurring=true AND instances with parentTransactionId)
     let isRecurringTransaction = transaction.mode == .recurring
-
-    print(
-      "🔄 DELETE DEBUG: Transaction \(id) - isRecurring: \(transaction.isRecurring ?? false), parentId: \(transaction.parentTransactionId ?? 0), mode: \(transaction.mode), isRecurringTransaction: \(isRecurringTransaction)"
-    )
 
     switch option {
     case .currentSelection:
@@ -738,19 +612,12 @@ final class TransactionRepository: TransactionRepositoryProtocol {
       transaction.id == recurringGroupId || transaction.parentTransactionId == recurringGroupId
     }
 
-    print(
-      "🔄 RECURRING DELETE: Deleting \(relatedTransactions.count) occurrences of recurring transaction group \(recurringGroupId ?? 0)"
-    )
-
     // Delete all related transactions
     for relatedTransaction in relatedTransactions {
       if let id = relatedTransaction.id {
         try delete(id: id)
-        print("   - Deleted transaction \(id): \(relatedTransaction.title)")
       }
     }
-
-    print("✅ RECURRING DELETE: All occurrences deleted successfully")
   }
 
   private func deleteFutureRecurringInstances(transactionId: Int) throws {
@@ -775,15 +642,10 @@ final class TransactionRepository: TransactionRepositoryProtocol {
       return isInGroup && isFutureOrCurrent
     }
 
-    print(
-      "🔄 RECURRING DELETE: Deleting \(relatedTransactions.count) future occurrences of recurring transaction group \(recurringGroupId ?? 0)"
-    )
-
     // Delete all future related transactions (including current)
     for relatedTransaction in relatedTransactions {
       if let id = relatedTransaction.id {
         try delete(id: id)
-        print("   - Deleted future transaction \(id): \(relatedTransaction.title)")
       }
     }
 
@@ -797,16 +659,10 @@ final class TransactionRepository: TransactionRepositoryProtocol {
         if let orphanedParent = updatedTransactions.first(where: {
           $0.id == parentId && $0.isRecurring == true
         }) {
-          print(
-            "🧹 RECURRING DELETE: Parent \(parentId) has no remaining instances, cleaning up orphaned parent"
-          )
           try delete(id: parentId)
-          print("   - Deleted orphaned parent transaction \(parentId): \(orphanedParent.title)")
         }
       }
     }
-
-    print("✅ RECURRING DELETE: Future occurrences deleted successfully")
   }
 
   private func deleteFutureInstallmentInstances(transactionId: Int) throws {
@@ -832,19 +688,12 @@ final class TransactionRepository: TransactionRepositoryProtocol {
       return isInGroup && isFutureOrCurrent
     }
 
-    print(
-      "🔄 INSTALLMENT DELETE: Deleting \(relatedTransactions.count) future installments of group \(installmentGroupId ?? 0)"
-    )
-
     // Delete all future related transactions (including current)
     for relatedTransaction in relatedTransactions {
       if let id = relatedTransaction.id {
         try delete(id: id)
-        print("   - Deleted installment \(id): \(relatedTransaction.title)")
       }
     }
-
-    print("✅ INSTALLMENT DELETE: Future installments deleted successfully")
   }
 
   private func deleteInstallmentTransactionAndSiblings(parentId: Int) throws {
@@ -888,19 +737,15 @@ final class TransactionRepository: TransactionRepositoryProtocol {
   private func rescheduleNotificationForTransaction(transactionId: Int?) {
     guard let transactionId = transactionId else { return }
 
-    print("🔔 Rescheduling notification for transaction \(transactionId)")
-
     // Remove existing notification for this transaction
     let notificationId = "transaction_\(transactionId)"
     UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: [
       notificationId
     ])
-    print("🔔 🧹 Removed existing notification for transaction \(transactionId)")
 
     // Get the updated transaction data
     let allTransactions = fetchAllTransactions()
     guard let updatedTransaction = allTransactions.first(where: { $0.id == transactionId }) else {
-      print("🔔 ❌ Could not find updated transaction \(transactionId) for notification rescheduling")
       return
     }
 
@@ -924,14 +769,12 @@ final class TransactionRepository: TransactionRepositoryProtocol {
 
     // Only schedule if notification time is in the future
     guard notificationDate > now else {
-      print("🔔 ⚠️ Skipping notification for \(tx.title) - date is in the past")
       return
     }
 
     // Check if date is too far in the future (more than 1 year)
     let oneYearFromNow = Calendar.current.date(byAdding: .year, value: 1, to: Date()) ?? Date()
     if tx.date > oneYearFromNow {
-      print("🔔 ⚠️ Skipping notification for \(tx.title) - date too far in future")
       return
     }
 
@@ -941,7 +784,6 @@ final class TransactionRepository: TransactionRepositoryProtocol {
     // Check if interval is too large (more than 30 days)
     let thirtyDaysInSeconds: TimeInterval = 30 * 24 * 60 * 60
     if timeInterval > thirtyDaysInSeconds {
-      print("🔔 ⚠️ Skipping notification for \(tx.title) - more than 30 days away")
       return
     }
 
@@ -970,13 +812,7 @@ final class TransactionRepository: TransactionRepositoryProtocol {
     let request = UNNotificationRequest(identifier: id, content: content, trigger: trigger)
     UNUserNotificationCenter.current().add(request) { error in
       if let error = error {
-        print("🔔 ❌ Error rescheduling notification for \(tx.title): \(error)")
-      } else {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd HH:mm"
-        print(
-          "🔔 ✅ Rescheduled notification for \(tx.title) at \(formatter.string(from: notificationDate))"
-        )
+        logError("Error rescheduling notification for \(tx.title): \(error)")
       }
     }
   }

@@ -273,7 +273,7 @@ final class AddTransactionModalView: UIView {
     return view
   }()
 
-  private let saveButton = Button(label: "addTransactionModal.button.save".localized)
+  let saveButton = Button(label: "addTransactionModal.button.save".localized)
 
   override init(frame: CGRect) {
     super.init(frame: frame)
@@ -393,19 +393,10 @@ final class AddTransactionModalView: UIView {
     } else if input === dateTextField {
       // Date input: check if a valid date is selected or if text exists (for populated fields)
       // In edit mode, we populate the text but dateValue might not be set, so we accept text
-      print("🔍 UI VALIDATION: Date field validation")
-      print("   - dateValue: \(input.dateValue?.description ?? "nil")")
-      print("   - text: '\(text)'")
-      print("   - isEditMode: \(isEditMode)")
-
       // More lenient validation: check if dateValue exists OR if text is not empty and matches date format
       let hasDateValue = input.dateValue != nil
       let hasValidText = !text.isEmpty && text.count >= 8  // Basic check for "dd/mm/yyyy" format
       let isValid = hasDateValue || hasValidText || (isEditMode && !text.isEmpty)
-
-      print("   - hasDateValue: \(hasDateValue)")
-      print("   - hasValidText: \(hasValidText) (text length: \(text.count))")
-      print("   - validation result: \(isValid)")
 
       return isValid
     } else if input === installmentsTextField || input === installmentsInputWithSuffix {
@@ -455,12 +446,6 @@ final class AddTransactionModalView: UIView {
 
     let endOfMonth = calendar.date(from: dateComponents) ?? transactionDate
 
-    print("🔍 DATE RESTRICTION DEBUG:")
-    print("   - Transaction date: \(transactionDate)")
-    print("   - Start of month: \(startOfMonth)")
-    print("   - End of month: \(endOfMonth)")
-    print("   - Year: \(year), Month: \(month), Last day: \(lastDayOfMonth - 1)")
-
     // Set date restrictions to only allow dates within the current month
     initialDateTextField.setDateRestrictions(minimumDate: startOfMonth, maximumDate: endOfMonth)
   }
@@ -469,7 +454,6 @@ final class AddTransactionModalView: UIView {
     // Set the total amount for installment transactions
     totalValueTextField.text = String(totalAmount)
     totalValueTextField.textField.sendActions(for: .editingChanged)
-    print("🔍 INSTALLMENT EDIT: Set total amount to \(totalAmount)")
   }
 
   private func setupEditModeContent(for transaction: Transaction) {
@@ -480,19 +464,10 @@ final class AddTransactionModalView: UIView {
     editModeInputStackView.addArrangedSubview(transactionTitleTextField)
     editModeInputStackView.addArrangedSubview(categoryPickerView)
 
-    print("🔍 EDIT MODE: Transaction mode = \(transaction.mode)")
-    print("🔍 EDIT MODE: Transaction hasInstallments = \(transaction.hasInstallments ?? false)")
-    print("🔍 EDIT MODE: Transaction totalInstallments = \(transaction.totalInstallments ?? 0)")
-    print("🔍 EDIT MODE: Transaction parentTransactionId = \(transaction.parentTransactionId ?? 0)")
-    print("🔍 EDIT MODE: Transaction installmentNumber = \(transaction.installmentNumber ?? 0)")
-    print("🔍 EDIT MODE: Transaction isRecurring = \(transaction.isRecurring ?? false)")
-
     // Check if this is an installment transaction (either by mode or by properties)
     let isInstallmentTransaction =
       transaction.mode == .installments
       || (transaction.parentTransactionId != nil && transaction.installmentNumber != nil)
-
-    print("🔍 EDIT MODE: isInstallmentTransaction = \(isInstallmentTransaction)")
 
     if isInstallmentTransaction {
       // For installment transactions, show installment-specific fields (like add transaction modal structure)
@@ -510,8 +485,6 @@ final class AddTransactionModalView: UIView {
 
       // Update height constraint to show the installments field
       installmentsHeightConstraint?.constant = Metrics.inputHeight
-
-      print("🔍 INSTALLMENT EDIT: Set up installment-specific fields")
     } else {
       // For normal/recurring transactions, show basic fields only
       editModeInputStackView.addArrangedSubview(horizontalInputsStackView)
@@ -522,8 +495,6 @@ final class AddTransactionModalView: UIView {
 
       // Reset height constraint for non-installment transactions
       installmentsHeightConstraint?.constant = 0
-
-      print("🔍 NORMAL EDIT: Set up basic fields only")
     }
   }
 
@@ -556,14 +527,8 @@ final class AddTransactionModalView: UIView {
         return allInputs
       }()
 
-    print("🔍 VALIDATION: Starting validation for \(inputsToValidate.count) inputs")
     let invalids = inputsToValidate.filter { input in
-      let isValid = isInputValid(input)
-      if !isValid {
-        let inputName = getInputName(input)
-        print("❌ VALIDATION: \(inputName) is invalid")
-      }
-      return !isValid
+      return !isInputValid(input)
     }
 
     // Only validate transaction type in add mode
@@ -571,9 +536,6 @@ final class AddTransactionModalView: UIView {
       !isEditMode
       && (incomeSelectorButton.superview != nil && incomeSelectorButton.variant != .selected
         && expenseSelectorButton.superview != nil && expenseSelectorButton.variant != .selected)
-
-    print("🔍 VALIDATION: Found \(invalids.count) invalid inputs")
-    print("🔍 VALIDATION: Transaction type error: \(isTransactionTypeError)")
 
     invalids.forEach { $0.setError(true) }
 
@@ -590,11 +552,6 @@ final class AddTransactionModalView: UIView {
     let rawValues = categoryPickerView.pickerValues ?? []
     let selectedRow = categoryPickerView.selectedPickerIndex
     let categoryKey = rawValues.indices.contains(selectedRow) ? rawValues[selectedRow] : ""
-
-    // Debug form field values
-    print(
-      "🔍 DEBUG: Form field values - title: '\(title)', categoryKey: '\(categoryKey)', selectedRow: \(selectedRow), rawValues: \(rawValues)"
-    )
 
     // Get amount and date based on transaction mode
     let amount: Int
@@ -622,13 +579,11 @@ final class AddTransactionModalView: UIView {
       typeEnum = editingTransaction.type
       typeKey = String(describing: typeEnum)
       selectedMode = editingTransaction.mode
-      print("🔍 DEBUG: Edit mode - typeEnum: \(typeEnum), typeKey: '\(typeKey)'")
     } else {
       // In add mode, get from UI controls
       typeEnum = incomeSelectorButton.variant == .selected ? .income : .expense
       typeKey = String(describing: typeEnum)
       selectedMode = transactionModelControl.getSelectedMode()
-      print("🔍 DEBUG: Add mode - typeEnum: \(typeEnum), typeKey: '\(typeKey)'")
     }
 
     // Determine if this is add or edit mode
@@ -742,7 +697,6 @@ final class AddTransactionModalView: UIView {
       // For installment transactions, we need to calculate the total amount
       // This will be handled by the view controller when calling configureForEdit
       amountInCents = transaction.amount  // This will be overridden by the view controller
-      print("🔍 INSTALLMENT EDIT: Individual amount \(amountInCents) - will be replaced with total")
     } else {
       amountInCents = transaction.amount
     }
@@ -768,7 +722,6 @@ final class AddTransactionModalView: UIView {
       // Populate installments field
       if let totalInstallments = transaction.totalInstallments {
         installmentsInputWithSuffix.text = String(totalInstallments)
-        print("🔍 INSTALLMENT EDIT: Set installments to \(totalInstallments)")
       }
     }
 

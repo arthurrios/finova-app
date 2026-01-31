@@ -14,11 +14,17 @@ enum DBError: Error {
   case stepFailed(message: String)
 }
 
+/// SQLITE_TRANSIENT tells SQLite to make its own copy of the string
+private let SQLITE_TRANSIENT = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
+
 class DBHelper {
   static let shared = DBHelper()
 
   private var db: OpaquePointer?
   private var isInitialized = false
+
+  /// Serial queue to ensure thread-safe database access
+  private let dbQueue = DispatchQueue(label: "com.finova.dbhelper", qos: .userInitiated)
 
   private init() {
     initializeDatabase()
@@ -45,7 +51,9 @@ class DBHelper {
       .url(for: .documentDirectory, in: .userDomainMask, appropriateFor: nil, create: false)
       .appendingPathComponent("AppFinance.sqlite")
 
-    if sqlite3_open(fileURL.path, &db) != SQLITE_OK {
+    // Use sqlite3_open_v2 with SQLITE_OPEN_FULLMUTEX for thread-safe serialized mode
+    let flags = SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX
+    if sqlite3_open_v2(fileURL.path, &db, flags, nil) != SQLITE_OK {
       throw DBError.openDatabaseFailed
     }
   }
@@ -343,11 +351,9 @@ class DBHelper {
 
     defer { sqlite3_finalize(statement) }
 
-    let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
-
-    sqlite3_bind_text(statement, 1, transaction.data.title, -1, transient)
-    sqlite3_bind_text(statement, 2, transaction.data.category, -1, transient)
-    sqlite3_bind_text(statement, 3, transaction.data.type, -1, transient)
+    sqlite3_bind_text(statement, 1, transaction.data.title, -1, SQLITE_TRANSIENT)
+    sqlite3_bind_text(statement, 2, transaction.data.category, -1, SQLITE_TRANSIENT)
+    sqlite3_bind_text(statement, 3, transaction.data.type, -1, SQLITE_TRANSIENT)
     sqlite3_bind_int64(statement, 4, Int64(transaction.data.amount))
     sqlite3_bind_int64(statement, 5, Int64(transaction.data.dateTimestamp))
     sqlite3_bind_int64(statement, 6, Int64(transaction.data.budgetMonthDate))
@@ -804,9 +810,9 @@ class DBHelper {
 
     defer { sqlite3_finalize(statement) }
 
-    sqlite3_bind_text(statement, 1, transaction.data.title, -1, nil)
-    sqlite3_bind_text(statement, 2, transaction.data.category, -1, nil)
-    sqlite3_bind_text(statement, 3, transaction.data.type, -1, nil)
+    sqlite3_bind_text(statement, 1, transaction.data.title, -1, SQLITE_TRANSIENT)
+    sqlite3_bind_text(statement, 2, transaction.data.category, -1, SQLITE_TRANSIENT)
+    sqlite3_bind_text(statement, 3, transaction.data.type, -1, SQLITE_TRANSIENT)
     sqlite3_bind_int64(statement, 4, Int64(transaction.data.amount))
     sqlite3_bind_int64(statement, 5, Int64(transaction.data.dateTimestamp))
     sqlite3_bind_int64(statement, 6, Int64(transaction.data.budgetMonthDate))
@@ -856,9 +862,9 @@ class DBHelper {
 
     defer { sqlite3_finalize(statement) }
 
-    sqlite3_bind_text(statement, 1, transaction.data.title, -1, nil)
-    sqlite3_bind_text(statement, 2, transaction.data.category, -1, nil)
-    sqlite3_bind_text(statement, 3, transaction.data.type, -1, nil)
+    sqlite3_bind_text(statement, 1, transaction.data.title, -1, SQLITE_TRANSIENT)
+    sqlite3_bind_text(statement, 2, transaction.data.category, -1, SQLITE_TRANSIENT)
+    sqlite3_bind_text(statement, 3, transaction.data.type, -1, SQLITE_TRANSIENT)
     sqlite3_bind_int64(statement, 4, Int64(transaction.data.amount))
     sqlite3_bind_int64(statement, 5, Int64(transaction.data.dateTimestamp))
     sqlite3_bind_int64(statement, 6, Int64(transaction.data.budgetMonthDate))

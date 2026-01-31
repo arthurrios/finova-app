@@ -33,35 +33,9 @@ final class AddTransactionModalViewModel {
     isRecurring: Bool? = nil
   ) -> Result<Void, Error> {
 
-    print("🔍 DEBUG: Attempting to parse date string: '\(dateString)'")
-    print(
-      "🔍 DEBUG: Using formatter with pattern: '\(DateFormatter.fullDateFormatter.dateFormat ?? "nil")'"
-    )
-    print(
-      "🔍 DEBUG: Formatter locale: \(DateFormatter.fullDateFormatter.locale?.identifier ?? "nil")")
-
     guard let date = DateFormatter.fullDateFormatter.date(from: dateString) else {
-      print("❌ ERROR: Failed to parse date string '\(dateString)' with dd/MM/yyyy format")
-
-      // Try alternative formats for debugging
-      let altFormatter1 = DateFormatter()
-      altFormatter1.dateFormat = "MM/dd/yyyy"
-      altFormatter1.locale = Locale(identifier: "en_US_POSIX")
-      if let altDate1 = altFormatter1.date(from: dateString) {
-        print("⚠️ DEBUG: Date string matches MM/dd/yyyy format instead")
-      }
-
-      let altFormatter2 = DateFormatter()
-      altFormatter2.dateFormat = "yyyy/MM/dd"
-      altFormatter2.locale = Locale(identifier: "en_US_POSIX")
-      if let altDate2 = altFormatter2.date(from: dateString) {
-        print("⚠️ DEBUG: Date string matches yyyy/MM/dd format instead")
-      }
-
       return .failure(TransactionError.invalidDateFormat)
     }
-
-    print("✅ DEBUG: Successfully parsed date: \(date)")
 
     let timestamp = Int(date.timeIntervalSince1970)
 
@@ -108,7 +82,6 @@ final class AddTransactionModalViewModel {
             newTransactionId: insertedId,
             existingParentId: existingId
           )
-          print("🔗 Linked to existing recurring transaction: \(existingSimilar.title)")
         } else {
           // No similar transaction found, make this a new parent
           try transactionRepo.updateParentTransactionId(
@@ -126,10 +99,6 @@ final class AddTransactionModalViewModel {
           }
           return anchors
         }()
-
-        print(
-          "🔄 LAZY: Creating recurring transaction with immediate window of \(immediateMonthAnchors.count) months"
-        )
 
         // Generate only the immediate window of instances
         // Completion runs on background queue - heavy work stays there
@@ -175,6 +144,102 @@ final class AddTransactionModalViewModel {
       } catch {
         return .failure(error)
       }
+    }
+  }
+
+  /// Async version for recurring transaction creation that waits for instance generation
+  func addRecurringTransactionAsync(
+    title: String,
+    amount: Int,
+    dateString: String,
+    categoryKey: String,
+    typeRaw: String,
+    completion: @escaping (Result<Void, Error>) -> Void
+  ) {
+    guard let date = DateFormatter.fullDateFormatter.date(from: dateString) else {
+      completion(.failure(TransactionError.invalidDateFormat))
+      return
+    }
+
+    guard
+      let category = TransactionCategory.allCases
+        .first(where: { $0.key == categoryKey })
+    else {
+      completion(.failure(TransactionError.invalidCategory))
+      return
+    }
+
+    guard
+      let type = TransactionType.allCases
+        .first(where: { String(describing: $0) == typeRaw })
+    else {
+      completion(.failure(TransactionError.invalidType))
+      return
+    }
+
+    let timestamp = Int(date.timeIntervalSince1970)
+    let anchor = date.monthAnchor
+
+    let model = TransactionModel(
+      title: title,
+      category: category.key,
+      amount: amount,
+      type: type.key,
+      dateTimestamp: timestamp,
+      budgetMonthDate: anchor,
+      isRecurring: true
+    )
+
+    do {
+      let insertedId = try transactionRepo.insertTransactionAndGetId(model)
+
+      // Check for similar existing recurring transactions
+      if let existingSimilar = recurringManager.findSimilarRecurringTransaction(
+        title: title,
+        category: category.key,
+        amount: amount,
+        type: type.key
+      ), let existingId = existingSimilar.id {
+        try recurringManager.linkToExistingRecurringTransaction(
+          newTransactionId: insertedId,
+          existingParentId: existingId
+        )
+      } else {
+        try transactionRepo.updateParentTransactionId(
+          transactionId: insertedId, parentId: insertedId)
+      }
+
+      // Generate instances for immediate window (next 2 months)
+      let immediateMonthAnchors: Set<Int> = {
+        var anchors = Set<Int>()
+        for monthOffset in 1...2 {
+          if let futureDate = calendar.date(byAdding: .month, value: monthOffset, to: date) {
+            anchors.insert(futureDate.monthAnchor)
+          }
+        }
+        return anchors
+      }()
+
+      // Wait for instance generation to complete before calling completion
+      recurringManager.generateInstancesLazilyForMonths(immediateMonthAnchors) { [weak self] in
+        guard let self = self else {
+          DispatchQueue.main.async { completion(.success(())) }
+          return
+        }
+
+        // These operations run on background thread
+        self.scheduleNotificationsForRecurringTransactions()
+        self.monitorNegativeBalance()
+
+        // Invalidate cache and call completion on main thread
+        DispatchQueue.main.async {
+          self.invalidateLedgerCache()
+          completion(.success(()))
+        }
+      }
+
+    } catch {
+      completion(.failure(error))
     }
   }
 
@@ -228,10 +293,6 @@ final class AddTransactionModalViewModel {
       // Additional installments will be generated lazily when the user navigates to those months
       let immediateInstallmentCount = min(3, totalInstallments)
 
-      print(
-        "🔄 LAZY: Creating \(immediateInstallmentCount) immediate installments out of \(totalInstallments) total"
-      )
-
       var allInstallments: [TransactionModel] = []
 
       for installmentNumber in 1...immediateInstallmentCount {
@@ -240,10 +301,6 @@ final class AddTransactionModalViewModel {
           calendar.date(byAdding: .month, value: installmentNumber - 1, to: startDate) ?? startDate
         let targetYear = calendar.component(.year, from: targetDate)
         let targetMonth = calendar.component(.month, from: targetDate)
-
-        print(
-          "🔄 LAZY: Creating installment \(installmentNumber)/\(totalInstallments) for month \(targetMonth)/\(targetYear)"
-        )
 
         let installmentDate = generateValidDateForMonth(
           originalDate: startDate,
@@ -268,8 +325,6 @@ final class AddTransactionModalViewModel {
         )
 
         _ = try transactionRepo.insertTransactionAndGetId(installmentModel)
-        print(
-          "✅ LAZY: Created installment \(installmentNumber): \(data.title) for \(installmentDate)")
 
         // Adicionar à lista para notificações otimizadas
         allInstallments.append(installmentModel)
@@ -290,6 +345,117 @@ final class AddTransactionModalViewModel {
     }
   }
 
+  /// Async version for installment transaction creation
+  func addTransactionWithInstallmentsAsync(
+    _ data: InstallmentTransactionData,
+    completion: @escaping (Result<Void, Error>) -> Void
+  ) {
+    let totalInstallments = data.installments
+    guard totalInstallments > 1 else {
+      completion(.failure(TransactionError.invalidInstallmentCount))
+      return
+    }
+
+    guard let startDate = DateFormatter.fullDateFormatter.date(from: data.date) else {
+      completion(.failure(TransactionError.invalidDateFormat))
+      return
+    }
+
+    guard
+      let category = TransactionCategory.allCases
+        .first(where: { $0.key == data.category })
+    else {
+      completion(.failure(TransactionError.invalidCategory))
+      return
+    }
+
+    guard
+      let type = TransactionType.allCases
+        .first(where: { String(describing: $0) == data.transactionType })
+    else {
+      completion(.failure(TransactionError.invalidType))
+      return
+    }
+
+    let amountPerInstallment = data.totalAmount / totalInstallments
+    let remainder = data.totalAmount % totalInstallments
+
+    DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+      guard let self = self else {
+        DispatchQueue.main.async { completion(.failure(TransactionError.repositoryUnavailable)) }
+        return
+      }
+
+      do {
+        // Create parent transaction
+        let parentModel = TransactionModel(
+          title: "\(data.title) - Installment Parent",
+          category: category.key,
+          amount: 0,
+          type: type.key,
+          dateTimestamp: Int(startDate.timeIntervalSince1970),
+          budgetMonthDate: startDate.monthAnchor,
+          hasInstallments: true,
+          originalAmount: data.totalAmount,
+          totalInstallments: totalInstallments
+        )
+
+        let parentId = try self.transactionRepo.insertTransactionAndGetId(parentModel)
+
+        // Create immediate installments (first 3 months)
+        let immediateInstallmentCount = min(3, totalInstallments)
+        var allInstallments: [TransactionModel] = []
+
+        for installmentNumber in 1...immediateInstallmentCount {
+          let targetDate =
+            self.calendar.date(byAdding: .month, value: installmentNumber - 1, to: startDate)
+            ?? startDate
+          let targetYear = self.calendar.component(.year, from: targetDate)
+          let targetMonth = self.calendar.component(.month, from: targetDate)
+
+          let installmentDate = self.generateValidDateForMonth(
+            originalDate: startDate,
+            targetMonth: targetMonth,
+            targetYear: targetYear
+          )
+
+          let installmentAmount =
+            installmentNumber == 1 ? amountPerInstallment + remainder : amountPerInstallment
+
+          let installmentModel = TransactionModel(
+            title: data.title,
+            category: category.key,
+            amount: installmentAmount,
+            type: type.key,
+            dateTimestamp: Int(installmentDate.timeIntervalSince1970),
+            budgetMonthDate: installmentDate.monthAnchor,
+            parentTransactionId: parentId,
+            originalAmount: data.totalAmount,
+            installmentNumber: installmentNumber,
+            totalInstallments: totalInstallments
+          )
+
+          _ = try self.transactionRepo.insertTransactionAndGetId(installmentModel)
+          allInstallments.append(installmentModel)
+        }
+
+        // Schedule notifications
+        self.scheduleOptimizedNotificationsForInstallments(allInstallments)
+        self.monitorNegativeBalance()
+
+        DispatchQueue.main.async {
+          self.invalidateLedgerCache()
+          completion(.success(()))
+        }
+
+      } catch {
+        DispatchQueue.main.async {
+          completion(.failure(error))
+        }
+      }
+    }
+  }
+
   // MARK: - Notification Scheduling
 
   private func scheduleNotificationForNewTransaction(
@@ -298,7 +464,6 @@ final class AddTransactionModalViewModel {
     // Check if we have notification permission first
     notificationCenter.getNotificationSettings { settings in
       guard settings.authorizationStatus == .authorized else {
-        print("🔔 ❌ Notification permission not granted")
         return
       }
 
@@ -310,8 +475,6 @@ final class AddTransactionModalViewModel {
 
   /// Sistema otimizado para agendar notificações de parcelas
   private func scheduleOptimizedNotificationsForInstallments(_ installments: [TransactionModel]) {
-    print("🔔 📦 Scheduling optimized notifications for \(installments.count) installments")
-
     // Agrupar parcelas por mês
     var installmentsByMonth: [String: [TransactionModel]] = [:]
 
@@ -325,8 +488,6 @@ final class AddTransactionModalViewModel {
       }
       installmentsByMonth[monthKey]?.append(installment)
     }
-
-    print("🔔 📅 Grouped installments into \(installmentsByMonth.count) months")
 
     // Agendar notificação para cada mês (máximo 1 por mês)
     for (monthKey, monthInstallments) in installmentsByMonth {
@@ -345,9 +506,6 @@ final class AddTransactionModalViewModel {
     // Verificar se a data é muito no futuro (mais de 1 ano)
     let oneYearFromNow = Calendar.current.date(byAdding: .year, value: 1, to: Date()) ?? Date()
     if date > oneYearFromNow {
-      print(
-        "🔔 ⚠️ Installment month \(monthKey) is more than 1 year in the future, skipping notification"
-      )
       return
     }
 
@@ -358,7 +516,6 @@ final class AddTransactionModalViewModel {
 
     // Only schedule if notification time is in the future
     guard notificationDate > Date() else {
-      print("🔔 ⚠️ Installment notification time is in the past, skipping")
       return
     }
 
@@ -367,7 +524,6 @@ final class AddTransactionModalViewModel {
     // Verificar se o intervalo é muito grande (mais de 30 dias)
     let thirtyDaysInSeconds: TimeInterval = 30 * 24 * 60 * 60
     if timeInterval > thirtyDaysInSeconds {
-      print("🔔 ⚠️ Installment month \(monthKey) is more than 30 days away, scheduling reminder")
       scheduleReminderNotification(for: monthKey, installments: installments)
       return
     }
@@ -403,13 +559,7 @@ final class AddTransactionModalViewModel {
 
     notificationCenter.add(request) { error in
       if let error = error {
-        print("🔔 ❌ Error scheduling installment notification for month \(monthKey): \(error)")
-      } else {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd HH:mm"
-        print(
-          "🔔 ✅ Scheduled installment notification for month \(monthKey) at \(formatter.string(from: notificationDate))"
-        )
+        logError("Error scheduling installment notification for month \(monthKey): \(error)")
       }
     }
   }
@@ -435,9 +585,7 @@ final class AddTransactionModalViewModel {
 
     notificationCenter.add(request) { error in
       if let error = error {
-        print("🔔 ❌ Error scheduling installment reminder for month \(monthKey): \(error)")
-      } else {
-        print("🔔 ✅ Scheduled installment reminder for month \(monthKey)")
+        logError("Error scheduling installment reminder for month \(monthKey): \(error)")
       }
     }
   }
@@ -445,13 +593,9 @@ final class AddTransactionModalViewModel {
   private func scheduleNotification(for transactionId: Int, model: TransactionModel) {
     let date = Date(timeIntervalSince1970: TimeInterval(model.data.dateTimestamp))
 
-    print("🔔 Scheduling notification for transaction: \(model.data.title)")
-    print("📅 Transaction date: \(date)")
-
     // Verificar se a data é muito no futuro (mais de 1 ano)
     let oneYearFromNow = Calendar.current.date(byAdding: .year, value: 1, to: Date()) ?? Date()
     if date > oneYearFromNow {
-      print("🔔 ⚠️ Transaction date is more than 1 year in the future, skipping notification")
       return
     }
 
@@ -462,7 +606,6 @@ final class AddTransactionModalViewModel {
 
     // Only schedule if notification time is in the future
     guard notificationDate > Date() else {
-      print("🔔 ⚠️ Notification time is in the past, skipping")
       return
     }
 
@@ -478,9 +621,6 @@ final class AddTransactionModalViewModel {
     // Verificar se o intervalo é muito grande (mais de 30 dias)
     let thirtyDaysInSeconds: TimeInterval = 30 * 24 * 60 * 60
     if timeInterval > thirtyDaysInSeconds {
-      print(
-        "🔔 ⚠️ Notification interval is more than 30 days (\(timeInterval/86400) days), scheduling for 30 days"
-      )
       // Agendar para 30 dias e depois reagendar quando chegar mais perto
       let adjustedInterval = thirtyDaysInSeconds
       let trigger = UNTimeIntervalNotificationTrigger(
@@ -497,9 +637,7 @@ final class AddTransactionModalViewModel {
         identifier: dayIdentifier, content: content, trigger: trigger)
       notificationCenter.add(request) { error in
         if let error = error {
-          print("🔔 ❌ Error scheduling reminder notification: \(error)")
-        } else {
-          print("🔔 ✅ Scheduled reminder notification for 30 days from now")
+          logError("Error scheduling reminder notification: \(error)")
         }
       }
       return
@@ -530,13 +668,7 @@ final class AddTransactionModalViewModel {
     let request = UNNotificationRequest(identifier: id, content: content, trigger: trigger)
     notificationCenter.add(request) { error in
       if let error = error {
-        print("🔔 ❌ Error scheduling notification for \(model.data.title): \(error)")
-      } else {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd HH:mm"
-        print(
-          "🔔 ✅ Scheduled notification for \(model.data.title) at \(formatter.string(from: notificationDate))"
-        )
+        logError("Error scheduling notification for \(model.data.title): \(error)")
       }
     }
   }
@@ -611,7 +743,7 @@ final class AddTransactionModalViewModel {
     let request = UNNotificationRequest(identifier: id, content: content, trigger: trigger)
     notificationCenter.add(request) { error in
       if let error = error {
-        print("🔔 ❌ Error scheduling notification for \(tx.title): \(error)")
+        logError("Error scheduling notification for \(tx.title): \(error)")
       }
     }
   }
@@ -631,10 +763,6 @@ final class AddTransactionModalViewModel {
   ) -> Date {
     let originalDay = calendar.component(.day, from: originalDate)
 
-    print(
-      "🔧 generateValidDateForMonth (installments): originalDay=\(originalDay), targetMonth=\(targetMonth), targetYear=\(targetYear)"
-    )
-
     // Calcular o último dia do mês específico primeiro
     let lastDayOfMonth: Int
 
@@ -648,11 +776,8 @@ final class AddTransactionModalViewModel {
       lastDayOfMonth = 31
     }
 
-    print("📅 Last day of month \(targetMonth)/\(targetYear): \(lastDayOfMonth)")
-
     // Determinar o dia a usar
     let dayToUse = min(originalDay, lastDayOfMonth)
-    print("📅 Using day: \(dayToUse) (original: \(originalDay), last day: \(lastDayOfMonth))")
 
     // Criar a data com o dia determinado
     var dateComponents = DateComponents()
@@ -665,21 +790,11 @@ final class AddTransactionModalViewModel {
 
     // Criar a data
     guard let validDate = calendar.date(from: dateComponents) else {
-      print("❌ Failed to create date for \(dayToUse)/\(targetMonth)/\(targetYear), using fallback")
+      logError("Failed to create date for \(dayToUse)/\(targetMonth)/\(targetYear), using fallback")
       // Fallback: usar o primeiro dia do mês
       dateComponents.day = 1
       let fallbackDate = calendar.date(from: dateComponents) ?? Date()
-      print("⚠️ Using fallback date (1st day) for installment month \(targetMonth)/\(targetYear)")
       return fallbackDate
-    }
-
-    if dayToUse != originalDay {
-      print(
-        "📅 Adjusted installment date for month \(targetMonth)/\(targetYear): original day \(originalDay) → adjusted day \(dayToUse)"
-      )
-    } else {
-      print(
-        "✅ Original day \(originalDay) works for installment month \(targetMonth)/\(targetYear)")
     }
 
     return validDate
@@ -693,7 +808,6 @@ final class AddTransactionModalViewModel {
     guard let user = UserDefaultsManager.getUser(),
       let firebaseUID = user.firebaseUID
     else {
-      print("🔔 ❌ Cannot monitor balance: User not authenticated")
       return
     }
 
@@ -703,8 +817,6 @@ final class AddTransactionModalViewModel {
     // Create balance monitor and check current month
     let balanceMonitor = BalanceMonitorManager()
     balanceMonitor.monitorCurrentMonthBalance()
-
-    print("🔔 💰 Balance monitoring completed after transaction addition")
   }
 
   // MARK: - Update Transaction Methods
@@ -754,10 +866,6 @@ final class AddTransactionModalViewModel {
         totalInstallments: nil
       )
 
-      print(
-        "🔧 DEBUG ViewModel: Created TransactionModel - title: '\(updatedTransaction.data.title)', category: '\(updatedTransaction.data.category)', type: '\(updatedTransaction.data.type)'"
-      )
-
       try transactionRepo.updateTransaction(updatedTransaction)
       invalidateLedgerCache()
       return .success(())
@@ -798,30 +906,15 @@ final class AddTransactionModalViewModel {
       // Find the existing transaction to get its parent ID
       let existingTransactions = transactionRepo.fetchAllTransactions()
       guard let existingTransaction = existingTransactions.first(where: { $0.id == id }) else {
-        print("❌ Could not find transaction with ID: \(id)")
+        logError("Could not find transaction with ID: \(id)")
         return .failure(TransactionError.transactionNotFound)
       }
-
-      print(
-        "🔍 Found existing transaction: ID=\(existingTransaction.id ?? 0), parentID=\(existingTransaction.parentTransactionId ?? 0), hasInstallments=\(existingTransaction.hasInstallments ?? false)"
-      )
 
       // For installment transactions, we need to find the main installment transaction
       // (the one with hasInstallments=true and parentTransactionId=nil)
       let mainInstallmentTransaction: Transaction
       if let parentId = existingTransaction.parentTransactionId {
         // This is an individual installment, find the main installment transaction
-        print("🔍 Looking for main installment transaction with ID: \(parentId)")
-
-        // Debug: List all transactions to see what we have
-        print("🔍 All transactions in database:")
-        for tx in existingTransactions {
-          if tx.hasInstallments == true {
-            print(
-              "   - ID: \(tx.id ?? 0), parentID: \(tx.parentTransactionId ?? 0), hasInstallments: \(tx.hasInstallments ?? false)"
-            )
-          }
-        }
 
         // The main installment transaction has hasInstallments=true and parentTransactionId=nil
         // First try to find by exact ID match
@@ -829,20 +922,15 @@ final class AddTransactionModalViewModel {
           $0.hasInstallments == true && $0.parentTransactionId == nil && $0.id == parentId
         }) {
           mainInstallmentTransaction = mainTransaction
-          print("✅ Found main installment transaction: ID=\(mainTransaction.id ?? 0)")
         } else {
           // Try to find the main installment transaction by looking for any transaction
           // with hasInstallments=true and parentTransactionId=nil in the same month
-          print("⚠️ Main installment transaction not found by exact ID, trying fallback...")
 
           let individualInstallmentMonth = existingTransaction.budgetMonthDate
           if let fallbackMainTransaction = existingTransactions.first(where: {
             $0.hasInstallments == true && $0.parentTransactionId == nil
               && $0.budgetMonthDate == individualInstallmentMonth && $0.amount == 0  // Main installment transactions typically have amount 0
           }) {
-            print(
-              "✅ Found main installment transaction via fallback: ID=\(fallbackMainTransaction.id ?? 0)"
-            )
 
             // Update all individual installments to point to the correct main transaction
             let individualInstallments = existingTransactions.filter {
@@ -859,17 +947,12 @@ final class AddTransactionModalViewModel {
                 amount: installment.amount,
                 date: installment.date
               )
-
-              print(
-                "✅ Updated individual installment ID: \(installment.id ?? 0) to point to main transaction ID: \(fallbackMainTransaction.id ?? 0)"
-              )
             }
 
             mainInstallmentTransaction = fallbackMainTransaction
           } else {
             // Main installment transaction is missing - this is a data inconsistency
             // We'll create a new main installment transaction to fix this
-            print("⚠️ Main installment transaction missing, creating new one...")
 
             // Find the first individual installment to get the basic info
             guard
@@ -877,7 +960,7 @@ final class AddTransactionModalViewModel {
                 $0.parentTransactionId == parentId
               })
             else {
-              print("❌ Could not find any individual installments for parent ID: \(parentId)")
+              logError("Could not find any individual installments for parent ID: \(parentId)")
               return .failure(TransactionError.transactionNotFound)
             }
 
@@ -903,7 +986,6 @@ final class AddTransactionModalViewModel {
             do {
               newMainTransactionId = try transactionRepo.insertTransactionAndGetId(
                 newMainTransaction)
-              print("✅ Created new main installment transaction with ID: \(newMainTransactionId)")
 
               // Delete the old main installment transaction if it exists
               if let oldMainTransaction = existingTransactions.first(where: {
@@ -912,9 +994,6 @@ final class AddTransactionModalViewModel {
                   && $0.id != parentId  // Don't delete the one we just created
               }) {
                 try transactionRepo.delete(id: oldMainTransaction.id ?? 0)
-                print(
-                  "✅ Deleted old main installment transaction with ID: \(oldMainTransaction.id ?? 0)"
-                )
               }
 
               // Update all individual installments to point to the new main transaction
@@ -928,14 +1007,10 @@ final class AddTransactionModalViewModel {
                   transactionId: installment.id ?? 0,
                   parentId: newMainTransactionId
                 )
-
-                print(
-                  "✅ Updated individual installment ID: \(installment.id ?? 0) to point to new main transaction ID: \(newMainTransactionId)"
-                )
               }
 
             } catch {
-              print("❌ Failed to create main installment transaction: \(error)")
+              logError("Failed to create main installment transaction: \(error)")
               return .failure(error)
             }
 
@@ -973,9 +1048,6 @@ final class AddTransactionModalViewModel {
             amount: existingTransaction.amount,
             date: existingTransaction.date
           )
-          print(
-            "✅ Updated current individual installment ID: \(currentInstallmentId) to point to main transaction ID: \(mainInstallmentTransaction.id ?? 0)"
-          )
         }
       } else {
         // This is already the main installment transaction
@@ -998,18 +1070,12 @@ final class AddTransactionModalViewModel {
         totalInstallments: data.installments
       )
 
-      print(
-        "🔄 INSTALLMENT UPDATE: Updating transaction \(mainInstallmentTransaction.id ?? 0) with:")
-      print("   - Total Amount: \(data.totalAmount)")
-      print("   - Number of Installments: \(data.installments)")
-      print("   - Initial Date: \(dateObj)")
-
       do {
         try transactionRepo.updateTransaction(updatedTransaction)
         invalidateLedgerCache()
         return .success(())
       } catch {
-        print("❌ INSTALLMENT UPDATE ERROR: \(error)")
+        logError("Installment update error: \(error)")
         return .failure(error)
       }
 
@@ -1129,20 +1195,15 @@ final class AddTransactionModalViewModel {
       return .failure(TransactionError.invalidType)
     }
 
-    print("✏️ DEBUG ViewModel: Parsing date string: '\(dateString)'")
     guard let dateObj = DateFormatter.fullDateFormatter.date(from: dateString) else {
       return .failure(TransactionError.invalidDateFormat)
     }
-    print("✏️ DEBUG ViewModel: Parsed date object: \(dateObj)")
-    print(
-      "✏️ DEBUG ViewModel: Date components - Day: \(Calendar.current.component(.day, from: dateObj)), Month: \(Calendar.current.component(.month, from: dateObj)), Year: \(Calendar.current.component(.year, from: dateObj))"
-    )
 
     do {
       // Find the existing transaction to get its parent ID and determine if it's a recurring transaction
       let existingTransactions = transactionRepo.fetchAllTransactions()
       guard let existingTransaction = existingTransactions.first(where: { $0.id == id }) else {
-        print("❌ Could not find transaction with ID: \(id)")
+        logError("Could not find transaction with ID: \(id)")
         return .failure(TransactionError.transactionNotFound)
       }
 
@@ -1151,14 +1212,11 @@ final class AddTransactionModalViewModel {
       if let parentId = existingTransaction.parentTransactionId {
         // This is a recurring instance, use the parent ID
         parentTransactionId = parentId
-        print("✏️ DEBUG ViewModel: Found recurring instance with parent ID: \(parentId)")
       } else if existingTransaction.isRecurring == true {
         // This is the parent recurring transaction
         parentTransactionId = id
-        print("✏️ DEBUG ViewModel: Found parent recurring transaction with ID: \(id)")
       } else {
         // Not a recurring transaction, use regular update
-        print("✏️ DEBUG ViewModel: Not a recurring transaction, using regular update")
         return updateTransaction(
           id: id,
           title: title,
@@ -1169,8 +1227,6 @@ final class AddTransactionModalViewModel {
           isRecurring: true
         )
       }
-
-      print("✏️ DEBUG ViewModel: Using parent transaction ID: \(parentTransactionId)")
 
       // Create the new transaction data
       let newTransactionData = TransactionModel(
@@ -1309,6 +1365,5 @@ final class AddTransactionModalViewModel {
   private func invalidateLedgerCache() {
     // Post notification to invalidate ledger cache
     NotificationCenter.default.post(name: .transactionDataChanged, object: nil)
-    print("🗑️ Ledger cache invalidation requested after transaction addition")
   }
 }
