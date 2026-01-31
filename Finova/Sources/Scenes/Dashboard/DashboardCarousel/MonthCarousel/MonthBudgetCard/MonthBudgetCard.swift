@@ -458,6 +458,7 @@ class MonthBudgetCard: UIView {
       // Budget is set - show budget information
       availableBudgetValueLabel.isHidden = false
       availableBudgetValueWithToggleContainer.isHidden = false
+      availableBudgetTextLabelContainer.isHidden = false
       availableBudgetTextLabel.isHidden = false
       defineBudgetButton.isHidden = true
 
@@ -510,7 +511,7 @@ class MonthBudgetCard: UIView {
       // No budget defined - hide budget information and show define button
       availableBudgetValueLabel.isHidden = true
       availableBudgetValueWithToggleContainer.isHidden = true
-      availableBudgetTextLabel.isHidden = true
+      availableBudgetTextLabelContainer.isHidden = true
       animatedNumberContainer?.isHidden = true
       defineBudgetButton.isHidden = false
 
@@ -853,12 +854,14 @@ class MonthBudgetCard: UIView {
   func updateFilteredState(isActive: Bool, sum: Int) {
     isFilterActive = isActive
     filteredSum = sum
-    
+
     if isActive {
-      // Show filtered indicator, hide normal label
+      // Show container and filtered indicator, hide normal label
+      availableBudgetTextLabelContainer.isHidden = false
       availableBudgetTextLabel.isHidden = true
       filteredIndicatorContainer.isHidden = false
-      
+      availableBudgetValueWithToggleContainer.isHidden = false
+
       // Update the value to show filtered sum
       if isValuesHidden {
         availableBudgetValueLabel.text = getHiddenValueString()
@@ -869,16 +872,14 @@ class MonthBudgetCard: UIView {
         animatedNumberContainer?.isHidden = false
         availableBudgetValueLabel.isHidden = true
       }
-      
+
       // Hide the toggle icon when filtering
       hideValuesToggleContainer.isHidden = true
     } else {
       // Restore normal display
-      availableBudgetTextLabel.isHidden = false
       filteredIndicatorContainer.isHidden = true
-      hideValuesToggleContainer.isHidden = false
-      
-      // Restore normal budget display
+
+      // Restore normal budget display (this handles container visibility based on budget state)
       updateAvailableBudgetDisplay()
     }
   }
@@ -895,6 +896,7 @@ class MonthBudgetCard: UIView {
       // Budget is set - show budget information
       availableBudgetValueLabel.isHidden = false
       availableBudgetValueWithToggleContainer.isHidden = false
+      availableBudgetTextLabelContainer.isHidden = false
       availableBudgetTextLabel.isHidden = false
       defineBudgetButton.isHidden = true
 
@@ -947,7 +949,7 @@ class MonthBudgetCard: UIView {
       // No budget defined - hide budget information and show define button
       availableBudgetValueLabel.isHidden = true
       availableBudgetValueWithToggleContainer.isHidden = true
-      availableBudgetTextLabel.isHidden = true
+      availableBudgetTextLabelContainer.isHidden = true
       animatedNumberContainer?.isHidden = true
       defineBudgetButton.isHidden = false
 
@@ -1415,7 +1417,7 @@ class MonthBudgetCard: UIView {
     // Check if budget is set for this specific cell before showing labels
     guard let data = currentMonthData, data.budgetLimit != nil && data.budgetLimit! > 0 else {
       print("🔄 updateAnimatedValue: No budget set for this cell, hiding labels")
-      availableBudgetTextLabel.isHidden = true
+      availableBudgetTextLabelContainer.isHidden = true
       availableBudgetValueLabel.isHidden = true
       availableBudgetValueWithToggleContainer.isHidden = true
       animatedNumberContainer?.isHidden = true
