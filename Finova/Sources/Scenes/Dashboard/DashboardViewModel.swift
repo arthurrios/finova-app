@@ -232,7 +232,7 @@ final class DashboardViewModel {
 
   private func updateRecurringTransactions() {
     // LAZY GENERATION: Use lazy generation instead of eager generation
-    triggerLazyGenerationForVisibleMonths()
+    triggerLazyGenerationInBackground()
   }
 
   func updateRecurringTransactionsWithCleanupChoice(
