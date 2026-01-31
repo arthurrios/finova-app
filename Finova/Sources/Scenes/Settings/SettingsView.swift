@@ -44,23 +44,35 @@ final class SettingsView: UIView {
     
     private let backButton: UIButton = {
         let button = UIButton(type: .system)
-        
+
         if let originalImage = UIImage(named: "chevronLeft") {
             let size = CGSize(width: Metrics.backButtonSize, height: Metrics.backButtonSize)
             UIGraphicsBeginImageContextWithOptions(size, false, 0.0)
             originalImage.draw(in: CGRect(origin: .zero, size: size))
             let resizedImage = UIGraphicsGetImageFromCurrentImageContext()
             UIGraphicsEndImageContext()
-            
+
             button.setImage(resizedImage, for: .normal)
         } else {
             button.setImage(UIImage(named: "chevronLeft"), for: .normal)
         }
-        
+
         button.imageView?.contentMode = .scaleAspectFit
-        button.tintColor = Colors.gray500
         button.translatesAutoresizingMaskIntoConstraints = false
+
+        if #available(iOS 26.0, *) {
+            button.tintColor = Colors.gray700
+        } else {
+            button.tintColor = Colors.gray500
+        }
+
         return button
+    }()
+
+    private lazy var backButtonGlassContainer: UIView = {
+        let container = UIView()
+        container.translatesAutoresizingMaskIntoConstraints = false
+        return container
     }()
     
     private let headerTitleLabel: UILabel = {
@@ -76,7 +88,7 @@ final class SettingsView: UIView {
     
     // Security Section
     private let securityHeaderView = createSectionHeader(title: "settings.section.security".localized)
-    
+
     let biometricContainer = createSettingContainer()
     private let biometricIconView = createIconView(imageName: "faceid")
     let biometricLabel = createSettingLabel(text: "Face ID / Touch ID")
@@ -86,7 +98,19 @@ final class SettingsView: UIView {
         toggle.translatesAutoresizingMaskIntoConstraints = false
         return toggle
     }()
-    
+
+    // Notifications Section
+    private let notificationsHeaderView = createSectionHeader(title: "settings.section.notifications".localized)
+
+    private let notificationsContainer: UIView = {
+        let container = createSettingContainer()
+        container.isUserInteractionEnabled = true
+        return container
+    }()
+    private let notificationsIconView = createIconView(imageName: "bell.fill")
+    private let notificationsLabel = createSettingLabel(text: "settings.notifications.title".localized)
+    private let notificationsChevron = createChevronView()
+
     // About Section
     private let aboutHeaderView = createSectionHeader(title: "settings.section.about".localized)
     
@@ -116,9 +140,31 @@ final class SettingsView: UIView {
         label.textColor = Colors.mainRed
         return label
     }()
-    
 
-    
+    // Logout Button
+    private let logoutContainer: UIView = {
+        let container = createSettingContainer()
+        container.isUserInteractionEnabled = true
+        return container
+    }()
+
+    private let logoutIconView: UIImageView = {
+        let imageView = UIImageView()
+        imageView.image = UIImage(named: "logout")
+        imageView.tintColor = Colors.gray600
+        imageView.contentMode = .scaleAspectFit
+        imageView.translatesAutoresizingMaskIntoConstraints = false
+
+        NSLayoutConstraint.activate([
+            imageView.heightAnchor.constraint(equalToConstant: 20),
+            imageView.widthAnchor.constraint(equalToConstant: 20)
+        ])
+
+        return imageView
+    }()
+
+    private let logoutLabel = createSettingLabel(text: "settings.logout.title".localized)
+
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
@@ -132,9 +178,11 @@ final class SettingsView: UIView {
         scrollView.addSubview(headerContainerView)
         scrollView.addSubview(contentStackView)
         headerContainerView.addSubview(headerItemsView)
-        headerItemsView.addSubview(backButton)
+        headerItemsView.addSubview(backButtonGlassContainer)
+        backButtonGlassContainer.addSubview(backButton)
+        setupBackButtonGlassEffect()
         headerItemsView.addSubview(headerTitleLabel)
-        
+
         setupSections()
         setupConstraints()
     }
@@ -144,34 +192,56 @@ final class SettingsView: UIView {
         contentStackView.addArrangedSubview(securityHeaderView)
         setupBiometricContainer()
         contentStackView.addArrangedSubview(biometricContainer)
-        
+
+        // Notifications section
+        contentStackView.addArrangedSubview(notificationsHeaderView)
+        setupNotificationsContainer()
+        contentStackView.addArrangedSubview(notificationsContainer)
+
         // About section
         contentStackView.addArrangedSubview(aboutHeaderView)
         setupVersionContainer()
         contentStackView.addArrangedSubview(versionContainer)
-        
+
         // Account Section
         contentStackView.addArrangedSubview(accountHeaderView)
         setupDeleteAccountContainer()
         contentStackView.addArrangedSubview(deleteAccountContainer)
-        
-
+        setupLogoutContainer()
+        contentStackView.addArrangedSubview(logoutContainer)
     }
     
     private func setupBiometricContainer() {
         biometricContainer.addSubview(biometricIconView)
         biometricContainer.addSubview(biometricLabel)
         biometricContainer.addSubview(biometricSwitch)
-        
+
         NSLayoutConstraint.activate([
             biometricIconView.leadingAnchor.constraint(equalTo: biometricContainer.leadingAnchor, constant: Metrics.spacing4),
             biometricIconView.centerYAnchor.constraint(equalTo: biometricContainer.centerYAnchor),
-            
+
             biometricLabel.leadingAnchor.constraint(equalTo: biometricIconView.trailingAnchor, constant: Metrics.spacing3),
             biometricLabel.centerYAnchor.constraint(equalTo: biometricContainer.centerYAnchor),
-            
+
             biometricSwitch.trailingAnchor.constraint(equalTo: biometricContainer.trailingAnchor, constant: -Metrics.spacing4),
             biometricSwitch.centerYAnchor.constraint(equalTo: biometricContainer.centerYAnchor)
+        ])
+    }
+
+    private func setupNotificationsContainer() {
+        notificationsContainer.addSubview(notificationsIconView)
+        notificationsContainer.addSubview(notificationsLabel)
+        notificationsContainer.addSubview(notificationsChevron)
+
+        NSLayoutConstraint.activate([
+            notificationsIconView.leadingAnchor.constraint(equalTo: notificationsContainer.leadingAnchor, constant: Metrics.spacing4),
+            notificationsIconView.centerYAnchor.constraint(equalTo: notificationsContainer.centerYAnchor),
+
+            notificationsLabel.leadingAnchor.constraint(equalTo: notificationsIconView.trailingAnchor, constant: Metrics.spacing3),
+            notificationsLabel.centerYAnchor.constraint(equalTo: notificationsContainer.centerYAnchor),
+
+            notificationsChevron.trailingAnchor.constraint(equalTo: notificationsContainer.trailingAnchor, constant: -Metrics.spacing4),
+            notificationsChevron.centerYAnchor.constraint(equalTo: notificationsContainer.centerYAnchor)
         ])
     }
     
@@ -195,18 +265,29 @@ final class SettingsView: UIView {
     private func setupDeleteAccountContainer() {
         deleteAccountContainer.addSubview(deleteAccountIconView)
         deleteAccountContainer.addSubview(deleteAccountLabel)
-        
+
         NSLayoutConstraint.activate([
             deleteAccountIconView.leadingAnchor.constraint(equalTo: deleteAccountContainer.leadingAnchor, constant: Metrics.spacing4),
             deleteAccountIconView.centerYAnchor.constraint(equalTo: deleteAccountContainer.centerYAnchor),
-            
+
             deleteAccountLabel.leadingAnchor.constraint(equalTo: deleteAccountIconView.trailingAnchor, constant: Metrics.spacing3),
             deleteAccountLabel.centerYAnchor.constraint(equalTo: deleteAccountContainer.centerYAnchor)
         ])
     }
-    
 
-    
+    private func setupLogoutContainer() {
+        logoutContainer.addSubview(logoutIconView)
+        logoutContainer.addSubview(logoutLabel)
+
+        NSLayoutConstraint.activate([
+            logoutIconView.leadingAnchor.constraint(equalTo: logoutContainer.leadingAnchor, constant: Metrics.spacing4),
+            logoutIconView.centerYAnchor.constraint(equalTo: logoutContainer.centerYAnchor),
+
+            logoutLabel.leadingAnchor.constraint(equalTo: logoutIconView.trailingAnchor, constant: Metrics.spacing3),
+            logoutLabel.centerYAnchor.constraint(equalTo: logoutContainer.centerYAnchor)
+        ])
+    }
+
     private func setupConstraints() {
         NSLayoutConstraint.activate([
             scrollView.topAnchor.constraint(equalTo: topAnchor),
@@ -223,13 +304,20 @@ final class SettingsView: UIView {
             headerItemsView.trailingAnchor.constraint(equalTo: headerContainerView.trailingAnchor),
             headerItemsView.bottomAnchor.constraint(equalTo: headerContainerView.bottomAnchor),
             
-            backButton.topAnchor.constraint(equalTo: headerItemsView.layoutMarginsGuide.topAnchor),
-            backButton.leadingAnchor.constraint(
+            backButtonGlassContainer.topAnchor.constraint(equalTo: headerItemsView.layoutMarginsGuide.topAnchor),
+            backButtonGlassContainer.leadingAnchor.constraint(
                 equalTo: headerItemsView.layoutMarginsGuide.leadingAnchor),
-            
+            backButtonGlassContainer.widthAnchor.constraint(equalToConstant: 36),
+            backButtonGlassContainer.heightAnchor.constraint(equalToConstant: 36),
+
+            backButton.topAnchor.constraint(equalTo: backButtonGlassContainer.topAnchor),
+            backButton.leadingAnchor.constraint(equalTo: backButtonGlassContainer.leadingAnchor),
+            backButton.trailingAnchor.constraint(equalTo: backButtonGlassContainer.trailingAnchor),
+            backButton.bottomAnchor.constraint(equalTo: backButtonGlassContainer.bottomAnchor),
+
             headerTitleLabel.leadingAnchor.constraint(
-                equalTo: backButton.trailingAnchor, constant: Metrics.spacing4),
-            headerTitleLabel.centerYAnchor.constraint(equalTo: backButton.centerYAnchor),
+                equalTo: backButtonGlassContainer.trailingAnchor, constant: Metrics.spacing4),
+            headerTitleLabel.centerYAnchor.constraint(equalTo: backButtonGlassContainer.centerYAnchor),
             
             contentStackView.topAnchor.constraint(equalTo: headerContainerView.bottomAnchor, constant: Metrics.spacing4),
             contentStackView.leadingAnchor.constraint(equalTo: scrollView.leadingAnchor, constant: Metrics.spacing4),
@@ -238,28 +326,60 @@ final class SettingsView: UIView {
             contentStackView.widthAnchor.constraint(equalTo: scrollView.widthAnchor, constant: -2 * Metrics.spacing4)
         ])
     }
-    
+
+    private func setupBackButtonGlassEffect() {
+        if #available(iOS 26.0, *) {
+            let glassEffect = UIGlassEffect()
+            glassEffect.isInteractive = true
+            let glassView = UIVisualEffectView(effect: glassEffect)
+            glassView.translatesAutoresizingMaskIntoConstraints = false
+
+            backButtonGlassContainer.insertSubview(glassView, at: 0)
+            backButtonGlassContainer.layer.cornerRadius = 18
+            backButtonGlassContainer.clipsToBounds = true
+
+            NSLayoutConstraint.activate([
+                glassView.topAnchor.constraint(equalTo: backButtonGlassContainer.topAnchor),
+                glassView.leadingAnchor.constraint(equalTo: backButtonGlassContainer.leadingAnchor),
+                glassView.trailingAnchor.constraint(equalTo: backButtonGlassContainer.trailingAnchor),
+                glassView.bottomAnchor.constraint(equalTo: backButtonGlassContainer.bottomAnchor),
+            ])
+        }
+    }
+
     private func setupActions() {
         biometricSwitch.addTarget(self, action: #selector(biometricToggled), for: .valueChanged)
-        
+
         let deleteAccountTap = UITapGestureRecognizer(target: self, action: #selector(deleteAccountTapped))
         deleteAccountContainer.addGestureRecognizer(deleteAccountTap)
-        
 
+        let notificationsTap = UITapGestureRecognizer(target: self, action: #selector(notificationsTapped))
+        notificationsContainer.addGestureRecognizer(notificationsTap)
+
+        let logoutTap = UITapGestureRecognizer(target: self, action: #selector(logoutTapped))
+        logoutContainer.addGestureRecognizer(logoutTap)
     }
-    
+
     @objc
     private func biometricToggled() {
         delegate?.didToggleBiometric(biometricSwitch.isOn)
     }
-    
+
     @objc
     private func deleteAccountTapped() {
         delegate?.didTapDeleteAccount()
     }
-    
 
-    
+    @objc
+    private func notificationsTapped() {
+        delegate?.didTapNotifications()
+    }
+
+    @objc
+    private func logoutTapped() {
+        delegate?.didTapLogout()
+    }
+
     @objc
     private func handleDidTapBackButton() {
         delegate?.handleDidTapBackButton()

@@ -201,6 +201,7 @@ final class UpdateToastManager {
       mockLatestVersion = nil
       UserDefaults.standard.removeObject(forKey: latestVersionKey)
       UserDefaults.standard.removeObject(forKey: lastToastDismissedKey)
+      UserDefaults.standard.removeObject(forKey: lastToastShownKey)
 
       // Clear all version-specific dismiss flags
       let defaults = UserDefaults.standard

@@ -469,8 +469,7 @@ class NotificationTests: XCTestCase {
       dateString: DateFormatter.fullDateFormatter.string(from: tomorrow),
       categoryKey: "salary",
       typeRaw: "income",
-      isRecurring: false,
-      parentTransactionId: transactionRepo.fetchAllTransactions().first?.id
+      isRecurring: false
     )
 
     let instance2Result = viewModel.addTransaction(
@@ -479,8 +478,7 @@ class NotificationTests: XCTestCase {
       dateString: DateFormatter.fullDateFormatter.string(from: dayAfterTomorrow),
       categoryKey: "salary",
       typeRaw: "income",
-      isRecurring: false,
-      parentTransactionId: transactionRepo.fetchAllTransactions().first?.id
+      isRecurring: false
     )
 
     XCTAssertTrue(instance1Result.isSuccess, "First recurring instance should be created")

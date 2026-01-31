@@ -15,6 +15,7 @@ final class MonthlyNotificationManager {
   private let balanceMonitor: BalanceMonitorManager
   private let notificationCenter = UNUserNotificationCenter.current()
   private let calendar = Calendar.current
+  private let preferencesManager = NotificationPreferencesManager.shared
 
   init(
     transactionRepo: TransactionRepository = TransactionRepository(),
@@ -37,6 +38,13 @@ final class MonthlyNotificationManager {
   /// Agenda todas as notificações do mês atual
   func scheduleAllMonthlyNotifications(showAlert: Bool = true) -> Bool {
     print("🔔 📅 Scheduling all monthly notifications...")
+
+    // Check if all notifications are disabled
+    guard !preferencesManager.allNotificationsDisabled else {
+      print("🔔 ⏸️ All notifications disabled by user preference")
+      clearExistingMonthlyNotifications()
+      return true
+    }
 
     // Verificar permissões
     var hasPermission = false
@@ -63,11 +71,15 @@ final class MonthlyNotificationManager {
     // Limpar notificações existentes
     clearExistingMonthlyNotifications()
 
-    // Agendar notificações de transações
-    let transactionSuccess = scheduleTransactionNotifications()
+    // Agendar notificações de transações (only if enabled)
+    let transactionSuccess = preferencesManager.transactionNotificationsEnabled
+      ? scheduleTransactionNotifications()
+      : true
 
-    // Agendar notificações de saldo negativo
-    let balanceSuccess = scheduleBalanceNotifications()
+    // Agendar notificações de saldo negativo (only if enabled)
+    let balanceSuccess = preferencesManager.negativeBalanceNotificationsEnabled
+      ? scheduleBalanceNotifications()
+      : true
 
     // Agendar notificações de parcelas/recorrentes
     let recurringSuccess = scheduleRecurringNotifications()

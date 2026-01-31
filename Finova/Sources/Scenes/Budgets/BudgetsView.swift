@@ -37,23 +37,35 @@ final class BudgetsView: UIView {
     
     private let backButton: UIButton = {
         let button = UIButton(type: .system)
-        
+
         if let originalImage = UIImage(named: "chevronLeft") {
             let size = CGSize(width: Metrics.backButtonSize, height: Metrics.backButtonSize)
             UIGraphicsBeginImageContextWithOptions(size, false, 0.0)
             originalImage.draw(in: CGRect(origin: .zero, size: size))
             let resizedImage = UIGraphicsGetImageFromCurrentImageContext()
             UIGraphicsEndImageContext()
-            
+
             button.setImage(resizedImage, for: .normal)
         } else {
             button.setImage(UIImage(named: "chevronLeft"), for: .normal)
         }
-        
+
         button.imageView?.contentMode = .scaleAspectFit
-        button.tintColor = Colors.gray500
         button.translatesAutoresizingMaskIntoConstraints = false
+
+        if #available(iOS 26.0, *) {
+            button.tintColor = Colors.gray700
+        } else {
+            button.tintColor = Colors.gray500
+        }
+
         return button
+    }()
+
+    private lazy var backButtonGlassContainer: UIView = {
+        let container = UIView()
+        container.translatesAutoresizingMaskIntoConstraints = false
+        return container
     }()
     
     private let headerTitleLabel: UILabel = {
@@ -196,7 +208,9 @@ final class BudgetsView: UIView {
         
         addSubview(headerContainerView)
         headerContainerView.addSubview(headerItemsView)
-        headerItemsView.addSubview(backButton)
+        headerItemsView.addSubview(backButtonGlassContainer)
+        backButtonGlassContainer.addSubview(backButton)
+        setupBackButtonGlassEffect()
         headerItemsView.addSubview(headerTextStackView)
         
         addSubview(newBudgetCardHeaderView)
@@ -228,13 +242,20 @@ final class BudgetsView: UIView {
             headerItemsView.trailingAnchor.constraint(equalTo: headerContainerView.trailingAnchor),
             headerItemsView.bottomAnchor.constraint(equalTo: headerContainerView.bottomAnchor),
             
-            backButton.topAnchor.constraint(equalTo: headerItemsView.layoutMarginsGuide.topAnchor),
-            backButton.leadingAnchor.constraint(
+            backButtonGlassContainer.topAnchor.constraint(equalTo: headerItemsView.layoutMarginsGuide.topAnchor),
+            backButtonGlassContainer.leadingAnchor.constraint(
                 equalTo: headerItemsView.layoutMarginsGuide.leadingAnchor),
-            
+            backButtonGlassContainer.widthAnchor.constraint(equalToConstant: 36),
+            backButtonGlassContainer.heightAnchor.constraint(equalToConstant: 36),
+
+            backButton.topAnchor.constraint(equalTo: backButtonGlassContainer.topAnchor),
+            backButton.leadingAnchor.constraint(equalTo: backButtonGlassContainer.leadingAnchor),
+            backButton.trailingAnchor.constraint(equalTo: backButtonGlassContainer.trailingAnchor),
+            backButton.bottomAnchor.constraint(equalTo: backButtonGlassContainer.bottomAnchor),
+
             headerTextStackView.leadingAnchor.constraint(
-                equalTo: backButton.trailingAnchor, constant: Metrics.spacing4),
-            headerTextStackView.centerYAnchor.constraint(equalTo: backButton.centerYAnchor),
+                equalTo: backButtonGlassContainer.trailingAnchor, constant: Metrics.spacing4),
+            headerTextStackView.centerYAnchor.constraint(equalTo: backButtonGlassContainer.centerYAnchor),
             
             newBudgetCardHeaderView.topAnchor.constraint(
                 equalTo: headerContainerView.bottomAnchor, constant: Metrics.spacing4),
@@ -276,7 +297,27 @@ final class BudgetsView: UIView {
             emptyStateDescriptionLabel.centerYAnchor.constraint(equalTo: emptyStateView.centerYAnchor)
         ])
     }
-    
+
+    private func setupBackButtonGlassEffect() {
+        if #available(iOS 26.0, *) {
+            let glassEffect = UIGlassEffect()
+            glassEffect.isInteractive = true
+            let glassView = UIVisualEffectView(effect: glassEffect)
+            glassView.translatesAutoresizingMaskIntoConstraints = false
+
+            backButtonGlassContainer.insertSubview(glassView, at: 0)
+            backButtonGlassContainer.layer.cornerRadius = 18
+            backButtonGlassContainer.clipsToBounds = true
+
+            NSLayoutConstraint.activate([
+                glassView.topAnchor.constraint(equalTo: backButtonGlassContainer.topAnchor),
+                glassView.leadingAnchor.constraint(equalTo: backButtonGlassContainer.leadingAnchor),
+                glassView.trailingAnchor.constraint(equalTo: backButtonGlassContainer.trailingAnchor),
+                glassView.bottomAnchor.constraint(equalTo: backButtonGlassContainer.bottomAnchor),
+            ])
+        }
+    }
+
     func updateUI(with budgets: [DisplayBudgetModel], selectedDate: Date?) {
         self.budgets = budgets
         

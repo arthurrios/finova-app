@@ -6,12 +6,15 @@
 //
 
 import Firebase
+import FirebaseMessaging
 import GoogleSignIn
 import UIKit
 import UserNotifications
 
 @main
-class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterDelegate {
+class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterDelegate,
+  MessagingDelegate
+{
 
   func application(
     _ application: UIApplication,
@@ -138,11 +141,57 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
       DispatchQueue.main.async {
         if granted {
           print("✅ User granted permission for notifications")
+          // Register for remote notifications (required for FCM)
+          UIApplication.shared.registerForRemoteNotifications()
         } else if let error = error {
           print("❌ \(error) - User did not grant permission for notifications")
         } else {
           print("❌ User denied permission for notifications")
         }
+      }
+    }
+
+    // Set FCM messaging delegate
+    Messaging.messaging().delegate = self
+  }
+
+  // MARK: - APNs Token Handling
+
+  func application(
+    _ application: UIApplication,
+    didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data
+  ) {
+    // Pass device token to Firebase
+    Messaging.messaging().apnsToken = deviceToken
+    let tokenString = deviceToken.map { String(format: "%02.2hhx", $0) }.joined()
+    print("📱 APNs device token: \(tokenString)")
+  }
+
+  func application(
+    _ application: UIApplication,
+    didFailToRegisterForRemoteNotificationsWithError error: Error
+  ) {
+    print("❌ Failed to register for remote notifications: \(error.localizedDescription)")
+  }
+
+  // MARK: - MessagingDelegate
+
+  func messaging(_ messaging: Messaging, didReceiveRegistrationToken fcmToken: String?) {
+    guard let fcmToken = fcmToken else { return }
+    print("📱 FCM registration token: \(fcmToken)")
+
+    // Subscribe to app updates topic for version notifications
+    // This is done here (after receiving FCM token) to ensure APNs token is ready
+    subscribeToAppUpdatesTopic()
+  }
+
+  /// Subscribe to the app_updates topic for push notifications about new versions
+  private func subscribeToAppUpdatesTopic() {
+    Messaging.messaging().subscribe(toTopic: "app_updates") { error in
+      if let error = error {
+        print("❌ Failed to subscribe to app_updates topic: \(error.localizedDescription)")
+      } else {
+        print("✅ Subscribed to app_updates topic for version notifications")
       }
     }
   }
@@ -376,6 +425,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     willPresent notification: UNNotification,
     withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
   ) {
+    // Track notification in history
+    NotificationHistoryManager.shared.handleDeliveredLocalNotification(notification)
+
     // Show notification even when app is in foreground
     completionHandler([.alert, .sound, .badge])
   }
@@ -386,8 +438,32 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     withCompletionHandler completionHandler: @escaping () -> Void
   ) {
     // Handle notification tap
-    let userInfo = response.notification.request.content.userInfo
+    let notification = response.notification
+    let userInfo = notification.request.content.userInfo
     print("📱 User tapped notification: \(userInfo)")
+
+    // Add notification to history if it's not already there (handles background/killed app cases)
+    // This ensures push notifications that bypassed willPresent are tracked
+    NotificationHistoryManager.shared.handleDeliveredLocalNotification(notification)
+
+    // Mark notification as read when tapped
+    let notificationId = notification.request.identifier
+    NotificationHistoryManager.shared.markAsRead(id: notificationId)
+
+    // Check if this is a transaction notification (has transactionId in userInfo)
+    if let transactionId = userInfo["transactionId"] as? Int {
+      print("🔔 📱 Transaction notification tapped - navigating to transaction \(transactionId)")
+      // Post notification to navigate to transaction details
+      DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+        NotificationCenter.default.post(
+          name: .navigateToTransactionDetails,
+          object: nil,
+          userInfo: ["transactionId": transactionId]
+        )
+      }
+      completionHandler()
+      return
+    }
 
     // Check if this is a monthly notification that should trigger success alert
     if let notificationType = userInfo["type"] as? String {
@@ -439,6 +515,11 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
             UserDefaults.standard.set("failure", forKey: "notificationAlertType")
           }
         }
+
+      case "app_update":
+        print("🔔 📲 App update notification tapped - opening App Store")
+        // Open App Store to update the app
+        UpdateToastManager.shared.openAppStore()
 
       default:
         print("🔔 📱 Other notification type tapped: \(notificationType)")
