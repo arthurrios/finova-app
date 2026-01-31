@@ -356,6 +356,15 @@ final class RecurringTransactionManager {
           } catch {
             logError("Error deleting orphaned parent transaction \(parentTransactionId): \(error)")
           }
+        } else if cleanupOption == .futureOnly {
+          // When deleting future instances, mark parent as no longer recurring
+          // This prevents lazy generation from recreating deleted instances
+          do {
+            try self.transactionRepo.updateIsRecurring(
+              transactionId: parentTransactionId, isRecurring: false)
+          } catch {
+            logError("Error updating isRecurring flag for parent \(parentTransactionId): \(error)")
+          }
         }
       }
     }
@@ -431,6 +440,16 @@ final class RecurringTransactionManager {
       }
 
       if cleanupOption == .all {
+        do {
+          try self.transactionRepo.delete(id: parentTransactionId)
+          let notifID = "transaction_\(parentTransactionId)"
+          self.notificationCenter.removePendingNotificationRequests(withIdentifiers: [notifID])
+        } catch {
+          logError("Error deleting parent installment transaction: \(error)")
+        }
+      } else if cleanupOption == .futureOnly {
+        // For futureOnly, also delete the parent to prevent lazy regeneration
+        // This is safe because the parent is just a hidden "Installment Parent" record
         do {
           try self.transactionRepo.delete(id: parentTransactionId)
           let notifID = "transaction_\(parentTransactionId)"

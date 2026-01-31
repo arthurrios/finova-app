@@ -522,6 +522,43 @@ final class TransactionRepository: TransactionRepositoryProtocol {
     }
   }
 
+  /// Updates the isRecurring flag for a transaction (used when stopping future recurrence)
+  func updateIsRecurring(transactionId: Int, isRecurring: Bool) throws {
+    try db.updateIsRecurring(transactionId: transactionId, isRecurring: isRecurring)
+
+    // Also update SecureLocalDataManager for UID-isolated storage
+    var secureTransactions = SecureLocalDataManager.shared.loadTransactions()
+
+    if let index = secureTransactions.firstIndex(where: { $0.id == transactionId }) {
+      let existingTransaction = secureTransactions[index]
+
+      // Create new UITransactionData with updated isRecurring flag
+      let updatedData = UITransactionData(
+        id: existingTransaction.id,
+        title: existingTransaction.title,
+        amount: existingTransaction.amount,
+        dateTimestamp: existingTransaction.dateTimestamp,
+        budgetMonthDate: existingTransaction.budgetMonthDate,
+        isRecurring: isRecurring,
+        hasInstallments: existingTransaction.hasInstallments,
+        parentTransactionId: existingTransaction.parentTransactionId,
+        installmentNumber: existingTransaction.installmentNumber,
+        totalInstallments: existingTransaction.totalInstallments,
+        originalAmount: existingTransaction.originalAmount,
+        category: existingTransaction.category,
+        type: existingTransaction.type
+      )
+
+      // Create new Transaction instance
+      let updatedTransaction = Transaction(data: updatedData)
+      secureTransactions[index] = updatedTransaction
+      SecureLocalDataManager.shared.saveTransactions(secureTransactions)
+    }
+
+    // Notify that data has changed
+    NotificationCenter.default.post(name: .transactionDataChanged, object: nil)
+  }
+
   func deleteTransactionAndRelated(id: Int) throws {
     let allTransactions = fetchAllTransactions()
     guard let transaction = allTransactions.first(where: { $0.id == id }) else {

@@ -878,6 +878,34 @@ class DBHelper {
     }
   }
 
+  // MARK: - Recurring Transaction Updates
+
+  /// Updates the is_recurring flag for a transaction
+  func updateIsRecurring(transactionId: Int, isRecurring: Bool) throws {
+    guard isInitialized else {
+      print("⚠️ Database not initialized, skipping is_recurring update")
+      return
+    }
+
+    let updateQuery = "UPDATE Transactions SET is_recurring = ? WHERE id = ?;"
+    var statement: OpaquePointer?
+
+    guard sqlite3_prepare_v2(db, updateQuery, -1, &statement, nil) == SQLITE_OK else {
+      let msg = String(cString: sqlite3_errmsg(db))
+      throw DBError.prepareFailed(message: msg)
+    }
+
+    defer { sqlite3_finalize(statement) }
+
+    sqlite3_bind_int(statement, 1, isRecurring ? 1 : 0)
+    sqlite3_bind_int64(statement, 2, Int64(transactionId))
+
+    guard sqlite3_step(statement) == SQLITE_DONE else {
+      let msg = String(cString: sqlite3_errmsg(db))
+      throw DBError.stepFailed(message: msg)
+    }
+  }
+
   // MARK: - Batch Operations for Performance
 
   /// Deletes all transactions from the database (for cleanup operations)
