@@ -513,6 +513,10 @@ class MonthBudgetCard: UIView {
         availableBudgetStackView.insertArrangedSubview(
           availableBudgetValueWithToggleContainer, at: 1)
       }
+
+      // Force layout update
+      availableBudgetStackView.setNeedsLayout()
+      availableBudgetStackView.layoutIfNeeded()
     } else {
       // No budget defined - hide budget information and show define button
       availableBudgetValueLabel.isHidden = true
@@ -521,15 +525,21 @@ class MonthBudgetCard: UIView {
       animatedNumberContainer?.isHidden = true
       defineBudgetButton.isHidden = false
 
-      // Remove containers from stack to eliminate spacing issues
+      // Remove containers from stack AND from superview to fully eliminate spacing
       if availableBudgetStackView.arrangedSubviews.contains(availableBudgetTextLabelContainer) {
         availableBudgetStackView.removeArrangedSubview(availableBudgetTextLabelContainer)
+        availableBudgetTextLabelContainer.removeFromSuperview()
       }
       if availableBudgetStackView.arrangedSubviews.contains(
         availableBudgetValueWithToggleContainer)
       {
         availableBudgetStackView.removeArrangedSubview(availableBudgetValueWithToggleContainer)
+        availableBudgetValueWithToggleContainer.removeFromSuperview()
       }
+
+      // Force layout update
+      availableBudgetStackView.setNeedsLayout()
+      availableBudgetStackView.layoutIfNeeded()
     }
   }
 
@@ -881,6 +891,10 @@ class MonthBudgetCard: UIView {
           availableBudgetValueWithToggleContainer, at: 1)
       }
 
+      // Force layout update
+      availableBudgetStackView.setNeedsLayout()
+      availableBudgetStackView.layoutIfNeeded()
+
       // Update the value to show filtered sum
       if isValuesHidden {
         availableBudgetValueLabel.text = getHiddenValueString()
@@ -970,6 +984,10 @@ class MonthBudgetCard: UIView {
         availableBudgetStackView.insertArrangedSubview(
           availableBudgetValueWithToggleContainer, at: 1)
       }
+
+      // Force layout update
+      availableBudgetStackView.setNeedsLayout()
+      availableBudgetStackView.layoutIfNeeded()
     } else {
       // No budget defined - hide budget information and show define button
       availableBudgetValueLabel.isHidden = true
@@ -978,15 +996,21 @@ class MonthBudgetCard: UIView {
       animatedNumberContainer?.isHidden = true
       defineBudgetButton.isHidden = false
 
-      // Remove containers from stack to eliminate spacing issues
+      // Remove containers from stack AND from superview to fully eliminate spacing
       if availableBudgetStackView.arrangedSubviews.contains(availableBudgetTextLabelContainer) {
         availableBudgetStackView.removeArrangedSubview(availableBudgetTextLabelContainer)
+        availableBudgetTextLabelContainer.removeFromSuperview()
       }
       if availableBudgetStackView.arrangedSubviews.contains(
         availableBudgetValueWithToggleContainer)
       {
         availableBudgetStackView.removeArrangedSubview(availableBudgetValueWithToggleContainer)
+        availableBudgetValueWithToggleContainer.removeFromSuperview()
       }
+
+      // Force layout update
+      availableBudgetStackView.setNeedsLayout()
+      availableBudgetStackView.layoutIfNeeded()
     }
   }
 
