@@ -119,7 +119,7 @@ final class LoginViewController: UIViewController {
             UserDefaultsManager.updateCurrentUserSavedStatus(saved: true)
             // Enable biometric globally for the app
             UserDefaultsManager.setBiometricEnabled(true)
-            print("✅ \(biometricType) enabled globally for app")
+            logInfo("\(biometricType) enabled globally for app")
             self.flowDelegate?.navigateToDashboard()
         }
         

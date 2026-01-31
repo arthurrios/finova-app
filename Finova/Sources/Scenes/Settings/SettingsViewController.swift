@@ -70,7 +70,7 @@ extension SettingsViewController: SettingsViewDelegate {
         SecureLocalDataManager.shared.signOut()
         UserDefaultsManager.signOutCurrentUser()
 
-        print("✅ Complete logout performed")
+        logInfo("Complete logout performed")
         flowDelegate?.logout()
     }
 

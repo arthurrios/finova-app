@@ -104,7 +104,7 @@ final class RegisterViewController: UIViewController {
                 hasFaceIdEnabled: true
             )
             UserDefaultsManager.saveUser(user: updatedUser)
-            print("✅ \(biometricType) enabled for new Firebase user")
+            logInfo("\(biometricType) enabled for new Firebase user")
             self.flowDelegate?.navigateToDashboard()
         }
         

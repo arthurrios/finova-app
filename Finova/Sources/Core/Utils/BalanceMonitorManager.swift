@@ -412,29 +412,29 @@ final class BalanceMonitorManager {
 
   /// Debug balance monitoring with dashboard data
   func debugBalanceMonitoring(with currentMonthData: MonthBudgetCardType) {
-    print("🔍 [BalanceMonitor] Debug with dashboard data:")
-    print("   Current balance: \(currentMonthData.currentBalance ?? 0)")
-    print("   Final balance: \(currentMonthData.finalBalance ?? 0)")
+    logDebug("[BalanceMonitor] Debug with dashboard data:")
+    logDebug("   Current balance: \(currentMonthData.currentBalance ?? 0)")
+    logDebug("   Final balance: \(currentMonthData.finalBalance ?? 0)")
 
     let currentBalance = currentMonthData.currentBalance ?? currentMonthData.finalBalance ?? 0
     let dailyBalanceProjection = calculateDailyBalanceProjectionFromCurrentBalance(
       currentBalance: currentBalance)
     let negativeBalanceDays = findNegativeBalanceDaysInternal(from: dailyBalanceProjection)
 
-    print("   Negative balance days: \(negativeBalanceDays)")
+    logDebug("   Negative balance days: \(negativeBalanceDays)")
   }
 
   /// Debug balance monitoring without dashboard data
   func debugBalanceMonitoring() {
-    print("🔍 [BalanceMonitor] Debug without dashboard data:")
+    logDebug("[BalanceMonitor] Debug without dashboard data:")
 
     let today = Date()
     let currentMonth = calendar.dateInterval(of: .month, for: today)!
     let dailyBalanceProjection = calculateDailyBalanceProjectionInternal(for: currentMonth)
     let negativeBalanceDays = findNegativeBalanceDaysInternal(from: dailyBalanceProjection)
 
-    print("   Daily balance projection count: \(dailyBalanceProjection.count)")
-    print("   Negative balance days: \(negativeBalanceDays)")
+    logDebug("   Daily balance projection count: \(dailyBalanceProjection.count)")
+    logDebug("   Negative balance days: \(negativeBalanceDays)")
   }
 
   /// Test notification for tomorrow's negative balance (fires in 5 seconds)
@@ -456,7 +456,7 @@ final class BalanceMonitorManager {
       if let error = error {
         logError("Error scheduling test notification: \(error)")
       } else {
-        print("✅ Test notification scheduled for 5 seconds from now")
+        logInfo("Test notification scheduled for 5 seconds from now")
       }
     }
   }
@@ -480,7 +480,7 @@ final class BalanceMonitorManager {
       if let error = error {
         logError("Error scheduling test notification: \(error)")
       } else {
-        print("✅ Test notification scheduled for 1 minute from now")
+        logInfo("Test notification scheduled for 1 minute from now")
       }
     }
   }

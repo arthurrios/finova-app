@@ -34,7 +34,7 @@ extension UIView {
     
     func pinToSuperview(with insets: UIEdgeInsets = .zero) {
         guard let superview = self.superview else {
-            print("❌ ERROR: pinToSuperview() called on view \(self) without superview")
+            logError("pinToSuperview() called on view \(self) without superview")
             assertionFailure("pinToSuperview(): no superview for \(self)")
             return
         }

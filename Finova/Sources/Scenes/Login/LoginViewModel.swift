@@ -48,13 +48,13 @@ extension LoginViewModel: AuthenticationManagerDelegate {
             
             if let settings = existingSettings {
                 // Returning user - use their saved settings but update sign-in time
-                print("👋 Welcome back user: \(settings.name)")
+                logInfo("Welcome back user: \(settings.name)")
                 
                 // Smart name preservation: if current login has a better name, use it
                 var bestName = settings.name
                 if !user.name.isEmpty && user.name != "User" && (settings.name.isEmpty || settings.name == "User") {
                     bestName = user.name
-                    print("📝 Updating saved name from '\(settings.name)' to '\(user.name)'")
+                    logInfo("Updating saved name from '\(settings.name)' to '\(user.name)'")
                 } else if settings.name.isEmpty || settings.name == "User" {
                     bestName = user.name.isEmpty ? "User" : user.name
                 }
@@ -72,10 +72,10 @@ extension LoginViewModel: AuthenticationManagerDelegate {
                     hasFaceIdEnabled: settings.hasFaceIdEnabled // Use saved Face ID setting
                 )
                 
-                print("✅ Restored user settings - name: '\(bestName)', faceId: \(settings.hasFaceIdEnabled)")
+                logInfo("Restored user settings - name: '\(bestName)', faceId: \(settings.hasFaceIdEnabled)")
             } else {
                 // New user - create fresh settings
-                print("🆕 New user detected: \(user.name)")
+                logInfo("New user detected: \(user.name)")
                 
                 finalUser = User(
                     firebaseUID: firebaseUID,
@@ -85,7 +85,7 @@ extension LoginViewModel: AuthenticationManagerDelegate {
                     hasFaceIdEnabled: false // New user starts with Face ID disabled
                 )
                 
-                print("✅ Created new user settings - name: '\(user.name)', faceId: false")
+                logInfo("Created new user settings - name: '\(user.name)', faceId: false")
             }
             
             // Save user with UID-based system
@@ -96,9 +96,9 @@ extension LoginViewModel: AuthenticationManagerDelegate {
                 firebaseUID: firebaseUID, userEmail: finalUser.email
             ) { success in
                 if success {
-                    print("✅ Data migration completed successfully")
+                    logInfo("Data migration completed successfully")
                 } else {
-                    print("⚠️ Data migration had issues")
+                    logWarning("Data migration had issues")
                 }
             }
         }

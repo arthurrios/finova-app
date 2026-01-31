@@ -152,8 +152,8 @@ class DaySlider: UIView {
 
   // MARK: - Configuration
   func configure(currentDay: Int, totalDaysInMonth: Int, currentMonthDay: Int) {
-    print(
-      "🔍 DaySlider: configure called with currentDay=\(currentDay), totalDaysInMonth=\(totalDaysInMonth), currentMonthDay=\(currentMonthDay)"
+    logDebug(
+      "DaySlider: configure called with currentDay=\(currentDay), totalDaysInMonth=\(totalDaysInMonth), currentMonthDay=\(currentMonthDay)"
     )
     self.currentDay = currentDay
     self.totalDaysInMonth = totalDaysInMonth
@@ -167,7 +167,7 @@ class DaySlider: UIView {
     updateTooltip()
 
     // Interaction will be re-enabled when day indicators are ready
-    print("🔍 DaySlider: configure completed, dayIndicatorViews.count=\(dayIndicatorViews.count)")
+    logDebug("DaySlider: configure completed, dayIndicatorViews.count=\(dayIndicatorViews.count)")
   }
 
   // MARK: - Gesture Handlers
@@ -416,7 +416,7 @@ class DaySlider: UIView {
   /// Animates the slider to the current day with a subtle bounce effect for foreground refresh
   func animateForegroundRefresh() {
     let currentDay = self.currentDay
-    print("📅 DaySlider: Animating foreground refresh to day \(currentDay)")
+    logDebug("DaySlider: Animating foreground refresh to day \(currentDay)")
 
     // Create a subtle bounce animation by temporarily moving slightly and then back
     let bounceOffset: CGFloat = 10

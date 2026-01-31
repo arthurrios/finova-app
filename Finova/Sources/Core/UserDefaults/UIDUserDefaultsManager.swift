@@ -44,7 +44,7 @@ class UIDUserDefaultsManager {
     if let data = try? encoder.encode(settings) {
       UserDefaults.standard.set(data, forKey: key)
       UserDefaults.standard.synchronize()
-      print("✅ Saved settings for user: \(uid)")
+      logInfo("Saved settings for user: \(uid)")
     }
   }
 
@@ -63,14 +63,14 @@ class UIDUserDefaultsManager {
     let key = Self.userSettingsPrefix + uid
     UserDefaults.standard.removeObject(forKey: key)
     UserDefaults.standard.synchronize()
-    print("🗑️ Removed settings for user: \(uid)")
+    logInfo("Removed settings for user: \(uid)")
   }
 
   // MARK: - Current User Convenience Methods
 
   func saveCurrentUserSettings(_ settings: UserSettings) {
     guard let uid = currentUserUID else {
-      print("❌ Cannot save settings: No current user UID")
+      logError("Cannot save settings: No current user UID")
       return
     }
     saveUserSettings(for: uid, settings: settings)
@@ -78,7 +78,7 @@ class UIDUserDefaultsManager {
 
   func getCurrentUserSettings() -> UserSettings? {
     guard let uid = currentUserUID else {
-      print("❌ Cannot get settings: No current user UID")
+      logError("Cannot get settings: No current user UID")
       return nil
     }
     return getUserSettings(for: uid)
@@ -89,7 +89,7 @@ class UIDUserDefaultsManager {
   func migrateGlobalSettingsToUser(uid: String, globalUser: User) {
     // Check if user already has settings
     if getUserSettings(for: uid) != nil {
-      print("ℹ️ User \(uid) already has settings, skipping migration")
+      logInfo("User \(uid) already has settings, skipping migration")
       return
     }
 
@@ -104,7 +104,7 @@ class UIDUserDefaultsManager {
     )
 
     saveUserSettings(for: uid, settings: settings)
-    print("✅ Migrated global settings to user: \(uid)")
+    logInfo("Migrated global settings to user: \(uid)")
   }
 
   // MARK: - Global Settings (Non-User Specific)
@@ -140,7 +140,7 @@ class UIDUserDefaultsManager {
 
   func signOut() {
     currentUserUID = nil
-    print("🔒 UIDUserDefaultsManager signed out")
+    logInfo("UIDUserDefaultsManager signed out")
   }
 
   func clearAllUserSettings() {
@@ -153,7 +153,7 @@ class UIDUserDefaultsManager {
       }
     }
     UserDefaults.standard.synchronize()
-    print("🗑️ Cleared all user settings")
+    logInfo("Cleared all user settings")
   }
 }
 

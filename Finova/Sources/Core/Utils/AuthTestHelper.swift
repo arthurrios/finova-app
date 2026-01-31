@@ -10,14 +10,14 @@ import Foundation
 #if DEBUG
 class AuthTestHelper {
     static func testAuthenticationFlow() {
-        print("🧪 Testing Authentication Flow...")
-        
+        logDebug("Testing Authentication Flow...")
+
         let authManager = AuthenticationManager.shared
         let dataManager = SecureLocalDataManager.shared
-        
-        print("✅ AuthenticationManager initialized")
-        print("✅ SecureLocalDataManager initialized")
-        
+
+        logInfo("AuthenticationManager initialized")
+        logInfo("SecureLocalDataManager initialized")
+
         // Test User model creation
         let testUser = User(
             firebaseUID: "test_uid_123",
@@ -25,12 +25,12 @@ class AuthTestHelper {
             email: "test@example.com",
             isUserSaved: true
         )
-        
-        print("✅ User model creation: \(testUser.displayName)")
-        print("✅ Firebase UID: \(testUser.firebaseUID ?? "None")")
-        print("✅ Is Firebase User: \(testUser.isFirebaseUser)")
-        
-        print("🧪 Authentication system ready for integration!")
+
+        logInfo("User model creation: \(testUser.displayName)")
+        logInfo("Firebase UID: \(testUser.firebaseUID ?? "None")")
+        logInfo("Is Firebase User: \(testUser.isFirebaseUser)")
+
+        logDebug("Authentication system ready for integration!")
     }
 }
 #endif

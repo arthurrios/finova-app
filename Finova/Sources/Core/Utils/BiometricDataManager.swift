@@ -115,7 +115,7 @@ class BiometricDataManager {
             let data = try JSONEncoder().encode(biometricData)
             return storeBiometricDataInKeychain(data: data)
         } catch {
-            print("❌ Failed to encode biometric data: \(error)")
+            logError("Failed to encode biometric data: \(error)")
             return false
         }
     }
@@ -124,7 +124,7 @@ class BiometricDataManager {
         do {
             return try JSONDecoder().decode(BiometricUserData.self, from: data)
         } catch {
-            print("❌ Failed to decode biometric data: \(error)")
+            logError("Failed to decode biometric data: \(error)")
             return nil
         }
     }

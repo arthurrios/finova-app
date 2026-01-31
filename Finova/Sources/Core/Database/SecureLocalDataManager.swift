@@ -595,19 +595,19 @@ struct MigrationVerificationResult {
 extension SecureLocalDataManager {
   func printDebugInfo() {
     #if DEBUG
-    print("SecureLocalDataManager Debug Info:")
-    print("   Current User UID: \(currentUserUID ?? "None")")
-    print("   Encryption Key: \(encryptionKey != nil ? "Available" : "None")")
+    logDebug("SecureLocalDataManager Debug Info:")
+    logDebug("   Current User UID: \(currentUserUID ?? "None")")
+    logDebug("   Encryption Key: \(encryptionKey != nil ? "Available" : "None")")
     if let directory = getUserDataDirectory() {
-      print("   User Data Directory: \(directory.path)")
-      print("   Directory Exists: \(FileManager.default.fileExists(atPath: directory.path))")
+      logDebug("   User Data Directory: \(directory.path)")
+      logDebug("   Directory Exists: \(FileManager.default.fileExists(atPath: directory.path))")
 
       // List files in directory
       do {
         let files = try FileManager.default.contentsOfDirectory(atPath: directory.path)
-        print("   Files: \(files)")
+        logDebug("   Files: \(files)")
       } catch {
-        print("   Files: Unable to list (\(error))")
+        logDebug("   Files: Unable to list (\(error))")
       }
     }
     #endif

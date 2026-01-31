@@ -83,7 +83,7 @@ class DBHelper {
 
   func insertBudget(monthDate: Int, amount: Int) throws {
     guard isInitialized else {
-      print("⚠️ Database not initialized, skipping budget insert")
+      logWarning("Database not initialized, skipping budget insert")
       return
     }
 
@@ -108,7 +108,7 @@ class DBHelper {
 
   func updateBudget(monthDate: Int, amount: Int) throws {
     guard isInitialized else {
-      print("⚠️ Database not initialized, skipping budget update")
+      logWarning("Database not initialized, skipping budget update")
       return
     }
 
@@ -133,7 +133,7 @@ class DBHelper {
 
   func getBudgets() throws -> [BudgetModel] {
     guard isInitialized else {
-      print("⚠️ Database not initialized, returning empty budget list")
+      logWarning("Database not initialized, returning empty budget list")
       return []
     }
 
@@ -160,7 +160,7 @@ class DBHelper {
 
   func exists(monthDate: Int) throws -> Bool {
     guard isInitialized else {
-      print("⚠️ Database not initialized, returning false for exists check")
+      logWarning("Database not initialized, returning false for exists check")
       return false
     }
 
@@ -187,7 +187,7 @@ class DBHelper {
 
   func deleteBudget(monthDate: Int) throws {
     guard isInitialized else {
-      print("⚠️ Database not initialized, skipping budget delete")
+      logWarning("Database not initialized, skipping budget delete")
       return
     }
 
@@ -321,7 +321,7 @@ class DBHelper {
 
   func insertTransaction(_ transaction: TransactionModel) throws -> Int {
     guard isInitialized else {
-      print("⚠️ Database not initialized, skipping transaction insert")
+      logWarning("Database not initialized, skipping transaction insert")
       return 0
     }
 
@@ -404,7 +404,7 @@ class DBHelper {
 
   func getTransactions() throws -> [Transaction] {
     guard isInitialized else {
-      print("⚠️ Database not initialized, returning empty transaction list")
+      logWarning("Database not initialized, returning empty transaction list")
       return []
     }
 
@@ -524,7 +524,7 @@ class DBHelper {
         let tx = Transaction(data: uiData)
         results.append(tx)
       } catch {
-        print("⚠️ Failed to convert transaction data:", error)
+        logWarning("Failed to convert transaction data: \(error)")
         continue
       }
     }
@@ -533,7 +533,7 @@ class DBHelper {
 
   func deleteTransaction(id: Int) throws {
     guard isInitialized else {
-      print("⚠️ Database not initialized, skipping transaction delete")
+      logWarning("Database not initialized, skipping transaction delete")
       return
     }
 
@@ -660,7 +660,7 @@ class DBHelper {
         let uiData = try UITransactionData(from: dbData)
         results.append(Transaction(data: uiData))
       } catch {
-        print("⚠️ Failed to convert transaction data:", error)
+        logWarning("Failed to convert transaction data: \(error)")
       }
     }
 
@@ -669,7 +669,7 @@ class DBHelper {
 
   func updateTransactionParentId(transactionId: Int, parentId: Int) throws {
     guard isInitialized else {
-      print("⚠️ Database not initialized, skipping transaction parent ID update")
+      logWarning("Database not initialized, skipping transaction parent ID update")
       return
     }
 
@@ -789,7 +789,7 @@ class DBHelper {
 
   func updateTransaction(_ transaction: TransactionModel) throws {
     guard isInitialized else {
-      print("⚠️ Database not initialized, skipping transaction update")
+      logWarning("Database not initialized, skipping transaction update")
       return
     }
 
@@ -841,7 +841,7 @@ class DBHelper {
 
   func updateSingleTransaction(_ transaction: TransactionModel) throws {
     guard isInitialized else {
-      print("⚠️ Database not initialized, skipping single transaction update")
+      logWarning("Database not initialized, skipping single transaction update")
       return
     }
 
@@ -883,7 +883,7 @@ class DBHelper {
   /// Updates the is_recurring flag for a transaction
   func updateIsRecurring(transactionId: Int, isRecurring: Bool) throws {
     guard isInitialized else {
-      print("⚠️ Database not initialized, skipping is_recurring update")
+      logWarning("Database not initialized, skipping is_recurring update")
       return
     }
 

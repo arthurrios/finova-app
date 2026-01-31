@@ -128,9 +128,9 @@ final class NotificationPreferencesManager {
   private func subscribeToAppUpdatesTopic() {
     Messaging.messaging().subscribe(toTopic: "app_updates") { error in
       if let error = error {
-        print("❌ Failed to subscribe to app_updates: \(error.localizedDescription)")
+        logError("Failed to subscribe to app_updates: \(error.localizedDescription)")
       } else {
-        print("✅ Subscribed to app_updates topic")
+        logInfo("Subscribed to app_updates topic")
       }
     }
   }
@@ -138,9 +138,9 @@ final class NotificationPreferencesManager {
   private func unsubscribeFromAppUpdatesTopic() {
     Messaging.messaging().unsubscribe(fromTopic: "app_updates") { error in
       if let error = error {
-        print("❌ Failed to unsubscribe from app_updates: \(error.localizedDescription)")
+        logError("Failed to unsubscribe from app_updates: \(error.localizedDescription)")
       } else {
-        print("✅ Unsubscribed from app_updates topic")
+        logInfo("Unsubscribed from app_updates topic")
       }
     }
   }
@@ -153,7 +153,7 @@ final class NotificationPreferencesManager {
 
   private func removeAllPendingNotifications() {
     UNUserNotificationCenter.current().removeAllPendingNotificationRequests()
-    print("🔔 Removed all pending notifications")
+    logInfo("Removed all pending notifications")
   }
 
   private func removeTransactionNotifications() {
@@ -163,7 +163,7 @@ final class NotificationPreferencesManager {
         .map { $0.identifier }
 
       UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: transactionIds)
-      print("🔔 Removed \(transactionIds.count) transaction notifications")
+      logInfo("Removed \(transactionIds.count) transaction notifications")
     }
   }
 
@@ -174,7 +174,7 @@ final class NotificationPreferencesManager {
         .map { $0.identifier }
 
       UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: balanceIds)
-      print("🔔 Removed \(balanceIds.count) negative balance notifications")
+      logInfo("Removed \(balanceIds.count) negative balance notifications")
     }
   }
 
@@ -189,7 +189,7 @@ final class NotificationPreferencesManager {
     // Re-subscribe to topics
     subscribeToAppUpdatesTopic()
 
-    print("🔔 Notification preferences reset to defaults")
+    logInfo("Notification preferences reset to defaults")
   }
 }
 

@@ -70,7 +70,7 @@ final class SettingsViewModel {
       return
     }
 
-    print("🚨 EMERGENCY RECOVERY: Starting manual data recovery for \(currentUser.uid)")
+    logWarning("EMERGENCY RECOVERY: Starting manual data recovery for \(currentUser.uid)")
 
     // Clear migration flags to force re-attempt
     let migrationKey = "data_migrated_to_firebase_\(currentUser.uid)"
@@ -86,7 +86,7 @@ final class SettingsViewModel {
     UserDefaults.standard.removeObject(forKey: "data_owner_email")
     UserDefaults.standard.removeObject(forKey: "device_users")
 
-    print("🚨 EMERGENCY RECOVERY: Cleared migration flags, attempting recovery...")
+    logWarning("EMERGENCY RECOVERY: Cleared migration flags, attempting recovery...")
 
     // Force migration attempt
     SecureLocalDataManager.shared.migrateOldDataToUser(
@@ -95,12 +95,12 @@ final class SettingsViewModel {
     ) { [weak self] success in
       DispatchQueue.main.async {
         if success {
-          print("✅ EMERGENCY RECOVERY: Data recovery successful!")
+          logInfo("EMERGENCY RECOVERY: Data recovery successful!")
           let message = "Data recovery successful! Please restart the app to see your data."
           completion(true, message)
           self?.delegate?.didCompleteDataRecovery(success: true, message: message)
         } else {
-          print("❌ EMERGENCY RECOVERY: Data recovery failed")
+          logError("EMERGENCY RECOVERY: Data recovery failed")
           let message = "Data recovery failed. Please contact support for assistance."
           completion(false, message)
           self?.delegate?.didCompleteDataRecovery(success: false, message: message)
@@ -112,7 +112,7 @@ final class SettingsViewModel {
   // MARK: - Public Methods
 
   func refreshBiometricUI() {
-    print("🔧 Refreshing biometric UI, current value: \(isBiometricEnabled)")
+    logDebug("Refreshing biometric UI, current value: \(isBiometricEnabled)")
     updateBiometricUI()
   }
 
@@ -138,7 +138,7 @@ final class SettingsViewModel {
       DispatchQueue.main.async {
         if success {
           self?.isBiometricEnabled = true
-          print("✅ Biometric authentication enabled globally")
+          logInfo("Biometric authentication enabled globally")
           // Update UI to reflect the change
           self?.updateBiometricUI()
         } else {
@@ -156,7 +156,7 @@ final class SettingsViewModel {
 
   private func disableBiometric() {
     isBiometricEnabled = false
-    print("✅ Biometric authentication disabled globally")
+    logInfo("Biometric authentication disabled globally")
     updateBiometricUI()
   }
 
@@ -193,7 +193,7 @@ final class SettingsViewModel {
     // Clear current user's app-specific data
     clearCurrentUserAppSpecificData()
 
-    print("✅ Current user data cleared for account deletion")
+    logInfo("Current user data cleared for account deletion")
   }
 
   private func clearCurrentUserAppSpecificData() {
@@ -247,6 +247,6 @@ final class SettingsViewModel {
     // Clear only current user's app-specific data (no global cleanup)
     clearCurrentUserAppSpecificData()
 
-    print("✅ Current user data cleared (preserving other users' data)")
+    logInfo("Current user data cleared (preserving other users' data)")
   }
 }

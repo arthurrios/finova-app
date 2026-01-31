@@ -18,15 +18,15 @@ class ProfileImageCleanup {
     
     /// Immediately clears any global profile images from known storage locations
     func clearAllGlobalProfileImages() {
-        print("🧹 Starting global profile image cleanup...")
-        
+        logDebug("Starting global profile image cleanup...")
+
         // 1. Clear from UserDefaults (primary global storage)
         clearFromUserDefaults()
-        
+
         // 2. Clear from Documents directory (if any files exist there)
         clearFromDocumentsDirectory()
-        
-        print("✅ Global profile image cleanup completed")
+
+        logInfo("Global profile image cleanup completed")
     }
     
     // MARK: - Private Methods
@@ -42,7 +42,7 @@ class ProfileImageCleanup {
         
         for key in profileImageKeys where UserDefaults.standard.object(forKey: key) != nil {
             UserDefaults.standard.removeObject(forKey: key)
-            print("🧹 Cleared profile image from UserDefaults key: \(key)")
+            logDebug("Cleared profile image from UserDefaults key: \(key)")
         }
         
         UserDefaults.standard.synchronize()
@@ -70,7 +70,7 @@ class ProfileImageCleanup {
             let fileURL = documentsDirectory.appendingPathComponent(fileName)
             if FileManager.default.fileExists(atPath: fileURL.path) {
                 try? FileManager.default.removeItem(at: fileURL)
-                print("🧹 Removed profile image file: \(fileName)")
+                logDebug("Removed profile image file: \(fileName)")
             }
         }
     }

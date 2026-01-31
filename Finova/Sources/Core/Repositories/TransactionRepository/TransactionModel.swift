@@ -87,33 +87,16 @@ struct Transaction: Codable {
     let typeString = try container.decode(String.self, forKey: .type)
 
     // Debug: Log the decoded values
-    if let transactionId = id, transactionId == 419 {
-      print(
-        "🔧 DEBUG: Decoding transaction \(transactionId) - title: '\(title)', categoryString: '\(categoryString)', typeString: '\(typeString)'"
-      )
-    }
-
     guard let category = TransactionCategory.allCases.first(where: { $0.key == categoryString })
     else {
-      print("❌ DEBUG: Failed to find category for key: '\(categoryString)'")
-      print("❌ DEBUG: Available category keys: \(TransactionCategory.allCases.map { $0.key })")
+      logError("Failed to find category for key: '\(categoryString)'")
       throw TransactionError.invalidCategory
     }
 
     guard let type = TransactionType.allCases.first(where: { String(describing: $0) == typeString })
     else {
-      print("❌ DEBUG: Failed to find type for key: '\(typeString)'")
-      print(
-        "❌ DEBUG: Available type keys: \(TransactionType.allCases.map { String(describing: $0) })")
+      logError("Failed to find type for key: '\(typeString)'")
       throw TransactionError.invalidType
-    }
-
-    // Debug: Log the input values before creating UITransactionData
-    if let transactionId = id, transactionId == 419 || transactionId == 420 {
-      print("🔧 DEBUG: Creating UITransactionData for \(transactionId) with input values:")
-      print("🔧 DEBUG: - title: '\(title)'")
-      print("🔧 DEBUG: - category: \(category)")
-      print("🔧 DEBUG: - type: \(type)")
     }
 
     let uiData = UITransactionData(
@@ -131,13 +114,6 @@ struct Transaction: Codable {
       category: category,
       type: type
     )
-
-    // Debug: Log the final UITransactionData
-    if let transactionId = id, transactionId == 419 {
-      print(
-        "🔧 DEBUG: Created UITransactionData for \(transactionId) - title: '\(uiData.title)', category: \(uiData.category), type: \(uiData.type)"
-      )
-    }
 
     self.data = uiData
   }
@@ -231,12 +207,7 @@ extension UITransactionData {
     if let category = cat {
       finalCategory = category
     } else {
-      print("⚠️ Failed to find category for key: '\(db.category)' (processed as: '\(categoryKey)')")
-      print("⚠️ Available category keys: \(TransactionCategory.allCases.map { $0.key })")
-      print("⚠️ Available category raw values: \(TransactionCategory.allCases.map { $0.rawValue })")
-
-      // Fallback to miscellaneous instead of throwing an error
-      print("⚠️ Using fallback category: miscellaneous")
+      logWarning("Failed to find category for key: '\(db.category)', using fallback: miscellaneous")
       finalCategory = .miscellaneous
     }
 
@@ -244,11 +215,7 @@ extension UITransactionData {
     if let ty = TransactionType.allCases.first(where: { String(describing: $0) == db.type }) {
       finalType = ty
     } else {
-      print("⚠️ Failed to find transaction type for key: '\(db.type)'")
-      print("⚠️ Available type keys: \(TransactionType.allCases.map { String(describing: $0) })")
-
-      // Fallback to expense instead of throwing an error
-      print("⚠️ Using fallback type: expense")
+      logWarning("Failed to find transaction type for key: '\(db.type)', using fallback: expense")
       finalType = .expense
     }
 

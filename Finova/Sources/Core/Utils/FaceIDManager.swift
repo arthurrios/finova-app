@@ -61,12 +61,12 @@ class FaceIDManager {
     
     func enableFaceIDForCurrentUser() {
         UserDefaultsManager.updateCurrentUserFaceID(enabled: true)
-        print("✅ Face ID enabled for current user")
+        logInfo("Face ID enabled for current user")
     }
-    
+
     func disableFaceIDForCurrentUser() {
         UserDefaultsManager.updateCurrentUserFaceID(enabled: false)
-        print("✅ Face ID disabled for current user")
+        logInfo("Face ID disabled for current user")
     }
     
     var isCurrentUserFaceIDEnabled: Bool {

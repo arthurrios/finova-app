@@ -22,9 +22,9 @@ class UserDataBridge {
             firebaseUID: firebaseUID, userEmail: userEmail
         ) { success in
             if success {
-                print("✅ User data setup completed successfully")
+                logInfo("User data setup completed successfully")
             } else {
-                print("⚠️ User data setup had issues")
+                logWarning("User data setup had issues")
             }
         }
     }
@@ -35,18 +35,18 @@ class UserDataBridge {
         SecureLocalDataManager.shared.signOut()
         UserDefaultsManager.removeUser()
         
-        print("✅ User data cleanup completed")
+        logInfo("User data cleanup completed")
     }
     
     /// Check if user is properly authenticated for both Firebase and local data
     func isUserFullyAuthenticated() -> Bool {
         guard AuthenticationManager.shared.isAuthenticated else {
-            print("❌ Firebase authentication missing")
+            logError("Firebase authentication missing")
             return false
         }
         
         guard UserDefaultsManager.getUser() != nil else {
-            print("❌ Local user data missing")
+            logError("Local user data missing")
             return false
         }
         

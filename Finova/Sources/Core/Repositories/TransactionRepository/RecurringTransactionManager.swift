@@ -249,7 +249,7 @@ final class RecurringTransactionManager {
           let notifID = "transaction_\(id)"
           notificationCenter.removePendingNotificationRequests(withIdentifiers: [notifID])
         } catch {
-          print("Error deleting outdated recurring instance: \(error)")
+          logError("Error deleting outdated recurring instance: \(error)")
         }
       }
     }

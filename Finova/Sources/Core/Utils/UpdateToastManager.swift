@@ -42,7 +42,7 @@ final class UpdateToastManager {
   func shouldShowUpdateToast() -> Bool {
     #if DEBUG
       if forceShowToast {
-        print("🧪 Force showing toast for testing")
+        logDebug("Force showing toast for testing")
         return true
       }
     #endif
@@ -85,7 +85,7 @@ final class UpdateToastManager {
     }
 
     #if DEBUG
-      print("🧪 Mock version test: Showing toast with version \(latestVersion)")
+      logDebug("Mock version test: Showing toast with version \(latestVersion)")
     #endif
 
     return true
@@ -162,7 +162,7 @@ final class UpdateToastManager {
     func setMockLatestVersion(_ version: String) {
       mockLatestVersion = version
       UserDefaults.standard.set(version, forKey: latestVersionKey)
-      print("🧪 Mock version set to: \(version)")
+      logDebug("Mock version set to: \(version)")
     }
 
     /// Reset testing state
@@ -181,14 +181,14 @@ final class UpdateToastManager {
           defaults.removeObject(forKey: key)
         }
       }
-      print("🧪 Testing state reset")
+      logDebug("Testing state reset")
     }
 
     /// Simulate 6 hours passing for testing
     func simulate6HoursPassed() {
       let pastDate = Date().addingTimeInterval(-7 * 60 * 60)  // 7 hours ago
       UserDefaults.standard.set(pastDate, forKey: lastToastDismissedKey)
-      print("🧪 Simulated 6+ hours passing since last dismissal")
+      logDebug("Simulated 6+ hours passing since last dismissal")
     }
   #endif
 }

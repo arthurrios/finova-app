@@ -255,7 +255,7 @@ final class NotificationHistoryManager {
 
         self.history.insert(item, at: 0)
         hasNewNotifications = true
-        print("🔔 📥 Synced notification from background: \(content.title)")
+        logDebug("Synced notification from background: \(content.title)")
       }
 
       if hasNewNotifications {

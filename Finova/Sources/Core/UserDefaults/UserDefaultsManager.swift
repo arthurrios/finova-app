@@ -95,7 +95,7 @@ class UserDefaultsManager {
 
   static func saveUserWithUID(user: User) {
     guard let uid = user.firebaseUID else {
-      print("❌ Cannot save user: No Firebase UID")
+      logError("Cannot save user: No Firebase UID")
       // Fallback to global save for non-Firebase users
       saveUser(user: user)
       return
@@ -144,7 +144,7 @@ class UserDefaultsManager {
 
   static func updateCurrentUserFaceID(enabled: Bool) {
     guard let uid = UIDUserDefaultsManager.shared.currentUserUID else {
-      print("❌ Cannot update Face ID: No current user UID")
+      logError("Cannot update Face ID: No current user UID")
       return
     }
 
@@ -153,7 +153,7 @@ class UserDefaultsManager {
 
     if settings == nil {
       // Create new settings for this user
-      print("🆕 Creating new user settings for Face ID update, UID: \(uid)")
+      logInfo("Creating new user settings for Face ID update, UID: \(uid)")
 
       // Try to get user info from Firebase or global settings
       var userName = "User"
@@ -181,7 +181,7 @@ class UserDefaultsManager {
     }
 
     guard var userSettings = settings else {
-      print("❌ Failed to create or retrieve user settings for Face ID update")
+      logError("Failed to create or retrieve user settings for Face ID update")
       return
     }
 
@@ -201,12 +201,12 @@ class UserDefaultsManager {
       saveUser(user: updatedUser)
     }
 
-    print("✅ Updated Face ID setting for user: \(uid) to \(enabled)")
+    logInfo("Updated Face ID setting for user: \(uid) to \(enabled)")
   }
 
   static func updateCurrentUserSavedStatus(saved: Bool) {
     guard let uid = UIDUserDefaultsManager.shared.currentUserUID else {
-      print("❌ Cannot update saved status: No current user UID")
+      logError("Cannot update saved status: No current user UID")
       return
     }
 
@@ -215,7 +215,7 @@ class UserDefaultsManager {
 
     if settings == nil {
       // Create new settings for this user
-      print("🆕 Creating new user settings for UID: \(uid)")
+      logInfo("Creating new user settings for UID: \(uid)")
 
       // Try to get user info from Firebase or global settings
       var userName = "User"
@@ -240,7 +240,7 @@ class UserDefaultsManager {
     }
 
     guard var userSettings = settings else {
-      print("❌ Failed to create or retrieve user settings")
+      logError("Failed to create or retrieve user settings")
       return
     }
 
@@ -260,7 +260,7 @@ class UserDefaultsManager {
       saveUser(user: updatedUser)
     }
 
-    print("✅ Updated saved status for user: \(uid) to \(saved)")
+    logInfo("Updated saved status for user: \(uid) to \(saved)")
   }
 
   static func getCurrentUserFaceIDSetting() -> Bool {
