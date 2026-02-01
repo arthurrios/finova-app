@@ -165,6 +165,10 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     Messaging.messaging().apnsToken = deviceToken
     let tokenString = deviceToken.map { String(format: "%02.2hhx", $0) }.joined()
     print("📱 APNs device token: \(tokenString)")
+
+    // Now that we have APNs token, subscribe to topics
+    // This ensures the subscription happens after APNs token is available
+    subscribeToAppUpdatesTopic()
   }
 
   func application(
@@ -180,9 +184,12 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     guard let fcmToken = fcmToken else { return }
     print("📱 FCM registration token: \(fcmToken)")
 
-    // Subscribe to app updates topic for version notifications
-    // This is done here (after receiving FCM token) to ensure APNs token is ready
-    subscribeToAppUpdatesTopic()
+    // Note: Topic subscription is now done in didRegisterForRemoteNotificationsWithDeviceToken
+    // to ensure APNs token is available before subscribing
+    // If APNs token is already available, subscribe now (handles token refresh scenarios)
+    if Messaging.messaging().apnsToken != nil {
+      subscribeToAppUpdatesTopic()
+    }
   }
 
   /// Subscribe to the app_updates topic for push notifications about new versions

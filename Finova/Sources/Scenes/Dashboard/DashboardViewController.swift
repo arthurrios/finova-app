@@ -34,6 +34,15 @@ final class DashboardViewController: UIViewController {
     
     // MARK: - Shimmer State Tracking
     private var cardsWithActiveShimmer: Set<Int> = []
+
+    // MARK: - Scroll Direction Locking
+    private enum ScrollDirection {
+        case none
+        case horizontal
+        case vertical
+    }
+    private var lockedScrollDirection: ScrollDirection = .none
+    private var initialContentOffset: CGPoint = .zero
     
     init(
         contentView: DashboardView,
@@ -1236,7 +1245,60 @@ extension DashboardViewController: UICollectionViewDelegateFlowLayout {
 }
 
 extension DashboardViewController: UIScrollViewDelegate {
+    func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        guard scrollView == contentView.monthCarousel else { return }
+        // Reset direction lock and store initial offset
+        lockedScrollDirection = .none
+        initialContentOffset = scrollView.contentOffset
+    }
+
+    func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        guard scrollView == contentView.monthCarousel else { return }
+
+        // Determine scroll direction if not yet locked
+        if lockedScrollDirection == .none {
+            let deltaX = abs(scrollView.contentOffset.x - initialContentOffset.x)
+            let deltaY = abs(scrollView.contentOffset.y - initialContentOffset.y)
+
+            // Only lock direction after a minimum movement threshold (5 points)
+            let threshold: CGFloat = 5.0
+            if deltaX > threshold || deltaY > threshold {
+                if deltaX > deltaY {
+                    lockedScrollDirection = .horizontal
+                } else {
+                    lockedScrollDirection = .vertical
+                }
+            }
+        }
+
+        // Enforce direction lock
+        switch lockedScrollDirection {
+        case .horizontal:
+            // Lock to horizontal - prevent vertical movement
+            if scrollView.contentOffset.y != initialContentOffset.y {
+                scrollView.contentOffset.y = initialContentOffset.y
+            }
+        case .vertical:
+            // Lock to vertical (for pull-to-refresh) - prevent horizontal movement
+            if scrollView.contentOffset.x != initialContentOffset.x {
+                scrollView.contentOffset.x = initialContentOffset.x
+            }
+        case .none:
+            break
+        }
+    }
+
+    func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
+        guard scrollView == contentView.monthCarousel else { return }
+        if !decelerate {
+            // Reset direction lock when scrolling ends without deceleration
+            lockedScrollDirection = .none
+        }
+    }
+
     func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
+        // Reset direction lock when scrolling ends
+        lockedScrollDirection = .none
         if scrollView == contentView.monthCarousel {
             let pageWidth = scrollView.frame.width
             let page = Int(floor((scrollView.contentOffset.x - pageWidth / 2) / pageWidth) + 1)
