@@ -50,6 +50,7 @@ class MonthBudgetCard: UIView {
 
   private lazy var headerHorizontalStackView = UIStackView(
     axis: .horizontal,
+    alignment: .center,
     arrangedSubviews: [headerDateStackView, headerToggleContainer, configIcon])
 
   private lazy var headerDateStackView = UIStackView(

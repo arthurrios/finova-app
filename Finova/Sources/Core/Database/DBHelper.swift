@@ -503,6 +503,9 @@ class DBHelper {
       //                continue
       //            }
 
+      // Default empty type to "expense" to handle corrupt data
+      let sanitizedTypeKey = typeKey.isEmpty ? "expense" : typeKey
+
       let dbData = DBTransactionData(
         id: id,
         title: title,
@@ -516,7 +519,7 @@ class DBHelper {
         totalInstallments: totalInstallments,
         originalAmount: originalAmount,
         category: catKey,
-        type: typeKey
+        type: sanitizedTypeKey
       )
 
       do {

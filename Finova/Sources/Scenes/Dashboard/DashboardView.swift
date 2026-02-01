@@ -377,8 +377,10 @@ final class DashboardView: UIView {
       addTransactionButton.bottomAnchor.constraint(equalTo: addButtonGlassContainer.bottomAnchor),
     ])
 
-    // Set up the month carousel height constraint
+    // Set up the month carousel height constraint with lower priority
+    // since we also have top and bottom constraints
     monthCarouselHeightConstraint = monthCarousel.heightAnchor.constraint(equalToConstant: 500)
+    monthCarouselHeightConstraint?.priority = .defaultHigh
     monthCarouselHeightConstraint?.isActive = true
   }
 
