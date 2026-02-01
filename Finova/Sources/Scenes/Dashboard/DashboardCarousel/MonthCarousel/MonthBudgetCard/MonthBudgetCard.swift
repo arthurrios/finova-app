@@ -396,17 +396,51 @@ class MonthBudgetCard: UIView {
     usedBudgetValueLabel.text =
       isValuesHidden ? getHiddenValueString() : data.usedValue.currencyString
 
-    if isCurrentMonth() {
-      displayMode = UserDefaultsManager.getBalanceDisplayMode()
-    } else {
-      displayMode = .final
-    }
-
     // Setup day slider only if budget is set
     if data.budgetLimit != nil && data.budgetLimit! > 0 {
       setupDaySliderForMonth(data: data)
     } else {
       hideDaySlider()
+    }
+
+    // Calculate the correct day for this month (same logic as refresh)
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = TimeZone.current
+    let today = Date()
+    let monthDate = data.date
+
+    let totalDaysInMonth: Int
+    if let range = calendar.range(of: .day, in: .month, for: monthDate) {
+      totalDaysInMonth = range.count
+    } else {
+      totalDaysInMonth = 31
+    }
+
+    let isCurrent = isCurrentMonth()
+    let correctDay: Int
+    if isCurrent {
+      correctDay = calendar.component(.day, from: today)
+    } else {
+      correctDay = totalDaysInMonth
+    }
+
+    currentSelectedDay = correctDay
+
+    // Set display mode based on month type and day slider state
+    // Use isDaySliderVisible directly - don't wait for hasDayIndicators() since
+    // indicators are created during layout which happens after configure()
+    if isCurrentMonth() {
+      if isDaySliderVisible {
+        displayMode = .daySpecific(day: correctDay)
+      } else {
+        displayMode = UserDefaultsManager.getBalanceDisplayMode()
+      }
+    } else {
+      if isDaySliderVisible {
+        displayMode = .daySpecific(day: correctDay)
+      } else {
+        displayMode = .final
+      }
     }
 
     updateAvailableBudgetDisplay()
@@ -869,6 +903,8 @@ class MonthBudgetCard: UIView {
   
   /// Clears the filter state and restores normal display
   func clearFilteredState() {
+    // Only update if filter was actually active to avoid redundant recalculations
+    guard isFilterActive else { return }
     updateFilteredState(isActive: false, sum: 0)
   }
 
@@ -1255,9 +1291,11 @@ class MonthBudgetCard: UIView {
     currentSelectedDay = correctDay
 
     // Set display mode based on month type and day slider state
+    // Use isDaySliderVisible directly - don't wait for hasDayIndicators() since
+    // indicators are created during layout which happens after configure/refresh
     if isCurrentMonth() {
-      // For current month, use day-specific mode if day slider is configured
-      if let slider = daySlider, isDaySliderVisible, slider.hasDayIndicators() {
+      // For current month, use day-specific mode if day slider is visible
+      if isDaySliderVisible {
         // Set to day-specific mode with the correct day for this month
         displayMode = .daySpecific(day: correctDay)
       } else {
@@ -1265,8 +1303,8 @@ class MonthBudgetCard: UIView {
         displayMode = newMode
       }
     } else {
-      // For non-current months, use day-specific mode if day slider is configured
-      if let slider = daySlider, isDaySliderVisible, slider.hasDayIndicators() {
+      // For non-current months, use day-specific mode if day slider is visible
+      if isDaySliderVisible {
         // Set to day-specific mode with the correct day for this month
         displayMode = .daySpecific(day: correctDay)
       } else {

@@ -1027,10 +1027,11 @@ final class DashboardViewController: UIViewController {
         viewModel.cleanupExistingDuplicates()
         
         contentView.monthCarousel.layoutIfNeeded()
-        
+
         // Marcar que o carregamento inicial foi concluído
+        // Note: isLoadingInitialData is set to false in didUpdateMonthData/didUpdateSelectedIndex
+        // after shimmer is hidden, not here
         isInitialLoadComplete = true
-        isLoadingInitialData = false
     }
     
     private func setupCollectionViews() {
@@ -1313,49 +1314,61 @@ extension DashboardViewController: SyncedCollectionsViewModelDelegate {
                 at: index,
                 animated: animated
             )
-            
-            DispatchQueue.main.async {
-                self.contentView.hideShimmerViewsAndShowOriginals()
-                self.isLoadingInitialData = false
+
+            // Hide shimmer after cells are configured
+            if self.isLoadingInitialData {
+                // Force layout to ensure cells are rendered
+                self.contentView.monthCarousel.layoutIfNeeded()
+
+                // Small delay to ensure cells finish configuring before hiding shimmer
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    self.contentView.hideShimmerViewsAndShowOriginals()
+                    self.isLoadingInitialData = false
+                }
             }
         }
     }
     
     func didUpdateMonthData(_ data: [MonthBudgetCardType]) {
         let currentSelectedIndex = syncedViewModel.selectedIndex
-        
+
         // Verificar se os dados realmente mudaram antes de reconfigurar
         let currentMonths = contentView.monthSelectorView.months
         let newMonths = data.map { $0.month }
         let monthsChanged = currentMonths != newMonths
-        
+
         if monthsChanged {
             contentView.monthSelectorView.configure(
                 months: newMonths, selectedIndex: currentSelectedIndex)
         }
-        
+
         DispatchQueue.main.async {
             self.contentView.monthCarousel.reloadData()
-        }
-        if currentSelectedIndex == 0 && data.isEmpty {
-            DispatchQueue.main.async {
+
+            // Handle month selection
+            if currentSelectedIndex == 0 && data.isEmpty {
                 let todayKey = DateFormatter.keyFormatter.string(from: Date())
                 if let currentIndex = self.syncedViewModel.monthData.firstIndex(where: {
                     DateFormatter.keyFormatter.string(from: $0.date) == todayKey
                 }) {
                     self.syncedViewModel.selectMonth(at: currentIndex, animated: !self.isLoadingInitialData)
                 }
-            }
-        } else if currentSelectedIndex > 0 {
-            DispatchQueue.main.async {
+            } else if currentSelectedIndex > 0 {
                 self.syncedViewModel.selectMonth(
                     at: currentSelectedIndex, animated: !self.isLoadingInitialData)
             }
-        }
-        
-        DispatchQueue.main.async {
-            self.contentView.hideShimmerViewsAndShowOriginals()
-            self.isLoadingInitialData = false
+
+            // Hide shimmer after cells are configured
+            if self.isLoadingInitialData {
+                // Force layout pass to ensure cells are rendered
+                self.contentView.monthCarousel.layoutIfNeeded()
+
+                // Small delay to ensure cells finish configuring before hiding shimmer
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    self.contentView.hideShimmerViewsAndShowOriginals()
+                    self.isLoadingInitialData = false
+                }
+            }
         }
     }
     

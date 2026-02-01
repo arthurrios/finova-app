@@ -344,25 +344,25 @@ final class DashboardView: UIView {
       monthSelectorShimmerView.topAnchor.constraint(
         equalTo: headerContainerView.bottomAnchor, constant: Metrics.spacing5),
       monthSelectorShimmerView.leadingAnchor.constraint(
-        equalTo: monthSelectorView.leadingAnchor, constant: Metrics.spacing4),
+        equalTo: monthSelectorView.leadingAnchor),
       monthSelectorShimmerView.trailingAnchor.constraint(
-        equalTo: monthSelectorView.trailingAnchor, constant: -Metrics.spacing4),
+        equalTo: monthSelectorView.trailingAnchor),
       monthSelectorShimmerView.heightAnchor.constraint(equalToConstant: Metrics.spacing8),
 
       monthCardShimmerView.topAnchor.constraint(
         equalTo: monthSelectorView.bottomAnchor, constant: Metrics.spacing5),
       monthCardShimmerView.leadingAnchor.constraint(
-        equalTo: monthSelectorView.leadingAnchor, constant: Metrics.spacing4),
+        equalTo: monthSelectorView.leadingAnchor),
       monthCardShimmerView.trailingAnchor.constraint(
-        equalTo: monthSelectorView.trailingAnchor, constant: -Metrics.spacing4),
+        equalTo: monthSelectorView.trailingAnchor),
       monthCardShimmerView.heightAnchor.constraint(equalToConstant: Metrics.monthCardShimmerHeight),
 
       transactionsTableShimmerView.topAnchor.constraint(
         equalTo: monthCardShimmerView.bottomAnchor, constant: Metrics.spacing4),
       transactionsTableShimmerView.leadingAnchor.constraint(
-        equalTo: monthSelectorView.leadingAnchor, constant: Metrics.spacing4),
+        equalTo: monthSelectorView.leadingAnchor),
       transactionsTableShimmerView.trailingAnchor.constraint(
-        equalTo: monthSelectorView.trailingAnchor, constant: -Metrics.spacing4),
+        equalTo: monthSelectorView.trailingAnchor),
       transactionsTableShimmerView.bottomAnchor.constraint(
         equalTo: bottomAnchor, constant: -Metrics.spacing4),
 

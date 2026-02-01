@@ -203,6 +203,7 @@ class MonthCarouselCell: UICollectionViewCell {
     tableView.separatorInset = UIEdgeInsets.zero
     tableView.clipsToBounds = true
     tableView.separatorColor = Colors.gray300
+    tableView.isHidden = true  // Start hidden, show only after data is configured
     tableView.translatesAutoresizingMaskIntoConstraints = false
 
     // Set lower priority so the table gets constrained instead of the card
@@ -700,6 +701,10 @@ class MonthCarouselCell: UICollectionViewCell {
     transactionTableView.isScrollEnabled = false
     transactionTableView.contentInset = .zero
     transactionTableView.scrollIndicatorInsets = .zero
+
+    // Hide both table and empty state during cell setup to prevent flashing
+    transactionTableView.isHidden = true
+    emptyStateView.isHidden = true
 
     clearSearch()
   }
