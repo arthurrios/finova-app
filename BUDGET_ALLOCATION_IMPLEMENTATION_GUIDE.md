@@ -2,7 +2,7 @@
 
 ## FinoVa v1.4.0
 
-This guide provides step-by-step instructions for implementing the Budget Allocation feature, which allows users to partition their monthly budget into category-based allocations.
+This guide follows a **visual-first development approach** - you'll see components on screen as you build them, starting with scaffolding and progressively adding functionality.
 
 ---
 
@@ -10,11 +10,16 @@ This guide provides step-by-step instructions for implementing the Budget Alloca
 
 1. [Overview](#1-overview)
 2. [Architecture](#2-architecture)
-3. [Data Layer](#3-data-layer)
-4. [Service Layer](#4-service-layer)
-5. [UI Layer](#5-ui-layer)
-6. [Implementation Order](#6-implementation-order)
-7. [Testing Considerations](#7-testing-considerations)
+3. [Programming Concepts Explained](#3-programming-concepts-explained)
+4. [Phase 1: Scaffolding & Navigation](#phase-1-scaffolding--navigation)
+5. [Phase 2: Data Models & Constants](#phase-2-data-models--constants)
+6. [Phase 3: UI Components with Mock Data](#phase-3-ui-components-with-mock-data)
+7. [Phase 4: Data Layer (Repository & Service)](#phase-4-data-layer-repository--service)
+8. [Phase 5: Connect Data to UI](#phase-5-connect-data-to-ui)
+9. [Phase 6: Modal & Creation Flow](#phase-6-modal--creation-flow)
+10. [Phase 7: Polish & Edge Cases](#phase-7-polish--edge-cases)
+11. [Testing Checklist](#testing-checklist)
+12. [Localization Keys](#localization-keys)
 
 ---
 
@@ -28,6 +33,7 @@ The Budget Allocation feature extends the existing budget system to allow users 
 - View budget breakdowns via an interactive donut chart
 - Create recurring allocations that apply to future months
 - Filter transactions by tapping allocation chart segments
+- View allocation details and edit/delete allocations
 
 ### Key Terminology
 
@@ -50,75 +56,1351 @@ The Budget Allocation feature extends the existing budget system to allow users 
 
 ## 2. Architecture
 
-### New Files to Create
-
-```
-Finova/Sources/
-├── Core/
-│   ├── Repositories/
-│   │   └── BudgetAllocationRepository/
-│   │       ├── BudgetAllocationModel.swift          # Data model
-│   │       ├── BudgetAllocationRepository.swift     # Repository
-│   │       └── BudgetAllocationRepositoryProtocol.swift
-│   └── Services/
-│       └── BudgetAllocationService.swift            # Business logic
-├── Scenes/
-│   └── Dashboard/
-│       └── DashboardCarousel/
-│           └── MonthCarousel/
-│               ├── BudgetCard/
-│               │   ├── BudgetCard.swift             # Back of MonthBudgetCard
-│               │   ├── BudgetDonutChart.swift       # SwiftUI Chart
-│               │   └── AllocationCell.swift         # Table cell
-│               └── MonthCarouselCell.swift          # (modify for flip)
-└── SwiftUI/
-    └── Charts/
-        └── BudgetDonutChartView.swift               # SwiftUI chart component
-```
-
-### Modified Files
+### File Structure
 
 ```
 Finova/Sources/
 ├── Core/
 │   ├── Constants/
 │   │   └── Colors.swift                             # Add warningAmber color
-│   └── Models/
-│       └── Enums/
-│           └── AllocationStatus.swift               # New enum
+│   ├── Models/
+│   │   └── Enums/
+│   │       └── AllocationStatus.swift               # New enum
+│   ├── Repositories/
+│   │   └── BudgetAllocationRepository/
+│   │       ├── BudgetAllocationModel.swift
+│   │       └── BudgetAllocationRepository.swift
+│   └── Services/
+│       └── BudgetAllocationService.swift
 ├── Scenes/
 │   ├── Dashboard/
 │   │   ├── DashboardViewModel.swift                 # Add allocation methods
 │   │   └── DashboardCarousel/
 │   │       └── MonthCarousel/
+│   │           ├── MonthCardFlipDelegate.swift      # New protocol
+│   │           ├── MonthCarouselCell.swift          # Add flip logic
 │   │           ├── MonthBudgetCard/
 │   │           │   └── MonthBudgetCard.swift        # Add flip toggle
-│   │           └── MonthCarouselCell.swift          # Add flip logic
+│   │           └── BudgetCard/
+│   │               ├── BudgetCard.swift
+│   │               └── AllocationCell.swift
+│   ├── BudgetAllocationDetails/
+│   │   ├── View/
+│   │   │   ├── BudgetAllocationDetailsViewController.swift
+│   │   │   ├── BudgetAllocationDetailsView.swift
+│   │   │   └── BudgetAllocationDetailsFlowDelegate.swift
+│   │   ├── ViewModel/
+│   │   │   └── BudgetAllocationDetailsViewModel.swift
+│   │   └── Components/
+│   │       └── CircularProgressView.swift
 │   └── AddTransaction/
 │       ├── AddTransactionModalView.swift            # Add segmented control
-│       └── AddTransactionModalViewModel.swift       # Add allocation methods
+│       └── AddTransactionModalViewModel.swift       # Add allocation mode
+└── SwiftUI/
+    └── Charts/
+        └── BudgetDonutChartView.swift
 ```
 
 ---
 
-## 3. Data Layer
+## 3. Programming Concepts Explained
 
-### 3.1 BudgetAllocationModel
+This section explains the "why" behind code decisions. Read this before implementing if you want to understand the reasoning, or refer back to it when you see a pattern you don't recognize.
+
+### 3.1 Why Protocols? (Delegates & Communication)
+
+**The Problem:** How does a child view tell its parent that something happened (like a button tap)?
+
+**The Solution:** Protocols define a "contract" - a list of methods that someone promises to implement.
+
+```swift
+// This is a PROTOCOL - it's like a job description
+// Anyone who "conforms" to this protocol MUST implement these methods
+protocol MonthCardFlipDelegate: AnyObject {
+    func didRequestFlip(isShowingBudgetView: Bool)
+    func didTapAllocation(_ allocation: BudgetAllocation)
+}
+```
+
+**Why `AnyObject`?** This restricts the protocol to classes only (not structs). We need this because we'll use `weak` references to avoid memory leaks (explained below).
+
+**How it works:**
+
+```swift
+// BudgetCard has a delegate property
+class BudgetCard: UIView {
+    weak var delegate: MonthCardFlipDelegate?  // Someone who will respond to events
+
+    @objc private func flipBack() {
+        // When button is tapped, TELL the delegate (don't do the work yourself)
+        delegate?.didRequestFlip(isShowingBudgetView: false)
+    }
+}
+
+// MonthCarouselCell CONFORMS to the protocol (promises to do the job)
+extension MonthCarouselCell: MonthCardFlipDelegate {
+    func didRequestFlip(isShowingBudgetView: Bool) {
+        // Actually do the flip animation here
+        if isShowingBudgetView {
+            flipToBudgetView()
+        } else {
+            flipToTransactionView()
+        }
+    }
+}
+
+// Connect them
+budgetCard.delegate = self  // "self" is MonthCarouselCell
+```
+
+**Why not just call the method directly?**
+- BudgetCard doesn't know (and shouldn't know) about MonthCarouselCell
+- This makes BudgetCard reusable - anyone can be its delegate
+- It's like a waiter (BudgetCard) taking your order and giving it to the kitchen (delegate), without knowing who's cooking
+
+### 3.2 Why `weak var delegate`? (Memory Management)
+
+**The Problem:** Memory leaks. Objects stay in memory forever because they reference each other.
+
+```swift
+// BAD - Creates a "retain cycle" (memory leak)
+class Parent {
+    var child: Child?  // Parent holds Child
+}
+
+class Child {
+    var parent: Parent?  // Child holds Parent
+}
+// Neither can be freed from memory because each holds the other!
+```
+
+**The Solution:** Make one reference `weak`:
+
+```swift
+class Child {
+    weak var parent: Parent?  // Child has a WEAK reference to Parent
+}
+// Now when Parent is freed, Child's reference becomes nil automatically
+```
+
+**Rule of thumb:** Delegates are always `weak` because:
+- The parent (MonthCarouselCell) owns the child (BudgetCard)
+- The child should NOT own the parent
+- `weak` means "I know about you, but I don't keep you alive"
+
+### 3.3 Why `lazy var`? (Deferred Initialization)
+
+**The Problem:** Creating UI components in `init()` can be:
+1. Slow (you create everything upfront)
+2. Problematic (you might need `self` which isn't available yet)
+
+**The Solution:** `lazy var` delays creation until first use:
+
+```swift
+// This closure runs ONLY when backButton is first accessed
+private lazy var backButton: UIButton = {
+    let button = UIButton(type: .system)
+    button.setImage(UIImage(systemName: "chevron.left"), for: .normal)
+    button.tintColor = Colors.gray100
+    button.addTarget(self, action: #selector(backTapped), for: .touchUpInside)
+    return button
+}()  // <-- The () at the end means "execute this closure"
+```
+
+**Why the closure `{ }()` syntax?**
+- The `{ ... }` is a closure (a block of code)
+- The `()` at the end immediately executes it
+- This lets you write multiple lines of setup code
+- Without the closure, you'd only be able to write: `lazy var button = UIButton()`
+
+**When is it created?**
+```swift
+// backButton doesn't exist yet...
+addSubview(backButton)  // NOW it's created (first access)
+// From now on, it's a regular property
+```
+
+### 3.4 Why `static func mock()`? (Factory Methods)
+
+**The Problem:** During development, you need fake data to test the UI before the database is ready.
+
+**The Solution:** A `static` method that creates sample instances:
+
+```swift
+struct BudgetAllocation {
+    // Regular properties...
+    let category: TransactionCategory
+    let allocatedAmount: Int
+
+    // STATIC method - belongs to the TYPE, not an instance
+    static func mock(
+        category: TransactionCategory = .food,
+        allocated: Int = 50000
+    ) -> BudgetAllocation {
+        return BudgetAllocation(
+            category: category,
+            allocatedAmount: allocated
+        )
+    }
+}
+```
+
+**Why `static`?**
+- You call it on the TYPE: `BudgetAllocation.mock()`
+- Not on an instance: `someAllocation.mock()` ❌
+- You don't need an existing allocation to create a mock one
+- It's like a "factory" that produces new allocations
+
+**Why default parameter values?**
+```swift
+// All of these work:
+BudgetAllocation.mock()                           // Uses all defaults
+BudgetAllocation.mock(category: .transport)       // Override one
+BudgetAllocation.mock(allocated: 100000)          // Override another
+BudgetAllocation.mock(category: .food, allocated: 25000)  // Override both
+```
+
+### 3.5 Why Computed Properties vs Stored Properties?
+
+**Stored Property:** Holds a value in memory
+
+```swift
+var usedAmount: Int = 0  // This value is stored
+```
+
+**Computed Property:** Calculates a value every time you access it
+
+```swift
+var remainingAmount: Int {
+    return allocatedAmount - usedAmount  // Calculated on-the-fly
+}
+
+var status: AllocationStatus {
+    let percentage = usagePercentage
+    if percentage > 100 { return .overBudget }
+    else if percentage >= 80 { return .nearLimit }
+    else { return .underBudget }
+}
+```
+
+**Why use computed properties?**
+- The value depends on other values that might change
+- You don't want stale data (if `usedAmount` changes, `remainingAmount` updates automatically)
+- No need to remember to update multiple properties
+
+**When to use stored vs computed:**
+- **Stored:** Data that comes from outside (database, user input)
+- **Computed:** Data derived from other properties
+
+### 3.6 Why Separate Repository and Service?
+
+**Repository:** Talks to the database. Only knows how to save/load data.
+
+```swift
+class BudgetAllocationRepository {
+    func insert(_ allocation: BudgetAllocationModel) throws -> Int
+    func fetchAllocations(forMonth: Int) -> [BudgetAllocation]
+    func delete(id: Int) throws
+}
+```
+
+**Service:** Contains business logic. Uses repositories to get data, then does calculations.
+
+```swift
+class BudgetAllocationService {
+    private let allocationRepo: BudgetAllocationRepository
+    private let transactionRepo: TransactionRepository
+
+    func getAllocationsWithUsage(forMonth: Int) -> [BudgetAllocation] {
+        // 1. Get allocations from repo
+        var allocations = allocationRepo.fetchAllocations(forMonth: monthAnchor)
+
+        // 2. Get transactions and calculate usage (BUSINESS LOGIC)
+        let usage = calculateUsageByCategory(forMonth: monthAnchor)
+
+        // 3. Combine the data
+        for i in allocations.indices {
+            allocations[i].setUsedAmount(usage[allocations[i].category.key] ?? 0)
+        }
+
+        return allocations
+    }
+}
+```
+
+**Why separate them?**
+- **Single Responsibility:** Each class does one thing well
+- **Testability:** You can test business logic without a real database
+- **Flexibility:** Change how data is stored without changing business logic
+
+### 3.7 Why View / ViewModel / ViewController?
+
+This is the **MVVM pattern** (Model-View-ViewModel):
+
+```
+┌─────────────┐     ┌─────────────────┐     ┌──────────────┐
+│    View     │────▶│  ViewController │────▶│  ViewModel   │
+│  (UIView)   │     │                 │     │              │
+│             │◀────│   (connects     │◀────│  (data +     │
+│  (displays  │     │    them)        │     │   logic)     │
+│   things)   │     │                 │     │              │
+└─────────────┘     └─────────────────┘     └──────────────┘
+```
+
+**View (`BudgetAllocationDetailsView`):**
+- Only knows how to display things
+- Has UI components (labels, buttons, tables)
+- Doesn't know WHERE the data comes from
+
+```swift
+class BudgetAllocationDetailsView: UIView {
+    private lazy var categoryLabel: UILabel = { ... }()
+
+    func configure(with allocation: BudgetAllocation) {
+        categoryLabel.text = allocation.category.displayName  // Just display it
+    }
+}
+```
+
+**ViewModel (`BudgetAllocationDetailsViewModel`):**
+- Holds the data
+- Contains logic (calculations, formatting)
+- Doesn't know about UIKit
+
+```swift
+class BudgetAllocationDetailsViewModel {
+    private let allocation: BudgetAllocation
+
+    var formattedAllocated: String {
+        return allocatedAmount.currencyString  // Format for display
+    }
+
+    var isOverBudget: Bool {
+        return remainingAmount < 0  // Business logic
+    }
+}
+```
+
+**ViewController (`BudgetAllocationDetailsViewController`):**
+- Connects View and ViewModel
+- Handles user actions
+- Manages lifecycle
+
+```swift
+class BudgetAllocationDetailsViewController: UIViewController {
+    private let mainView = BudgetAllocationDetailsView()
+    private let viewModel: BudgetAllocationDetailsViewModel
+
+    override func viewDidLoad() {
+        mainView.configure(with: viewModel.budgetAllocation)  // Connect them
+    }
+
+    @objc private func deleteTapped() {
+        viewModel.deleteAllocation { result in ... }  // Handle action
+    }
+}
+```
+
+**Why this separation?**
+- **View** can be reused with different data
+- **ViewModel** can be tested without UI
+- **ViewController** stays small and focused
+
+### 3.8 Why Extensions?
+
+Extensions add functionality to existing types, organized by purpose:
+
+```swift
+// Main class definition
+class BudgetCard: UIView {
+    // Core properties and setup
+}
+
+// Extension for UITableViewDataSource
+extension BudgetCard: UITableViewDataSource {
+    func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
+        return allocations.count
+    }
+
+    func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+        // ...
+    }
+}
+
+// Extension for UITableViewDelegate
+extension BudgetCard: UITableViewDelegate {
+    func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
+        return 72
+    }
+}
+```
+
+**Why use extensions?**
+- **Organization:** Group related methods together
+- **Protocol Conformance:** Each protocol in its own extension
+- **Readability:** Easy to find all `UITableViewDataSource` methods in one place
+- **File size:** Can even split extensions into separate files
+
+### 3.9 Why `private` vs `internal` vs `public`?
+
+**Access control** determines who can see and use your code:
+
+```swift
+class BudgetCard: UIView {
+    // PRIVATE: Only this class can access
+    private var allocations: [BudgetAllocation] = []
+    private lazy var monthLabel: UILabel = { ... }()
+
+    // PRIVATE(SET): Anyone can read, only this class can write
+    private(set) lazy var backButton: UIButton = { ... }()
+
+    // INTERNAL (default): Anyone in the same module can access
+    var delegate: MonthCardFlipDelegate?
+
+    // PUBLIC: Anyone, even other modules, can access
+    public func configure(...) { ... }
+}
+```
+
+**Rule of thumb:**
+- Start with `private` for everything
+- Only make things less private when needed
+- Properties that Views expose to ViewControllers: `private(set)` (read-only from outside)
+
+### 3.10 Why `guard` vs `if`?
+
+Both check conditions, but `guard` is for early exits:
+
+```swift
+// WITH IF (pyramid of doom)
+func processAllocation() {
+    if let id = allocation.id {
+        if let amount = parsedAmount {
+            if amount > 0 {
+                // Finally do the work
+                saveAllocation(id: id, amount: amount)
+            }
+        }
+    }
+}
+
+// WITH GUARD (flat and clear)
+func processAllocation() {
+    guard let id = allocation.id else {
+        print("No ID")
+        return
+    }
+
+    guard let amount = parsedAmount else {
+        print("Invalid amount")
+        return
+    }
+
+    guard amount > 0 else {
+        print("Amount must be positive")
+        return
+    }
+
+    // Happy path - do the work
+    saveAllocation(id: id, amount: amount)
+}
+```
+
+**Why `guard`?**
+- Makes the "happy path" clear (not nested)
+- Unwrapped values (`id`, `amount`) are available after the guard
+- Forces you to exit (return, throw, break) if condition fails
+
+### 3.11 Why Closures for Callbacks?
+
+**The Problem:** A function does something async (like a network call or animation), and you need to run code when it's done.
+
+**The Solution:** Pass a closure (a block of code) to be executed later:
+
+```swift
+func deleteAllocation(completion: @escaping (Result<Void, Error>) -> Void) {
+    // Do the deletion...
+
+    if success {
+        completion(.success(()))  // Call the closure with success
+    } else {
+        completion(.failure(error))  // Call the closure with error
+    }
+}
+
+// Using it:
+viewModel.deleteAllocation { result in
+    switch result {
+    case .success:
+        self.flowDelegate?.didDeleteAllocation()
+    case .failure(let error):
+        self.showError(error.localizedDescription)
+    }
+}
+```
+
+**Why `@escaping`?**
+- The closure will be called AFTER the function returns
+- Swift needs to know to keep the closure in memory
+- Without `@escaping`, the closure would be destroyed when the function ends
+
+### 3.12 Why `[weak self]` in Closures?
+
+**The Problem:** Closures capture `self`, creating a retain cycle (memory leak):
+
+```swift
+// BAD - Creates retain cycle
+viewModel.deleteAllocation { result in
+    self.showResult(result)  // Closure holds strong reference to self
+}
+```
+
+**The Solution:** Capture `self` weakly:
+
+```swift
+// GOOD - No retain cycle
+viewModel.deleteAllocation { [weak self] result in
+    self?.showResult(result)  // self is optional now
+}
+
+// Even better - safely unwrap
+viewModel.deleteAllocation { [weak self] result in
+    guard let self = self else { return }
+    self.showResult(result)
+}
+```
+
+**When do you need `[weak self]`?**
+- When the closure is stored (escaping)
+- When it might outlive `self`
+- Not needed for non-escaping closures (like `array.map { }`)
+
+---
+
+## Phase 1: Scaffolding & Navigation
+
+> **Goal**: Create empty screens and wire up navigation so you can tap through the app flow.
+
+### Step 1.1: Add Colors (Required for UI)
+
+**File:** `Finova/Sources/Core/Constants/Colors.swift`
+
+Add to existing Colors struct:
+
+```swift
+// Add after mainRed
+static let warningAmber = UIColor(hex: "#F59E0B")
+static let lowAmber = UIColor(hex: "#F59E0B").withAlphaComponent(0.05)
+```
+
+### Step 1.2: Create MonthCardFlipDelegate Protocol
+
+**File:** `Finova/Sources/Scenes/Dashboard/DashboardCarousel/MonthCarousel/MonthCardFlipDelegate.swift`
+
+> **Why a protocol?** BudgetCard needs to tell its parent (MonthCarouselCell) when the user taps something, but BudgetCard shouldn't know about MonthCarouselCell directly. The protocol creates a "contract" - BudgetCard says "I need someone who can do these things" and MonthCarouselCell says "I can do those things."
+
+```swift
+import UIKit
+
+// AnyObject = only classes can conform (needed for weak references)
+// See Section 3.1 and 3.2 for detailed explanation
+protocol MonthCardFlipDelegate: AnyObject {
+
+    // Called when user taps the flip button
+    // The Bool tells the delegate WHAT state to flip TO
+    func didRequestFlip(isShowingBudgetView: Bool)
+
+    // Called when user taps a segment in the donut chart
+    // Passes the category so the delegate can filter transactions
+    func didSelectAllocationCategory(_ category: TransactionCategory)
+
+    // Called when user taps an allocation row
+    // Passes the full allocation so the delegate can navigate to details
+    func didTapAllocation(_ allocation: BudgetAllocation)
+}
+```
+
+### Step 1.3: Create BudgetAllocationDetailsFlowDelegate Protocol
+
+**File:** `Finova/Sources/Scenes/BudgetAllocationDetails/View/BudgetAllocationDetailsFlowDelegate.swift`
+
+```swift
+import UIKit
+
+protocol BudgetAllocationDetailsFlowDelegate: AnyObject {
+    func dismissAllocationDetails()
+    func navigateToTransactionDetails(transaction: Transaction)
+    func didUpdateAllocation()
+    func didDeleteAllocation()
+}
+```
+
+### Step 1.4: Create Minimal BudgetAllocation Model (for compilation)
 
 **File:** `Finova/Sources/Core/Repositories/BudgetAllocationRepository/BudgetAllocationModel.swift`
 
+> **Why create models first?** The UI components need to know what data they'll display. Even though we don't have real data yet, we need the model's "shape" (properties and types) so the code compiles. We add `mock()` methods to create fake data for testing the UI.
+
 ```swift
-import Foundation
+import UIKit
+
+// MARK: - Allocation Status Enum
+// ═══════════════════════════════════════════════════════════════════
+// WHY AN ENUM? Status is one of three fixed options - perfect for enum.
+// Enums prevent bugs like typos ("under_budget" vs "underBudget").
+// Each case can have associated data (colors, labels) in one place.
+// ═══════════════════════════════════════════════════════════════════
+
+enum AllocationStatus {
+    case underBudget    // 0-79% used
+    case nearLimit      // 80-99% used
+    case overBudget     // 100%+ used
+
+    // COMPUTED PROPERTY: Returns a different color based on which case this is.
+    // Why here and not in the View? Because the status OWNS its color.
+    // Any view displaying this status should use the same color.
+    var color: UIColor {
+        switch self {
+        case .underBudget: return Colors.mainMagenta
+        case .nearLimit: return Colors.warningAmber
+        case .overBudget: return Colors.mainRed
+        }
+    }
+
+    var localizedLabel: String {
+        switch self {
+        case .underBudget: return "Under"
+        case .nearLimit: return "Near"
+        case .overBudget: return "Over"
+        }
+    }
+}
+
+// MARK: - Display Model (minimal for scaffolding)
+// ═══════════════════════════════════════════════════════════════════
+// WHY A STRUCT (not class)?
+// - Structs are VALUE TYPES: when you pass them, you get a copy
+// - This prevents accidental modifications from other parts of the code
+// - Rule of thumb: use struct unless you need inheritance or identity
+// ═══════════════════════════════════════════════════════════════════
+
+struct BudgetAllocation {
+    // ─────────────────────────────────────────────────────────────
+    // STORED PROPERTIES: These hold actual values in memory
+    // ─────────────────────────────────────────────────────────────
+    let id: Int?                      // Optional (?) because NEW allocations don't have IDs yet
+    let monthDate: Int                // Unix timestamp for the month
+    let category: TransactionCategory
+    let allocatedAmount: Int          // In cents (5000 = $50.00) - avoid floating point issues
+    let isRecurring: Bool
+    let parentAllocationId: Int?      // Links to parent if this is a recurring instance
+    var usedAmount: Int = 0           // var (not let) because it's updated after creation
+
+    // ─────────────────────────────────────────────────────────────
+    // COMPUTED PROPERTIES: Calculated from other properties
+    // No value stored - calculated fresh each time you access it
+    // See Section 3.5 for why we use these
+    // ─────────────────────────────────────────────────────────────
+    var remainingAmount: Int { allocatedAmount - usedAmount }
+
+    var usagePercentage: Double {
+        // guard = early exit if condition fails (see Section 3.10)
+        // Prevents division by zero crash
+        guard allocatedAmount > 0 else { return 0 }
+        return Double(usedAmount) / Double(allocatedAmount) * 100
+    }
+
+    // This computed property returns an ENUM based on the percentage
+    // The business logic of "what is near limit?" lives here, not in the UI
+    var status: AllocationStatus {
+        let pct = usagePercentage
+        if pct > 100 { return .overBudget }
+        else if pct >= 80 { return .nearLimit }
+        else { return .underBudget }
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // STATIC METHOD: Called on the TYPE, not an instance
+    // BudgetAllocation.mock() ✓    someAllocation.mock() ✗
+    // See Section 3.4 for detailed explanation
+    // ─────────────────────────────────────────────────────────────
+    //
+    // WHY DEFAULT PARAMETER VALUES? Flexibility. You can call:
+    //   .mock()                                - all defaults (75% food)
+    //   .mock(category: .transport)            - override just category
+    //   .mock(allocated: 100000, used: 50000)  - override amounts
+    //   .mock(category: .entertainment, allocated: 20000, used: 25000)  // over budget!
+    //
+    static func mock(
+        category: TransactionCategory = .food,
+        allocated: Int = 50000,    // $500.00
+        used: Int = 37500          // $375.00 (75% usage = underBudget)
+    ) -> BudgetAllocation {
+        // We create the allocation then modify usedAmount because
+        // usedAmount isn't in the main initializer (it defaults to 0)
+        var allocation = BudgetAllocation(
+            id: 1,
+            monthDate: Int(Date().timeIntervalSince1970),
+            category: category,
+            allocatedAmount: allocated,
+            isRecurring: false,
+            parentAllocationId: nil
+        )
+        allocation.usedAmount = used
+        return allocation
+    }
+}
+
+// MARK: - Unallocated Summary (minimal)
+// This tracks spending in categories that DON'T have allocations
+
+struct UnallocatedBudgetSummary {
+    let monthDate: Int
+    let totalBudget: Int
+    let totalAllocated: Int
+    let totalUsedInUnallocatedCategories: Int
+
+    // Computed: how much budget isn't assigned to any category
+    var unallocatedAmount: Int { totalBudget - totalAllocated }
+
+    static func mock() -> UnallocatedBudgetSummary {
+        UnallocatedBudgetSummary(
+            monthDate: Int(Date().timeIntervalSince1970),
+            totalBudget: 200000,      // $2,000.00 total budget
+            totalAllocated: 150000,   // $1,500.00 assigned to categories
+            totalUsedInUnallocatedCategories: 25000  // $250.00 spent in unassigned categories
+        )
+    }
+}
+```
+
+### Step 1.5: Create Empty BudgetAllocationDetailsView
+
+**File:** `Finova/Sources/Scenes/BudgetAllocationDetails/View/BudgetAllocationDetailsView.swift`
+
+> **Why a separate View class?** This follows the MVVM pattern (see Section 3.7). The View only knows HOW to display things - it doesn't know WHERE data comes from or WHAT happens when buttons are tapped. This separation makes it reusable and easy to test.
+
+```swift
+import UIKit
+
+// ═══════════════════════════════════════════════════════════════════
+// WHY `final class`?
+// - `final` means no other class can inherit from this one
+// - Improves performance (compiler can optimize method calls)
+// - Use `final` unless you specifically need inheritance
+//
+// WHY extend UIView (not UIViewController)?
+// - View = just the visual layout, no logic
+// - ViewController = connects View to ViewModel, handles actions
+// - Keeps each class focused on ONE job (Single Responsibility)
+// ═══════════════════════════════════════════════════════════════════
+
+final class BudgetAllocationDetailsView: UIView {
+
+    // MARK: - UI Components (Minimal for scaffolding)
+    // ─────────────────────────────────────────────────────────────
+    // WHY `private lazy var`? (See Section 3.3)
+    //
+    // `private` = only THIS class can access it
+    //   - Hides implementation details
+    //   - Prevents other code from messing with internal UI
+    //
+    // `lazy` = created only when first accessed
+    //   - Saves memory if never used
+    //   - Lets us use `self` in the closure (for addTarget)
+    //
+    // The `{ }()` closure runs immediately when first accessed
+    // ─────────────────────────────────────────────────────────────
+
+    private lazy var placeholderLabel: UILabel = {
+        let label = UILabel()
+        label.text = "Allocation Details Screen"
+        label.font = Fonts.titleMD
+        label.textColor = Colors.gray100
+        label.textAlignment = .center
+        // translatesAutoresizingMaskIntoConstraints = false is REQUIRED
+        // for AutoLayout to work. Without it, the system creates
+        // automatic constraints that conflict with yours.
+        label.translatesAutoresizingMaskIntoConstraints = false
+        return label
+    }()
+
+    // ─────────────────────────────────────────────────────────────
+    // WHY `private(set)`? (See Section 3.9)
+    //
+    // private(set) = anyone can READ, only this class can WRITE
+    //
+    // The ViewController needs to READ this button to add a tap target:
+    //   mainView.backButton.addTarget(self, ...)  ✓
+    //
+    // But only the View should be able to REPLACE the button:
+    //   mainView.backButton = someOtherButton  ✗ (won't compile)
+    // ─────────────────────────────────────────────────────────────
+
+    private(set) lazy var backButton: UIButton = {
+        let button = UIButton(type: .system)
+        let config = UIImage.SymbolConfiguration(pointSize: 16, weight: .semibold)
+        button.setImage(UIImage(systemName: "chevron.left", withConfiguration: config), for: .normal)
+        button.tintColor = Colors.gray100
+        button.translatesAutoresizingMaskIntoConstraints = false
+        return button
+        // NOTE: We don't add the tap target here!
+        // The ViewController will do that - the View doesn't know
+        // what should happen when the button is tapped.
+    }()
+
+    // MARK: - Initialization
+    // ─────────────────────────────────────────────────────────────
+    // UIView has TWO initializers you must handle:
+    //
+    // init(frame:)  = called when created in CODE
+    //   let view = MyView(frame: .zero)
+    //
+    // init(coder:)  = called when loaded from STORYBOARD/XIB
+    //   (The system deserializes the view from the file)
+    //
+    // We use programmatic UI only, so init(coder:) crashes with
+    // fatalError. This makes it obvious: don't use Storyboards!
+    // ─────────────────────────────────────────────────────────────
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)  // ALWAYS call super first
+        setupUI()  // Then do our setup
+    }
+
+    required init?(coder: NSCoder) {
+        // "required" because UIView declares this initializer
+        // We crash because this View doesn't support Storyboards
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // WHY a separate setupUI() method?
+    //
+    // 1. Keeps init() clean and short
+    // 2. Groups all setup code in one findable place
+    // 3. Can be called from multiple initializers if needed
+    // ─────────────────────────────────────────────────────────────
+
+    private func setupUI() {
+        backgroundColor = Colors.gray800
+
+        // Add subviews to the view hierarchy
+        // ORDER MATTERS: later subviews appear ON TOP of earlier ones
+        addSubview(backButton)
+        addSubview(placeholderLabel)
+
+        // ─────────────────────────────────────────────────────────
+        // WHY NSLayoutConstraint.activate()?
+        //
+        // More efficient than setting isActive = true individually.
+        // Also clearer - all constraints in one place.
+        //
+        // Each constraint says: "this anchor = that anchor + constant"
+        // ─────────────────────────────────────────────────────────
+        NSLayoutConstraint.activate([
+            // backButton: top-left corner, 40x40 size
+            backButton.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor, constant: Metrics.spacing4),
+            backButton.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Metrics.spacing4),
+            backButton.widthAnchor.constraint(equalToConstant: 40),
+            backButton.heightAnchor.constraint(equalToConstant: 40),
+
+            // placeholderLabel: centered in the view
+            placeholderLabel.centerXAnchor.constraint(equalTo: centerXAnchor),
+            placeholderLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+        ])
+    }
+
+    // MARK: - Configuration
+    // ─────────────────────────────────────────────────────────────
+    // WHY a configure() method?
+    //
+    // Views should be DUMB - they don't fetch their own data.
+    // The ViewController calls configure() and GIVES the View data.
+    //
+    // This means:
+    // - The View can be reused with different data sources
+    // - The View can be tested with mock data
+    // - The View doesn't depend on any specific ViewModel
+    // ─────────────────────────────────────────────────────────────
+
+    func configure(with allocation: BudgetAllocation) {
+        placeholderLabel.text = "\(allocation.category.displayName) Budget"
+    }
+}
+```
+
+### Step 1.6: Create Empty BudgetAllocationDetailsViewController
+
+**File:** `Finova/Sources/Scenes/BudgetAllocationDetails/View/BudgetAllocationDetailsViewController.swift`
+
+> **The ViewController's job:** Connect the View and ViewModel. It receives user actions from the View, calls methods on the ViewModel, and updates the View with results. Think of it as a "coordinator" between visual display and data/logic.
+
+```swift
+import UIKit
+
+final class BudgetAllocationDetailsViewController: UIViewController {
+
+    // MARK: - Properties
+    // ─────────────────────────────────────────────────────────────
+    // WHY `private let` for mainView?
+    //
+    // `private` = only this class can access it
+    // `let` = can't be replaced after initialization
+    //
+    // The View is created ONCE and never replaced.
+    // Other classes shouldn't access our internal View directly.
+    // ─────────────────────────────────────────────────────────────
+
+    private let mainView = BudgetAllocationDetailsView()
+    private let allocation: BudgetAllocation
+
+    // ─────────────────────────────────────────────────────────────
+    // WHY `weak var` for delegate? (CRITICAL - See Section 3.2)
+    //
+    // Without `weak`, we create a RETAIN CYCLE (memory leak):
+    //
+    //   AppFlowController ──owns──▶ ViewController
+    //        ▲                            │
+    //        └───────────owns─────────────┘
+    //
+    // Both hold strong references = neither can be freed!
+    //
+    // With `weak`:
+    //   AppFlowController ──owns──▶ ViewController
+    //        ▲                            │
+    //        └─────weak reference─────────┘
+    //
+    // When AppFlowController is freed, ViewController is freed too.
+    //
+    // WHY `var` not `let`?
+    // - Weak references must be `var` (they can become nil)
+    // - Also, we set it AFTER init (from outside the class)
+    // ─────────────────────────────────────────────────────────────
+
+    weak var flowDelegate: BudgetAllocationDetailsFlowDelegate?
+
+    // MARK: - Initialization
+    // ─────────────────────────────────────────────────────────────
+    // CUSTOM INITIALIZER
+    //
+    // UIViewController's default init doesn't take parameters.
+    // We create a custom init that REQUIRES an allocation.
+    // This makes it impossible to create this VC without data.
+    //
+    // init(allocation:) is called like:
+    //   let vc = BudgetAllocationDetailsViewController(allocation: myAllocation)
+    // ─────────────────────────────────────────────────────────────
+
+    init(allocation: BudgetAllocation) {
+        self.allocation = allocation
+        // nibName: nil, bundle: nil = we're not using a XIB/Storyboard
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    // MARK: - Lifecycle
+    // ─────────────────────────────────────────────────────────────
+    // WHY override loadView()?
+    //
+    // By default, UIViewController creates an empty UIView.
+    // We override loadView() to use OUR custom View instead.
+    //
+    // RULE: In loadView(), set self.view = something
+    //       Do NOT call super.loadView()
+    //       Do NOT access self.view before setting it
+    // ─────────────────────────────────────────────────────────────
+
+    override func loadView() {
+        view = mainView  // Our custom View becomes the VC's main view
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // viewDidLoad() = called ONCE after the view is loaded
+    //
+    // This is where you:
+    // - Configure the view with initial data
+    // - Set up button actions
+    // - Add observers
+    //
+    // DON'T put layout code here - the view's size isn't final yet
+    // ─────────────────────────────────────────────────────────────
+
+    override func viewDidLoad() {
+        super.viewDidLoad()  // Always call super for lifecycle methods
+        navigationController?.setNavigationBarHidden(true, animated: false)
+        setupActions()
+        mainView.configure(with: allocation)
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // WHY a separate setupActions() method?
+    //
+    // 1. Keeps viewDidLoad() clean
+    // 2. All action wiring in one place
+    // 3. Easy to find when debugging tap issues
+    // ─────────────────────────────────────────────────────────────
+
+    private func setupActions() {
+        // Connect button tap to our method
+        // #selector requires the method to be @objc
+        mainView.backButton.addTarget(self, action: #selector(backTapped), for: .touchUpInside)
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // WHY @objc?
+    //
+    // `addTarget` uses Objective-C runtime to call the method.
+    // Swift methods aren't visible to Obj-C by default.
+    // `@objc` exposes the method to Objective-C.
+    //
+    // WHY delegate?.dismissAllocationDetails()?
+    //
+    // The VC doesn't know HOW to dismiss itself (pop? dismiss modal?)
+    // It tells the delegate "I want to be dismissed" and the delegate
+    // (AppFlowController) decides how to do it.
+    //
+    // The `?` is because delegate is Optional (might be nil).
+    // If nil, nothing happens (no crash).
+    // ─────────────────────────────────────────────────────────────
+
+    @objc private func backTapped() {
+        flowDelegate?.dismissAllocationDetails()
+    }
+}
+```
+
+### Step 1.7: Add Factory Method
+
+**File:** `Finova/Sources/Scenes/ViewControllersFactory.swift`
+
+Add to existing factory:
+
+```swift
+// MARK: - Budget Allocation Details
+
+static func makeBudgetAllocationDetailsViewController(
+    allocation: BudgetAllocation
+) -> BudgetAllocationDetailsViewController {
+    return BudgetAllocationDetailsViewController(allocation: allocation)
+}
+```
+
+### Step 1.8: Update DashboardFlowDelegate
+
+**File:** Add to existing `DashboardFlowDelegate` protocol:
+
+```swift
+func navigateToAllocationDetails(allocation: BudgetAllocation)
+```
+
+### Step 1.9: Implement Navigation in AppFlowController
+
+**File:** `Finova/Sources/App/AppFlowController.swift`
+
+Add to DashboardFlowDelegate extension:
+
+```swift
+func navigateToAllocationDetails(allocation: BudgetAllocation) {
+    let viewController = ViewControllersFactory.makeBudgetAllocationDetailsViewController(
+        allocation: allocation
+    )
+    viewController.flowDelegate = self
+    navigationController?.pushViewController(viewController, animated: true)
+}
+```
+
+Add BudgetAllocationDetailsFlowDelegate extension:
+
+```swift
+// MARK: - BudgetAllocationDetailsFlowDelegate
+
+extension AppFlowController: BudgetAllocationDetailsFlowDelegate {
+
+    func dismissAllocationDetails() {
+        navigationController?.popViewController(animated: true)
+    }
+
+    func navigateToTransactionDetails(transaction: Transaction) {
+        let viewController = ViewControllersFactory.makeTransactionDetailsViewController(transaction: transaction)
+        viewController.flowDelegate = self
+        navigationController?.pushViewController(viewController, animated: true)
+    }
+
+    func didUpdateAllocation() {
+        navigationController?.popViewController(animated: true)
+    }
+
+    func didDeleteAllocation() {
+        navigationController?.popViewController(animated: true)
+    }
+}
+```
+
+### Step 1.10: Create Empty BudgetCard (Back of MonthCard)
+
+**File:** `Finova/Sources/Scenes/Dashboard/DashboardCarousel/MonthCarousel/BudgetCard/BudgetCard.swift`
+
+```swift
+import UIKit
+
+final class BudgetCard: UIView {
+
+    // MARK: - Properties
+
+    weak var delegate: MonthCardFlipDelegate?
+
+    // MARK: - UI Components
+
+    private lazy var placeholderLabel: UILabel = {
+        let label = UILabel()
+        label.text = "Budget Allocations"
+        label.font = Fonts.titleMD
+        label.textColor = Colors.gray100
+        label.textAlignment = .center
+        label.translatesAutoresizingMaskIntoConstraints = false
+        return label
+    }()
+
+    private lazy var flipBackButton: UIButton = {
+        let button = UIButton(type: .system)
+        let config = UIImage.SymbolConfiguration(pointSize: 16, weight: .medium)
+        button.setImage(UIImage(systemName: "creditcard.fill", withConfiguration: config), for: .normal)
+        button.tintColor = Colors.gray100
+        button.addTarget(self, action: #selector(flipBack), for: .touchUpInside)
+        button.translatesAutoresizingMaskIntoConstraints = false
+        return button
+    }()
+
+    // MARK: - Initialization
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        setupUI()
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    private func setupUI() {
+        backgroundColor = Colors.gray700
+        layer.cornerRadius = CornerRadius.large
+
+        addSubview(flipBackButton)
+        addSubview(placeholderLabel)
+
+        NSLayoutConstraint.activate([
+            flipBackButton.topAnchor.constraint(equalTo: topAnchor, constant: Metrics.spacing4),
+            flipBackButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Metrics.spacing4),
+
+            placeholderLabel.centerXAnchor.constraint(equalTo: centerXAnchor),
+            placeholderLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+        ])
+    }
+
+    @objc private func flipBack() {
+        delegate?.didRequestFlip(isShowingBudgetView: false)
+    }
+
+    // MARK: - Configuration (stub)
+
+    func configure(
+        month: String,
+        year: String,
+        allocations: [BudgetAllocation],
+        unallocatedSummary: UnallocatedBudgetSummary
+    ) {
+        placeholderLabel.text = "\(month) Allocations (\(allocations.count))"
+    }
+}
+```
+
+### Step 1.11: Add Flip Toggle to MonthBudgetCard
+
+**File:** `Finova/Sources/Scenes/Dashboard/DashboardCarousel/MonthCarousel/MonthBudgetCard/MonthBudgetCard.swift`
+
+Add to existing class:
+
+```swift
+// MARK: - Properties (add)
+
+weak var flipDelegate: MonthCardFlipDelegate?
+private var isShowingBudgetView = false
+
+// MARK: - UI Components (add to header)
+
+private lazy var budgetViewToggleButton: UIButton = {
+    let button = UIButton(type: .system)
+    let config = UIImage.SymbolConfiguration(pointSize: 16, weight: .medium)
+    button.setImage(UIImage(systemName: "chart.pie.fill", withConfiguration: config), for: .normal)
+    button.tintColor = Colors.gray100
+    button.addTarget(self, action: #selector(toggleBudgetView), for: .touchUpInside)
+    button.translatesAutoresizingMaskIntoConstraints = false
+    return button
+}()
+
+// MARK: - Actions (add)
+
+@objc private func toggleBudgetView() {
+    flipDelegate?.didRequestFlip(isShowingBudgetView: !isShowingBudgetView)
+}
+
+func setShowingBudgetView(_ showing: Bool) {
+    isShowingBudgetView = showing
+    let imageName = showing ? "creditcard.fill" : "chart.pie.fill"
+    let config = UIImage.SymbolConfiguration(pointSize: 16, weight: .medium)
+    budgetViewToggleButton.setImage(UIImage(systemName: imageName, withConfiguration: config), for: .normal)
+}
+```
+
+Add `budgetViewToggleButton` to header layout (between hideValuesButton and configButton).
+
+### Step 1.12: Add Flip Logic to MonthCarouselCell
+
+**File:** `Finova/Sources/Scenes/Dashboard/DashboardCarousel/MonthCarousel/MonthCarouselCell.swift`
+
+Add to existing class:
+
+```swift
+// MARK: - Properties (add)
+
+private var isShowingBudgetView = false
+private lazy var budgetCard: BudgetCard = {
+    let card = BudgetCard()
+    card.isHidden = true
+    card.delegate = self
+    card.translatesAutoresizingMaskIntoConstraints = false
+    return card
+}()
+
+// MARK: - Setup (add budgetCard to view hierarchy)
+
+// In setupUI(), add:
+contentView.addSubview(budgetCard)
+
+// In setupConstraints(), add:
+NSLayoutConstraint.activate([
+    budgetCard.topAnchor.constraint(equalTo: monthBudgetCard.topAnchor),
+    budgetCard.leadingAnchor.constraint(equalTo: monthBudgetCard.leadingAnchor),
+    budgetCard.trailingAnchor.constraint(equalTo: monthBudgetCard.trailingAnchor),
+    budgetCard.bottomAnchor.constraint(equalTo: monthBudgetCard.bottomAnchor),
+])
+
+// MARK: - Flip Methods
+
+func flipToBudgetView(allocations: [BudgetAllocation], summary: UnallocatedBudgetSummary) {
+    guard !isShowingBudgetView else { return }
+
+    budgetCard.configure(
+        month: monthBudgetCard.currentMonth,
+        year: monthBudgetCard.currentYear,
+        allocations: allocations,
+        unallocatedSummary: summary
+    )
+
+    UIView.transition(
+        with: contentView,
+        duration: 0.4,
+        options: [.transitionFlipFromRight, .showHideTransitionViews]
+    ) {
+        self.monthBudgetCard.isHidden = true
+        self.budgetCard.isHidden = false
+    } completion: { _ in
+        self.isShowingBudgetView = true
+        self.monthBudgetCard.setShowingBudgetView(true)
+    }
+}
+
+func flipToTransactionView() {
+    guard isShowingBudgetView else { return }
+
+    UIView.transition(
+        with: contentView,
+        duration: 0.4,
+        options: [.transitionFlipFromLeft, .showHideTransitionViews]
+    ) {
+        self.monthBudgetCard.isHidden = false
+        self.budgetCard.isHidden = true
+    } completion: { _ in
+        self.isShowingBudgetView = false
+        self.monthBudgetCard.setShowingBudgetView(false)
+    }
+}
+```
+
+### Step 1.13: Implement MonthCardFlipDelegate in MonthCarouselCell
+
+```swift
+// MARK: - MonthCardFlipDelegate
+
+extension MonthCarouselCell: MonthCardFlipDelegate {
+
+    func didRequestFlip(isShowingBudgetView: Bool) {
+        if isShowingBudgetView {
+            // Get mock data for now
+            let mockAllocations = [
+                BudgetAllocation.mock(category: .food, allocated: 50000, used: 37500),
+                BudgetAllocation.mock(category: .transport, allocated: 30000, used: 28000),
+                BudgetAllocation.mock(category: .entertainment, allocated: 20000, used: 25000),
+            ]
+            let mockSummary = UnallocatedBudgetSummary.mock()
+            flipToBudgetView(allocations: mockAllocations, summary: mockSummary)
+        } else {
+            flipToTransactionView()
+        }
+    }
+
+    func didSelectAllocationCategory(_ category: TransactionCategory) {
+        // Will implement later
+        print("Selected category: \(category.displayName)")
+    }
+
+    func didTapAllocation(_ allocation: BudgetAllocation) {
+        // Forward to parent for navigation
+        // Will implement later
+        print("Tapped allocation: \(allocation.category.displayName)")
+    }
+}
+```
+
+---
+
+### ✅ Phase 1 Checkpoint
+
+At this point you should be able to:
+1. **Build and run** the app without errors
+2. **See a pie chart icon** in MonthBudgetCard header
+3. **Tap the icon** and see the card flip to show "Budget Allocations" placeholder
+4. **Tap the card icon** on BudgetCard to flip back
+
+---
+
+## Phase 2: Data Models & Constants
+
+> **Goal**: Create complete data models. UI still uses mock data.
+
+### Step 2.1: Complete BudgetAllocationModel
+
+**File:** `Finova/Sources/Core/Repositories/BudgetAllocationRepository/BudgetAllocationModel.swift`
+
+Replace with complete implementation:
+
+```swift
+import UIKit
 
 // MARK: - Database Model
 
 struct BudgetAllocationModel: Codable {
     let id: Int?
-    let monthDate: Int                    // Month anchor (same as BudgetModel)
-    let categoryKey: String               // TransactionCategory.key
-    let allocatedAmount: Int              // In cents
+    let monthDate: Int
+    let categoryKey: String
+    let allocatedAmount: Int
     let isRecurring: Bool
-    let parentAllocationId: Int?          // For recurring instances
+    let parentAllocationId: Int?
 
     init(
         id: Int? = nil,
@@ -134,53 +1416,6 @@ struct BudgetAllocationModel: Codable {
         self.allocatedAmount = allocatedAmount
         self.isRecurring = isRecurring
         self.parentAllocationId = parentAllocationId
-    }
-}
-
-// MARK: - Display Model (for UI)
-
-struct BudgetAllocation {
-    let id: Int?
-    let monthDate: Int
-    let category: TransactionCategory
-    let allocatedAmount: Int
-    let isRecurring: Bool
-    let parentAllocationId: Int?
-
-    // Computed from transactions
-    var usedAmount: Int = 0
-
-    var remainingAmount: Int {
-        allocatedAmount - usedAmount
-    }
-
-    var usagePercentage: Double {
-        guard allocatedAmount > 0 else { return 0 }
-        return Double(usedAmount) / Double(allocatedAmount) * 100
-    }
-
-    var status: AllocationStatus {
-        let percentage = usagePercentage
-        if percentage > 100 {
-            return .overBudget
-        } else if percentage >= 80 {
-            return .nearLimit
-        } else {
-            return .underBudget
-        }
-    }
-
-    init(from model: BudgetAllocationModel) {
-        self.id = model.id
-        self.monthDate = model.monthDate
-        self.category = TransactionCategory.allCases.first { $0.key == model.categoryKey } ?? .miscellaneous
-        self.allocatedAmount = model.allocatedAmount
-        self.isRecurring = model.isRecurring
-        self.parentAllocationId = model.parentAllocationId
-    }
-
-    mutating func setUsedAmount(_ amount: Int) {
-        self.usedAmount = amount
     }
 }
 
@@ -216,6 +1451,83 @@ enum AllocationStatus {
     }
 }
 
+// MARK: - Display Model
+
+struct BudgetAllocation {
+    let id: Int?
+    let monthDate: Int
+    let category: TransactionCategory
+    let allocatedAmount: Int
+    let isRecurring: Bool
+    let parentAllocationId: Int?
+    var usedAmount: Int = 0
+
+    var remainingAmount: Int {
+        allocatedAmount - usedAmount
+    }
+
+    var usagePercentage: Double {
+        guard allocatedAmount > 0 else { return 0 }
+        return Double(usedAmount) / Double(allocatedAmount) * 100
+    }
+
+    var status: AllocationStatus {
+        let percentage = usagePercentage
+        if percentage > 100 { return .overBudget }
+        else if percentage >= 80 { return .nearLimit }
+        else { return .underBudget }
+    }
+
+    init(
+        id: Int? = nil,
+        monthDate: Int,
+        category: TransactionCategory,
+        allocatedAmount: Int,
+        isRecurring: Bool = false,
+        parentAllocationId: Int? = nil,
+        usedAmount: Int = 0
+    ) {
+        self.id = id
+        self.monthDate = monthDate
+        self.category = category
+        self.allocatedAmount = allocatedAmount
+        self.isRecurring = isRecurring
+        self.parentAllocationId = parentAllocationId
+        self.usedAmount = usedAmount
+    }
+
+    init(from model: BudgetAllocationModel) {
+        self.id = model.id
+        self.monthDate = model.monthDate
+        self.category = TransactionCategory.allCases.first { $0.key == model.categoryKey } ?? .miscellaneous
+        self.allocatedAmount = model.allocatedAmount
+        self.isRecurring = model.isRecurring
+        self.parentAllocationId = model.parentAllocationId
+    }
+
+    mutating func setUsedAmount(_ amount: Int) {
+        self.usedAmount = amount
+    }
+
+    // MARK: - Mock Data
+
+    static func mock(
+        category: TransactionCategory = .food,
+        allocated: Int = 50000,
+        used: Int = 37500,
+        isRecurring: Bool = false
+    ) -> BudgetAllocation {
+        BudgetAllocation(
+            id: Int.random(in: 1...1000),
+            monthDate: Int(Date().timeIntervalSince1970),
+            category: category,
+            allocatedAmount: allocated,
+            isRecurring: isRecurring,
+            usedAmount: used
+        )
+    }
+}
+
 // MARK: - Unallocated Budget Summary
 
 struct UnallocatedBudgetSummary {
@@ -235,107 +1547,14 @@ struct UnallocatedBudgetSummary {
     var isOverspent: Bool {
         unallocatedRemaining < 0
     }
-}
-```
 
-### 3.2 BudgetAllocationRepository
-
-**File:** `Finova/Sources/Core/Repositories/BudgetAllocationRepository/BudgetAllocationRepository.swift`
-
-```swift
-import Foundation
-
-final class BudgetAllocationRepository {
-    private let secureStorage = SecureLocalDataManager.shared
-    private let storageKey = "budget_allocations"
-
-    // MARK: - CRUD Operations
-
-    func insert(_ allocation: BudgetAllocationModel) throws -> Int {
-        var allocations = fetchAllModels()
-
-        // Check for duplicate (same category + month)
-        if allocations.contains(where: {
-            $0.monthDate == allocation.monthDate && $0.categoryKey == allocation.categoryKey
-        }) {
-            throw BudgetAllocationError.duplicateAllocation
-        }
-
-        // Generate new ID
-        let newId = (allocations.map { $0.id ?? 0 }.max() ?? 0) + 1
-        let newAllocation = BudgetAllocationModel(
-            id: newId,
-            monthDate: allocation.monthDate,
-            categoryKey: allocation.categoryKey,
-            allocatedAmount: allocation.allocatedAmount,
-            isRecurring: allocation.isRecurring,
-            parentAllocationId: allocation.parentAllocationId
+    static func mock() -> UnallocatedBudgetSummary {
+        UnallocatedBudgetSummary(
+            monthDate: Int(Date().timeIntervalSince1970),
+            totalBudget: 200000,
+            totalAllocated: 150000,
+            totalUsedInUnallocatedCategories: 25000
         )
-
-        allocations.append(newAllocation)
-        try save(allocations)
-
-        return newId
-    }
-
-    func update(_ allocation: BudgetAllocationModel) throws {
-        var allocations = fetchAllModels()
-
-        guard let index = allocations.firstIndex(where: { $0.id == allocation.id }) else {
-            throw BudgetAllocationError.allocationNotFound
-        }
-
-        allocations[index] = allocation
-        try save(allocations)
-    }
-
-    func delete(id: Int) throws {
-        var allocations = fetchAllModels()
-        allocations.removeAll { $0.id == id }
-        try save(allocations)
-    }
-
-    func deleteAllForMonth(_ monthAnchor: Int) throws {
-        var allocations = fetchAllModels()
-        allocations.removeAll { $0.monthDate == monthAnchor }
-        try save(allocations)
-    }
-
-    // MARK: - Fetch Operations
-
-    func fetchAllocations(forMonth monthAnchor: Int) -> [BudgetAllocation] {
-        return fetchAllModels()
-            .filter { $0.monthDate == monthAnchor }
-            .map { BudgetAllocation(from: $0) }
-    }
-
-    func fetchRecurringAllocations() -> [BudgetAllocationModel] {
-        return fetchAllModels().filter { $0.isRecurring && $0.parentAllocationId == nil }
-    }
-
-    func fetchAllocationInstances(forParent parentId: Int) -> [BudgetAllocationModel] {
-        return fetchAllModels().filter { $0.parentAllocationId == parentId }
-    }
-
-    func exists(category: TransactionCategory, monthAnchor: Int) -> Bool {
-        return fetchAllModels().contains {
-            $0.categoryKey == category.key && $0.monthDate == monthAnchor
-        }
-    }
-
-    // MARK: - Private Helpers
-
-    private func fetchAllModels() -> [BudgetAllocationModel] {
-        guard let data = secureStorage.getData(forKey: storageKey),
-              let allocations = try? JSONDecoder().decode([BudgetAllocationModel].self, from: data) else {
-            return []
-        }
-        return allocations
-    }
-
-    private func save(_ allocations: [BudgetAllocationModel]) throws {
-        let data = try JSONEncoder().encode(allocations)
-        secureStorage.setData(data, forKey: storageKey)
     }
 }
 
@@ -359,667 +1578,13 @@ enum BudgetAllocationError: LocalizedError {
 }
 ```
 
-### 3.3 Add Warning Color
-
-**File:** `Finova/Sources/Core/Constants/Colors.swift`
-
-Add to existing Colors struct:
-
-```swift
-// Add after mainRed
-static let warningAmber = UIColor(hex: "#F59E0B")
-static let lowAmber = UIColor(hex: "#F59E0B").withAlphaComponent(0.05)
-```
-
 ---
 
-## 4. Service Layer
+## Phase 3: UI Components with Mock Data
 
-### 4.1 BudgetAllocationService
+> **Goal**: Build all visual components using mock/hardcoded data. See the complete UI.
 
-**File:** `Finova/Sources/Core/Services/BudgetAllocationService.swift`
-
-```swift
-import Foundation
-
-final class BudgetAllocationService {
-    private let allocationRepo: BudgetAllocationRepository
-    private let transactionRepo: TransactionRepository
-    private let budgetRepo: BudgetRepository
-    private let calendar: Calendar
-
-    init(
-        allocationRepo: BudgetAllocationRepository = BudgetAllocationRepository(),
-        transactionRepo: TransactionRepository = TransactionRepository(),
-        budgetRepo: BudgetRepository = BudgetRepository()
-    ) {
-        self.allocationRepo = allocationRepo
-        self.transactionRepo = transactionRepo
-        self.budgetRepo = budgetRepo
-
-        var cal = Calendar.current
-        cal.timeZone = TimeZone.current
-        self.calendar = cal
-    }
-
-    // MARK: - Allocation Management
-
-    func createAllocation(
-        category: TransactionCategory,
-        amount: Int,
-        monthAnchor: Int,
-        isRecurring: Bool
-    ) throws -> Int {
-        guard amount > 0 else {
-            throw BudgetAllocationError.invalidAmount
-        }
-
-        let model = BudgetAllocationModel(
-            monthDate: monthAnchor,
-            categoryKey: category.key,
-            allocatedAmount: amount,
-            isRecurring: isRecurring,
-            parentAllocationId: nil
-        )
-
-        let insertedId = try allocationRepo.insert(model)
-
-        // If recurring, generate instances for immediate window (next 2 months)
-        if isRecurring {
-            try generateRecurringInstances(
-                parentId: insertedId,
-                category: category,
-                amount: amount,
-                startMonthAnchor: monthAnchor,
-                monthCount: 2
-            )
-        }
-
-        return insertedId
-    }
-
-    func updateAllocation(id: Int, newAmount: Int) throws {
-        var allocations = allocationRepo.fetchAllocations(forMonth: 0) // fetch all
-        // Re-fetch with proper filter
-        let allModels = allocationRepo.fetchRecurringAllocations() // temporary
-
-        // This needs proper implementation - fetch by ID
-        let model = BudgetAllocationModel(
-            id: id,
-            monthDate: 0, // will be replaced
-            categoryKey: "",
-            allocatedAmount: newAmount,
-            isRecurring: false
-        )
-        try allocationRepo.update(model)
-    }
-
-    func deleteAllocation(id: Int) throws {
-        // Also delete any instances if this is a recurring parent
-        let instances = allocationRepo.fetchAllocationInstances(forParent: id)
-        for instance in instances {
-            if let instanceId = instance.id {
-                try allocationRepo.delete(id: instanceId)
-            }
-        }
-        try allocationRepo.delete(id: id)
-    }
-
-    // MARK: - Calculations
-
-    func getAllocationsWithUsage(forMonth monthAnchor: Int) -> [BudgetAllocation] {
-        var allocations = allocationRepo.fetchAllocations(forMonth: monthAnchor)
-        let usageByCategory = calculateUsageByCategory(forMonth: monthAnchor)
-
-        for i in allocations.indices {
-            let categoryKey = allocations[i].category.key
-            allocations[i].setUsedAmount(usageByCategory[categoryKey] ?? 0)
-        }
-
-        return allocations
-    }
-
-    func calculateUsageByCategory(forMonth monthAnchor: Int) -> [String: Int] {
-        let transactions = transactionRepo.fetchAllTransactions()
-            .filter { $0.budgetMonthDate == monthAnchor && $0.type == .expense }
-
-        var usageByCategory: [String: Int] = [:]
-
-        for transaction in transactions {
-            let key = transaction.category.key
-            usageByCategory[key, default: 0] += transaction.amount
-        }
-
-        return usageByCategory
-    }
-
-    func getUnallocatedSummary(forMonth monthAnchor: Int) -> UnallocatedBudgetSummary {
-        let budgets = budgetRepo.fetchBudgets()
-        let budget = budgets.first { $0.monthDate == monthAnchor }
-        let totalBudget = budget?.amount ?? 0
-
-        let allocations = allocationRepo.fetchAllocations(forMonth: monthAnchor)
-        let totalAllocated = allocations.reduce(0) { $0 + $1.allocatedAmount }
-
-        let allocatedCategories = Set(allocations.map { $0.category.key })
-        let usageByCategory = calculateUsageByCategory(forMonth: monthAnchor)
-
-        let unallocatedUsage = usageByCategory
-            .filter { !allocatedCategories.contains($0.key) }
-            .reduce(0) { $0 + $1.value }
-
-        return UnallocatedBudgetSummary(
-            monthDate: monthAnchor,
-            totalBudget: totalBudget,
-            totalAllocated: totalAllocated,
-            totalUsedInUnallocatedCategories: unallocatedUsage
-        )
-    }
-
-    func getTotalAllocated(forMonth monthAnchor: Int) -> Int {
-        return allocationRepo.fetchAllocations(forMonth: monthAnchor)
-            .reduce(0) { $0 + $1.allocatedAmount }
-    }
-
-    func checkAllocationExceedsBudget(forMonth monthAnchor: Int, newAllocationAmount: Int = 0) -> Bool {
-        let budgets = budgetRepo.fetchBudgets()
-        let budget = budgets.first { $0.monthDate == monthAnchor }
-        let totalBudget = budget?.amount ?? 0
-
-        let currentAllocated = getTotalAllocated(forMonth: monthAnchor)
-        return (currentAllocated + newAllocationAmount) > totalBudget
-    }
-
-    // MARK: - Lazy Generation for Recurring Allocations
-
-    func generateAllocationsLazilyForMonths(_ monthAnchors: Set<Int>) {
-        let recurringParents = allocationRepo.fetchRecurringAllocations()
-
-        for parent in recurringParents {
-            guard let parentId = parent.id else { continue }
-
-            let existingInstances = allocationRepo.fetchAllocationInstances(forParent: parentId)
-            let existingAnchors = Set(existingInstances.map { $0.monthDate })
-
-            let missingAnchors = monthAnchors
-                .subtracting(existingAnchors)
-                .filter { $0 != parent.monthDate }  // Don't create for parent's month
-                .filter { $0 > parent.monthDate }   // Only future months
-
-            for targetAnchor in missingAnchors {
-                let instance = BudgetAllocationModel(
-                    monthDate: targetAnchor,
-                    categoryKey: parent.categoryKey,
-                    allocatedAmount: parent.allocatedAmount,
-                    isRecurring: false,
-                    parentAllocationId: parentId
-                )
-
-                do {
-                    _ = try allocationRepo.insert(instance)
-                    print("✅ LAZY: Created allocation instance for category \(parent.categoryKey) in month \(targetAnchor)")
-                } catch {
-                    print("❌ LAZY: Error creating allocation instance: \(error)")
-                }
-            }
-        }
-    }
-
-    func needsLazyGeneration(for monthAnchors: Set<Int>) -> Bool {
-        let recurringParents = allocationRepo.fetchRecurringAllocations()
-
-        for parent in recurringParents {
-            guard let parentId = parent.id else { continue }
-
-            let existingInstances = allocationRepo.fetchAllocationInstances(forParent: parentId)
-            let existingAnchors = Set(existingInstances.map { $0.monthDate })
-
-            let missingAnchors = monthAnchors
-                .subtracting(existingAnchors)
-                .filter { $0 != parent.monthDate }
-                .filter { $0 > parent.monthDate }
-
-            if !missingAnchors.isEmpty {
-                return true
-            }
-        }
-
-        return false
-    }
-
-    // MARK: - Private Helpers
-
-    private func generateRecurringInstances(
-        parentId: Int,
-        category: TransactionCategory,
-        amount: Int,
-        startMonthAnchor: Int,
-        monthCount: Int
-    ) throws {
-        let startDate = Date(timeIntervalSince1970: TimeInterval(startMonthAnchor))
-
-        for monthOffset in 1...monthCount {
-            guard let targetDate = calendar.date(byAdding: .month, value: monthOffset, to: startDate) else {
-                continue
-            }
-
-            let targetAnchor = targetDate.monthAnchor
-
-            let instance = BudgetAllocationModel(
-                monthDate: targetAnchor,
-                categoryKey: category.key,
-                allocatedAmount: amount,
-                isRecurring: false,
-                parentAllocationId: parentId
-            )
-
-            _ = try allocationRepo.insert(instance)
-        }
-    }
-}
-```
-
----
-
-## 5. UI Layer
-
-### 5.1 Add Flip Toggle to MonthBudgetCard
-
-**File:** `Finova/Sources/Scenes/Dashboard/DashboardCarousel/MonthCarousel/MonthBudgetCard/MonthBudgetCard.swift`
-
-Add the following to the existing `MonthBudgetCard`:
-
-```swift
-// MARK: - Properties (add to existing)
-
-private var isShowingBudgetView = false
-weak var flipDelegate: MonthCardFlipDelegate?
-
-// MARK: - UI Components (add to existing header section)
-
-private lazy var budgetViewToggleButton: UIButton = {
-    let button = UIButton(type: .system)
-    let config = UIImage.SymbolConfiguration(pointSize: 16, weight: .medium)
-    let image = UIImage(systemName: "chart.pie.fill", withConfiguration: config)
-    button.setImage(image, for: .normal)
-    button.tintColor = Colors.gray100
-    button.addTarget(self, action: #selector(toggleBudgetView), for: .touchUpInside)
-    button.translatesAutoresizingMaskIntoConstraints = false
-    return button
-}()
-
-// MARK: - Actions (add)
-
-@objc private func toggleBudgetView() {
-    flipDelegate?.didRequestFlip(isShowingBudgetView: !isShowingBudgetView)
-}
-
-func setShowingBudgetView(_ showing: Bool) {
-    isShowingBudgetView = showing
-    let imageName = showing ? "creditcard.fill" : "chart.pie.fill"
-    let config = UIImage.SymbolConfiguration(pointSize: 16, weight: .medium)
-    let image = UIImage(systemName: imageName, withConfiguration: config)
-    budgetViewToggleButton.setImage(image, for: .normal)
-}
-```
-
-**Header Layout Update:**
-
-In `setupConstraints()`, add the toggle button to the header between the hide-values button and config button:
-
-```swift
-// In headerStackView, add budgetViewToggleButton
-// Layout: [monthLabel] [spacer] [hideValuesButton] [budgetViewToggleButton] [configButton]
-```
-
-### 5.2 FlipDelegate Protocol
-
-**File:** `Finova/Sources/Scenes/Dashboard/DashboardCarousel/MonthCarousel/MonthCardFlipDelegate.swift` (new file)
-
-```swift
-protocol MonthCardFlipDelegate: AnyObject {
-    func didRequestFlip(isShowingBudgetView: Bool)
-    func didSelectAllocationCategory(_ category: TransactionCategory)
-}
-```
-
-### 5.3 BudgetCard (Back of MonthCard)
-
-**File:** `Finova/Sources/Scenes/Dashboard/DashboardCarousel/MonthCarousel/BudgetCard/BudgetCard.swift`
-
-```swift
-import UIKit
-import SwiftUI
-
-final class BudgetCard: UIView {
-
-    // MARK: - Properties
-
-    private var allocations: [BudgetAllocation] = []
-    private var unallocatedSummary: UnallocatedBudgetSummary?
-    weak var delegate: MonthCardFlipDelegate?
-
-    // MARK: - UI Components
-
-    private lazy var headerStackView: UIStackView = {
-        let stack = UIStackView()
-        stack.axis = .horizontal
-        stack.alignment = .center
-        stack.distribution = .fill
-        stack.spacing = Metrics.spacing3
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        return stack
-    }()
-
-    private lazy var monthLabel: UILabel = {
-        let label = UILabel()
-        label.font = Fonts.titleMD
-        label.textColor = Colors.gray100
-        return label
-    }()
-
-    private lazy var yearLabel: UILabel = {
-        let label = UILabel()
-        label.font = Fonts.textSM
-        label.textColor = Colors.gray400
-        return label
-    }()
-
-    private lazy var flipBackButton: UIButton = {
-        let button = UIButton(type: .system)
-        let config = UIImage.SymbolConfiguration(pointSize: 16, weight: .medium)
-        let image = UIImage(systemName: "creditcard.fill", withConfiguration: config)
-        button.setImage(image, for: .normal)
-        button.tintColor = Colors.gray100
-        button.addTarget(self, action: #selector(flipBack), for: .touchUpInside)
-        return button
-    }()
-
-    private lazy var chartContainerView: UIView = {
-        let view = UIView()
-        view.translatesAutoresizingMaskIntoConstraints = false
-        return view
-    }()
-
-    private lazy var budgetLimitLabel: UILabel = {
-        let label = UILabel()
-        label.font = Fonts.textXS
-        label.textColor = Colors.gray400
-        label.textAlignment = .center
-        return label
-    }()
-
-    private lazy var allocationProgressBar: RoundedProgressBar = {
-        let bar = RoundedProgressBar()
-        bar.trackTintColor = Colors.gray600
-        bar.progressTintColor = Colors.mainMagenta
-        bar.translatesAutoresizingMaskIntoConstraints = false
-        return bar
-    }()
-
-    private lazy var allocationPercentLabel: UILabel = {
-        let label = UILabel()
-        label.font = Fonts.textXS
-        label.textColor = Colors.gray400
-        label.textAlignment = .right
-        return label
-    }()
-
-    // MARK: - Initialization
-
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-        setupUI()
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    // MARK: - Setup
-
-    private func setupUI() {
-        backgroundColor = Colors.gray700
-        layer.cornerRadius = CornerRadius.large
-
-        // Add subviews and setup constraints
-        addSubview(headerStackView)
-        addSubview(chartContainerView)
-        addSubview(budgetLimitLabel)
-        addSubview(allocationProgressBar)
-        addSubview(allocationPercentLabel)
-
-        setupConstraints()
-    }
-
-    private func setupConstraints() {
-        NSLayoutConstraint.activate([
-            // Header
-            headerStackView.topAnchor.constraint(equalTo: topAnchor, constant: Metrics.spacing4),
-            headerStackView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Metrics.spacing4),
-            headerStackView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Metrics.spacing4),
-
-            // Chart container
-            chartContainerView.topAnchor.constraint(equalTo: headerStackView.bottomAnchor, constant: Metrics.spacing4),
-            chartContainerView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Metrics.spacing4),
-            chartContainerView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Metrics.spacing4),
-            chartContainerView.heightAnchor.constraint(equalToConstant: 160),
-
-            // Budget limit label
-            budgetLimitLabel.topAnchor.constraint(equalTo: chartContainerView.bottomAnchor, constant: Metrics.spacing3),
-            budgetLimitLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Metrics.spacing4),
-
-            // Progress bar
-            allocationProgressBar.topAnchor.constraint(equalTo: budgetLimitLabel.bottomAnchor, constant: Metrics.spacing2),
-            allocationProgressBar.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Metrics.spacing4),
-            allocationProgressBar.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Metrics.spacing4),
-            allocationProgressBar.heightAnchor.constraint(equalToConstant: 8),
-
-            // Percent label
-            allocationPercentLabel.centerYAnchor.constraint(equalTo: budgetLimitLabel.centerYAnchor),
-            allocationPercentLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Metrics.spacing4),
-        ])
-    }
-
-    // MARK: - Configuration
-
-    func configure(
-        month: String,
-        year: String,
-        allocations: [BudgetAllocation],
-        unallocatedSummary: UnallocatedBudgetSummary
-    ) {
-        self.allocations = allocations
-        self.unallocatedSummary = unallocatedSummary
-
-        monthLabel.text = month
-        yearLabel.text = year
-
-        // Budget limit
-        budgetLimitLabel.text = "Budget Limit: \(unallocatedSummary.totalBudget.currencyString)"
-
-        // Allocation progress
-        let allocatedPercent = unallocatedSummary.totalBudget > 0
-            ? Float(unallocatedSummary.totalAllocated) / Float(unallocatedSummary.totalBudget)
-            : 0
-        allocationProgressBar.setProgress(allocatedPercent, animated: true)
-        allocationPercentLabel.text = "\(Int(allocatedPercent * 100))% allocated"
-
-        // Setup chart
-        setupDonutChart()
-    }
-
-    private func setupDonutChart() {
-        // Remove existing chart if any
-        chartContainerView.subviews.forEach { $0.removeFromSuperview() }
-
-        guard let summary = unallocatedSummary else { return }
-
-        // Create SwiftUI chart
-        let chartView = BudgetDonutChartView(
-            allocations: allocations,
-            unallocatedAmount: summary.unallocatedAmount,
-            onSegmentTapped: { [weak self] category in
-                self?.delegate?.didSelectAllocationCategory(category)
-            }
-        )
-
-        let hostingController = UIHostingController(rootView: chartView)
-        hostingController.view.backgroundColor = .clear
-        hostingController.view.translatesAutoresizingMaskIntoConstraints = false
-
-        chartContainerView.addSubview(hostingController.view)
-
-        NSLayoutConstraint.activate([
-            hostingController.view.topAnchor.constraint(equalTo: chartContainerView.topAnchor),
-            hostingController.view.leadingAnchor.constraint(equalTo: chartContainerView.leadingAnchor),
-            hostingController.view.trailingAnchor.constraint(equalTo: chartContainerView.trailingAnchor),
-            hostingController.view.bottomAnchor.constraint(equalTo: chartContainerView.bottomAnchor),
-        ])
-    }
-
-    // MARK: - Actions
-
-    @objc private func flipBack() {
-        delegate?.didRequestFlip(isShowingBudgetView: false)
-    }
-}
-```
-
-### 5.4 SwiftUI Donut Chart
-
-**File:** `Finova/Sources/SwiftUI/Charts/BudgetDonutChartView.swift`
-
-```swift
-import SwiftUI
-import Charts
-
-@available(iOS 16.0, *)
-struct BudgetDonutChartView: View {
-    let allocations: [BudgetAllocation]
-    let unallocatedAmount: Int
-    var onSegmentTapped: ((TransactionCategory) -> Void)?
-
-    @State private var selectedCategory: TransactionCategory?
-
-    var body: some View {
-        ZStack {
-            // Donut Chart
-            Chart {
-                // Allocation segments
-                ForEach(allocations, id: \.category.key) { allocation in
-                    SectorMark(
-                        angle: .value("Amount", allocation.allocatedAmount),
-                        innerRadius: .ratio(0.6),
-                        angularInset: 1.5
-                    )
-                    .foregroundStyle(Color(allocation.status.color))
-                    .opacity(selectedCategory == allocation.category ? 1.0 : 0.8)
-                }
-
-                // Unallocated segment
-                if unallocatedAmount > 0 {
-                    SectorMark(
-                        angle: .value("Unallocated", unallocatedAmount),
-                        innerRadius: .ratio(0.6),
-                        angularInset: 1.5
-                    )
-                    .foregroundStyle(Color(Colors.gray500))
-                    .opacity(0.5)
-                }
-            }
-            .chartLegend(.hidden)
-
-            // Center label
-            VStack(spacing: 4) {
-                if let selected = selectedCategory,
-                   let allocation = allocations.first(where: { $0.category == selected }) {
-                    // Show selected allocation details
-                    Image(uiImage: selected.icon)
-                        .resizable()
-                        .frame(width: 24, height: 24)
-                    Text(allocation.allocatedAmount.currencyString)
-                        .font(.system(size: 14, weight: .bold))
-                        .foregroundColor(Color(Colors.gray100))
-                    Text(selected.displayName)
-                        .font(.system(size: 10))
-                        .foregroundColor(Color(Colors.gray400))
-                } else {
-                    // Show unallocated
-                    Text(unallocatedAmount.currencyString)
-                        .font(.system(size: 16, weight: .bold))
-                        .foregroundColor(Color(Colors.gray100))
-                    Text("Unallocated")
-                        .font(.system(size: 10))
-                        .foregroundColor(Color(Colors.gray400))
-                }
-            }
-        }
-        .chartOverlay { proxy in
-            GeometryReader { geometry in
-                Rectangle()
-                    .fill(.clear)
-                    .contentShape(Rectangle())
-                    .onTapGesture { location in
-                        handleTap(at: location, proxy: proxy, geometry: geometry)
-                    }
-            }
-        }
-    }
-
-    private func handleTap(at location: CGPoint, proxy: ChartProxy, geometry: GeometryProxy) {
-        let center = CGPoint(x: geometry.size.width / 2, y: geometry.size.height / 2)
-        let vector = CGPoint(x: location.x - center.x, y: location.y - center.y)
-        let distance = sqrt(vector.x * vector.x + vector.y * vector.y)
-        let radius = min(geometry.size.width, geometry.size.height) / 2
-
-        // Check if tap is within donut ring
-        let innerRadius = radius * 0.6
-        guard distance > innerRadius && distance < radius else {
-            selectedCategory = nil
-            return
-        }
-
-        // Calculate angle
-        var angle = atan2(vector.y, vector.x)
-        if angle < 0 { angle += 2 * .pi }
-
-        // Convert angle to data value
-        let total = allocations.reduce(0) { $0 + $1.allocatedAmount } + unallocatedAmount
-        let normalizedAngle = angle / (2 * .pi)
-        var cumulativePercent: Double = 0
-
-        for allocation in allocations {
-            let percent = Double(allocation.allocatedAmount) / Double(total)
-            if normalizedAngle >= cumulativePercent && normalizedAngle < cumulativePercent + percent {
-                selectedCategory = allocation.category
-                onSegmentTapped?(allocation.category)
-                return
-            }
-            cumulativePercent += percent
-        }
-
-        // Tapped on unallocated
-        selectedCategory = nil
-    }
-}
-
-// MARK: - Preview
-
-@available(iOS 16.0, *)
-struct BudgetDonutChartView_Previews: PreviewProvider {
-    static var previews: some View {
-        BudgetDonutChartView(
-            allocations: [],
-            unallocatedAmount: 100000
-        )
-        .frame(width: 200, height: 200)
-        .background(Color(Colors.gray700))
-    }
-}
-```
-
-### 5.5 Allocation Table Cell
+### Step 3.1: Create AllocationCell
 
 **File:** `Finova/Sources/Scenes/Dashboard/DashboardCarousel/MonthCarousel/BudgetCard/AllocationCell.swift`
 
@@ -1095,6 +1660,10 @@ final class AllocationCell: UITableViewCell {
         return label
     }()
 
+    // MARK: - Tap Handling
+
+    private var tapAction: (() -> Void)?
+
     // MARK: - Initialization
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
@@ -1126,35 +1695,29 @@ final class AllocationCell: UITableViewCell {
 
     private func setupConstraints() {
         NSLayoutConstraint.activate([
-            // Icon container
             iconContainerView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: Metrics.spacing4),
             iconContainerView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
             iconContainerView.widthAnchor.constraint(equalToConstant: 40),
             iconContainerView.heightAnchor.constraint(equalToConstant: 40),
 
-            // Category icon
             categoryIconView.centerXAnchor.constraint(equalTo: iconContainerView.centerXAnchor),
             categoryIconView.centerYAnchor.constraint(equalTo: iconContainerView.centerYAnchor),
             categoryIconView.widthAnchor.constraint(equalToConstant: 20),
             categoryIconView.heightAnchor.constraint(equalToConstant: 20),
 
-            // Title stack
             titleStackView.leadingAnchor.constraint(equalTo: iconContainerView.trailingAnchor, constant: Metrics.spacing3),
             titleStackView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: Metrics.spacing3),
             titleStackView.trailingAnchor.constraint(lessThanOrEqualTo: statusBadge.leadingAnchor, constant: -Metrics.spacing2),
 
-            // Recurring icon
             recurringIcon.leadingAnchor.constraint(equalTo: categoryLabel.trailingAnchor, constant: Metrics.spacing2),
             recurringIcon.centerYAnchor.constraint(equalTo: categoryLabel.centerYAnchor),
 
-            // Progress bar
             progressBar.leadingAnchor.constraint(equalTo: iconContainerView.trailingAnchor, constant: Metrics.spacing3),
             progressBar.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -Metrics.spacing4),
             progressBar.topAnchor.constraint(equalTo: titleStackView.bottomAnchor, constant: Metrics.spacing2),
             progressBar.heightAnchor.constraint(equalToConstant: 6),
             progressBar.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -Metrics.spacing3),
 
-            // Status badge
             statusBadge.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -Metrics.spacing4),
             statusBadge.centerYAnchor.constraint(equalTo: titleStackView.centerYAnchor),
         ])
@@ -1177,6 +1740,16 @@ final class AllocationCell: UITableViewCell {
         statusBadge.textColor = allocation.status.color
     }
 
+    func setTapAction(_ action: @escaping () -> Void) {
+        self.tapAction = action
+        let tap = UITapGestureRecognizer(target: self, action: #selector(cellTapped))
+        contentView.addGestureRecognizer(tap)
+    }
+
+    @objc private func cellTapped() {
+        tapAction?()
+    }
+
     func highlight() {
         UIView.animate(withDuration: 0.2) {
             self.backgroundColor = Colors.lowMagenta
@@ -1189,15 +1762,1529 @@ final class AllocationCell: UITableViewCell {
 }
 ```
 
-### 5.6 Add Segmented Control to Modal
+### Step 3.2: Create CircularProgressView
 
-**File:** `Finova/Sources/Scenes/AddTransaction/AddTransactionModalView.swift`
-
-Add segmented control at the top of the modal:
+**File:** `Finova/Sources/Scenes/BudgetAllocationDetails/Components/CircularProgressView.swift`
 
 ```swift
-// MARK: - New Properties
+import UIKit
 
+final class CircularProgressView: UIView {
+
+    // MARK: - Properties
+
+    private var progress: CGFloat = 0
+    private var trackColor: UIColor = Colors.gray600
+    private var progressColor: UIColor = Colors.mainMagenta
+    private let lineWidth: CGFloat = 12
+
+    private lazy var trackLayer: CAShapeLayer = {
+        let layer = CAShapeLayer()
+        layer.fillColor = UIColor.clear.cgColor
+        layer.strokeColor = trackColor.cgColor
+        layer.lineWidth = lineWidth
+        layer.lineCap = .round
+        return layer
+    }()
+
+    private lazy var progressLayer: CAShapeLayer = {
+        let layer = CAShapeLayer()
+        layer.fillColor = UIColor.clear.cgColor
+        layer.strokeColor = progressColor.cgColor
+        layer.lineWidth = lineWidth
+        layer.lineCap = .round
+        layer.strokeEnd = 0
+        return layer
+    }()
+
+    private lazy var centerStackView: UIStackView = {
+        let stack = UIStackView()
+        stack.axis = .vertical
+        stack.alignment = .center
+        stack.spacing = 4
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        return stack
+    }()
+
+    private lazy var percentageLabel: UILabel = {
+        let label = UILabel()
+        label.font = Fonts.titleLG
+        label.textColor = Colors.gray100
+        label.textAlignment = .center
+        return label
+    }()
+
+    private lazy var statusLabel: UILabel = {
+        let label = UILabel()
+        label.font = Fonts.textSM
+        label.textAlignment = .center
+        return label
+    }()
+
+    // MARK: - Initialization
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        setupUI()
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        updatePaths()
+    }
+
+    // MARK: - Setup
+
+    private func setupUI() {
+        layer.addSublayer(trackLayer)
+        layer.addSublayer(progressLayer)
+
+        addSubview(centerStackView)
+        centerStackView.addArrangedSubview(percentageLabel)
+        centerStackView.addArrangedSubview(statusLabel)
+
+        NSLayoutConstraint.activate([
+            centerStackView.centerXAnchor.constraint(equalTo: centerXAnchor),
+            centerStackView.centerYAnchor.constraint(equalTo: centerYAnchor),
+        ])
+    }
+
+    private func updatePaths() {
+        let center = CGPoint(x: bounds.midX, y: bounds.midY)
+        let radius = (min(bounds.width, bounds.height) - lineWidth) / 2
+
+        let startAngle = -CGFloat.pi / 2
+        let endAngle = startAngle + 2 * CGFloat.pi
+
+        let path = UIBezierPath(
+            arcCenter: center,
+            radius: radius,
+            startAngle: startAngle,
+            endAngle: endAngle,
+            clockwise: true
+        )
+
+        trackLayer.path = path.cgPath
+        progressLayer.path = path.cgPath
+    }
+
+    // MARK: - Configuration
+
+    func configure(percentage: Double, status: AllocationStatus, animated: Bool = true) {
+        progress = CGFloat(min(percentage, 100) / 100)
+        progressColor = status.color
+
+        percentageLabel.text = "\(Int(percentage))%"
+        statusLabel.text = status.localizedLabel
+        statusLabel.textColor = status.color
+
+        progressLayer.strokeColor = progressColor.cgColor
+
+        if animated {
+            let animation = CABasicAnimation(keyPath: "strokeEnd")
+            animation.fromValue = progressLayer.strokeEnd
+            animation.toValue = progress
+            animation.duration = 0.5
+            animation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            progressLayer.add(animation, forKey: "progressAnimation")
+        }
+
+        progressLayer.strokeEnd = progress
+    }
+}
+```
+
+### Step 3.3: Create BudgetDonutChartView (SwiftUI)
+
+**File:** `Finova/Sources/SwiftUI/Charts/BudgetDonutChartView.swift`
+
+```swift
+import SwiftUI
+import Charts
+
+@available(iOS 16.0, *)
+struct BudgetDonutChartView: View {
+    let allocations: [BudgetAllocation]
+    let unallocatedAmount: Int
+    var onSegmentTapped: ((TransactionCategory) -> Void)?
+
+    @State private var selectedCategory: TransactionCategory?
+
+    var body: some View {
+        ZStack {
+            Chart {
+                ForEach(allocations, id: \.category.key) { allocation in
+                    SectorMark(
+                        angle: .value("Amount", allocation.allocatedAmount),
+                        innerRadius: .ratio(0.6),
+                        angularInset: 1.5
+                    )
+                    .foregroundStyle(Color(allocation.status.color))
+                    .opacity(selectedCategory == allocation.category ? 1.0 : 0.8)
+                }
+
+                if unallocatedAmount > 0 {
+                    SectorMark(
+                        angle: .value("Unallocated", unallocatedAmount),
+                        innerRadius: .ratio(0.6),
+                        angularInset: 1.5
+                    )
+                    .foregroundStyle(Color(Colors.gray500))
+                    .opacity(0.5)
+                }
+            }
+            .chartLegend(.hidden)
+
+            VStack(spacing: 4) {
+                if let selected = selectedCategory,
+                   let allocation = allocations.first(where: { $0.category == selected }) {
+                    Image(uiImage: selected.icon)
+                        .resizable()
+                        .frame(width: 24, height: 24)
+                    Text(allocation.allocatedAmount.currencyString)
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundColor(Color(Colors.gray100))
+                    Text(selected.displayName)
+                        .font(.system(size: 10))
+                        .foregroundColor(Color(Colors.gray400))
+                } else {
+                    Text(unallocatedAmount.currencyString)
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundColor(Color(Colors.gray100))
+                    Text("Unallocated")
+                        .font(.system(size: 10))
+                        .foregroundColor(Color(Colors.gray400))
+                }
+            }
+        }
+        .chartOverlay { proxy in
+            GeometryReader { geometry in
+                Rectangle()
+                    .fill(.clear)
+                    .contentShape(Rectangle())
+                    .onTapGesture { location in
+                        handleTap(at: location, geometry: geometry)
+                    }
+            }
+        }
+    }
+
+    private func handleTap(at location: CGPoint, geometry: GeometryProxy) {
+        let center = CGPoint(x: geometry.size.width / 2, y: geometry.size.height / 2)
+        let vector = CGPoint(x: location.x - center.x, y: location.y - center.y)
+        let distance = sqrt(vector.x * vector.x + vector.y * vector.y)
+        let radius = min(geometry.size.width, geometry.size.height) / 2
+        let innerRadius = radius * 0.6
+
+        guard distance > innerRadius && distance < radius else {
+            selectedCategory = nil
+            return
+        }
+
+        var angle = atan2(vector.y, vector.x)
+        if angle < 0 { angle += 2 * .pi }
+        angle = angle - .pi / 2
+        if angle < 0 { angle += 2 * .pi }
+
+        let total = allocations.reduce(0) { $0 + $1.allocatedAmount } + unallocatedAmount
+        let normalizedAngle = angle / (2 * .pi)
+        var cumulativePercent: Double = 0
+
+        for allocation in allocations {
+            let percent = Double(allocation.allocatedAmount) / Double(total)
+            if normalizedAngle >= cumulativePercent && normalizedAngle < cumulativePercent + percent {
+                selectedCategory = allocation.category
+                onSegmentTapped?(allocation.category)
+                return
+            }
+            cumulativePercent += percent
+        }
+
+        selectedCategory = nil
+    }
+}
+```
+
+### Step 3.4: Update BudgetCard with Full UI
+
+**File:** `Finova/Sources/Scenes/Dashboard/DashboardCarousel/MonthCarousel/BudgetCard/BudgetCard.swift`
+
+```swift
+import UIKit
+import SwiftUI
+
+final class BudgetCard: UIView {
+
+    // MARK: - Properties
+
+    private var allocations: [BudgetAllocation] = []
+    private var unallocatedSummary: UnallocatedBudgetSummary?
+    weak var delegate: MonthCardFlipDelegate?
+
+    // MARK: - UI Components
+
+    private lazy var headerStackView: UIStackView = {
+        let stack = UIStackView()
+        stack.axis = .horizontal
+        stack.alignment = .center
+        stack.distribution = .fill
+        stack.spacing = Metrics.spacing3
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        return stack
+    }()
+
+    private lazy var titleStackView: UIStackView = {
+        let stack = UIStackView()
+        stack.axis = .vertical
+        stack.spacing = 2
+        return stack
+    }()
+
+    private lazy var monthLabel: UILabel = {
+        let label = UILabel()
+        label.font = Fonts.titleMD
+        label.textColor = Colors.gray100
+        return label
+    }()
+
+    private lazy var yearLabel: UILabel = {
+        let label = UILabel()
+        label.font = Fonts.textSM
+        label.textColor = Colors.gray400
+        return label
+    }()
+
+    private lazy var flipBackButton: UIButton = {
+        let button = UIButton(type: .system)
+        let config = UIImage.SymbolConfiguration(pointSize: 16, weight: .medium)
+        button.setImage(UIImage(systemName: "creditcard.fill", withConfiguration: config), for: .normal)
+        button.tintColor = Colors.gray100
+        button.addTarget(self, action: #selector(flipBack), for: .touchUpInside)
+        return button
+    }()
+
+    private lazy var chartContainerView: UIView = {
+        let view = UIView()
+        view.translatesAutoresizingMaskIntoConstraints = false
+        return view
+    }()
+
+    private lazy var budgetLimitLabel: UILabel = {
+        let label = UILabel()
+        label.font = Fonts.textXS
+        label.textColor = Colors.gray400
+        label.translatesAutoresizingMaskIntoConstraints = false
+        return label
+    }()
+
+    private lazy var allocationProgressBar: RoundedProgressBar = {
+        let bar = RoundedProgressBar()
+        bar.trackTintColor = Colors.gray600
+        bar.progressTintColor = Colors.mainMagenta
+        bar.translatesAutoresizingMaskIntoConstraints = false
+        return bar
+    }()
+
+    private lazy var allocationPercentLabel: UILabel = {
+        let label = UILabel()
+        label.font = Fonts.textXS
+        label.textColor = Colors.gray400
+        label.textAlignment = .right
+        label.translatesAutoresizingMaskIntoConstraints = false
+        return label
+    }()
+
+    private lazy var allocationsTableView: UITableView = {
+        let table = UITableView()
+        table.register(AllocationCell.self, forCellReuseIdentifier: AllocationCell.reuseIdentifier)
+        table.backgroundColor = .clear
+        table.separatorStyle = .none
+        table.isScrollEnabled = true
+        table.showsVerticalScrollIndicator = false
+        table.delegate = self
+        table.dataSource = self
+        table.translatesAutoresizingMaskIntoConstraints = false
+        return table
+    }()
+
+    // MARK: - Initialization
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        setupUI()
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    // MARK: - Setup
+
+    private func setupUI() {
+        backgroundColor = Colors.gray700
+        layer.cornerRadius = CornerRadius.large
+        clipsToBounds = true
+
+        titleStackView.addArrangedSubview(monthLabel)
+        titleStackView.addArrangedSubview(yearLabel)
+
+        headerStackView.addArrangedSubview(titleStackView)
+        headerStackView.addArrangedSubview(UIView()) // Spacer
+        headerStackView.addArrangedSubview(flipBackButton)
+
+        addSubview(headerStackView)
+        addSubview(chartContainerView)
+        addSubview(budgetLimitLabel)
+        addSubview(allocationProgressBar)
+        addSubview(allocationPercentLabel)
+        addSubview(allocationsTableView)
+
+        setupConstraints()
+    }
+
+    private func setupConstraints() {
+        NSLayoutConstraint.activate([
+            headerStackView.topAnchor.constraint(equalTo: topAnchor, constant: Metrics.spacing4),
+            headerStackView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Metrics.spacing4),
+            headerStackView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Metrics.spacing4),
+
+            chartContainerView.topAnchor.constraint(equalTo: headerStackView.bottomAnchor, constant: Metrics.spacing3),
+            chartContainerView.centerXAnchor.constraint(equalTo: centerXAnchor),
+            chartContainerView.widthAnchor.constraint(equalToConstant: 140),
+            chartContainerView.heightAnchor.constraint(equalToConstant: 140),
+
+            budgetLimitLabel.topAnchor.constraint(equalTo: chartContainerView.bottomAnchor, constant: Metrics.spacing3),
+            budgetLimitLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Metrics.spacing4),
+
+            allocationPercentLabel.centerYAnchor.constraint(equalTo: budgetLimitLabel.centerYAnchor),
+            allocationPercentLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Metrics.spacing4),
+
+            allocationProgressBar.topAnchor.constraint(equalTo: budgetLimitLabel.bottomAnchor, constant: Metrics.spacing2),
+            allocationProgressBar.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Metrics.spacing4),
+            allocationProgressBar.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Metrics.spacing4),
+            allocationProgressBar.heightAnchor.constraint(equalToConstant: 6),
+
+            allocationsTableView.topAnchor.constraint(equalTo: allocationProgressBar.bottomAnchor, constant: Metrics.spacing3),
+            allocationsTableView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            allocationsTableView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            allocationsTableView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -Metrics.spacing2),
+        ])
+    }
+
+    // MARK: - Configuration
+
+    func configure(
+        month: String,
+        year: String,
+        allocations: [BudgetAllocation],
+        unallocatedSummary: UnallocatedBudgetSummary
+    ) {
+        self.allocations = allocations
+        self.unallocatedSummary = unallocatedSummary
+
+        monthLabel.text = month
+        yearLabel.text = year
+
+        budgetLimitLabel.text = "Budget: \(unallocatedSummary.totalBudget.currencyString)"
+
+        let allocatedPercent = unallocatedSummary.totalBudget > 0
+            ? Float(unallocatedSummary.totalAllocated) / Float(unallocatedSummary.totalBudget)
+            : 0
+        allocationProgressBar.setProgress(min(allocatedPercent, 1.0), animated: true)
+        allocationPercentLabel.text = "\(Int(allocatedPercent * 100))% allocated"
+
+        if allocatedPercent > 1.0 {
+            allocationProgressBar.progressTintColor = Colors.warningAmber
+            allocationPercentLabel.textColor = Colors.warningAmber
+        } else {
+            allocationProgressBar.progressTintColor = Colors.mainMagenta
+            allocationPercentLabel.textColor = Colors.gray400
+        }
+
+        setupDonutChart()
+        allocationsTableView.reloadData()
+    }
+
+    private func setupDonutChart() {
+        chartContainerView.subviews.forEach { $0.removeFromSuperview() }
+
+        guard let summary = unallocatedSummary else { return }
+
+        if #available(iOS 16.0, *) {
+            let chartView = BudgetDonutChartView(
+                allocations: allocations,
+                unallocatedAmount: summary.unallocatedAmount,
+                onSegmentTapped: { [weak self] category in
+                    self?.delegate?.didSelectAllocationCategory(category)
+                }
+            )
+
+            let hostingController = UIHostingController(rootView: chartView)
+            hostingController.view.backgroundColor = .clear
+            hostingController.view.translatesAutoresizingMaskIntoConstraints = false
+
+            chartContainerView.addSubview(hostingController.view)
+
+            NSLayoutConstraint.activate([
+                hostingController.view.topAnchor.constraint(equalTo: chartContainerView.topAnchor),
+                hostingController.view.leadingAnchor.constraint(equalTo: chartContainerView.leadingAnchor),
+                hostingController.view.trailingAnchor.constraint(equalTo: chartContainerView.trailingAnchor),
+                hostingController.view.bottomAnchor.constraint(equalTo: chartContainerView.bottomAnchor),
+            ])
+        }
+    }
+
+    @objc private func flipBack() {
+        delegate?.didRequestFlip(isShowingBudgetView: false)
+    }
+}
+
+// MARK: - UITableViewDataSource
+
+extension BudgetCard: UITableViewDataSource {
+
+    func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
+        return allocations.count
+    }
+
+    func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+        guard let cell = tableView.dequeueReusableCell(
+            withIdentifier: AllocationCell.reuseIdentifier,
+            for: indexPath
+        ) as? AllocationCell else {
+            return UITableViewCell()
+        }
+
+        let allocation = allocations[indexPath.row]
+        cell.configure(with: allocation)
+        cell.setTapAction { [weak self] in
+            self?.delegate?.didTapAllocation(allocation)
+        }
+
+        return cell
+    }
+}
+
+// MARK: - UITableViewDelegate
+
+extension BudgetCard: UITableViewDelegate {
+
+    func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
+        return 72
+    }
+}
+```
+
+### Step 3.5: Update BudgetAllocationDetailsView with Full UI
+
+**File:** `Finova/Sources/Scenes/BudgetAllocationDetails/View/BudgetAllocationDetailsView.swift`
+
+```swift
+import UIKit
+
+final class BudgetAllocationDetailsView: UIView {
+
+    // MARK: - UI Components
+
+    // Header
+    private lazy var headerContainerView: UIView = {
+        let view = UIView()
+        view.translatesAutoresizingMaskIntoConstraints = false
+        return view
+    }()
+
+    private(set) lazy var backButtonGlassContainer: UIView = {
+        let view = UIView()
+        view.backgroundColor = Colors.gray700.withAlphaComponent(0.6)
+        view.layer.cornerRadius = CornerRadius.medium
+        view.translatesAutoresizingMaskIntoConstraints = false
+        return view
+    }()
+
+    private(set) lazy var backButton: UIButton = {
+        let button = UIButton(type: .system)
+        let config = UIImage.SymbolConfiguration(pointSize: 16, weight: .semibold)
+        button.setImage(UIImage(systemName: "chevron.left", withConfiguration: config), for: .normal)
+        button.tintColor = Colors.gray100
+        button.translatesAutoresizingMaskIntoConstraints = false
+        return button
+    }()
+
+    private lazy var categoryIconView: UIImageView = {
+        let imageView = UIImageView()
+        imageView.contentMode = .scaleAspectFit
+        imageView.tintColor = Colors.gray100
+        imageView.translatesAutoresizingMaskIntoConstraints = false
+        return imageView
+    }()
+
+    private lazy var categoryLabel: UILabel = {
+        let label = UILabel()
+        label.font = Fonts.titleMD
+        label.textColor = Colors.gray100
+        return label
+    }()
+
+    private lazy var monthYearLabel: UILabel = {
+        let label = UILabel()
+        label.font = Fonts.textSM
+        label.textColor = Colors.gray400
+        return label
+    }()
+
+    // Scroll View
+    private lazy var scrollView: UIScrollView = {
+        let scroll = UIScrollView()
+        scroll.showsVerticalScrollIndicator = false
+        scroll.translatesAutoresizingMaskIntoConstraints = false
+        return scroll
+    }()
+
+    private lazy var contentView: UIView = {
+        let view = UIView()
+        view.translatesAutoresizingMaskIntoConstraints = false
+        return view
+    }()
+
+    // Summary Card
+    private lazy var summaryCardView: UIView = {
+        let view = UIView()
+        view.backgroundColor = Colors.gray700
+        view.layer.cornerRadius = CornerRadius.medium
+        view.translatesAutoresizingMaskIntoConstraints = false
+        return view
+    }()
+
+    private(set) lazy var circularProgressView: CircularProgressView = {
+        let view = CircularProgressView()
+        view.translatesAutoresizingMaskIntoConstraints = false
+        return view
+    }()
+
+    private lazy var allocatedLabel: UILabel = {
+        let label = UILabel()
+        label.font = Fonts.textSM
+        label.textColor = Colors.gray400
+        label.text = "Allocated"
+        return label
+    }()
+
+    private lazy var allocatedValueLabel: UILabel = {
+        let label = UILabel()
+        label.font = Fonts.textSMBold
+        label.textColor = Colors.gray100
+        return label
+    }()
+
+    private lazy var usedLabel: UILabel = {
+        let label = UILabel()
+        label.font = Fonts.textSM
+        label.textColor = Colors.gray400
+        label.text = "Used"
+        return label
+    }()
+
+    private lazy var usedValueLabel: UILabel = {
+        let label = UILabel()
+        label.font = Fonts.textSMBold
+        label.textColor = Colors.gray100
+        return label
+    }()
+
+    private lazy var remainingLabel: UILabel = {
+        let label = UILabel()
+        label.font = Fonts.textSM
+        label.textColor = Colors.gray400
+        label.text = "Remaining"
+        return label
+    }()
+
+    private lazy var remainingValueLabel: UILabel = {
+        let label = UILabel()
+        label.font = Fonts.textSMBold
+        label.textColor = Colors.gray100
+        return label
+    }()
+
+    private lazy var recurringBadge: UIView = {
+        let container = UIView()
+        container.backgroundColor = Colors.gray600
+        container.layer.cornerRadius = CornerRadius.small
+        container.isHidden = true
+        container.translatesAutoresizingMaskIntoConstraints = false
+
+        let stack = UIStackView()
+        stack.axis = .horizontal
+        stack.spacing = 6
+        stack.alignment = .center
+        stack.translatesAutoresizingMaskIntoConstraints = false
+
+        let iconConfig = UIImage.SymbolConfiguration(pointSize: 12, weight: .medium)
+        let icon = UIImageView(image: UIImage(systemName: "repeat", withConfiguration: iconConfig))
+        icon.tintColor = Colors.gray300
+
+        let label = UILabel()
+        label.text = "Recurring"
+        label.font = Fonts.textXS
+        label.textColor = Colors.gray300
+
+        stack.addArrangedSubview(icon)
+        stack.addArrangedSubview(label)
+
+        container.addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.topAnchor.constraint(equalTo: container.topAnchor, constant: 6),
+            stack.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -6),
+            stack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 10),
+            stack.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -10),
+        ])
+
+        return container
+    }()
+
+    private lazy var warningBanner: UIView = {
+        let view = UIView()
+        view.backgroundColor = Colors.lowAmber
+        view.layer.cornerRadius = CornerRadius.small
+        view.isHidden = true
+        view.translatesAutoresizingMaskIntoConstraints = false
+        return view
+    }()
+
+    private lazy var warningLabel: UILabel = {
+        let label = UILabel()
+        label.font = Fonts.textSM
+        label.textColor = Colors.warningAmber
+        label.numberOfLines = 0
+        label.translatesAutoresizingMaskIntoConstraints = false
+        return label
+    }()
+
+    // Transactions Section
+    private lazy var transactionsHeaderLabel: UILabel = {
+        let label = UILabel()
+        label.font = Fonts.titleSM
+        label.textColor = Colors.gray100
+        label.translatesAutoresizingMaskIntoConstraints = false
+        return label
+    }()
+
+    private(set) lazy var transactionsTableView: UITableView = {
+        let table = UITableView()
+        table.backgroundColor = Colors.gray700
+        table.layer.cornerRadius = CornerRadius.medium
+        table.separatorStyle = .none
+        table.isScrollEnabled = false
+        table.translatesAutoresizingMaskIntoConstraints = false
+        return table
+    }()
+
+    private lazy var emptyStateView: UIView = {
+        let view = UIView()
+        view.isHidden = true
+        view.translatesAutoresizingMaskIntoConstraints = false
+
+        let config = UIImage.SymbolConfiguration(pointSize: 40, weight: .light)
+        let icon = UIImageView(image: UIImage(systemName: "tray", withConfiguration: config))
+        icon.tintColor = Colors.gray500
+        icon.translatesAutoresizingMaskIntoConstraints = false
+
+        let label = UILabel()
+        label.text = "No transactions yet"
+        label.font = Fonts.textSM
+        label.textColor = Colors.gray400
+        label.textAlignment = .center
+        label.translatesAutoresizingMaskIntoConstraints = false
+
+        view.addSubview(icon)
+        view.addSubview(label)
+
+        NSLayoutConstraint.activate([
+            icon.topAnchor.constraint(equalTo: view.topAnchor, constant: Metrics.spacing4),
+            icon.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            label.topAnchor.constraint(equalTo: icon.bottomAnchor, constant: Metrics.spacing3),
+            label.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+        ])
+
+        return view
+    }()
+
+    // Action Buttons
+    private lazy var actionButtonsContainerView: UIView = {
+        let view = UIView()
+        view.backgroundColor = Colors.gray800
+        view.translatesAutoresizingMaskIntoConstraints = false
+        return view
+    }()
+
+    private(set) lazy var editButton: Button = {
+        let button = Button(variant: .base)
+        button.setTitle("Edit Allocation", for: .normal)
+        return button
+    }()
+
+    private(set) lazy var deleteButton: Button = {
+        let button = Button(variant: .outlined)
+        button.setTitle("Delete", for: .normal)
+        button.setTitleColor(Colors.mainRed, for: .normal)
+        button.layer.borderColor = Colors.mainRed.cgColor
+        return button
+    }()
+
+    private var tableHeightConstraint: NSLayoutConstraint?
+
+    // MARK: - Initialization
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        setupUI()
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    // MARK: - Setup
+
+    private func setupUI() {
+        backgroundColor = Colors.gray800
+
+        // Header
+        addSubview(headerContainerView)
+        headerContainerView.addSubview(backButtonGlassContainer)
+        backButtonGlassContainer.addSubview(backButton)
+        headerContainerView.addSubview(categoryIconView)
+        headerContainerView.addSubview(categoryLabel)
+        headerContainerView.addSubview(monthYearLabel)
+
+        // Scroll
+        addSubview(scrollView)
+        scrollView.addSubview(contentView)
+
+        // Summary
+        contentView.addSubview(summaryCardView)
+        summaryCardView.addSubview(circularProgressView)
+        summaryCardView.addSubview(allocatedLabel)
+        summaryCardView.addSubview(allocatedValueLabel)
+        summaryCardView.addSubview(usedLabel)
+        summaryCardView.addSubview(usedValueLabel)
+        summaryCardView.addSubview(remainingLabel)
+        summaryCardView.addSubview(remainingValueLabel)
+        summaryCardView.addSubview(recurringBadge)
+        summaryCardView.addSubview(warningBanner)
+        warningBanner.addSubview(warningLabel)
+
+        // Transactions
+        contentView.addSubview(transactionsHeaderLabel)
+        contentView.addSubview(transactionsTableView)
+        contentView.addSubview(emptyStateView)
+
+        // Actions
+        addSubview(actionButtonsContainerView)
+        actionButtonsContainerView.addSubview(editButton)
+        actionButtonsContainerView.addSubview(deleteButton)
+
+        setupConstraints()
+    }
+
+    private func setupConstraints() {
+        let safeArea = safeAreaLayoutGuide
+
+        NSLayoutConstraint.activate([
+            // Header
+            headerContainerView.topAnchor.constraint(equalTo: topAnchor),
+            headerContainerView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            headerContainerView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            headerContainerView.heightAnchor.constraint(equalToConstant: 160),
+
+            backButtonGlassContainer.topAnchor.constraint(equalTo: safeArea.topAnchor, constant: Metrics.spacing2),
+            backButtonGlassContainer.leadingAnchor.constraint(equalTo: headerContainerView.leadingAnchor, constant: Metrics.spacing4),
+            backButtonGlassContainer.widthAnchor.constraint(equalToConstant: 40),
+            backButtonGlassContainer.heightAnchor.constraint(equalToConstant: 40),
+
+            backButton.centerXAnchor.constraint(equalTo: backButtonGlassContainer.centerXAnchor),
+            backButton.centerYAnchor.constraint(equalTo: backButtonGlassContainer.centerYAnchor),
+
+            categoryIconView.leadingAnchor.constraint(equalTo: headerContainerView.leadingAnchor, constant: Metrics.spacing4),
+            categoryIconView.bottomAnchor.constraint(equalTo: headerContainerView.bottomAnchor, constant: -Metrics.spacing4),
+            categoryIconView.widthAnchor.constraint(equalToConstant: 48),
+            categoryIconView.heightAnchor.constraint(equalToConstant: 48),
+
+            categoryLabel.leadingAnchor.constraint(equalTo: categoryIconView.trailingAnchor, constant: Metrics.spacing3),
+            categoryLabel.bottomAnchor.constraint(equalTo: monthYearLabel.topAnchor, constant: -4),
+
+            monthYearLabel.leadingAnchor.constraint(equalTo: categoryIconView.trailingAnchor, constant: Metrics.spacing3),
+            monthYearLabel.bottomAnchor.constraint(equalTo: headerContainerView.bottomAnchor, constant: -Metrics.spacing4),
+
+            // Scroll
+            scrollView.topAnchor.constraint(equalTo: headerContainerView.bottomAnchor),
+            scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: actionButtonsContainerView.topAnchor),
+
+            contentView.topAnchor.constraint(equalTo: scrollView.topAnchor),
+            contentView.leadingAnchor.constraint(equalTo: scrollView.leadingAnchor),
+            contentView.trailingAnchor.constraint(equalTo: scrollView.trailingAnchor),
+            contentView.bottomAnchor.constraint(equalTo: scrollView.bottomAnchor),
+            contentView.widthAnchor.constraint(equalTo: scrollView.widthAnchor),
+
+            // Summary Card
+            summaryCardView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: Metrics.spacing4),
+            summaryCardView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: Metrics.spacing4),
+            summaryCardView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -Metrics.spacing4),
+
+            circularProgressView.topAnchor.constraint(equalTo: summaryCardView.topAnchor, constant: Metrics.spacing4),
+            circularProgressView.leadingAnchor.constraint(equalTo: summaryCardView.leadingAnchor, constant: Metrics.spacing4),
+            circularProgressView.widthAnchor.constraint(equalToConstant: 120),
+            circularProgressView.heightAnchor.constraint(equalToConstant: 120),
+
+            allocatedLabel.topAnchor.constraint(equalTo: summaryCardView.topAnchor, constant: Metrics.spacing4),
+            allocatedLabel.leadingAnchor.constraint(equalTo: circularProgressView.trailingAnchor, constant: Metrics.spacing4),
+
+            allocatedValueLabel.centerYAnchor.constraint(equalTo: allocatedLabel.centerYAnchor),
+            allocatedValueLabel.trailingAnchor.constraint(equalTo: summaryCardView.trailingAnchor, constant: -Metrics.spacing4),
+
+            usedLabel.topAnchor.constraint(equalTo: allocatedLabel.bottomAnchor, constant: Metrics.spacing3),
+            usedLabel.leadingAnchor.constraint(equalTo: circularProgressView.trailingAnchor, constant: Metrics.spacing4),
+
+            usedValueLabel.centerYAnchor.constraint(equalTo: usedLabel.centerYAnchor),
+            usedValueLabel.trailingAnchor.constraint(equalTo: summaryCardView.trailingAnchor, constant: -Metrics.spacing4),
+
+            remainingLabel.topAnchor.constraint(equalTo: usedLabel.bottomAnchor, constant: Metrics.spacing3),
+            remainingLabel.leadingAnchor.constraint(equalTo: circularProgressView.trailingAnchor, constant: Metrics.spacing4),
+
+            remainingValueLabel.centerYAnchor.constraint(equalTo: remainingLabel.centerYAnchor),
+            remainingValueLabel.trailingAnchor.constraint(equalTo: summaryCardView.trailingAnchor, constant: -Metrics.spacing4),
+
+            recurringBadge.topAnchor.constraint(equalTo: remainingLabel.bottomAnchor, constant: Metrics.spacing3),
+            recurringBadge.leadingAnchor.constraint(equalTo: circularProgressView.trailingAnchor, constant: Metrics.spacing4),
+
+            warningBanner.topAnchor.constraint(equalTo: circularProgressView.bottomAnchor, constant: Metrics.spacing3),
+            warningBanner.leadingAnchor.constraint(equalTo: summaryCardView.leadingAnchor, constant: Metrics.spacing4),
+            warningBanner.trailingAnchor.constraint(equalTo: summaryCardView.trailingAnchor, constant: -Metrics.spacing4),
+            warningBanner.bottomAnchor.constraint(equalTo: summaryCardView.bottomAnchor, constant: -Metrics.spacing4),
+
+            warningLabel.topAnchor.constraint(equalTo: warningBanner.topAnchor, constant: Metrics.spacing3),
+            warningLabel.leadingAnchor.constraint(equalTo: warningBanner.leadingAnchor, constant: Metrics.spacing3),
+            warningLabel.trailingAnchor.constraint(equalTo: warningBanner.trailingAnchor, constant: -Metrics.spacing3),
+            warningLabel.bottomAnchor.constraint(equalTo: warningBanner.bottomAnchor, constant: -Metrics.spacing3),
+
+            // Transactions
+            transactionsHeaderLabel.topAnchor.constraint(equalTo: summaryCardView.bottomAnchor, constant: Metrics.spacing5),
+            transactionsHeaderLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: Metrics.spacing4),
+
+            transactionsTableView.topAnchor.constraint(equalTo: transactionsHeaderLabel.bottomAnchor, constant: Metrics.spacing3),
+            transactionsTableView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: Metrics.spacing4),
+            transactionsTableView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -Metrics.spacing4),
+            transactionsTableView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -Metrics.spacing4),
+
+            emptyStateView.topAnchor.constraint(equalTo: transactionsHeaderLabel.bottomAnchor, constant: Metrics.spacing3),
+            emptyStateView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: Metrics.spacing4),
+            emptyStateView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -Metrics.spacing4),
+            emptyStateView.heightAnchor.constraint(equalToConstant: 120),
+
+            // Actions
+            actionButtonsContainerView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            actionButtonsContainerView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            actionButtonsContainerView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            actionButtonsContainerView.heightAnchor.constraint(equalToConstant: 100),
+
+            editButton.topAnchor.constraint(equalTo: actionButtonsContainerView.topAnchor, constant: Metrics.spacing3),
+            editButton.leadingAnchor.constraint(equalTo: actionButtonsContainerView.leadingAnchor, constant: Metrics.spacing4),
+            editButton.heightAnchor.constraint(equalToConstant: 48),
+
+            deleteButton.topAnchor.constraint(equalTo: actionButtonsContainerView.topAnchor, constant: Metrics.spacing3),
+            deleteButton.leadingAnchor.constraint(equalTo: editButton.trailingAnchor, constant: Metrics.spacing3),
+            deleteButton.trailingAnchor.constraint(equalTo: actionButtonsContainerView.trailingAnchor, constant: -Metrics.spacing4),
+            deleteButton.widthAnchor.constraint(equalTo: editButton.widthAnchor, multiplier: 0.5),
+            deleteButton.heightAnchor.constraint(equalToConstant: 48),
+        ])
+
+        tableHeightConstraint = transactionsTableView.heightAnchor.constraint(equalToConstant: 0)
+        tableHeightConstraint?.isActive = true
+    }
+
+    // MARK: - Configuration
+
+    func configure(with allocation: BudgetAllocation) {
+        // Header
+        headerContainerView.backgroundColor = allocation.status.color.withAlphaComponent(0.15)
+        categoryIconView.image = allocation.category.icon
+        categoryLabel.text = allocation.category.displayName
+
+        let date = Date(timeIntervalSince1970: TimeInterval(allocation.monthDate))
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMMM yyyy"
+        monthYearLabel.text = formatter.string(from: date)
+
+        // Progress
+        circularProgressView.configure(
+            percentage: allocation.usagePercentage,
+            status: allocation.status,
+            animated: true
+        )
+
+        // Summary
+        allocatedValueLabel.text = allocation.allocatedAmount.currencyString
+        usedValueLabel.text = allocation.usedAmount.currencyString
+        remainingValueLabel.text = allocation.remainingAmount.currencyString
+
+        let isOver = allocation.remainingAmount < 0
+        remainingValueLabel.textColor = isOver ? Colors.mainRed : Colors.gray100
+
+        recurringBadge.isHidden = !allocation.isRecurring
+
+        // Warning
+        if isOver {
+            warningBanner.isHidden = false
+            warningLabel.text = "You've exceeded this allocation by \(abs(allocation.remainingAmount).currencyString)"
+        } else {
+            warningBanner.isHidden = true
+        }
+
+        // Transactions header
+        transactionsHeaderLabel.text = "Transactions"
+    }
+
+    func updateTableHeight(rowCount: Int, rowHeight: CGFloat = 72) {
+        tableHeightConstraint?.constant = max(CGFloat(rowCount) * rowHeight, 0)
+        transactionsTableView.isHidden = rowCount == 0
+        emptyStateView.isHidden = rowCount > 0
+        layoutIfNeeded()
+    }
+
+    func setTransactionCount(_ count: Int) {
+        transactionsHeaderLabel.text = "Transactions (\(count))"
+    }
+}
+```
+
+---
+
+### ✅ Phase 3 Checkpoint
+
+At this point you should be able to:
+1. **Flip to BudgetCard** and see the donut chart with mock allocations
+2. **See allocation rows** with progress bars and status colors
+3. **Tap an allocation** (prints to console for now)
+4. **See the Detail Screen** (if you wire up navigation with mock data)
+
+The UI is complete with hardcoded/mock data. Now we add real data persistence.
+
+---
+
+## Phase 4: Data Layer (Repository & Service)
+
+> **Goal**: Create data persistence. UI still uses mock data until Phase 5.
+
+### Step 4.1: Create BudgetAllocationRepository
+
+**File:** `Finova/Sources/Core/Repositories/BudgetAllocationRepository/BudgetAllocationRepository.swift`
+
+```swift
+import Foundation
+
+final class BudgetAllocationRepository {
+    private let secureStorage = SecureLocalDataManager.shared
+    private let storageKey = "budget_allocations"
+
+    // MARK: - CRUD Operations
+
+    func insert(_ allocation: BudgetAllocationModel) throws -> Int {
+        var allocations = fetchAllModels()
+
+        if allocations.contains(where: {
+            $0.monthDate == allocation.monthDate && $0.categoryKey == allocation.categoryKey
+        }) {
+            throw BudgetAllocationError.duplicateAllocation
+        }
+
+        let newId = (allocations.map { $0.id ?? 0 }.max() ?? 0) + 1
+        let newAllocation = BudgetAllocationModel(
+            id: newId,
+            monthDate: allocation.monthDate,
+            categoryKey: allocation.categoryKey,
+            allocatedAmount: allocation.allocatedAmount,
+            isRecurring: allocation.isRecurring,
+            parentAllocationId: allocation.parentAllocationId
+        )
+
+        allocations.append(newAllocation)
+        try save(allocations)
+        return newId
+    }
+
+    func update(_ allocation: BudgetAllocationModel) throws {
+        var allocations = fetchAllModels()
+        guard let index = allocations.firstIndex(where: { $0.id == allocation.id }) else {
+            throw BudgetAllocationError.allocationNotFound
+        }
+        allocations[index] = allocation
+        try save(allocations)
+    }
+
+    func delete(id: Int) throws {
+        var allocations = fetchAllModels()
+        allocations.removeAll { $0.id == id }
+        try save(allocations)
+    }
+
+    func fetchAllocations(forMonth monthAnchor: Int) -> [BudgetAllocation] {
+        return fetchAllModels()
+            .filter { $0.monthDate == monthAnchor }
+            .map { BudgetAllocation(from: $0) }
+    }
+
+    func fetchAllocation(byId id: Int) -> BudgetAllocationModel? {
+        return fetchAllModels().first { $0.id == id }
+    }
+
+    func fetchRecurringAllocations() -> [BudgetAllocationModel] {
+        return fetchAllModels().filter { $0.isRecurring && $0.parentAllocationId == nil }
+    }
+
+    func fetchAllocationInstances(forParent parentId: Int) -> [BudgetAllocationModel] {
+        return fetchAllModels().filter { $0.parentAllocationId == parentId }
+    }
+
+    // MARK: - Private
+
+    private func fetchAllModels() -> [BudgetAllocationModel] {
+        guard let data = secureStorage.getData(forKey: storageKey),
+              let allocations = try? JSONDecoder().decode([BudgetAllocationModel].self, from: data) else {
+            return []
+        }
+        return allocations
+    }
+
+    private func save(_ allocations: [BudgetAllocationModel]) throws {
+        let data = try JSONEncoder().encode(allocations)
+        secureStorage.setData(data, forKey: storageKey)
+    }
+}
+```
+
+### Step 4.2: Create BudgetAllocationService
+
+**File:** `Finova/Sources/Core/Services/BudgetAllocationService.swift`
+
+```swift
+import Foundation
+
+final class BudgetAllocationService {
+    private let allocationRepo: BudgetAllocationRepository
+    private let transactionRepo: TransactionRepository
+    private let budgetRepo: BudgetRepository
+
+    init(
+        allocationRepo: BudgetAllocationRepository = BudgetAllocationRepository(),
+        transactionRepo: TransactionRepository = TransactionRepository(),
+        budgetRepo: BudgetRepository = BudgetRepository()
+    ) {
+        self.allocationRepo = allocationRepo
+        self.transactionRepo = transactionRepo
+        self.budgetRepo = budgetRepo
+    }
+
+    // MARK: - Create
+
+    func createAllocation(
+        category: TransactionCategory,
+        amount: Int,
+        monthAnchor: Int,
+        isRecurring: Bool
+    ) throws -> Int {
+        guard amount > 0 else { throw BudgetAllocationError.invalidAmount }
+
+        let model = BudgetAllocationModel(
+            monthDate: monthAnchor,
+            categoryKey: category.key,
+            allocatedAmount: amount,
+            isRecurring: isRecurring
+        )
+        return try allocationRepo.insert(model)
+    }
+
+    // MARK: - Update
+
+    func updateAllocation(id: Int, newAmount: Int) throws {
+        guard let existing = allocationRepo.fetchAllocation(byId: id) else {
+            throw BudgetAllocationError.allocationNotFound
+        }
+
+        let updated = BudgetAllocationModel(
+            id: existing.id,
+            monthDate: existing.monthDate,
+            categoryKey: existing.categoryKey,
+            allocatedAmount: newAmount,
+            isRecurring: existing.isRecurring,
+            parentAllocationId: existing.parentAllocationId
+        )
+        try allocationRepo.update(updated)
+    }
+
+    // MARK: - Delete
+
+    func deleteAllocation(id: Int, deleteAllFuture: Bool = false) throws {
+        if deleteAllFuture {
+            let instances = allocationRepo.fetchAllocationInstances(forParent: id)
+            for instance in instances {
+                if let instanceId = instance.id {
+                    try allocationRepo.delete(id: instanceId)
+                }
+            }
+        }
+        try allocationRepo.delete(id: id)
+    }
+
+    // MARK: - Fetch
+
+    func getAllocationsWithUsage(forMonth monthAnchor: Int) -> [BudgetAllocation] {
+        var allocations = allocationRepo.fetchAllocations(forMonth: monthAnchor)
+        let usageByCategory = calculateUsageByCategory(forMonth: monthAnchor)
+
+        for i in allocations.indices {
+            let categoryKey = allocations[i].category.key
+            allocations[i].setUsedAmount(usageByCategory[categoryKey] ?? 0)
+        }
+        return allocations
+    }
+
+    func getUnallocatedSummary(forMonth monthAnchor: Int) -> UnallocatedBudgetSummary {
+        let budgets = budgetRepo.fetchBudgets()
+        let budget = budgets.first { $0.monthDate == monthAnchor }
+        let totalBudget = budget?.amount ?? 0
+
+        let allocations = allocationRepo.fetchAllocations(forMonth: monthAnchor)
+        let totalAllocated = allocations.reduce(0) { $0 + $1.allocatedAmount }
+
+        let allocatedCategories = Set(allocations.map { $0.category.key })
+        let usageByCategory = calculateUsageByCategory(forMonth: monthAnchor)
+        let unallocatedUsage = usageByCategory
+            .filter { !allocatedCategories.contains($0.key) }
+            .reduce(0) { $0 + $1.value }
+
+        return UnallocatedBudgetSummary(
+            monthDate: monthAnchor,
+            totalBudget: totalBudget,
+            totalAllocated: totalAllocated,
+            totalUsedInUnallocatedCategories: unallocatedUsage
+        )
+    }
+
+    func getTransactions(forCategory category: TransactionCategory, monthAnchor: Int) -> [Transaction] {
+        return transactionRepo.fetchAllTransactions().filter { transaction in
+            transaction.category == category &&
+            transaction.budgetMonthDate == monthAnchor &&
+            transaction.type == .expense
+        }.sorted { $0.date > $1.date }
+    }
+
+    // MARK: - Private
+
+    private func calculateUsageByCategory(forMonth monthAnchor: Int) -> [String: Int] {
+        let transactions = transactionRepo.fetchAllTransactions()
+            .filter { $0.budgetMonthDate == monthAnchor && $0.type == .expense }
+
+        var usage: [String: Int] = [:]
+        for transaction in transactions {
+            usage[transaction.category.key, default: 0] += transaction.amount
+        }
+        return usage
+    }
+}
+```
+
+---
+
+## Phase 5: Connect Data to UI
+
+> **Goal**: Replace mock data with real data from services.
+
+### Step 5.1: Create BudgetAllocationDetailsViewModel
+
+**File:** `Finova/Sources/Scenes/BudgetAllocationDetails/ViewModel/BudgetAllocationDetailsViewModel.swift`
+
+```swift
+import Foundation
+
+final class BudgetAllocationDetailsViewModel {
+
+    private let allocation: BudgetAllocation
+    private let allocationService: BudgetAllocationService
+
+    private(set) var transactions: [Transaction] = []
+
+    // MARK: - Computed
+
+    var category: TransactionCategory { allocation.category }
+    var allocatedAmount: Int { allocation.allocatedAmount }
+    var usedAmount: Int { allocation.usedAmount }
+    var remainingAmount: Int { allocation.remainingAmount }
+    var usagePercentage: Double { allocation.usagePercentage }
+    var status: AllocationStatus { allocation.status }
+    var isRecurring: Bool { allocation.isRecurring }
+    var allocationId: Int? { allocation.id }
+    var monthDate: Int { allocation.monthDate }
+
+    var formattedAllocated: String { allocatedAmount.currencyString }
+    var formattedUsed: String { usedAmount.currencyString }
+    var formattedRemaining: String { remainingAmount.currencyString }
+    var transactionCount: Int { transactions.count }
+    var isOverBudget: Bool { remainingAmount < 0 }
+
+    var monthYearString: String {
+        let date = Date(timeIntervalSince1970: TimeInterval(allocation.monthDate))
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMMM yyyy"
+        return formatter.string(from: date)
+    }
+
+    var budgetAllocation: BudgetAllocation { allocation }
+
+    // MARK: - Init
+
+    init(allocation: BudgetAllocation, allocationService: BudgetAllocationService = BudgetAllocationService()) {
+        self.allocation = allocation
+        self.allocationService = allocationService
+        loadTransactions()
+    }
+
+    func loadTransactions() {
+        transactions = allocationService.getTransactions(
+            forCategory: category,
+            monthAnchor: allocation.monthDate
+        )
+    }
+
+    // MARK: - Actions
+
+    func updateAllocation(newAmount: Int, completion: @escaping (Result<Void, Error>) -> Void) {
+        guard let id = allocationId else {
+            completion(.failure(BudgetAllocationError.allocationNotFound))
+            return
+        }
+        do {
+            try allocationService.updateAllocation(id: id, newAmount: newAmount)
+            completion(.success(()))
+        } catch {
+            completion(.failure(error))
+        }
+    }
+
+    func deleteAllocation(deleteAllFuture: Bool, completion: @escaping (Result<Void, Error>) -> Void) {
+        guard let id = allocationId else {
+            completion(.failure(BudgetAllocationError.allocationNotFound))
+            return
+        }
+        do {
+            try allocationService.deleteAllocation(id: id, deleteAllFuture: deleteAllFuture)
+            completion(.success(()))
+        } catch {
+            completion(.failure(error))
+        }
+    }
+}
+```
+
+### Step 5.2: Update BudgetAllocationDetailsViewController
+
+**File:** `Finova/Sources/Scenes/BudgetAllocationDetails/View/BudgetAllocationDetailsViewController.swift`
+
+```swift
+import UIKit
+
+final class BudgetAllocationDetailsViewController: UIViewController {
+
+    private let mainView = BudgetAllocationDetailsView()
+    private let viewModel: BudgetAllocationDetailsViewModel
+    weak var flowDelegate: BudgetAllocationDetailsFlowDelegate?
+
+    init(allocation: BudgetAllocation) {
+        self.viewModel = BudgetAllocationDetailsViewModel(allocation: allocation)
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func loadView() { view = mainView }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        navigationController?.setNavigationBarHidden(true, animated: false)
+        setupTableView()
+        setupActions()
+        configureView()
+    }
+
+    private func setupTableView() {
+        mainView.transactionsTableView.delegate = self
+        mainView.transactionsTableView.dataSource = self
+        mainView.transactionsTableView.register(
+            TransactionCell.self,
+            forCellReuseIdentifier: TransactionCell.reuseIdentifier
+        )
+    }
+
+    private func setupActions() {
+        mainView.backButton.addTarget(self, action: #selector(backTapped), for: .touchUpInside)
+        mainView.editButton.addTarget(self, action: #selector(editTapped), for: .touchUpInside)
+        mainView.deleteButton.addTarget(self, action: #selector(deleteTapped), for: .touchUpInside)
+    }
+
+    private func configureView() {
+        mainView.configure(with: viewModel.budgetAllocation)
+        mainView.updateTableHeight(rowCount: viewModel.transactionCount)
+        mainView.setTransactionCount(viewModel.transactionCount)
+        mainView.transactionsTableView.reloadData()
+    }
+
+    @objc private func backTapped() {
+        flowDelegate?.dismissAllocationDetails()
+    }
+
+    @objc private func editTapped() {
+        let alert = UIAlertController(title: "Edit Allocation", message: nil, preferredStyle: .alert)
+        alert.addTextField { field in
+            field.placeholder = "Amount"
+            field.keyboardType = .decimalPad
+            field.text = String(format: "%.2f", Double(self.viewModel.allocatedAmount) / 100)
+        }
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        alert.addAction(UIAlertAction(title: "Save", style: .default) { [weak self] _ in
+            guard let text = alert.textFields?.first?.text,
+                  let amount = Double(text) else { return }
+            self?.viewModel.updateAllocation(newAmount: Int(amount * 100)) { result in
+                if case .success = result {
+                    self?.flowDelegate?.didUpdateAllocation()
+                }
+            }
+        })
+        present(alert, animated: true)
+    }
+
+    @objc private func deleteTapped() {
+        if viewModel.isRecurring {
+            let alert = UIAlertController(title: "Delete Recurring Allocation?", message: nil, preferredStyle: .actionSheet)
+            alert.addAction(UIAlertAction(title: "Delete This Month Only", style: .destructive) { [weak self] _ in
+                self?.performDelete(deleteAllFuture: false)
+            })
+            alert.addAction(UIAlertAction(title: "Delete All Future Months", style: .destructive) { [weak self] _ in
+                self?.performDelete(deleteAllFuture: true)
+            })
+            alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+            present(alert, animated: true)
+        } else {
+            let alert = UIAlertController(
+                title: "Delete Allocation?",
+                message: "Remove \(viewModel.category.displayName) allocation?",
+                preferredStyle: .alert
+            )
+            alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+            alert.addAction(UIAlertAction(title: "Delete", style: .destructive) { [weak self] _ in
+                self?.performDelete(deleteAllFuture: false)
+            })
+            present(alert, animated: true)
+        }
+    }
+
+    private func performDelete(deleteAllFuture: Bool) {
+        viewModel.deleteAllocation(deleteAllFuture: deleteAllFuture) { [weak self] result in
+            if case .success = result {
+                self?.flowDelegate?.didDeleteAllocation()
+            }
+        }
+    }
+}
+
+// MARK: - UITableViewDataSource
+
+extension BudgetAllocationDetailsViewController: UITableViewDataSource {
+    func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
+        viewModel.transactionCount
+    }
+
+    func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+        guard let cell = tableView.dequeueReusableCell(
+            withIdentifier: TransactionCell.reuseIdentifier,
+            for: indexPath
+        ) as? TransactionCell else { return UITableViewCell() }
+
+        cell.configure(with: viewModel.transactions[indexPath.row])
+        return cell
+    }
+}
+
+// MARK: - UITableViewDelegate
+
+extension BudgetAllocationDetailsViewController: UITableViewDelegate {
+    func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+        tableView.deselectRow(at: indexPath, animated: true)
+        flowDelegate?.navigateToTransactionDetails(transaction: viewModel.transactions[indexPath.row])
+    }
+
+    func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat { 72 }
+}
+```
+
+### Step 5.3: Update MonthCarouselCell to Use Real Data
+
+Replace mock data in `didRequestFlip` with calls to the service:
+
+```swift
+// In MonthCarouselCell
+
+private let allocationService = BudgetAllocationService()
+
+func didRequestFlip(isShowingBudgetView: Bool) {
+    if isShowingBudgetView {
+        let allocations = allocationService.getAllocationsWithUsage(forMonth: monthAnchor)
+        let summary = allocationService.getUnallocatedSummary(forMonth: monthAnchor)
+        flipToBudgetView(allocations: allocations, summary: summary)
+    } else {
+        flipToTransactionView()
+    }
+}
+```
+
+### Step 5.4: Wire Up Allocation Tap Navigation
+
+Update the MonthCarouselCell to forward allocation taps to the parent:
+
+```swift
+// Add a parent delegate property
+weak var parentFlowDelegate: DashboardFlowDelegate?
+
+func didTapAllocation(_ allocation: BudgetAllocation) {
+    parentFlowDelegate?.navigateToAllocationDetails(allocation: allocation)
+}
+```
+
+Update ViewControllersFactory:
+
+```swift
+static func makeBudgetAllocationDetailsViewController(
+    allocation: BudgetAllocation
+) -> BudgetAllocationDetailsViewController {
+    return BudgetAllocationDetailsViewController(allocation: allocation)
+}
+```
+
+---
+
+## Phase 6: Modal & Creation Flow
+
+> **Goal**: Add allocation creation via modal.
+
+### Step 6.1: Add Segmented Control to AddTransactionModal
+
+Add mode enum and UI:
+
+```swift
 enum ModalMode {
     case transaction
     case allocation
@@ -1205,60 +3292,13 @@ enum ModalMode {
 
 private var currentMode: ModalMode = .transaction
 
-// MARK: - New UI Component
-
 private lazy var modeSegmentedControl: UISegmentedControl = {
-    let control = UISegmentedControl(items: [
-        "modal.segment.transaction".localized,
-        "modal.segment.allocation".localized
-    ])
+    let control = UISegmentedControl(items: ["Transaction", "Allocation"])
     control.selectedSegmentIndex = 0
     control.selectedSegmentTintColor = Colors.mainMagenta
-    control.setTitleTextAttributes([.foregroundColor: Colors.gray700], for: .selected)
-    control.setTitleTextAttributes([.foregroundColor: Colors.gray100], for: .normal)
     control.addTarget(self, action: #selector(modeChanged), for: .valueChanged)
-    control.translatesAutoresizingMaskIntoConstraints = false
     return control
 }()
-
-// MARK: - Allocation-specific UI
-
-private lazy var allocationCategoryPicker: CategoryPickerView = {
-    // Reuse existing category picker
-    let picker = CategoryPickerView()
-    picker.isHidden = true
-    return picker
-}()
-
-private lazy var allocationAmountField: MoneyTextField = {
-    let field = MoneyTextField()
-    field.placeholder = "allocation.amount.placeholder".localized
-    field.isHidden = true
-    return field
-}()
-
-private lazy var allocationMonthPicker: MonthYearPicker = {
-    let picker = MonthYearPicker()
-    picker.isHidden = true
-    return picker
-}()
-
-private lazy var allocationRecurringToggle: UISwitch = {
-    let toggle = UISwitch()
-    toggle.onTintColor = Colors.mainMagenta
-    toggle.isHidden = true
-    return toggle
-}()
-
-private lazy var remainingToAllocateLabel: UILabel = {
-    let label = UILabel()
-    label.font = Fonts.textXS
-    label.textColor = Colors.gray400
-    label.isHidden = true
-    return label
-}()
-
-// MARK: - Mode Switching
 
 @objc private func modeChanged() {
     currentMode = modeSegmentedControl.selectedSegmentIndex == 0 ? .transaction : .allocation
@@ -1266,251 +3306,348 @@ private lazy var remainingToAllocateLabel: UILabel = {
 }
 
 private func updateUIForMode() {
-    let isTransaction = currentMode == .transaction
-
-    // Transaction UI
-    transactionTitleTextField.isHidden = !isTransaction
-    categoryPickerView.isHidden = !isTransaction
-    transactionModeStackView.isHidden = !isTransaction
-    horizontalInputsStackView.isHidden = !isTransaction
-    transactionButtonsStackView.isHidden = !isTransaction
-
-    // Allocation UI
-    allocationCategoryPicker.isHidden = isTransaction
-    allocationAmountField.isHidden = isTransaction
-    allocationMonthPicker.isHidden = isTransaction
-    allocationRecurringToggle.superview?.isHidden = isTransaction
-    remainingToAllocateLabel.isHidden = isTransaction
-
-    // Update button title
-    let buttonTitle = isTransaction
-        ? "modal.button.save.transaction".localized
-        : "modal.button.save.allocation".localized
-    saveButton.setTitle(buttonTitle, for: .normal)
+    // Show/hide appropriate fields
 }
 ```
 
-### 5.7 MonthCarouselCell Flip Logic
+### Step 6.2: Allocation-specific Fields
+
+Add to modal:
+- Category picker (reuse existing)
+- Amount field
+- Month picker (current month)
+- Recurring toggle
+
+### Step 6.3: Save Allocation
+
+```swift
+private func saveAllocation() {
+    let service = BudgetAllocationService()
+    do {
+        _ = try service.createAllocation(
+            category: selectedCategory,
+            amount: amountInCents,
+            monthAnchor: selectedMonthAnchor,
+            isRecurring: recurringToggle.isOn
+        )
+        delegate?.didSaveAllocation()
+        dismiss(animated: true)
+    } catch {
+        showError(error.localizedDescription)
+    }
+}
+```
+
+---
+
+## Phase 7: Polish & Edge Cases
+
+> **Goal**: Clean up mock data, handle edge cases, and prepare for production.
+
+### Step 7.1: Remove Mock Data from Models
+
+**File:** `Finova/Sources/Core/Repositories/BudgetAllocationRepository/BudgetAllocationModel.swift`
+
+Remove the static `mock()` methods from `BudgetAllocation` and `UnallocatedBudgetSummary`:
+
+```swift
+// ❌ DELETE these methods from BudgetAllocation
+static func mock(
+    category: TransactionCategory = .food,
+    allocated: Int = 50000,
+    used: Int = 37500,
+    isRecurring: Bool = false
+) -> BudgetAllocation { ... }
+
+// ❌ DELETE this method from UnallocatedBudgetSummary
+static func mock() -> UnallocatedBudgetSummary { ... }
+```
+
+### Step 7.2: Verify MonthCarouselCell Uses Real Data
 
 **File:** `Finova/Sources/Scenes/Dashboard/DashboardCarousel/MonthCarousel/MonthCarouselCell.swift`
 
-Add flip functionality:
+Ensure `didRequestFlip` uses the service, not mocks:
 
 ```swift
-// MARK: - Properties (add)
-
-private var isShowingBudgetView = false
-private lazy var budgetCard: BudgetCard = {
-    let card = BudgetCard()
-    card.isHidden = true
-    card.delegate = self
-    return card
-}()
-
-private lazy var allocationsTableView: UITableView = {
-    let table = UITableView()
-    table.register(AllocationCell.self, forCellReuseIdentifier: AllocationCell.reuseIdentifier)
-    table.backgroundColor = Colors.gray700
-    table.separatorStyle = .none
-    table.isHidden = true
-    return table
-}()
-
-var pendingCategoryFilter: TransactionCategory?
-
-// MARK: - Flip Methods
-
-func flipToBudgetView(allocations: [BudgetAllocation], summary: UnallocatedBudgetSummary) {
-    guard !isShowingBudgetView else { return }
-
-    budgetCard.configure(
-        month: monthBudgetCard.currentMonth,
-        year: monthBudgetCard.currentYear,
-        allocations: allocations,
-        unallocatedSummary: summary
-    )
-
-    UIView.transition(
-        with: self.contentView,
-        duration: 0.4,
-        options: [.transitionFlipFromRight, .showHideTransitionViews]
-    ) {
-        self.monthBudgetCard.isHidden = true
-        self.transactionsTableView.isHidden = true
-        self.budgetCard.isHidden = false
-        self.allocationsTableView.isHidden = false
-    } completion: { _ in
-        self.isShowingBudgetView = true
-        self.monthBudgetCard.setShowingBudgetView(true)
+// ✅ FINAL VERSION - Real data only
+func didRequestFlip(isShowingBudgetView: Bool) {
+    if isShowingBudgetView {
+        let allocations = allocationService.getAllocationsWithUsage(forMonth: monthAnchor)
+        let summary = allocationService.getUnallocatedSummary(forMonth: monthAnchor)
+        flipToBudgetView(allocations: allocations, summary: summary)
+    } else {
+        flipToTransactionView()
     }
 }
+```
 
-func flipToTransactionView() {
-    guard isShowingBudgetView else { return }
+### Step 7.3: Remove Placeholder Views
 
-    UIView.transition(
-        with: self.contentView,
-        duration: 0.4,
-        options: [.transitionFlipFromLeft, .showHideTransitionViews]
-    ) {
-        self.monthBudgetCard.isHidden = false
-        self.transactionsTableView.isHidden = false
-        self.budgetCard.isHidden = true
-        self.allocationsTableView.isHidden = true
-    } completion: { _ in
-        self.isShowingBudgetView = false
-        self.monthBudgetCard.setShowingBudgetView(false)
+**File:** `BudgetAllocationDetailsView.swift`
 
-        // Apply pending filter if any
-        if let category = self.pendingCategoryFilter {
-            self.applyFilter(for: category)
-            self.pendingCategoryFilter = nil
+If you kept any placeholder labels from Phase 1, remove them:
+
+```swift
+// ❌ DELETE if still present
+private lazy var placeholderLabel: UILabel = { ... }()
+```
+
+**File:** `BudgetCard.swift`
+
+Same - remove any placeholder labels:
+
+```swift
+// ❌ DELETE if still present
+private lazy var placeholderLabel: UILabel = { ... }()
+```
+
+### Step 7.4: Handle Edge Cases
+
+Add these behaviors:
+
+**Empty State for No Allocations (BudgetCard):**
+
+```swift
+// In BudgetCard.configure()
+if allocations.isEmpty {
+    showEmptyState()  // "No allocations yet. Tap + to add one."
+} else {
+    hideEmptyState()
+    allocationsTableView.reloadData()
+}
+```
+
+**Over-Allocation Warning:**
+
+```swift
+// In BudgetCard.configure()
+if summary.totalAllocated > summary.totalBudget {
+    allocationProgressBar.progressTintColor = Colors.warningAmber
+    allocationPercentLabel.textColor = Colors.warningAmber
+    // Optionally show a warning banner
+}
+```
+
+**Filter Transactions on Chart Segment Tap:**
+
+```swift
+// In MonthCarouselCell
+func didSelectAllocationCategory(_ category: TransactionCategory) {
+    // Flip back to transaction view with filter applied
+    flipToTransactionView()
+
+    // Apply category filter
+    var filters = TransactionFilters()
+    filters.categories = [category]
+    delegate?.didUpdateFilters(filters, forMonth: monthAnchor)
+}
+```
+
+### Step 7.5: Add Notification Observers for Refresh
+
+**File:** `MonthCarouselCell.swift`
+
+```swift
+// In init or awakeFromNib
+NotificationCenter.default.addObserver(
+    self,
+    selector: #selector(handleAllocationChange),
+    name: .allocationDidUpdate,
+    object: nil
+)
+
+NotificationCenter.default.addObserver(
+    self,
+    selector: #selector(handleAllocationChange),
+    name: .allocationDidDelete,
+    object: nil
+)
+
+@objc private func handleAllocationChange() {
+    // Refresh BudgetCard if currently showing
+    if isShowingBudgetView {
+        let allocations = allocationService.getAllocationsWithUsage(forMonth: monthAnchor)
+        let summary = allocationService.getUnallocatedSummary(forMonth: monthAnchor)
+        budgetCard.configure(
+            month: monthBudgetCard.currentMonth,
+            year: monthBudgetCard.currentYear,
+            allocations: allocations,
+            unallocatedSummary: summary
+        )
+    }
+}
+```
+
+**Add Notification Names:**
+
+```swift
+// In a Notifications.swift or extension
+extension Notification.Name {
+    static let allocationDidUpdate = Notification.Name("allocationDidUpdate")
+    static let allocationDidDelete = Notification.Name("allocationDidDelete")
+}
+```
+
+### Step 7.6: Lazy Generation for Recurring Allocations
+
+**File:** `BudgetAllocationService.swift`
+
+Add lazy generation when fetching allocations:
+
+```swift
+func getAllocationsWithUsage(forMonth monthAnchor: Int) -> [BudgetAllocation] {
+    // Generate any missing recurring instances first
+    generateRecurringInstancesIfNeeded(forMonth: monthAnchor)
+
+    var allocations = allocationRepo.fetchAllocations(forMonth: monthAnchor)
+    // ... rest of implementation
+}
+
+private func generateRecurringInstancesIfNeeded(forMonth monthAnchor: Int) {
+    let recurringParents = allocationRepo.fetchRecurringAllocations()
+
+    for parent in recurringParents {
+        guard let parentId = parent.id,
+              parent.monthDate < monthAnchor else { continue }
+
+        // Check if instance already exists for this month
+        let existingInstances = allocationRepo.fetchAllocationInstances(forParent: parentId)
+        let hasInstance = existingInstances.contains { $0.monthDate == monthAnchor }
+
+        if !hasInstance {
+            let instance = BudgetAllocationModel(
+                monthDate: monthAnchor,
+                categoryKey: parent.categoryKey,
+                allocatedAmount: parent.allocatedAmount,
+                isRecurring: false,
+                parentAllocationId: parentId
+            )
+            try? allocationRepo.insert(instance)
         }
     }
 }
-
-private func applyFilter(for category: TransactionCategory) {
-    // Use existing filter system
-    var filters = TransactionFilters()
-    filters.categories = [category]
-    self.delegate?.didUpdateFilters(filters, forMonth: monthAnchor)
-}
 ```
+
+### Step 7.7: Final Cleanup Checklist
+
+- [ ] All `mock()` methods removed from models
+- [ ] No hardcoded test data in view controllers
+- [ ] No placeholder labels remaining
+- [ ] All `print()` debug statements removed
+- [ ] All `// TODO` comments addressed or documented
+- [ ] Localization keys use `.localized` instead of hardcoded strings
+- [ ] No force unwraps (`!`) without proper validation
+- [ ] Memory leaks checked (weak delegates, notification observers removed in deinit)
+
+### Step 7.8: Verify Build
+
+```bash
+# Clean build folder and rebuild
+xcodebuild clean build -scheme Finova -destination 'platform=iOS Simulator,name=iPhone 15'
+```
+
+Ensure:
+- No compiler warnings related to unused code
+- No references to deleted mock methods
+- App launches and all features work with real data
 
 ---
 
-## 6. Implementation Order
+### ✅ Phase 7 Checkpoint
 
-Follow this order to minimize integration issues:
-
-### Phase 1: Data Layer (Foundation)
-1. Add `warningAmber` color to `Colors.swift`
-2. Create `AllocationStatus` enum
-3. Create `BudgetAllocationModel.swift`
-4. Create `BudgetAllocationRepository.swift`
-
-### Phase 2: Service Layer
-5. Create `BudgetAllocationService.swift`
-6. Add allocation-related methods to `DashboardViewModel`
-
-### Phase 3: UI Components
-7. Create `AllocationCell.swift`
-8. Create `BudgetDonutChartView.swift` (SwiftUI)
-9. Create `BudgetCard.swift`
-10. Create `MonthCardFlipDelegate.swift` protocol
-
-### Phase 4: Integration
-11. Add flip toggle button to `MonthBudgetCard`
-12. Add flip logic to `MonthCarouselCell`
-13. Connect `BudgetCard` with `MonthCarouselCell`
-14. Test flip animation
-
-### Phase 5: Modal Extension
-15. Add segmented control to `AddTransactionModalView`
-16. Add allocation form fields
-17. Connect allocation creation to `AddTransactionModalViewModel`
-
-### Phase 6: Polish
-18. Add localization strings
-19. Implement filter-on-flip functionality
-20. Test all edge cases
+At this point:
+1. **No mock data** exists in the codebase
+2. **All edge cases** are handled gracefully
+3. **Notifications** keep UI in sync after changes
+4. **Recurring allocations** generate automatically
+5. **Code is production-ready**
 
 ---
 
-## 7. Testing Considerations
+## Testing Checklist
 
-### Unit Tests
+### Navigation
+- [ ] Flip toggle icon visible in MonthBudgetCard header
+- [ ] Card flips with animation when tapped
+- [ ] Allocation rows are tappable
+- [ ] Detail screen appears on row tap
+- [ ] Back button returns to dashboard with card flipped
 
-```swift
-// BudgetAllocationServiceTests.swift
-func testCreateAllocation() {
-    // Given: A valid category and amount
-    // When: Creating an allocation
-    // Then: Allocation is saved and ID is returned
-}
+### BudgetCard
+- [ ] Donut chart renders with correct segments
+- [ ] Chart center shows unallocated by default
+- [ ] Tapping segment highlights and shows category
+- [ ] Progress bar shows allocation percentage
+- [ ] Warning color when over-allocated
 
-func testAllocationExceedsBudgetWarning() {
-    // Given: A budget of 1000
-    // When: Creating allocations totaling 1200
-    // Then: checkAllocationExceedsBudget returns true
-}
-
-func testUsageCalculation() {
-    // Given: Transactions in a category
-    // When: Getting allocations with usage
-    // Then: usedAmount reflects actual spending
-}
-
-func testLazyGeneration() {
-    // Given: A recurring allocation
-    // When: Requesting lazy generation for future months
-    // Then: Instances are created only for requested months
-}
-```
-
-### UI Tests
-
-1. **Flip Animation**: Verify smooth transition between card views
-2. **Chart Interaction**: Verify segment tap highlights correct row
-3. **Filter Flow**: Verify category filter applies when flipping back
-4. **Modal Segmented Control**: Verify mode switching shows correct form
-5. **Allocation Creation**: Verify allocation appears in budget view
-
-### Edge Cases
-
-- [ ] No budget set for month (show appropriate empty state)
-- [ ] No allocations set (show "Add your first allocation" prompt)
-- [ ] All budget allocated (unallocated = 0, chart shows no gray)
-- [ ] Over-allocated (show warning, allow save)
-- [ ] Category already has allocation for month (prevent duplicate)
-- [ ] Recurring allocation with existing instances (don't duplicate)
-- [ ] Delete recurring parent (cascade delete instances)
+### Detail Screen
+- [ ] Header color matches status
+- [ ] Circular progress animates
+- [ ] Summary values are correct
+- [ ] Recurring badge shows for recurring allocations
+- [ ] Warning banner shows when over budget
+- [ ] Transactions list filtered correctly
+- [ ] Empty state when no transactions
+- [ ] Edit updates allocation
+- [ ] Delete removes allocation
+- [ ] Recurring delete shows options
 
 ---
 
 ## Localization Keys
 
-Add these to your `.strings` files:
-
 ```
-// Allocation Status
+// Status
 "allocation.status.under" = "Under";
 "allocation.status.near" = "Near";
 "allocation.status.over" = "Over";
 
 // Errors
-"allocation.error.duplicate" = "An allocation for this category already exists";
+"allocation.error.duplicate" = "Allocation already exists for this category";
 "allocation.error.notFound" = "Allocation not found";
-"allocation.error.invalidAmount" = "Please enter a valid amount";
+"allocation.error.invalidAmount" = "Invalid amount";
+
+// Detail Screen
+"allocation.details.summary.allocated" = "Allocated";
+"allocation.details.summary.used" = "Used";
+"allocation.details.summary.remaining" = "Remaining";
+"allocation.details.transactions.header" = "Transactions";
+"allocation.details.transactions.empty" = "No transactions yet";
+"allocation.details.action.edit" = "Edit Allocation";
+"allocation.details.action.delete" = "Delete";
 
 // Modal
 "modal.segment.transaction" = "Transaction";
 "modal.segment.allocation" = "Allocation";
-"modal.button.save.transaction" = "Save Transaction";
-"modal.button.save.allocation" = "Save Allocation";
-"allocation.amount.placeholder" = "Allocated amount";
-
-// Budget Card
-"budget.unallocated" = "Unallocated";
-"budget.allocated.percent" = "%d%% allocated";
 ```
 
 ---
 
 ## Summary
 
-This guide covers the complete implementation of the Budget Allocation feature:
+| Phase | What You Build | What You See |
+|-------|---------------|--------------|
+| 1 | Scaffolding, protocols, empty views | Flip animation, placeholder screens |
+| 2 | Complete data models with `mock()` methods | Same UI, code compiles |
+| 3 | Full UI components | Complete visual design with mock data |
+| 4 | Repository & Service | Same UI (data layer ready, not connected) |
+| 5 | Connect data to UI | Real data displayed (mocks still exist but unused) |
+| 6 | Modal creation | Full create/edit flow |
+| 7 | Polish & remove mocks | Production-ready, no test data in codebase |
 
-| Component | Files | Complexity |
-|-----------|-------|------------|
-| Data Models | 2 new files | Low |
-| Repository | 1 new file | Medium |
-| Service | 1 new file | Medium |
-| Budget Card | 3 new files | High |
-| SwiftUI Chart | 1 new file | Medium |
-| Modal Extension | 2 modified files | Medium |
-| Flip Logic | 2 modified files | High |
+### Mock Data Lifecycle
 
-**Estimated total: ~15-20 hours of development time**
+```
+Phase 1-2: Create mock() methods in models
+     ↓
+Phase 3:   UI components use mocks via didRequestFlip()
+     ↓
+Phase 4:   Data layer built (mocks still used)
+     ↓
+Phase 5:   Switch to real data (mocks become unused)
+     ↓
+Phase 7:   DELETE all mock() methods and placeholders
+```
 
-Good luck with the implementation! Feel free to refer back to this guide as you build each component.
+Follow each phase in order. Run the app after each step to verify progress visually.
