@@ -426,6 +426,74 @@
         }
       }
     },
+    "allocation.delete.message" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This will remove the budget allocation for %@."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Isso removerá a alocação de orçamento para %@."
+          }
+        }
+      }
+    },
+    "allocation.delete.recurring.all" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delete All Future Months"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Excluir Todos os Meses Futuros"
+          }
+        }
+      }
+    },
+    "allocation.delete.recurring.this" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delete This Month Only"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Excluir Apenas Este Mês"
+          }
+        }
+      }
+    },
+    "allocation.delete.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delete Allocation?"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Excluir Alocação?"
+          }
+        }
+      }
+    },
     "allocation.details.action.delete" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -511,6 +579,40 @@
         }
       }
     },
+    "allocation.details.title.format" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ Budget"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Orçamento de %@"
+          }
+        }
+      }
+    },
+    "allocation.details.transactions.count.format" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Transactions (%d)"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Transações (%d)"
+          }
+        }
+      }
+    },
     "allocation.details.transactions.empty" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -545,36 +647,36 @@
         }
       }
     },
-    "allocation.details.title.format" : {
+    "allocation.edit.amount.placeholder" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@ Budget"
+            "value" : "Enter amount"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Orçamento de %@"
+            "value" : "Digite o valor"
           }
         }
       }
     },
-    "allocation.details.transactions.count.format" : {
+    "allocation.edit.title" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Transactions (%d)"
+            "value" : "Edit Allocation"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Transações (%d)"
+            "value" : "Editar Alocação"
           }
         }
       }
@@ -681,108 +783,6 @@
         }
       }
     },
-    "allocation.delete.message" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "This will remove the budget allocation for %@."
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Isso removerá a alocação de orçamento para %@."
-          }
-        }
-      }
-    },
-    "allocation.delete.recurring.all" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Delete All Future Months"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Excluir Todos os Meses Futuros"
-          }
-        }
-      }
-    },
-    "allocation.delete.recurring.this" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Delete This Month Only"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Excluir Apenas Este Mês"
-          }
-        }
-      }
-    },
-    "allocation.delete.title" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Delete Allocation?"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Excluir Alocação?"
-          }
-        }
-      }
-    },
-    "allocation.edit.amount.placeholder" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Enter amount"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Digite o valor"
-          }
-        }
-      }
-    },
-    "allocation.edit.title" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Edit Allocation"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Editar Alocação"
-          }
-        }
-      }
-    },
     "allocation.warning.exceeded" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -800,107 +800,9 @@
         }
       }
     },
-    "budget.allocated.percent" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@%% allocated"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@%% alocado"
-          }
-        }
-      }
-    },
-    "budget.allocations.title" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Allocations"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Alocações"
-          }
-        }
-      }
-    },
-    "budget.allocations.month.format" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ Allocations (%d)"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Alocações de %@ (%d)"
-          }
-        }
-      }
-    },
-    "budget.limit.format" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ of %@"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ de %@"
-          }
-        }
-      }
-    },
-    "budget.unallocated" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Unallocated"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Não alocado"
-          }
-        }
-      }
-    },
-    "budget.usage.format" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ / %@"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ / %@"
-          }
-        }
-      }
+    "Amount" : {
+      "comment" : "Label for the amount in the donut chart.",
+      "isCommentAutoGenerated" : true
     },
     "auth.dialog.accountFound.message" : {
       "extractionState" : "manual",
@@ -1429,6 +1331,74 @@
         }
       }
     },
+    "budget.allocated.label" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Allocated"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Alocado"
+          }
+        }
+      }
+    },
+    "budget.allocated.percent" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%d%% allocated"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%d%% alocado"
+          }
+        }
+      }
+    },
+    "budget.allocations.month.format" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ Allocations (%d)"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Alocações de %@ (%d)"
+          }
+        }
+      }
+    },
+    "budget.allocations.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Allocations"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Alocações"
+          }
+        }
+      }
+    },
     "budget.delete.title" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1442,6 +1412,91 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Apagar orçamento"
+          }
+        }
+      }
+    },
+    "budget.limit.format" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Budget: %@"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Orçamento: %@"
+          }
+        }
+      }
+    },
+    "budget.percent.label" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Budget"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Orçamento"
+          }
+        }
+      }
+    },
+    "budget.unallocated" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unallocated"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Não alocado"
+          }
+        }
+      }
+    },
+    "budget.usage.format" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ / %@"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ / %@"
+          }
+        }
+      }
+    },
+    "budget.allocations.emptyState.description" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No budget allocations for this month"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nenhuma alocação de orçamento para este mês"
           }
         }
       }
@@ -2126,6 +2181,23 @@
         }
       }
     },
+    "chart.total.label" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Total"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Total"
+          }
+        }
+      }
+    },
     "dashboard.welcomeSubtitle" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2466,23 +2538,6 @@
         }
       }
     },
-    "format.percentage" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%d%%"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%d%%"
-          }
-        }
-      }
-    },
     "filter.apply" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2649,6 +2704,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Tipo"
+          }
+        }
+      }
+    },
+    "format.percentage" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%d%%"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%d%%"
           }
         }
       }
@@ -5764,6 +5836,10 @@
         }
       }
     },
+    "Unallocated" : {
+      "comment" : "Description of a budget allocation category when the allocated amount is zero.",
+      "isCommentAutoGenerated" : true
+    },
     "updateToast.laterButton" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -5901,5 +5977,5 @@
       }
     }
   },
-  "version" : "1.0"
+  "version" : "1.1"
 }

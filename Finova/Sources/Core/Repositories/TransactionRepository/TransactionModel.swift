@@ -310,4 +310,35 @@ enum TransactionCategory: String, CaseIterable, Codable {
   var displayName: String {
     return self.rawValue.localized
   }
+
+  var color: UIColor {
+    switch self {
+    case .market: return UIColor(red: 0.35, green: 0.65, blue: 0.95, alpha: 1.0)       // Blue
+    case .meals: return UIColor(red: 0.95, green: 0.55, blue: 0.35, alpha: 1.0)        // Orange
+    case .gifts: return UIColor(red: 0.90, green: 0.45, blue: 0.65, alpha: 1.0)        // Pink
+    case .salary: return UIColor(red: 0.35, green: 0.75, blue: 0.55, alpha: 1.0)       // Green
+    case .utilities: return UIColor(red: 0.55, green: 0.55, blue: 0.75, alpha: 1.0)    // Purple-gray
+    case .entertainment: return UIColor(red: 0.85, green: 0.35, blue: 0.55, alpha: 1.0) // Magenta
+    case .transportation: return UIColor(red: 0.45, green: 0.70, blue: 0.85, alpha: 1.0) // Cyan
+    case .healthcare: return UIColor(red: 0.95, green: 0.35, blue: 0.35, alpha: 1.0)   // Red
+    case .subscriptions: return UIColor(red: 0.65, green: 0.45, blue: 0.85, alpha: 1.0) // Purple
+    case .education: return UIColor(red: 0.35, green: 0.55, blue: 0.85, alpha: 1.0)    // Indigo
+    case .travel: return UIColor(red: 0.25, green: 0.75, blue: 0.75, alpha: 1.0)       // Teal
+    case .groceries: return UIColor(red: 0.55, green: 0.80, blue: 0.35, alpha: 1.0)    // Lime
+    case .insurance: return UIColor(red: 0.45, green: 0.45, blue: 0.65, alpha: 1.0)    // Slate
+    case .savings: return UIColor(red: 0.35, green: 0.85, blue: 0.65, alpha: 1.0)      // Emerald
+    case .investments: return UIColor(red: 0.85, green: 0.75, blue: 0.35, alpha: 1.0)  // Gold
+    case .taxes: return UIColor(red: 0.75, green: 0.35, blue: 0.35, alpha: 1.0)        // Dark red
+    case .loans: return UIColor(red: 0.85, green: 0.55, blue: 0.55, alpha: 1.0)        // Salmon
+    case .donations: return UIColor(red: 0.75, green: 0.55, blue: 0.85, alpha: 1.0)    // Lavender
+    case .miscellaneous: return UIColor(red: 0.60, green: 0.60, blue: 0.60, alpha: 1.0) // Gray
+    case .clothing: return UIColor(red: 0.85, green: 0.45, blue: 0.75, alpha: 1.0)     // Fuchsia
+    case .personalCare: return UIColor(red: 0.95, green: 0.65, blue: 0.75, alpha: 1.0) // Light pink
+    case .homeMaintenance: return UIColor(red: 0.65, green: 0.55, blue: 0.45, alpha: 1.0) // Brown
+    case .communication: return UIColor(red: 0.35, green: 0.65, blue: 0.75, alpha: 1.0) // Steel blue
+    case .fitness: return UIColor(red: 0.95, green: 0.45, blue: 0.45, alpha: 1.0)      // Coral
+    case .transfer: return UIColor(red: 0.55, green: 0.65, blue: 0.75, alpha: 1.0)     // Blue-gray
+    case .bankSlip: return UIColor(red: 0.45, green: 0.55, blue: 0.55, alpha: 1.0)     // Dark cyan
+    }
+  }
 }

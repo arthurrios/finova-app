@@ -69,10 +69,15 @@ enum AllocationStatus {
 
 // MARK: - Display Model
 
-struct BudgetAllocation {
-    
-    let id: Int?
+struct BudgetAllocation: Identifiable {
+
+    let dbId: Int?
     let monthDate: Int
+
+    /// Stable identifier for SwiftUI ForEach - uses category key + monthDate
+    var id: String {
+        "\(category.key)_\(monthDate)"
+    }
     let category: TransactionCategory
     let allocatedAmount: Int
     let isRecurring: Bool
@@ -95,7 +100,7 @@ struct BudgetAllocation {
     }
     
     init(
-        id: Int? = nil,
+        dbId: Int? = nil,
         monthDate: Int,
         category: TransactionCategory,
         allocatedAmount: Int,
@@ -103,7 +108,7 @@ struct BudgetAllocation {
         parentAllocationId: Int? = nil,
         usedAmount: Int = 0
     ) {
-        self.id = id
+        self.dbId = dbId
         self.monthDate = monthDate
         self.category = category
         self.allocatedAmount = allocatedAmount
@@ -111,9 +116,9 @@ struct BudgetAllocation {
         self.parentAllocationId = parentAllocationId
         self.usedAmount = usedAmount
     }
-    
+
     init(from model: BudgetAllocationModel) {
-        self.id = model.id
+        self.dbId = model.id
         self.monthDate = model.monthDate
         self.category = TransactionCategory.allCases.first {
             $0.key == model.categoryKey
@@ -123,11 +128,11 @@ struct BudgetAllocation {
         self.parentAllocationId = model.parentAllocationId
         self.usedAmount = 0
     }
-    
+
     mutating func setUsedAmount(_ amount: Int) {
         self.usedAmount = amount
     }
-    
+
     static func mock(
         category: TransactionCategory = .meals,
         allocated: Int = 50000,
@@ -135,7 +140,7 @@ struct BudgetAllocation {
         used: Int = 37500
     ) -> BudgetAllocation {
         BudgetAllocation(
-            id: Int.random(in: 1...1000),
+            dbId: Int.random(in: 1...1000),
             monthDate: Int(Date().timeIntervalSince1970),
             category: category,
             allocatedAmount: allocated,

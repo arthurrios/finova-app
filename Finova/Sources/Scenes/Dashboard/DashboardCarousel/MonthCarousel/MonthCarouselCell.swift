@@ -42,15 +42,18 @@ class MonthCarouselCell: UICollectionViewCell {
     weak var searchDelegate: MonthCarouselCellDelegate?
     
     // MARK: - Properties
-    
+
     let monthCard = MonthBudgetCard()
     var transactions: [Transaction] = []
     var filteredTransactions: [Transaction] = []
     private var tableHeightConstraint: NSLayoutConstraint?
+    private var allocationsTableHeightConstraint: NSLayoutConstraint?
     private var monthCardHeightConstraint: NSLayoutConstraint?
+    private var originalMonthCardHeight: CGFloat = 0  // Stored once, never changes
     private var isSearchActive: Bool = false
     var currentFilters = TransactionFilters()
     private var isShowingBudgetView = false
+    private var currentAllocations: [BudgetAllocation] = []
     
     // MARK: - UI Components
     
@@ -225,6 +228,111 @@ class MonthCarouselCell: UICollectionViewCell {
         card.translatesAutoresizingMaskIntoConstraints = false
         return card
     }()
+
+    // MARK: - Allocations Table Components
+
+    private let allocationsTableHeaderView: UIStackView = {
+        let stackView = UIStackView()
+        stackView.axis = .horizontal
+        stackView.alignment = .center
+        stackView.heightAnchor.constraint(equalToConstant: Metrics.spacing11).isActive = true
+        stackView.layer.cornerRadius = CornerRadius.extraLarge
+        stackView.layer.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner]
+        stackView.backgroundColor = Colors.gray100
+        stackView.layoutMargins = UIEdgeInsets(
+            top: 0, left: Metrics.spacing5, bottom: 0, right: Metrics.spacing4)
+        stackView.isLayoutMarginsRelativeArrangement = true
+        stackView.distribution = .equalSpacing
+        stackView.isHidden = true
+        stackView.translatesAutoresizingMaskIntoConstraints = false
+        return stackView
+    }()
+
+    private let allocationsHeaderTitleLabel: UILabel = {
+        let label = UILabel()
+        label.fontStyle = Fonts.title2XS
+        label.textColor = Colors.gray500
+        label.text = "budget.allocations.title".localized
+        label.applyStyle()
+        label.textAlignment = .left
+        label.translatesAutoresizingMaskIntoConstraints = false
+        return label
+    }()
+
+    private let allocationsNumberContainerView: UIStackView = {
+        let stackView = UIStackView()
+        stackView.axis = .horizontal
+        stackView.distribution = .fillEqually
+        stackView.heightAnchor.constraint(equalToConstant: 18).isActive = true
+        stackView.layoutMargins = UIEdgeInsets(
+            top: 0, left: Metrics.spacing2, bottom: 0, right: Metrics.spacing2)
+        stackView.isLayoutMarginsRelativeArrangement = true
+        stackView.backgroundColor = Colors.gray300
+        stackView.clipsToBounds = true
+        stackView.alignment = .center
+        stackView.translatesAutoresizingMaskIntoConstraints = false
+        return stackView
+    }()
+
+    private let allocationsNumberLabel: UILabel = {
+        let label = UILabel()
+        label.font = Fonts.titleXS.font
+        label.textColor = Colors.gray600
+        label.textAlignment = .center
+        label.translatesAutoresizingMaskIntoConstraints = false
+        return label
+    }()
+
+    lazy var allocationsTableView: UITableView = {
+        let tableView = UITableView()
+        tableView.backgroundColor = Colors.gray100
+        tableView.layer.borderWidth = 1
+        tableView.layer.borderColor = Colors.gray300.cgColor
+        tableView.layer.cornerRadius = CornerRadius.extraLarge
+        tableView.layer.maskedCorners = [.layerMinXMaxYCorner, .layerMaxXMaxYCorner]
+        tableView.separatorStyle = .singleLine
+        tableView.separatorInset = UIEdgeInsets.zero
+        tableView.clipsToBounds = true
+        tableView.separatorColor = Colors.gray300
+        tableView.isHidden = true
+        tableView.translatesAutoresizingMaskIntoConstraints = false
+        tableView.setContentHuggingPriority(.defaultLow, for: .vertical)
+        tableView.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
+        tableView.register(AllocationCell.self, forCellReuseIdentifier: AllocationCell.reuseIdentifier)
+        return tableView
+    }()
+
+    private let allocationsEmptyStateView: UIView = {
+        let view = UIView()
+        view.backgroundColor = Colors.gray100
+        view.layer.borderWidth = 1
+        view.layer.borderColor = Colors.gray300.cgColor
+        view.layer.cornerRadius = CornerRadius.extraLarge
+        view.layer.maskedCorners = [.layerMinXMaxYCorner, .layerMaxXMaxYCorner]
+        view.isHidden = true
+        view.translatesAutoresizingMaskIntoConstraints = false
+        return view
+    }()
+
+    private let allocationsEmptyStateIconImageView: UIImageView = {
+        let imageView = UIImageView()
+        let config = UIImage.SymbolConfiguration(pointSize: 24, weight: .medium)
+        imageView.image = UIImage(systemName: "chart.pie", withConfiguration: config)
+        imageView.tintColor = Colors.gray400
+        imageView.contentMode = .scaleAspectFit
+        imageView.translatesAutoresizingMaskIntoConstraints = false
+        return imageView
+    }()
+
+    private let allocationsEmptyStateDescriptionLabel: UILabel = {
+        let label = UILabel()
+        label.font = Fonts.textXS.font
+        label.textColor = Colors.gray500
+        label.numberOfLines = 0
+        label.text = "budget.allocations.emptyState.description".localized
+        label.translatesAutoresizingMaskIntoConstraints = false
+        return label
+    }()
     
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -274,7 +382,21 @@ class MonthCarouselCell: UICollectionViewCell {
         contentView.addSubview(emptyStateView)
         emptyStateView.addSubview(emptyStateIconImageView)
         emptyStateView.addSubview(emptyStateDescriptionLabel)
-        
+
+        // Allocations table components
+        contentView.addSubview(allocationsTableHeaderView)
+        allocationsTableHeaderView.addArrangedSubview(allocationsHeaderTitleLabel)
+        allocationsTableHeaderView.addArrangedSubview(allocationsNumberContainerView)
+        allocationsNumberContainerView.addArrangedSubview(allocationsNumberLabel)
+        contentView.addSubview(allocationsTableView)
+        contentView.addSubview(allocationsEmptyStateView)
+        allocationsEmptyStateView.addSubview(allocationsEmptyStateIconImageView)
+        allocationsEmptyStateView.addSubview(allocationsEmptyStateDescriptionLabel)
+
+        // Set up allocations table data source and delegate
+        allocationsTableView.dataSource = self
+        allocationsTableView.delegate = self
+
         setupConstraints()
     }
     
@@ -286,10 +408,10 @@ class MonthCarouselCell: UICollectionViewCell {
             monthCard.trailingAnchor.constraint(
                 equalTo: contentView.trailingAnchor, constant: -Metrics.spacing4),
             
+            // BudgetCard overlays monthCard but doesn't affect its height
             budgetCard.topAnchor.constraint(equalTo: monthCard.topAnchor),
             budgetCard.leadingAnchor.constraint(equalTo: monthCard.leadingAnchor),
             budgetCard.trailingAnchor.constraint(equalTo: monthCard.trailingAnchor),
-            budgetCard.bottomAnchor.constraint(equalTo: monthCard.bottomAnchor),
             
             searchContainerView.topAnchor.constraint(
                 equalTo: monthCard.bottomAnchor, constant: Metrics.spacing4),
@@ -339,6 +461,35 @@ class MonthCarouselCell: UICollectionViewCell {
                 equalTo: emptyStateView.trailingAnchor, constant: -Metrics.spacing4),
             emptyStateDescriptionLabel.centerYAnchor.constraint(equalTo: emptyStateView.centerYAnchor),
         ])
+
+        // Allocations table constraints - positioned directly below budgetCard (no search bar)
+        NSLayoutConstraint.activate([
+            allocationsTableHeaderView.topAnchor.constraint(
+                equalTo: budgetCard.bottomAnchor, constant: Metrics.spacing4),
+            allocationsTableHeaderView.leadingAnchor.constraint(equalTo: monthCard.leadingAnchor),
+            allocationsTableHeaderView.trailingAnchor.constraint(equalTo: monthCard.trailingAnchor),
+
+            allocationsTableView.topAnchor.constraint(equalTo: allocationsTableHeaderView.bottomAnchor),
+            allocationsTableView.leadingAnchor.constraint(equalTo: monthCard.leadingAnchor),
+            allocationsTableView.trailingAnchor.constraint(equalTo: monthCard.trailingAnchor),
+
+            allocationsEmptyStateView.topAnchor.constraint(equalTo: allocationsTableHeaderView.bottomAnchor),
+            allocationsEmptyStateView.leadingAnchor.constraint(equalTo: monthCard.leadingAnchor),
+            allocationsEmptyStateView.trailingAnchor.constraint(equalTo: monthCard.trailingAnchor),
+            allocationsEmptyStateView.heightAnchor.constraint(equalToConstant: Metrics.tableEmptyViewHeight),
+
+            allocationsEmptyStateIconImageView.leadingAnchor.constraint(
+                equalTo: allocationsEmptyStateView.leadingAnchor, constant: Metrics.spacing5),
+            allocationsEmptyStateIconImageView.centerYAnchor.constraint(equalTo: allocationsEmptyStateView.centerYAnchor),
+            allocationsEmptyStateIconImageView.heightAnchor.constraint(equalToConstant: Metrics.spacing8),
+            allocationsEmptyStateIconImageView.widthAnchor.constraint(equalToConstant: Metrics.spacing8),
+
+            allocationsEmptyStateDescriptionLabel.leadingAnchor.constraint(
+                equalTo: allocationsEmptyStateIconImageView.trailingAnchor, constant: Metrics.spacing5),
+            allocationsEmptyStateDescriptionLabel.trailingAnchor.constraint(
+                equalTo: allocationsEmptyStateView.trailingAnchor, constant: -Metrics.spacing4),
+            allocationsEmptyStateDescriptionLabel.centerYAnchor.constraint(equalTo: allocationsEmptyStateView.centerYAnchor),
+        ])
     }
     
     func configure(with model: MonthBudgetCardType, transactions: [Transaction]) {
@@ -381,36 +532,34 @@ class MonthCarouselCell: UICollectionViewCell {
     }
     
     private func updateMonthCardMinHeight() {
-        // Calculate the card's natural height using systemLayoutSizeFitting
-        // This gives us the height the card wants to be, not what it currently is
         guard monthCard.bounds.width > 0 else { return }
-        
-        // Force the card to layout to get accurate measurements
-        monthCard.setNeedsLayout()
-        monthCard.layoutIfNeeded()
-        
-        let targetSize = CGSize(
-            width: monthCard.bounds.width, height: UIView.layoutFittingExpandedSize.height)
-        let cardHeight = monthCard.systemLayoutSizeFitting(
-            targetSize,
-            withHorizontalFittingPriority: .required,
-            verticalFittingPriority: .fittingSizeLevel
-        ).height
-        
-        // Only set fixed height if we have a valid height and it's greater than 0
-        guard cardHeight > 0 else { return }
-        
+
+        // Calculate height only once and store it
+        if originalMonthCardHeight == 0 {
+            // Force the card to layout to get accurate measurements
+            monthCard.setNeedsLayout()
+            monthCard.layoutIfNeeded()
+
+            let targetSize = CGSize(
+                width: monthCard.bounds.width, height: UIView.layoutFittingExpandedSize.height)
+            let cardHeight = monthCard.systemLayoutSizeFitting(
+                targetSize,
+                withHorizontalFittingPriority: .required,
+                verticalFittingPriority: .fittingSizeLevel
+            ).height
+
+            guard cardHeight > 0 else { return }
+            originalMonthCardHeight = cardHeight
+        }
+
+        // Create or update constraint to use the stored original height
         if monthCardHeightConstraint == nil {
-            // Use equal height constraint (not minimum) to fix the card's height
-            // Set priority to required to ensure it's never compressed
-            monthCardHeightConstraint = monthCard.heightAnchor.constraint(equalToConstant: cardHeight)
+            monthCardHeightConstraint = monthCard.heightAnchor.constraint(equalToConstant: originalMonthCardHeight)
             monthCardHeightConstraint?.priority = .required
             monthCardHeightConstraint?.isActive = true
         } else {
-            // Only update if the natural height is different and larger
-            if abs(cardHeight - monthCardHeightConstraint!.constant) > 1 {
-                monthCardHeightConstraint?.constant = cardHeight
-            }
+            // Always force the constraint back to original height
+            monthCardHeightConstraint?.constant = originalMonthCardHeight
         }
     }
     
@@ -681,68 +830,134 @@ class MonthCarouselCell: UICollectionViewCell {
     
     func flipToBudgetView(allocations: [BudgetAllocation], summary: UnallocatedBudgetSummary) {
         guard !isShowingBudgetView else { return }
-        
+
+        // Set state BEFORE animation to prevent icon flash
+        isShowingBudgetView = true
+        monthCard.setShowingBudgetView(true)
+
+        // Store allocations and update table
+        currentAllocations = allocations
+        allocationsTableView.reloadData()
+        allocationsNumberLabel.text = "\(allocations.count)"
+        updateAllocationsTableHeight(count: allocations.count)
+
         budgetCard.configure(
             month: monthCard.currentMonth,
             year: monthCard.currentYear,
             allocations: allocations,
             unallocatedSummary: summary
         )
-        
+
+        let hasAllocations = !allocations.isEmpty
+
+        // Use flip transition
         UIView.transition(
             with: contentView,
-            duration: 0.4,
+            duration: 0.5,
             options: [.transitionFlipFromRight, .showHideTransitionViews]
         ) {
             self.monthCard.isHidden = true
             self.budgetCard.isHidden = false
-            // Hide transaction-related views
+            // Hide search bar and transactions table components
             self.searchContainerView.isHidden = true
             self.tableHeaderView.isHidden = true
             self.transactionTableView.isHidden = true
             self.emptyStateView.isHidden = true
-        } completion: { _ in
-            self.isShowingBudgetView = true
-            self.monthCard.setShowingBudgetView(true)
+            // Show allocations table components
+            self.allocationsTableHeaderView.isHidden = false
+            self.allocationsTableView.isHidden = !hasAllocations
+            self.allocationsEmptyStateView.isHidden = hasAllocations
         }
     }
 
     func flipToTransactionView() {
         guard isShowingBudgetView else { return }
 
+        // Set state BEFORE animation to prevent icon flash
+        isShowingBudgetView = false
+        monthCard.setShowingBudgetView(false)
+
+        let hasTransactions = !transactions.isEmpty
+
         UIView.transition(
             with: contentView,
-            duration: 0.4,
+            duration: 0.5,
             options: [.transitionFlipFromLeft, .showHideTransitionViews]
         ) {
             self.monthCard.isHidden = false
             self.budgetCard.isHidden = true
-            // Show transaction-related views
+            // Show search bar and transactions table components
             self.searchContainerView.isHidden = false
             self.tableHeaderView.isHidden = false
-            // Restore table/empty state based on transactions
-            let hasTransactions = !self.transactions.isEmpty
             self.transactionTableView.isHidden = !hasTransactions
             self.emptyStateView.isHidden = hasTransactions
-        } completion: { _ in
-            self.isShowingBudgetView = false
-            self.monthCard.setShowingBudgetView(false)
+            // Hide allocations table components
+            self.allocationsTableHeaderView.isHidden = true
+            self.allocationsTableView.isHidden = true
+            self.allocationsEmptyStateView.isHidden = true
         }
+    }
+
+    private func updateAllocationsTableHeight(count: Int) {
+        let rowHeight: CGFloat = 68  // AllocationCell height with new layout
+        let separatorHeight = CGFloat(max(0, count - 1)) * 1.0
+        let contentHeight = CGFloat(count) * rowHeight + separatorHeight
+
+        let availableHeight = calculateAvailableHeightForAllocationsTable()
+        let maxTableHeight = max(0, availableHeight)
+        let finalHeight = min(contentHeight, maxTableHeight)
+
+        if allocationsTableHeightConstraint == nil {
+            allocationsTableHeightConstraint = allocationsTableView.heightAnchor.constraint(
+                equalToConstant: finalHeight)
+            allocationsTableHeightConstraint?.priority = .required
+            allocationsTableHeightConstraint?.isActive = true
+        } else {
+            allocationsTableHeightConstraint?.constant = finalHeight
+        }
+
+        allocationsTableView.isScrollEnabled = (contentHeight > maxTableHeight)
+        allocationsTableView.showsVerticalScrollIndicator = false
+    }
+
+    private func calculateAvailableHeightForAllocationsTable() -> CGFloat {
+        let cellHeight = contentView.bounds.height > 0 ? contentView.bounds.height : bounds.height
+        guard cellHeight > 0 else {
+            return Metrics.transactionsTableHeight
+        }
+
+        // Calculate components - NO search bar for allocations view
+        let topPadding = Metrics.spacing4
+        // Use budget card height (it sizes itself)
+        let budgetCardHeight = budgetCard.bounds.height > 0 ? budgetCard.bounds.height : 220
+        let spacingAfterCard = Metrics.spacing4
+        let tableHeaderHeight = Metrics.spacing11
+        let bottomPadding = Metrics.spacing4
+
+        let fixedComponentsHeight = topPadding + budgetCardHeight + spacingAfterCard + tableHeaderHeight + bottomPadding
+
+        let availableHeight = cellHeight - fixedComponentsHeight
+
+        return max(100, min(availableHeight - 10, Metrics.transactionsTableHeight + 100))
     }
     
     override func layoutSubviews() {
         super.layoutSubviews()
-        
-        // Only update card height constraint if it hasn't been set yet
-        // This prevents unnecessary recalculations during layout cycles
-        if monthCardHeightConstraint == nil && monthCard.bounds.width > 0 {
+
+        // Always ensure the month card height is set/restored to original
+        if monthCard.bounds.width > 0 {
             updateMonthCardMinHeight()
         }
-        
+
         // Recalculate table height after layout to account for actual available space
-        if monthCardHeightConstraint != nil {
+        if monthCardHeightConstraint != nil && !isShowingBudgetView {
             let currentCount = isSearchActive ? filteredTransactions.count : transactions.count
             updateTableHeight(txsCount: currentCount)
+        }
+
+        // Update allocations table height when in budget view
+        if isShowingBudgetView && !currentAllocations.isEmpty {
+            updateAllocationsTableHeight(count: currentAllocations.count)
         }
         
         transactionsNumberContainerView.layoutIfNeeded()
@@ -752,33 +967,74 @@ class MonthCarouselCell: UICollectionViewCell {
         transactionsNumberContainerView.layer.cornerRadius = size / 2
         
         transactionsNumberContainerView.clipsToBounds = true
-        
+
         tableHeaderView.layer.sublayers?.removeAll(where: { $0 is CAShapeLayer })
         tableHeaderView.layoutIfNeeded()
         addBordersExceptBottom(to: tableHeaderView, color: Colors.gray300)
+
+        // Allocations table header rounded corners
+        allocationsNumberContainerView.layoutIfNeeded()
+        let allocationsSize = min(
+            allocationsNumberContainerView.bounds.width, allocationsNumberContainerView.bounds.height)
+        allocationsNumberContainerView.layer.cornerRadius = allocationsSize / 2
+        allocationsNumberContainerView.clipsToBounds = true
+
+        allocationsTableHeaderView.layer.sublayers?.removeAll(where: { $0 is CAShapeLayer })
+        allocationsTableHeaderView.layoutIfNeeded()
+        addBordersExceptBottom(to: allocationsTableHeaderView, color: Colors.gray300)
     }
     
     override func prepareForReuse() {
         super.prepareForReuse()
         monthCard.resetForReuse()
-        
-        // Reset height constraint to force recalculation for new content
+
+        // Reset height values to force recalculation for new content
         monthCardHeightConstraint?.isActive = false
         monthCardHeightConstraint = nil
-        
+        originalMonthCardHeight = 0
+
+        // Reset alpha values
+        monthCard.alpha = 1
+        budgetCard.alpha = 1
+        searchContainerView.alpha = 1
+        tableHeaderView.alpha = 1
+        transactionTableView.alpha = 1
+        emptyStateView.alpha = 1
+        allocationsTableHeaderView.alpha = 1
+        allocationsTableView.alpha = 1
+        allocationsEmptyStateView.alpha = 1
+
+        // Reset flip state
+        isShowingBudgetView = false
+        monthCard.isHidden = false
+        budgetCard.isHidden = true
+        searchContainerView.isHidden = false
+
         // Reset table height constraint to force recalculation
         tableHeightConstraint?.isActive = false
         tableHeightConstraint = nil
-        
+
+        // Reset allocations table
+        allocationsTableHeightConstraint?.isActive = false
+        allocationsTableHeightConstraint = nil
+        currentAllocations = []
+
         // Reset scroll state to default
         transactionTableView.isScrollEnabled = false
         transactionTableView.contentInset = .zero
         transactionTableView.scrollIndicatorInsets = .zero
-        
+
+        allocationsTableView.isScrollEnabled = false
+        allocationsTableView.contentInset = .zero
+        allocationsTableView.scrollIndicatorInsets = .zero
+
         // Hide both table and empty state during cell setup to prevent flashing
         transactionTableView.isHidden = true
         emptyStateView.isHidden = true
-        
+        allocationsTableHeaderView.isHidden = true
+        allocationsTableView.isHidden = true
+        allocationsEmptyStateView.isHidden = true
+
         clearSearch()
     }
 }
@@ -827,12 +1083,24 @@ extension MonthCarouselCell {
 extension MonthCarouselCell: MonthCardFlipDelegate {
     func didRequestFlip(isShowingBudgetView: Bool) {
         if isShowingBudgetView {
+            // Extended mock data with various categories and large values
+            // Values are in cents: R$ 1.00 = 100, R$ 1,000.00 = 100_000
             let mockAllocations = [
-                BudgetAllocation.mock(category: .meals, allocated: 50000, used: 37500),
-                BudgetAllocation.mock(category: .transportation, allocated: 30000, used: 28000),
-                BudgetAllocation.mock(category: .entertainment, allocated: 20000, used: 25000)
+                BudgetAllocation.mock(category: .meals, allocated: 15_000_000, used: 12_000_000),          // R$ 150k
+                BudgetAllocation.mock(category: .transportation, allocated: 8_000_000, used: 7_500_000),   // R$ 80k
+                BudgetAllocation.mock(category: .entertainment, allocated: 5_000_000, used: 6_500_000),    // R$ 50k - over budget
+                BudgetAllocation.mock(category: .groceries, allocated: 120_000_000, used: 80_000_000),     // R$ 1.2 mi
+                BudgetAllocation.mock(category: .healthcare, allocated: 3_000_000, used: 1_500_000),       // R$ 30k - under budget
+                BudgetAllocation.mock(category: .subscriptions, allocated: 2_500_000, used: 2_200_000),    // R$ 25k - near limit
+                BudgetAllocation.mock(category: .utilities, allocated: 4_500_000, used: 4_400_000),        // R$ 45k - near limit
+                BudgetAllocation.mock(category: .education, allocated: 20_000_000, used: 18_000_000)       // R$ 200k
             ]
-            let mockSummary = UnallocatedBudgetSummary.mock()
+            let mockSummary = UnallocatedBudgetSummary(
+                monthDate: Int(Date().timeIntervalSince1970),
+                totalBudget: 250_000_000,       // R$ 2.5 mi total budget
+                totalAllocated: 178_000_000,    // Sum of allocations above
+                totalUsedInUnallocatedCategories: 10_000_000
+            )
             flipToBudgetView(allocations: mockAllocations, summary: mockSummary)
         } else {
             flipToTransactionView()
@@ -848,5 +1116,44 @@ extension MonthCarouselCell: MonthCardFlipDelegate {
         // Forward to parent for navigation
         // Will implement later
         print("Tapped allocation: \(allocation.category.displayName)")
+    }
+}
+
+// MARK: - UITableViewDataSource & UITableViewDelegate for Allocations
+
+extension MonthCarouselCell: UITableViewDataSource, UITableViewDelegate {
+
+    func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
+        if tableView === allocationsTableView {
+            return currentAllocations.count
+        }
+        return 0
+    }
+
+    func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+        if tableView === allocationsTableView {
+            guard let cell = tableView.dequeueReusableCell(
+                withIdentifier: AllocationCell.reuseIdentifier,
+                for: indexPath
+            ) as? AllocationCell else {
+                return UITableViewCell()
+            }
+
+            let allocation = currentAllocations[indexPath.row]
+            cell.configure(with: allocation)
+            cell.setTapAction { [weak self] in
+                self?.didTapAllocation(allocation)
+            }
+
+            return cell
+        }
+        return UITableViewCell()
+    }
+
+    func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
+        if tableView === allocationsTableView {
+            return 68  // AllocationCell with new layout
+        }
+        return UITableView.automaticDimension
     }
 }

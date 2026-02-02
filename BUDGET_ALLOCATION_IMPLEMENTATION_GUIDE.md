@@ -2176,7 +2176,7 @@ final class AllocationCell: UITableViewCell {
 
     private lazy var categoryLabel: UILabel = {
         let label = UILabel()
-        label.font = Fonts.textSM.fontBold.font
+        label.font = Fonts.textSMBold.font
         label.textColor = Colors.gray100
         return label
     }()
@@ -2279,7 +2279,7 @@ final class AllocationCell: UITableViewCell {
     // MARK: - Configuration
 
     func configure(with allocation: BudgetAllocation) {
-        categoryIconView.image = allocation.category.icon
+        categoryIconView.image = UIImage(named: allocation.category.iconName)
         categoryLabel.text = allocation.category.displayName
         usageLabel.text = String(
             format: "budget.usage.format".localized,
@@ -2616,9 +2616,10 @@ struct BudgetDonutChartView: View {
 
 **File:** `Finova/Sources/Scenes/Dashboard/DashboardCarousel/MonthCarousel/BudgetCard/BudgetCard.swift`
 
+> **Important:** This layout matches `MonthBudgetCard` exactly - same header format with "Month / Year", same footer style with two vertical stacks, and progress bar edge-to-edge at bottom.
+
 ```swift
 import UIKit
-import SwiftUI
 
 final class BudgetCard: UIView {
 
@@ -2627,46 +2628,50 @@ final class BudgetCard: UIView {
     private var allocations: [BudgetAllocation] = []
     private var unallocatedSummary: UnallocatedBudgetSummary?
     weak var delegate: MonthCardFlipDelegate?
+    private let gradientLayer = Colors.gradientBlack
 
     // MARK: - UI Components
 
-    private lazy var headerStackView: UIStackView = {
+    // Header - matching MonthBudgetCard style
+    private lazy var headerHorizontalStackView: UIStackView = {
         let stack = UIStackView()
         stack.axis = .horizontal
         stack.alignment = .center
-        stack.distribution = .fill
-        stack.spacing = Metrics.spacing3
         stack.translatesAutoresizingMaskIntoConstraints = false
         return stack
     }()
 
-    private lazy var titleStackView: UIStackView = {
+    private lazy var headerDateStackView: UIStackView = {
         let stack = UIStackView()
-        stack.axis = .vertical
-        stack.spacing = 2
+        stack.axis = .horizontal
+        stack.spacing = Metrics.spacing2
+        stack.alignment = .center
         return stack
     }()
 
     private lazy var monthLabel: UILabel = {
         let label = UILabel()
-        label.font = Fonts.titleMD.font
+        label.fontStyle = Fonts.titleSM  // Uses fontStyle like MonthBudgetCard
         label.textColor = Colors.gray100
+        label.setContentHuggingPriority(.defaultHigh, for: .horizontal)
+        label.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
         return label
     }()
 
     private lazy var yearLabel: UILabel = {
         let label = UILabel()
-        label.font = Fonts.textSM.font
+        label.font = Fonts.titleXS.font
         label.textColor = Colors.gray400
         return label
     }()
 
     private lazy var flipBackButton: UIButton = {
         let button = UIButton(type: .system)
-        let config = UIImage.SymbolConfiguration(pointSize: 14, weight: .medium)
+        let config = UIImage.SymbolConfiguration(pointSize: 16, weight: .medium)
         button.setImage(UIImage(systemName: "creditcard.fill", withConfiguration: config), for: .normal)
         button.tintColor = Colors.gray100
         button.addTarget(self, action: #selector(flipBack), for: .touchUpInside)
+        button.translatesAutoresizingMaskIntoConstraints = false
         return button
     }()
 
@@ -2676,29 +2681,68 @@ final class BudgetCard: UIView {
         return view
     }()
 
-    private lazy var budgetLimitLabel: UILabel = {
+    // Footer - matching MonthBudgetCard style (two vertical stacks)
+    private lazy var footerStackView: UIStackView = {
+        let stack = UIStackView()
+        stack.axis = .horizontal
+        stack.distribution = .fillEqually
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        return stack
+    }()
+
+    private lazy var allocatedStackView: UIStackView = {
+        let stack = UIStackView()
+        stack.axis = .vertical
+        stack.spacing = Metrics.spacing2
+        return stack
+    }()
+
+    private lazy var allocatedTextLabel: UILabel = {
         let label = UILabel()
         label.font = Fonts.textXS.font
+        label.text = "budget.allocated.label".localized  // "Allocated"
         label.textColor = Colors.gray400
-        label.translatesAutoresizingMaskIntoConstraints = false
         return label
     }()
 
-    private lazy var allocationProgressBar: RoundedProgressBar = {
+    private lazy var allocatedValueLabel: UILabel = {
+        let label = UILabel()
+        label.font = Fonts.textSM.font
+        label.textColor = Colors.gray100
+        return label
+    }()
+
+    private lazy var percentStackView: UIStackView = {
+        let stack = UIStackView()
+        stack.axis = .vertical
+        stack.spacing = Metrics.spacing2
+        stack.alignment = .trailing
+        return stack
+    }()
+
+    private lazy var percentTextLabel: UILabel = {
+        let label = UILabel()
+        label.font = Fonts.textXS.font
+        label.text = "budget.percent.label".localized  // "Budget"
+        label.textColor = Colors.gray400
+        return label
+    }()
+
+    private lazy var percentValueLabel: UILabel = {
+        let label = UILabel()
+        label.font = Fonts.textSM.font
+        label.textColor = Colors.gray100
+        return label
+    }()
+
+    // Progress bar - edge to edge like MonthBudgetCard
+    private lazy var progressBar: RoundedProgressBar = {
         let bar = RoundedProgressBar()
         bar.trackTintColor = Colors.gray600
         bar.progressTintColor = Colors.mainMagenta
+        bar.cornerRadius = 4.0
         bar.translatesAutoresizingMaskIntoConstraints = false
         return bar
-    }()
-
-    private lazy var allocationPercentLabel: UILabel = {
-        let label = UILabel()
-        label.font = Fonts.textXS.font
-        label.textColor = Colors.gray400
-        label.textAlignment = .right
-        label.translatesAutoresizingMaskIntoConstraints = false
-        return label
     }()
 
     private lazy var allocationsTableView: UITableView = {
@@ -2725,57 +2769,78 @@ final class BudgetCard: UIView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    // MARK: - Setup
-
     private func setupUI() {
-        backgroundColor = Colors.gray700
-        layer.cornerRadius = CornerRadius.large
+        // Apply gradient background like MonthBudgetCard
+        layer.insertSublayer(gradientLayer, at: 0)
+        layer.cornerRadius = CornerRadius.extraLarge
         clipsToBounds = true
 
-        titleStackView.addArrangedSubview(monthLabel)
-        titleStackView.addArrangedSubview(yearLabel)
+        // Header setup - matching MonthBudgetCard
+        headerDateStackView.addArrangedSubview(monthLabel)
+        headerDateStackView.addArrangedSubview(yearLabel)
 
-        headerStackView.addArrangedSubview(titleStackView)
-        headerStackView.addArrangedSubview(UIView()) // Spacer
-        headerStackView.addArrangedSubview(flipBackButton)
+        headerHorizontalStackView.addArrangedSubview(headerDateStackView)
+        headerHorizontalStackView.addArrangedSubview(UIView()) // Spacer
+        headerHorizontalStackView.addArrangedSubview(flipBackButton)
 
-        addSubview(headerStackView)
+        // Footer setup - matching MonthBudgetCard
+        allocatedStackView.addArrangedSubview(allocatedTextLabel)
+        allocatedStackView.addArrangedSubview(allocatedValueLabel)
+
+        percentStackView.addArrangedSubview(percentTextLabel)
+        percentStackView.addArrangedSubview(percentValueLabel)
+
+        footerStackView.addArrangedSubview(allocatedStackView)
+        footerStackView.addArrangedSubview(percentStackView)
+
+        addSubview(headerHorizontalStackView)
         addSubview(chartContainerView)
-        addSubview(budgetLimitLabel)
-        addSubview(allocationProgressBar)
-        addSubview(allocationPercentLabel)
+        addSubview(footerStackView)
         addSubview(allocationsTableView)
+        addSubview(progressBar)
 
         setupConstraints()
     }
 
     private func setupConstraints() {
         NSLayoutConstraint.activate([
-            headerStackView.topAnchor.constraint(equalTo: topAnchor, constant: Metrics.spacing4),
-            headerStackView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Metrics.spacing4),
-            headerStackView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Metrics.spacing4),
+            // Header
+            headerHorizontalStackView.topAnchor.constraint(equalTo: topAnchor, constant: Metrics.spacing6),
+            headerHorizontalStackView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Metrics.spacing6),
+            headerHorizontalStackView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Metrics.spacing6),
 
-            chartContainerView.topAnchor.constraint(equalTo: headerStackView.bottomAnchor, constant: Metrics.spacing3),
+            // Chart container
+            chartContainerView.topAnchor.constraint(equalTo: headerHorizontalStackView.bottomAnchor, constant: Metrics.spacing3),
             chartContainerView.centerXAnchor.constraint(equalTo: centerXAnchor),
             chartContainerView.widthAnchor.constraint(equalToConstant: 140),
             chartContainerView.heightAnchor.constraint(equalToConstant: 140),
 
-            budgetLimitLabel.topAnchor.constraint(equalTo: chartContainerView.bottomAnchor, constant: Metrics.spacing3),
-            budgetLimitLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Metrics.spacing4),
-
-            allocationPercentLabel.centerYAnchor.constraint(equalTo: budgetLimitLabel.centerYAnchor),
-            allocationPercentLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Metrics.spacing4),
-
-            allocationProgressBar.topAnchor.constraint(equalTo: budgetLimitLabel.bottomAnchor, constant: Metrics.spacing2),
-            allocationProgressBar.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Metrics.spacing4),
-            allocationProgressBar.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Metrics.spacing4),
-            allocationProgressBar.heightAnchor.constraint(equalToConstant: 6),
-
-            allocationsTableView.topAnchor.constraint(equalTo: allocationProgressBar.bottomAnchor, constant: Metrics.spacing3),
+            // Table view
+            allocationsTableView.topAnchor.constraint(equalTo: chartContainerView.bottomAnchor, constant: Metrics.spacing3),
             allocationsTableView.leadingAnchor.constraint(equalTo: leadingAnchor),
             allocationsTableView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            allocationsTableView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -Metrics.spacing2),
+            allocationsTableView.bottomAnchor.constraint(equalTo: footerStackView.topAnchor, constant: -Metrics.spacing3),
+
+            // Footer - above progress bar
+            footerStackView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Metrics.spacing6),
+            footerStackView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Metrics.spacing6),
+            footerStackView.bottomAnchor.constraint(equalTo: progressBar.topAnchor, constant: -Metrics.spacing4),
+
+            // Progress bar - edge to edge at bottom (like MonthBudgetCard)
+            progressBar.bottomAnchor.constraint(equalTo: bottomAnchor),
+            progressBar.leadingAnchor.constraint(equalTo: leadingAnchor),
+            progressBar.trailingAnchor.constraint(equalTo: trailingAnchor),
+            progressBar.heightAnchor.constraint(equalToConstant: 8),
         ])
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        gradientLayer.frame = bounds
+    }
+
+    @objc private func flipBack() {
+        delegate?.didRequestFlip(isShowingBudgetView: false)
     }
 
     // MARK: - Configuration
@@ -2789,66 +2854,35 @@ final class BudgetCard: UIView {
         self.allocations = allocations
         self.unallocatedSummary = unallocatedSummary
 
+        // Header - matching MonthBudgetCard format with "/ " prefix on year
         monthLabel.text = month
-        yearLabel.text = year
+        monthLabel.applyStyle()
+        yearLabel.text = "/ " + year
 
-        budgetLimitLabel.text = String(
-            format: "budget.limit.format".localized,  // "Budget: %@"
-            unallocatedSummary.totalBudget.currencyString
-        )
+        // Footer values
+        allocatedValueLabel.text = unallocatedSummary.totalAllocated.currencyString
 
         let allocatedPercent = unallocatedSummary.totalBudget > 0
             ? Float(unallocatedSummary.totalAllocated) / Float(unallocatedSummary.totalBudget)
             : 0
-        allocationProgressBar.setProgress(min(allocatedPercent, 1.0), animated: true)
-        allocationPercentLabel.text = String(
-            format: "budget.allocated.percent".localized,  // "%d%% allocated"
+
+        percentValueLabel.text = String(
+            format: "budget.allocated.percent".localized,
             Int(allocatedPercent * 100)
         )
 
+        // Progress bar
+        progressBar.setProgress(min(allocatedPercent, 1.0), animated: true)
+
         if allocatedPercent > 1.0 {
-            allocationProgressBar.progressTintColor = Colors.warningAmber
-            allocationPercentLabel.textColor = Colors.warningAmber
+            progressBar.progressTintColor = Colors.warningAmber
+            percentValueLabel.textColor = Colors.warningAmber
         } else {
-            allocationProgressBar.progressTintColor = Colors.mainMagenta
-            allocationPercentLabel.textColor = Colors.gray400
+            progressBar.progressTintColor = Colors.mainMagenta
+            percentValueLabel.textColor = Colors.gray100
         }
 
-        setupDonutChart()
         allocationsTableView.reloadData()
-    }
-
-    private func setupDonutChart() {
-        chartContainerView.subviews.forEach { $0.removeFromSuperview() }
-
-        guard let summary = unallocatedSummary else { return }
-
-        if #available(iOS 16.0, *) {
-            let chartView = BudgetDonutChartView(
-                allocations: allocations,
-                unallocatedAmount: summary.unallocatedAmount,
-                onSegmentTapped: { [weak self] category in
-                    self?.delegate?.didSelectAllocationCategory(category)
-                }
-            )
-
-            let hostingController = UIHostingController(rootView: chartView)
-            hostingController.view.backgroundColor = .clear
-            hostingController.view.translatesAutoresizingMaskIntoConstraints = false
-
-            chartContainerView.addSubview(hostingController.view)
-
-            NSLayoutConstraint.activate([
-                hostingController.view.topAnchor.constraint(equalTo: chartContainerView.topAnchor),
-                hostingController.view.leadingAnchor.constraint(equalTo: chartContainerView.leadingAnchor),
-                hostingController.view.trailingAnchor.constraint(equalTo: chartContainerView.trailingAnchor),
-                hostingController.view.bottomAnchor.constraint(equalTo: chartContainerView.bottomAnchor),
-            ])
-        }
-    }
-
-    @objc private func flipBack() {
-        delegate?.didRequestFlip(isShowingBudgetView: false)
     }
 }
 
@@ -2983,7 +3017,7 @@ final class BudgetAllocationDetailsView: UIView {
 
     private lazy var allocatedValueLabel: UILabel = {
         let label = UILabel()
-        label.font = Fonts.textSM.fontBold.font
+        label.font = Fonts.textSMBold.font
         label.textColor = Colors.gray100
         return label
     }()
@@ -2998,7 +3032,7 @@ final class BudgetAllocationDetailsView: UIView {
 
     private lazy var usedValueLabel: UILabel = {
         let label = UILabel()
-        label.font = Fonts.textSM.fontBold.font
+        label.font = Fonts.textSMBold.font
         label.textColor = Colors.gray100
         return label
     }()
@@ -3013,7 +3047,7 @@ final class BudgetAllocationDetailsView: UIView {
 
     private lazy var remainingValueLabel: UILabel = {
         let label = UILabel()
-        label.font = Fonts.textSM.fontBold.font
+        label.font = Fonts.textSMBold.font
         label.textColor = Colors.gray100
         return label
     }()
@@ -3321,7 +3355,7 @@ final class BudgetAllocationDetailsView: UIView {
     func configure(with allocation: BudgetAllocation) {
         // Header
         headerContainerView.backgroundColor = allocation.status.color.withAlphaComponent(0.15)
-        categoryIconView.image = allocation.category.icon
+        categoryIconView.image = UIImage(named: allocation.category.iconName)
         categoryLabel.text = allocation.category.displayName
 
         let date = Date(timeIntervalSince1970: TimeInterval(allocation.monthDate))
@@ -4529,6 +4563,8 @@ At this point:
 "budget.unallocated" = "Unallocated";
 "budget.limit.format" = "Budget: %@";           // %@ = currency amount
 "budget.allocated.percent" = "%d%% allocated";  // %d = percentage number
+"budget.allocated.label" = "Allocated";         // Footer left column header
+"budget.percent.label" = "Budget";              // Footer right column header
 
 // ═══════════════════════════════════════════════════════════════════
 // MODAL - Segmented Control
