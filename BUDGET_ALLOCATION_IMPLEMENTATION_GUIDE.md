@@ -10,7 +10,7 @@ This guide follows a **visual-first development approach** - you'll see componen
 
 1. [Overview](#1-overview)
 2. [Architecture](#2-architecture)
-3. [Programming Concepts Explained](#3-programming-concepts-explained)
+3. [Programming Concepts Explained](#3-programming-concepts-explained) ⭐ *Start here if you're new to Swift*
 4. [Phase 1: Scaffolding & Navigation](#phase-1-scaffolding--navigation)
 5. [Phase 2: Data Models & Constants](#phase-2-data-models--constants)
 6. [Phase 3: UI Components with Mock Data](#phase-3-ui-components-with-mock-data)
@@ -20,6 +20,8 @@ This guide follows a **visual-first development approach** - you'll see componen
 10. [Phase 7: Polish & Edge Cases](#phase-7-polish--edge-cases)
 11. [Testing Checklist](#testing-checklist)
 12. [Localization Keys](#localization-keys)
+13. [Quick Reference: Swift Concepts](#quick-reference-swift-concepts-used-in-this-guide)
+14. [Further Learning](#further-learning)
 
 ---
 
@@ -105,7 +107,241 @@ Finova/Sources/
 
 ## 3. Programming Concepts Explained
 
-This section explains the "why" behind code decisions. Read this before implementing if you want to understand the reasoning, or refer back to it when you see a pattern you don't recognize.
+This section explains Swift fundamentals and iOS patterns for new developers. **Read this entire section before implementing** - it will make the code much easier to understand.
+
+---
+
+### 3.0 Swift Fundamentals (Start Here!)
+
+Before diving into iOS-specific patterns, let's cover the Swift basics you'll see everywhere.
+
+#### 3.0.1 Variables: `let` vs `var`
+
+```swift
+let name = "Arthur"      // CONSTANT - cannot change
+var age = 25             // VARIABLE - can change
+
+name = "John"            // ❌ Error! Cannot assign to 'let'
+age = 26                 // ✅ OK, 'var' can be changed
+```
+
+**Rule:** Always use `let` unless you need to change the value. This prevents bugs.
+
+#### 3.0.2 Optionals: The `?` and `!` Symbols
+
+**The Problem:** In many languages, any variable can be `null`, causing crashes.
+
+**Swift's Solution:** Values that might be missing are marked with `?` (optional).
+
+```swift
+var budgetLimit: Int = 100       // ALWAYS has a value
+var nickname: String? = nil      // MIGHT have a value (optional)
+
+// You can't use an optional directly:
+print(nickname.count)            // ❌ Error! nickname might be nil
+
+// You must UNWRAP it first:
+if let name = nickname {         // "if let" unwraps safely
+    print(name.count)            // ✅ Only runs if nickname has a value
+}
+
+// Or use optional chaining:
+print(nickname?.count)           // ✅ Returns nil if nickname is nil
+
+// Or provide a default:
+print(nickname ?? "No nickname") // ✅ Uses "No nickname" if nil
+```
+
+**The `!` (Force Unwrap) - Use with caution!**
+```swift
+let value: String? = nil
+print(value!)                    // 💥 CRASH! Force unwrapping nil
+
+// Only use ! when you're 100% sure it's not nil:
+let cell = tableView.dequeueReusableCell(withIdentifier: "Cell")!
+// This is common because we KNOW the cell exists (we registered it)
+```
+
+#### 3.0.3 Structs vs Classes
+
+Both can hold data and methods, but they behave differently:
+
+```swift
+// STRUCT - Value type (copied when assigned)
+struct Point {
+    var x: Int
+    var y: Int
+}
+
+var point1 = Point(x: 0, y: 0)
+var point2 = point1              // point2 is a COPY
+point2.x = 10
+print(point1.x)                  // Still 0! point1 wasn't affected
+
+// CLASS - Reference type (shared when assigned)
+class Person {
+    var name: String
+    init(name: String) { self.name = name }
+}
+
+var person1 = Person(name: "Arthur")
+var person2 = person1            // person2 points to SAME object
+person2.name = "John"
+print(person1.name)              // "John"! Both changed!
+```
+
+**When to use which:**
+- **Struct:** Data that should be copied (models, coordinates, settings)
+- **Class:** Objects with identity that should be shared (ViewControllers, Services)
+
+**In this project:**
+- `BudgetAllocation` is a **struct** (just data)
+- `BudgetAllocationService` is a **class** (shared service)
+- `BudgetCard` is a **class** (inherits from UIView)
+
+#### 3.0.4 Enums (Enumerations)
+
+Enums define a type with a fixed set of possible values:
+
+```swift
+enum AllocationStatus {
+    case underBudget     // One possible value
+    case nearLimit       // Another possible value
+    case overBudget      // Another possible value
+}
+
+let status: AllocationStatus = .underBudget
+
+// Using switch (must cover ALL cases)
+switch status {
+case .underBudget:
+    print("You're doing great!")
+case .nearLimit:
+    print("Getting close...")
+case .overBudget:
+    print("Over budget!")
+}
+```
+
+**Enums can have associated data:**
+```swift
+enum Result {
+    case success(data: [BudgetAllocation])
+    case failure(error: Error)
+}
+```
+
+**Enums can have computed properties:**
+```swift
+enum AllocationStatus {
+    case underBudget, nearLimit, overBudget
+
+    var color: UIColor {
+        switch self {
+        case .underBudget: return .green
+        case .nearLimit: return .orange
+        case .overBudget: return .red
+        }
+    }
+}
+
+// Usage:
+let status = AllocationStatus.overBudget
+view.backgroundColor = status.color  // Returns red
+```
+
+#### 3.0.5 Closures (Blocks of Code)
+
+A closure is a block of code you can store in a variable or pass to a function:
+
+```swift
+// Simple closure stored in a variable
+let greet = { (name: String) -> String in
+    return "Hello, \(name)!"
+}
+print(greet("Arthur"))  // "Hello, Arthur!"
+
+// Closure passed to a function
+let numbers = [3, 1, 4, 1, 5]
+let sorted = numbers.sorted { (a, b) -> Bool in
+    return a < b
+}
+// Shorthand (Swift infers types):
+let sorted = numbers.sorted { $0 < $1 }
+```
+
+**Trailing closure syntax:**
+```swift
+// When closure is the last parameter, you can put it outside:
+UIView.animate(withDuration: 0.3) {
+    self.view.alpha = 0
+}
+// Instead of:
+UIView.animate(withDuration: 0.3, animations: { self.view.alpha = 0 })
+```
+
+#### 3.0.6 What is `Codable`?
+
+`Codable` lets Swift automatically convert objects to/from JSON or other formats.
+
+```swift
+// WITHOUT Codable - Manual and error-prone
+func saveToDatabase(allocation: BudgetAllocation) {
+    let data: [String: Any] = [
+        "id": allocation.id ?? 0,
+        "monthDate": allocation.monthDate,
+        "categoryKey": allocation.category.key,
+        // ... manually convert every property
+    ]
+}
+
+// WITH Codable - Automatic!
+struct BudgetAllocationModel: Codable {
+    let id: Int?
+    let monthDate: Int
+    let categoryKey: String
+    let allocatedAmount: Int
+}
+
+// Swift automatically knows how to:
+let encoder = JSONEncoder()
+let data = try encoder.encode(allocation)  // Object → JSON data
+
+let decoder = JSONDecoder()
+let allocation = try decoder.decode(BudgetAllocationModel.self, from: data)  // JSON → Object
+```
+
+**Why we use it:**
+- Database libraries (like SQLite.swift) use Codable to save/load data
+- API responses are JSON, and Codable parses them automatically
+- No manual conversion = fewer bugs
+
+**Important:** Property names must match the JSON keys exactly, or use `CodingKeys`:
+```swift
+struct User: Codable {
+    let firstName: String
+
+    enum CodingKeys: String, CodingKey {
+        case firstName = "first_name"  // JSON uses snake_case
+    }
+}
+```
+
+#### 3.0.7 Type Aliases
+
+Type aliases create a new name for an existing type:
+
+```swift
+typealias MonthAnchor = Int      // MonthAnchor is just an Int
+typealias Completion = (Result<Void, Error>) -> Void
+
+// Makes code more readable:
+func deleteAllocation(completion: Completion) { ... }
+// Instead of:
+func deleteAllocation(completion: (Result<Void, Error>) -> Void) { ... }
+```
+
+---
 
 ### 3.1 Why Protocols? (Delegates & Communication)
 
@@ -1445,10 +1681,48 @@ extension MonthCarouselCell: MonthCardFlipDelegate {
 
 > **Goal**: Expand the minimal models from Phase 1 into complete data models with database support. UI still uses mock data.
 
+---
+
+### Understanding This Phase
+
+In Phase 1, we created **minimal scaffolding** - just enough to see something on screen. Now we need **real data structures** that can:
+1. Be saved to a database
+2. Be converted to/from JSON
+3. Hold all the information we need
+
+**Key Concept: Two Models for One Thing**
+
+We use TWO different structs for allocations:
+
+| Model | Purpose | Where Used |
+|-------|---------|------------|
+| `BudgetAllocationModel` | Database storage | Saving/loading from SQLite |
+| `BudgetAllocation` | Display in UI | Views, ViewModels |
+
+**Why two models?**
+
+```swift
+// DATABASE MODEL - Uses simple types that databases understand
+struct BudgetAllocationModel: Codable {
+    let categoryKey: String      // "category.meals" - just a string
+}
+
+// DISPLAY MODEL - Uses rich types that are easier to work with
+struct BudgetAllocation {
+    let category: TransactionCategory  // An enum with icon, color, name
+}
+```
+
+The database can't store a `TransactionCategory` enum - it can only store strings and numbers. So we:
+1. Convert `TransactionCategory` → `String` when saving
+2. Convert `String` → `TransactionCategory` when loading
+
+---
+
 **Already implemented in Phase 1:**
-- `AllocationStatus` enum with `color` and `localizedLabel`
-- `BudgetAllocation` struct with basic properties and `mock()` method
-- `UnallocatedBudgetSummary` struct with `mock()` method
+- ✅ `AllocationStatus` enum with `color` and `localizedLabel`
+- ✅ `BudgetAllocation` struct with basic properties and `mock()` method
+- ✅ `UnallocatedBudgetSummary` struct with `mock()` method
 
 **What Phase 2 adds:**
 - `BudgetAllocationModel` (database/Codable model for persistence)
@@ -1456,25 +1730,98 @@ extension MonthCarouselCell: MonthCardFlipDelegate {
 - Full initializer for `BudgetAllocation`
 - Conversion methods between database and display models
 
+---
+
 ### Step 2.1: Complete BudgetAllocationModel
 
 **File:** `Finova/Sources/Core/Repositories/BudgetAllocationRepository/BudgetAllocationModel.swift`
 
-Expand your existing file with the complete implementation:
+Expand your existing file with the complete implementation. I'll explain each part:
 
 ```swift
 import UIKit
 
+// ═══════════════════════════════════════════════════════════════════
 // MARK: - Database Model
+// ═══════════════════════════════════════════════════════════════════
+//
+// This struct is for DATABASE STORAGE ONLY.
+//
+// WHY Codable?
+// -----------
+// Codable = Encodable + Decodable
+// - Encodable: Can be converted TO JSON/data
+// - Decodable: Can be created FROM JSON/data
+//
+// Our database library (SQLite.swift) uses Codable to automatically
+// save and load our objects. Without Codable, we'd have to write
+// manual conversion code for every property.
+//
+// WHY simple types only?
+// ----------------------
+// Databases store: Int, String, Double, Bool, Data
+// Databases DON'T store: Enums, custom objects, UIColor
+//
+// So we store `categoryKey: String` instead of `category: TransactionCategory`
+// ═══════════════════════════════════════════════════════════════════
 
 struct BudgetAllocationModel: Codable {
-    let id: Int?
-    let monthDate: Int
-    let categoryKey: String
-    let allocatedAmount: Int
-    let isRecurring: Bool
-    let parentAllocationId: Int?
 
+    // ─────────────────────────────────────────────────────────────
+    // WHY `let id: Int?` (optional)?
+    //
+    // When CREATING a new allocation, we don't have an ID yet.
+    // The database GENERATES the ID when we save.
+    //
+    // let newAllocation = BudgetAllocationModel(id: nil, ...)  // No ID
+    // let savedId = database.insert(newAllocation)              // DB gives us ID
+    // ─────────────────────────────────────────────────────────────
+    let id: Int?
+
+    // ─────────────────────────────────────────────────────────────
+    // WHY `monthDate: Int` instead of `Date`?
+    //
+    // We use "month anchor" format: the Unix timestamp of the first
+    // day of the month at midnight. This makes it easy to:
+    // - Compare months (just compare integers)
+    // - Query the database (WHERE monthDate = 1704067200)
+    // - Avoid timezone issues
+    //
+    // Example: January 2024 = 1704067200 (Jan 1, 2024 00:00:00 UTC)
+    // ─────────────────────────────────────────────────────────────
+    let monthDate: Int
+
+    // ─────────────────────────────────────────────────────────────
+    // WHY `categoryKey: String` instead of `TransactionCategory`?
+    //
+    // The database can't store Swift enums. We store the string key:
+    // - TransactionCategory.meals → "category.meals"
+    // - TransactionCategory.transportation → "category.transportation"
+    //
+    // When loading, we convert back:
+    // - "category.meals" → TransactionCategory.meals
+    // ─────────────────────────────────────────────────────────────
+    let categoryKey: String
+
+    let allocatedAmount: Int        // Amount in cents (50000 = $500.00)
+    let isRecurring: Bool           // Should this repeat every month?
+    let parentAllocationId: Int?    // If recurring, points to the original
+
+    // ─────────────────────────────────────────────────────────────
+    // CUSTOM INITIALIZER
+    //
+    // WHY write our own init when Swift auto-generates one?
+    //
+    // To provide DEFAULT VALUES:
+    // - `id: Int? = nil` means you don't have to pass id
+    // - `isRecurring: Bool = false` means it defaults to false
+    //
+    // So you can write:
+    //   BudgetAllocationModel(monthDate: 123, categoryKey: "meals", allocatedAmount: 50000)
+    // Instead of:
+    //   BudgetAllocationModel(id: nil, monthDate: 123, categoryKey: "meals",
+    //                         allocatedAmount: 50000, isRecurring: false, parentAllocationId: nil)
+    // ─────────────────────────────────────────────────────────────
     init(
         id: Int? = nil,
         monthDate: Int,
@@ -1492,13 +1839,42 @@ struct BudgetAllocationModel: Codable {
     }
 }
 
+// ═══════════════════════════════════════════════════════════════════
 // MARK: - Allocation Status Enum
+// ═══════════════════════════════════════════════════════════════════
+//
+// This enum represents the "health" of an allocation:
+// - underBudget: Spending is under control (0-79% used)
+// - nearLimit: Getting close to the limit (80-99% used)
+// - overBudget: Exceeded the allocation (100%+ used)
+//
+// WHY use an enum instead of just checking percentages everywhere?
+//
+// 1. SINGLE SOURCE OF TRUTH:
+//    The thresholds (80%, 100%) are defined in ONE place.
+//    If we want to change "near limit" to 85%, we change it once.
+//
+// 2. ASSOCIATED DATA:
+//    Each status "knows" its color, icon, and label.
+//    The UI just asks: status.color, status.icon
+//
+// 3. TYPE SAFETY:
+//    You can't accidentally pass an invalid status.
+//    The compiler ensures only these 3 values exist.
+// ═══════════════════════════════════════════════════════════════════
 
 enum AllocationStatus {
     case underBudget    // 0-79% used
     case nearLimit      // 80-99% used
     case overBudget     // 100%+ used
 
+    // ─────────────────────────────────────────────────────────────
+    // COMPUTED PROPERTY: color
+    //
+    // Each status has an associated color for visual feedback.
+    // This is a "computed property" - it calculates the value
+    // each time you access it (no storage).
+    // ─────────────────────────────────────────────────────────────
     var color: UIColor {
         switch self {
         case .underBudget: return Colors.mainMagenta
@@ -1507,6 +1883,7 @@ enum AllocationStatus {
         }
     }
 
+    // SF Symbol icon name for each status
     var icon: String {
         switch self {
         case .underBudget: return "checkmark.circle.fill"
@@ -1515,6 +1892,7 @@ enum AllocationStatus {
         }
     }
 
+    // Localized text for accessibility and display
     var localizedLabel: String {
         switch self {
         case .underBudget: return "allocation.status.under".localized
@@ -1524,22 +1902,59 @@ enum AllocationStatus {
     }
 }
 
+// ═══════════════════════════════════════════════════════════════════
 // MARK: - Display Model
+// ═══════════════════════════════════════════════════════════════════
+//
+// This struct is for UI DISPLAY.
+//
+// It's different from BudgetAllocationModel because:
+// 1. Uses rich types (TransactionCategory instead of String)
+// 2. Has computed properties for UI (status, usagePercentage)
+// 3. Has a mutable property (usedAmount) that we fill in later
+//
+// FLOW:
+// Database → BudgetAllocationModel → BudgetAllocation → UI
+// ═══════════════════════════════════════════════════════════════════
 
 struct BudgetAllocation {
+
+    // ─────────────────────────────────────────────────────────────
+    // STORED PROPERTIES
+    // These values are stored in memory
+    // ─────────────────────────────────────────────────────────────
     let id: Int?
     let monthDate: Int
-    let category: TransactionCategory
+    let category: TransactionCategory  // Rich type, not just a string!
     let allocatedAmount: Int
     let isRecurring: Bool
     let parentAllocationId: Int?
+
+    // ─────────────────────────────────────────────────────────────
+    // WHY `var usedAmount` instead of `let`?
+    //
+    // When we load allocations from the database, we don't know
+    // how much has been spent yet. We fill this in LATER by
+    // querying transactions.
+    //
+    // 1. Load allocation (usedAmount = 0)
+    // 2. Query transactions for this category
+    // 3. Set usedAmount = sum of transactions
+    // ─────────────────────────────────────────────────────────────
     var usedAmount: Int = 0
+
+    // ─────────────────────────────────────────────────────────────
+    // COMPUTED PROPERTIES
+    // These calculate their values from other properties
+    // ─────────────────────────────────────────────────────────────
 
     var remainingAmount: Int {
         allocatedAmount - usedAmount
+        // Can be negative if overspent!
     }
 
     var usagePercentage: Double {
+        // Guard against division by zero
         guard allocatedAmount > 0 else { return 0 }
         return Double(usedAmount) / Double(allocatedAmount) * 100
     }
@@ -1551,6 +1966,11 @@ struct BudgetAllocation {
         else { return .underBudget }
     }
 
+    // ─────────────────────────────────────────────────────────────
+    // INITIALIZERS
+    // ─────────────────────────────────────────────────────────────
+
+    // Standard initializer - used when creating new allocations
     init(
         id: Int? = nil,
         monthDate: Int,
@@ -1569,20 +1989,46 @@ struct BudgetAllocation {
         self.usedAmount = usedAmount
     }
 
+    // ─────────────────────────────────────────────────────────────
+    // CONVENIENCE INITIALIZER: init(from model:)
+    //
+    // Creates a display model from a database model.
+    // This is where we convert:
+    // - categoryKey (String) → category (TransactionCategory)
+    //
+    // The `.first { }` finds the first category where the key matches.
+    // If no match found, defaults to .miscellaneous
+    // ─────────────────────────────────────────────────────────────
     init(from model: BudgetAllocationModel) {
         self.id = model.id
         self.monthDate = model.monthDate
-        self.category = TransactionCategory.allCases.first { $0.key == model.categoryKey } ?? .miscellaneous
+        self.category = TransactionCategory.allCases.first {
+            $0.key == model.categoryKey
+        } ?? .miscellaneous
         self.allocatedAmount = model.allocatedAmount
         self.isRecurring = model.isRecurring
         self.parentAllocationId = model.parentAllocationId
+        self.usedAmount = 0  // Will be filled in later
     }
 
+    // ─────────────────────────────────────────────────────────────
+    // WHY `mutating func` for setUsedAmount?
+    //
+    // Structs are VALUE TYPES - they're copied, not shared.
+    // To modify a struct's property, the method must be `mutating`.
+    //
+    // This tells Swift: "This method changes the struct itself"
+    // ─────────────────────────────────────────────────────────────
     mutating func setUsedAmount(_ amount: Int) {
         self.usedAmount = amount
     }
 
+    // ─────────────────────────────────────────────────────────────
     // MARK: - Mock Data
+    //
+    // Creates fake allocations for testing UI before database is ready.
+    // See Section 3.4 for explanation of static func mock().
+    // ─────────────────────────────────────────────────────────────
 
     static func mock(
         category: TransactionCategory = .meals,
@@ -1657,18 +2103,52 @@ enum BudgetAllocationError: LocalizedError {
 
 > **Goal**: Build all visual components using mock/hardcoded data. See the complete UI.
 
+### Understanding This Phase
+
+Now that you understand Swift basics (Section 3.0) and have models (Phase 2), we'll build the visual components. This phase focuses on **UIKit patterns** you'll use throughout iOS development.
+
+**Key UIKit Concepts Used:**
+
+| Pattern | Where Used | Why |
+|---------|-----------|-----|
+| **UITableView** | AllocationCell, BudgetCard | Efficient scrolling lists |
+| **UITableViewCell subclass** | AllocationCell | Custom cell layout |
+| **Delegation** | BudgetCard → MonthCarouselCell | Component communication |
+| **Auto Layout** | All views | Responsive positioning |
+| **CAShapeLayer** | CircularProgressView | Custom drawing |
+| **UIHostingController** | BudgetDonutChartView | SwiftUI ↔ UIKit bridge |
+
+---
+
 ### Step 3.1: Create AllocationCell
+
+> **UITableViewCell subclass** - This is iOS's way of creating custom table rows. Each cell is recycled (reused) as you scroll to save memory. That's why we have a `reuseIdentifier`.
 
 **File:** `Finova/Sources/Scenes/Dashboard/DashboardCarousel/MonthCarousel/BudgetCard/AllocationCell.swift`
 
 ```swift
 import UIKit
 
+// ═══════════════════════════════════════════════════════════════════
+// UITableViewCell SUBCLASSING
+//
+// When you want a custom table row, you:
+// 1. Create a class that inherits from UITableViewCell
+// 2. Add your custom UI components to contentView (not self)
+// 3. Define a reuseIdentifier so the table can recycle cells
+//
+// The table calls configure() when it needs to display data in the cell.
+// The same cell object might show different data as you scroll!
+// ═══════════════════════════════════════════════════════════════════
+
 final class AllocationCell: UITableViewCell {
 
+    // STATIC PROPERTY: Same for ALL AllocationCell instances
+    // Used by tableView.dequeueReusableCell(withIdentifier:)
     static let reuseIdentifier = "AllocationCell"
 
     // MARK: - UI Components
+    // (See Section 3.3 for why we use `private lazy var`)
 
     private lazy var iconContainerView: UIView = {
         let view = UIView()
@@ -1843,8 +2323,28 @@ final class AllocationCell: UITableViewCell {
 
 **File:** `Finova/Sources/Scenes/BudgetAllocationDetails/Components/CircularProgressView.swift`
 
+> **Core Animation (CAShapeLayer)** - iOS uses layers for efficient drawing. Instead of drawing shapes every frame, you describe the shape once and the GPU handles rendering. This is much faster than manual drawing in `draw(_:)`.
+
 ```swift
 import UIKit
+
+// ═══════════════════════════════════════════════════════════════════
+// CUSTOM DRAWING WITH CAShapeLayer
+//
+// UIView's visual content is actually drawn by its `layer` (a CALayer).
+// CAShapeLayer is a specialized layer for drawing shapes like:
+// - Circles, arcs, rectangles
+// - Custom paths (UIBezierPath)
+//
+// Benefits:
+// - GPU-accelerated rendering (very fast)
+// - Easy animation (animate strokeEnd, strokeColor, etc.)
+// - Memory efficient (no bitmap, just shape math)
+//
+// We use TWO layers:
+// 1. trackLayer: The gray background circle (always full)
+// 2. progressLayer: The colored progress arc (strokeEnd animates 0→1)
+// ═══════════════════════════════════════════════════════════════════
 
 final class CircularProgressView: UIView {
 
@@ -1979,9 +2479,35 @@ final class CircularProgressView: UIView {
 
 **File:** `Finova/Sources/SwiftUI/Charts/BudgetDonutChartView.swift`
 
+> **SwiftUI in a UIKit App** - You can use SwiftUI views inside UIKit by wrapping them in `UIHostingController`. This lets us use Swift Charts (iOS 16+) while keeping the rest of the app in UIKit. See Step 3.4 for how to embed this view.
+
 ```swift
 import SwiftUI
-import Charts
+import Charts  // Apple's declarative charting framework (iOS 16+)
+
+// ═══════════════════════════════════════════════════════════════════
+// SwiftUI vs UIKit
+//
+// SwiftUI is Apple's DECLARATIVE UI framework (introduced in 2019).
+// Instead of imperative code ("add this button, set its title"),
+// you DESCRIBE what you want and SwiftUI figures out how to render it.
+//
+// UIKit (imperative):
+//   let label = UILabel()
+//   label.text = "Hello"
+//   view.addSubview(label)
+//
+// SwiftUI (declarative):
+//   Text("Hello")
+//
+// WHY use SwiftUI here?
+// - Swift Charts is SwiftUI-only (no UIKit version)
+// - Declarative charts are much easier to write
+// - We wrap it in UIHostingController to use in UIKit
+//
+// @available(iOS 16.0, *) means this code only runs on iOS 16+
+// On older iOS, we'd need a fallback (or skip the chart)
+// ═══════════════════════════════════════════════════════════════════
 
 @available(iOS 16.0, *)
 struct BudgetDonutChartView: View {
@@ -2869,12 +3395,61 @@ The UI is complete with hardcoded/mock data. Now we add real data persistence.
 
 > **Goal**: Create data persistence. UI still uses mock data until Phase 5.
 
+### Understanding This Phase
+
+This phase implements the **data layer** - how data is stored and retrieved. We use two patterns:
+
+**Repository Pattern (Section 3.6 reminder):**
+- Handles ONLY database operations (CRUD: Create, Read, Update, Delete)
+- Doesn't know about business rules
+- Returns raw data models
+
+**Service Pattern:**
+- Contains business logic (calculations, validations)
+- Uses repositories to get/save data
+- Returns display-ready data
+
+```
+┌──────────────────┐     ┌─────────────────────┐     ┌──────────────┐
+│   ViewController │────▶│       Service       │────▶│  Repository  │
+│                  │     │   (business logic)  │     │  (database)  │
+│  "Show me the    │     │                     │     │              │
+│   allocations"   │     │  1. Get allocations │     │  fetch()     │
+│                  │     │  2. Get transactions│     │  insert()    │
+│                  │◀────│  3. Calculate usage │◀────│  update()    │
+│                  │     │  4. Return combined │     │  delete()    │
+└──────────────────┘     └─────────────────────┘     └──────────────┘
+```
+
+---
+
 ### Step 4.1: Create BudgetAllocationRepository
 
 **File:** `Finova/Sources/Core/Repositories/BudgetAllocationRepository/BudgetAllocationRepository.swift`
 
+> **Codable + JSON** - We store allocations as JSON data using Swift's `JSONEncoder`/`JSONDecoder`. The `Codable` protocol we added to `BudgetAllocationModel` makes this automatic. See Section 3.0.6 for details.
+
 ```swift
 import Foundation
+
+// ═══════════════════════════════════════════════════════════════════
+// REPOSITORY PATTERN
+//
+// A Repository is a "gatekeeper" for the database. All data access
+// goes through it. This has several benefits:
+//
+// 1. ABSTRACTION: The rest of the app doesn't know HOW data is stored
+//    (Could be JSON file, SQLite, Core Data, or a server)
+//
+// 2. SINGLE RESPONSIBILITY: Only knows about CRUD operations
+//    (No business logic like "is this allocation over budget?")
+//
+// 3. TESTABILITY: You can create a mock repository for testing
+//    that doesn't touch real storage
+//
+// In this app, we use SecureLocalDataManager to store JSON data
+// securely in the Keychain/encrypted storage.
+// ═══════════════════════════════════════════════════════════════════
 
 final class BudgetAllocationRepository {
     private let secureStorage = SecureLocalDataManager.shared
@@ -2960,8 +3535,32 @@ final class BudgetAllocationRepository {
 
 **File:** `Finova/Sources/Core/Services/BudgetAllocationService.swift`
 
+> **Service Layer** - This is where business logic lives. The service coordinates between multiple repositories and performs calculations. ViewModels call the service, never the repository directly.
+
 ```swift
 import Foundation
+
+// ═══════════════════════════════════════════════════════════════════
+// SERVICE PATTERN
+//
+// Services contain BUSINESS LOGIC - the rules that make your app unique.
+//
+// For allocations, business logic includes:
+// - Calculating how much has been spent (by querying transactions)
+// - Checking if an allocation exists before creating a duplicate
+// - Generating recurring allocation instances
+// - Combining data from multiple sources
+//
+// WHY NOT put this in the Repository?
+// - Repositories should be "dumb" - just save/load data
+// - Business rules change more often than storage
+// - Easier to test business logic separately
+//
+// WHY NOT put this in the ViewModel?
+// - Multiple ViewModels might need the same logic
+// - Keeps ViewModels focused on UI state
+// - Service can be used by other services
+// ═══════════════════════════════════════════════════════════════════
 
 final class BudgetAllocationService {
     private let allocationRepo: BudgetAllocationRepository
@@ -3093,18 +3692,97 @@ final class BudgetAllocationService {
 
 > **Goal**: Replace mock data with real data from services.
 
+### Understanding This Phase
+
+This is where everything comes together. We'll:
+1. Create a **ViewModel** that uses the Service
+2. Update the **ViewController** to use the ViewModel
+3. Replace **mock data** with real data
+
+**The Complete Data Flow:**
+
+```
+User taps "flip to budget" button
+           │
+           ▼
+MonthCarouselCell.didRequestFlip()
+           │
+           ▼
+BudgetAllocationService.getAllocationsWithUsage(forMonth:)
+           │
+           ├──▶ BudgetAllocationRepository.fetchAllocations()
+           │              │
+           │              ▼
+           │         [BudgetAllocation] (with usedAmount = 0)
+           │
+           ├──▶ TransactionRepository.fetchAllTransactions()
+           │              │
+           │              ▼
+           │         Calculate usage by category
+           │
+           ▼
+    [BudgetAllocation] (with usedAmount filled in)
+           │
+           ▼
+BudgetCard.configure(allocations:)
+           │
+           ▼
+    UITableView.reloadData()  →  AllocationCell displays each allocation
+```
+
+---
+
 ### Step 5.1: Create BudgetAllocationDetailsViewModel
+
+> **MVVM Reminder (Section 3.7)**: The ViewModel holds data and logic. It doesn't know about UIKit. The ViewController asks it for data and tells it when actions happen.
 
 **File:** `Finova/Sources/Scenes/BudgetAllocationDetails/ViewModel/BudgetAllocationDetailsViewModel.swift`
 
 ```swift
 import Foundation
 
+// ═══════════════════════════════════════════════════════════════════
+// VIEWMODEL PATTERN
+//
+// The ViewModel is the "brain" of a screen. It:
+// 1. HOLDS the data the View needs to display
+// 2. EXPOSES computed properties for formatted display values
+// 3. HANDLES user actions (delete, edit) via methods
+// 4. CALLS the Service for business operations
+// 5. NOTIFIES the ViewController when data changes
+//
+// The ViewModel does NOT:
+// - Know about UIKit (no UILabel, UIButton, etc.)
+// - Talk directly to the database (uses Service)
+// - Navigate to other screens (uses FlowDelegate)
+//
+// This separation means you can:
+// - Test the ViewModel without a UI
+// - Reuse the ViewModel with a different UI (iPad layout, etc.)
+// - Change the UI without touching business logic
+// ═══════════════════════════════════════════════════════════════════
+
 final class BudgetAllocationDetailsViewModel {
 
+    // ─────────────────────────────────────────────────────────────
+    // DEPENDENCIES
+    //
+    // `private let` means:
+    // - Only this class can access these
+    // - They can't be changed after init
+    //
+    // The service is injected via init() for testability.
+    // In tests, you can pass a mock service.
+    // ─────────────────────────────────────────────────────────────
     private let allocation: BudgetAllocation
     private let allocationService: BudgetAllocationService
 
+    // ─────────────────────────────────────────────────────────────
+    // private(set) = External code can READ but not WRITE
+    //
+    // The ViewController needs to read transactions for the table,
+    // but shouldn't directly modify the array.
+    // ─────────────────────────────────────────────────────────────
     private(set) var transactions: [Transaction] = []
 
     // MARK: - Computed
@@ -3390,6 +4068,20 @@ static func makeBudgetAllocationDetailsViewController(
 
 > **Goal**: Add allocation creation via modal.
 
+### Understanding This Phase
+
+We'll extend the existing Add Transaction modal to also create allocations. This is a common iOS pattern: **repurposing existing UI** by adding modes rather than creating entirely new screens.
+
+**Key Decisions:**
+
+| Decision | Why |
+|----------|-----|
+| **Segmented Control** | Clear visual indicator of mode |
+| **Reuse existing modal** | Consistent UX, less code to maintain |
+| **Separate save methods** | Each mode has different validation rules |
+
+---
+
 ### Step 6.1: Add Segmented Control to AddTransactionModal
 
 Add mode enum and UI:
@@ -3453,6 +4145,29 @@ private func saveAllocation() {
 ## Phase 7: Polish & Edge Cases
 
 > **Goal**: Clean up mock data, handle edge cases, and prepare for production.
+
+### Understanding This Phase
+
+This final phase transitions the code from **development quality** to **production quality**. In software engineering, this includes:
+
+1. **Removing scaffolding** - Mock data, placeholder views, print statements
+2. **Handling edge cases** - Empty states, errors, unexpected data
+3. **Adding reactivity** - Auto-refresh when data changes elsewhere
+4. **Memory management** - Cleaning up observers, avoiding leaks
+
+**Why Clean Up Mock Data?**
+
+```swift
+// DEVELOPMENT: Useful for testing UI quickly
+static func mock() -> BudgetAllocation { ... }
+
+// PRODUCTION: Dangerous!
+// - Someone might accidentally use mock() in real code
+// - Makes the codebase confusing ("Is this real or fake?")
+// - Takes up space and maintenance burden
+```
+
+---
 
 ### Step 7.1: Remove Mock Data from Models
 
@@ -3558,7 +4273,28 @@ func didSelectAllocationCategory(_ category: TransactionCategory) {
 
 **File:** `MonthCarouselCell.swift`
 
+> **NotificationCenter** - iOS's built-in "broadcast" system. One object posts a notification, and ANY object listening for that notification receives it. This is how unrelated objects communicate without knowing about each other.
+
 ```swift
+// ═══════════════════════════════════════════════════════════════════
+// NOTIFICATION CENTER PATTERN
+//
+// Problem: User deletes an allocation in the detail screen.
+//          The BudgetCard (on a different screen) shows stale data.
+//
+// Solution: When allocation is deleted:
+//   1. Detail screen posts: "Hey everyone, an allocation was deleted!"
+//   2. BudgetCard is LISTENING for that message
+//   3. BudgetCard refreshes itself
+//
+// This is "loose coupling" - neither screen knows about the other.
+// They just know about the notification NAME.
+//
+// IMPORTANT: Always remove observers in deinit to avoid:
+//   - Memory leaks
+//   - Crashes (calling methods on deallocated objects)
+// ═══════════════════════════════════════════════════════════════════
+
 // In init or awakeFromNib
 NotificationCenter.default.addObserver(
     self,
@@ -3602,6 +4338,20 @@ extension Notification.Name {
 ### Step 7.6: Lazy Generation for Recurring Allocations
 
 **File:** `BudgetAllocationService.swift`
+
+> **Lazy Generation** - Instead of creating all future recurring instances upfront, we create them "on demand" when the user first views a month. This prevents database bloat and handles the infinite-future problem.
+
+```
+EAGER GENERATION (Bad):                LAZY GENERATION (Good):
+─────────────────────────             ─────────────────────────
+Create recurring for:                 Create ONLY when viewed:
+  January   ✓                           January   ✓ (user is here)
+  February  ✓                           February  ✓ (user scrolled)
+  March     ✓                           March     (not created yet)
+  April     ✓                           April     (not created yet)
+  ...                                   ...
+  Year 2050 ✓  ← Millions of rows!      (created when needed)
+```
 
 Add lazy generation when fetching allocations:
 
@@ -3831,3 +4581,99 @@ Phase 7:   DELETE all mock() methods and placeholders
 ```
 
 Follow each phase in order. Run the app after each step to verify progress visually.
+
+---
+
+## Quick Reference: Swift Concepts Used in This Guide
+
+For new Swift developers, here's a quick lookup of concepts used throughout this guide:
+
+### Language Basics
+
+| Concept | Syntax | Section |
+|---------|--------|---------|
+| Constant | `let name = "value"` | 3.0.1 |
+| Variable | `var count = 0` | 3.0.1 |
+| Optional | `var name: String?` | 3.0.2 |
+| Force unwrap | `name!` (dangerous) | 3.0.2 |
+| Optional chaining | `name?.count` | 3.0.2 |
+| Nil coalescing | `name ?? "default"` | 3.0.2 |
+| Safe unwrap | `if let x = optional { }` | 3.0.2 |
+| Guard | `guard let x = opt else { return }` | 3.10 |
+
+### Types
+
+| Concept | When to Use | Section |
+|---------|-------------|---------|
+| `struct` | Data containers (copied) | 3.0.3 |
+| `class` | Objects with identity (shared) | 3.0.3 |
+| `enum` | Fixed set of options | 3.0.4 |
+| `protocol` | Contracts/interfaces | 3.1 |
+
+### Properties
+
+| Concept | Syntax | Section |
+|---------|--------|---------|
+| Stored | `var x = 0` | 3.5 |
+| Computed | `var x: Int { return y * 2 }` | 3.5 |
+| Lazy | `lazy var x = { ... }()` | 3.3 |
+| private | `private var x` | 3.9 |
+| private(set) | `private(set) var x` | 3.9 |
+
+### Methods
+
+| Concept | Syntax | Use Case |
+|---------|--------|----------|
+| Instance method | `func doThing()` | Called on an object |
+| Static method | `static func mock()` | Called on the type |
+| Mutating method | `mutating func set()` | Modifies struct |
+| @objc | `@objc func tap()` | Used with #selector |
+
+### Closures & Callbacks
+
+| Concept | Syntax | Section |
+|---------|--------|---------|
+| Closure | `{ param in return value }` | 3.0.5 |
+| Trailing closure | `func { ... }` | 3.0.5 |
+| @escaping | `@escaping (Result) -> Void` | 3.11 |
+| [weak self] | `{ [weak self] in ... }` | 3.12 |
+
+### iOS Patterns
+
+| Pattern | Purpose | Section |
+|---------|---------|---------|
+| Delegate | Parent-child communication | 3.1 |
+| MVVM | Separating View/ViewModel/Model | 3.7 |
+| Repository | Database abstraction | 3.6 |
+| Service | Business logic | 3.6 |
+| NotificationCenter | Broadcast messaging | 7.5 |
+
+### Memory Management
+
+| Concept | Syntax | Why |
+|---------|--------|-----|
+| weak var delegate | `weak var delegate: X?` | Prevents retain cycles |
+| [weak self] | In escaping closures | Prevents retain cycles |
+| deinit | `deinit { }` | Cleanup when deallocated |
+
+---
+
+## Further Learning
+
+After completing this guide, you'll have practical experience with:
+
+✅ Swift fundamentals (optionals, structs, enums, closures)
+✅ UIKit views and view controllers
+✅ Auto Layout constraints
+✅ Table views with custom cells
+✅ MVVM architecture
+✅ Repository and Service patterns
+✅ SwiftUI integration in UIKit apps
+✅ Core Animation (CAShapeLayer)
+✅ Notification Center
+
+**Recommended next steps:**
+1. Apple's Swift Programming Language book (free online)
+2. Ray Wenderlich iOS tutorials
+3. Stanford's CS193p course (free on YouTube)
+4. Build your own feature following the patterns in this guide

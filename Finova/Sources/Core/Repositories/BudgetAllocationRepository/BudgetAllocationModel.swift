@@ -7,9 +7,37 @@
 
 import UIKit
 
+// MARK: - Database Model
+
+struct BudgetAllocationModel: Codable {
+    
+    let id: Int?
+    let monthDate: Int
+    let categoryKey: String
+    let allocatedAmount: Int
+    let isRecurring: Bool
+    let parentAllocationId: Int?
+    
+    init(id: Int? = nil,
+         monthDate: Int,
+         categoryKey: String,
+         allocatedAmount: Int,
+         isRecurring: Bool = false,
+         parentAllocationId: Int? = nil
+    ) {
+        self.id = id
+        self.monthDate = monthDate
+        self.categoryKey = categoryKey
+        self.allocatedAmount = allocatedAmount
+        self.isRecurring = isRecurring
+        self.parentAllocationId = parentAllocationId
+    }
+}
+
 // MARK: - Allocation Status Enum
 
 enum AllocationStatus {
+    
     case underBudget
     case nearLimit
     case overBudget
@@ -22,6 +50,14 @@ enum AllocationStatus {
         }
     }
     
+    var icon: String {
+        switch self {
+        case .underBudget: return "checkmark.circle.fill"
+        case .nearLimit: return "exclamationmark.triangle.fill"
+        case .overBudget: return "xmark.circle.fill"
+        }
+    }
+    
     var localizedLabel: String {
         switch self {
         case .underBudget: return "allocation.status.under".localized
@@ -31,15 +67,17 @@ enum AllocationStatus {
     }
 }
 
-// MARK: - Display Model (minimal for scaffolding)
+// MARK: - Display Model
 
 struct BudgetAllocation {
+    
     let id: Int?
     let monthDate: Int
     let category: TransactionCategory
     let allocatedAmount: Int
     let isRecurring: Bool
     let parentAllocationId: Int?
+    
     var usedAmount: Int = 0
     
     var remainingAmount: Int { allocatedAmount - usedAmount }
@@ -56,33 +94,73 @@ struct BudgetAllocation {
         else { return .underBudget }
     }
     
+    init(
+        id: Int? = nil,
+        monthDate: Int,
+        category: TransactionCategory,
+        allocatedAmount: Int,
+        isRecurring: Bool = false,
+        parentAllocationId: Int? = nil,
+        usedAmount: Int = 0
+    ) {
+        self.id = id
+        self.monthDate = monthDate
+        self.category = category
+        self.allocatedAmount = allocatedAmount
+        self.isRecurring = isRecurring
+        self.parentAllocationId = parentAllocationId
+        self.usedAmount = usedAmount
+    }
+    
+    init(from model: BudgetAllocationModel) {
+        self.id = model.id
+        self.monthDate = model.monthDate
+        self.category = TransactionCategory.allCases.first {
+            $0.key == model.categoryKey
+        } ?? .miscellaneous
+        self.allocatedAmount = model.allocatedAmount
+        self.isRecurring = model.isRecurring
+        self.parentAllocationId = model.parentAllocationId
+        self.usedAmount = 0
+    }
+    
+    mutating func setUsedAmount(_ amount: Int) {
+        self.usedAmount = amount
+    }
+    
     static func mock(
         category: TransactionCategory = .meals,
         allocated: Int = 50000,
+        isReccuring: Bool = false,
         used: Int = 37500
     ) -> BudgetAllocation {
-        var allocation = BudgetAllocation(
-            id: 1,
+        BudgetAllocation(
+            id: Int.random(in: 1...1000),
             monthDate: Int(Date().timeIntervalSince1970),
             category: category,
             allocatedAmount: allocated,
-            isRecurring: false,
-            parentAllocationId: nil
+            isRecurring: isReccuring,
+            usedAmount: used
         )
-        allocation.usedAmount = used
-        return allocation
     }
 }
 
-// MARK: - Unallocated Summary (minimal)
+// MARK: - Unallocated Summary
 
 struct UnallocatedBudgetSummary {
+    
     let monthDate: Int
     let totalBudget: Int
     let totalAllocated: Int
     let totalUsedInUnallocatedCategories: Int
     
     var unallocatedAmount: Int { totalBudget - totalAllocated }
+    
+    var unallocatedRemaining: Int { unallocatedAmount - totalUsedInUnallocatedCategories }
+    
+    var isOverspent: Bool {
+        unallocatedRemaining < 0
+    }
     
     static func mock() -> UnallocatedBudgetSummary {
         UnallocatedBudgetSummary(
@@ -91,5 +169,25 @@ struct UnallocatedBudgetSummary {
             totalAllocated: 150000,
             totalUsedInUnallocatedCategories: 25000
         )
+    }
+}
+
+
+// MARK: - Errors
+
+enum BudgetAllocationError: LocalizedError {
+    case duplicateAllocation
+    case allocationNotFound
+    case invalidAmount
+    
+    var errorDescription: String? {
+        switch self {
+        case .duplicateAllocation:
+            return "allocation.error.duplicate".localized
+        case .allocationNotFound:
+            return "allocation.error.notFound".localized
+        case .invalidAmount:
+            return "allocation.error.invalidAmount".localized
+        }
     }
 }
