@@ -52,19 +52,7 @@ final class TransactionDetailsView: UIView {
 
   private let backButton: UIButton = {
     let button = UIButton(type: .system)
-
-    if let originalImage = UIImage(named: "chevronLeft") {
-      let size = CGSize(width: Metrics.backButtonSize, height: Metrics.backButtonSize)
-      UIGraphicsBeginImageContextWithOptions(size, false, 0.0)
-      originalImage.draw(in: CGRect(origin: .zero, size: size))
-      let resizedImage = UIGraphicsGetImageFromCurrentImageContext()
-      UIGraphicsEndImageContext()
-
-      button.setImage(resizedImage, for: .normal)
-    } else {
-      button.setImage(UIImage(named: "chevronLeft"), for: .normal)
-    }
-
+    button.setImage(UIImage(named: "chevronLeft")?.withRenderingMode(.alwaysTemplate), for: .normal)
     button.imageView?.contentMode = .scaleAspectFit
     button.translatesAutoresizingMaskIntoConstraints = false
 

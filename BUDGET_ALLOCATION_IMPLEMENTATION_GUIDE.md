@@ -118,6 +118,7 @@ This section explains the "why" behind code decisions. Read this before implemen
 // Anyone who "conforms" to this protocol MUST implement these methods
 protocol MonthCardFlipDelegate: AnyObject {
     func didRequestFlip(isShowingBudgetView: Bool)
+    func didSelectAllocationCategory(_ category: TransactionCategory)
     func didTapAllocation(_ allocation: BudgetAllocation)
 }
 ```
@@ -200,7 +201,7 @@ class Child {
 // This closure runs ONLY when backButton is first accessed
 private lazy var backButton: UIButton = {
     let button = UIButton(type: .system)
-    button.setImage(UIImage(systemName: "chevron.left"), for: .normal)
+    button.setImage(UIImage(named: "chevronLeft")?.withRenderingMode(.alwaysTemplate), for: .normal)
     button.tintColor = Colors.gray100
     button.addTarget(self, action: #selector(backTapped), for: .touchUpInside)
     return button
@@ -234,7 +235,7 @@ struct BudgetAllocation {
 
     // STATIC method - belongs to the TYPE, not an instance
     static func mock(
-        category: TransactionCategory = .food,
+        category: TransactionCategory = .meals,
         allocated: Int = 50000
     ) -> BudgetAllocation {
         return BudgetAllocation(
@@ -255,9 +256,9 @@ struct BudgetAllocation {
 ```swift
 // All of these work:
 BudgetAllocation.mock()                           // Uses all defaults
-BudgetAllocation.mock(category: .transport)       // Override one
+BudgetAllocation.mock(category: .transportation)       // Override one
 BudgetAllocation.mock(allocated: 100000)          // Override another
-BudgetAllocation.mock(category: .food, allocated: 25000)  // Override both
+BudgetAllocation.mock(category: .meals, allocated: 25000)  // Override both
 ```
 
 ### 3.5 Why Computed Properties vs Stored Properties?
@@ -669,9 +670,9 @@ enum AllocationStatus {
 
     var localizedLabel: String {
         switch self {
-        case .underBudget: return "Under"
-        case .nearLimit: return "Near"
-        case .overBudget: return "Over"
+        case .underBudget: return "allocation.status.under".localized
+        case .nearLimit: return "allocation.status.near".localized
+        case .overBudget: return "allocation.status.over".localized
         }
     }
 }
@@ -727,12 +728,12 @@ struct BudgetAllocation {
     //
     // WHY DEFAULT PARAMETER VALUES? Flexibility. You can call:
     //   .mock()                                - all defaults (75% food)
-    //   .mock(category: .transport)            - override just category
+    //   .mock(category: .transportation)            - override just category
     //   .mock(allocated: 100000, used: 50000)  - override amounts
     //   .mock(category: .entertainment, allocated: 20000, used: 25000)  // over budget!
     //
     static func mock(
-        category: TransactionCategory = .food,
+        category: TransactionCategory = .meals,
         allocated: Int = 50000,    // $500.00
         used: Int = 37500          // $375.00 (75% usage = underBudget)
     ) -> BudgetAllocation {
@@ -814,8 +815,8 @@ final class BudgetAllocationDetailsView: UIView {
 
     private lazy var placeholderLabel: UILabel = {
         let label = UILabel()
-        label.text = "Allocation Details Screen"
-        label.font = Fonts.titleMD
+        label.text = "allocation.details.title".localized  // Placeholder, will be replaced
+        label.font = Fonts.titleMD.font
         label.textColor = Colors.gray100
         label.textAlignment = .center
         // translatesAutoresizingMaskIntoConstraints = false is REQUIRED
@@ -839,8 +840,7 @@ final class BudgetAllocationDetailsView: UIView {
 
     private(set) lazy var backButton: UIButton = {
         let button = UIButton(type: .system)
-        let config = UIImage.SymbolConfiguration(pointSize: 16, weight: .semibold)
-        button.setImage(UIImage(systemName: "chevron.left", withConfiguration: config), for: .normal)
+        button.setImage(UIImage(named: "chevronLeft")?.withRenderingMode(.alwaysTemplate), for: .normal)
         button.tintColor = Colors.gray100
         button.translatesAutoresizingMaskIntoConstraints = false
         return button
@@ -883,7 +883,7 @@ final class BudgetAllocationDetailsView: UIView {
     // ─────────────────────────────────────────────────────────────
 
     private func setupUI() {
-        backgroundColor = Colors.gray800
+        backgroundColor = Colors.gray700
 
         // Add subviews to the view hierarchy
         // ORDER MATTERS: later subviews appear ON TOP of earlier ones
@@ -925,7 +925,10 @@ final class BudgetAllocationDetailsView: UIView {
     // ─────────────────────────────────────────────────────────────
 
     func configure(with allocation: BudgetAllocation) {
-        placeholderLabel.text = "\(allocation.category.displayName) Budget"
+        placeholderLabel.text = String(
+            format: "allocation.details.title.format".localized,
+            allocation.category.displayName
+        )
     }
 }
 ```
@@ -1124,11 +1127,9 @@ extension AppFlowController: BudgetAllocationDetailsFlowDelegate {
         navigationController?.popViewController(animated: true)
     }
 
-    func navigateToTransactionDetails(transaction: Transaction) {
-        let viewController = ViewControllersFactory.makeTransactionDetailsViewController(transaction: transaction)
-        viewController.flowDelegate = self
-        navigationController?.pushViewController(viewController, animated: true)
-    }
+    // NOTE: navigateToTransactionDetails(transaction:) is already implemented
+    // in the DashboardFlowDelegate extension, so we don't need to add it here.
+    // Swift allows a single method to satisfy multiple protocol requirements.
 
     func didUpdateAllocation() {
         navigationController?.popViewController(animated: true)
@@ -1153,12 +1154,15 @@ final class BudgetCard: UIView {
 
     weak var delegate: MonthCardFlipDelegate?
 
+    // Use same gradient as MonthBudgetCard for visual consistency when flipping
+    private let gradientLayer = Colors.gradientBlack
+
     // MARK: - UI Components
 
     private lazy var placeholderLabel: UILabel = {
         let label = UILabel()
-        label.text = "Budget Allocations"
-        label.font = Fonts.titleMD
+        label.text = "budget.allocations.title".localized
+        label.font = Fonts.titleMD.font
         label.textColor = Colors.gray100
         label.textAlignment = .center
         label.translatesAutoresizingMaskIntoConstraints = false
@@ -1167,7 +1171,7 @@ final class BudgetCard: UIView {
 
     private lazy var flipBackButton: UIButton = {
         let button = UIButton(type: .system)
-        let config = UIImage.SymbolConfiguration(pointSize: 16, weight: .medium)
+        let config = UIImage.SymbolConfiguration(pointSize: 14, weight: .medium)
         button.setImage(UIImage(systemName: "creditcard.fill", withConfiguration: config), for: .normal)
         button.tintColor = Colors.gray100
         button.addTarget(self, action: #selector(flipBack), for: .touchUpInside)
@@ -1187,19 +1191,26 @@ final class BudgetCard: UIView {
     }
 
     private func setupUI() {
-        backgroundColor = Colors.gray700
-        layer.cornerRadius = CornerRadius.large
+        // Apply gradient background like MonthBudgetCard
+        layer.insertSublayer(gradientLayer, at: 0)
+        layer.cornerRadius = CornerRadius.extraLarge
+        clipsToBounds = true
 
         addSubview(flipBackButton)
         addSubview(placeholderLabel)
 
         NSLayoutConstraint.activate([
-            flipBackButton.topAnchor.constraint(equalTo: topAnchor, constant: Metrics.spacing4),
-            flipBackButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Metrics.spacing4),
+            flipBackButton.topAnchor.constraint(equalTo: topAnchor, constant: Metrics.spacing6),
+            flipBackButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Metrics.spacing6),
 
             placeholderLabel.centerXAnchor.constraint(equalTo: centerXAnchor),
             placeholderLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        gradientLayer.frame = bounds
     }
 
     @objc private func flipBack() {
@@ -1214,7 +1225,11 @@ final class BudgetCard: UIView {
         allocations: [BudgetAllocation],
         unallocatedSummary: UnallocatedBudgetSummary
     ) {
-        placeholderLabel.text = "\(month) Allocations (\(allocations.count))"
+        placeholderLabel.text = String(
+            format: "budget.allocations.month.format".localized,
+            month,
+            allocations.count
+        )
     }
 }
 ```
@@ -1231,11 +1246,25 @@ Add to existing class:
 weak var flipDelegate: MonthCardFlipDelegate?
 private var isShowingBudgetView = false
 
+// MARK: - Computed Properties (add)
+// These expose month/year from currentMonthData for the BudgetCard to use
+
+var currentMonth: String {
+    currentMonthData?.month ?? ""
+}
+
+var currentYear: String {
+    guard let date = currentMonthData?.date else { return "" }
+    let formatter = DateFormatter()
+    formatter.dateFormat = "yyyy"
+    return formatter.string(from: date)
+}
+
 // MARK: - UI Components (add to header)
 
 private lazy var budgetViewToggleButton: UIButton = {
     let button = UIButton(type: .system)
-    let config = UIImage.SymbolConfiguration(pointSize: 16, weight: .medium)
+    let config = UIImage.SymbolConfiguration(pointSize: 14, weight: .medium)
     button.setImage(UIImage(systemName: "chart.pie.fill", withConfiguration: config), for: .normal)
     button.tintColor = Colors.gray100
     button.addTarget(self, action: #selector(toggleBudgetView), for: .touchUpInside)
@@ -1259,6 +1288,11 @@ func setShowingBudgetView(_ showing: Bool) {
 
 Add `budgetViewToggleButton` to header layout (between hideValuesButton and configButton).
 
+In `setupUI()`, add spacing between the toggle button and config icon:
+```swift
+headerHorizontalStackView.setCustomSpacing(Metrics.spacing3, after: budgetViewToggleButton)
+```
+
 ### Step 1.12: Add Flip Logic to MonthCarouselCell
 
 **File:** `Finova/Sources/Scenes/Dashboard/DashboardCarousel/MonthCarousel/MonthCarouselCell.swift`
@@ -1277,17 +1311,18 @@ private lazy var budgetCard: BudgetCard = {
     return card
 }()
 
-// MARK: - Setup (add budgetCard to view hierarchy)
+// MARK: - Setup (add budgetCard to view hierarchy and set delegate)
 
-// In setupUI(), add:
+// In setupViews(), add:
+monthCard.flipDelegate = self  // IMPORTANT: Wire up the flip delegate!
 contentView.addSubview(budgetCard)
 
 // In setupConstraints(), add:
 NSLayoutConstraint.activate([
-    budgetCard.topAnchor.constraint(equalTo: monthBudgetCard.topAnchor),
-    budgetCard.leadingAnchor.constraint(equalTo: monthBudgetCard.leadingAnchor),
-    budgetCard.trailingAnchor.constraint(equalTo: monthBudgetCard.trailingAnchor),
-    budgetCard.bottomAnchor.constraint(equalTo: monthBudgetCard.bottomAnchor),
+    budgetCard.topAnchor.constraint(equalTo: monthCard.topAnchor),
+    budgetCard.leadingAnchor.constraint(equalTo: monthCard.leadingAnchor),
+    budgetCard.trailingAnchor.constraint(equalTo: monthCard.trailingAnchor),
+    budgetCard.bottomAnchor.constraint(equalTo: monthCard.bottomAnchor),
 ])
 
 // MARK: - Flip Methods
@@ -1296,8 +1331,8 @@ func flipToBudgetView(allocations: [BudgetAllocation], summary: UnallocatedBudge
     guard !isShowingBudgetView else { return }
 
     budgetCard.configure(
-        month: monthBudgetCard.currentMonth,
-        year: monthBudgetCard.currentYear,
+        month: monthCard.currentMonth,
+        year: monthCard.currentYear,
         allocations: allocations,
         unallocatedSummary: summary
     )
@@ -1307,11 +1342,16 @@ func flipToBudgetView(allocations: [BudgetAllocation], summary: UnallocatedBudge
         duration: 0.4,
         options: [.transitionFlipFromRight, .showHideTransitionViews]
     ) {
-        self.monthBudgetCard.isHidden = true
+        self.monthCard.isHidden = true
         self.budgetCard.isHidden = false
+        // Hide transaction-related views
+        self.searchContainerView.isHidden = true
+        self.tableHeaderView.isHidden = true
+        self.transactionTableView.isHidden = true
+        self.emptyStateView.isHidden = true
     } completion: { _ in
         self.isShowingBudgetView = true
-        self.monthBudgetCard.setShowingBudgetView(true)
+        self.monthCard.setShowingBudgetView(true)
     }
 }
 
@@ -1323,11 +1363,18 @@ func flipToTransactionView() {
         duration: 0.4,
         options: [.transitionFlipFromLeft, .showHideTransitionViews]
     ) {
-        self.monthBudgetCard.isHidden = false
+        self.monthCard.isHidden = false
         self.budgetCard.isHidden = true
+        // Show transaction-related views
+        self.searchContainerView.isHidden = false
+        self.tableHeaderView.isHidden = false
+        // Restore table/empty state based on transactions
+        let hasTransactions = !self.transactions.isEmpty
+        self.transactionTableView.isHidden = !hasTransactions
+        self.emptyStateView.isHidden = hasTransactions
     } completion: { _ in
         self.isShowingBudgetView = false
-        self.monthBudgetCard.setShowingBudgetView(false)
+        self.monthCard.setShowingBudgetView(false)
     }
 }
 ```
@@ -1343,8 +1390,8 @@ extension MonthCarouselCell: MonthCardFlipDelegate {
         if isShowingBudgetView {
             // Get mock data for now
             let mockAllocations = [
-                BudgetAllocation.mock(category: .food, allocated: 50000, used: 37500),
-                BudgetAllocation.mock(category: .transport, allocated: 30000, used: 28000),
+                BudgetAllocation.mock(category: .meals, allocated: 50000, used: 37500),
+                BudgetAllocation.mock(category: .transportation, allocated: 30000, used: 28000),
                 BudgetAllocation.mock(category: .entertainment, allocated: 20000, used: 25000),
             ]
             let mockSummary = UnallocatedBudgetSummary.mock()
@@ -1371,23 +1418,49 @@ extension MonthCarouselCell: MonthCardFlipDelegate {
 
 ### ✅ Phase 1 Checkpoint
 
-At this point you should be able to:
+**Files created/modified in Phase 1:**
+- ✅ `MonthCardFlipDelegate.swift` - Protocol for flip communication
+- ✅ `BudgetAllocationDetailsFlowDelegate.swift` - Protocol for details navigation
+- ✅ `BudgetAllocationModel.swift` - Minimal models with mock() methods
+- ✅ `BudgetCard.swift` - Back side of the flip card
+- ✅ `MonthBudgetCard.swift` - Added `flipDelegate`, computed properties, toggle button
+- ✅ `MonthCarouselCell.swift` - Added flip logic, delegate conformance, budgetCard
+
+**Key implementation details:**
+- `monthCard.flipDelegate = self` must be set in `setupViews()`
+- `budgetCard` constraints match `monthCard` bounds (top, leading, trailing, bottom)
+- Flip animation hides/shows: `monthCard`, `searchContainerView`, `tableHeaderView`, `transactionTableView`, `emptyStateView`
+- BudgetCard uses same `gradientLayer` as MonthBudgetCard for visual consistency
+
+**You should be able to:**
 1. **Build and run** the app without errors
 2. **See a pie chart icon** in MonthBudgetCard header
-3. **Tap the icon** and see the card flip to show "Budget Allocations" placeholder
+3. **Tap the icon** and see the card flip to show BudgetCard with gradient background
 4. **Tap the card icon** on BudgetCard to flip back
+5. **See transactions list hidden** when BudgetCard is showing
 
 ---
 
 ## Phase 2: Data Models & Constants
 
-> **Goal**: Create complete data models. UI still uses mock data.
+> **Goal**: Expand the minimal models from Phase 1 into complete data models with database support. UI still uses mock data.
+
+**Already implemented in Phase 1:**
+- `AllocationStatus` enum with `color` and `localizedLabel`
+- `BudgetAllocation` struct with basic properties and `mock()` method
+- `UnallocatedBudgetSummary` struct with `mock()` method
+
+**What Phase 2 adds:**
+- `BudgetAllocationModel` (database/Codable model for persistence)
+- `icon` property to `AllocationStatus`
+- Full initializer for `BudgetAllocation`
+- Conversion methods between database and display models
 
 ### Step 2.1: Complete BudgetAllocationModel
 
 **File:** `Finova/Sources/Core/Repositories/BudgetAllocationRepository/BudgetAllocationModel.swift`
 
-Replace with complete implementation:
+Expand your existing file with the complete implementation:
 
 ```swift
 import UIKit
@@ -1512,7 +1585,7 @@ struct BudgetAllocation {
     // MARK: - Mock Data
 
     static func mock(
-        category: TransactionCategory = .food,
+        category: TransactionCategory = .meals,
         allocated: Int = 50000,
         used: Int = 37500,
         isRecurring: Bool = false
@@ -1623,14 +1696,14 @@ final class AllocationCell: UITableViewCell {
 
     private lazy var categoryLabel: UILabel = {
         let label = UILabel()
-        label.font = Fonts.textSMBold
+        label.font = Fonts.textSM.fontBold.font
         label.textColor = Colors.gray100
         return label
     }()
 
     private lazy var usageLabel: UILabel = {
         let label = UILabel()
-        label.font = Fonts.textXS
+        label.font = Fonts.textXS.font
         label.textColor = Colors.gray400
         return label
     }()
@@ -1654,7 +1727,7 @@ final class AllocationCell: UITableViewCell {
 
     private lazy var statusBadge: UILabel = {
         let label = UILabel()
-        label.font = Fonts.textXS
+        label.font = Fonts.textXS.font
         label.textAlignment = .right
         label.translatesAutoresizingMaskIntoConstraints = false
         return label
@@ -1728,7 +1801,11 @@ final class AllocationCell: UITableViewCell {
     func configure(with allocation: BudgetAllocation) {
         categoryIconView.image = allocation.category.icon
         categoryLabel.text = allocation.category.displayName
-        usageLabel.text = "\(allocation.usedAmount.currencyString) / \(allocation.allocatedAmount.currencyString)"
+        usageLabel.text = String(
+            format: "budget.usage.format".localized,
+            allocation.usedAmount.currencyString,
+            allocation.allocatedAmount.currencyString
+        )
 
         recurringIcon.isHidden = !allocation.isRecurring
 
@@ -1808,7 +1885,7 @@ final class CircularProgressView: UIView {
 
     private lazy var percentageLabel: UILabel = {
         let label = UILabel()
-        label.font = Fonts.titleLG
+        label.font = Fonts.titleLG.font
         label.textColor = Colors.gray100
         label.textAlignment = .center
         return label
@@ -1816,7 +1893,7 @@ final class CircularProgressView: UIView {
 
     private lazy var statusLabel: UILabel = {
         let label = UILabel()
-        label.font = Fonts.textSM
+        label.font = Fonts.textSM.font
         label.textAlignment = .center
         return label
     }()
@@ -1878,7 +1955,7 @@ final class CircularProgressView: UIView {
         progress = CGFloat(min(percentage, 100) / 100)
         progressColor = status.color
 
-        percentageLabel.text = "\(Int(percentage))%"
+        percentageLabel.text = String(format: "format.percentage".localized, Int(percentage))
         statusLabel.text = status.localizedLabel
         statusLabel.textColor = status.color
 
@@ -1955,7 +2032,7 @@ struct BudgetDonutChartView: View {
                     Text(unallocatedAmount.currencyString)
                         .font(.system(size: 16, weight: .bold))
                         .foregroundColor(Color(Colors.gray100))
-                    Text("Unallocated")
+                    Text("budget.unallocated".localized)
                         .font(.system(size: 10))
                         .foregroundColor(Color(Colors.gray400))
                 }
@@ -2046,21 +2123,21 @@ final class BudgetCard: UIView {
 
     private lazy var monthLabel: UILabel = {
         let label = UILabel()
-        label.font = Fonts.titleMD
+        label.font = Fonts.titleMD.font
         label.textColor = Colors.gray100
         return label
     }()
 
     private lazy var yearLabel: UILabel = {
         let label = UILabel()
-        label.font = Fonts.textSM
+        label.font = Fonts.textSM.font
         label.textColor = Colors.gray400
         return label
     }()
 
     private lazy var flipBackButton: UIButton = {
         let button = UIButton(type: .system)
-        let config = UIImage.SymbolConfiguration(pointSize: 16, weight: .medium)
+        let config = UIImage.SymbolConfiguration(pointSize: 14, weight: .medium)
         button.setImage(UIImage(systemName: "creditcard.fill", withConfiguration: config), for: .normal)
         button.tintColor = Colors.gray100
         button.addTarget(self, action: #selector(flipBack), for: .touchUpInside)
@@ -2075,7 +2152,7 @@ final class BudgetCard: UIView {
 
     private lazy var budgetLimitLabel: UILabel = {
         let label = UILabel()
-        label.font = Fonts.textXS
+        label.font = Fonts.textXS.font
         label.textColor = Colors.gray400
         label.translatesAutoresizingMaskIntoConstraints = false
         return label
@@ -2091,7 +2168,7 @@ final class BudgetCard: UIView {
 
     private lazy var allocationPercentLabel: UILabel = {
         let label = UILabel()
-        label.font = Fonts.textXS
+        label.font = Fonts.textXS.font
         label.textColor = Colors.gray400
         label.textAlignment = .right
         label.translatesAutoresizingMaskIntoConstraints = false
@@ -2189,13 +2266,19 @@ final class BudgetCard: UIView {
         monthLabel.text = month
         yearLabel.text = year
 
-        budgetLimitLabel.text = "Budget: \(unallocatedSummary.totalBudget.currencyString)"
+        budgetLimitLabel.text = String(
+            format: "budget.limit.format".localized,  // "Budget: %@"
+            unallocatedSummary.totalBudget.currencyString
+        )
 
         let allocatedPercent = unallocatedSummary.totalBudget > 0
             ? Float(unallocatedSummary.totalAllocated) / Float(unallocatedSummary.totalBudget)
             : 0
         allocationProgressBar.setProgress(min(allocatedPercent, 1.0), animated: true)
-        allocationPercentLabel.text = "\(Int(allocatedPercent * 100))% allocated"
+        allocationPercentLabel.text = String(
+            format: "budget.allocated.percent".localized,  // "%d%% allocated"
+            Int(allocatedPercent * 100)
+        )
 
         if allocatedPercent > 1.0 {
             allocationProgressBar.progressTintColor = Colors.warningAmber
@@ -2307,8 +2390,7 @@ final class BudgetAllocationDetailsView: UIView {
 
     private(set) lazy var backButton: UIButton = {
         let button = UIButton(type: .system)
-        let config = UIImage.SymbolConfiguration(pointSize: 16, weight: .semibold)
-        button.setImage(UIImage(systemName: "chevron.left", withConfiguration: config), for: .normal)
+        button.setImage(UIImage(named: "chevronLeft")?.withRenderingMode(.alwaysTemplate), for: .normal)
         button.tintColor = Colors.gray100
         button.translatesAutoresizingMaskIntoConstraints = false
         return button
@@ -2324,14 +2406,14 @@ final class BudgetAllocationDetailsView: UIView {
 
     private lazy var categoryLabel: UILabel = {
         let label = UILabel()
-        label.font = Fonts.titleMD
+        label.font = Fonts.titleMD.font
         label.textColor = Colors.gray100
         return label
     }()
 
     private lazy var monthYearLabel: UILabel = {
         let label = UILabel()
-        label.font = Fonts.textSM
+        label.font = Fonts.textSM.font
         label.textColor = Colors.gray400
         return label
     }()
@@ -2367,45 +2449,45 @@ final class BudgetAllocationDetailsView: UIView {
 
     private lazy var allocatedLabel: UILabel = {
         let label = UILabel()
-        label.font = Fonts.textSM
+        label.font = Fonts.textSM.font
         label.textColor = Colors.gray400
-        label.text = "Allocated"
+        label.text = "allocation.details.summary.allocated".localized
         return label
     }()
 
     private lazy var allocatedValueLabel: UILabel = {
         let label = UILabel()
-        label.font = Fonts.textSMBold
+        label.font = Fonts.textSM.fontBold.font
         label.textColor = Colors.gray100
         return label
     }()
 
     private lazy var usedLabel: UILabel = {
         let label = UILabel()
-        label.font = Fonts.textSM
+        label.font = Fonts.textSM.font
         label.textColor = Colors.gray400
-        label.text = "Used"
+        label.text = "allocation.details.summary.used".localized
         return label
     }()
 
     private lazy var usedValueLabel: UILabel = {
         let label = UILabel()
-        label.font = Fonts.textSMBold
+        label.font = Fonts.textSM.fontBold.font
         label.textColor = Colors.gray100
         return label
     }()
 
     private lazy var remainingLabel: UILabel = {
         let label = UILabel()
-        label.font = Fonts.textSM
+        label.font = Fonts.textSM.font
         label.textColor = Colors.gray400
-        label.text = "Remaining"
+        label.text = "allocation.details.summary.remaining".localized
         return label
     }()
 
     private lazy var remainingValueLabel: UILabel = {
         let label = UILabel()
-        label.font = Fonts.textSMBold
+        label.font = Fonts.textSM.fontBold.font
         label.textColor = Colors.gray100
         return label
     }()
@@ -2428,8 +2510,8 @@ final class BudgetAllocationDetailsView: UIView {
         icon.tintColor = Colors.gray300
 
         let label = UILabel()
-        label.text = "Recurring"
-        label.font = Fonts.textXS
+        label.text = "allocation.details.summary.recurring".localized
+        label.font = Fonts.textXS.font
         label.textColor = Colors.gray300
 
         stack.addArrangedSubview(icon)
@@ -2457,7 +2539,7 @@ final class BudgetAllocationDetailsView: UIView {
 
     private lazy var warningLabel: UILabel = {
         let label = UILabel()
-        label.font = Fonts.textSM
+        label.font = Fonts.textSM.font
         label.textColor = Colors.warningAmber
         label.numberOfLines = 0
         label.translatesAutoresizingMaskIntoConstraints = false
@@ -2467,7 +2549,7 @@ final class BudgetAllocationDetailsView: UIView {
     // Transactions Section
     private lazy var transactionsHeaderLabel: UILabel = {
         let label = UILabel()
-        label.font = Fonts.titleSM
+        label.font = Fonts.titleSM.font
         label.textColor = Colors.gray100
         label.translatesAutoresizingMaskIntoConstraints = false
         return label
@@ -2494,8 +2576,8 @@ final class BudgetAllocationDetailsView: UIView {
         icon.translatesAutoresizingMaskIntoConstraints = false
 
         let label = UILabel()
-        label.text = "No transactions yet"
-        label.font = Fonts.textSM
+        label.text = "allocation.details.transactions.empty".localized
+        label.font = Fonts.textSM.font
         label.textColor = Colors.gray400
         label.textAlignment = .center
         label.translatesAutoresizingMaskIntoConstraints = false
@@ -2516,20 +2598,20 @@ final class BudgetAllocationDetailsView: UIView {
     // Action Buttons
     private lazy var actionButtonsContainerView: UIView = {
         let view = UIView()
-        view.backgroundColor = Colors.gray800
+        view.backgroundColor = Colors.gray700
         view.translatesAutoresizingMaskIntoConstraints = false
         return view
     }()
 
     private(set) lazy var editButton: Button = {
         let button = Button(variant: .base)
-        button.setTitle("Edit Allocation", for: .normal)
+        button.setTitle("allocation.details.action.edit".localized, for: .normal)
         return button
     }()
 
     private(set) lazy var deleteButton: Button = {
         let button = Button(variant: .outlined)
-        button.setTitle("Delete", for: .normal)
+        button.setTitle("allocation.details.action.delete".localized, for: .normal)
         button.setTitleColor(Colors.mainRed, for: .normal)
         button.layer.borderColor = Colors.mainRed.cgColor
         return button
@@ -2551,7 +2633,7 @@ final class BudgetAllocationDetailsView: UIView {
     // MARK: - Setup
 
     private func setupUI() {
-        backgroundColor = Colors.gray800
+        backgroundColor = Colors.gray700
 
         // Header
         addSubview(headerContainerView)
@@ -2741,13 +2823,16 @@ final class BudgetAllocationDetailsView: UIView {
         // Warning
         if isOver {
             warningBanner.isHidden = false
-            warningLabel.text = "You've exceeded this allocation by \(abs(allocation.remainingAmount).currencyString)"
+            warningLabel.text = String(
+                format: "allocation.warning.exceeded".localized,  // "You've exceeded this allocation by %@"
+                abs(allocation.remainingAmount).currencyString
+            )
         } else {
             warningBanner.isHidden = true
         }
 
         // Transactions header
-        transactionsHeaderLabel.text = "Transactions"
+        transactionsHeaderLabel.text = "allocation.details.transactions.header".localized
     }
 
     func updateTableHeight(rowCount: Int, rowHeight: CGFloat = 72) {
@@ -2758,7 +2843,10 @@ final class BudgetAllocationDetailsView: UIView {
     }
 
     func setTransactionCount(_ count: Int) {
-        transactionsHeaderLabel.text = "Transactions (\(count))"
+        transactionsHeaderLabel.text = String(
+            format: "allocation.details.transactions.count.format".localized,
+            count
+        )
     }
 }
 ```
@@ -3148,14 +3236,18 @@ final class BudgetAllocationDetailsViewController: UIViewController {
     }
 
     @objc private func editTapped() {
-        let alert = UIAlertController(title: "Edit Allocation", message: nil, preferredStyle: .alert)
+        let alert = UIAlertController(
+            title: "allocation.edit.title".localized,
+            message: nil,
+            preferredStyle: .alert
+        )
         alert.addTextField { field in
-            field.placeholder = "Amount"
+            field.placeholder = "allocation.edit.amount.placeholder".localized
             field.keyboardType = .decimalPad
             field.text = String(format: "%.2f", Double(self.viewModel.allocatedAmount) / 100)
         }
-        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
-        alert.addAction(UIAlertAction(title: "Save", style: .default) { [weak self] _ in
+        alert.addAction(UIAlertAction(title: "alert.cancel".localized, style: .cancel))
+        alert.addAction(UIAlertAction(title: "alert.save".localized, style: .default) { [weak self] _ in
             guard let text = alert.textFields?.first?.text,
                   let amount = Double(text) else { return }
             self?.viewModel.updateAllocation(newAmount: Int(amount * 100)) { result in
@@ -3169,23 +3261,41 @@ final class BudgetAllocationDetailsViewController: UIViewController {
 
     @objc private func deleteTapped() {
         if viewModel.isRecurring {
-            let alert = UIAlertController(title: "Delete Recurring Allocation?", message: nil, preferredStyle: .actionSheet)
-            alert.addAction(UIAlertAction(title: "Delete This Month Only", style: .destructive) { [weak self] _ in
+            // Recurring allocation: offer choice to delete this month or all future
+            let alert = UIAlertController(
+                title: "allocation.delete.recurring.title".localized,
+                message: "allocation.delete.recurring.message".localized,
+                preferredStyle: .actionSheet
+            )
+            alert.addAction(UIAlertAction(
+                title: "allocation.delete.recurring.thisMonth".localized,
+                style: .destructive
+            ) { [weak self] _ in
                 self?.performDelete(deleteAllFuture: false)
             })
-            alert.addAction(UIAlertAction(title: "Delete All Future Months", style: .destructive) { [weak self] _ in
+            alert.addAction(UIAlertAction(
+                title: "allocation.delete.recurring.allFuture".localized,
+                style: .destructive
+            ) { [weak self] _ in
                 self?.performDelete(deleteAllFuture: true)
             })
-            alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+            alert.addAction(UIAlertAction(title: "alert.cancel".localized, style: .cancel))
             present(alert, animated: true)
         } else {
+            // Single allocation: simple confirmation
             let alert = UIAlertController(
-                title: "Delete Allocation?",
-                message: "Remove \(viewModel.category.displayName) allocation?",
+                title: "allocation.delete.title".localized,
+                message: String(
+                    format: "allocation.delete.message".localized,
+                    viewModel.category.displayName
+                ),
                 preferredStyle: .alert
             )
-            alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
-            alert.addAction(UIAlertAction(title: "Delete", style: .destructive) { [weak self] _ in
+            alert.addAction(UIAlertAction(title: "alert.cancel".localized, style: .cancel))
+            alert.addAction(UIAlertAction(
+                title: "alert.delete".localized,
+                style: .destructive
+            ) { [weak self] _ in
                 self?.performDelete(deleteAllFuture: false)
             })
             present(alert, animated: true)
@@ -3353,7 +3463,7 @@ Remove the static `mock()` methods from `BudgetAllocation` and `UnallocatedBudge
 ```swift
 // ❌ DELETE these methods from BudgetAllocation
 static func mock(
-    category: TransactionCategory = .food,
+    category: TransactionCategory = .meals,
     allocated: Int = 50000,
     used: Int = 37500,
     isRecurring: Bool = false
@@ -3470,8 +3580,8 @@ NotificationCenter.default.addObserver(
         let allocations = allocationService.getAllocationsWithUsage(forMonth: monthAnchor)
         let summary = allocationService.getUnallocatedSummary(forMonth: monthAnchor)
         budgetCard.configure(
-            month: monthBudgetCard.currentMonth,
-            year: monthBudgetCard.currentYear,
+            month: monthCard.currentMonth,
+            year: monthCard.currentYear,
             allocations: allocations,
             unallocatedSummary: summary
         )
@@ -3597,29 +3707,99 @@ At this point:
 
 ## Localization Keys
 
-```
-// Status
+> **Note:** You should add these keys to your `Localizable.xcstrings` file BEFORE implementing the code. This way, all UI text is localized from the start.
+
+```swift
+// ═══════════════════════════════════════════════════════════════════
+// ALLOCATION STATUS (used in AllocationStatus enum)
+// ═══════════════════════════════════════════════════════════════════
 "allocation.status.under" = "Under";
 "allocation.status.near" = "Near";
 "allocation.status.over" = "Over";
 
-// Errors
+// ═══════════════════════════════════════════════════════════════════
+// ERRORS (used in BudgetAllocationError enum)
+// ═══════════════════════════════════════════════════════════════════
 "allocation.error.duplicate" = "Allocation already exists for this category";
 "allocation.error.notFound" = "Allocation not found";
 "allocation.error.invalidAmount" = "Invalid amount";
 
-// Detail Screen
+// ═══════════════════════════════════════════════════════════════════
+// DETAIL SCREEN - Summary Section
+// ═══════════════════════════════════════════════════════════════════
 "allocation.details.summary.allocated" = "Allocated";
 "allocation.details.summary.used" = "Used";
 "allocation.details.summary.remaining" = "Remaining";
+"allocation.details.summary.recurring" = "Recurring";
+
+// ═══════════════════════════════════════════════════════════════════
+// DETAIL SCREEN - Transactions Section
+// ═══════════════════════════════════════════════════════════════════
 "allocation.details.transactions.header" = "Transactions";
 "allocation.details.transactions.empty" = "No transactions yet";
+
+// ═══════════════════════════════════════════════════════════════════
+// DETAIL SCREEN - Warning Banner
+// ═══════════════════════════════════════════════════════════════════
+"allocation.warning.exceeded" = "You've exceeded this allocation by %@";  // %@ = currency amount
+
+// ═══════════════════════════════════════════════════════════════════
+// DETAIL SCREEN - Actions
+// ═══════════════════════════════════════════════════════════════════
 "allocation.details.action.edit" = "Edit Allocation";
 "allocation.details.action.delete" = "Delete";
 
-// Modal
+// ═══════════════════════════════════════════════════════════════════
+// EDIT ALLOCATION ALERT
+// ═══════════════════════════════════════════════════════════════════
+"allocation.edit.title" = "Edit Allocation";
+"allocation.edit.amount.placeholder" = "Amount";
+
+// ═══════════════════════════════════════════════════════════════════
+// DELETE ALLOCATION ALERTS
+// ═══════════════════════════════════════════════════════════════════
+"allocation.delete.title" = "Delete Allocation?";
+"allocation.delete.message" = "Remove %@ allocation?";  // %@ = category name
+"allocation.delete.recurring.title" = "Delete Recurring Allocation?";
+"allocation.delete.recurring.message" = "Choose which occurrences to delete";
+"allocation.delete.recurring.thisMonth" = "This Month Only";
+"allocation.delete.recurring.allFuture" = "All Future Months";
+
+// ═══════════════════════════════════════════════════════════════════
+// GENERIC ALERTS (may already exist in your project)
+// ═══════════════════════════════════════════════════════════════════
+"alert.cancel" = "Cancel";
+"alert.delete" = "Delete";
+"alert.save" = "Save";
+
+// ═══════════════════════════════════════════════════════════════════
+// BUDGET CARD (back of MonthBudgetCard)
+// ═══════════════════════════════════════════════════════════════════
+"budget.allocations.title" = "Budget Allocations";
+"budget.unallocated" = "Unallocated";
+"budget.limit.format" = "Budget: %@";           // %@ = currency amount
+"budget.allocated.percent" = "%d%% allocated";  // %d = percentage number
+
+// ═══════════════════════════════════════════════════════════════════
+// MODAL - Segmented Control
+// ═══════════════════════════════════════════════════════════════════
 "modal.segment.transaction" = "Transaction";
 "modal.segment.allocation" = "Allocation";
+```
+
+### How to Use Localization in Swift
+
+All strings use the `.localized` extension (already in your codebase):
+
+```swift
+// In UIKit views:
+label.text = "allocation.status.under".localized
+
+// In SwiftUI:
+Text("budget.unallocated".localized)
+
+// With format arguments:
+String(format: "allocation.warning.over".localized, overAmount)
 ```
 
 ---

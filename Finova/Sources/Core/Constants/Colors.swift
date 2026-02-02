@@ -11,6 +11,8 @@ import UIKit
 enum Colors {
     static let mainMagenta = UIColor(hex: "#DA4BDD")
     static let mainRed = UIColor(hex: "#D93A4A")
+    static let warningAmber = UIColor(hex: "#F59E0B")
+    static let lowAmber = UIColor(hex: "#F59E0B").withAlphaComponent(0.05)
     static let mainGreen = UIColor(hex: "#1FA342")
     
     static let lowMagenta = UIColor(red: 220/255, green: 84/255, blue: 222/255, alpha: 0.05)
