@@ -1085,21 +1085,23 @@ extension MonthCarouselCell: MonthCardFlipDelegate {
         if isShowingBudgetView {
             // Extended mock data with various categories and large values
             // Values are in cents: R$ 1.00 = 100, R$ 1,000.00 = 100_000
+            // Random realistic values (in cents: R$ 1.00 = 100)
             let mockAllocations = [
-                BudgetAllocation.mock(category: .meals, allocated: 15_000_000, used: 12_000_000),          // R$ 150k
-                BudgetAllocation.mock(category: .transportation, allocated: 8_000_000, used: 7_500_000),   // R$ 80k
-                BudgetAllocation.mock(category: .entertainment, allocated: 5_000_000, used: 6_500_000),    // R$ 50k - over budget
-                BudgetAllocation.mock(category: .groceries, allocated: 120_000_000, used: 80_000_000),     // R$ 1.2 mi
-                BudgetAllocation.mock(category: .healthcare, allocated: 3_000_000, used: 1_500_000),       // R$ 30k - under budget
-                BudgetAllocation.mock(category: .subscriptions, allocated: 2_500_000, used: 2_200_000),    // R$ 25k - near limit
-                BudgetAllocation.mock(category: .utilities, allocated: 4_500_000, used: 4_400_000),        // R$ 45k - near limit
-                BudgetAllocation.mock(category: .education, allocated: 20_000_000, used: 18_000_000)       // R$ 200k
+                BudgetAllocation.mock(category: .meals, allocated: 1245682, used: 987340),           // R$ 12,456.82 / R$ 9,873.40
+                BudgetAllocation.mock(category: .transportation, allocated: 85723, used: 79156),     // R$ 857.23 / R$ 791.56 - small
+                BudgetAllocation.mock(category: .entertainment, allocated: 350000, used: 428750),    // R$ 3,500.00 / R$ 4,287.50 - over
+                BudgetAllocation.mock(category: .groceries, allocated: 2834190, used: 1956420),      // R$ 28,341.90 / R$ 19,564.20
+                BudgetAllocation.mock(category: .healthcare, allocated: 1500000, used: 432580),      // R$ 15,000.00 / R$ 4,325.80 - under
+                BudgetAllocation.mock(category: .subscriptions, allocated: 78990, used: 71245),      // R$ 789.90 / R$ 712.45 - tiny
+                BudgetAllocation.mock(category: .utilities, allocated: 187500, used: 174328),        // R$ 1,875.00 / R$ 1,743.28 - near
+                BudgetAllocation.mock(category: .education, allocated: 567000, used: 489000)         // R$ 5,670.00 / R$ 4,890.00
             ]
+            let totalAllocated = mockAllocations.reduce(0) { $0 + $1.allocatedAmount }
             let mockSummary = UnallocatedBudgetSummary(
                 monthDate: Int(Date().timeIntervalSince1970),
-                totalBudget: 250_000_000,       // R$ 2.5 mi total budget
-                totalAllocated: 178_000_000,    // Sum of allocations above
-                totalUsedInUnallocatedCategories: 10_000_000
+                totalBudget: 8500000,           // R$ 85,000.00 total budget
+                totalAllocated: totalAllocated, // ~R$ 64,849.85
+                totalUsedInUnallocatedCategories: 245678
             )
             flipToBudgetView(allocations: mockAllocations, summary: mockSummary)
         } else {
