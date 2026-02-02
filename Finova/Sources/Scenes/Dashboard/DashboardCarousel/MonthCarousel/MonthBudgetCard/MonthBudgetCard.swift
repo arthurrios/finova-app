@@ -216,7 +216,7 @@ class MonthBudgetCard: UIView {
     
     private lazy var budgetViewToggleButton: UIButton = {
         let button = UIButton(type: .system)
-        let config = UIImage.SymbolConfiguration(pointSize: 14, weight: .medium)
+        let config = UIImage.SymbolConfiguration(pointSize: 16, weight: .medium)
         button.setImage(UIImage(systemName: "chart.pie.fill", withConfiguration: config), for: .normal)
         button.tintColor = Colors.gray100
         button.addTarget(self, action: #selector(toggleBudgetView), for: .touchUpInside)
@@ -228,8 +228,8 @@ class MonthBudgetCard: UIView {
         let imageView = UIImageView(image: UIImage(named: "settingsIcon"))
         imageView.contentMode = .scaleAspectFit
         imageView.tintColor = Colors.gray100
-        imageView.widthAnchor.constraint(equalToConstant: 22).isActive = true
-        imageView.heightAnchor.constraint(equalToConstant: 22).isActive = true
+        imageView.widthAnchor.constraint(equalToConstant: Metrics.spacing6).isActive = true
+        imageView.heightAnchor.constraint(equalToConstant: Metrics.spacing6).isActive = true
         imageView.isUserInteractionEnabled = true
         return imageView
     }()

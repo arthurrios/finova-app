@@ -28,7 +28,7 @@ final class BudgetCard: UIView {
     
     private lazy var flipBackButton: UIButton = {
         let button = UIButton(type: .system)
-        let config = UIImage.SymbolConfiguration(pointSize: 14, weight: .medium)
+        let config = UIImage.SymbolConfiguration(pointSize: 16, weight: .medium)
         button.setImage(UIImage(systemName: "creditcard.fill", withConfiguration: config), for: .normal)
         button.tintColor = Colors.gray100
         button.addTarget(self, action: #selector(flipBack), for: .touchUpInside)
