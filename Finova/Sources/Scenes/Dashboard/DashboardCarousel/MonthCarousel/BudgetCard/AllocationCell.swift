@@ -13,19 +13,11 @@ final class AllocationCell: UITableViewCell {
 
     // MARK: - Properties
 
-    private var currentProgress: CGFloat = 0
     private var tapAction: (() -> Void)?
 
-    // MARK: - Base Layer (Dark content - visible where progress hasn't reached)
+    // MARK: - UI Components
 
-    private lazy var darkContentView: UIView = {
-        let view = UIView()
-        view.backgroundColor = .clear
-        view.translatesAutoresizingMaskIntoConstraints = false
-        return view
-    }()
-
-    private lazy var darkIconContainer: UIView = {
+    private lazy var iconContainer: UIView = {
         let view = UIView()
         view.layer.cornerRadius = CornerRadius.medium
         view.backgroundColor = Colors.gray200
@@ -35,7 +27,7 @@ final class AllocationCell: UITableViewCell {
         return view
     }()
 
-    private lazy var darkIconView: UIImageView = {
+    private lazy var iconView: UIImageView = {
         let imageView = UIImageView()
         imageView.contentMode = .scaleAspectFit
         imageView.tintColor = Colors.mainMagenta
@@ -43,7 +35,7 @@ final class AllocationCell: UITableViewCell {
         return imageView
     }()
 
-    private lazy var darkTextStackView: UIStackView = {
+    private lazy var textStackView: UIStackView = {
         let stack = UIStackView()
         stack.axis = .vertical
         stack.spacing = 2
@@ -52,109 +44,42 @@ final class AllocationCell: UITableViewCell {
         return stack
     }()
 
-    private lazy var darkCategoryLabel: UILabel = {
+    private lazy var categoryLabel: UILabel = {
         let label = UILabel()
         label.font = Fonts.textSMBold.font
         label.textColor = Colors.gray700
         return label
     }()
 
-    private lazy var darkValuesLabel: UILabel = {
+    private lazy var usageLabel: UILabel = {
         let label = UILabel()
         label.font = Fonts.textXS.font
         label.textColor = Colors.gray500
         return label
     }()
 
-    private lazy var darkPercentageLabel: UILabel = {
-        let label = UILabel()
-        label.font = Fonts.titleMD.font
-        label.textAlignment = .right
-        label.translatesAutoresizingMaskIntoConstraints = false
-        return label
-    }()
-
-    // MARK: - Progress Layer (clips light content)
-
-    private lazy var progressView: UIView = {
-        let view = UIView()
-        view.clipsToBounds = true
-        view.layer.cornerRadius = CornerRadius.extraLarge
-        view.layer.maskedCorners = [.layerMaxXMinYCorner, .layerMaxXMaxYCorner]
-        view.translatesAutoresizingMaskIntoConstraints = false
-        return view
-    }()
-
-    private var progressWidthConstraint: NSLayoutConstraint?
-
-    // MARK: - Light Layer (White content - visible where progress has reached)
-
-    private lazy var lightContentView: UIView = {
-        let view = UIView()
-        view.backgroundColor = .clear
-        view.translatesAutoresizingMaskIntoConstraints = false
-        return view
-    }()
-
-    private lazy var lightIconContainer: UIView = {
-        let view = UIView()
-        view.layer.cornerRadius = CornerRadius.medium
-        view.translatesAutoresizingMaskIntoConstraints = false
-        return view
-    }()
-
-    private lazy var lightIconView: UIImageView = {
-        let imageView = UIImageView()
-        imageView.contentMode = .scaleAspectFit
-        imageView.tintColor = .white
-        imageView.translatesAutoresizingMaskIntoConstraints = false
-        return imageView
-    }()
-
-    private lazy var lightTextStackView: UIStackView = {
+    private lazy var remainingStackView: UIStackView = {
         let stack = UIStackView()
-        stack.axis = .vertical
-        stack.spacing = 2
-        stack.alignment = .leading
+        stack.axis = .horizontal
+        stack.spacing = 4
+        stack.alignment = .center
         stack.translatesAutoresizingMaskIntoConstraints = false
         return stack
     }()
 
-    private lazy var lightCategoryLabel: UILabel = {
+    private lazy var arrowImageView: UIImageView = {
+        let imageView = UIImageView()
+        imageView.contentMode = .scaleAspectFit
+        imageView.translatesAutoresizingMaskIntoConstraints = false
+        return imageView
+    }()
+
+    private lazy var remainingLabel: UILabel = {
         let label = UILabel()
         label.font = Fonts.textSMBold.font
-        label.textColor = .white
-        return label
-    }()
-
-    private lazy var lightValuesLabel: UILabel = {
-        let label = UILabel()
-        label.font = Fonts.textXS.font
-        label.textColor = .white.withAlphaComponent(0.85)
-        return label
-    }()
-
-    private lazy var lightPercentageLabel: UILabel = {
-        let label = UILabel()
-        label.font = Fonts.titleMD.font
-        label.textColor = .white
         label.textAlignment = .right
-        label.translatesAutoresizingMaskIntoConstraints = false
         return label
     }()
-
-    // MARK: - Separator overlay (white separator on filled portion)
-
-    private lazy var lightSeparatorView: UIView = {
-        let view = UIView()
-        view.backgroundColor = .white.withAlphaComponent(0.3)
-        view.translatesAutoresizingMaskIntoConstraints = false
-        return view
-    }()
-
-    // MARK: - Glass Effect Views
-
-    private var glassEffectView: UIView?
 
     // MARK: - Initialization
 
@@ -174,241 +99,86 @@ final class AllocationCell: UITableViewCell {
         contentView.backgroundColor = Colors.gray100
         selectionStyle = .none
 
-        // Add dark content layer (base)
-        contentView.addSubview(darkContentView)
-        darkContentView.addSubview(darkIconContainer)
-        darkIconContainer.addSubview(darkIconView)
-        darkContentView.addSubview(darkTextStackView)
-        darkTextStackView.addArrangedSubview(darkCategoryLabel)
-        darkTextStackView.addArrangedSubview(darkValuesLabel)
-        darkContentView.addSubview(darkPercentageLabel)
+        // Add content
+        contentView.addSubview(iconContainer)
+        iconContainer.addSubview(iconView)
+        contentView.addSubview(textStackView)
+        textStackView.addArrangedSubview(categoryLabel)
+        textStackView.addArrangedSubview(usageLabel)
+        contentView.addSubview(remainingStackView)
+        remainingStackView.addArrangedSubview(arrowImageView)
+        remainingStackView.addArrangedSubview(remainingLabel)
 
-        // Add progress view (clips light content)
-        contentView.addSubview(progressView)
-
-        // Add light content inside progress view
-        progressView.addSubview(lightContentView)
-        progressView.addSubview(lightSeparatorView)
-        lightContentView.addSubview(lightIconContainer)
-        lightIconContainer.addSubview(lightIconView)
-        lightContentView.addSubview(lightTextStackView)
-        lightTextStackView.addArrangedSubview(lightCategoryLabel)
-        lightTextStackView.addArrangedSubview(lightValuesLabel)
-        lightContentView.addSubview(lightPercentageLabel)
-
-        setupGlassEffect()
         setupConstraints()
     }
 
-    private func setupGlassEffect() {
-        #if swift(>=6.0)
-        if #available(iOS 26.0, *) {
-            setupLiquidGlassEffect()
-            return
-        }
-        #endif
-
-        setupFallbackGlassEffect()
-    }
-
-    private func setupLiquidGlassEffect() {
-        // iOS 26 liquid glass - placeholder until SDK available
-        let blurEffect = UIBlurEffect(style: .systemThinMaterialLight)
-        let glassView = UIVisualEffectView(effect: blurEffect)
-        glassView.translatesAutoresizingMaskIntoConstraints = false
-        glassView.layer.cornerRadius = CornerRadius.medium
-        glassView.clipsToBounds = true
-
-        let tintView = UIView()
-        tintView.backgroundColor = .white.withAlphaComponent(0.25)
-        tintView.translatesAutoresizingMaskIntoConstraints = false
-        glassView.contentView.addSubview(tintView)
-
-        lightIconContainer.insertSubview(glassView, at: 0)
-        NSLayoutConstraint.activate([
-            glassView.topAnchor.constraint(equalTo: lightIconContainer.topAnchor),
-            glassView.leadingAnchor.constraint(equalTo: lightIconContainer.leadingAnchor),
-            glassView.trailingAnchor.constraint(equalTo: lightIconContainer.trailingAnchor),
-            glassView.bottomAnchor.constraint(equalTo: lightIconContainer.bottomAnchor),
-
-            tintView.topAnchor.constraint(equalTo: glassView.contentView.topAnchor),
-            tintView.leadingAnchor.constraint(equalTo: glassView.contentView.leadingAnchor),
-            tintView.trailingAnchor.constraint(equalTo: glassView.contentView.trailingAnchor),
-            tintView.bottomAnchor.constraint(equalTo: glassView.contentView.bottomAnchor)
-        ])
-
-        glassEffectView = glassView
-        lightIconContainer.backgroundColor = .clear
-    }
-
-    private func setupFallbackGlassEffect() {
-        let blurEffect = UIBlurEffect(style: .systemUltraThinMaterialLight)
-        let blurView = UIVisualEffectView(effect: blurEffect)
-        blurView.translatesAutoresizingMaskIntoConstraints = false
-        blurView.layer.cornerRadius = CornerRadius.medium
-        blurView.clipsToBounds = true
-
-        lightIconContainer.insertSubview(blurView, at: 0)
-        NSLayoutConstraint.activate([
-            blurView.topAnchor.constraint(equalTo: lightIconContainer.topAnchor),
-            blurView.leadingAnchor.constraint(equalTo: lightIconContainer.leadingAnchor),
-            blurView.trailingAnchor.constraint(equalTo: lightIconContainer.trailingAnchor),
-            blurView.bottomAnchor.constraint(equalTo: lightIconContainer.bottomAnchor)
-        ])
-
-        glassEffectView = blurView
-        lightIconContainer.backgroundColor = .white.withAlphaComponent(0.3)
-    }
-
     private func setupConstraints() {
-        // Dark content fills the cell
         NSLayoutConstraint.activate([
-            darkContentView.topAnchor.constraint(equalTo: contentView.topAnchor),
-            darkContentView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
-            darkContentView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
-            darkContentView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
-        ])
+            // Icon container
+            iconContainer.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: Metrics.spacing5),
+            iconContainer.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+            iconContainer.widthAnchor.constraint(equalToConstant: Metrics.spacing8),
+            iconContainer.heightAnchor.constraint(equalToConstant: Metrics.spacing8),
 
-        // Dark icon container - centered vertically
-        NSLayoutConstraint.activate([
-            darkIconContainer.leadingAnchor.constraint(equalTo: darkContentView.leadingAnchor, constant: Metrics.spacing5),
-            darkIconContainer.centerYAnchor.constraint(equalTo: darkContentView.centerYAnchor),
-            darkIconContainer.widthAnchor.constraint(equalToConstant: Metrics.spacing8),
-            darkIconContainer.heightAnchor.constraint(equalToConstant: Metrics.spacing8),
+            iconView.centerXAnchor.constraint(equalTo: iconContainer.centerXAnchor),
+            iconView.centerYAnchor.constraint(equalTo: iconContainer.centerYAnchor),
+            iconView.widthAnchor.constraint(equalToConstant: Metrics.spacing5),
+            iconView.heightAnchor.constraint(equalToConstant: Metrics.spacing5),
 
-            darkIconView.centerXAnchor.constraint(equalTo: darkIconContainer.centerXAnchor),
-            darkIconView.centerYAnchor.constraint(equalTo: darkIconContainer.centerYAnchor),
-            darkIconView.widthAnchor.constraint(equalToConstant: Metrics.spacing5),
-            darkIconView.heightAnchor.constraint(equalToConstant: Metrics.spacing5),
-        ])
+            // Text stack
+            textStackView.leadingAnchor.constraint(equalTo: iconContainer.trailingAnchor, constant: Metrics.spacing3),
+            textStackView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+            textStackView.trailingAnchor.constraint(lessThanOrEqualTo: remainingStackView.leadingAnchor, constant: -Metrics.spacing3),
 
-        // Dark text stack - centered vertically with icon
-        NSLayoutConstraint.activate([
-            darkTextStackView.leadingAnchor.constraint(equalTo: darkIconContainer.trailingAnchor, constant: Metrics.spacing3),
-            darkTextStackView.centerYAnchor.constraint(equalTo: darkContentView.centerYAnchor),
-            darkTextStackView.trailingAnchor.constraint(lessThanOrEqualTo: darkPercentageLabel.leadingAnchor, constant: -Metrics.spacing3),
+            // Remaining amount with arrow
+            remainingStackView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -Metrics.spacing5),
+            remainingStackView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
 
-            darkPercentageLabel.trailingAnchor.constraint(equalTo: darkContentView.trailingAnchor, constant: -Metrics.spacing5),
-            darkPercentageLabel.centerYAnchor.constraint(equalTo: darkContentView.centerYAnchor),
-            darkPercentageLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 50),
-        ])
-
-        // Progress view - full cell height, no padding
-        NSLayoutConstraint.activate([
-            progressView.topAnchor.constraint(equalTo: contentView.topAnchor),
-            progressView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
-            progressView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
-        ])
-
-        progressWidthConstraint = progressView.widthAnchor.constraint(equalToConstant: 0)
-        progressWidthConstraint?.isActive = true
-
-        // Light content - aligned with cell bounds
-        NSLayoutConstraint.activate([
-            lightContentView.topAnchor.constraint(equalTo: contentView.topAnchor),
-            lightContentView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
-            lightContentView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
-            lightContentView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
-        ])
-
-        // Light separator at bottom of progress view
-        NSLayoutConstraint.activate([
-            lightSeparatorView.leadingAnchor.constraint(equalTo: progressView.leadingAnchor),
-            lightSeparatorView.trailingAnchor.constraint(equalTo: progressView.trailingAnchor),
-            lightSeparatorView.bottomAnchor.constraint(equalTo: progressView.bottomAnchor),
-            lightSeparatorView.heightAnchor.constraint(equalToConstant: 1),
-        ])
-
-        // Light icon container - same position as dark
-        NSLayoutConstraint.activate([
-            lightIconContainer.leadingAnchor.constraint(equalTo: lightContentView.leadingAnchor, constant: Metrics.spacing5),
-            lightIconContainer.centerYAnchor.constraint(equalTo: lightContentView.centerYAnchor),
-            lightIconContainer.widthAnchor.constraint(equalToConstant: Metrics.spacing8),
-            lightIconContainer.heightAnchor.constraint(equalToConstant: Metrics.spacing8),
-
-            lightIconView.centerXAnchor.constraint(equalTo: lightIconContainer.centerXAnchor),
-            lightIconView.centerYAnchor.constraint(equalTo: lightIconContainer.centerYAnchor),
-            lightIconView.widthAnchor.constraint(equalToConstant: Metrics.spacing5),
-            lightIconView.heightAnchor.constraint(equalToConstant: Metrics.spacing5),
-        ])
-
-        // Light text stack - same positions as dark
-        NSLayoutConstraint.activate([
-            lightTextStackView.leadingAnchor.constraint(equalTo: lightIconContainer.trailingAnchor, constant: Metrics.spacing3),
-            lightTextStackView.centerYAnchor.constraint(equalTo: lightContentView.centerYAnchor),
-            lightTextStackView.trailingAnchor.constraint(lessThanOrEqualTo: lightPercentageLabel.leadingAnchor, constant: -Metrics.spacing3),
-
-            lightPercentageLabel.trailingAnchor.constraint(equalTo: lightContentView.trailingAnchor, constant: -Metrics.spacing5),
-            lightPercentageLabel.centerYAnchor.constraint(equalTo: lightContentView.centerYAnchor),
-            lightPercentageLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 50),
+            arrowImageView.widthAnchor.constraint(equalToConstant: 16),
+            arrowImageView.heightAnchor.constraint(equalToConstant: 16),
         ])
     }
 
     // MARK: - Configuration
 
     func configure(with allocation: BudgetAllocation) {
-        // Set icon (same image for both layers)
+        // Set icon
         let iconName = allocation.category.iconName(for: .expense)
-        let icon = UIImage(named: iconName)
-        darkIconView.image = icon
-        lightIconView.image = icon
+        iconView.image = UIImage(named: iconName)
 
         // Set category name
-        darkCategoryLabel.text = allocation.category.displayName
-        lightCategoryLabel.text = allocation.category.displayName
+        categoryLabel.text = allocation.category.displayName
 
-        // Set values with compact currency
-        let valuesText = String(
-            format: "%@ / %@",
-            compactCurrency(allocation.usedAmount),
-            compactCurrency(allocation.allocatedAmount)
-        )
-        darkValuesLabel.text = valuesText
-        lightValuesLabel.text = valuesText
+        // Set spent / allocated below category name
+        usageLabel.text = "\(compactCurrency(allocation.usedAmount)) / \(compactCurrency(allocation.allocatedAmount))"
 
-        // Set percentage
-        let percentage = Int(allocation.usagePercentage)
-        let percentageText = "\(percentage)%"
-        darkPercentageLabel.text = percentageText
-        lightPercentageLabel.text = percentageText
+        // Set remaining amount with arrow and color
+        let remaining = allocation.remainingAmount
+        let isPositive = remaining >= 0
 
-        // Set colors based on status
-        let statusColor = allocation.status.color
-        darkPercentageLabel.textColor = statusColor
-        progressView.backgroundColor = statusColor
+        // Arrow image (up for positive/under budget, down for negative/over budget)
+        let arrowName = isPositive ? "arrowUp" : "arrowDown"
+        arrowImageView.image = UIImage(named: arrowName)?.withRenderingMode(.alwaysTemplate)
 
-        // Calculate progress (capped at 100% for visual)
-        currentProgress = min(CGFloat(allocation.usagePercentage) / 100.0, 1.0)
-
-        // Update progress after layout
-        setNeedsLayout()
-    }
-
-    override func layoutSubviews() {
-        super.layoutSubviews()
-
-        // Calculate progress width (full cell width)
-        let availableWidth = contentView.bounds.width
-        let progressWidth = availableWidth * currentProgress
-
-        progressWidthConstraint?.constant = progressWidth
+        // Arrow color based on remaining (green for positive, red for negative)
+        arrowImageView.tintColor = isPositive ? Colors.mainGreen : Colors.mainRed
+        // Value uses dark gray like transaction values
+        remainingLabel.textColor = Colors.gray700
+        remainingLabel.text = compactCurrency(abs(remaining))
     }
 
     // MARK: - Helpers
 
     private func compactCurrency(_ amount: Int) -> String {
-        let absAmount = abs(amount)
-        let prefix = amount < 0 ? "-" : ""
-
-        if absAmount >= 1_000_000_00 {
-            let millions = Double(absAmount) / 1_000_000_00
-            return "\(prefix)R$ \(String(format: "%.1f", millions)) mi"
-        } else if absAmount >= 100_000_00 {
-            let thousands = Double(absAmount) / 1_000_00
-            return "\(prefix)R$ \(String(format: "%.0f", thousands)) mil"
-        } else if absAmount >= 1_000_00 {
-            let thousands = Double(absAmount) / 1_000_00
-            return "\(prefix)R$ \(String(format: "%.1f", thousands)) mil"
+        if amount >= 1_000_000_00 {
+            let millions = Double(amount) / 1_000_000_00
+            return "R$ \(String(format: "%.1f", millions)) mi"
+        } else if amount >= 100_000_00 {
+            let thousands = Double(amount) / 1_000_00
+            return "R$ \(String(format: "%.0f", thousands)) mil"
+        } else if amount >= 1_000_00 {
+            let thousands = Double(amount) / 1_000_00
+            return "R$ \(String(format: "%.1f", thousands)) mil"
         } else {
             return amount.currencyString
         }
@@ -436,8 +206,6 @@ final class AllocationCell: UITableViewCell {
 
     override func prepareForReuse() {
         super.prepareForReuse()
-        progressWidthConstraint?.constant = 0
-        currentProgress = 0
         tapAction = nil
         contentView.gestureRecognizers?.forEach { contentView.removeGestureRecognizer($0) }
     }

@@ -245,16 +245,10 @@ final class BudgetCard: UIView {
             Int(allocatedPercent * 100)
         )
 
-        // Progress bar
+        // Progress bar - always magenta (more allocation is good)
         progressBar.setProgress(min(allocatedPercent, 1.0), animated: true)
-
-        if allocatedPercent > 1.0 {
-            progressBar.progressTintColor = Colors.warningAmber
-            percentValueLabel.textColor = Colors.warningAmber
-        } else {
-            progressBar.progressTintColor = Colors.mainMagenta
-            percentValueLabel.textColor = Colors.gray100
-        }
+        progressBar.progressTintColor = Colors.mainMagenta
+        percentValueLabel.textColor = Colors.gray100
 
         // Embed donut chart
         embedChart()

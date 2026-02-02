@@ -62,6 +62,36 @@ struct BudgetDonutChartView: View {
         return nil
     }
 
+    /// Maximum allocated amount among all allocations (for relative brightness calculation)
+    private var maxAllocatedAmount: Int {
+        allocations.map { $0.allocatedAmount }.max() ?? 1
+    }
+
+    /// Creates a color based on relative size - bigger portions are brighter, smaller are darker
+    /// - Parameter allocation: The budget allocation
+    /// - Returns: Magenta color with brightness based on relative size
+    private func colorForAllocation(_ allocation: BudgetAllocation) -> Color {
+        // Calculate relative size (0 to 1) compared to the largest allocation
+        let relativeSize = Double(allocation.allocatedAmount) / Double(maxAllocatedAmount)
+
+        // Brightness: 0.35 (dark) to 1.0 (bright) - bigger = brighter
+        let minBrightness: CGFloat = 0.35
+        let maxBrightness: CGFloat = 1.0
+        let brightness = minBrightness + (maxBrightness - minBrightness) * CGFloat(relativeSize)
+
+        // Get magenta's HSB values and adjust brightness
+        var hue: CGFloat = 0
+        var saturation: CGFloat = 0
+        var baseBrightness: CGFloat = 0
+        var alpha: CGFloat = 0
+
+        Colors.mainMagenta.getHue(&hue, saturation: &saturation, brightness: &baseBrightness, alpha: &alpha)
+
+        // Create new color with adjusted brightness, full opacity
+        let adjustedColor = UIColor(hue: hue, saturation: saturation, brightness: baseBrightness * brightness, alpha: 1.0)
+        return Color(adjustedColor)
+    }
+
     /// Formats currency with ultra-compact notation for chart center
     private func compactCurrency(_ amount: Int) -> String {
         let absAmount = abs(amount)
@@ -97,7 +127,7 @@ struct BudgetDonutChartView: View {
                     innerRadius: .ratio(0.65),
                     angularInset: 2
                 )
-                .foregroundStyle(Color(item.allocation.category.color))
+                .foregroundStyle(colorForAllocation(item.allocation))
                 .cornerRadius(4)
                 .opacity(selectedIndex == nil || selectedIndex == index ? 1.0 : 0.35)
             }
@@ -126,7 +156,7 @@ struct BudgetDonutChartView: View {
                             Image(uiImage: icon)
                                 .resizable()
                                 .renderingMode(.template)
-                                .foregroundColor(Color(allocation.category.color))
+                                .foregroundColor(colorForAllocation(allocation))
                                 .frame(width: 24, height: 24)
                         }
                         Text(allocation.category.displayName)

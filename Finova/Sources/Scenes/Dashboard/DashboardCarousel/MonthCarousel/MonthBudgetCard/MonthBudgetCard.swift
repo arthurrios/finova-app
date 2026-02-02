@@ -495,16 +495,18 @@ class MonthBudgetCard: UIView {
         
         let rawFraction = Float(data.usedValue) / Float(budgetLimit)
         let clampedFraction = min(max(rawFraction, 0), 1)
-        
-        let availableValue = data.finalBalance ?? (budgetLimit - data.usedValue)
-        let isAlertState = data.usedValue > budgetLimit || availableValue < 0
-        
+
         DispatchQueue.main.async {
             self.progressBar.setProgress(clampedFraction, animated: true)
-            self.progressBar.progressTintColor =
-            isAlertState
-            ? Colors.mainRed
-            : Colors.mainMagenta
+
+            // Status-based colors: magenta (under), amber (near), red (over)
+            if rawFraction > 1.0 {
+                self.progressBar.progressTintColor = Colors.mainRed
+            } else if rawFraction >= 0.75 {
+                self.progressBar.progressTintColor = Colors.warningAmber
+            } else {
+                self.progressBar.progressTintColor = Colors.mainMagenta
+            }
         }
     }
     

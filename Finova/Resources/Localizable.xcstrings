@@ -1501,6 +1501,40 @@
         }
       }
     },
+    "budget.remaining.left" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "left"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "restante"
+          }
+        }
+      }
+    },
+    "budget.remaining.over" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "over"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "acima"
+          }
+        }
+      }
+    },
     "budgets.alert.budgetAlreadyExists.description" : {
       "extractionState" : "manual",
       "localizations" : {
