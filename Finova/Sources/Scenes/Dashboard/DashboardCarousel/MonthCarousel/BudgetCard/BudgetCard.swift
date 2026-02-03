@@ -17,6 +17,7 @@ final class BudgetCard: UIView {
     weak var delegate: MonthCardFlipDelegate?
     private let gradientLayer = Colors.gradientBlack
     private var chartHostingController: UIViewController?
+    private var currentMonthAnchor: Int = 0
 
     // MARK: - UI Components
 
@@ -63,6 +64,19 @@ final class BudgetCard: UIView {
         return button
     }()
 
+    private lazy var configButton: UIButton = {
+        let button = UIButton(type: .system)
+        button.setImage(UIImage(named: "settingsIcon")?.withRenderingMode(.alwaysTemplate), for: .normal)
+        button.tintColor = Colors.gray100
+        button.addTarget(self, action: #selector(configTapped), for: .touchUpInside)
+        button.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            button.widthAnchor.constraint(equalToConstant: Metrics.spacing6),
+            button.heightAnchor.constraint(equalToConstant: Metrics.spacing6)
+        ])
+        return button
+    }()
+
     private lazy var chartContainerView: UIView = {
         let view = UIView()
         view.translatesAutoresizingMaskIntoConstraints = false
@@ -100,7 +114,7 @@ final class BudgetCard: UIView {
         return label
     }()
 
-    private lazy var percentStackView: UIStackView = {
+    private lazy var remainingStackView: UIStackView = {
         let stack = UIStackView()
         stack.axis = .vertical
         stack.spacing = Metrics.spacing2
@@ -108,15 +122,15 @@ final class BudgetCard: UIView {
         return stack
     }()
 
-    private lazy var percentTextLabel: UILabel = {
+    private lazy var remainingTextLabel: UILabel = {
         let label = UILabel()
         label.font = Fonts.textXS.font
-        label.text = "budget.percent.label".localized
+        label.text = "budget.remaining.label".localized
         label.textColor = Colors.gray400
         return label
     }()
 
-    private lazy var percentValueLabel: UILabel = {
+    private lazy var remainingValueLabel: UILabel = {
         let label = UILabel()
         label.font = Fonts.textSM.font
         label.textColor = Colors.gray100
@@ -131,6 +145,49 @@ final class BudgetCard: UIView {
         bar.cornerRadius = 4.0
         bar.translatesAutoresizingMaskIntoConstraints = false
         return bar
+    }()
+
+    // No budget state view
+    private lazy var noBudgetStateView: UIView = {
+        let view = UIView()
+        view.translatesAutoresizingMaskIntoConstraints = false
+        view.isHidden = true
+        return view
+    }()
+
+    private lazy var noBudgetStackView: UIStackView = {
+        let stack = UIStackView()
+        stack.axis = .vertical
+        stack.alignment = .center
+        stack.spacing = Metrics.spacing4
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        return stack
+    }()
+
+    private lazy var noBudgetIconView: UIImageView = {
+        let imageView = UIImageView()
+        imageView.image = UIImage(systemName: "chart.pie")
+        imageView.contentMode = .scaleAspectFit
+        imageView.tintColor = Colors.gray500
+        imageView.translatesAutoresizingMaskIntoConstraints = false
+        return imageView
+    }()
+
+    private lazy var noBudgetLabel: UILabel = {
+        let label = UILabel()
+        label.text = "budget.noBudget.message".localized
+        label.font = Fonts.textSM.font
+        label.textColor = Colors.gray400
+        label.textAlignment = .center
+        label.numberOfLines = 0
+        return label
+    }()
+
+    private lazy var defineBudgetButton: Button = {
+        let button = Button(variant: .outlined, label: "monthCard.defineBudget".localized)
+        button.addTarget(self, action: #selector(defineBudgetTapped), for: .touchUpInside)
+        button.translatesAutoresizingMaskIntoConstraints = false
+        return button
     }()
 
     // MARK: - Initialization
@@ -161,21 +218,30 @@ final class BudgetCard: UIView {
         headerHorizontalStackView.addArrangedSubview(headerDateStackView)
         headerHorizontalStackView.addArrangedSubview(UIView()) // Spacer
         headerHorizontalStackView.addArrangedSubview(flipBackButton)
+        headerHorizontalStackView.addArrangedSubview(configButton)
+        headerHorizontalStackView.setCustomSpacing(Metrics.spacing3, after: flipBackButton)
 
         // Footer setup - matching MonthBudgetCard
         allocatedStackView.addArrangedSubview(allocatedTextLabel)
         allocatedStackView.addArrangedSubview(allocatedValueLabel)
 
-        percentStackView.addArrangedSubview(percentTextLabel)
-        percentStackView.addArrangedSubview(percentValueLabel)
+        remainingStackView.addArrangedSubview(remainingTextLabel)
+        remainingStackView.addArrangedSubview(remainingValueLabel)
 
         footerStackView.addArrangedSubview(allocatedStackView)
-        footerStackView.addArrangedSubview(percentStackView)
+        footerStackView.addArrangedSubview(remainingStackView)
 
         addSubview(headerHorizontalStackView)
         addSubview(chartContainerView)
         addSubview(footerStackView)
         addSubview(progressBar)
+
+        // No budget state setup
+        noBudgetStackView.addArrangedSubview(noBudgetIconView)
+        noBudgetStackView.addArrangedSubview(noBudgetLabel)
+        noBudgetStackView.addArrangedSubview(defineBudgetButton)
+        noBudgetStateView.addSubview(noBudgetStackView)
+        addSubview(noBudgetStateView)
 
         setupConstraints()
     }
@@ -205,6 +271,25 @@ final class BudgetCard: UIView {
             progressBar.leadingAnchor.constraint(equalTo: leadingAnchor),
             progressBar.trailingAnchor.constraint(equalTo: trailingAnchor),
             progressBar.heightAnchor.constraint(equalToConstant: 8),
+
+            // No budget state view - centered in the card
+            noBudgetStateView.topAnchor.constraint(equalTo: headerHorizontalStackView.bottomAnchor),
+            noBudgetStateView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            noBudgetStateView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            noBudgetStateView.bottomAnchor.constraint(equalTo: bottomAnchor),
+
+            noBudgetStackView.centerXAnchor.constraint(equalTo: noBudgetStateView.centerXAnchor),
+            noBudgetStackView.centerYAnchor.constraint(equalTo: noBudgetStateView.centerYAnchor),
+            noBudgetStackView.leadingAnchor.constraint(
+                greaterThanOrEqualTo: noBudgetStateView.leadingAnchor, constant: Metrics.spacing6),
+            noBudgetStackView.trailingAnchor.constraint(
+                lessThanOrEqualTo: noBudgetStateView.trailingAnchor, constant: -Metrics.spacing6),
+
+            noBudgetIconView.widthAnchor.constraint(equalToConstant: 48),
+            noBudgetIconView.heightAnchor.constraint(equalToConstant: 48),
+
+            // Set budget button needs explicit width to prevent compression
+            defineBudgetButton.widthAnchor.constraint(greaterThanOrEqualToConstant: 140),
         ])
     }
 
@@ -217,41 +302,92 @@ final class BudgetCard: UIView {
         delegate?.didRequestFlip(isShowingBudgetView: false)
     }
 
+    @objc private func configTapped() {
+        delegate?.didTapBudgetsConfig(forMonth: currentMonthAnchor)
+    }
+
+    @objc private func defineBudgetTapped() {
+        delegate?.didTapDefineBudget(forMonth: currentMonthAnchor)
+    }
+
     // MARK: - Configuration
 
     func configure(
         month: String,
         year: String,
         allocations: [BudgetAllocation],
-        unallocatedSummary: UnallocatedBudgetSummary
+        unallocatedSummary: UnallocatedBudgetSummary,
+        monthAnchor: Int
     ) {
         self.allocations = allocations
         self.unallocatedSummary = unallocatedSummary
+        self.currentMonthAnchor = monthAnchor
 
         // Header - matching MonthBudgetCard format with "/ " prefix on year
         monthLabel.text = month
         monthLabel.applyStyle()
         yearLabel.text = "/ " + year
 
-        // Footer values
+        // Check if budget is set
+        let hasBudget = unallocatedSummary.totalBudget > 0
+
+        if hasBudget {
+            // Show chart and metrics
+            showBudgetMetrics(unallocatedSummary: unallocatedSummary)
+        } else {
+            // Show "define budget" state
+            showNoBudgetState()
+        }
+    }
+
+    private func showBudgetMetrics(unallocatedSummary: UnallocatedBudgetSummary) {
+        // Hide no budget state
+        noBudgetStateView.isHidden = true
+
+        // Show chart and metrics
+        chartContainerView.isHidden = false
+        footerStackView.isHidden = false
+        progressBar.isHidden = false
+
+        // Footer values - left side shows total allocated
         allocatedValueLabel.text = unallocatedSummary.totalAllocated.currencyString
 
+        // Calculate net remaining across all allocations
+        // Positive = under budget (money left), Negative = over budget (overspent)
+        let netRemaining = allocations.reduce(0) { $0 + $1.remainingAmount }
+
+        // Format and color the remaining value
+        if netRemaining >= 0 {
+            remainingValueLabel.text = netRemaining.currencyString
+            remainingValueLabel.textColor = Colors.brightGreen  // Brighter green for dark background
+        } else {
+            remainingValueLabel.text = "-" + abs(netRemaining).currencyString
+            remainingValueLabel.textColor = Colors.brightRed  // Brighter red for dark background
+        }
+
+        // Progress bar shows allocation progress
         let allocatedPercent = unallocatedSummary.totalBudget > 0
             ? Float(unallocatedSummary.totalAllocated) / Float(unallocatedSummary.totalBudget)
             : 0
-
-        percentValueLabel.text = String(
-            format: "budget.allocated.percent".localized,
-            Int(allocatedPercent * 100)
-        )
-
-        // Progress bar - always magenta (more allocation is good)
         progressBar.setProgress(min(allocatedPercent, 1.0), animated: true)
         progressBar.progressTintColor = Colors.mainMagenta
-        percentValueLabel.textColor = Colors.gray100
 
         // Embed donut chart
         embedChart()
+    }
+
+    private func showNoBudgetState() {
+        // Hide chart and metrics
+        chartContainerView.isHidden = true
+        footerStackView.isHidden = true
+        progressBar.isHidden = true
+
+        // Remove existing chart
+        chartHostingController?.view.removeFromSuperview()
+        chartHostingController = nil
+
+        // Show no budget state
+        noBudgetStateView.isHidden = false
     }
 
     private func embedChart() {

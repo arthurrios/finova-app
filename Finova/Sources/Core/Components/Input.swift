@@ -109,6 +109,26 @@ class Input: UIView {
     self.isError = hasError
   }
 
+  func setCentsValue(_ cents: Int) {
+    guard type == .currency else { return }
+
+    centsValue = cents
+
+    let code = AppConfig.currencyCode
+    let frac = CurrencyUtils.fractionDigits(for: code)
+    let divisor = pow(Decimal(10), frac)
+    let amountDecimal = Decimal(cents) / divisor
+    let amountNumber = NSDecimalNumber(decimal: amountDecimal)
+
+    let decFmt = NumberFormatter()
+    decFmt.numberStyle = .decimal
+    decFmt.minimumFractionDigits = frac
+    decFmt.maximumFractionDigits = frac
+    decFmt.locale = Locale.current
+
+    textField.text = decFmt.string(from: amountNumber) ?? ""
+  }
+
   // MARK: - Setup Defaults
   private func setupDefaults() {
     textField.isSecureTextEntry = false
@@ -527,6 +547,16 @@ class Input: UIView {
     textField.tintColor = .clear
   }
 
+  /// Updates the picker values for picker-type inputs
+  func updatePickerValues(_ values: [String]) {
+    self.pickerValues = values
+    self.selectedPickerIndex = 0
+    self.textField.text = nil
+    if let picker = textField.inputView as? UIPickerView {
+      picker.reloadAllComponents()
+    }
+  }
+
   @objc private func pickerDoneTapped() {
     if let rawValues = pickerValues {
       let raw = rawValues[selectedPickerIndex]
@@ -773,5 +803,27 @@ extension Input: UITextFieldDelegate {
 
   @objc private func dateFieldDidBeginEditing() {
     setInitialDateFromTextField()
+  }
+
+  // MARK: - Done Button Toolbar
+
+  /// Adds a toolbar with a Done button to dismiss the keyboard.
+  /// Useful for number pad and default keyboards that don't have a return key.
+  func addDoneButtonToolbar() {
+    let toolbar = UIToolbar()
+    toolbar.sizeToFit()
+
+    let doneButton = UIBarButtonItem(
+      barButtonSystemItem: .done,
+      target: self,
+      action: #selector(doneButtonTapped)
+    )
+    toolbar.setItems([.flexibleSpace(), doneButton], animated: false)
+
+    textField.inputAccessoryView = toolbar
+  }
+
+  @objc private func doneButtonTapped() {
+    textField.resignFirstResponder()
   }
 }

@@ -593,7 +593,8 @@ class MonthBudgetCard: UIView {
         mainStackView.setCustomSpacing(Metrics.spacing3, after: separator)
         mainStackView.setCustomSpacing(Metrics.spacing2, after: availableBudgetStackView)
 
-        // Add spacing between budget toggle button and config icon
+        // Add spacing between header icons
+        headerHorizontalStackView.setCustomSpacing(Metrics.spacing2, after: headerToggleContainer)
         headerHorizontalStackView.setCustomSpacing(Metrics.spacing3, after: budgetViewToggleButton)
         
         // Set high priority to prevent compression of the main stack view

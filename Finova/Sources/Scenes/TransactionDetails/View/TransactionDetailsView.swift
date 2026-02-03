@@ -305,19 +305,17 @@ final class TransactionDetailsView: UIView {
   // MARK: - Action Buttons (Bottom)
   private lazy var actionButtonsContainerView: UIView = {
     let view = UIView()
+    view.backgroundColor = Colors.gray100
     view.translatesAutoresizingMaskIntoConstraints = false
     return view
   }()
 
-  private lazy var gradientOverlayView: UIView = {
+  private lazy var footerBorderView: UIView = {
     let view = UIView()
+    view.backgroundColor = Colors.gray300
     view.translatesAutoresizingMaskIntoConstraints = false
-    view.isUserInteractionEnabled = false
-    view.backgroundColor = UIColor.clear
     return view
   }()
-
-  private var gradientLayer: CAGradientLayer?
 
   private lazy var actionButtonsStackView: UIStackView = {
     let stackView = UIStackView(
@@ -327,7 +325,7 @@ final class TransactionDetailsView: UIView {
     )
     stackView.translatesAutoresizingMaskIntoConstraints = false
     stackView.directionalLayoutMargins = NSDirectionalEdgeInsets(
-      top: Metrics.spacing6, leading: Metrics.spacing4, bottom: Metrics.spacing8,
+      top: Metrics.spacing4, leading: Metrics.spacing4, bottom: Metrics.spacing4,
       trailing: Metrics.spacing4)
     stackView.isLayoutMarginsRelativeArrangement = true
     return stackView
@@ -399,7 +397,7 @@ final class TransactionDetailsView: UIView {
 
     // Add action buttons at bottom with gradient overlay
     addSubview(actionButtonsContainerView)
-    actionButtonsContainerView.addSubview(gradientOverlayView)
+    actionButtonsContainerView.addSubview(footerBorderView)
     actionButtonsContainerView.addSubview(actionButtonsStackView)
 
     // Setup actions
@@ -520,26 +518,25 @@ final class TransactionDetailsView: UIView {
 
     NSLayoutConstraint.activate([
       // Action buttons container at bottom
+      // Action buttons container - extend to bottom of screen
       actionButtonsContainerView.leadingAnchor.constraint(equalTo: leadingAnchor),
       actionButtonsContainerView.trailingAnchor.constraint(equalTo: trailingAnchor),
-      actionButtonsContainerView.bottomAnchor.constraint(equalTo: safeAreaLayoutGuide.bottomAnchor),
+      actionButtonsContainerView.bottomAnchor.constraint(equalTo: bottomAnchor),
 
-      // Gradient overlay
-      gradientOverlayView.topAnchor.constraint(equalTo: actionButtonsContainerView.topAnchor),
-      gradientOverlayView.leadingAnchor.constraint(
-        equalTo: actionButtonsContainerView.leadingAnchor),
-      gradientOverlayView.trailingAnchor.constraint(
-        equalTo: actionButtonsContainerView.trailingAnchor),
-      gradientOverlayView.heightAnchor.constraint(equalToConstant: Metrics.spacing6),
+      // Footer border (top border like header has bottom border)
+      footerBorderView.topAnchor.constraint(equalTo: actionButtonsContainerView.topAnchor),
+      footerBorderView.leadingAnchor.constraint(equalTo: actionButtonsContainerView.leadingAnchor),
+      footerBorderView.trailingAnchor.constraint(equalTo: actionButtonsContainerView.trailingAnchor),
+      footerBorderView.heightAnchor.constraint(equalToConstant: 1),
 
-      // Action buttons stack view
-      actionButtonsStackView.topAnchor.constraint(equalTo: actionButtonsContainerView.topAnchor),
+      // Action buttons stack view - bottom respects safe area
+      actionButtonsStackView.topAnchor.constraint(equalTo: footerBorderView.bottomAnchor),
       actionButtonsStackView.leadingAnchor.constraint(
         equalTo: actionButtonsContainerView.leadingAnchor),
       actionButtonsStackView.trailingAnchor.constraint(
         equalTo: actionButtonsContainerView.trailingAnchor),
       actionButtonsStackView.bottomAnchor.constraint(
-        equalTo: actionButtonsContainerView.bottomAnchor),
+        equalTo: safeAreaLayoutGuide.bottomAnchor),
     ])
   }
 
@@ -639,26 +636,6 @@ final class TransactionDetailsView: UIView {
 
     // Add standard rows
     // Removed createdAt and updatedAt fields as requested
-  }
-
-  override func layoutSubviews() {
-    super.layoutSubviews()
-
-    // Setup gradient overlay if not already set
-    if gradientLayer == nil {
-      gradientLayer = CAGradientLayer()
-      gradientLayer?.colors = [
-        UIColor.clear.cgColor,
-        Colors.gray200.cgColor,
-      ]
-      gradientLayer?.locations = [0.0, 1.0]
-      gradientLayer?.startPoint = CGPoint(x: 0.5, y: 0.0)
-      gradientLayer?.endPoint = CGPoint(x: 0.5, y: 1.0)
-      gradientOverlayView.layer.insertSublayer(gradientLayer!, at: 0)
-    }
-
-    // Always update frame in layoutSubviews
-    gradientLayer?.frame = gradientOverlayView.bounds
   }
 
   // MARK: - Configuration

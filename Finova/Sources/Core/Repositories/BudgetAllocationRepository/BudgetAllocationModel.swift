@@ -178,13 +178,21 @@ struct UnallocatedBudgetSummary {
 }
 
 
+// MARK: - Allocation Edit Option
+
+enum AllocationEditOption {
+    case currentOnly    // Edit only this month's allocation
+    case futureOnly     // Edit this month and all future allocations
+    case all            // Edit all occurrences (past, present, future)
+}
+
 // MARK: - Errors
 
 enum BudgetAllocationError: LocalizedError {
     case duplicateAllocation
     case allocationNotFound
     case invalidAmount
-    
+
     var errorDescription: String? {
         switch self {
         case .duplicateAllocation:

@@ -10,6 +10,7 @@ import UIKit
 protocol BudgetAllocationDetailsFlowDelegate: AnyObject {
     func dismissAllocationDetails()
     func navigateToTransactionDetails(transaction: Transaction)
+    func editAllocation(_ allocation: BudgetAllocation)
     func didUpdateAllocation()
     func didDeleteAllocation()
 }

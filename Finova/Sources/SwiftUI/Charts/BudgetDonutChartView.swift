@@ -18,45 +18,40 @@ struct BudgetDonutChartView: View {
     @State private var rawSelectedValue: Int?
     @State private var selectedIndex: Int?
 
-    // Minimum percentage a sector should occupy for visibility/tappability
-    private let minimumSectorPercent: Double = 0.05 // 5% minimum
+    /// Sum of all allocation amounts
+    private var allocatedTotal: Int {
+        allocations.reduce(0) { $0 + $1.allocatedAmount }
+    }
 
+    /// Effective unallocated amount (never negative for display purposes)
+    private var effectiveUnallocatedAmount: Int {
+        max(0, unallocatedAmount)
+    }
+
+    /// Total amount for chart display
     private var totalAmount: Int {
-        allocations.reduce(0) { $0 + $1.allocatedAmount } + unallocatedAmount
+        allocatedTotal + effectiveUnallocatedAmount
     }
 
-    /// Adjusted values that ensure minimum sector size for tappability
-    private var adjustedAllocations: [(allocation: BudgetAllocation, displayValue: Int)] {
-        guard totalAmount > 0 else { return allocations.map { ($0, $0.allocatedAmount) } }
-
-        let minValue = Int(Double(totalAmount) * minimumSectorPercent)
-
-        return allocations.map { allocation in
-            let adjustedValue = max(allocation.allocatedAmount, minValue)
-            return (allocation, adjustedValue)
-        }
+    private var hasAllocations: Bool {
+        !allocations.isEmpty
     }
 
-    private var adjustedUnallocated: Int {
-        guard totalAmount > 0, unallocatedAmount > 0 else { return unallocatedAmount }
-        let minValue = Int(Double(totalAmount) * minimumSectorPercent)
-        return max(unallocatedAmount, minValue)
-    }
-
-    private var adjustedTotal: Int {
-        adjustedAllocations.reduce(0) { $0 + $1.displayValue } + (unallocatedAmount > 0 ? adjustedUnallocated : 0)
+    private var allocatedPercentage: Int {
+        guard totalAmount > 0 else { return 0 }
+        return Int((Double(allocatedTotal) / Double(totalAmount)) * 100)
     }
 
     private func findSelectedIndex(for value: Int) -> Int? {
         var cumulative = 0
-        for (index, item) in adjustedAllocations.enumerated() {
-            cumulative += item.displayValue
+        for (index, allocation) in allocations.enumerated() {
+            cumulative += allocation.allocatedAmount
             if value <= cumulative {
                 return index
             }
         }
         // Check if it's the unallocated section
-        if unallocatedAmount > 0 && value <= cumulative + adjustedUnallocated {
+        if effectiveUnallocatedAmount > 0 && value <= cumulative + effectiveUnallocatedAmount {
             return -1 // -1 represents unallocated
         }
         return nil
@@ -121,26 +116,36 @@ struct BudgetDonutChartView: View {
 
     var body: some View {
         Chart {
-            ForEach(Array(adjustedAllocations.enumerated()), id: \.1.allocation.id) { (index: Int, item: (allocation: BudgetAllocation, displayValue: Int)) in
-                SectorMark(
-                    angle: .value("Amount", item.displayValue),
-                    innerRadius: .ratio(0.65),
-                    angularInset: 2
-                )
-                .foregroundStyle(colorForAllocation(item.allocation))
-                .cornerRadius(4)
-                .opacity(selectedIndex == nil || selectedIndex == index ? 1.0 : 0.35)
-            }
+            if hasAllocations {
+                ForEach(Array(allocations.enumerated()), id: \.1.id) { (index: Int, allocation: BudgetAllocation) in
+                    SectorMark(
+                        angle: .value("Amount", allocation.allocatedAmount),
+                        innerRadius: .ratio(0.65),
+                        angularInset: 2
+                    )
+                    .foregroundStyle(colorForAllocation(allocation))
+                    .cornerRadius(4)
+                    .opacity(selectedIndex == nil || selectedIndex == index ? 1.0 : 0.35)
+                }
 
-            if unallocatedAmount > 0 {
+                if effectiveUnallocatedAmount > 0 {
+                    SectorMark(
+                        angle: .value("Unallocated", effectiveUnallocatedAmount),
+                        innerRadius: .ratio(0.65),
+                        angularInset: 2
+                    )
+                    .foregroundStyle(Color(Colors.gray600))
+                    .cornerRadius(4)
+                    .opacity(selectedIndex == nil ? 0.5 : (selectedIndex == -1 ? 1.0 : 0.35))
+                }
+            } else {
+                // No allocations - show full gray circle
                 SectorMark(
-                    angle: .value("Unallocated", adjustedUnallocated),
-                    innerRadius: .ratio(0.65),
-                    angularInset: 2
+                    angle: .value("Empty", 1),
+                    innerRadius: .ratio(0.65)
                 )
                 .foregroundStyle(Color(Colors.gray600))
-                .cornerRadius(4)
-                .opacity(selectedIndex == nil ? 0.5 : (selectedIndex == -1 ? 1.0 : 0.35))
+                .opacity(0.5)
             }
         }
         .chartLegend(.hidden)
@@ -179,11 +184,21 @@ struct BudgetDonutChartView: View {
                             .foregroundColor(Color(Colors.gray300))
                             .lineLimit(1)
                             .minimumScaleFactor(0.8)
-                        Text(compactCurrency(unallocatedAmount))
+                        Text(compactCurrency(effectiveUnallocatedAmount))
                             .font(.system(size: 14, weight: .bold))
                             .foregroundColor(Color(Colors.gray100))
                             .lineLimit(1)
                             .minimumScaleFactor(0.6)
+                    } else if !hasAllocations {
+                        // No allocations - show 0% allocated
+                        Text("0%")
+                            .font(.system(size: 16, weight: .bold))
+                            .foregroundColor(Color(Colors.gray400))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.6)
+                        Text("budget.allocated.label".localized)
+                            .font(.system(size: 11))
+                            .foregroundColor(Color(Colors.gray500))
                     } else {
                         // Show total
                         Text(compactCurrency(totalAmount))
@@ -191,7 +206,7 @@ struct BudgetDonutChartView: View {
                             .foregroundColor(Color(Colors.gray100))
                             .lineLimit(1)
                             .minimumScaleFactor(0.6)
-                        Text("chart.total.label".localized)
+                        Text("budget.total.label".localized)
                             .font(.system(size: 11))
                             .foregroundColor(Color(Colors.gray400))
                     }

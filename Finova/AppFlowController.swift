@@ -238,7 +238,15 @@ extension AppFlowController: DashboardFlowDelegate, SettingsFlowDelegate, Notifi
             viewController.animateShow()
         }
     }
-    
+
+    func openAddAllocationModal(forMonth monthAnchor: Int) {
+        let viewController = AddAllocationModalViewController(monthAnchor: monthAnchor)
+        viewController.flowDelegate = self
+        viewController.modalPresentationStyle = .overCurrentContext
+        viewController.modalTransitionStyle = .crossDissolve
+        navigationController?.present(viewController, animated: true)
+    }
+
     func navigateToBudgets(date: Date?) {
         navigationController?.dismiss(animated: false)
         let budgetsViewController = viewControllersFactory.makeBudgetsViewController(
@@ -365,12 +373,76 @@ extension AppFlowController: BudgetAllocationDetailsFlowDelegate {
     func dismissAllocationDetails() {
         navigationController?.popViewController(animated: true)
     }
-    
-    func didUpdateAllocation() {
-        navigationController?.popViewController(animated: true)
+
+    func editAllocation(_ allocation: BudgetAllocation) {
+        let viewController = AddAllocationModalViewController(
+            monthAnchor: allocation.monthDate,
+            allocationToEdit: allocation
+        )
+        viewController.flowDelegate = self
+        viewController.modalPresentationStyle = .overCurrentContext
+        viewController.modalTransitionStyle = .crossDissolve
+        navigationController?.present(viewController, animated: true)
     }
-    
+
+    func didUpdateAllocation() {
+        // Refresh the allocation details view if it's visible
+        if let allocationDetailsVC = navigationController?.topViewController
+            as? BudgetAllocationDetailsViewController {
+            allocationDetailsVC.refreshAfterEdit()
+        }
+
+        // Also refresh the dashboard
+        if let dashboardViewController = navigationController?
+            .viewControllers
+            .compactMap({ $0 as? DashboardViewController })
+            .last
+        {
+            dashboardViewController.refreshAfterAllocationChange()
+        }
+    }
+
     func didDeleteAllocation() {
         navigationController?.popViewController(animated: true)
+
+        // Refresh the dashboard after deletion
+        DispatchQueue.main.async { [weak self] in
+            if let dashboardViewController = self?.navigationController?
+                .viewControllers
+                .compactMap({ $0 as? DashboardViewController })
+                .last
+            {
+                dashboardViewController.refreshAfterAllocationChange()
+            }
+        }
+    }
+}
+
+// MARK: - AddAllocationModalFlowDelegate
+
+extension AppFlowController: AddAllocationModalFlowDelegate {
+    func dismissAllocationModal() {
+        navigationController?.dismiss(animated: true)
+    }
+
+    func didSaveAllocation() {
+        navigationController?.dismiss(animated: true) { [weak self] in
+            DispatchQueue.main.async {
+                // Refresh allocation details if it's visible (for edit case)
+                if let allocationDetailsVC = self?.navigationController?.topViewController
+                    as? BudgetAllocationDetailsViewController {
+                    allocationDetailsVC.refreshAfterEdit()
+                }
+
+                // Also refresh the dashboard
+                if let dashboardViewController = self?.navigationController?
+                    .viewControllers
+                    .compactMap({ $0 as? DashboardViewController })
+                    .last
+                {
+                    dashboardViewController.refreshAfterAllocationChange()
+                }
+            }
+        }
     }
 }

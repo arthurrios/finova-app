@@ -294,6 +294,12 @@ final class AddTransactionModalView: UIView {
 
     saveButton.addTarget(self, action: #selector(didTapSaveTransaction), for: .touchUpInside)
 
+    // Add Done button toolbar to inputs that need it
+    transactionTitleTextField.addDoneButtonToolbar()
+    moneyTextField.addDoneButtonToolbar()
+    totalValueTextField.addDoneButtonToolbar()
+    installmentsInputWithSuffix.addDoneButtonToolbar()
+
     setupTransactionModeControl()
     setupInstallmentsConstraints()
 

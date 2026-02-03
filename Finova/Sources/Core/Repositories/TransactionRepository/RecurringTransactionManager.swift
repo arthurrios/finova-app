@@ -527,7 +527,8 @@ final class RecurringTransactionManager {
     guard !relatedInstances.isEmpty else { return }
 
     // Build list of instances to update based on edit option
-    var instancesToUpdate: [(id: Int, originalDate: Date)] = []
+    // Store the original timestamp and budgetMonthDate to preserve them
+    var instancesToUpdate: [(id: Int, originalTimestamp: Int, originalBudgetMonthDate: Int, originalIsRecurring: Bool?, originalParentId: Int?)] = []
 
     for instance in relatedInstances {
       guard let instanceId = instance.id else { continue }
@@ -546,42 +547,76 @@ final class RecurringTransactionManager {
       }
 
       if shouldUpdate {
-        instancesToUpdate.append((id: instanceId, originalDate: instanceDate))
+        instancesToUpdate.append((
+          id: instanceId,
+          originalTimestamp: instance.dateTimestamp,
+          originalBudgetMonthDate: instance.budgetMonthDate,
+          originalIsRecurring: instance.isRecurring,
+          originalParentId: instance.parentTransactionId
+        ))
       }
     }
 
     guard !instancesToUpdate.isEmpty else { return }
 
-    // Get the new day from the selected transaction date
-    let localCalendar = Calendar.current
+    // Get the new day from the selected transaction date using local calendar
+    var localCalendar = Calendar(identifier: .gregorian)
+    localCalendar.timeZone = TimeZone.current
     let newDay = localCalendar.component(.day, from: selectedTransactionDate)
 
     // Perform all updates
-    for (instanceId, originalDate) in instancesToUpdate {
-      let originalYear = calendar.component(.year, from: originalDate)
-      let originalMonth = calendar.component(.month, from: originalDate)
+    for (instanceId, originalTimestamp, originalBudgetMonthDate, originalIsRecurring, originalParentId) in instancesToUpdate {
+      let originalDate = Date(timeIntervalSince1970: TimeInterval(originalTimestamp))
+      let originalDay = localCalendar.component(.day, from: originalDate)
 
-      // Create new date with the updated day but same month/year
-      var dateComponents = DateComponents()
-      dateComponents.year = originalYear
-      dateComponents.month = originalMonth
-      dateComponents.day = newDay
-      dateComponents.hour = 0
-      dateComponents.minute = 0
-      dateComponents.second = 0
+      // Only recalculate date if the day actually changed
+      let finalTimestamp: Int
+      let finalBudgetMonthDate: Int
 
-      var newDate = localCalendar.date(from: dateComponents)
+      if newDay == originalDay {
+        // Day didn't change - preserve original timestamp and budgetMonthDate exactly
+        finalTimestamp = originalTimestamp
+        finalBudgetMonthDate = originalBudgetMonthDate
+      } else {
+        // Day changed - need to recalculate the date
+        let originalYear = localCalendar.component(.year, from: originalDate)
+        let originalMonth = localCalendar.component(.month, from: originalDate)
 
-      // If the date is invalid (e.g., Feb 31), adjust to the last valid day of the month
-      if newDate == nil {
-        let lastDayOfMonth =
-          localCalendar.range(of: .day, in: .month, for: originalDate)?.upperBound ?? 31
-        let actualLastDay = lastDayOfMonth - 1
-        dateComponents.day = actualLastDay
-        newDate = localCalendar.date(from: dateComponents)
+        var dateComponents = DateComponents()
+        dateComponents.year = originalYear
+        dateComponents.month = originalMonth
+        dateComponents.day = newDay
+        // Preserve the original hour/minute/second to avoid timestamp drift
+        dateComponents.hour = localCalendar.component(.hour, from: originalDate)
+        dateComponents.minute = localCalendar.component(.minute, from: originalDate)
+        dateComponents.second = localCalendar.component(.second, from: originalDate)
+
+        var newDate = localCalendar.date(from: dateComponents)
+
+        // If the date is invalid (e.g., Feb 31), adjust to the last valid day of the month
+        if newDate == nil {
+          let lastDayOfMonth =
+            localCalendar.range(of: .day, in: .month, for: originalDate)?.upperBound ?? 31
+          let actualLastDay = lastDayOfMonth - 1
+          dateComponents.day = actualLastDay
+          newDate = localCalendar.date(from: dateComponents)
+        }
+
+        guard let calculatedDate = newDate else { continue }
+
+        finalTimestamp = Int(calculatedDate.timeIntervalSince1970)
+        finalBudgetMonthDate = calculatedDate.monthAnchor
       }
 
-      guard let finalDate = newDate else { continue }
+      // Determine the correct isRecurring value
+      // Parent (id == parentTransactionId) should keep isRecurring = true
+      // Children should keep their original isRecurring value (usually nil or false)
+      let isParent = instanceId == parentTransactionId
+      let finalIsRecurring = isParent ? true : originalIsRecurring
+
+      // Determine the correct parentTransactionId value
+      // Parent points to itself, children point to parent
+      let finalParentId = isParent ? parentTransactionId : originalParentId
 
       let updatedTransaction = TransactionModel(
         id: instanceId,
@@ -589,11 +624,11 @@ final class RecurringTransactionManager {
         category: newData.data.category,
         amount: newData.data.amount,
         type: newData.data.type,
-        dateTimestamp: Int(finalDate.timeIntervalSince1970),
-        budgetMonthDate: finalDate.monthAnchor,
-        isRecurring: newData.data.isRecurring,
+        dateTimestamp: finalTimestamp,
+        budgetMonthDate: finalBudgetMonthDate,
+        isRecurring: finalIsRecurring,
         hasInstallments: newData.data.hasInstallments,
-        parentTransactionId: parentTransactionId,
+        parentTransactionId: finalParentId,
         originalAmount: newData.data.originalAmount,
         installmentNumber: newData.data.installmentNumber,
         totalInstallments: newData.data.totalInstallments

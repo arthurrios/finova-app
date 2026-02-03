@@ -19,6 +19,11 @@ extension Date {
     }
   }
 
+  /// Creates a Date from a month anchor timestamp
+  static func fromMonthAnchor(_ monthAnchor: Int) -> Date {
+    return Date(timeIntervalSince1970: TimeInterval(monthAnchor))
+  }
+
   var monthAnchor: Int {
     var cal = Calendar(identifier: .gregorian)
     // Use user's current timezone for month anchor calculation

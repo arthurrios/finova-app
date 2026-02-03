@@ -67,12 +67,24 @@ final class TransactionRepository: TransactionRepositoryProtocol {
   }
 
   func delete(id: Int) throws {
+    logDebug("TransactionRepository: Deleting transaction with id \(id)")
+
     // Delete from SQLite
     try db.deleteTransaction(id: id)
 
     // 🔒 Also delete from SecureLocalDataManager
     var secureTransactions = SecureLocalDataManager.shared.loadTransactions()
-    secureTransactions.removeAll { $0.id == id }
+    let countBefore = secureTransactions.count
+
+    // Explicitly unwrap optional ID for comparison
+    secureTransactions.removeAll { transaction in
+      guard let transactionId = transaction.id else { return false }
+      return transactionId == id
+    }
+
+    let countAfter = secureTransactions.count
+    logDebug("TransactionRepository: Removed \(countBefore - countAfter) transactions from SecureLocalDataManager")
+
     SecureLocalDataManager.shared.saveTransactions(secureTransactions)
 
     // Notify that data has changed (for cache invalidation)
@@ -644,10 +656,15 @@ final class TransactionRepository: TransactionRepositoryProtocol {
     // Get the recurring group ID (either the transaction's own ID or its parentTransactionId)
     let recurringGroupId = current.parentTransactionId ?? current.id
 
+    logDebug("TransactionRepository: Deleting all recurring occurrences for transaction \(transactionId), recurringGroupId: \(String(describing: recurringGroupId))")
+
     // Find all related transactions in this recurring group
     let relatedTransactions = allTransactions.filter { transaction in
-      transaction.id == recurringGroupId || transaction.parentTransactionId == recurringGroupId
+      guard let txId = transaction.id else { return false }
+      return txId == recurringGroupId || transaction.parentTransactionId == recurringGroupId
     }
+
+    logDebug("TransactionRepository: Found \(relatedTransactions.count) transactions to delete")
 
     // Delete all related transactions
     for relatedTransaction in relatedTransactions {
@@ -670,14 +687,18 @@ final class TransactionRepository: TransactionRepositoryProtocol {
     let recurringGroupId = current.parentTransactionId ?? current.id
     let currentDate = current.date
 
+    logDebug("TransactionRepository: Deleting future recurring instances for transaction \(transactionId), recurringGroupId: \(String(describing: recurringGroupId)), currentDate: \(currentDate)")
+
     // Find all related transactions in this recurring group that are in the future (including current)
     let relatedTransactions = allTransactions.filter { transaction in
-      let isInGroup =
-        transaction.id == recurringGroupId || transaction.parentTransactionId == recurringGroupId
+      guard let txId = transaction.id else { return false }
+      let isInGroup = txId == recurringGroupId || transaction.parentTransactionId == recurringGroupId
       // Include current transaction and all future ones (>= instead of >)
       let isFutureOrCurrent = transaction.date >= currentDate
       return isInGroup && isFutureOrCurrent
     }
+
+    logDebug("TransactionRepository: Found \(relatedTransactions.count) future transactions to delete")
 
     // Delete all future related transactions (including current)
     for relatedTransaction in relatedTransactions {
@@ -686,18 +707,22 @@ final class TransactionRepository: TransactionRepositoryProtocol {
       }
     }
 
-    // After deleting future instances, check if the parent is now orphaned (no instances left)
-    // If so, delete the parent to prevent resurrection bugs
+    // IMPORTANT: Stop the parent from generating new future instances
+    // Set isRecurring = false on the parent so no new instances are created
     if let parentId = recurringGroupId {
       let remainingInstances = fetchTransactionInstancesForRecurring(parentId)
+
       if remainingInstances.isEmpty {
-        // Check if parent still exists and is orphaned
+        // No instances left - delete the parent entirely
         let updatedTransactions = fetchAllTransactions()
-        if let orphanedParent = updatedTransactions.first(where: {
-          $0.id == parentId && $0.isRecurring == true
-        }) {
+        if updatedTransactions.first(where: { $0.id == parentId && $0.isRecurring == true }) != nil {
+          logDebug("TransactionRepository: Deleting orphaned parent \(parentId)")
           try delete(id: parentId)
         }
+      } else {
+        // Past instances still exist - just stop future generation by setting isRecurring = false
+        logDebug("TransactionRepository: Stopping future recurrence for parent \(parentId)")
+        try updateIsRecurring(transactionId: parentId, isRecurring: false)
       }
     }
   }
@@ -715,15 +740,18 @@ final class TransactionRepository: TransactionRepositoryProtocol {
     let installmentGroupId = current.parentTransactionId ?? current.id
     let currentInstallmentNumber = current.installmentNumber ?? 1
 
+    logDebug("TransactionRepository: Deleting future installment instances for transaction \(transactionId), installmentGroupId: \(String(describing: installmentGroupId)), currentInstallment: \(currentInstallmentNumber)")
+
     // Find all related transactions in this installment group that are current or future
     let relatedTransactions = allTransactions.filter { transaction in
-      let isInGroup =
-        transaction.id == installmentGroupId
-        || transaction.parentTransactionId == installmentGroupId
+      guard let txId = transaction.id else { return false }
+      let isInGroup = txId == installmentGroupId || transaction.parentTransactionId == installmentGroupId
       // Include current installment and all future ones
       let isFutureOrCurrent = (transaction.installmentNumber ?? 0) >= currentInstallmentNumber
       return isInGroup && isFutureOrCurrent
     }
+
+    logDebug("TransactionRepository: Found \(relatedTransactions.count) future installments to delete")
 
     // Delete all future related transactions (including current)
     for relatedTransaction in relatedTransactions {
@@ -736,7 +764,14 @@ final class TransactionRepository: TransactionRepositoryProtocol {
   private func deleteInstallmentTransactionAndSiblings(parentId: Int) throws {
     let allTransactions = fetchAllTransactions()
 
-    let installments = allTransactions.filter { $0.parentTransactionId == parentId }
+    logDebug("TransactionRepository: Deleting installment transaction and siblings for parentId \(parentId)")
+
+    let installments = allTransactions.filter { transaction in
+      guard let txParentId = transaction.parentTransactionId else { return false }
+      return txParentId == parentId
+    }
+
+    logDebug("TransactionRepository: Found \(installments.count) installments to delete")
 
     for installment in installments {
       if let installmentId = installment.id {

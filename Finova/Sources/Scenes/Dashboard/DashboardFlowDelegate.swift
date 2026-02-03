@@ -11,6 +11,7 @@ protocol DashboardFlowDelegate: AnyObject {
     func logout()
     func navigateToBudgets(date: Date?)
     func openAddTransactionModal()
+    func openAddAllocationModal(forMonth monthAnchor: Int)
     func navigateToSettings()
     func navigateToNotificationHistory()
     func navigateToTransactionDetails(transaction: Transaction)

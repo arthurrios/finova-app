@@ -43,6 +43,10 @@ final class DashboardViewController: UIViewController {
     }
     private var lockedScrollDirection: ScrollDirection = .none
     private var initialContentOffset: CGPoint = .zero
+
+    // MARK: - Budget View State Tracking
+    /// Global state for showing budget view (applies to all months)
+    private var isGlobalBudgetViewActive: Bool = false
     
     init(
         contentView: DashboardView,
@@ -113,6 +117,25 @@ final class DashboardViewController: UIViewController {
         }
     }
 
+    /// Restores the budget view state for the currently visible cell if it was showing budget view
+    private func restoreBudgetViewStateForCurrentCell() {
+        // Get the actual visible cell from the collection view (currentCell might be stale)
+        guard let visibleCells = contentView.monthCarousel.visibleCells as? [MonthCarouselCell],
+              let cell = visibleCells.first(where: { $0.tag == syncedViewModel.selectedIndex }),
+              !cell.isShowingBudgetView else { return }
+
+        // Update currentCell reference
+        currentCell = cell
+
+        let monthAnchor = syncedViewModel.monthData[syncedViewModel.selectedIndex].date.monthAnchor
+        if isGlobalBudgetViewActive {
+            let allocationService = BudgetAllocationService()
+            let allocations = allocationService.getAllocationsWithUsage(forMonth: monthAnchor)
+            let summary = allocationService.getUnallocatedSummary(forMonth: monthAnchor)
+            cell.restoreBudgetViewState(allocations: allocations, summary: summary)
+        }
+    }
+
     private func setupNotificationBadge() {
         NotificationHistoryManager.shared.onUnreadCountChanged = { [weak self] count in
             DispatchQueue.main.async {
@@ -144,21 +167,38 @@ final class DashboardViewController: UIViewController {
             let selectedIndex = syncedViewModel.selectedIndex
             if selectedIndex < monthData.count {
                 let currentMonthData = monthData[selectedIndex]
+                let monthAnchor = currentMonthData.date.monthAnchor
 
-                // Refresh the month budget card with fresh data (but preserve day slider state)
-                currentCell.monthCard.refresh(with: currentMonthData)
+                // Check if global budget view is active
+                let shouldShowBudgetView = isGlobalBudgetViewActive
 
-                // Update transactions for the current cell
-                let key = DateFormatter.keyFormatter.string(from: currentMonthData.date)
-                let filteredTransactions = transactions.filter { tx in
-                    let txDate = Date(timeIntervalSince1970: TimeInterval(tx.dateTimestamp))
-                    let txKey = DateFormatter.keyFormatter.string(from: txDate)
-                    let matches = txKey == key
-                    return matches
-                }.sorted { $0.date > $1.date }
+                if shouldShowBudgetView {
+                    let allocationService = BudgetAllocationService()
+                    let allocations = allocationService.getAllocationsWithUsage(forMonth: monthAnchor)
+                    let summary = allocationService.getUnallocatedSummary(forMonth: monthAnchor)
 
-                // Update transactions without reconfiguring the month card (to preserve day slider)
-                currentCell.updateTransactions(filteredTransactions)
+                    // Restore budget view if not already showing, then refresh
+                    if !currentCell.isShowingBudgetView {
+                        currentCell.restoreBudgetViewState(allocations: allocations, summary: summary)
+                    } else {
+                        currentCell.refreshBudgetView(allocations: allocations, summary: summary)
+                    }
+                } else {
+                    // Refresh the month budget card with fresh data (but preserve day slider state)
+                    currentCell.monthCard.refresh(with: currentMonthData)
+
+                    // Update transactions for the current cell
+                    let key = DateFormatter.keyFormatter.string(from: currentMonthData.date)
+                    let filteredTransactions = transactions.filter { tx in
+                        let txDate = Date(timeIntervalSince1970: TimeInterval(tx.dateTimestamp))
+                        let txKey = DateFormatter.keyFormatter.string(from: txDate)
+                        let matches = txKey == key
+                        return matches
+                    }.sorted { $0.date > $1.date }
+
+                    // Update transactions without reconfiguring the month card (to preserve day slider)
+                    currentCell.updateTransactions(filteredTransactions)
+                }
             }
         }
 
@@ -209,19 +249,36 @@ final class DashboardViewController: UIViewController {
             if let cell = contentView.monthCarousel.cellForItem(at: indexPath) as? MonthCarouselCell {
                 if indexPath.item < syncedViewModel.monthData.count {
                     let monthData = syncedViewModel.monthData[indexPath.item]
+                    let monthAnchor = monthData.date.monthAnchor
 
-                    // Refresh the month budget card (preserving day slider state)
-                    cell.monthCard.refresh(with: monthData)
+                    // Check if global budget view is active
+                    let shouldShowBudgetView = isGlobalBudgetViewActive
 
-                    // Update transactions without reconfiguring the month card
-                    let key = DateFormatter.keyFormatter.string(from: monthData.date)
-                    let filteredTransactions = syncedViewModel.allTransactions.filter { tx in
-                        let txDate = Date(timeIntervalSince1970: TimeInterval(tx.dateTimestamp))
-                        let txKey = DateFormatter.keyFormatter.string(from: txDate)
-                        return txKey == key
-                    }.sorted { $0.date > $1.date }
+                    if shouldShowBudgetView {
+                        // Refresh budget view data
+                        let allocationService = BudgetAllocationService()
+                        let allocations = allocationService.getAllocationsWithUsage(forMonth: monthAnchor)
+                        let summary = allocationService.getUnallocatedSummary(forMonth: monthAnchor)
 
-                    cell.updateTransactions(filteredTransactions)
+                        if !cell.isShowingBudgetView {
+                            cell.restoreBudgetViewState(allocations: allocations, summary: summary)
+                        } else {
+                            cell.refreshBudgetView(allocations: allocations, summary: summary)
+                        }
+                    } else {
+                        // Refresh the month budget card (preserving day slider state)
+                        cell.monthCard.refresh(with: monthData)
+
+                        // Update transactions without reconfiguring the month card
+                        let key = DateFormatter.keyFormatter.string(from: monthData.date)
+                        let filteredTransactions = syncedViewModel.allTransactions.filter { tx in
+                            let txDate = Date(timeIntervalSince1970: TimeInterval(tx.dateTimestamp))
+                            let txKey = DateFormatter.keyFormatter.string(from: txDate)
+                            return txKey == key
+                        }.sorted { $0.date > $1.date }
+
+                        cell.updateTransactions(filteredTransactions)
+                    }
                 }
             }
         }
@@ -261,14 +318,77 @@ final class DashboardViewController: UIViewController {
         }
     }
     
+    /// Called when an allocation is added/updated to immediately refresh the budget view
+    func refreshAfterAllocationChange() {
+        // Ensure global budget view state is active
+        isGlobalBudgetViewActive = true
+
+        let allocationService = BudgetAllocationService()
+        let visibleIndexPaths = contentView.monthCarousel.indexPathsForVisibleItems
+
+        // Refresh all visible cells
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+
+            for indexPath in visibleIndexPaths {
+                guard let cell = self.contentView.monthCarousel.cellForItem(at: indexPath) as? MonthCarouselCell else {
+                    continue
+                }
+
+                let monthAnchor = cell.currentMonthAnchor
+                let allocations = allocationService.getAllocationsWithUsage(forMonth: monthAnchor)
+                let summary = allocationService.getUnallocatedSummary(forMonth: monthAnchor)
+
+                if cell.isShowingBudgetView {
+                    // Already showing budget view, just refresh data
+                    UIView.transition(with: cell, duration: 0.3, options: .transitionCrossDissolve) {
+                        cell.refreshBudgetView(allocations: allocations, summary: summary)
+                    }
+                } else {
+                    // Need to restore budget view state
+                    cell.restoreBudgetViewState(allocations: allocations, summary: summary)
+                }
+            }
+        }
+    }
+
+    /// Flips all visible cells to match the global budget view state
+    private func flipAllVisibleCellsToGlobalState() {
+        let visibleIndexPaths = contentView.monthCarousel.indexPathsForVisibleItems
+        let allocationService = BudgetAllocationService()
+
+        for indexPath in visibleIndexPaths {
+            guard let cell = contentView.monthCarousel.cellForItem(at: indexPath) as? MonthCarouselCell else {
+                continue
+            }
+
+            // Skip if cell is already in the correct state
+            if cell.isShowingBudgetView == isGlobalBudgetViewActive {
+                continue
+            }
+
+            let monthAnchor = cell.currentMonthAnchor
+
+            if isGlobalBudgetViewActive {
+                // Flip to budget view
+                let allocations = allocationService.getAllocationsWithUsage(forMonth: monthAnchor)
+                let summary = allocationService.getUnallocatedSummary(forMonth: monthAnchor)
+                cell.flipToBudgetView(allocations: allocations, summary: summary)
+            } else {
+                // Flip back to transaction view
+                cell.flipToTransactionView()
+            }
+        }
+    }
+
     private func refreshVisibleCellsWithAnimation() {
         let visibleIndexPaths = contentView.monthCarousel.indexPathsForVisibleItems
-        
+
         for indexPath in visibleIndexPaths {
             if let cell = contentView.monthCarousel.cellForItem(at: indexPath) as? MonthCarouselCell {
                 if indexPath.item < syncedViewModel.monthData.count {
                     let monthData = syncedViewModel.monthData[indexPath.item]
-                    
+
                     // Animate the refresh
                     UIView.transition(with: cell.monthCard, duration: 0.3, options: .transitionCrossDissolve)
                     {
@@ -309,6 +429,12 @@ final class DashboardViewController: UIViewController {
                         cell.transactionTableView.isUserInteractionEnabled = true
                         cell.transactionTableView.setNeedsLayout()
                         cell.transactionTableView.layoutIfNeeded()
+
+                        // Force recalculate scroll state after layout completes
+                        // This fixes the bug where scroll gets locked after batch updates
+                        DispatchQueue.main.async {
+                            cell.recalculateScrollState()
+                        }
                     }
                 }
             }
@@ -318,7 +444,13 @@ final class DashboardViewController: UIViewController {
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         LoadingManager.shared.hideLoading()
-        
+
+        // Restore budget view state after view is fully visible
+        // Use slight delay to ensure collection view layout is complete
+        DispatchQueue.main.async { [weak self] in
+            self?.restoreBudgetViewStateForCurrentCell()
+        }
+
         // Check if we should show notification success alert
         checkAndShowNotificationSuccessAlert()
         
@@ -1080,7 +1212,15 @@ extension DashboardViewController: DashboardViewDelegate {
     }
     
     func didTapAddTransaction() {
-        self.flowDelegate?.openAddTransactionModal()
+        // If budget view is showing, open add allocation modal instead
+        if let currentCell = currentCell, currentCell.isShowingBudgetView {
+            let monthAnchor = syncedViewModel.monthData[syncedViewModel.selectedIndex].date.monthAnchor
+            // Track that budget view is active before opening modal
+            isGlobalBudgetViewActive = true
+            self.flowDelegate?.openAddAllocationModal(forMonth: monthAnchor)
+        } else {
+            self.flowDelegate?.openAddTransactionModal()
+        }
     }
     
     func didTapNotifications() {
@@ -1171,7 +1311,25 @@ extension DashboardViewController: UICollectionViewDataSource {
             
             cell.monthCard.delegate = self
             cell.searchDelegate = self
-            
+            cell.onAllocationTapped = { [weak self] allocation in
+                self?.flowDelegate?.navigateToAllocationDetails(allocation: allocation)
+            }
+            cell.onBudgetsConfigTapped = { [weak self] monthAnchor in
+                // Budget view is already active since config button is only visible in budget view
+                let date = Date.fromMonthAnchor(monthAnchor)
+                self?.flowDelegate?.navigateToBudgets(date: date)
+            }
+            cell.onDefineBudgetTapped = { [weak self] monthAnchor in
+                let date = Date.fromMonthAnchor(monthAnchor)
+                self?.flowDelegate?.navigateToBudgets(date: date)
+            }
+            cell.onBudgetViewStateChanged = { [weak self] _, isShowingBudget in
+                guard let self = self else { return }
+                self.isGlobalBudgetViewActive = isShowingBudget
+                // Flip all visible cells to match the global state
+                self.flipAllVisibleCellsToGlobalState()
+            }
+
             cell.transactionTableView.dataSource = self
             cell.transactionTableView.delegate = self
             cell.transactionTableView.register(
@@ -1193,10 +1351,23 @@ extension DashboardViewController: UICollectionViewDataSource {
             
             cell.tag = indexPath.item
             cell.transactions = txs
+
+            // Set the month anchor for budget view operations
+            let monthAnchor = model.date.monthAnchor
+            cell.setMonthAnchor(monthAnchor)
+
             // Use refresh and updateTransactions to preserve day slider state
             cell.monthCard.refresh(with: model)
             cell.updateTransactions(txs)
-            
+
+            // Restore budget view state if global budget view is active
+            if isGlobalBudgetViewActive {
+                let allocationService = BudgetAllocationService()
+                let allocations = allocationService.getAllocationsWithUsage(forMonth: monthAnchor)
+                let summary = allocationService.getUnallocatedSummary(forMonth: monthAnchor)
+                cell.restoreBudgetViewState(allocations: allocations, summary: summary)
+            }
+
             return cell
         } else {
             guard
@@ -1217,6 +1388,33 @@ extension DashboardViewController: UICollectionViewDelegate {
     func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
         if collectionView == contentView.monthSelectorView.collectionView {
             syncedViewModel.selectMonth(at: indexPath.item)
+        }
+    }
+
+    func collectionView(
+        _ collectionView: UICollectionView,
+        willDisplay cell: UICollectionViewCell,
+        forItemAt indexPath: IndexPath
+    ) {
+        guard collectionView == contentView.monthCarousel,
+              let monthCell = cell as? MonthCarouselCell else { return }
+
+        // Ensure budget view state is synchronized before the cell is displayed
+        let monthAnchor = syncedViewModel.monthData[indexPath.item].date.monthAnchor
+        if isGlobalBudgetViewActive && !monthCell.isShowingBudgetView {
+            let allocationService = BudgetAllocationService()
+            let allocations = allocationService.getAllocationsWithUsage(forMonth: monthAnchor)
+            let summary = allocationService.getUnallocatedSummary(forMonth: monthAnchor)
+            monthCell.restoreBudgetViewState(allocations: allocations, summary: summary)
+        } else if !isGlobalBudgetViewActive && monthCell.isShowingBudgetView {
+            monthCell.flipToTransactionView()
+        }
+
+        // Recalculate scroll state after cell is displayed to fix any stale scroll locks
+        if !isGlobalBudgetViewActive {
+            DispatchQueue.main.async {
+                monthCell.recalculateScrollState()
+            }
         }
     }
 }
@@ -1308,7 +1506,7 @@ extension DashboardViewController: UIScrollViewDelegate {
                let firstCell = visibleCells.first
             {
                 currentCell = firstCell
-                
+
                 let index = firstCell.tag
                 if index < syncedViewModel.monthData.count {
                     let model = syncedViewModel.monthData[index]
@@ -1321,6 +1519,17 @@ extension DashboardViewController: UIScrollViewDelegate {
                         return tx1.date > tx2.date
                     }
                     currentCellTransactions = txs
+
+                    // Ensure budget view state is synchronized after scroll ends
+                    let monthAnchor = model.date.monthAnchor
+                    if isGlobalBudgetViewActive && !firstCell.isShowingBudgetView {
+                        let allocationService = BudgetAllocationService()
+                        let allocations = allocationService.getAllocationsWithUsage(forMonth: monthAnchor)
+                        let summary = allocationService.getUnallocatedSummary(forMonth: monthAnchor)
+                        firstCell.restoreBudgetViewState(allocations: allocations, summary: summary)
+                    } else if !isGlobalBudgetViewActive && firstCell.isShowingBudgetView {
+                        firstCell.flipToTransactionView()
+                    }
                 }
             }
             
@@ -2293,6 +2502,10 @@ extension DashboardViewController: MonthCarouselCellDelegate {
     }
     
     func monthCarouselCellDidTapFilter(_ cell: MonthCarouselCell) {
+        // Store reference to the cell that opened the filter modal
+        // This ensures filters are applied to the correct cell when the modal is dismissed
+        currentCell = cell
+
         // Get the month date from the current month data
         let monthDate: Date
         let currentIndex = syncedViewModel.selectedIndex
@@ -2302,7 +2515,7 @@ extension DashboardViewController: MonthCarouselCellDelegate {
             // Fallback to current date if we can't find the month
             monthDate = Date()
         }
-        
+
         let filterModal = TransactionFilterModalViewController(currentFilters: cell.currentFilters, monthDate: monthDate)
         filterModal.delegate = self
         present(filterModal, animated: false)
@@ -2409,10 +2622,26 @@ extension DashboardViewController {
 // MARK: - TransactionFilterModalDelegate
 extension DashboardViewController: TransactionFilterModalDelegate {
     func transactionFilterModal(_ modal: TransactionFilterModalViewController, didApplyFilters filters: TransactionFilters) {
-        currentCell?.applyFilters(filters)
+        // Try to use currentCell, fallback to finding the selected cell if needed
+        if let cell = currentCell {
+            cell.applyFilters(filters)
+        } else if let cell = findSelectedCell() {
+            cell.applyFilters(filters)
+        }
     }
-    
+
     func transactionFilterModalDidClear(_ modal: TransactionFilterModalViewController) {
-        currentCell?.clearFilters()
+        // Try to use currentCell, fallback to finding the selected cell if needed
+        if let cell = currentCell {
+            cell.clearFilters()
+        } else if let cell = findSelectedCell() {
+            cell.clearFilters()
+        }
+    }
+
+    /// Finds the currently selected month carousel cell
+    private func findSelectedCell() -> MonthCarouselCell? {
+        let visibleCells = contentView.monthCarousel.visibleCells as? [MonthCarouselCell]
+        return visibleCells?.first(where: { $0.tag == syncedViewModel.selectedIndex })
     }
 }

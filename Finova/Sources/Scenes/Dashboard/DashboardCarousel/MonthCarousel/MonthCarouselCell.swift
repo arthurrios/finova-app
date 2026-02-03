@@ -38,9 +38,16 @@ struct TransactionFilters {
 
 class MonthCarouselCell: UICollectionViewCell {
     static let reuseID = "MonthCarouselCell"
-    
+
     weak var searchDelegate: MonthCarouselCellDelegate?
-    
+
+    // MARK: - Navigation Closures
+
+    var onAllocationTapped: ((BudgetAllocation) -> Void)?
+    var onBudgetsConfigTapped: ((Int) -> Void)?
+    var onDefineBudgetTapped: ((Int) -> Void)?
+    var onBudgetViewStateChanged: ((Int, Bool) -> Void)?  // (monthAnchor, isShowingBudgetView)
+
     // MARK: - Properties
 
     let monthCard = MonthBudgetCard()
@@ -52,8 +59,15 @@ class MonthCarouselCell: UICollectionViewCell {
     private var originalMonthCardHeight: CGFloat = 0  // Stored once, never changes
     private var isSearchActive: Bool = false
     var currentFilters = TransactionFilters()
-    private var isShowingBudgetView = false
+    private(set) var isShowingBudgetView = false
     private var currentAllocations: [BudgetAllocation] = []
+    private(set) var currentMonthAnchor: Int = 0
+    private let allocationService = BudgetAllocationService()
+
+    /// Sets the month anchor for this cell (used for budget allocation operations)
+    func setMonthAnchor(_ anchor: Int) {
+        currentMonthAnchor = anchor
+    }
     
     // MARK: - UI Components
     
@@ -316,8 +330,7 @@ class MonthCarouselCell: UICollectionViewCell {
 
     private let allocationsEmptyStateIconImageView: UIImageView = {
         let imageView = UIImageView()
-        let config = UIImage.SymbolConfiguration(pointSize: 24, weight: .medium)
-        imageView.image = UIImage(systemName: "chart.pie", withConfiguration: config)
+        imageView.image = UIImage(named: "iconBankSlip")
         imageView.tintColor = Colors.gray400
         imageView.contentMode = .scaleAspectFit
         imageView.translatesAutoresizingMaskIntoConstraints = false
@@ -337,16 +350,59 @@ class MonthCarouselCell: UICollectionViewCell {
     override init(frame: CGRect) {
         super.init(frame: frame)
         setupViews()
+        setupNotificationObservers()
     }
-    
+
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
-    
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+
+    private func setupNotificationObservers() {
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleAllocationDataChanged),
+            name: .allocationDataChanged,
+            object: nil
+        )
+    }
+
+    @objc private func handleAllocationDataChanged() {
+        // Only refresh if currently showing budget view
+        guard isShowingBudgetView else { return }
+
+        // Fetch fresh data and update the budget card
+        let allocations = allocationService.getAllocationsWithUsage(forMonth: currentMonthAnchor)
+        let summary = allocationService.getUnallocatedSummary(forMonth: currentMonthAnchor)
+
+        // Sort allocations by allocated amount (highest first)
+        currentAllocations = allocations.sorted { $0.allocatedAmount > $1.allocatedAmount }
+        allocationsTableView.reloadData()
+        allocationsNumberLabel.text = "\(allocations.count)"
+        updateAllocationsTableHeight(count: allocations.count)
+
+        budgetCard.configure(
+            month: monthCard.currentMonth,
+            year: monthCard.currentYear,
+            allocations: allocations,
+            unallocatedSummary: summary,
+            monthAnchor: currentMonthAnchor
+        )
+
+        // Show/hide empty state
+        let hasAllocations = !allocations.isEmpty
+        allocationsTableView.isHidden = !hasAllocations
+        allocationsEmptyStateView.isHidden = hasAllocations
+    }
+
     private func setupViews() {
         monthCard.translatesAutoresizingMaskIntoConstraints = false
         monthCard.flipDelegate = self
-        
+        budgetCard.delegate = self
+
         // Set high priority for content hugging and compression resistance
         // to prevent the card from being compressed when the table grows
         monthCard.setContentHuggingPriority(.required, for: .vertical)
@@ -495,6 +551,7 @@ class MonthCarouselCell: UICollectionViewCell {
     func configure(with model: MonthBudgetCardType, transactions: [Transaction]) {
         monthCard.configure(data: model)
         self.transactions = transactions
+        self.currentMonthAnchor = model.date.monthAnchor
         
         // Reset table view to a clean state before reloading
         transactionTableView.setContentOffset(.zero, animated: false)
@@ -522,13 +579,21 @@ class MonthCarouselCell: UICollectionViewCell {
         // Force layout to get accurate card measurements first
         setNeedsLayout()
         layoutIfNeeded()
-        
+
         // Set fixed height constraint based on the card's natural size
         // This must happen before calculating table height
         updateMonthCardMinHeight()
-        
+
         // Now update table height with the correct available space
         updateTableHeight(txsCount: transactions.count)
+
+        // Ensure scroll state is recalculated after table view has fully laid out
+        // This fixes timing issues where scroll gets locked after adding transactions
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self, !self.transactions.isEmpty else { return }
+            let txCount = self.isSearchActive ? self.filteredTransactions.count : self.transactions.count
+            self.updateTableHeight(txsCount: txCount)
+        }
     }
     
     private func updateMonthCardMinHeight() {
@@ -646,6 +711,40 @@ class MonthCarouselCell: UICollectionViewCell {
     func updateTransactions(_ newTransactions: [Transaction]) {
         transactions = newTransactions
         applyFilters()
+
+        // Force recalculate scroll state after layout completes
+        // This fixes timing issues where isScrollEnabled gets incorrectly set during batch updates
+        DispatchQueue.main.async { [weak self] in
+            self?.recalculateScrollState()
+        }
+    }
+
+    /// Forces recalculation of scroll state for the transaction table
+    /// Call this after batch updates to ensure scroll is properly enabled/disabled
+    func recalculateScrollState() {
+        guard !isShowingBudgetView, !transactions.isEmpty else { return }
+
+        // Force layout to get accurate measurements
+        setNeedsLayout()
+        layoutIfNeeded()
+
+        let txCount = isSearchActive ? filteredTransactions.count : transactions.count
+        let rowHeight: CGFloat = 67
+        let separatorHeight = CGFloat(max(0, txCount - 1)) * 1.0
+        let contentHeight = CGFloat(txCount) * rowHeight + separatorHeight
+
+        let availableHeight = calculateAvailableHeightForTable()
+        let maxTableHeight = max(0, availableHeight)
+
+        // Update height constraint
+        let finalHeight = min(contentHeight, maxTableHeight)
+        if let constraint = tableHeightConstraint {
+            constraint.constant = finalHeight
+        }
+
+        // Recalculate scroll enabled state
+        transactionTableView.isScrollEnabled = (contentHeight > maxTableHeight)
+        transactionTableView.isUserInteractionEnabled = true
     }
     
     /// Clears the search input and resets all filters
@@ -834,9 +933,10 @@ class MonthCarouselCell: UICollectionViewCell {
         // Set state BEFORE animation to prevent icon flash
         isShowingBudgetView = true
         monthCard.setShowingBudgetView(true)
+        onBudgetViewStateChanged?(currentMonthAnchor, true)
 
-        // Store allocations and update table
-        currentAllocations = allocations
+        // Store allocations sorted by allocated amount (highest first)
+        currentAllocations = allocations.sorted { $0.allocatedAmount > $1.allocatedAmount }
         allocationsTableView.reloadData()
         allocationsNumberLabel.text = "\(allocations.count)"
         updateAllocationsTableHeight(count: allocations.count)
@@ -845,10 +945,14 @@ class MonthCarouselCell: UICollectionViewCell {
             month: monthCard.currentMonth,
             year: monthCard.currentYear,
             allocations: allocations,
-            unallocatedSummary: summary
+            unallocatedSummary: summary,
+            monthAnchor: currentMonthAnchor
         )
 
         let hasAllocations = !allocations.isEmpty
+
+        // Disable transaction table interaction BEFORE animation to prevent stale taps
+        transactionTableView.isUserInteractionEnabled = false
 
         // Use flip transition
         UIView.transition(
@@ -867,6 +971,9 @@ class MonthCarouselCell: UICollectionViewCell {
             self.allocationsTableHeaderView.isHidden = false
             self.allocationsTableView.isHidden = !hasAllocations
             self.allocationsEmptyStateView.isHidden = hasAllocations
+        } completion: { _ in
+            // Enable allocation table interaction after animation completes
+            self.allocationsTableView.isUserInteractionEnabled = true
         }
     }
 
@@ -876,8 +983,12 @@ class MonthCarouselCell: UICollectionViewCell {
         // Set state BEFORE animation to prevent icon flash
         isShowingBudgetView = false
         monthCard.setShowingBudgetView(false)
+        onBudgetViewStateChanged?(currentMonthAnchor, false)
 
         let hasTransactions = !transactions.isEmpty
+
+        // Disable allocation table interaction BEFORE animation to prevent stale taps
+        allocationsTableView.isUserInteractionEnabled = false
 
         UIView.transition(
             with: contentView,
@@ -895,7 +1006,73 @@ class MonthCarouselCell: UICollectionViewCell {
             self.allocationsTableHeaderView.isHidden = true
             self.allocationsTableView.isHidden = true
             self.allocationsEmptyStateView.isHidden = true
+        } completion: { _ in
+            // Enable transaction table interaction after animation completes
+            self.transactionTableView.isUserInteractionEnabled = true
         }
+    }
+
+    /// Restores budget view state without animation (for when returning from navigation)
+    func restoreBudgetViewState(allocations: [BudgetAllocation], summary: UnallocatedBudgetSummary) {
+        guard !isShowingBudgetView else { return }
+
+        isShowingBudgetView = true
+        monthCard.setShowingBudgetView(true)
+
+        // Sort allocations sorted by allocated amount (highest first)
+        currentAllocations = allocations.sorted { $0.allocatedAmount > $1.allocatedAmount }
+        allocationsTableView.reloadData()
+        allocationsNumberLabel.text = "\(allocations.count)"
+        updateAllocationsTableHeight(count: allocations.count)
+
+        budgetCard.configure(
+            month: monthCard.currentMonth,
+            year: monthCard.currentYear,
+            allocations: allocations,
+            unallocatedSummary: summary,
+            monthAnchor: currentMonthAnchor
+        )
+
+        let hasAllocations = !allocations.isEmpty
+
+        // Set state directly without animation
+        monthCard.isHidden = true
+        budgetCard.isHidden = false
+        searchContainerView.isHidden = true
+        tableHeaderView.isHidden = true
+        transactionTableView.isHidden = true
+        emptyStateView.isHidden = true
+        allocationsTableHeaderView.isHidden = false
+        allocationsTableView.isHidden = !hasAllocations
+        allocationsEmptyStateView.isHidden = hasAllocations
+
+        // Ensure correct user interaction state for budget view
+        transactionTableView.isUserInteractionEnabled = false
+        allocationsTableView.isUserInteractionEnabled = true
+    }
+
+    /// Refreshes budget view data while staying in budget view (for pull-to-refresh)
+    func refreshBudgetView(allocations: [BudgetAllocation], summary: UnallocatedBudgetSummary) {
+        guard isShowingBudgetView else { return }
+
+        // Sort allocations by allocated amount (highest first)
+        currentAllocations = allocations.sorted { $0.allocatedAmount > $1.allocatedAmount }
+        allocationsTableView.reloadData()
+        allocationsNumberLabel.text = "\(allocations.count)"
+        updateAllocationsTableHeight(count: allocations.count)
+
+        budgetCard.configure(
+            month: monthCard.currentMonth,
+            year: monthCard.currentYear,
+            allocations: allocations,
+            unallocatedSummary: summary,
+            monthAnchor: currentMonthAnchor
+        )
+
+        // Update visibility based on allocations
+        let hasAllocations = !allocations.isEmpty
+        allocationsTableView.isHidden = !hasAllocations
+        allocationsEmptyStateView.isHidden = hasAllocations
     }
 
     private func updateAllocationsTableHeight(count: Int) {
@@ -1004,11 +1181,13 @@ class MonthCarouselCell: UICollectionViewCell {
         allocationsTableView.alpha = 1
         allocationsEmptyStateView.alpha = 1
 
-        // Reset flip state
+        // Reset flip state - ensure all views are in transaction view state
         isShowingBudgetView = false
         monthCard.isHidden = false
+        monthCard.setShowingBudgetView(false)  // Reset icon to pie chart
         budgetCard.isHidden = true
         searchContainerView.isHidden = false
+        tableHeaderView.isHidden = false
 
         // Reset table height constraint to force recalculation
         tableHeightConstraint?.isActive = false
@@ -1027,6 +1206,10 @@ class MonthCarouselCell: UICollectionViewCell {
         allocationsTableView.isScrollEnabled = false
         allocationsTableView.contentInset = .zero
         allocationsTableView.scrollIndicatorInsets = .zero
+
+        // Reset user interaction state - transaction view is default, so enable its table
+        transactionTableView.isUserInteractionEnabled = true
+        allocationsTableView.isUserInteractionEnabled = false
 
         // Hide both table and empty state during cell setup to prevent flashing
         transactionTableView.isHidden = true
@@ -1083,27 +1266,17 @@ extension MonthCarouselCell {
 extension MonthCarouselCell: MonthCardFlipDelegate {
     func didRequestFlip(isShowingBudgetView: Bool) {
         if isShowingBudgetView {
-            // Extended mock data with various categories and large values
-            // Values are in cents: R$ 1.00 = 100, R$ 1,000.00 = 100_000
-            // Random realistic values (in cents: R$ 1.00 = 100)
-            let mockAllocations = [
-                BudgetAllocation.mock(category: .meals, allocated: 1245682, used: 987340),           // R$ 12,456.82 / R$ 9,873.40
-                BudgetAllocation.mock(category: .transportation, allocated: 85723, used: 79156),     // R$ 857.23 / R$ 791.56 - small
-                BudgetAllocation.mock(category: .entertainment, allocated: 350000, used: 428750),    // R$ 3,500.00 / R$ 4,287.50 - over
-                BudgetAllocation.mock(category: .groceries, allocated: 2834190, used: 1956420),      // R$ 28,341.90 / R$ 19,564.20
-                BudgetAllocation.mock(category: .healthcare, allocated: 1500000, used: 432580),      // R$ 15,000.00 / R$ 4,325.80 - under
-                BudgetAllocation.mock(category: .subscriptions, allocated: 78990, used: 71245),      // R$ 789.90 / R$ 712.45 - tiny
-                BudgetAllocation.mock(category: .utilities, allocated: 187500, used: 174328),        // R$ 1,875.00 / R$ 1,743.28 - near
-                BudgetAllocation.mock(category: .education, allocated: 567000, used: 489000)         // R$ 5,670.00 / R$ 4,890.00
-            ]
-            let totalAllocated = mockAllocations.reduce(0) { $0 + $1.allocatedAmount }
-            let mockSummary = UnallocatedBudgetSummary(
-                monthDate: Int(Date().timeIntervalSince1970),
-                totalBudget: 8500000,           // R$ 85,000.00 total budget
-                totalAllocated: totalAllocated, // ~R$ 64,849.85
-                totalUsedInUnallocatedCategories: 245678
-            )
-            flipToBudgetView(allocations: mockAllocations, summary: mockSummary)
+            // Guard against invalid month anchor (cell not yet configured)
+            guard currentMonthAnchor > 0 else {
+                logWarning("MonthCarouselCell: Attempted to flip to budget view with invalid monthAnchor (0)")
+                return
+            }
+
+            // Fetch real allocations and summary from the service
+            let allocations = allocationService.getAllocationsWithUsage(forMonth: currentMonthAnchor)
+            let summary = allocationService.getUnallocatedSummary(forMonth: currentMonthAnchor)
+            logDebug("MonthCarouselCell: Fetched \(allocations.count) allocations for monthAnchor: \(currentMonthAnchor)")
+            flipToBudgetView(allocations: allocations, summary: summary)
         } else {
             flipToTransactionView()
         }
@@ -1115,9 +1288,15 @@ extension MonthCarouselCell: MonthCardFlipDelegate {
     }
     
     func didTapAllocation(_ allocation: BudgetAllocation) {
-        // Forward to parent for navigation
-        // Will implement later
-        print("Tapped allocation: \(allocation.category.displayName)")
+        onAllocationTapped?(allocation)
+    }
+
+    func didTapBudgetsConfig(forMonth monthAnchor: Int) {
+        onBudgetsConfigTapped?(monthAnchor)
+    }
+
+    func didTapDefineBudget(forMonth monthAnchor: Int) {
+        onDefineBudgetTapped?(monthAnchor)
     }
 }
 
