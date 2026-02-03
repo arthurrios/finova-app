@@ -119,7 +119,7 @@ final class BudgetCard: UIView {
         let stack = UIStackView()
         stack.axis = .vertical
         stack.spacing = Metrics.spacing2
-        stack.alignment = .trailing
+        stack.alignment = .center
         return stack
     }()
 
@@ -132,6 +132,29 @@ final class BudgetCard: UIView {
     }()
 
     private lazy var remainingValueLabel: UILabel = {
+        let label = UILabel()
+        label.font = Fonts.textSM.font
+        label.textColor = Colors.gray100
+        return label
+    }()
+
+    private lazy var savedStackView: UIStackView = {
+        let stack = UIStackView()
+        stack.axis = .vertical
+        stack.spacing = Metrics.spacing2
+        stack.alignment = .trailing
+        return stack
+    }()
+
+    private lazy var savedTextLabel: UILabel = {
+        let label = UILabel()
+        label.font = Fonts.textXS.font
+        label.text = "budget.saved.label".localized
+        label.textColor = Colors.gray400
+        return label
+    }()
+
+    private lazy var savedValueLabel: UILabel = {
         let label = UILabel()
         label.font = Fonts.textSM.font
         label.textColor = Colors.gray100
@@ -222,15 +245,19 @@ final class BudgetCard: UIView {
         headerHorizontalStackView.addArrangedSubview(configButton)
         headerHorizontalStackView.setCustomSpacing(Metrics.spacing3, after: flipBackButton)
 
-        // Footer setup - matching MonthBudgetCard
+        // Footer setup - three columns: Allocated, Remaining, Saved
         allocatedStackView.addArrangedSubview(allocatedTextLabel)
         allocatedStackView.addArrangedSubview(allocatedValueLabel)
 
         remainingStackView.addArrangedSubview(remainingTextLabel)
         remainingStackView.addArrangedSubview(remainingValueLabel)
 
+        savedStackView.addArrangedSubview(savedTextLabel)
+        savedStackView.addArrangedSubview(savedValueLabel)
+
         footerStackView.addArrangedSubview(allocatedStackView)
         footerStackView.addArrangedSubview(remainingStackView)
+        footerStackView.addArrangedSubview(savedStackView)
 
         addSubview(headerHorizontalStackView)
         addSubview(chartContainerView)
@@ -352,22 +379,25 @@ final class BudgetCard: UIView {
         footerStackView.isHidden = false
         progressBar.isHidden = false
 
-        // Footer values - left side shows total allocated
+        // Footer values - three columns:
+        // 1. Allocated: how much budget is assigned to categories
         allocatedValueLabel.text = unallocatedSummary.totalAllocated.currencyString
 
-        // Calculate net remaining across all allocations AND unallocated spending
-        // Positive = under budget (money left), Negative = over budget (overspent)
-        let allocatedRemaining = allocations.reduce(0) { $0 + $1.remainingAmount }
-        // Subtract unallocated spending (spending in categories without allocations)
-        let netRemaining = allocatedRemaining - unallocatedSummary.totalUsedInUnallocatedCategories
+        // 2. Remaining: unallocated budget (not assigned to any category)
+        remainingValueLabel.text = unallocatedSummary.unallocatedAmount.currencyString
+        remainingValueLabel.textColor = Colors.gray100
 
-        // Format and color the remaining value
-        if netRemaining >= 0 {
-            remainingValueLabel.text = netRemaining.currencyString
-            remainingValueLabel.textColor = Colors.brightGreen  // Brighter green for dark background
+        // 3. Saved: net savings from actual spending (allocated remaining - unallocated spending)
+        // Positive = under budget (money saved), Negative = over budget (overspent)
+        let allocatedRemaining = allocations.reduce(0) { $0 + $1.remainingAmount }
+        let netSaved = allocatedRemaining - unallocatedSummary.totalUsedInUnallocatedCategories
+
+        if netSaved >= 0 {
+            savedValueLabel.text = netSaved.currencyString
+            savedValueLabel.textColor = Colors.brightGreen
         } else {
-            remainingValueLabel.text = "-" + abs(netRemaining).currencyString
-            remainingValueLabel.textColor = Colors.brightRed  // Brighter red for dark background
+            savedValueLabel.text = "-" + abs(netSaved).currencyString
+            savedValueLabel.textColor = Colors.brightRed
         }
 
         // Progress bar shows allocation progress

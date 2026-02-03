@@ -2134,6 +2134,23 @@
         }
       }
     },
+    "budget.saved.label" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Saved"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Economizado"
+          }
+        }
+      }
+    },
     "budget.remaining.left" : {
       "extractionState" : "manual",
       "localizations" : {
