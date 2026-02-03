@@ -214,6 +214,37 @@ final class BudgetAllocationService {
         }
     }
 
+    /// Gets categories that have spending but no allocation for the given month.
+    /// Only returns categories with actual spending (amount > 0).
+    /// - Parameter monthAnchor: The month anchor timestamp
+    /// - Returns: Array of unallocated category spending, sorted by amount (highest first)
+    func getUnallocatedCategoriesWithSpending(forMonth monthAnchor: Int) -> [UnallocatedCategorySpending] {
+        let existingAllocations = allocationRepo.fetchAllocations(for: monthAnchor)
+        let allocatedCategoryKeys = Set(existingAllocations.map { $0.category.key })
+
+        let usageByCategory = calculateUsageByCategory(forMonth: monthAnchor)
+
+        // Find categories with spending but no allocation
+        var unallocatedSpending: [UnallocatedCategorySpending] = []
+
+        for (categoryKey, amount) in usageByCategory {
+            // Skip if already allocated or no spending
+            guard !allocatedCategoryKeys.contains(categoryKey), amount > 0 else { continue }
+
+            // Find the category enum
+            if let category = TransactionCategory.allCases.first(where: { $0.key == categoryKey }) {
+                unallocatedSpending.append(UnallocatedCategorySpending(
+                    category: category,
+                    spentAmount: amount,
+                    monthDate: monthAnchor
+                ))
+            }
+        }
+
+        // Sort by spent amount (highest first)
+        return unallocatedSpending.sorted { $0.spentAmount > $1.spentAmount }
+    }
+
     // MARK: - Private Helpers
 
     /// Calculates spending by category for a given month.
@@ -252,11 +283,11 @@ final class BudgetAllocationService {
                 continue
             }
 
-            // Check if instance already exists for this month and category
+            // Check if ANY allocation already exists for this month and category
+            // This includes independent allocations (not linked to this parent) to support "ignore conflicts" flow
             let hasInstance = allAllocations.contains { allocation in
                 allocation.monthDate == monthAnchor &&
-                allocation.category.key == parent.category.key &&
-                (allocation.parentAllocationId == parentId || allocation.dbId == parentId)
+                allocation.category.key == parent.category.key
             }
 
             if !hasInstance {

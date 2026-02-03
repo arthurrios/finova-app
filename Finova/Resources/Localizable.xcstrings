@@ -617,6 +617,40 @@
         }
       }
     },
+    "allocation.already.exists.message" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "An allocation for %@ already exists for this month."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Uma alocação para %@ já existe para este mês."
+          }
+        }
+      }
+    },
+    "allocation.already.exists.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Allocation Already Exists"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Alocação Já Existe"
+          }
+        }
+      }
+    },
     "allocation.delete.message" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -749,6 +783,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Excluir Alocação?"
+          }
+        }
+      }
+    },
+    "allocation.details.action.create" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Create Allocation"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Criar Alocação"
           }
         }
       }
@@ -957,6 +1008,57 @@
         }
       }
     },
+    "allocation.details.unallocated.spent" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Spent"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gasto"
+          }
+        }
+      }
+    },
+    "allocation.details.unallocated.subtitle" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unallocated Spending"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gasto Não Alocado"
+          }
+        }
+      }
+    },
+    "allocation.details.unallocated.warning" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This spending is not tracked against any budget allocation"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Este gasto não está sendo rastreado por nenhuma alocação de orçamento"
+          }
+        }
+      }
+    },
     "allocation.edit.amount.placeholder" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1161,6 +1263,91 @@
         }
       }
     },
+    "allocation.recurring.conflict.keepExisting" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keep Existing, Fill Gaps"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Manter Existentes, Preencher Lacunas"
+          }
+        }
+      }
+    },
+    "allocation.recurring.conflict.message" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A recurring allocation for %@ would conflict with existing allocations in: %@."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Uma alocação recorrente para %@ entraria em conflito com alocações existentes em: %@."
+          }
+        }
+      }
+    },
+    "allocation.recurring.conflict.overwrite" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Overwrite Future Allocations"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sobrescrever Alocações Futuras"
+          }
+        }
+      }
+    },
+    "allocation.recurring.conflict.thisMonthOnly" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Create for This Month Only"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Criar Apenas para Este Mês"
+          }
+        }
+      }
+    },
+    "allocation.recurring.conflict.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Future Allocation Exists"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Alocação Futura Existente"
+          }
+        }
+      }
+    },
     "allocation.status.near" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1208,6 +1395,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Abaixo"
+          }
+        }
+      }
+    },
+    "allocation.unallocated.label" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unallocated"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Não alocado"
           }
         }
       }
@@ -6357,6 +6561,9 @@
     "Unallocated" : {
       "comment" : "Description of a budget allocation category when the allocated amount is zero.",
       "isCommentAutoGenerated" : true
+    },
+    "Unallocated Spending" : {
+
     },
     "updateToast.laterButton" : {
       "extractionState" : "manual",

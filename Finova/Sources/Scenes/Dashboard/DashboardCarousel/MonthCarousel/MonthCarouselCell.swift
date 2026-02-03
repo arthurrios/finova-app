@@ -44,6 +44,7 @@ class MonthCarouselCell: UICollectionViewCell {
     // MARK: - Navigation Closures
 
     var onAllocationTapped: ((BudgetAllocation) -> Void)?
+    var onUnallocatedSpendingTapped: ((UnallocatedCategorySpending) -> Void)?
     var onBudgetsConfigTapped: ((Int) -> Void)?
     var onDefineBudgetTapped: ((Int) -> Void)?
     var onBudgetViewStateChanged: ((Int, Bool) -> Void)?  // (monthAnchor, isShowingBudgetView)
@@ -61,6 +62,7 @@ class MonthCarouselCell: UICollectionViewCell {
     var currentFilters = TransactionFilters()
     private(set) var isShowingBudgetView = false
     private var currentAllocations: [BudgetAllocation] = []
+    private var currentUnallocatedSpending: [UnallocatedCategorySpending] = []
     private(set) var currentMonthAnchor: Int = 0
     private let allocationService = BudgetAllocationService()
 
@@ -376,26 +378,32 @@ class MonthCarouselCell: UICollectionViewCell {
 
         // Fetch fresh data and update the budget card
         let allocations = allocationService.getAllocationsWithUsage(forMonth: currentMonthAnchor)
+        let unallocatedSpending = allocationService.getUnallocatedCategoriesWithSpending(forMonth: currentMonthAnchor)
         let summary = allocationService.getUnallocatedSummary(forMonth: currentMonthAnchor)
 
         // Sort allocations by allocated amount (highest first)
         currentAllocations = allocations.sorted { $0.allocatedAmount > $1.allocatedAmount }
+        currentUnallocatedSpending = unallocatedSpending
         allocationsTableView.reloadData()
-        allocationsNumberLabel.text = "\(allocations.count)"
-        updateAllocationsTableHeight(count: allocations.count)
+
+        // Total count includes both allocated and unallocated with spending
+        let totalCount = allocations.count + unallocatedSpending.count
+        allocationsNumberLabel.text = "\(totalCount)"
+        updateAllocationsTableHeight(count: totalCount)
 
         budgetCard.configure(
             month: monthCard.currentMonth,
             year: monthCard.currentYear,
             allocations: allocations,
             unallocatedSummary: summary,
+            unallocatedSpending: currentUnallocatedSpending,
             monthAnchor: currentMonthAnchor
         )
 
-        // Show/hide empty state
-        let hasAllocations = !allocations.isEmpty
-        allocationsTableView.isHidden = !hasAllocations
-        allocationsEmptyStateView.isHidden = hasAllocations
+        // Show/hide empty state - show table if there are allocations OR unallocated spending
+        let hasContent = !allocations.isEmpty || !unallocatedSpending.isEmpty
+        allocationsTableView.isHidden = !hasContent
+        allocationsEmptyStateView.isHidden = hasContent
     }
 
     private func setupViews() {
@@ -937,19 +945,28 @@ class MonthCarouselCell: UICollectionViewCell {
 
         // Store allocations sorted by allocated amount (highest first)
         currentAllocations = allocations.sorted { $0.allocatedAmount > $1.allocatedAmount }
+
+        // Fetch unallocated categories with spending
+        currentUnallocatedSpending = allocationService.getUnallocatedCategoriesWithSpending(forMonth: currentMonthAnchor)
+
         allocationsTableView.reloadData()
-        allocationsNumberLabel.text = "\(allocations.count)"
-        updateAllocationsTableHeight(count: allocations.count)
+
+        // Total count includes both allocated and unallocated with spending
+        let totalCount = allocations.count + currentUnallocatedSpending.count
+        allocationsNumberLabel.text = "\(totalCount)"
+        updateAllocationsTableHeight(count: totalCount)
 
         budgetCard.configure(
             month: monthCard.currentMonth,
             year: monthCard.currentYear,
             allocations: allocations,
             unallocatedSummary: summary,
+            unallocatedSpending: currentUnallocatedSpending,
             monthAnchor: currentMonthAnchor
         )
 
-        let hasAllocations = !allocations.isEmpty
+        // Show table if there are allocations OR unallocated spending
+        let hasContent = !allocations.isEmpty || !currentUnallocatedSpending.isEmpty
 
         // Disable transaction table interaction BEFORE animation to prevent stale taps
         transactionTableView.isUserInteractionEnabled = false
@@ -969,8 +986,8 @@ class MonthCarouselCell: UICollectionViewCell {
             self.emptyStateView.isHidden = true
             // Show allocations table components
             self.allocationsTableHeaderView.isHidden = false
-            self.allocationsTableView.isHidden = !hasAllocations
-            self.allocationsEmptyStateView.isHidden = hasAllocations
+            self.allocationsTableView.isHidden = !hasContent
+            self.allocationsEmptyStateView.isHidden = hasContent
         } completion: { _ in
             // Enable allocation table interaction after animation completes
             self.allocationsTableView.isUserInteractionEnabled = true
@@ -1019,21 +1036,35 @@ class MonthCarouselCell: UICollectionViewCell {
         isShowingBudgetView = true
         monthCard.setShowingBudgetView(true)
 
-        // Sort allocations sorted by allocated amount (highest first)
+        // Sort allocations by allocated amount (highest first)
         currentAllocations = allocations.sorted { $0.allocatedAmount > $1.allocatedAmount }
+
+        // Fetch unallocated categories with spending
+        currentUnallocatedSpending = allocationService.getUnallocatedCategoriesWithSpending(forMonth: currentMonthAnchor)
+
+        // Reset scroll position and state before reloading
+        allocationsTableView.setContentOffset(.zero, animated: false)
+        allocationsTableView.contentInset = .zero
+        allocationsTableView.scrollIndicatorInsets = .zero
+
         allocationsTableView.reloadData()
-        allocationsNumberLabel.text = "\(allocations.count)"
-        updateAllocationsTableHeight(count: allocations.count)
+
+        // Total count includes both allocated and unallocated with spending
+        let totalCount = allocations.count + currentUnallocatedSpending.count
+        allocationsNumberLabel.text = "\(totalCount)"
+        updateAllocationsTableHeight(count: totalCount)
 
         budgetCard.configure(
             month: monthCard.currentMonth,
             year: monthCard.currentYear,
             allocations: allocations,
             unallocatedSummary: summary,
+            unallocatedSpending: currentUnallocatedSpending,
             monthAnchor: currentMonthAnchor
         )
 
-        let hasAllocations = !allocations.isEmpty
+        // Show table if there are allocations OR unallocated spending
+        let hasContent = !allocations.isEmpty || !currentUnallocatedSpending.isEmpty
 
         // Set state directly without animation
         monthCard.isHidden = true
@@ -1043,8 +1074,8 @@ class MonthCarouselCell: UICollectionViewCell {
         transactionTableView.isHidden = true
         emptyStateView.isHidden = true
         allocationsTableHeaderView.isHidden = false
-        allocationsTableView.isHidden = !hasAllocations
-        allocationsEmptyStateView.isHidden = hasAllocations
+        allocationsTableView.isHidden = !hasContent
+        allocationsEmptyStateView.isHidden = hasContent
 
         // Ensure correct user interaction state for budget view
         transactionTableView.isUserInteractionEnabled = false
@@ -1057,22 +1088,39 @@ class MonthCarouselCell: UICollectionViewCell {
 
         // Sort allocations by allocated amount (highest first)
         currentAllocations = allocations.sorted { $0.allocatedAmount > $1.allocatedAmount }
+
+        // Fetch unallocated categories with spending
+        currentUnallocatedSpending = allocationService.getUnallocatedCategoriesWithSpending(forMonth: currentMonthAnchor)
+
+        // Reset scroll position and state before reloading
+        allocationsTableView.setContentOffset(.zero, animated: false)
+        allocationsTableView.contentInset = .zero
+        allocationsTableView.scrollIndicatorInsets = .zero
+
         allocationsTableView.reloadData()
-        allocationsNumberLabel.text = "\(allocations.count)"
-        updateAllocationsTableHeight(count: allocations.count)
+
+        // Total count includes both allocated and unallocated with spending
+        let totalCount = allocations.count + currentUnallocatedSpending.count
+        allocationsNumberLabel.text = "\(totalCount)"
+        updateAllocationsTableHeight(count: totalCount)
 
         budgetCard.configure(
             month: monthCard.currentMonth,
             year: monthCard.currentYear,
             allocations: allocations,
             unallocatedSummary: summary,
+            unallocatedSpending: currentUnallocatedSpending,
             monthAnchor: currentMonthAnchor
         )
 
-        // Update visibility based on allocations
-        let hasAllocations = !allocations.isEmpty
-        allocationsTableView.isHidden = !hasAllocations
-        allocationsEmptyStateView.isHidden = hasAllocations
+        // Update visibility based on content
+        let hasContent = !allocations.isEmpty || !currentUnallocatedSpending.isEmpty
+        allocationsTableView.isHidden = !hasContent
+        allocationsEmptyStateView.isHidden = hasContent
+
+        // Ensure correct user interaction state
+        transactionTableView.isUserInteractionEnabled = false
+        allocationsTableView.isUserInteractionEnabled = true
     }
 
     private func updateAllocationsTableHeight(count: Int) {
@@ -1197,6 +1245,7 @@ class MonthCarouselCell: UICollectionViewCell {
         allocationsTableHeightConstraint?.isActive = false
         allocationsTableHeightConstraint = nil
         currentAllocations = []
+        currentUnallocatedSpending = []
 
         // Reset scroll state to default
         transactionTableView.isScrollEnabled = false
@@ -1291,6 +1340,10 @@ extension MonthCarouselCell: MonthCardFlipDelegate {
         onAllocationTapped?(allocation)
     }
 
+    func didTapUnallocatedSpending(_ spending: UnallocatedCategorySpending) {
+        onUnallocatedSpendingTapped?(spending)
+    }
+
     func didTapBudgetsConfig(forMonth monthAnchor: Int) {
         onBudgetsConfigTapped?(monthAnchor)
     }
@@ -1306,7 +1359,8 @@ extension MonthCarouselCell: UITableViewDataSource, UITableViewDelegate {
 
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
         if tableView === allocationsTableView {
-            return currentAllocations.count
+            // Total count: allocated items first, then unallocated items
+            return currentAllocations.count + currentUnallocatedSpending.count
         }
         return 0
     }
@@ -1320,10 +1374,24 @@ extension MonthCarouselCell: UITableViewDataSource, UITableViewDelegate {
                 return UITableViewCell()
             }
 
-            let allocation = currentAllocations[indexPath.row]
-            cell.configure(with: allocation)
-            cell.setTapAction { [weak self] in
-                self?.didTapAllocation(allocation)
+            // Check if this is an allocated or unallocated row
+            if indexPath.row < currentAllocations.count {
+                // Allocated category
+                let allocation = currentAllocations[indexPath.row]
+                cell.configure(with: allocation)
+                cell.setTapAction { [weak self] in
+                    self?.didTapAllocation(allocation)
+                }
+            } else {
+                // Unallocated category with spending
+                let unallocatedIndex = indexPath.row - currentAllocations.count
+                let unallocatedSpending = currentUnallocatedSpending[unallocatedIndex]
+                cell.configure(with: unallocatedSpending)
+                cell.setTapAction { [weak self] in
+                    guard let self = self else { return }
+                    // Navigate to unallocated details screen
+                    self.onUnallocatedSpendingTapped?(unallocatedSpending)
+                }
             }
 
             return cell

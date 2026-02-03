@@ -241,10 +241,16 @@ final class AddAllocationModalView: UIView {
 
     // MARK: - Configuration
 
-    func configure(availableCategories: [TransactionCategory]) {
+    func configure(availableCategories: [TransactionCategory], preselectedCategory: TransactionCategory? = nil) {
         self.availableCategories = availableCategories
         let categoryKeys = availableCategories.map { $0.key }
         categoryPickerView.updatePickerValues(categoryKeys)
+
+        // If a preselected category is provided, select it in the picker
+        if let preselected = preselectedCategory,
+           let index = availableCategories.firstIndex(where: { $0.key == preselected.key }) {
+            categoryPickerView.selectPickerValue(at: index)
+        }
     }
 
     func configureForEdit(allocation: BudgetAllocation) {

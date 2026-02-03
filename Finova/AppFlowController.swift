@@ -177,6 +177,14 @@ extension AppFlowController: DashboardFlowDelegate, SettingsFlowDelegate, Notifi
         viewController.flowDelegate = self
         navigationController?.pushViewController(viewController, animated: true)
     }
+
+    func navigateToUnallocatedDetails(unallocatedSpending: UnallocatedCategorySpending) {
+        let viewController = ViewControllersFactory.makeBudgetAllocationDetailsViewController(
+            unallocatedSpending: unallocatedSpending
+        )
+        viewController.flowDelegate = self
+        navigationController?.pushViewController(viewController, animated: true)
+    }
     
     
     func navigateToSettings() {
@@ -239,8 +247,11 @@ extension AppFlowController: DashboardFlowDelegate, SettingsFlowDelegate, Notifi
         }
     }
 
-    func openAddAllocationModal(forMonth monthAnchor: Int) {
-        let viewController = AddAllocationModalViewController(monthAnchor: monthAnchor)
+    func openAddAllocationModal(forMonth monthAnchor: Int, preselectedCategory: TransactionCategory?) {
+        let viewController = AddAllocationModalViewController(
+            monthAnchor: monthAnchor,
+            preselectedCategory: preselectedCategory
+        )
         viewController.flowDelegate = self
         viewController.modalPresentationStyle = .overCurrentContext
         viewController.modalTransitionStyle = .crossDissolve
@@ -416,6 +427,50 @@ extension AppFlowController: BudgetAllocationDetailsFlowDelegate {
             }
         }
     }
+
+    func createAllocation(forCategory category: TransactionCategory, monthAnchor: Int) {
+        // Verify the category is still available for allocation in this month
+        // (handles race conditions or if a recurring allocation now covers this month)
+        let allocationService = BudgetAllocationService()
+        let availableCategories = allocationService.getAvailableCategoriesForAllocation(monthAnchor: monthAnchor)
+
+        guard availableCategories.contains(where: { $0.key == category.key }) else {
+            // Category already has an allocation - show alert and go back to dashboard
+            let alert = UIAlertController(
+                title: "allocation.already.exists.title".localized,
+                message: String(
+                    format: "allocation.already.exists.message".localized,
+                    category.displayName
+                ),
+                preferredStyle: .alert
+            )
+            alert.addAction(UIAlertAction(title: "OK", style: .default) { [weak self] _ in
+                // Pop back to dashboard and refresh
+                self?.navigationController?.popViewController(animated: true)
+                DispatchQueue.main.async {
+                    if let dashboardViewController = self?.navigationController?
+                        .viewControllers
+                        .compactMap({ $0 as? DashboardViewController })
+                        .last
+                    {
+                        dashboardViewController.refreshAfterAllocationChange()
+                    }
+                }
+            })
+            navigationController?.topViewController?.present(alert, animated: true)
+            return
+        }
+
+        // Open the add allocation modal with the category pre-selected
+        let viewController = AddAllocationModalViewController(
+            monthAnchor: monthAnchor,
+            preselectedCategory: category
+        )
+        viewController.flowDelegate = self
+        viewController.modalPresentationStyle = .overCurrentContext
+        viewController.modalTransitionStyle = .crossDissolve
+        navigationController?.present(viewController, animated: true)
+    }
 }
 
 // MARK: - AddAllocationModalFlowDelegate
@@ -427,20 +482,47 @@ extension AppFlowController: AddAllocationModalFlowDelegate {
 
     func didSaveAllocation() {
         navigationController?.dismiss(animated: true) { [weak self] in
-            DispatchQueue.main.async {
-                // Refresh allocation details if it's visible (for edit case)
-                if let allocationDetailsVC = self?.navigationController?.topViewController
-                    as? BudgetAllocationDetailsViewController {
-                    allocationDetailsVC.refreshAfterEdit()
-                }
+            guard let self = self else { return }
 
-                // Also refresh the dashboard
-                if let dashboardViewController = self?.navigationController?
-                    .viewControllers
-                    .compactMap({ $0 as? DashboardViewController })
-                    .last
-                {
-                    dashboardViewController.refreshAfterAllocationChange()
+            // Check if we're on the unallocated details screen (creating new allocation)
+            // In that case, pop back to dashboard since the unallocated category is now allocated
+            if let allocationDetailsVC = self.navigationController?.topViewController
+                as? BudgetAllocationDetailsViewController,
+               allocationDetailsVC.isUnallocatedMode {
+                // Pop back to dashboard after creating allocation
+                // Use CATransaction to properly sequence the refresh after pop completes
+                CATransaction.begin()
+                CATransaction.setCompletionBlock { [weak self] in
+                    // Refresh dashboard after pop animation completes
+                    DispatchQueue.main.async {
+                        if let dashboardViewController = self?.navigationController?
+                            .viewControllers
+                            .compactMap({ $0 as? DashboardViewController })
+                            .last
+                        {
+                            dashboardViewController.refreshAfterAllocationChange()
+                        }
+                    }
+                }
+                self.navigationController?.popViewController(animated: true)
+                CATransaction.commit()
+            } else {
+                // Editing existing allocation or regular add from dashboard
+                DispatchQueue.main.async {
+                    // Refresh allocation details if it's visible (for edit case)
+                    if let allocationDetailsVC = self.navigationController?.topViewController
+                        as? BudgetAllocationDetailsViewController {
+                        allocationDetailsVC.refreshAfterEdit()
+                    }
+
+                    // Also refresh the dashboard
+                    if let dashboardViewController = self.navigationController?
+                        .viewControllers
+                        .compactMap({ $0 as? DashboardViewController })
+                        .last
+                    {
+                        dashboardViewController.refreshAfterAllocationChange()
+                    }
                 }
             }
         }

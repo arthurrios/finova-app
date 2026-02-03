@@ -20,6 +20,7 @@ final class AddAllocationModalViewController: UIViewController {
     private let allocationService: BudgetAllocationService
     private let monthAnchor: Int
     private let allocationToEdit: BudgetAllocation?
+    private let preselectedCategory: TransactionCategory?
     weak var flowDelegate: AddAllocationModalFlowDelegate?
 
     private var isEditMode: Bool {
@@ -31,10 +32,12 @@ final class AddAllocationModalViewController: UIViewController {
     init(
         monthAnchor: Int,
         allocationToEdit: BudgetAllocation? = nil,
+        preselectedCategory: TransactionCategory? = nil,
         allocationService: BudgetAllocationService = BudgetAllocationService()
     ) {
         self.monthAnchor = monthAnchor
         self.allocationToEdit = allocationToEdit
+        self.preselectedCategory = preselectedCategory
         self.allocationService = allocationService
         super.init(nibName: nil, bundle: nil)
     }
@@ -108,7 +111,7 @@ final class AddAllocationModalViewController: UIViewController {
 
     private func configureAvailableCategories() {
         let availableCategories = allocationService.getAvailableCategoriesForAllocation(monthAnchor: monthAnchor)
-        contentView.configure(availableCategories: availableCategories)
+        contentView.configure(availableCategories: availableCategories, preselectedCategory: preselectedCategory)
     }
 
     @objc private func backgroundTapped() {
@@ -136,7 +139,21 @@ extension AddAllocationModalViewController: AddAllocationModalViewDelegate {
                 performUpdate(allocationId: allocationId, newAmount: amount, option: .currentOnly)
             }
         } else {
-            // Create mode - create new allocation
+            // Create mode - check for conflicts if recurring
+            if isRecurring {
+                let conflicts = checkForFutureAllocationConflicts(category: category)
+                if !conflicts.months.isEmpty {
+                    showRecurringConflictAlert(
+                        category: category,
+                        amount: amount,
+                        conflictingMonths: conflicts.months,
+                        conflictingAllocationIds: conflicts.allocationIds
+                    )
+                    return
+                }
+            }
+
+            // Create new allocation
             do {
                 try allocationService.createAllocation(
                     category: category,
@@ -152,6 +169,137 @@ extension AddAllocationModalViewController: AddAllocationModalViewDelegate {
                 )
             }
         }
+    }
+
+    /// Checks if creating a recurring allocation would conflict with existing allocations in future months
+    /// Returns tuple with month names for display and allocation IDs for deletion
+    private func checkForFutureAllocationConflicts(category: TransactionCategory) -> (months: [String], allocationIds: [Int]) {
+        let allAllocations = BudgetAllocationRepository().fetchAllAllocations()
+
+        // Find allocations for the same category in months AFTER the current month
+        let futureConflicts = allAllocations.filter { allocation in
+            allocation.category.key == category.key && allocation.monthDate > monthAnchor
+        }
+
+        // Collect allocation IDs for deletion
+        let allocationIds = futureConflicts.compactMap { $0.dbId }
+
+        // Convert to month names for display
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "MMMM yyyy"
+
+        let conflictingMonths = futureConflicts.map { allocation -> String in
+            let date = Date(timeIntervalSince1970: TimeInterval(allocation.monthDate))
+            return dateFormatter.string(from: date)
+        }.sorted()
+
+        // Remove duplicates and return unique months
+        return (Array(Set(conflictingMonths)).sorted(), allocationIds)
+    }
+
+    /// Shows alert when recurring allocation would conflict with existing future allocations
+    private func showRecurringConflictAlert(
+        category: TransactionCategory,
+        amount: Int,
+        conflictingMonths: [String],
+        conflictingAllocationIds: [Int]
+    ) {
+        let monthsList = conflictingMonths.prefix(3).joined(separator: ", ")
+        let additionalCount = conflictingMonths.count > 3 ? " (+\(conflictingMonths.count - 3))" : ""
+
+        let message = String(
+            format: "allocation.recurring.conflict.message".localized,
+            category.displayName,
+            monthsList + additionalCount
+        )
+
+        let alert = UIAlertController(
+            title: "allocation.recurring.conflict.title".localized,
+            message: message,
+            preferredStyle: .alert
+        )
+
+        // Option 1: Overwrite future allocations
+        alert.addAction(UIAlertAction(
+            title: "allocation.recurring.conflict.overwrite".localized,
+            style: .destructive
+        ) { [weak self] _ in
+            guard let self = self else { return }
+            do {
+                // Delete all conflicting future allocations
+                let repository = BudgetAllocationRepository()
+                for allocationId in conflictingAllocationIds {
+                    try repository.deleteAllocation(id: allocationId)
+                }
+
+                // Now create the recurring allocation
+                try self.allocationService.createAllocation(
+                    category: category,
+                    amount: amount,
+                    monthAnchor: self.monthAnchor,
+                    isRecurring: true
+                )
+                self.flowDelegate?.didSaveAllocation()
+            } catch {
+                self.handleError(
+                    title: "allocation.add.error.save.title".localized,
+                    message: error.localizedDescription
+                )
+            }
+        })
+
+        // Option 2: Keep existing and create recurring (ignore conflicts)
+        alert.addAction(UIAlertAction(
+            title: "allocation.recurring.conflict.keepExisting".localized,
+            style: .default
+        ) { [weak self] _ in
+            guard let self = self else { return }
+            do {
+                // Create recurring allocation - lazy generation will skip months with existing allocations
+                try self.allocationService.createAllocation(
+                    category: category,
+                    amount: amount,
+                    monthAnchor: self.monthAnchor,
+                    isRecurring: true
+                )
+                self.flowDelegate?.didSaveAllocation()
+            } catch {
+                self.handleError(
+                    title: "allocation.add.error.save.title".localized,
+                    message: error.localizedDescription
+                )
+            }
+        })
+
+        // Option 3: Create as non-recurring (this month only)
+        alert.addAction(UIAlertAction(
+            title: "allocation.recurring.conflict.thisMonthOnly".localized,
+            style: .default
+        ) { [weak self] _ in
+            guard let self = self else { return }
+            do {
+                try self.allocationService.createAllocation(
+                    category: category,
+                    amount: amount,
+                    monthAnchor: self.monthAnchor,
+                    isRecurring: false  // Create as non-recurring
+                )
+                self.flowDelegate?.didSaveAllocation()
+            } catch {
+                self.handleError(
+                    title: "allocation.add.error.save.title".localized,
+                    message: error.localizedDescription
+                )
+            }
+        })
+
+        // Option 4: Cancel
+        alert.addAction(UIAlertAction(
+            title: "alert.cancel".localized,
+            style: .cancel
+        ))
+
+        present(alert, animated: true)
     }
 
     private func showRecurringEditOptions(allocationId: Int, newAmount: Int) {

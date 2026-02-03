@@ -16,6 +16,13 @@ enum AllocationDeleteOption {
     case all           // Delete all occurrences (past, present, future)
 }
 
+// MARK: - Details Mode
+
+enum AllocationDetailsMode {
+    case allocated(BudgetAllocation)
+    case unallocated(UnallocatedCategorySpending)
+}
+
 final class BudgetAllocationDetailsViewModel {
 
     // MARK: - Properties
@@ -23,17 +30,43 @@ final class BudgetAllocationDetailsViewModel {
     private let transactionRepository: TransactionRepositoryProtocol
     private let allocationRepository: BudgetAllocationRepositoryProtocol
     private let allocationService: BudgetAllocationService
-    private(set) var allocation: BudgetAllocation
+    private(set) var allocation: BudgetAllocation?
+    private(set) var unallocatedSpending: UnallocatedCategorySpending?
+    let mode: AllocationDetailsMode
+
+    /// Returns true if this is an unallocated category (no allocation set yet)
+    var isUnallocatedMode: Bool {
+        if case .unallocated = mode { return true }
+        return false
+    }
 
     // MARK: - Initialization
 
+    /// Initializer for allocated mode (existing allocation)
     init(
         allocation: BudgetAllocation,
         transactionRepository: TransactionRepositoryProtocol = TransactionRepository(),
         allocationRepository: BudgetAllocationRepositoryProtocol = BudgetAllocationRepository(),
         allocationService: BudgetAllocationService = BudgetAllocationService()
     ) {
+        self.mode = .allocated(allocation)
         self.allocation = allocation
+        self.unallocatedSpending = nil
+        self.transactionRepository = transactionRepository
+        self.allocationRepository = allocationRepository
+        self.allocationService = allocationService
+    }
+
+    /// Initializer for unallocated mode (category with spending but no allocation)
+    init(
+        unallocatedSpending: UnallocatedCategorySpending,
+        transactionRepository: TransactionRepositoryProtocol = TransactionRepository(),
+        allocationRepository: BudgetAllocationRepositoryProtocol = BudgetAllocationRepository(),
+        allocationService: BudgetAllocationService = BudgetAllocationService()
+    ) {
+        self.mode = .unallocated(unallocatedSpending)
+        self.allocation = nil
+        self.unallocatedSpending = unallocatedSpending
         self.transactionRepository = transactionRepository
         self.allocationRepository = allocationRepository
         self.allocationService = allocationService
@@ -41,23 +74,73 @@ final class BudgetAllocationDetailsViewModel {
 
     // MARK: - Computed Properties
 
-    var category: TransactionCategory { allocation.category }
-    var allocatedAmount: Int { allocation.allocatedAmount }
-    var usedAmount: Int { allocation.usedAmount }
-    var remainingAmount: Int { allocation.remainingAmount }
-    var usagePercentage: Int { Int(allocation.usagePercentage) }
-    var status: AllocationStatus { allocation.status }
+    var category: TransactionCategory {
+        switch mode {
+        case .allocated(let allocation): return allocation.category
+        case .unallocated(let spending): return spending.category
+        }
+    }
+
+    var monthDate: Int {
+        switch mode {
+        case .allocated(let allocation): return allocation.monthDate
+        case .unallocated(let spending): return spending.monthDate
+        }
+    }
+
+    var allocatedAmount: Int {
+        switch mode {
+        case .allocated(let allocation): return allocation.allocatedAmount
+        case .unallocated: return 0  // No allocation set
+        }
+    }
+
+    var usedAmount: Int {
+        switch mode {
+        case .allocated(let allocation): return allocation.usedAmount
+        case .unallocated(let spending): return spending.spentAmount
+        }
+    }
+
+    var remainingAmount: Int {
+        switch mode {
+        case .allocated(let allocation): return allocation.remainingAmount
+        case .unallocated(let spending): return -spending.spentAmount  // All spending is "over" since no budget
+        }
+    }
+
+    var usagePercentage: Int {
+        switch mode {
+        case .allocated(let allocation): return Int(allocation.usagePercentage)
+        case .unallocated: return 100  // 100% over budget (or show as full)
+        }
+    }
+
+    var status: AllocationStatus {
+        switch mode {
+        case .allocated(let allocation): return allocation.status
+        case .unallocated: return .overBudget  // Always over since no budget set
+        }
+    }
 
     /// Returns true if this allocation is part of a recurring series.
     /// This includes both parent allocations (isRecurring=true) and child allocations (parentAllocationId != nil)
     var isRecurring: Bool {
-        allocation.isRecurring || allocation.parentAllocationId != nil
+        switch mode {
+        case .allocated(let allocation):
+            return allocation.isRecurring || allocation.parentAllocationId != nil
+        case .unallocated:
+            return false
+        }
     }
 
     // MARK: - Formatted Strings
 
     var formattedAllocated: String {
-        allocatedAmount.currencyString
+        if isUnallocatedMode {
+            return "allocation.unallocated.label".localized
+        }
+        return allocatedAmount.currencyString
     }
 
     var formattedUsed: String {
@@ -77,13 +160,17 @@ final class BudgetAllocationDetailsViewModel {
     }
 
     var monthYearString: String {
-        let date = Date(timeIntervalSince1970: TimeInterval(allocation.monthDate))
+        let date = Date(timeIntervalSince1970: TimeInterval(monthDate))
         let formatter = DateFormatter()
         formatter.dateFormat = "MMMM yyyy"
         return formatter.string(from: date)
     }
 
     var overBudgetWarningMessage: String? {
+        // For unallocated mode, show a different message
+        if isUnallocatedMode {
+            return "allocation.details.unallocated.warning".localized
+        }
         guard status == .overBudget else { return nil }
         let overAmount = abs(remainingAmount)
         return String(
@@ -98,13 +185,13 @@ final class BudgetAllocationDetailsViewModel {
         let allTransactions = transactionRepository.fetchAllTransactions()
 
         // Filter transactions by:
-        // 1. Category matches allocation category
-        // 2. budgetMonthDate matches allocation month (same as how usage is calculated)
+        // 1. Category matches allocation/spending category
+        // 2. budgetMonthDate matches the month (same as how usage is calculated)
         // 3. Type is expense (allocations track expenses)
         return allTransactions.filter { transaction in
-            transaction.category == allocation.category &&
+            transaction.category == category &&
             transaction.type == .expense &&
-            transaction.budgetMonthDate == allocation.monthDate
+            transaction.budgetMonthDate == monthDate
         }.sorted { $0.date > $1.date } // Most recent first
     }
 
@@ -200,7 +287,7 @@ final class BudgetAllocationDetailsViewModel {
     // MARK: - Allocation Actions
 
     func deleteAllocation() -> Result<Void, Error> {
-        guard let dbId = allocation.dbId else {
+        guard let allocation = allocation, let dbId = allocation.dbId else {
             return .failure(BudgetAllocationError.allocationNotFound)
         }
 
@@ -213,8 +300,8 @@ final class BudgetAllocationDetailsViewModel {
     }
 
     func deleteRecurringAllocation(option: AllocationDeleteOption) -> Result<Void, Error> {
-        guard let dbId = allocation.dbId else {
-            logError("BudgetAllocationDetailsVM: Cannot delete - allocation dbId is nil")
+        guard let allocation = allocation, let dbId = allocation.dbId else {
+            logError("BudgetAllocationDetailsVM: Cannot delete - allocation is nil or dbId is nil")
             return .failure(BudgetAllocationError.allocationNotFound)
         }
 
@@ -244,8 +331,18 @@ final class BudgetAllocationDetailsViewModel {
     }
 
     func refreshAllocation() {
+        // For unallocated mode, recalculate the spent amount
+        if case .unallocated(var spending) = mode {
+            // Recalculate spent amount from transactions
+            let transactions = getFilteredTransactions()
+            let newSpentAmount = transactions.reduce(0) { $0 + $1.amount }
+            // Note: We can't mutate the mode directly, but the transactions will be refetched
+            // The spending amount is derived from transactions anyway
+            return
+        }
+
         // Reload allocation data from service (which calculates usage amounts)
-        guard let dbId = allocation.dbId else { return }
+        guard let allocation = allocation, let dbId = allocation.dbId else { return }
 
         // Use the service to get allocations with usage calculated
         let allocations = allocationService.getAllocationsWithUsage(

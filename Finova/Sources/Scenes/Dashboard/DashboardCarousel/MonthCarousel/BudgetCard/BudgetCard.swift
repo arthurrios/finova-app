@@ -14,6 +14,7 @@ final class BudgetCard: UIView {
 
     private var allocations: [BudgetAllocation] = []
     private var unallocatedSummary: UnallocatedBudgetSummary?
+    private var unallocatedSpending: [UnallocatedCategorySpending] = []
     weak var delegate: MonthCardFlipDelegate?
     private let gradientLayer = Colors.gradientBlack
     private var chartHostingController: UIViewController?
@@ -317,10 +318,12 @@ final class BudgetCard: UIView {
         year: String,
         allocations: [BudgetAllocation],
         unallocatedSummary: UnallocatedBudgetSummary,
+        unallocatedSpending: [UnallocatedCategorySpending],
         monthAnchor: Int
     ) {
         self.allocations = allocations
         self.unallocatedSummary = unallocatedSummary
+        self.unallocatedSpending = unallocatedSpending
         self.currentMonthAnchor = monthAnchor
 
         // Header - matching MonthBudgetCard format with "/ " prefix on year
@@ -352,9 +355,11 @@ final class BudgetCard: UIView {
         // Footer values - left side shows total allocated
         allocatedValueLabel.text = unallocatedSummary.totalAllocated.currencyString
 
-        // Calculate net remaining across all allocations
+        // Calculate net remaining across all allocations AND unallocated spending
         // Positive = under budget (money left), Negative = over budget (overspent)
-        let netRemaining = allocations.reduce(0) { $0 + $1.remainingAmount }
+        let allocatedRemaining = allocations.reduce(0) { $0 + $1.remainingAmount }
+        // Subtract unallocated spending (spending in categories without allocations)
+        let netRemaining = allocatedRemaining - unallocatedSummary.totalUsedInUnallocatedCategories
 
         // Format and color the remaining value
         if netRemaining >= 0 {
@@ -400,8 +405,12 @@ final class BudgetCard: UIView {
         let chartView = BudgetDonutChartView(
             allocations: allocations,
             unallocatedAmount: unallocatedSummary?.unallocatedAmount ?? 0,
+            unallocatedSpending: unallocatedSpending,
             onSegmentTapped: { [weak self] category in
                 self?.delegate?.didSelectAllocationCategory(category)
+            },
+            onUnallocatedSpendingTapped: { [weak self] spending in
+                self?.delegate?.didTapUnallocatedSpending(spending)
             }
         )
 

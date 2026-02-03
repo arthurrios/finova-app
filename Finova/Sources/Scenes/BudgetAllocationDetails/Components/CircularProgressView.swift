@@ -152,4 +152,20 @@ final class CircularProgressView: UIView {
         let progressValue = CGFloat(percentage) / 100.0
         setProgress(progressValue)
     }
+
+    /// Configure for unallocated mode - shows spent amount instead of percentage
+    func configureForUnallocated(spentAmount: Int) {
+        // Show spent amount in compact format
+        percentageLabel.text = spentAmount.currencyString
+        percentageLabel.fontStyle = Fonts.titleSM  // Slightly smaller to fit currency
+        percentageLabel.applyStyle()
+        statusLabel.text = "allocation.details.unallocated.spent".localized
+        statusLabel.textColor = Colors.gray500
+
+        // Use gray color for unallocated state
+        progressColor = Colors.gray400
+
+        // Show full ring to indicate "all spending is untracked"
+        setProgress(1.0)
+    }
 }

@@ -153,20 +153,20 @@ struct BudgetAllocation: Identifiable {
 // MARK: - Unallocated Summary
 
 struct UnallocatedBudgetSummary {
-    
+
     let monthDate: Int
     let totalBudget: Int
     let totalAllocated: Int
     let totalUsedInUnallocatedCategories: Int
-    
+
     var unallocatedAmount: Int { totalBudget - totalAllocated }
-    
+
     var unallocatedRemaining: Int { unallocatedAmount - totalUsedInUnallocatedCategories }
-    
+
     var isOverspent: Bool {
         unallocatedRemaining < 0
     }
-    
+
     static func mock() -> UnallocatedBudgetSummary {
         UnallocatedBudgetSummary(
             monthDate: Int(Date().timeIntervalSince1970),
@@ -175,6 +175,18 @@ struct UnallocatedBudgetSummary {
             totalUsedInUnallocatedCategories: 25000
         )
     }
+}
+
+// MARK: - Unallocated Category Spending
+
+/// Represents spending in a category that has no budget allocation set
+struct UnallocatedCategorySpending {
+    let category: TransactionCategory
+    let spentAmount: Int
+    let monthDate: Int
+
+    /// For display in the allocation table - shows as a "deficit" since no budget is set
+    var displayAmount: Int { spentAmount }
 }
 
 

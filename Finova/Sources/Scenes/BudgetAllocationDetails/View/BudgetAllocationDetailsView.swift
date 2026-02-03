@@ -10,6 +10,7 @@ import UIKit
 protocol BudgetAllocationDetailsViewDelegate: AnyObject {
     func didTapEdit()
     func didTapDelete()
+    func didTapCreateAllocation()
     func didTapBack()
     func didTapTransaction(_ transaction: Transaction)
     func didRequestDeleteTransaction(_ transaction: Transaction, completion: @escaping (Bool) -> Void)
@@ -327,6 +328,11 @@ final class BudgetAllocationDetailsView: UIView {
         label: "allocation.details.action.delete".localized
     )
 
+    private lazy var createAllocationButton = Button(
+        variant: .base,
+        label: "allocation.details.action.create".localized
+    )
+
     // MARK: - Initialization
 
     override init(frame: CGRect) {
@@ -377,6 +383,7 @@ final class BudgetAllocationDetailsView: UIView {
         backButton.addTarget(self, action: #selector(didTapBack), for: .touchUpInside)
         editButton.addTarget(self, action: #selector(didTapEdit), for: .touchUpInside)
         deleteButton.addTarget(self, action: #selector(didTapDelete), for: .touchUpInside)
+        createAllocationButton.addTarget(self, action: #selector(didTapCreateAllocation), for: .touchUpInside)
 
         setupConstraints()
     }
@@ -632,19 +639,31 @@ final class BudgetAllocationDetailsView: UIView {
     // MARK: - Configuration
 
     func configure(with viewModel: BudgetAllocationDetailsViewModel) {
-        // Header
-        headerTitleLabel.text = String(
-            format: "allocation.details.title.format".localized,
-            viewModel.category.displayName
-        )
+        // Header - different title format for unallocated
+        if viewModel.isUnallocatedMode {
+            headerTitleLabel.text = viewModel.category.displayName
+            headerSubtitleLabel.text = "allocation.details.unallocated.subtitle".localized
+        } else {
+            headerTitleLabel.text = String(
+                format: "allocation.details.title.format".localized,
+                viewModel.category.displayName
+            )
+            headerSubtitleLabel.text = viewModel.monthYearString
+        }
         headerTitleLabel.applyStyle()
-        headerSubtitleLabel.text = viewModel.monthYearString
 
-        // Circular progress
-        circularProgressView.configure(
-            percentage: viewModel.usagePercentage,
-            status: viewModel.status
-        )
+        // Configure buttons based on mode
+        configureButtons(isUnallocatedMode: viewModel.isUnallocatedMode)
+
+        // Circular progress - for unallocated, show spent amount instead of percentage
+        if viewModel.isUnallocatedMode {
+            circularProgressView.configureForUnallocated(spentAmount: viewModel.usedAmount)
+        } else {
+            circularProgressView.configure(
+                percentage: viewModel.usagePercentage,
+                status: viewModel.status
+            )
+        }
 
         // Summary values
         allocatedValueLabel.text = viewModel.formattedAllocated
@@ -658,13 +677,23 @@ final class BudgetAllocationDetailsView: UIView {
             remainingValueLabel.textColor = Colors.gray700
         }
 
-        // Recurring badge
-        recurringBadge.isHidden = !viewModel.isRecurring
+        // Recurring badge - always hidden in unallocated mode
+        recurringBadge.isHidden = viewModel.isUnallocatedMode || !viewModel.isRecurring
 
         // Warning banner
         if let warningMessage = viewModel.overBudgetWarningMessage {
             warningLabel.text = warningMessage
             warningBanner.isHidden = false
+            // Use amber for unallocated (informational), red for over budget
+            if viewModel.isUnallocatedMode {
+                warningBanner.backgroundColor = Colors.lowAmber
+                warningIcon.tintColor = Colors.warningAmber
+                warningLabel.textColor = Colors.warningAmber
+            } else {
+                warningBanner.backgroundColor = Colors.lowAmber
+                warningIcon.tintColor = Colors.warningAmber
+                warningLabel.textColor = Colors.warningAmber
+            }
         } else {
             warningBanner.isHidden = true
         }
@@ -698,6 +727,25 @@ final class BudgetAllocationDetailsView: UIView {
             transactionsTableView.isScrollEnabled = contentHeight > maxTransactionsTableHeight
 
             transactionsTableView.reloadData()
+        }
+    }
+
+    private func configureButtons(isUnallocatedMode: Bool) {
+        if isUnallocatedMode {
+            // Show create allocation button, hide edit/delete
+            editButton.isHidden = true
+            deleteButton.isHidden = true
+
+            // Add create button if not already in stack
+            if !actionButtonsStackView.arrangedSubviews.contains(createAllocationButton) {
+                actionButtonsStackView.addArrangedSubview(createAllocationButton)
+            }
+            createAllocationButton.isHidden = false
+        } else {
+            // Show edit/delete buttons, hide create
+            editButton.isHidden = false
+            deleteButton.isHidden = false
+            createAllocationButton.isHidden = true
         }
     }
 
@@ -784,6 +832,10 @@ final class BudgetAllocationDetailsView: UIView {
 
     @objc private func didTapDelete() {
         delegate?.didTapDelete()
+    }
+
+    @objc private func didTapCreateAllocation() {
+        delegate?.didTapCreateAllocation()
     }
 
     @objc private func didTapBack() {

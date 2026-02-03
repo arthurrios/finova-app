@@ -123,10 +123,16 @@ final class ViewControllersFactory: ViewControllersFactoryProtocol {
     }
     
     // MARK: - Budget Allocation Details
-    
+
     static func makeBudgetAllocationDetailsViewController(
         allocation: BudgetAllocation
     ) -> BudgetAllocationDetailsViewController {
         return BudgetAllocationDetailsViewController(allocation: allocation)
+    }
+
+    static func makeBudgetAllocationDetailsViewController(
+        unallocatedSpending: UnallocatedCategorySpending
+    ) -> BudgetAllocationDetailsViewController {
+        return BudgetAllocationDetailsViewController(unallocatedSpending: unallocatedSpending)
     }
 }

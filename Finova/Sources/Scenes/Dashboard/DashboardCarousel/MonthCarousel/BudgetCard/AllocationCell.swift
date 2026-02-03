@@ -142,6 +142,9 @@ final class AllocationCell: UITableViewCell {
     // MARK: - Configuration
 
     func configure(with allocation: BudgetAllocation) {
+        // Reset to allocated style
+        resetToAllocatedStyle()
+
         // Set icon
         let iconName = allocation.category.iconName(for: .expense)
         iconView.image = UIImage(named: iconName)
@@ -165,6 +168,49 @@ final class AllocationCell: UITableViewCell {
         // Value uses dark gray like transaction values
         remainingLabel.textColor = Colors.gray700
         remainingLabel.text = compactCurrency(abs(remaining))
+    }
+
+    func configure(with unallocatedSpending: UnallocatedCategorySpending) {
+        // Apply unallocated style (grayed out)
+        applyUnallocatedStyle()
+
+        // Set icon (grayed out - darker for better visibility)
+        let iconName = unallocatedSpending.category.iconName(for: .expense)
+        iconView.image = UIImage(named: iconName)?.withRenderingMode(.alwaysTemplate)
+        iconView.tintColor = Colors.gray500
+
+        // Set category name
+        categoryLabel.text = unallocatedSpending.category.displayName
+
+        // Show "Unallocated" as subtitle
+        usageLabel.text = "allocation.unallocated.label".localized
+
+        // Show spent amount as deficit (red, down arrow)
+        arrowImageView.image = UIImage(named: "arrowDown")?.withRenderingMode(.alwaysTemplate)
+        arrowImageView.tintColor = Colors.mainRed
+        remainingLabel.textColor = Colors.gray700
+        remainingLabel.text = compactCurrency(unallocatedSpending.spentAmount)
+    }
+
+    private func resetToAllocatedStyle() {
+        // Reset icon container to normal style
+        iconContainer.backgroundColor = Colors.gray200
+        iconContainer.layer.borderColor = Colors.gray300.cgColor
+        iconView.tintColor = Colors.mainMagenta
+
+        // Reset labels
+        categoryLabel.textColor = Colors.gray700
+        usageLabel.textColor = Colors.gray500
+    }
+
+    private func applyUnallocatedStyle() {
+        // Gray out the icon container
+        iconContainer.backgroundColor = Colors.gray200
+        iconContainer.layer.borderColor = Colors.gray300.cgColor
+
+        // Labels remain the same color but icon is grayed
+        categoryLabel.textColor = Colors.gray700
+        usageLabel.textColor = Colors.gray400  // Slightly more muted for "Unallocated"
     }
 
     // MARK: - Helpers
@@ -208,5 +254,6 @@ final class AllocationCell: UITableViewCell {
         super.prepareForReuse()
         tapAction = nil
         contentView.gestureRecognizers?.forEach { contentView.removeGestureRecognizer($0) }
+        resetToAllocatedStyle()
     }
 }

@@ -13,7 +13,9 @@ import UIKit
 struct BudgetDonutChartView: View {
     let allocations: [BudgetAllocation]
     let unallocatedAmount: Int
+    let unallocatedSpending: [UnallocatedCategorySpending]
     var onSegmentTapped: ((TransactionCategory) -> Void)?
+    var onUnallocatedSpendingTapped: ((UnallocatedCategorySpending) -> Void)?
 
     @State private var rawSelectedValue: Int?
     @State private var selectedIndex: Int?
@@ -23,14 +25,19 @@ struct BudgetDonutChartView: View {
         allocations.reduce(0) { $0 + $1.allocatedAmount }
     }
 
+    /// Sum of all unallocated spending amounts
+    private var unallocatedSpendingTotal: Int {
+        unallocatedSpending.reduce(0) { $0 + $1.spentAmount }
+    }
+
     /// Effective unallocated amount (never negative for display purposes)
     private var effectiveUnallocatedAmount: Int {
         max(0, unallocatedAmount)
     }
 
-    /// Total amount for chart display
+    /// Total amount for chart display (includes unallocated spending)
     private var totalAmount: Int {
-        allocatedTotal + effectiveUnallocatedAmount
+        allocatedTotal + effectiveUnallocatedAmount + unallocatedSpendingTotal
     }
 
     private var hasAllocations: Bool {
@@ -44,17 +51,41 @@ struct BudgetDonutChartView: View {
 
     private func findSelectedIndex(for value: Int) -> Int? {
         var cumulative = 0
+
+        // Check allocations first
         for (index, allocation) in allocations.enumerated() {
             cumulative += allocation.allocatedAmount
             if value <= cumulative {
                 return index
             }
         }
-        // Check if it's the unallocated section
+
+        // Check unallocated spending segments
+        // Index will be: allocations.count + spending index
+        for (index, spending) in unallocatedSpending.enumerated() {
+            cumulative += spending.spentAmount
+            if value <= cumulative {
+                return allocations.count + index // Offset by allocations count
+            }
+        }
+
+        // Check if it's the remaining unallocated section
         if effectiveUnallocatedAmount > 0 && value <= cumulative + effectiveUnallocatedAmount {
-            return -1 // -1 represents unallocated
+            return -1 // -1 represents remaining unallocated budget
         }
         return nil
+    }
+
+    /// Check if index is an unallocated spending index
+    private func isUnallocatedSpendingIndex(_ index: Int) -> Bool {
+        return index >= allocations.count && index < allocations.count + unallocatedSpending.count
+    }
+
+    /// Get unallocated spending for a given index
+    private func getUnallocatedSpending(for index: Int) -> UnallocatedCategorySpending? {
+        let spendingIndex = index - allocations.count
+        guard spendingIndex >= 0 && spendingIndex < unallocatedSpending.count else { return nil }
+        return unallocatedSpending[spendingIndex]
     }
 
     /// Maximum allocated amount among all allocations (for relative brightness calculation)
@@ -114,9 +145,15 @@ struct BudgetDonutChartView: View {
         }
     }
 
+    /// Check if we have any content to display
+    private var hasContent: Bool {
+        !allocations.isEmpty || !unallocatedSpending.isEmpty
+    }
+
     var body: some View {
         Chart {
-            if hasAllocations {
+            if hasContent {
+                // Allocated categories (magenta shades)
                 ForEach(Array(allocations.enumerated()), id: \.1.id) { (index: Int, allocation: BudgetAllocation) in
                     SectorMark(
                         angle: .value("Amount", allocation.allocatedAmount),
@@ -128,6 +165,20 @@ struct BudgetDonutChartView: View {
                     .opacity(selectedIndex == nil || selectedIndex == index ? 1.0 : 0.35)
                 }
 
+                // Unallocated spending categories (slightly brighter gray)
+                ForEach(Array(unallocatedSpending.enumerated()), id: \.1.category.key) { (index: Int, spending: UnallocatedCategorySpending) in
+                    let chartIndex = allocations.count + index
+                    SectorMark(
+                        angle: .value("Unallocated Spending", spending.spentAmount),
+                        innerRadius: .ratio(0.65),
+                        angularInset: 2
+                    )
+                    .foregroundStyle(Color(Colors.gray500)) // Brighter than unallocated budget
+                    .cornerRadius(4)
+                    .opacity(selectedIndex == nil || selectedIndex == chartIndex ? 0.8 : 0.35)
+                }
+
+                // Remaining unallocated budget (darkest gray)
                 if effectiveUnallocatedAmount > 0 {
                     SectorMark(
                         angle: .value("Unallocated", effectiveUnallocatedAmount),
@@ -139,7 +190,7 @@ struct BudgetDonutChartView: View {
                     .opacity(selectedIndex == nil ? 0.5 : (selectedIndex == -1 ? 1.0 : 0.35))
                 }
             } else {
-                // No allocations - show full gray circle
+                // No allocations or spending - show full gray circle
                 SectorMark(
                     angle: .value("Empty", 1),
                     innerRadius: .ratio(0.65)
@@ -156,6 +207,7 @@ struct BudgetDonutChartView: View {
                 let centerSize = frame.width * 0.5 // 50% of chart width for center content
                 VStack(spacing: 2) {
                     if let index = selectedIndex, index >= 0, index < allocations.count {
+                        // Allocated category selected
                         let allocation = allocations[index]
                         if let icon = UIImage(named: allocation.category.iconName) {
                             Image(uiImage: icon)
@@ -174,8 +226,27 @@ struct BudgetDonutChartView: View {
                             .foregroundColor(Color(Colors.gray100))
                             .lineLimit(1)
                             .minimumScaleFactor(0.6)
+                    } else if let index = selectedIndex, let spending = getUnallocatedSpending(for: index) {
+                        // Unallocated spending category selected
+                        if let icon = UIImage(named: spending.category.iconName(for: .expense)) {
+                            Image(uiImage: icon)
+                                .resizable()
+                                .renderingMode(.template)
+                                .foregroundColor(Color(Colors.gray400))
+                                .frame(width: 24, height: 24)
+                        }
+                        Text(spending.category.displayName)
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundColor(Color(Colors.gray300))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
+                        Text(compactCurrency(spending.spentAmount))
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundColor(Color(Colors.gray100))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.6)
                     } else if selectedIndex == -1 {
-                        // Unallocated selected
+                        // Remaining unallocated budget selected
                         Image(systemName: "questionmark.circle")
                             .font(.system(size: 24))
                             .foregroundColor(Color(Colors.gray400))
@@ -189,8 +260,8 @@ struct BudgetDonutChartView: View {
                             .foregroundColor(Color(Colors.gray100))
                             .lineLimit(1)
                             .minimumScaleFactor(0.6)
-                    } else if !hasAllocations {
-                        // No allocations - show 0% allocated
+                    } else if !hasContent {
+                        // No allocations or spending - show 0% allocated
                         Text("0%")
                             .font(.system(size: 16, weight: .bold))
                             .foregroundColor(Color(Colors.gray400))
@@ -219,8 +290,14 @@ struct BudgetDonutChartView: View {
             withAnimation(.easeInOut(duration: 0.15)) {
                 if let value = newValue {
                     selectedIndex = findSelectedIndex(for: value)
-                    if let index = selectedIndex, index >= 0, index < allocations.count {
-                        onSegmentTapped?(allocations[index].category)
+                    if let index = selectedIndex {
+                        if index >= 0 && index < allocations.count {
+                            // Allocated category tapped
+                            onSegmentTapped?(allocations[index].category)
+                        } else if let spending = getUnallocatedSpending(for: index) {
+                            // Unallocated spending category tapped
+                            onUnallocatedSpendingTapped?(spending)
+                        }
                     }
                 } else {
                     selectedIndex = nil

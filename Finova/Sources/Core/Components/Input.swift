@@ -557,6 +557,33 @@ class Input: UIView {
     }
   }
 
+  /// Programmatically selects a picker value at the given index
+  func selectPickerValue(at index: Int) {
+    guard let rawValues = pickerValues, index >= 0, index < rawValues.count else { return }
+
+    selectedPickerIndex = index
+
+    // Update the text field with the selected value
+    let key = rawValues[index]
+    if let categoryEnum = TransactionCategory.allCases.first(where: { $0.key == key }) {
+      textField.text = categoryEnum.description
+    } else {
+      let human = key
+        .replacingOccurrences(
+          of: "(?<=[a-z])([A-Z])",
+          with: " $1",
+          options: .regularExpression
+        )
+        .capitalized
+      textField.text = human
+    }
+
+    // Update the picker view to show the selected row
+    if let picker = textField.inputView as? UIPickerView {
+      picker.selectRow(index, inComponent: 0, animated: false)
+    }
+  }
+
   @objc private func pickerDoneTapped() {
     if let rawValues = pickerValues {
       let raw = rawValues[selectedPickerIndex]

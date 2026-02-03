@@ -18,13 +18,25 @@ final class BudgetAllocationDetailsViewController: UIViewController {
 
     // MARK: - Initialization
 
+    /// Initialize with an existing allocation (allocated mode)
     init(allocation: BudgetAllocation) {
         self.viewModel = BudgetAllocationDetailsViewModel(allocation: allocation)
         super.init(nibName: nil, bundle: nil)
     }
 
+    /// Initialize with unallocated spending (unallocated mode)
+    init(unallocatedSpending: UnallocatedCategorySpending) {
+        self.viewModel = BudgetAllocationDetailsViewModel(unallocatedSpending: unallocatedSpending)
+        super.init(nibName: nil, bundle: nil)
+    }
+
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    /// Returns true if showing unallocated spending details
+    var isUnallocatedMode: Bool {
+        viewModel.isUnallocatedMode
     }
 
     // MARK: - Lifecycle
@@ -53,7 +65,8 @@ final class BudgetAllocationDetailsViewController: UIViewController {
 extension BudgetAllocationDetailsViewController: BudgetAllocationDetailsViewDelegate {
 
     func didTapEdit() {
-        flowDelegate?.editAllocation(viewModel.allocation)
+        guard let allocation = viewModel.allocation else { return }
+        flowDelegate?.editAllocation(allocation)
     }
 
     func didTapDelete() {
@@ -62,6 +75,13 @@ extension BudgetAllocationDetailsViewController: BudgetAllocationDetailsViewDele
         } else {
             showDeleteConfirmation()
         }
+    }
+
+    func didTapCreateAllocation() {
+        flowDelegate?.createAllocation(
+            forCategory: viewModel.category,
+            monthAnchor: viewModel.monthDate
+        )
     }
 
     func didTapBack() {
@@ -328,7 +348,7 @@ extension BudgetAllocationDetailsViewController: BudgetAllocationDetailsViewDele
     }
 
     private func performRecurringDelete(option: AllocationDeleteOption) {
-        logDebug("BudgetAllocationDetailsVC: Deleting allocation with option: \(option), dbId: \(String(describing: viewModel.allocation.dbId))")
+        logDebug("BudgetAllocationDetailsVC: Deleting allocation with option: \(option), dbId: \(String(describing: viewModel.allocation?.dbId))")
         let result = viewModel.deleteRecurringAllocation(option: option)
 
         switch result {

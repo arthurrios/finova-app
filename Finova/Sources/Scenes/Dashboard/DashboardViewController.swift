@@ -1217,7 +1217,7 @@ extension DashboardViewController: DashboardViewDelegate {
             let monthAnchor = syncedViewModel.monthData[syncedViewModel.selectedIndex].date.monthAnchor
             // Track that budget view is active before opening modal
             isGlobalBudgetViewActive = true
-            self.flowDelegate?.openAddAllocationModal(forMonth: monthAnchor)
+            self.flowDelegate?.openAddAllocationModal(forMonth: monthAnchor, preselectedCategory: nil)
         } else {
             self.flowDelegate?.openAddTransactionModal()
         }
@@ -1313,6 +1313,10 @@ extension DashboardViewController: UICollectionViewDataSource {
             cell.searchDelegate = self
             cell.onAllocationTapped = { [weak self] allocation in
                 self?.flowDelegate?.navigateToAllocationDetails(allocation: allocation)
+            }
+            cell.onUnallocatedSpendingTapped = { [weak self] unallocatedSpending in
+                // Navigate to unallocated details screen where user can see transactions and create allocation
+                self?.flowDelegate?.navigateToUnallocatedDetails(unallocatedSpending: unallocatedSpending)
             }
             cell.onBudgetsConfigTapped = { [weak self] monthAnchor in
                 // Budget view is already active since config button is only visible in budget view
