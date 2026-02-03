@@ -73,65 +73,77 @@ final class BudgetAllocationDetailsViewModel {
     }
 
     // MARK: - Computed Properties
+    // Note: These properties use `self.allocation` when available to support refresh after edits.
+    // The `mode` is only used for unallocated mode or as fallback.
 
     var category: TransactionCategory {
-        switch mode {
-        case .allocated(let allocation): return allocation.category
-        case .unallocated(let spending): return spending.category
+        if let allocation = allocation {
+            return allocation.category
         }
+        if case .unallocated(let spending) = mode {
+            return spending.category
+        }
+        fatalError("Invalid state: no allocation or unallocated spending")
     }
 
     var monthDate: Int {
-        switch mode {
-        case .allocated(let allocation): return allocation.monthDate
-        case .unallocated(let spending): return spending.monthDate
+        if let allocation = allocation {
+            return allocation.monthDate
         }
+        if case .unallocated(let spending) = mode {
+            return spending.monthDate
+        }
+        fatalError("Invalid state: no allocation or unallocated spending")
     }
 
     var allocatedAmount: Int {
-        switch mode {
-        case .allocated(let allocation): return allocation.allocatedAmount
-        case .unallocated: return 0  // No allocation set
+        if let allocation = allocation {
+            return allocation.allocatedAmount
         }
+        return 0  // Unallocated mode - no allocation set
     }
 
     var usedAmount: Int {
-        switch mode {
-        case .allocated(let allocation): return allocation.usedAmount
-        case .unallocated(let spending): return spending.spentAmount
+        if let allocation = allocation {
+            return allocation.usedAmount
         }
+        if case .unallocated(let spending) = mode {
+            return spending.spentAmount
+        }
+        return 0
     }
 
     var remainingAmount: Int {
-        switch mode {
-        case .allocated(let allocation): return allocation.remainingAmount
-        case .unallocated(let spending): return -spending.spentAmount  // All spending is "over" since no budget
+        if let allocation = allocation {
+            return allocation.remainingAmount
         }
+        if case .unallocated(let spending) = mode {
+            return -spending.spentAmount  // All spending is "over" since no budget
+        }
+        return 0
     }
 
     var usagePercentage: Int {
-        switch mode {
-        case .allocated(let allocation): return Int(allocation.usagePercentage)
-        case .unallocated: return 100  // 100% over budget (or show as full)
+        if let allocation = allocation {
+            return Int(allocation.usagePercentage)
         }
+        return 100  // Unallocated: 100% over budget (or show as full)
     }
 
     var status: AllocationStatus {
-        switch mode {
-        case .allocated(let allocation): return allocation.status
-        case .unallocated: return .overBudget  // Always over since no budget set
+        if let allocation = allocation {
+            return allocation.status
         }
+        return .overBudget  // Unallocated: always over since no budget set
     }
 
     /// Returns true if this allocation is part of a recurring series.
     /// This includes both parent allocations (isRecurring=true) and child allocations (parentAllocationId != nil)
     var isRecurring: Bool {
-        switch mode {
-        case .allocated(let allocation):
+        if let allocation = allocation {
             return allocation.isRecurring || allocation.parentAllocationId != nil
-        case .unallocated:
-            return false
         }
+        return false  // Unallocated mode
     }
 
     // MARK: - Formatted Strings
