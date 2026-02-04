@@ -61,6 +61,10 @@ extension SettingsViewController: SettingsViewDelegate {
         viewModel.toggleBiometric(isEnabled)
     }
 
+    func didTapCurrency() {
+        showCurrencyPicker()
+    }
+
     func didTapNotifications() {
         flowDelegate?.navigateToNotificationSettings()
     }
@@ -86,9 +90,14 @@ extension SettingsViewController: SettingsViewModelDelegate {
         contentView.biometricLabel.text = biometricType
         contentView.biometricLabel.textColor = isAvailable ? Colors.gray700 : Colors.gray400
     }
-    
+
     func didUpdateAppVersion(version: String) {
         contentView.versionLabel.text = version
+    }
+
+    func didUpdateCurrency(displayText: String) {
+        logDebug("SettingsViewController.didUpdateCurrency: \(displayText)")
+        contentView.currencyValueLabel.text = displayText
     }
     
     func didEncounterBiometricError(title: String, message: String) {
@@ -127,9 +136,57 @@ extension SettingsViewController: SettingsViewModelDelegate {
     }
 }
 
+// MARK: - Currency Picker
+extension SettingsViewController {
+
+    private func showCurrencyPicker() {
+        let alert = UIAlertController(
+            title: "settings.currency.picker.title".localized,
+            message: "settings.currency.picker.message".localized,
+            preferredStyle: .actionSheet
+        )
+
+        // Auto option (device locale)
+        let currentCode = viewModel.getCurrentCurrencyCode()
+        logDebug("showCurrencyPicker - currentCode: \(currentCode)")
+        let autoTitle = "\("settings.currency.auto".localized) (\(AppConfig.deviceLocaleCurrencyCode))"
+        let autoAction = UIAlertAction(title: autoTitle, style: .default) { [weak self] _ in
+            logDebug("Auto action handler called, self exists: \(self != nil)")
+            self?.viewModel.setCurrencyToAuto()
+        }
+        if currentCode == UserDefaultsManager.currencyAutoValue {
+            autoAction.setValue(true, forKey: "checked")
+        }
+        alert.addAction(autoAction)
+
+        // Individual currency options
+        for currency in SettingsViewModel.availableCurrencies {
+            let title = "\(currency.code) - \(currency.name)"
+            let action = UIAlertAction(title: title, style: .default) { [weak self] _ in
+                logDebug("Currency action handler called for: \(currency.code), self exists: \(self != nil)")
+                self?.viewModel.setCurrency(code: currency.code)
+            }
+            if currentCode == currency.code {
+                action.setValue(true, forKey: "checked")
+            }
+            alert.addAction(action)
+        }
+
+        alert.addAction(UIAlertAction(title: "alert.cancel".localized, style: .cancel))
+
+        // For iPad support
+        if let popoverController = alert.popoverPresentationController {
+            popoverController.sourceView = contentView.currencyValueLabel
+            popoverController.sourceRect = contentView.currencyValueLabel.bounds
+        }
+
+        present(alert, animated: true)
+    }
+}
+
 // MARK: - Alert Methods
 extension SettingsViewController {
-    
+
     private func showDeleteAccountConfirmation() {
         let alert = UIAlertController(
             title: "settings.delete.account.title".localized,

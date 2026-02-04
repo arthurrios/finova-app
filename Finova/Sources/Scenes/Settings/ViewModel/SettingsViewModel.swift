@@ -35,6 +35,55 @@ final class SettingsViewModel {
     return "\(version)"
   }
 
+  /// Returns the display text for the current currency setting
+  var currencyDisplayText: String {
+    let savedCode = UserDefaultsManager.getCurrencyCode()
+    if savedCode == UserDefaultsManager.currencyAutoValue {
+      let deviceCurrency = AppConfig.deviceLocaleCurrencyCode
+      return "\("settings.currency.auto".localized) (\(deviceCurrency))"
+    } else {
+      return savedCode
+    }
+  }
+
+  /// List of common currencies for the picker
+  static let availableCurrencies: [(code: String, name: String)] = [
+    ("USD", "US Dollar"),
+    ("EUR", "Euro"),
+    ("GBP", "British Pound"),
+    ("JPY", "Japanese Yen"),
+    ("BRL", "Brazilian Real"),
+    ("CAD", "Canadian Dollar"),
+    ("AUD", "Australian Dollar"),
+    ("CHF", "Swiss Franc"),
+    ("CNY", "Chinese Yuan"),
+    ("INR", "Indian Rupee"),
+    ("MXN", "Mexican Peso"),
+    ("KRW", "South Korean Won"),
+    ("SGD", "Singapore Dollar"),
+    ("HKD", "Hong Kong Dollar"),
+    ("NOK", "Norwegian Krone"),
+    ("SEK", "Swedish Krona"),
+    ("DKK", "Danish Krone"),
+    ("NZD", "New Zealand Dollar"),
+    ("ZAR", "South African Rand"),
+    ("RUB", "Russian Ruble"),
+    ("TRY", "Turkish Lira"),
+    ("PLN", "Polish Zloty"),
+    ("THB", "Thai Baht"),
+    ("IDR", "Indonesian Rupiah"),
+    ("MYR", "Malaysian Ringgit"),
+    ("PHP", "Philippine Peso"),
+    ("CZK", "Czech Koruna"),
+    ("ILS", "Israeli Shekel"),
+    ("CLP", "Chilean Peso"),
+    ("COP", "Colombian Peso"),
+    ("ARS", "Argentine Peso"),
+    ("PEN", "Peruvian Sol"),
+    ("AED", "UAE Dirham"),
+    ("SAR", "Saudi Riyal")
+  ]
+
   // MARK: - Initialization
 
   init() {
@@ -118,7 +167,49 @@ final class SettingsViewModel {
 
   func refreshAllSettings() {
     updateBiometricUI()
+    updateCurrencyUI()
     delegate?.didUpdateAppVersion(version: appVersionString)
+  }
+
+  // MARK: - Currency Management
+
+  private func updateCurrencyUI() {
+    let displayText = currencyDisplayText
+    logDebug("updateCurrencyUI - displayText: \(displayText), delegate exists: \(delegate != nil)")
+    delegate?.didUpdateCurrency(displayText: displayText)
+  }
+
+  /// Sets the currency to auto (device locale)
+  func setCurrencyToAuto() {
+    let newCode = UserDefaultsManager.currencyAutoValue
+    logDebug("setCurrencyToAuto called")
+    logDebug("Before save - stored code: \(UserDefaultsManager.getCurrencyCode())")
+    UserDefaultsManager.setCurrencyCode(newCode)
+    logDebug("After save - stored code: \(UserDefaultsManager.getCurrencyCode())")
+    // Update UI immediately on the same run loop
+    updateCurrencyUI()
+    notifyCurrencyChange()
+  }
+
+  /// Sets a specific currency code
+  func setCurrency(code: String) {
+    logDebug("setCurrency called with code: \(code)")
+    logDebug("Before save - stored code: \(UserDefaultsManager.getCurrencyCode())")
+    UserDefaultsManager.setCurrencyCode(code)
+    logDebug("After save - stored code: \(UserDefaultsManager.getCurrencyCode())")
+    // Update UI immediately on the same run loop
+    updateCurrencyUI()
+    notifyCurrencyChange()
+  }
+
+  private func notifyCurrencyChange() {
+    logDebug("Posting currencyDidChange notification")
+    NotificationCenter.default.post(name: .currencyDidChange, object: nil)
+  }
+
+  /// Returns the currently selected currency code (or "auto")
+  func getCurrentCurrencyCode() -> String {
+    return UserDefaultsManager.getCurrencyCode()
   }
 
   // MARK: - Biometric Management

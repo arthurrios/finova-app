@@ -13,6 +13,10 @@ class UserDefaultsManager {
   private static let balanceDisplayModeKey = "BalanceDisplayMode"
   private static let biometricEnabledKey = "biometricEnabled"
   private static let hideValuesKey = "hideValues"
+  private static let currencyCodeKey = "currencyCode"
+
+  /// Special value indicating the app should use device locale currency
+  static let currencyAutoValue = "auto"
 
   static func saveUser(user: User) {
     let encoder = JSONEncoder()
@@ -80,6 +84,23 @@ class UserDefaultsManager {
 
   static func getHideValues() -> Bool {
     return UserDefaults.standard.bool(forKey: hideValuesKey)
+  }
+
+  // MARK: - Currency Settings
+
+  /// Sets the currency code. Use `currencyAutoValue` ("auto") to use device locale.
+  static func setCurrencyCode(_ code: String) {
+    UserDefaults.standard.set(code, forKey: currencyCodeKey)
+  }
+
+  /// Gets the currency code. Returns "auto" if using device locale (default).
+  static func getCurrencyCode() -> String {
+    return UserDefaults.standard.string(forKey: currencyCodeKey) ?? currencyAutoValue
+  }
+
+  /// Returns true if using device locale for currency (auto mode)
+  static func isUsingAutoCurrency() -> Bool {
+    return getCurrencyCode() == currencyAutoValue
   }
 
   // MARK: - Clear All Settings

@@ -60,12 +60,7 @@ final class TransactionDetailsViewModel {
   }
 
   func getFormattedAmount() -> String {
-    let formatter = NumberFormatter()
-    formatter.numberStyle = .currency
-    formatter.locale = Locale.current
-
-    let amount = Double(transaction.amount) / 100.0
-    return formatter.string(from: NSNumber(value: amount)) ?? "$0.00"
+    return transaction.amount.currencyString
   }
 
   func getFormattedDate() -> String {

@@ -647,16 +647,43 @@ class MonthBudgetCard: UIView {
             name: NSNotification.Name("BalanceVisibilityChanged"),
             object: nil
         )
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleCurrencyDidChange),
+            name: .currencyDidChange,
+            object: nil
+        )
     }
-    
+
     @objc private func handleBalanceVisibilityChanged(_ notification: Notification) {
         guard let userInfo = notification.userInfo,
               let isHidden = userInfo["isHidden"] as? Bool
         else { return }
-        
+
         // Only update if the visibility state is different from current state
         if isHidden != isValuesHidden {
             updateBalanceVisibility(isHidden)
+        }
+    }
+
+    @objc private func handleCurrencyDidChange() {
+        // Force refresh the animated number label with the new currency format
+        // by recreating the SwiftUI view
+        logDebug("MonthBudgetCard received currencyDidChange, isValuesHidden: \(isValuesHidden), host exists: \(animatedNumberHost != nil)")
+        guard !isValuesHidden, let host = animatedNumberHost else { return }
+
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            let currentFont = self.availableBudgetValueLabel.font ?? Fonts.titleLG.font
+            let currentColor = self.availableBudgetValueLabel.textColor ?? Colors.gray100
+            logDebug("MonthBudgetCard updating with currencyCode: \(AppConfig.currencyCode)")
+            host.rootView = AnimatedNumberLabel(
+                value: self.currentDisplayValue,
+                font: currentFont,
+                color: currentColor,
+                currencyCode: AppConfig.currencyCode
+            )
         }
     }
     
@@ -713,7 +740,7 @@ class MonthBudgetCard: UIView {
         let currentColor = availableBudgetValueLabel.textColor ?? Colors.gray100
         
         if animatedNumberHost == nil {
-            let swiftUIView = AnimatedNumberLabel(value: value, font: currentFont, color: currentColor)
+            let swiftUIView = AnimatedNumberLabel(value: value, font: currentFont, color: currentColor, currencyCode: AppConfig.currencyCode)
             let hostController = UIHostingController(rootView: swiftUIView)
             hostController.view.backgroundColor = .clear
             hostController.view.setContentHuggingPriority(.required, for: .horizontal)
@@ -729,7 +756,7 @@ class MonthBudgetCard: UIView {
                 hostController.view.heightAnchor.constraint(equalTo: container.heightAnchor),
             ])
         } else {
-            let swiftUIView = AnimatedNumberLabel(value: value, font: currentFont, color: currentColor)
+            let swiftUIView = AnimatedNumberLabel(value: value, font: currentFont, color: currentColor, currencyCode: AppConfig.currencyCode)
             animatedNumberHost?.rootView = swiftUIView
         }
     }
@@ -1447,11 +1474,12 @@ class MonthBudgetCard: UIView {
             if let host = animatedNumberHost {
                 let currentFont = availableBudgetValueLabel.font ?? Fonts.titleLG.font
                 let currentColor = availableBudgetValueLabel.textColor ?? Colors.gray100
-                
+
                 host.rootView = AnimatedNumberLabel(
                     value: value,
                     font: currentFont,
-                    color: currentColor
+                    color: currentColor,
+                    currencyCode: AppConfig.currencyCode
                 )
             }
         }

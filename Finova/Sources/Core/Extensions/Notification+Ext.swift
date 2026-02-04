@@ -11,4 +11,5 @@ extension Notification.Name {
   static let transactionDataChanged = Notification.Name("transactionDataChanged")
   static let appDidEnterForeground = Notification.Name("appDidEnterForeground")
   static let navigateToTransactionDetails = Notification.Name("navigateToTransactionDetails")
+  static let currencyDidChange = Notification.Name("currencyDidChange")
 }

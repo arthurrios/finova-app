@@ -11,20 +11,23 @@ struct AnimatedNumberLabel: View {
     var value: Int
     let font: UIFont
     let color: UIColor
-    
+    /// Currency code to trigger re-render when currency changes
+    var currencyCode: String = AppConfig.currencyCode
+
     var body: some View {
         Text(value.currencyString)
             .font(Font(font))
             .foregroundColor(Color(color))
             .if(iOS17OrLater) { view in
                 view.contentTransition(.numericText())  // iOS 17+ smooth animation
-                
+
             }
             .animation(.easeInOut(duration: 0.3), value: value)
+            .animation(.easeInOut(duration: 0.2), value: currencyCode)
             .multilineTextAlignment(.leading)
             .frame(maxWidth: .infinity, alignment: .leading)
     }
-    
+
     private var iOS17OrLater: Bool {
         if #available(iOS 17.0, *) {
             return true

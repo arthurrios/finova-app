@@ -121,29 +121,7 @@ struct BudgetDonutChartView: View {
 
     /// Formats currency with ultra-compact notation for chart center
     private func compactCurrency(_ amount: Int) -> String {
-        let absAmount = abs(amount)
-        let prefix = amount < 0 ? "-" : ""
-
-        if absAmount >= 1_000_000_00 { // 1 million (in cents)
-            let millions = Double(absAmount) / 1_000_000_00
-            if millions >= 10 {
-                return "\(prefix)R$\(String(format: "%.0f", millions))mi"
-            }
-            return "\(prefix)R$\(String(format: "%.1f", millions))mi"
-        } else if absAmount >= 100_000_00 { // 100k+ (in cents)
-            let thousands = Double(absAmount) / 1_000_00
-            return "\(prefix)R$\(String(format: "%.0f", thousands))k"
-        } else if absAmount >= 10_000_00 { // 10k+ (in cents)
-            let thousands = Double(absAmount) / 1_000_00
-            return "\(prefix)R$\(String(format: "%.1f", thousands))k"
-        } else if absAmount >= 1_000_00 { // 1k+ (in cents)
-            let thousands = Double(absAmount) / 1_000_00
-            return "\(prefix)R$\(String(format: "%.1f", thousands))k"
-        } else {
-            // For smaller values, show without cents
-            let reais = absAmount / 100
-            return "\(prefix)R$\(reais)"
-        }
+        return amount.compactCurrencyString
     }
 
     /// Check if we have any content to display

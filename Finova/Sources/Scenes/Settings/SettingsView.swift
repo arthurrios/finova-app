@@ -87,6 +87,19 @@ final class SettingsView: UIView {
         return toggle
     }()
 
+    // Preferences Section
+    private let preferencesHeaderView = createSectionHeader(title: "settings.section.preferences".localized)
+
+    private let currencyContainer: UIView = {
+        let container = createSettingContainer()
+        container.isUserInteractionEnabled = true
+        return container
+    }()
+    private let currencyIconView = createIconView(imageName: "dollarsign.circle")
+    private let currencyLabel = createSettingLabel(text: "settings.currency.title".localized)
+    let currencyValueLabel = createDetailLabel(text: "")
+    private let currencyChevron = createChevronView()
+
     // Notifications Section
     private let notificationsHeaderView = createSectionHeader(title: "settings.section.notifications".localized)
 
@@ -181,6 +194,11 @@ final class SettingsView: UIView {
         setupBiometricContainer()
         contentStackView.addArrangedSubview(biometricContainer)
 
+        // Preferences section
+        contentStackView.addArrangedSubview(preferencesHeaderView)
+        setupCurrencyContainer()
+        contentStackView.addArrangedSubview(currencyContainer)
+
         // Notifications section
         contentStackView.addArrangedSubview(notificationsHeaderView)
         setupNotificationsContainer()
@@ -213,6 +231,27 @@ final class SettingsView: UIView {
 
             biometricSwitch.trailingAnchor.constraint(equalTo: biometricContainer.trailingAnchor, constant: -Metrics.spacing4),
             biometricSwitch.centerYAnchor.constraint(equalTo: biometricContainer.centerYAnchor)
+        ])
+    }
+
+    private func setupCurrencyContainer() {
+        currencyContainer.addSubview(currencyIconView)
+        currencyContainer.addSubview(currencyLabel)
+        currencyContainer.addSubview(currencyValueLabel)
+        currencyContainer.addSubview(currencyChevron)
+
+        NSLayoutConstraint.activate([
+            currencyIconView.leadingAnchor.constraint(equalTo: currencyContainer.leadingAnchor, constant: Metrics.spacing4),
+            currencyIconView.centerYAnchor.constraint(equalTo: currencyContainer.centerYAnchor),
+
+            currencyLabel.leadingAnchor.constraint(equalTo: currencyIconView.trailingAnchor, constant: Metrics.spacing3),
+            currencyLabel.centerYAnchor.constraint(equalTo: currencyContainer.centerYAnchor),
+
+            currencyChevron.trailingAnchor.constraint(equalTo: currencyContainer.trailingAnchor, constant: -Metrics.spacing4),
+            currencyChevron.centerYAnchor.constraint(equalTo: currencyContainer.centerYAnchor),
+
+            currencyValueLabel.trailingAnchor.constraint(equalTo: currencyChevron.leadingAnchor, constant: -Metrics.spacing2),
+            currencyValueLabel.centerYAnchor.constraint(equalTo: currencyContainer.centerYAnchor)
         ])
     }
 
@@ -338,6 +377,9 @@ final class SettingsView: UIView {
     private func setupActions() {
         biometricSwitch.addTarget(self, action: #selector(biometricToggled), for: .valueChanged)
 
+        let currencyTap = UITapGestureRecognizer(target: self, action: #selector(currencyTapped))
+        currencyContainer.addGestureRecognizer(currencyTap)
+
         let deleteAccountTap = UITapGestureRecognizer(target: self, action: #selector(deleteAccountTapped))
         deleteAccountContainer.addGestureRecognizer(deleteAccountTap)
 
@@ -351,6 +393,11 @@ final class SettingsView: UIView {
     @objc
     private func biometricToggled() {
         delegate?.didToggleBiometric(biometricSwitch.isOn)
+    }
+
+    @objc
+    private func currencyTapped() {
+        delegate?.didTapCurrency()
     }
 
     @objc

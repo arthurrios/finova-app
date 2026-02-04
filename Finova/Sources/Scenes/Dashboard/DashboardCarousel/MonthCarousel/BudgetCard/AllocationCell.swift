@@ -216,18 +216,7 @@ final class AllocationCell: UITableViewCell {
     // MARK: - Helpers
 
     private func compactCurrency(_ amount: Int) -> String {
-        if amount >= 1_000_000_00 {
-            let millions = Double(amount) / 1_000_000_00
-            return "R$ \(String(format: "%.1f", millions)) mi"
-        } else if amount >= 100_000_00 {
-            let thousands = Double(amount) / 1_000_00
-            return "R$ \(String(format: "%.0f", thousands)) mil"
-        } else if amount >= 1_000_00 {
-            let thousands = Double(amount) / 1_000_00
-            return "R$ \(String(format: "%.1f", thousands)) mil"
-        } else {
-            return amount.currencyString
-        }
+        return amount.compactCurrencyString
     }
 
     func setTapAction(_ action: @escaping () -> Void) {

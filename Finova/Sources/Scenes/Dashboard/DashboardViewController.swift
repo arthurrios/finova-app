@@ -618,6 +618,23 @@ final class DashboardViewController: UIViewController {
             name: .transactionDataChanged,
             object: nil
         )
+
+        // Listen for currency changes to refresh displayed values
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleCurrencyDidChange),
+            name: .currencyDidChange,
+            object: nil
+        )
+    }
+
+    @objc private func handleCurrencyDidChange() {
+        // Reload the carousel to refresh all currency displays
+        logDebug("DashboardViewController received currencyDidChange notification")
+        logDebug("Current AppConfig.currencyCode: \(AppConfig.currencyCode)")
+        DispatchQueue.main.async { [weak self] in
+            self?.contentView.monthCarousel.reloadData()
+        }
     }
     
     private func setupUpdateToast() {
