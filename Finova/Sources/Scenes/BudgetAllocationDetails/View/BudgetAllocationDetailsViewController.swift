@@ -52,6 +52,13 @@ final class BudgetAllocationDetailsViewController: UIViewController {
         mainView.configure(with: viewModel)
     }
 
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        // Refresh data when returning from transaction details (in case transaction was edited/deleted)
+        viewModel.refreshAllocation()
+        mainView.configure(with: viewModel)
+    }
+
     // MARK: - Public Methods
 
     func refreshAfterEdit() {
