@@ -20,9 +20,11 @@ struct TransactionFilters: Equatable {
     var startDay: Int? = nil
     var endDay: Int? = nil
     var totalDaysInMonth: Int = 31
+    /// When true, uses global filter settings (ignores day range for cross-month consistency)
+    var useGlobalFilter: Bool = true
 
     var isEmpty: Bool {
-        let hasDayFilter =
+        let hasDayFilter = !useGlobalFilter &&
         startDay != nil && endDay != nil && !(startDay == 1 && endDay == totalDaysInMonth)
         return categories.isEmpty && types.isEmpty && modes.isEmpty && !hasDayFilter
     }
@@ -33,6 +35,7 @@ struct TransactionFilters: Equatable {
         modes.removeAll()
         startDay = nil
         endDay = nil
+        useGlobalFilter = true
     }
 
     /// Compares filter values only, ignoring totalDaysInMonth which varies by month
@@ -41,7 +44,8 @@ struct TransactionFilters: Equatable {
                types == other.types &&
                modes == other.modes &&
                startDay == other.startDay &&
-               endDay == other.endDay
+               endDay == other.endDay &&
+               useGlobalFilter == other.useGlobalFilter
     }
 
     /// Returns a copy of this filter without day range filters.
@@ -54,9 +58,9 @@ struct TransactionFilters: Equatable {
         return copy
     }
 
-    /// Returns true if this filter has a day range set
+    /// Returns true if this filter has a day range set (only applies when not using global filter)
     var hasDayFilter: Bool {
-        return startDay != nil && endDay != nil && !(startDay == 1 && endDay == totalDaysInMonth)
+        return !useGlobalFilter && startDay != nil && endDay != nil && !(startDay == 1 && endDay == totalDaysInMonth)
     }
 }
 

@@ -24,6 +24,7 @@ class TransactionFilterModalView: UIView {
   private var selectedEndDay: Int?
   private var monthDate: Date?
   private var totalDaysInMonth: Int = 31
+  private var useGlobalFilter: Bool = true
   
   // MARK: - UI Components
   
@@ -98,7 +99,27 @@ class TransactionFilterModalView: UIView {
   
   // Day Range Section
   private lazy var dayRangeSectionView = createSectionView(title: "filter.dayRange.title".localized)
-  
+
+  private lazy var filterModeSegmentedControl: UISegmentedControl = {
+    let control = UISegmentedControl(items: [
+      "filter.mode.global".localized,
+      "filter.mode.custom".localized
+    ])
+    control.selectedSegmentIndex = 0
+    control.selectedSegmentTintColor = Colors.mainMagenta
+    control.setTitleTextAttributes([
+      .foregroundColor: Colors.gray600,
+      .font: Fonts.textSM.font
+    ], for: .normal)
+    control.setTitleTextAttributes([
+      .foregroundColor: Colors.gray100,
+      .font: Fonts.textSMBold.font
+    ], for: .selected)
+    control.translatesAutoresizingMaskIntoConstraints = false
+    control.addTarget(self, action: #selector(filterModeChanged), for: .valueChanged)
+    return control
+  }()
+
   private lazy var dayRangeSlider: DayRangeSlider = {
     let slider = DayRangeSlider()
     slider.delegate = self
@@ -288,7 +309,21 @@ class TransactionFilterModalView: UIView {
   }
   
   private func setupDayRangeSection() {
+    dayRangeSectionView.addArrangedSubview(filterModeSegmentedControl)
     dayRangeSectionView.addArrangedSubview(dayRangeSlider)
+    // Initially disable slider since global is selected by default
+    updateDayRangeSliderState()
+  }
+
+  private func updateDayRangeSliderState() {
+    let isCustomMode = !useGlobalFilter
+    dayRangeSlider.isUserInteractionEnabled = isCustomMode
+    dayRangeSlider.alpha = isCustomMode ? 1.0 : 0.4
+  }
+
+  @objc private func filterModeChanged() {
+    useGlobalFilter = filterModeSegmentedControl.selectedSegmentIndex == 0
+    updateDayRangeSliderState()
   }
   
   private func createChip(title: String) -> UIButton {
@@ -330,18 +365,23 @@ class TransactionFilterModalView: UIView {
     selectedModes.removeAll()
     selectedStartDay = nil
     selectedEndDay = nil
-    
+    useGlobalFilter = true
+
     typeChips.values.forEach { updateChipAppearance($0, isSelected: false) }
     modeChips.values.forEach { updateChipAppearance($0, isSelected: false) }
     categoryChips.values.forEach { updateChipAppearance($0, isSelected: false) }
-    
+
+    // Reset segmented control to Global
+    filterModeSegmentedControl.selectedSegmentIndex = 0
+    updateDayRangeSliderState()
+
     // Reset slider to first and last day (covering all days)
     if totalDaysInMonth > 0 {
       dayRangeSlider.configure(startDay: 1, endDay: totalDaysInMonth, totalDaysInMonth: totalDaysInMonth)
       selectedStartDay = 1
       selectedEndDay = totalDaysInMonth
     }
-    
+
     delegate?.didTapClear()
   }
   
@@ -350,10 +390,11 @@ class TransactionFilterModalView: UIView {
       categories: selectedCategories,
       types: selectedTypes,
       modes: selectedModes,
-      startDay: selectedStartDay,
-      endDay: selectedEndDay
+      startDay: useGlobalFilter ? nil : selectedStartDay,
+      endDay: useGlobalFilter ? nil : selectedEndDay
     )
     filters.totalDaysInMonth = totalDaysInMonth
+    filters.useGlobalFilter = useGlobalFilter
     delegate?.didTapApply(filters: filters)
   }
   
@@ -402,8 +443,9 @@ class TransactionFilterModalView: UIView {
     selectedModes = filters.modes
     selectedStartDay = filters.startDay
     selectedEndDay = filters.endDay
+    useGlobalFilter = filters.useGlobalFilter
     self.monthDate = monthDate
-    
+
     // Calculate total days in month
     var calendar = Calendar(identifier: .gregorian)
     calendar.timeZone = TimeZone.current
@@ -412,14 +454,18 @@ class TransactionFilterModalView: UIView {
     } else {
       totalDaysInMonth = 31
     }
-    
+
     // Set initial values: first day and last day (covering all days by default)
     let initialStartDay = selectedStartDay ?? 1
     let initialEndDay = selectedEndDay ?? totalDaysInMonth
-    
+
     selectedStartDay = initialStartDay
     selectedEndDay = initialEndDay
-    
+
+    // Configure segmented control
+    filterModeSegmentedControl.selectedSegmentIndex = useGlobalFilter ? 0 : 1
+    updateDayRangeSliderState()
+
     // Configure the range slider
     // Use DispatchQueue to ensure layout has happened
     DispatchQueue.main.async { [weak self] in
@@ -430,16 +476,16 @@ class TransactionFilterModalView: UIView {
         totalDaysInMonth: totalDaysInMonth
       )
     }
-    
+
     // Update chip appearances
     for (type, chip) in typeChips {
       updateChipAppearance(chip, isSelected: selectedTypes.contains(type))
     }
-    
+
     for (mode, chip) in modeChips {
       updateChipAppearance(chip, isSelected: selectedModes.contains(mode))
     }
-    
+
     for (category, chip) in categoryChips {
       updateChipAppearance(chip, isSelected: selectedCategories.contains(category))
     }
