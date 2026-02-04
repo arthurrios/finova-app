@@ -93,33 +93,11 @@ final class BudgetCard: UIView {
         return stack
     }()
 
-    private lazy var allocatedStackView: UIStackView = {
-        let stack = UIStackView()
-        stack.axis = .vertical
-        stack.spacing = Metrics.spacing2
-        return stack
-    }()
-
-    private lazy var allocatedTextLabel: UILabel = {
-        let label = UILabel()
-        label.font = Fonts.textXS.font
-        label.text = "budget.allocated.label".localized
-        label.textColor = Colors.gray400
-        return label
-    }()
-
-    private lazy var allocatedValueLabel: UILabel = {
-        let label = UILabel()
-        label.font = Fonts.textSM.font
-        label.textColor = Colors.gray100
-        return label
-    }()
-
     private lazy var remainingStackView: UIStackView = {
         let stack = UIStackView()
         stack.axis = .vertical
         stack.spacing = Metrics.spacing2
-        stack.alignment = .center
+        stack.alignment = .leading
         return stack
     }()
 
@@ -245,17 +223,13 @@ final class BudgetCard: UIView {
         headerHorizontalStackView.addArrangedSubview(configButton)
         headerHorizontalStackView.setCustomSpacing(Metrics.spacing3, after: flipBackButton)
 
-        // Footer setup - three columns: Allocated, Remaining, Saved
-        allocatedStackView.addArrangedSubview(allocatedTextLabel)
-        allocatedStackView.addArrangedSubview(allocatedValueLabel)
-
+        // Footer setup - two columns: Remaining (potential savings), Saved (actual performance)
         remainingStackView.addArrangedSubview(remainingTextLabel)
         remainingStackView.addArrangedSubview(remainingValueLabel)
 
         savedStackView.addArrangedSubview(savedTextLabel)
         savedStackView.addArrangedSubview(savedValueLabel)
 
-        footerStackView.addArrangedSubview(allocatedStackView)
         footerStackView.addArrangedSubview(remainingStackView)
         footerStackView.addArrangedSubview(savedStackView)
 
@@ -379,15 +353,19 @@ final class BudgetCard: UIView {
         footerStackView.isHidden = false
         progressBar.isHidden = false
 
-        // Footer values - three columns:
-        // 1. Allocated: how much budget is assigned to categories
-        allocatedValueLabel.text = unallocatedSummary.totalAllocated.currencyString
+        // Footer values - two columns:
+        // 1. Remaining: unallocated budget (potential savings if not used)
+        let unallocatedAmount = unallocatedSummary.unallocatedAmount
+        if unallocatedAmount >= 0 {
+            remainingValueLabel.text = unallocatedAmount.currencyString
+            remainingValueLabel.textColor = Colors.gray100
+        } else {
+            // Over-allocated: show negative in amber/warning color
+            remainingValueLabel.text = "-" + abs(unallocatedAmount).currencyString
+            remainingValueLabel.textColor = Colors.warningAmber
+        }
 
-        // 2. Remaining: unallocated budget (not assigned to any category)
-        remainingValueLabel.text = unallocatedSummary.unallocatedAmount.currencyString
-        remainingValueLabel.textColor = Colors.gray100
-
-        // 3. Saved: net savings from actual spending (allocated remaining - unallocated spending)
+        // 2. Saved: net savings from actual spending (allocated remaining - unallocated spending)
         // Positive = under budget (money saved), Negative = over budget (overspent)
         let allocatedRemaining = allocations.reduce(0) { $0 + $1.remainingAmount }
         let netSaved = allocatedRemaining - unallocatedSummary.totalUsedInUnallocatedCategories
@@ -434,6 +412,7 @@ final class BudgetCard: UIView {
 
         let chartView = BudgetDonutChartView(
             allocations: allocations,
+            totalBudget: unallocatedSummary?.totalBudget ?? 0,
             unallocatedAmount: unallocatedSummary?.unallocatedAmount ?? 0,
             unallocatedSpending: unallocatedSpending,
             onSegmentTapped: { [weak self] category in

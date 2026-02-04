@@ -47,6 +47,10 @@ final class DashboardViewController: UIViewController {
     // MARK: - Budget View State Tracking
     /// Global state for showing budget view (applies to all months)
     private var isGlobalBudgetViewActive: Bool = false
+
+    // MARK: - Global Filter State
+    /// Global filters that apply to all months
+    private var globalFilters: TransactionFilters = TransactionFilters()
     
     init(
         contentView: DashboardView,
@@ -1360,6 +1364,10 @@ extension DashboardViewController: UICollectionViewDataSource {
             let monthAnchor = model.date.monthAnchor
             cell.setMonthAnchor(monthAnchor)
 
+            // Set global filters BEFORE updateTransactions so they're applied correctly
+            // This is important because updateTransactions calls applyFilters() internally
+            cell.setFiltersWithoutApplying(globalFilters)
+
             // Use refresh and updateTransactions to preserve day slider state
             cell.monthCard.refresh(with: model)
             cell.updateTransactions(txs)
@@ -1412,6 +1420,16 @@ extension DashboardViewController: UICollectionViewDelegate {
             monthCell.restoreBudgetViewState(allocations: allocations, summary: summary)
         } else if !isGlobalBudgetViewActive && monthCell.isShowingBudgetView {
             monthCell.flipToTransactionView()
+        }
+
+        // Ensure filter state is synchronized with global filters
+        // Always reapply filters when displaying a cell to ensure consistency
+        // This handles cell reuse, async timing issues, and monthCard state resets
+        if !globalFilters.isEmpty {
+            monthCell.applyFilters(globalFilters)
+        } else if !monthCell.currentFilters.isEmpty {
+            // Global filters are empty but cell has filters - clear them
+            monthCell.clearFilters()
         }
 
         // Recalculate scroll state after cell is displayed to fix any stale scroll locks
@@ -2520,7 +2538,7 @@ extension DashboardViewController: MonthCarouselCellDelegate {
             monthDate = Date()
         }
 
-        let filterModal = TransactionFilterModalViewController(currentFilters: cell.currentFilters, monthDate: monthDate)
+        let filterModal = TransactionFilterModalViewController(currentFilters: globalFilters, monthDate: monthDate)
         filterModal.delegate = self
         present(filterModal, animated: false)
     }
@@ -2626,19 +2644,43 @@ extension DashboardViewController {
 // MARK: - TransactionFilterModalDelegate
 extension DashboardViewController: TransactionFilterModalDelegate {
     func transactionFilterModal(_ modal: TransactionFilterModalViewController, didApplyFilters filters: TransactionFilters) {
-        // Try to use currentCell, fallback to finding the selected cell if needed
-        if let cell = currentCell {
-            cell.applyFilters(filters)
-        } else if let cell = findSelectedCell() {
-            cell.applyFilters(filters)
+        // Store global filters WITHOUT day range - day filters are date-specific
+        // and don't make sense across different months
+        globalFilters = filters.withoutDayFilter()
+
+        // Apply full filters (including day range) to current cell only
+        if let currentCell = findSelectedCell() {
+            currentCell.applyFilters(filters)
         }
+
+        // Apply global filters (without day range) to other visible cells
+        applyGlobalFiltersToOtherCells()
     }
 
     func transactionFilterModalDidClear(_ modal: TransactionFilterModalViewController) {
-        // Try to use currentCell, fallback to finding the selected cell if needed
-        if let cell = currentCell {
-            cell.clearFilters()
-        } else if let cell = findSelectedCell() {
+        // Clear global filters
+        globalFilters.clear()
+
+        // Clear filters on all visible cells
+        clearFiltersOnAllCells()
+    }
+
+    /// Applies global filters to all visible month carousel cells except the current one
+    /// (current cell gets full filters including day range)
+    private func applyGlobalFiltersToOtherCells() {
+        guard let visibleCells = contentView.monthCarousel.visibleCells as? [MonthCarouselCell] else { return }
+        let selectedIndex = syncedViewModel.selectedIndex
+        for cell in visibleCells {
+            if cell.tag != selectedIndex {
+                cell.applyFilters(globalFilters)
+            }
+        }
+    }
+
+    /// Clears filters on all visible month carousel cells
+    private func clearFiltersOnAllCells() {
+        guard let visibleCells = contentView.monthCarousel.visibleCells as? [MonthCarouselCell] else { return }
+        for cell in visibleCells {
             cell.clearFilters()
         }
     }

@@ -12,6 +12,7 @@ import UIKit
 @available(iOS 17.0, *)
 struct BudgetDonutChartView: View {
     let allocations: [BudgetAllocation]
+    let totalBudget: Int
     let unallocatedAmount: Int
     let unallocatedSpending: [UnallocatedCategorySpending]
     var onSegmentTapped: ((TransactionCategory) -> Void)?
@@ -271,8 +272,8 @@ struct BudgetDonutChartView: View {
                             .font(.system(size: 11))
                             .foregroundColor(Color(Colors.gray500))
                     } else {
-                        // Show total
-                        Text(compactCurrency(totalAmount))
+                        // Show total budget
+                        Text(compactCurrency(totalBudget))
                             .font(.system(size: 16, weight: .bold))
                             .foregroundColor(Color(Colors.gray100))
                             .lineLimit(1)

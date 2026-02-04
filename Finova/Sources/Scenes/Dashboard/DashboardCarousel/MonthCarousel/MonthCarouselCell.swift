@@ -13,26 +13,50 @@ protocol MonthCarouselCellDelegate: AnyObject {
     func monthCarouselCellDidTapFilter(_ cell: MonthCarouselCell)
 }
 
-struct TransactionFilters {
+struct TransactionFilters: Equatable {
     var categories: Set<TransactionCategory> = []
     var types: Set<TransactionType> = []
     var modes: Set<TransactionMode> = []
     var startDay: Int? = nil
     var endDay: Int? = nil
     var totalDaysInMonth: Int = 31
-    
+
     var isEmpty: Bool {
         let hasDayFilter =
         startDay != nil && endDay != nil && !(startDay == 1 && endDay == totalDaysInMonth)
         return categories.isEmpty && types.isEmpty && modes.isEmpty && !hasDayFilter
     }
-    
+
     mutating func clear() {
         categories.removeAll()
         types.removeAll()
         modes.removeAll()
         startDay = nil
         endDay = nil
+    }
+
+    /// Compares filter values only, ignoring totalDaysInMonth which varies by month
+    func hasSameFilterValues(as other: TransactionFilters) -> Bool {
+        return categories == other.categories &&
+               types == other.types &&
+               modes == other.modes &&
+               startDay == other.startDay &&
+               endDay == other.endDay
+    }
+
+    /// Returns a copy of this filter without day range filters.
+    /// Day range filters are date-specific and don't translate well across different months,
+    /// so they should only apply to the month where the filter was originally set.
+    func withoutDayFilter() -> TransactionFilters {
+        var copy = self
+        copy.startDay = nil
+        copy.endDay = nil
+        return copy
+    }
+
+    /// Returns true if this filter has a day range set
+    var hasDayFilter: Bool {
+        return startDay != nil && endDay != nil && !(startDay == 1 && endDay == totalDaysInMonth)
     }
 }
 
@@ -891,7 +915,14 @@ class MonthCarouselCell: UICollectionViewCell {
         monthCard.clearFilteredState()
         applyFilters()
     }
-    
+
+    /// Sets filters without applying them immediately.
+    /// Use this when you need to set filters before updateTransactions() is called,
+    /// since updateTransactions() calls applyFilters() internally.
+    func setFiltersWithoutApplying(_ filters: TransactionFilters) {
+        currentFilters = filters
+    }
+
     private func addBordersExceptBottom(to view: UIView, color: UIColor, width: CGFloat = 1.0) {
         view.layer.sublayers?.removeAll(where: { $0.name == "customBorder" })
         
@@ -1255,6 +1286,13 @@ class MonthCarouselCell: UICollectionViewCell {
         allocationsTableView.isScrollEnabled = false
         allocationsTableView.contentInset = .zero
         allocationsTableView.scrollIndicatorInsets = .zero
+
+        // Reset filter and search state to prevent stale data
+        currentFilters.clear()
+        filteredTransactions = []
+        isSearchActive = false
+        searchInput.text = ""
+        updateFilterButtonAppearance()
 
         // Reset user interaction state - transaction view is default, so enable its table
         transactionTableView.isUserInteractionEnabled = true
