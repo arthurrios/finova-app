@@ -5,6 +5,7 @@
 //  Created by Arthur Rios on 07/05/25.
 //
 
+import Firebase
 import Foundation
 import LocalAuthentication
 import UIKit
@@ -15,6 +16,14 @@ final class SplashViewController: UIViewController {
   public weak var flowDelegate: SplashFlowDelegate?
 
   private let gradientLayer = Colors.gradientBlack
+
+  #if DEBUG
+  /// Set to `true` to skip login and go straight to Dashboard with test credentials.
+  /// Disable this (or set to `false`) when you want to test the normal auth flow.
+  private let autoLoginEnabled = true
+  private let debugEmail = "jack@email.com"
+  private let debugPassword = "Test@123"
+  #endif
 
   init(contentView: SplashView, flowDelegate: SplashFlowDelegate) {
     self.contentView = contentView
@@ -38,6 +47,13 @@ final class SplashViewController: UIViewController {
   }
 
   private func decideNavigationFlow() {
+    #if DEBUG
+    if autoLoginEnabled {
+      performDebugAutoLogin()
+      return
+    }
+    #endif
+
     if let firebaseUser = AuthenticationManager.shared.currentUser {
       // Authenticate local data manager with Firebase UID
       SecureLocalDataManager.shared.authenticateUser(firebaseUID: firebaseUser.uid)
@@ -368,3 +384,73 @@ extension SplashViewController {
     present(alertController, animated: true)
   }
 }
+
+// MARK: - DEBUG Auto-Login
+#if DEBUG
+extension SplashViewController {
+  /// Signs in with test credentials and navigates directly to Dashboard,
+  /// skipping splash animations, Face ID prompts, and the login screen entirely.
+  private func performDebugAutoLogin() {
+    logInfo("[DEBUG] Auto-login: signing in with \(debugEmail)")
+
+    Auth.auth().signIn(withEmail: debugEmail, password: debugPassword) { [weak self] result, error in
+      guard let self = self else { return }
+
+      if let error = error {
+        logError("[DEBUG] Auto-login failed: \(error.localizedDescription). Falling back to normal flow.")
+        DispatchQueue.main.async {
+          self.animateLogoUp()
+        }
+        return
+      }
+
+      guard let firebaseUser = result?.user else {
+        logError("[DEBUG] Auto-login: no user returned. Falling back to normal flow.")
+        DispatchQueue.main.async {
+          self.animateLogoUp()
+        }
+        return
+      }
+
+      logInfo("[DEBUG] Auto-login succeeded for UID: \(firebaseUser.uid)")
+
+      // Replicate the same setup that LoginViewModel.authenticationDidComplete performs
+      SecureLocalDataManager.shared.authenticateUser(firebaseUID: firebaseUser.uid)
+      UIDUserDefaultsManager.shared.currentUserUID = firebaseUser.uid
+
+      let existingSettings = UIDUserDefaultsManager.shared.getUserSettings(for: firebaseUser.uid)
+
+      let user: User
+      if let settings = existingSettings {
+        var updatedSettings = settings
+        updatedSettings.lastSignIn = Date()
+        UIDUserDefaultsManager.shared.saveUserSettings(for: firebaseUser.uid, settings: updatedSettings)
+
+        user = User(
+          firebaseUID: firebaseUser.uid,
+          name: settings.name,
+          email: settings.email,
+          isUserSaved: settings.isUserSaved,
+          hasFaceIdEnabled: settings.hasFaceIdEnabled
+        )
+      } else {
+        let displayName = firebaseUser.displayName ?? "User"
+        user = User(
+          firebaseUID: firebaseUser.uid,
+          name: displayName,
+          email: firebaseUser.email ?? "",
+          isUserSaved: true,
+          hasFaceIdEnabled: false
+        )
+      }
+
+      UserDefaultsManager.saveUserWithUID(user: user)
+      UserDefaultsManager.updateCurrentUserSavedStatus(saved: true)
+
+      DispatchQueue.main.async {
+        self.flowDelegate?.navigateDirectlyToDashboard()
+      }
+    }
+  }
+}
+#endif
