@@ -20,6 +20,15 @@ final class BudgetCard: UIView {
     private var chartHostingController: UIViewController?
     private var currentMonthAnchor: Int = 0
 
+    // Balance display properties
+    private var isShowingBudgetedBalance: Bool = false
+    private var finalBalance: Int = 0
+    private var budgetedBalance: Int = 0
+    private var savedAmount: Int = 0
+    private var animatedBalanceHost: UIHostingController<AnimatedNumberLabel>?
+    private var isValuesHidden: Bool = false
+
+
     // MARK: - UI Components
 
     // Header - matching MonthBudgetCard style
@@ -78,65 +87,70 @@ final class BudgetCard: UIView {
         return button
     }()
 
-    private lazy var chartContainerView: UIView = {
+    // Balance section
+    private lazy var balanceSectionView: UIView = {
         let view = UIView()
         view.translatesAutoresizingMaskIntoConstraints = false
         return view
     }()
 
-    // Footer - matching MonthBudgetCard style (two vertical stacks)
-    private lazy var footerStackView: UIStackView = {
+    private lazy var balanceHeaderStackView: UIStackView = {
         let stack = UIStackView()
         stack.axis = .horizontal
-        stack.distribution = .fillEqually
+        stack.alignment = .center
         stack.translatesAutoresizingMaskIntoConstraints = false
         return stack
     }()
 
-    private lazy var remainingStackView: UIStackView = {
-        let stack = UIStackView()
-        stack.axis = .vertical
-        stack.spacing = Metrics.spacing2
-        stack.alignment = .leading
-        return stack
-    }()
-
-    private lazy var remainingTextLabel: UILabel = {
-        let label = UILabel()
-        label.font = Fonts.textXS.font
-        label.text = "budget.remaining.label".localized
-        label.textColor = Colors.gray400
-        return label
-    }()
-
-    private lazy var remainingValueLabel: UILabel = {
+    private lazy var balanceLabel: UILabel = {
         let label = UILabel()
         label.font = Fonts.textSM.font
-        label.textColor = Colors.gray100
-        return label
-    }()
-
-    private lazy var savedStackView: UIStackView = {
-        let stack = UIStackView()
-        stack.axis = .vertical
-        stack.spacing = Metrics.spacing2
-        stack.alignment = .trailing
-        return stack
-    }()
-
-    private lazy var savedTextLabel: UILabel = {
-        let label = UILabel()
-        label.font = Fonts.textXS.font
-        label.text = "budget.saved.label".localized
         label.textColor = Colors.gray400
+        label.text = "monthCard.availableBudget".localized
         return label
     }()
 
-    private lazy var savedValueLabel: UILabel = {
+    private lazy var balanceToggleButton: UIButton = {
+        let button = UIButton(type: .system)
+        let config = UIImage.SymbolConfiguration(pointSize: 14, weight: .medium)
+        button.setImage(UIImage(systemName: "arrow.left.arrow.right", withConfiguration: config), for: .normal)
+        button.tintColor = Colors.gray400
+        button.addTarget(self, action: #selector(toggleBalanceView), for: .touchUpInside)
+        button.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            button.widthAnchor.constraint(equalToConstant: 32),
+            button.heightAnchor.constraint(equalToConstant: 32)
+        ])
+        return button
+    }()
+
+    private lazy var balanceValueContainer: UIView = {
+        let view = UIView()
+        view.translatesAutoresizingMaskIntoConstraints = false
+        return view
+    }()
+
+    private lazy var balanceValueLabel: UILabel = {
+        let label = UILabel()
+        label.font = Fonts.titleLG.font
+        label.textColor = Colors.gray100
+        label.translatesAutoresizingMaskIntoConstraints = false
+        return label
+    }()
+
+    private lazy var savedIndicatorLabel: UILabel = {
         let label = UILabel()
         label.font = Fonts.textSM.font
-        label.textColor = Colors.gray100
+        label.textColor = Colors.brightGreen
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.isHidden = true
         return label
+    }()
+
+    private lazy var chartContainerView: UIView = {
+        let view = UIView()
+        view.translatesAutoresizingMaskIntoConstraints = false
+        return view
     }()
 
     // Progress bar - edge to edge like MonthBudgetCard
@@ -223,19 +237,22 @@ final class BudgetCard: UIView {
         headerHorizontalStackView.addArrangedSubview(configButton)
         headerHorizontalStackView.setCustomSpacing(Metrics.spacing3, after: flipBackButton)
 
-        // Footer setup - two columns: Remaining (potential savings), Saved (actual performance)
-        remainingStackView.addArrangedSubview(remainingTextLabel)
-        remainingStackView.addArrangedSubview(remainingValueLabel)
+        // Balance section setup
+        balanceHeaderStackView.addArrangedSubview(balanceLabel)
+        balanceHeaderStackView.addArrangedSubview(UIView()) // Spacer
+        balanceHeaderStackView.addArrangedSubview(balanceToggleButton)
 
-        savedStackView.addArrangedSubview(savedTextLabel)
-        savedStackView.addArrangedSubview(savedValueLabel)
+        balanceValueContainer.addSubview(balanceValueLabel)
+        balanceValueContainer.addSubview(savedIndicatorLabel)
 
-        footerStackView.addArrangedSubview(remainingStackView)
-        footerStackView.addArrangedSubview(savedStackView)
+        balanceSectionView.addSubview(balanceHeaderStackView)
+        balanceSectionView.addSubview(balanceValueContainer)
+
+        // Footer removed - values moved to allocation table header
 
         addSubview(headerHorizontalStackView)
+        addSubview(balanceSectionView)
         addSubview(chartContainerView)
-        addSubview(footerStackView)
         addSubview(progressBar)
 
         // No budget state setup
@@ -246,6 +263,7 @@ final class BudgetCard: UIView {
         addSubview(noBudgetStateView)
 
         setupConstraints()
+        setupAnimatedBalanceLabel()
     }
 
     private func setupConstraints() {
@@ -255,18 +273,34 @@ final class BudgetCard: UIView {
             headerHorizontalStackView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Metrics.spacing6),
             headerHorizontalStackView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Metrics.spacing6),
 
-            // Chart container - centered between header and footer with minimum size
-            chartContainerView.topAnchor.constraint(equalTo: headerHorizontalStackView.bottomAnchor, constant: Metrics.spacing4),
+            // Balance section - below header
+            balanceSectionView.topAnchor.constraint(equalTo: headerHorizontalStackView.bottomAnchor, constant: Metrics.spacing4),
+            balanceSectionView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Metrics.spacing6),
+            balanceSectionView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Metrics.spacing6),
+
+            balanceHeaderStackView.topAnchor.constraint(equalTo: balanceSectionView.topAnchor),
+            balanceHeaderStackView.leadingAnchor.constraint(equalTo: balanceSectionView.leadingAnchor),
+            balanceHeaderStackView.trailingAnchor.constraint(equalTo: balanceSectionView.trailingAnchor),
+
+            balanceValueContainer.topAnchor.constraint(equalTo: balanceHeaderStackView.bottomAnchor, constant: Metrics.spacing1),
+            balanceValueContainer.leadingAnchor.constraint(equalTo: balanceSectionView.leadingAnchor),
+            balanceValueContainer.trailingAnchor.constraint(equalTo: balanceSectionView.trailingAnchor),
+            balanceValueContainer.bottomAnchor.constraint(equalTo: balanceSectionView.bottomAnchor),
+            balanceValueContainer.heightAnchor.constraint(equalToConstant: 36),
+
+            balanceValueLabel.leadingAnchor.constraint(equalTo: balanceValueContainer.leadingAnchor),
+            balanceValueLabel.centerYAnchor.constraint(equalTo: balanceValueContainer.centerYAnchor),
+
+            savedIndicatorLabel.trailingAnchor.constraint(equalTo: balanceValueContainer.trailingAnchor),
+            savedIndicatorLabel.centerYAnchor.constraint(equalTo: balanceValueContainer.centerYAnchor),
+
+            // Chart container - between balance section and progress bar
+            chartContainerView.topAnchor.constraint(equalTo: balanceSectionView.bottomAnchor, constant: Metrics.spacing3),
             chartContainerView.centerXAnchor.constraint(equalTo: centerXAnchor),
-            chartContainerView.bottomAnchor.constraint(equalTo: footerStackView.topAnchor, constant: -Metrics.spacing4),
+            chartContainerView.bottomAnchor.constraint(equalTo: progressBar.topAnchor, constant: -Metrics.spacing6),
             chartContainerView.widthAnchor.constraint(equalTo: chartContainerView.heightAnchor),
             // Minimum size for the chart to ensure it's big enough
             chartContainerView.heightAnchor.constraint(greaterThanOrEqualToConstant: 160),
-
-            // Footer - above progress bar
-            footerStackView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Metrics.spacing6),
-            footerStackView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Metrics.spacing6),
-            footerStackView.bottomAnchor.constraint(equalTo: progressBar.topAnchor, constant: -Metrics.spacing4),
 
             // Progress bar - edge to edge at bottom
             progressBar.bottomAnchor.constraint(equalTo: bottomAnchor),
@@ -320,12 +354,32 @@ final class BudgetCard: UIView {
         allocations: [BudgetAllocation],
         unallocatedSummary: UnallocatedBudgetSummary,
         unallocatedSpending: [UnallocatedCategorySpending],
-        monthAnchor: Int
+        monthAnchor: Int,
+        cumulativeBalance: Int
     ) {
         self.allocations = allocations
         self.unallocatedSummary = unallocatedSummary
         self.unallocatedSpending = unallocatedSpending
         self.currentMonthAnchor = monthAnchor
+        self.isValuesHidden = UserDefaultsManager.getHideValues()
+
+        // Calculate remaining allocations (positive values only - money that can still be saved)
+        let remainingAllocations = allocations.reduce(0) { total, allocation in
+            let remaining = allocation.allocatedAmount - allocation.usedAmount
+            return total + max(0, remaining)
+        }
+
+        // Calculate net saved amount (can be negative if overspent in some categories)
+        // This is the sum of (allocated - used) for ALL allocations, including overspending
+        self.savedAmount = allocations.reduce(0) { $0 + ($1.allocatedAmount - $1.usedAmount) }
+
+        // Final Balance = cumulative balance + remaining allocations
+        // Shows: "Your balance if you don't spend the remaining allocations"
+        self.finalBalance = cumulativeBalance + remainingAllocations
+
+        // Budgeted Balance = cumulative balance (actual)
+        // The saved indicator shows how much was saved/overspent vs allocations
+        self.budgetedBalance = cumulativeBalance
 
         // Header - matching MonthBudgetCard format with "/ " prefix on year
         monthLabel.text = month
@@ -338,6 +392,7 @@ final class BudgetCard: UIView {
         if hasBudget {
             // Show chart and metrics
             showBudgetMetrics(unallocatedSummary: unallocatedSummary)
+            updateBalanceDisplay()
         } else {
             // Show "define budget" state
             showNoBudgetState()
@@ -348,35 +403,10 @@ final class BudgetCard: UIView {
         // Hide no budget state
         noBudgetStateView.isHidden = true
 
-        // Show chart and metrics
+        // Show balance section, chart and progress bar
+        balanceSectionView.isHidden = false
         chartContainerView.isHidden = false
-        footerStackView.isHidden = false
         progressBar.isHidden = false
-
-        // Footer values - two columns:
-        // 1. Remaining: unallocated budget (potential savings if not used)
-        let unallocatedAmount = unallocatedSummary.unallocatedAmount
-        if unallocatedAmount >= 0 {
-            remainingValueLabel.text = unallocatedAmount.currencyString
-            remainingValueLabel.textColor = Colors.gray100
-        } else {
-            // Over-allocated: show negative in amber/warning color
-            remainingValueLabel.text = "-" + abs(unallocatedAmount).currencyString
-            remainingValueLabel.textColor = Colors.warningAmber
-        }
-
-        // 2. Saved: net savings from actual spending (allocated remaining - unallocated spending)
-        // Positive = under budget (money saved), Negative = over budget (overspent)
-        let allocatedRemaining = allocations.reduce(0) { $0 + $1.remainingAmount }
-        let netSaved = allocatedRemaining - unallocatedSummary.totalUsedInUnallocatedCategories
-
-        if netSaved >= 0 {
-            savedValueLabel.text = netSaved.currencyString
-            savedValueLabel.textColor = Colors.brightGreen
-        } else {
-            savedValueLabel.text = "-" + abs(netSaved).currencyString
-            savedValueLabel.textColor = Colors.brightRed
-        }
 
         // Progress bar shows allocation progress
         let allocatedPercent = unallocatedSummary.totalBudget > 0
@@ -390,9 +420,9 @@ final class BudgetCard: UIView {
     }
 
     private func showNoBudgetState() {
-        // Hide chart and metrics
+        // Hide balance section, chart and progress bar
+        balanceSectionView.isHidden = true
         chartContainerView.isHidden = true
-        footerStackView.isHidden = true
         progressBar.isHidden = true
 
         // Remove existing chart
@@ -437,5 +467,96 @@ final class BudgetCard: UIView {
         ])
 
         chartHostingController = hostingController
+    }
+
+    // MARK: - Balance Display
+
+    private func setupAnimatedBalanceLabel() {
+        let balanceView = AnimatedNumberLabel(
+            value: finalBalance,
+            font: Fonts.titleLG.font,
+            color: Colors.gray100,
+            currencyCode: AppConfig.currencyCode
+        )
+
+        let hostingController = UIHostingController(rootView: balanceView)
+        hostingController.view.backgroundColor = .clear
+        hostingController.view.translatesAutoresizingMaskIntoConstraints = false
+
+        balanceValueContainer.addSubview(hostingController.view)
+
+        NSLayoutConstraint.activate([
+            hostingController.view.leadingAnchor.constraint(equalTo: balanceValueContainer.leadingAnchor),
+            hostingController.view.centerYAnchor.constraint(equalTo: balanceValueContainer.centerYAnchor)
+        ])
+
+        animatedBalanceHost = hostingController
+
+        // Hide the static label since we're using animated
+        balanceValueLabel.isHidden = true
+    }
+
+    @objc private func toggleBalanceView() {
+        isShowingBudgetedBalance.toggle()
+        updateBalanceDisplay()
+    }
+
+    private func updateBalanceDisplay() {
+        if isShowingBudgetedBalance {
+            // Show Budgeted Balance (actual cumulative balance)
+            // Saved indicator shows net savings vs allocations (+/-)
+            balanceLabel.text = "budget.balance.budgeted".localized
+
+            // Update animated label
+            if let host = animatedBalanceHost {
+                host.rootView = AnimatedNumberLabel(
+                    value: isValuesHidden ? 0 : budgetedBalance,
+                    font: Fonts.titleLG.font,
+                    color: Colors.gray100,
+                    currencyCode: AppConfig.currencyCode
+                )
+            }
+
+            // Show saved indicator
+            if !isValuesHidden {
+                savedIndicatorLabel.isHidden = false
+                if savedAmount >= 0 {
+                    savedIndicatorLabel.text = "+\(savedAmount.currencyString)"
+                    savedIndicatorLabel.textColor = Colors.brightGreen
+                } else {
+                    savedIndicatorLabel.text = savedAmount.currencyString
+                    savedIndicatorLabel.textColor = Colors.brightRed
+                }
+            } else {
+                savedIndicatorLabel.isHidden = true
+            }
+        } else {
+            // Show Final Balance (projected - cumulative + remaining allocations)
+            // This shows balance if remaining allocations are NOT spent
+            balanceLabel.text = "monthCard.availableBudget".localized
+
+            // Update animated label
+            if let host = animatedBalanceHost {
+                host.rootView = AnimatedNumberLabel(
+                    value: isValuesHidden ? 0 : finalBalance,
+                    font: Fonts.titleLG.font,
+                    color: Colors.gray100,
+                    currencyCode: AppConfig.currencyCode
+                )
+            }
+
+            // Hide saved indicator in final balance view
+            savedIndicatorLabel.isHidden = true
+        }
+
+        // Handle hidden values state
+        if isValuesHidden {
+            balanceValueLabel.text = "****"
+            balanceValueLabel.isHidden = false
+            animatedBalanceHost?.view.isHidden = true
+        } else {
+            balanceValueLabel.isHidden = true
+            animatedBalanceHost?.view.isHidden = false
+        }
     }
 }

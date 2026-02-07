@@ -92,6 +92,7 @@ class MonthCarouselCell: UICollectionViewCell {
     private var currentAllocations: [BudgetAllocation] = []
     private var currentUnallocatedSpending: [UnallocatedCategorySpending] = []
     private(set) var currentMonthAnchor: Int = 0
+    private var currentMonthModel: MonthBudgetCardType?
     private let allocationService = BudgetAllocationService()
 
     /// Sets the month anchor for this cell (used for budget allocation operations)
@@ -327,6 +328,7 @@ class MonthCarouselCell: UICollectionViewCell {
         return label
     }()
 
+
     lazy var allocationsTableView: UITableView = {
         let tableView = UITableView()
         tableView.backgroundColor = Colors.gray100
@@ -425,7 +427,8 @@ class MonthCarouselCell: UICollectionViewCell {
             allocations: allocations,
             unallocatedSummary: summary,
             unallocatedSpending: currentUnallocatedSpending,
-            monthAnchor: currentMonthAnchor
+            monthAnchor: currentMonthAnchor,
+            cumulativeBalance: currentMonthModel?.finalBalance ?? 0
         )
 
         // Show/hide empty state - show table if there are allocations OR unallocated spending
@@ -433,6 +436,7 @@ class MonthCarouselCell: UICollectionViewCell {
         allocationsTableView.isHidden = !hasContent
         allocationsEmptyStateView.isHidden = hasContent
     }
+
 
     private func setupViews() {
         monthCard.translatesAutoresizingMaskIntoConstraints = false
@@ -480,6 +484,7 @@ class MonthCarouselCell: UICollectionViewCell {
         allocationsTableHeaderView.addArrangedSubview(allocationsHeaderTitleLabel)
         allocationsTableHeaderView.addArrangedSubview(allocationsNumberContainerView)
         allocationsNumberContainerView.addArrangedSubview(allocationsNumberLabel)
+
         contentView.addSubview(allocationsTableView)
         contentView.addSubview(allocationsEmptyStateView)
         allocationsEmptyStateView.addSubview(allocationsEmptyStateIconImageView)
@@ -586,6 +591,7 @@ class MonthCarouselCell: UICollectionViewCell {
     
     func configure(with model: MonthBudgetCardType, transactions: [Transaction]) {
         monthCard.configure(data: model)
+        self.currentMonthModel = model
         self.transactions = transactions
         self.currentMonthAnchor = model.date.monthAnchor
         
@@ -997,7 +1003,8 @@ class MonthCarouselCell: UICollectionViewCell {
             allocations: allocations,
             unallocatedSummary: summary,
             unallocatedSpending: currentUnallocatedSpending,
-            monthAnchor: currentMonthAnchor
+            monthAnchor: currentMonthAnchor,
+            cumulativeBalance: currentMonthModel?.finalBalance ?? 0
         )
 
         // Show table if there are allocations OR unallocated spending
@@ -1095,7 +1102,8 @@ class MonthCarouselCell: UICollectionViewCell {
             allocations: allocations,
             unallocatedSummary: summary,
             unallocatedSpending: currentUnallocatedSpending,
-            monthAnchor: currentMonthAnchor
+            monthAnchor: currentMonthAnchor,
+            cumulativeBalance: currentMonthModel?.finalBalance ?? 0
         )
 
         // Show table if there are allocations OR unallocated spending
@@ -1145,7 +1153,8 @@ class MonthCarouselCell: UICollectionViewCell {
             allocations: allocations,
             unallocatedSummary: summary,
             unallocatedSpending: currentUnallocatedSpending,
-            monthAnchor: currentMonthAnchor
+            monthAnchor: currentMonthAnchor,
+            cumulativeBalance: currentMonthModel?.finalBalance ?? 0
         )
 
         // Update visibility based on content

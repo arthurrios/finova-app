@@ -79,17 +79,23 @@ final class SyncedCollectionsViewModel: ObservableObject {
 
     var updatedMonthData = monthData
 
+    // Calculate cumulative balance by processing months in chronological order
+    // monthData is assumed to be sorted from oldest to newest
+    var runningBalance = 0
+
     for index in 0..<updatedMonthData.count {
       let dateKey = DateFormatter.keyFormatter.string(from: updatedMonthData[index].date)
 
-      let total =
+      let monthNet =
         allTransactions
         .filter { DateFormatter.keyFormatter.string(from: $0.date) == dateKey }
         .reduce(0) { result, transaction in
           transaction.type == .income ? result + transaction.amount : result - transaction.amount
         }
 
-      updatedMonthData[index].finalBalance = total
+      // Add this month's net to running balance for cumulative total
+      runningBalance += monthNet
+      updatedMonthData[index].finalBalance = runningBalance
     }
 
     monthData = updatedMonthData

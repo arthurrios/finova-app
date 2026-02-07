@@ -1998,6 +1998,23 @@
         }
       }
     },
+    "budget.balance.budgeted" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Budgeted Balance"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Saldo Orçado"
+          }
+        }
+      }
+    },
     "budget.allocations.emptyState.description" : {
       "extractionState" : "manual",
       "localizations" : {
