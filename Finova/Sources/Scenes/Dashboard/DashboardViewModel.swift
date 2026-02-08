@@ -53,6 +53,11 @@ final class DashboardViewModel {
   }
 
   func loadMonthlyCards() -> [MonthBudgetCardType] {
+    // Repair any orphaned credit card transactions (missing statements from edit bug)
+    if let uid = AuthenticationManager.shared.currentUser?.uid {
+      creditCardService.repairOrphanedCreditCardTransactions(userId: uid, transactionRepo: transactionRepo)
+    }
+
     // Use the transaction ledger service for all calculations
     let monthlyData = transactionLedger.calculateMonthlyData(for: monthRange)
 

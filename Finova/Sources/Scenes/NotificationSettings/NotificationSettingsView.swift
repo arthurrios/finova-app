@@ -13,6 +13,7 @@ protocol NotificationSettingsViewDelegate: AnyObject {
   func didToggleTransactionNotifications(_ isEnabled: Bool)
   func didToggleAppUpdateNotifications(_ isEnabled: Bool)
   func didToggleNegativeBalanceNotifications(_ isEnabled: Bool)
+  func didToggleCreditCardStatementNotifications(_ isEnabled: Bool)
 }
 
 final class NotificationSettingsView: UIView {
@@ -148,6 +149,26 @@ final class NotificationSettingsView: UIView {
     return label
   }()
 
+  private let creditCardStatementContainer = createSettingContainer()
+  private let creditCardStatementIconView = createIconView(imageName: "creditcard.and.123")
+  private let creditCardStatementLabel = createSettingLabel(text: "notificationSettings.creditCardStatement.title".localized)
+  let creditCardStatementSwitch: UISwitch = {
+    let toggle = UISwitch()
+    toggle.onTintColor = Colors.mainMagenta
+    toggle.translatesAutoresizingMaskIntoConstraints = false
+    return toggle
+  }()
+
+  private let creditCardStatementDescriptionLabel: UILabel = {
+    let label = UILabel()
+    label.text = "notificationSettings.creditCardStatement.description".localized
+    label.font = Fonts.textXS.font
+    label.textColor = Colors.gray500
+    label.numberOfLines = 0
+    label.translatesAutoresizingMaskIntoConstraints = false
+    return label
+  }()
+
   // Push Notifications Section
   private let pushHeaderView = createSectionHeader(title: "notificationSettings.section.push".localized)
 
@@ -216,6 +237,10 @@ final class NotificationSettingsView: UIView {
     contentStackView.addArrangedSubview(negativeBalanceContainer)
     contentStackView.addArrangedSubview(negativeBalanceDescriptionLabel)
 
+    setupCreditCardStatementContainer()
+    contentStackView.addArrangedSubview(creditCardStatementContainer)
+    contentStackView.addArrangedSubview(creditCardStatementDescriptionLabel)
+
     // Push notifications section
     contentStackView.addArrangedSubview(pushHeaderView)
     setupAppUpdateContainer()
@@ -271,6 +296,23 @@ final class NotificationSettingsView: UIView {
 
       negativeBalanceSwitch.trailingAnchor.constraint(equalTo: negativeBalanceContainer.trailingAnchor, constant: -Metrics.spacing4),
       negativeBalanceSwitch.centerYAnchor.constraint(equalTo: negativeBalanceContainer.centerYAnchor)
+    ])
+  }
+
+  private func setupCreditCardStatementContainer() {
+    creditCardStatementContainer.addSubview(creditCardStatementIconView)
+    creditCardStatementContainer.addSubview(creditCardStatementLabel)
+    creditCardStatementContainer.addSubview(creditCardStatementSwitch)
+
+    NSLayoutConstraint.activate([
+      creditCardStatementIconView.leadingAnchor.constraint(equalTo: creditCardStatementContainer.leadingAnchor, constant: Metrics.spacing4),
+      creditCardStatementIconView.centerYAnchor.constraint(equalTo: creditCardStatementContainer.centerYAnchor),
+
+      creditCardStatementLabel.leadingAnchor.constraint(equalTo: creditCardStatementIconView.trailingAnchor, constant: Metrics.spacing3),
+      creditCardStatementLabel.centerYAnchor.constraint(equalTo: creditCardStatementContainer.centerYAnchor),
+
+      creditCardStatementSwitch.trailingAnchor.constraint(equalTo: creditCardStatementContainer.trailingAnchor, constant: -Metrics.spacing4),
+      creditCardStatementSwitch.centerYAnchor.constraint(equalTo: creditCardStatementContainer.centerYAnchor)
     ])
   }
 
@@ -330,7 +372,7 @@ final class NotificationSettingsView: UIView {
 
   private func setupBackButtonGlassEffect() {
     if #available(iOS 26.0, *) {
-      let glassEffect = UIGlassEffect()
+      let glassEffect = UIGlassEffect(style: .clear)
       glassEffect.isInteractive = true
       let glassView = UIVisualEffectView(effect: glassEffect)
       glassView.translatesAutoresizingMaskIntoConstraints = false
@@ -352,12 +394,13 @@ final class NotificationSettingsView: UIView {
     allNotificationsSwitch.addTarget(self, action: #selector(allNotificationsToggled), for: .valueChanged)
     transactionSwitch.addTarget(self, action: #selector(transactionToggled), for: .valueChanged)
     negativeBalanceSwitch.addTarget(self, action: #selector(negativeBalanceToggled), for: .valueChanged)
+    creditCardStatementSwitch.addTarget(self, action: #selector(creditCardStatementToggled), for: .valueChanged)
     appUpdateSwitch.addTarget(self, action: #selector(appUpdateToggled), for: .valueChanged)
   }
 
   // MARK: - Public Methods
 
-  func updateUI(allDisabled: Bool, transactionEnabled: Bool, appUpdateEnabled: Bool, negativeBalanceEnabled: Bool) {
+  func updateUI(allDisabled: Bool, transactionEnabled: Bool, appUpdateEnabled: Bool, negativeBalanceEnabled: Bool, creditCardStatementEnabled: Bool) {
     allNotificationsSwitch.isOn = allDisabled
 
     // When all notifications are disabled, disable individual toggles
@@ -368,6 +411,10 @@ final class NotificationSettingsView: UIView {
     negativeBalanceSwitch.isOn = negativeBalanceEnabled && !allDisabled
     negativeBalanceSwitch.isEnabled = !allDisabled
     negativeBalanceContainer.alpha = allDisabled ? 0.5 : 1.0
+
+    creditCardStatementSwitch.isOn = creditCardStatementEnabled && !allDisabled
+    creditCardStatementSwitch.isEnabled = !allDisabled
+    creditCardStatementContainer.alpha = allDisabled ? 0.5 : 1.0
 
     appUpdateSwitch.isOn = appUpdateEnabled && !allDisabled
     appUpdateSwitch.isEnabled = !allDisabled
@@ -389,6 +436,11 @@ final class NotificationSettingsView: UIView {
   @objc
   private func negativeBalanceToggled() {
     delegate?.didToggleNegativeBalanceNotifications(negativeBalanceSwitch.isOn)
+  }
+
+  @objc
+  private func creditCardStatementToggled() {
+    delegate?.didToggleCreditCardStatementNotifications(creditCardStatementSwitch.isOn)
   }
 
   @objc

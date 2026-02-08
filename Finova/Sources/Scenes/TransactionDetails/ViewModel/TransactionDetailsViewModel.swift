@@ -75,6 +75,11 @@ final class TransactionDetailsViewModel {
     return transaction.type == .income ? Colors.mainGreen : Colors.mainRed
   }
 
+  func getCreditCard() -> CreditCard? {
+    guard let cardId = transaction.creditCardId else { return nil }
+    return CreditCardRepository().fetchCard(byId: cardId)
+  }
+
   func getTransactionModeDescription() -> String {
     switch transaction.mode {
     case .normal:

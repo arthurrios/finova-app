@@ -959,7 +959,8 @@ final class AddTransactionModalViewModel {
         installmentNumber: nil,
         totalInstallments: nil,
         creditCardId: newCreditCardId,
-        statementId: newStatementId
+        statementId: newStatementId,
+        isCreditCardStatement: newCreditCardId != nil ? false : nil
       )
 
       try transactionRepo.updateTransaction(updatedTransaction)
@@ -1175,7 +1176,8 @@ final class AddTransactionModalViewModel {
         originalAmount: data.totalAmount,
         installmentNumber: nil,
         totalInstallments: data.installments,
-        creditCardId: data.creditCardId
+        creditCardId: data.creditCardId,
+        isCreditCardStatement: data.creditCardId != nil ? false : nil
       )
 
       do {
@@ -1198,7 +1200,8 @@ final class AddTransactionModalViewModel {
     amount: Int,
     dateString: String,
     categoryKey: String,
-    typeRaw: String
+    typeRaw: String,
+    creditCardId: Int? = nil
   ) -> Result<Void, Error> {
 
     guard
@@ -1220,6 +1223,11 @@ final class AddTransactionModalViewModel {
     }
 
     do {
+      // Look up original transaction to check CC fields
+      let originalTransaction = transactionRepo.fetchAllTransactions().first(where: { $0.id == id })
+      let originalCreditCardId = originalTransaction?.creditCardId
+      let originalStatementId = originalTransaction?.statementId
+
       try transactionRepo.updateSingleTransactionOnly(
         id: id,
         title: title,
@@ -1228,6 +1236,59 @@ final class AddTransactionModalViewModel {
         amount: amount,
         date: dateObj
       )
+
+      // Handle credit card statement assignment
+      let creditCardChanged = creditCardId != originalCreditCardId
+      var newStatementId: Int? = originalStatementId
+
+      if creditCardChanged {
+        if let cardId = creditCardId, let card = creditCardRepo.fetchCard(byId: cardId) {
+          // Assigned to a credit card (new or changed)
+          guard let uid = AuthenticationManager.shared.currentUser?.uid else {
+            invalidateLedgerCache()
+            return .success(())
+          }
+          if let statement = creditCardService.getOrCreateStatement(for: card, transactionDate: dateObj, userId: uid) {
+            try transactionRepo.updateCreditCardFields(
+              transactionId: id,
+              creditCardId: cardId,
+              statementId: statement.id!,
+              isCreditCardStatement: false
+            )
+            newStatementId = statement.id
+          }
+        } else {
+          // Removed from credit card
+          try transactionRepo.clearCreditCardFields(transactionId: id)
+          newStatementId = nil
+        }
+      } else if let cardId = creditCardId, let card = creditCardRepo.fetchCard(byId: cardId) {
+        // Same card but date might have changed → recalculate statement
+        guard let uid = AuthenticationManager.shared.currentUser?.uid else {
+          invalidateLedgerCache()
+          return .success(())
+        }
+        if let statement = creditCardService.getOrCreateStatement(for: card, transactionDate: dateObj, userId: uid) {
+          try transactionRepo.updateCreditCardFields(
+            transactionId: id,
+            creditCardId: cardId,
+            statementId: statement.id!,
+            isCreditCardStatement: false
+          )
+          newStatementId = statement.id
+        }
+      }
+
+      // Recalculate old statement if transaction moved away from it
+      if let oldStmtId = originalStatementId, oldStmtId != newStatementId {
+        creditCardService.recalculateStatementTotal(statementId: oldStmtId)
+      }
+
+      // Recalculate new statement
+      if let newStmtId = newStatementId {
+        creditCardService.recalculateStatementTotal(statementId: newStmtId)
+      }
+
       invalidateLedgerCache()
       return .success(())
 

@@ -15,6 +15,7 @@ struct BudgetDonutChartView: View {
     let totalBudget: Int
     let unallocatedAmount: Int
     let unallocatedSpending: [UnallocatedCategorySpending]
+    var isValuesHidden: Bool = false
     var onSegmentTapped: ((TransactionCategory) -> Void)?
     var onUnallocatedSpendingTapped: ((UnallocatedCategorySpending) -> Void)?
 
@@ -200,7 +201,7 @@ struct BudgetDonutChartView: View {
                             .foregroundColor(Color(Colors.gray300))
                             .lineLimit(1)
                             .minimumScaleFactor(0.8)
-                        Text(compactCurrency(allocation.allocatedAmount))
+                        Text(isValuesHidden ? "••••••" : compactCurrency(allocation.allocatedAmount))
                             .font(.system(size: 14, weight: .bold))
                             .foregroundColor(Color(Colors.gray100))
                             .lineLimit(1)
@@ -219,7 +220,7 @@ struct BudgetDonutChartView: View {
                             .foregroundColor(Color(Colors.gray300))
                             .lineLimit(1)
                             .minimumScaleFactor(0.8)
-                        Text(compactCurrency(spending.spentAmount))
+                        Text(isValuesHidden ? "••••••" : compactCurrency(spending.spentAmount))
                             .font(.system(size: 14, weight: .bold))
                             .foregroundColor(Color(Colors.gray100))
                             .lineLimit(1)
@@ -234,7 +235,7 @@ struct BudgetDonutChartView: View {
                             .foregroundColor(Color(Colors.gray300))
                             .lineLimit(1)
                             .minimumScaleFactor(0.8)
-                        Text(compactCurrency(effectiveUnallocatedAmount))
+                        Text(isValuesHidden ? "••••••" : compactCurrency(effectiveUnallocatedAmount))
                             .font(.system(size: 14, weight: .bold))
                             .foregroundColor(Color(Colors.gray100))
                             .lineLimit(1)
@@ -251,7 +252,7 @@ struct BudgetDonutChartView: View {
                             .foregroundColor(Color(Colors.gray500))
                     } else {
                         // Show total budget
-                        Text(compactCurrency(totalBudget))
+                        Text(isValuesHidden ? "••••••" : compactCurrency(totalBudget))
                             .font(.system(size: 16, weight: .bold))
                             .foregroundColor(Color(Colors.gray100))
                             .lineLimit(1)

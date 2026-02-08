@@ -388,6 +388,7 @@ final class AddTransactionModalView: UIView {
 
     setupTransactionModeControl()
     setupInstallmentsConstraints()
+    setupDateChangeListener()
 
     setupConstraints()
   }
@@ -422,6 +423,14 @@ final class AddTransactionModalView: UIView {
     heightC.priority = .defaultHigh
     heightC.isActive = true
     contentHeightConstraint = heightC
+  }
+
+  private func setupDateChangeListener() {
+    dateTextField.textField.addTarget(self, action: #selector(dateDidChange), for: .editingChanged)
+  }
+
+  @objc private func dateDidChange() {
+    updateStatementInfoBanner()
   }
 
   private func setupTransactionModeControl() {
@@ -771,6 +780,12 @@ final class AddTransactionModalView: UIView {
         if let index = availableCards.firstIndex(where: { $0.id == defaultCard.id }) {
           cardPickerInput.selectPickerValue(at: index)
         }
+      } else if let firstCard = availableCards.first, let cardId = firstCard.id {
+        // No default card — auto-select the first available card so the picker
+        // doesn't stay at cardId 0 when the user taps Done without scrolling
+        selectedPaymentMethod = .creditCard(cardId: cardId)
+        selectedCard = firstCard
+        cardPickerInput.selectPickerValue(at: 0)
       } else {
         selectedPaymentMethod = .creditCard(cardId: 0)
         selectedCard = nil
@@ -840,8 +855,20 @@ final class AddTransactionModalView: UIView {
       return
     }
 
+    // Use the selected transaction date instead of today's date
+    let transactionDate: Date
+    if let selectedDate = dateTextField.dateValue {
+      transactionDate = selectedDate
+    } else if let dateText = dateTextField.textField.text,
+              !dateText.isEmpty,
+              let parsedDate = DateFormatter.fullDateFormatter.date(from: dateText) {
+      transactionDate = parsedDate
+    } else {
+      transactionDate = Date()
+    }
+
     let service = CreditCardService()
-    let closingDate = service.calculateClosingDate(card: card, transactionDate: Date())
+    let closingDate = service.calculateClosingDate(card: card, transactionDate: transactionDate)
     let dueDate = service.calculateDueDate(closingDate: closingDate, card: card)
     let monthName = DateFormatter.monthFormatter.string(from: closingDate)
     let dueDateStr = DateFormatter.fullDateFormatter.string(from: dueDate)

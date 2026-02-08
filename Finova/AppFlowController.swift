@@ -42,6 +42,13 @@ class AppFlowController {
             name: .navigateToTransactionDetails,
             object: nil
         )
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleNavigateToStatementDetails(_:)),
+            name: .navigateToStatementDetails,
+            object: nil
+        )
     }
     
     /// Handles navigation to transaction details from notification tap
@@ -85,6 +92,46 @@ class AppFlowController {
         }
     }
     
+    /// Handles navigation to statement details from notification tap
+    @objc private func handleNavigateToStatementDetails(_ notification: Notification) {
+        guard let statementId = notification.userInfo?["statementId"] as? Int,
+              let cardId = notification.userInfo?["cardId"] as? Int else {
+            logWarning("AppFlowController: Missing statementId or cardId in navigation notification")
+            return
+        }
+
+        logDebug("AppFlowController: Navigating to statement details for ID: \(statementId)")
+
+        let cardRepo = CreditCardRepository()
+        let statementRepo = StatementRepository()
+
+        guard let card = cardRepo.fetchCard(byId: cardId) else {
+            logWarning("AppFlowController: Could not find card with ID: \(cardId)")
+            return
+        }
+
+        let statements = statementRepo.fetchStatements(forCardId: cardId)
+        guard let statement = statements.first(where: { $0.id == statementId }) else {
+            logWarning("AppFlowController: Could not find statement with ID: \(statementId)")
+            return
+        }
+
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+
+            self.navigationController?.dismiss(animated: false)
+
+            if !(self.navigationController?.topViewController is DashboardViewController) {
+                self.navigationController?.popToRootViewController(animated: false)
+                let dashboardViewController = self.viewControllersFactory.makeDashboardViewController(
+                    flowDelegate: self)
+                self.navigationController?.pushViewController(dashboardViewController, animated: false)
+            }
+
+            self.navigateToStatementDetails(card: card, statement: statement)
+        }
+    }
+
     /// Handles app foreground refresh notification
     @objc private func handleAppDidEnterForeground() {
         logDebug("AppFlowController: Handling app foreground refresh")
@@ -220,6 +267,41 @@ extension AppFlowController: DashboardFlowDelegate, SettingsFlowDelegate, Notifi
         UpdateToastManager.shared.openAppStore()
     }
     
+    func navigateToStatementDetailsFromNotificationHistory(statementId: Int) {
+        let statementRepo = StatementRepository()
+        let cardRepo = CreditCardRepository()
+
+        // Look up the card from the statement's creditCardId
+        // We need to search all cards' statements to find the one with this statementId
+        guard let user = UserDefaultsManager.getUser(),
+              let firebaseUID = user.firebaseUID else {
+            logWarning("AppFlowController: Cannot navigate to statement - user not authenticated")
+            return
+        }
+
+        let cards = cardRepo.fetchAllCards(userId: firebaseUID)
+        var foundCard: CreditCard?
+        var foundStatement: CreditCardStatement?
+
+        for card in cards {
+            guard let cardId = card.id else { continue }
+            let statements = statementRepo.fetchStatements(forCardId: cardId)
+            if let statement = statements.first(where: { $0.id == statementId }) {
+                foundCard = card
+                foundStatement = statement
+                break
+            }
+        }
+
+        guard let card = foundCard, let statement = foundStatement else {
+            logWarning("AppFlowController: Could not find statement with ID: \(statementId)")
+            return
+        }
+
+        navigationController?.popViewController(animated: false)
+        navigateToStatementDetails(card: card, statement: statement)
+    }
+
     func navigateToTransactionDetailsFromNotificationHistory(transactionId: Int) {
         // Find the transaction by ID
         let transactionRepo = TransactionRepository()

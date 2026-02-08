@@ -378,7 +378,9 @@ final class TransactionLedgerService {
       let transactionDateOnly = calendar.date(from: transactionComponents) ?? transactionDate
 
       // Include transactions from target date and earlier
+      // Exclude credit card transactions (they only affect balance when statement is due)
       return transactionDateOnly <= targetDateOnly
+        && (transaction.creditCardId == nil || transaction.isCreditCardStatement == true)
     }
 
     // Calculate running balance from the beginning of time up to target date

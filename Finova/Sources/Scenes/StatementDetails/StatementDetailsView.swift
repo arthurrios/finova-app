@@ -125,6 +125,7 @@ final class StatementDetailsView: UIView {
         tableView.clipsToBounds = true
         tableView.separatorColor = Colors.gray300
         tableView.isScrollEnabled = true
+        tableView.showsVerticalScrollIndicator = false
         tableView.translatesAutoresizingMaskIntoConstraints = false
         tableView.register(TransactionCell.self, forCellReuseIdentifier: TransactionCell.reuseID)
         tableView.dataSource = self
@@ -300,7 +301,7 @@ final class StatementDetailsView: UIView {
 
     private func setupBackButtonGlassEffect() {
         if #available(iOS 26.0, *) {
-            let glassEffect = UIGlassEffect()
+            let glassEffect = UIGlassEffect(style: .clear)
             glassEffect.isInteractive = true
             let glassView = UIVisualEffectView(effect: glassEffect)
             glassView.translatesAutoresizingMaskIntoConstraints = false

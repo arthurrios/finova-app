@@ -55,6 +55,9 @@ final class TransactionRepository: TransactionRepositoryProtocol {
       installmentNumber: newTransaction.installmentNumber,
       totalInstallments: newTransaction.totalInstallments,
       originalAmount: newTransaction.originalAmount,
+      creditCardId: newTransaction.creditCardId,
+      statementId: newTransaction.statementId,
+      isCreditCardStatement: newTransaction.isCreditCardStatement,
       category: newTransaction.category,
       type: newTransaction.type
     )
@@ -217,6 +220,9 @@ final class TransactionRepository: TransactionRepositoryProtocol {
       installmentNumber: uiData.installmentNumber,
       totalInstallments: uiData.totalInstallments,
       originalAmount: uiData.originalAmount,
+      creditCardId: uiData.creditCardId,
+      statementId: uiData.statementId,
+      isCreditCardStatement: uiData.isCreditCardStatement,
       category: uiData.category,
       type: uiData.type
     )
@@ -245,10 +251,11 @@ final class TransactionRepository: TransactionRepositoryProtocol {
         TransactionType.allCases.first(where: { String(describing: $0) == transaction.data.type })
         ?? .expense
 
-      // Preserve credit card fields: use model value if set, otherwise keep existing
-      let finalCreditCardId = transaction.data.creditCardId ?? existingTransaction.creditCardId
-      let finalStatementId = transaction.data.statementId ?? existingTransaction.statementId
-      let finalIsCreditCardStatement = transaction.data.isCreditCardStatement ?? existingTransaction.isCreditCardStatement
+      // Use the model's credit card fields directly — the caller (ViewModel) is
+      // responsible for setting them correctly, including nil when clearing a card.
+      let finalCreditCardId = transaction.data.creditCardId
+      let finalStatementId = transaction.data.statementId
+      let finalIsCreditCardStatement = transaction.data.isCreditCardStatement
 
       let updatedData = UITransactionData(
         id: existingTransaction.id,
@@ -568,6 +575,9 @@ final class TransactionRepository: TransactionRepositoryProtocol {
         installmentNumber: existingTransaction.installmentNumber,
         totalInstallments: existingTransaction.totalInstallments,
         originalAmount: existingTransaction.originalAmount,
+        creditCardId: existingTransaction.creditCardId,
+        statementId: existingTransaction.statementId,
+        isCreditCardStatement: existingTransaction.isCreditCardStatement,
         category: category,
         type: type
       )

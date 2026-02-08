@@ -11,6 +11,7 @@ protocol NotificationHistoryFlowDelegate: AnyObject {
   func dismissNotificationHistory()
   func openAppStoreFromNotificationHistory()
   func navigateToTransactionDetailsFromNotificationHistory(transactionId: Int)
+  func navigateToStatementDetailsFromNotificationHistory(statementId: Int)
 }
 
 final class NotificationHistoryViewController: UIViewController {
@@ -134,6 +135,10 @@ extension NotificationHistoryViewController: NotificationHistoryViewModelDelegat
 
   func didRequestNavigateToTransaction(id: Int) {
     flowDelegate?.navigateToTransactionDetailsFromNotificationHistory(transactionId: id)
+  }
+
+  func didRequestNavigateToStatement(statementId: Int) {
+    flowDelegate?.navigateToStatementDetailsFromNotificationHistory(statementId: statementId)
   }
 }
 

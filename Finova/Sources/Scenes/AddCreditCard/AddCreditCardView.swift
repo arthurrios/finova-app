@@ -54,7 +54,7 @@ final class AddCreditCardView: UIView {
     }()
 
     // MARK: - Scroll + Form
-    private let scrollView: UIScrollView = {
+    let scrollView: UIScrollView = {
         let sv = UIScrollView()
         sv.showsVerticalScrollIndicator = false
         sv.translatesAutoresizingMaskIntoConstraints = false
@@ -208,6 +208,7 @@ final class AddCreditCardView: UIView {
 
         nameInput.addDoneButtonToolbar()
         lastFourInput.addDoneButtonToolbar()
+        creditLimitInput.addDoneButtonToolbar()
     }
 
     private func setupColorSelector() {
@@ -361,7 +362,7 @@ final class AddCreditCardView: UIView {
 
     private func setupBackButtonGlassEffect() {
         if #available(iOS 26.0, *) {
-            let glassEffect = UIGlassEffect()
+            let glassEffect = UIGlassEffect(style: .clear)
             glassEffect.isInteractive = true
             let glassView = UIVisualEffectView(effect: glassEffect)
             glassView.translatesAutoresizingMaskIntoConstraints = false

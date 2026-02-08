@@ -173,6 +173,39 @@ class CreditCardService {
         }
     }
 
+    /// Finds transactions that have a creditCardId but no statementId and assigns them to the correct statement.
+    /// This repairs data from a bug where editing a transaction to use a credit card didn't create statements.
+    func repairOrphanedCreditCardTransactions(userId: String, transactionRepo: TransactionRepository) {
+        let allTransactions = transactionRepo.fetchAllTransactions()
+
+        let orphaned = allTransactions.filter { tx in
+            tx.creditCardId != nil && tx.statementId == nil && tx.isCreditCardStatement != true
+        }
+
+        guard !orphaned.isEmpty else { return }
+
+        for tx in orphaned {
+            guard let cardId = tx.creditCardId,
+                  let txId = tx.id,
+                  let card = cardRepo.fetchCard(byId: cardId) else { continue }
+
+            let transactionDate = Date(timeIntervalSince1970: TimeInterval(tx.dateTimestamp))
+            if let statement = getOrCreateStatement(for: card, transactionDate: transactionDate, userId: userId) {
+                do {
+                    try transactionRepo.updateCreditCardFields(
+                        transactionId: txId,
+                        creditCardId: cardId,
+                        statementId: statement.id!,
+                        isCreditCardStatement: false
+                    )
+                    recalculateStatementTotal(statementId: statement.id!)
+                } catch {
+                    logError("Failed to repair orphaned transaction \(txId): \(error)")
+                }
+            }
+        }
+    }
+
     private func daysInMonth(month: Int, year: Int) -> Int {
         let calendar = Calendar.current
         let components = DateComponents(year: year, month: month)

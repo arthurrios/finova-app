@@ -32,6 +32,14 @@ final class AddCreditCardViewController: UIViewController {
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         navigationController?.setNavigationBarHidden(true, animated: false)
+        NotificationCenter.default.addObserver(self, selector: #selector(keyboardWillShow(_:)), name: UIResponder.keyboardWillShowNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(keyboardWillHide(_:)), name: UIResponder.keyboardWillHideNotification, object: nil)
+    }
+
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        NotificationCenter.default.removeObserver(self, name: UIResponder.keyboardWillShowNotification, object: nil)
+        NotificationCenter.default.removeObserver(self, name: UIResponder.keyboardWillHideNotification, object: nil)
     }
 
     private func setup() {
@@ -39,6 +47,18 @@ final class AddCreditCardViewController: UIViewController {
         setupContentViewToBounds(contentView: contentView, respectingSafeArea: false)
         contentView.delegate = self
         hideKeyboardWhenTappedAround()
+    }
+
+    @objc private func keyboardWillShow(_ notification: Notification) {
+        guard let keyboardFrame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else { return }
+        let keyboardHeight = keyboardFrame.height
+        contentView.scrollView.contentInset.bottom = keyboardHeight
+        contentView.scrollView.verticalScrollIndicatorInsets.bottom = keyboardHeight
+    }
+
+    @objc private func keyboardWillHide(_ notification: Notification) {
+        contentView.scrollView.contentInset.bottom = 0
+        contentView.scrollView.verticalScrollIndicatorInsets.bottom = 0
     }
 }
 

@@ -12,7 +12,8 @@ protocol NotificationSettingsViewModelDelegate: AnyObject {
     allDisabled: Bool,
     transactionEnabled: Bool,
     appUpdateEnabled: Bool,
-    negativeBalanceEnabled: Bool
+    negativeBalanceEnabled: Bool,
+    creditCardStatementEnabled: Bool
   )
 }
 
@@ -47,6 +48,11 @@ final class NotificationSettingsViewModel {
     notifyDelegate()
   }
 
+  func toggleCreditCardStatementNotifications(_ enabled: Bool) {
+    preferencesManager.creditCardStatementNotificationsEnabled = enabled
+    notifyDelegate()
+  }
+
   // MARK: - Private Methods
 
   private func notifyDelegate() {
@@ -54,7 +60,8 @@ final class NotificationSettingsViewModel {
       allDisabled: preferencesManager.allNotificationsDisabled,
       transactionEnabled: preferencesManager.transactionNotificationsEnabled,
       appUpdateEnabled: preferencesManager.appUpdateNotificationsEnabled,
-      negativeBalanceEnabled: preferencesManager.negativeBalanceNotificationsEnabled
+      negativeBalanceEnabled: preferencesManager.negativeBalanceNotificationsEnabled,
+      creditCardStatementEnabled: preferencesManager.creditCardStatementNotificationsEnabled
     )
   }
 }

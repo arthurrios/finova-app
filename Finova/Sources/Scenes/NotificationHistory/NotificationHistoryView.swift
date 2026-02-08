@@ -155,7 +155,7 @@ final class NotificationHistoryView: UIView {
 
   private func setupBackButtonGlassEffect() {
     if #available(iOS 26.0, *) {
-      let glassEffect = UIGlassEffect()
+      let glassEffect = UIGlassEffect(style: .clear)
       glassEffect.isInteractive = true
       let glassView = UIVisualEffectView(effect: glassEffect)
       glassView.translatesAutoresizingMaskIntoConstraints = false
@@ -474,6 +474,8 @@ final class NotificationHistoryCell: UITableViewCell {
       return UIImage(systemName: "arrow.clockwise")
     case .monthly:
       return UIImage(systemName: "calendar.badge.clock")
+    case .creditCardStatement:
+      return UIImage(systemName: "creditcard.and.123")
     case .other:
       return UIImage(systemName: "bell")
     }

@@ -521,10 +521,10 @@ class MonthBudgetCard: UIView {
             availableBudgetTextLabelContainer.isHidden = false
             availableBudgetTextLabel.isHidden = false
             defineBudgetButton.isHidden = true
-            
+
             let displayValue: Int
             let textKey: String
-            
+
             switch displayMode {
             case .final:
                 displayValue = data.finalBalance ?? (data.budgetLimit! - data.usedValue)
@@ -533,7 +533,7 @@ class MonthBudgetCard: UIView {
                 calendar.timeZone = TimeZone.current
                 let lastDay = calendar.range(of: .day, in: .month, for: data.date)?.upperBound ?? 31
                 textKey = formatBalanceOnDayString(for: lastDay)
-                
+
             case .current:
                 displayValue = data.currentBalance ?? (data.previousBalance ?? 0)
                 // Use day-specific format instead of old text key
@@ -541,12 +541,12 @@ class MonthBudgetCard: UIView {
                 calendar.timeZone = TimeZone.current
                 let today = calendar.component(.day, from: Date())
                 textKey = formatBalanceOnDayString(for: today)
-                
+
             case .daySpecific(let day):
                 displayValue = calculateBalanceForDay(day)
                 textKey = formatBalanceOnDayString(for: day)
             }
-            
+
             // Use animated SwiftUI view for all months
             if isValuesHidden {
                 animatedNumberContainer?.isHidden = true
@@ -557,7 +557,7 @@ class MonthBudgetCard: UIView {
                 availableBudgetValueLabel.isHidden = true
                 setupOrUpdateAnimatedNumber(value: displayValue)
             }
-            
+
             availableBudgetTextLabel.text = textKey.localized
         } else {
             // No budget defined - hide budget information and show define button

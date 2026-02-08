@@ -660,7 +660,8 @@ final class RecurringTransactionManager {
         originalAmount: newData.data.originalAmount,
         installmentNumber: newData.data.installmentNumber,
         totalInstallments: newData.data.totalInstallments,
-        creditCardId: finalCreditCardId
+        creditCardId: finalCreditCardId,
+        isCreditCardStatement: finalCreditCardId != nil ? false : nil
       )
 
       try transactionRepo.updateTransactionDirectly(updatedTransaction)

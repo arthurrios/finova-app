@@ -293,24 +293,28 @@ final class BudgetCard: UIView {
     }
 
     private func setupConstraints() {
+        // Chart preferred height - extends downward from separator, may overlap footer
+        let chartPreferredHeight = chartContainerView.heightAnchor.constraint(equalToConstant: 170)
+        chartPreferredHeight.priority = .defaultHigh
+
         NSLayoutConstraint.activate([
             // Header
             headerHorizontalStackView.topAnchor.constraint(equalTo: topAnchor, constant: Metrics.spacing6),
             headerHorizontalStackView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Metrics.spacing6),
             headerHorizontalStackView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Metrics.spacing6),
 
-            // Separator
-            headerSeparator.topAnchor.constraint(equalTo: headerHorizontalStackView.bottomAnchor, constant: Metrics.spacing4),
+            // Separator - matches MonthBudgetCard spacing
+            headerSeparator.topAnchor.constraint(equalTo: headerHorizontalStackView.bottomAnchor, constant: Metrics.spacing3),
             headerSeparator.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Metrics.spacing6),
             headerSeparator.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Metrics.spacing6),
 
-            // Chart container - centered between separator and footer with minimum size
-            chartContainerView.topAnchor.constraint(equalTo: headerSeparator.bottomAnchor, constant: Metrics.spacing4),
+            // Chart container - top-anchored below separator, extends downward (may overlap footer)
+            chartContainerView.topAnchor.constraint(equalTo: headerSeparator.bottomAnchor, constant: Metrics.spacing5),
             chartContainerView.centerXAnchor.constraint(equalTo: centerXAnchor),
-            chartContainerView.bottomAnchor.constraint(equalTo: footerStackView.topAnchor, constant: -Metrics.spacing4),
             chartContainerView.widthAnchor.constraint(equalTo: chartContainerView.heightAnchor),
-            // Minimum size for the chart to ensure it's big enough
-            chartContainerView.heightAnchor.constraint(greaterThanOrEqualToConstant: 160),
+            // Hard limit: don't extend past the progress bar
+            chartContainerView.bottomAnchor.constraint(equalTo: progressBar.topAnchor, constant: -Metrics.spacing6),
+            chartPreferredHeight,
 
             // Footer - above progress bar
             footerStackView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Metrics.spacing6),
@@ -418,6 +422,8 @@ final class BudgetCard: UIView {
         } else {
             showBudgetMetrics(unallocatedSummary: summary)
         }
+        // Re-embed chart to update center value visibility
+        embedChart()
     }
 
     private var hiddenValueString: String { "••••••" }
@@ -532,6 +538,7 @@ final class BudgetCard: UIView {
             totalBudget: unallocatedSummary?.totalBudget ?? 0,
             unallocatedAmount: unallocatedSummary?.unallocatedAmount ?? 0,
             unallocatedSpending: unallocatedSpending,
+            isValuesHidden: isValuesHidden,
             onSegmentTapped: { [weak self] category in
                 self?.delegate?.didSelectAllocationCategory(category)
             },

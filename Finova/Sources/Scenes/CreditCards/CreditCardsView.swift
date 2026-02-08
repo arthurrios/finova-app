@@ -191,7 +191,7 @@ final class CreditCardsView: UIView {
 
     private func setupBackButtonGlassEffect() {
         if #available(iOS 26.0, *) {
-            let glassEffect = UIGlassEffect()
+            let glassEffect = UIGlassEffect(style: .clear)
             glassEffect.isInteractive = true
             let glassView = UIVisualEffectView(effect: glassEffect)
             glassView.translatesAutoresizingMaskIntoConstraints = false

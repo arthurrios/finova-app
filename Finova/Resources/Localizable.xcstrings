@@ -5866,6 +5866,74 @@
         }
       }
     },
+    "notification.statement.dueSoon.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Statement Due Soon"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fatura Vencendo em Breve"
+          }
+        }
+      }
+    },
+    "notification.statement.dueSoon.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your %@ statement of %@ is due in 3 days"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sua fatura do %@ de %@ vence em 3 dias"
+          }
+        }
+      }
+    },
+    "notification.statement.paymentDue.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Payment Due Today"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pagamento Vence Hoje"
+          }
+        }
+      }
+    },
+    "notification.statement.paymentDue.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your %@ statement of %@ is due today. Don't forget to pay!"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sua fatura do %@ de %@ vence hoje. Não esqueça de pagar!"
+          }
+        }
+      }
+    },
     "notificationHistory.clearAll": {
       "extractionState": "manual",
       "localizations": {
@@ -6100,6 +6168,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Aviso de Saldo Negativo"
+          }
+        }
+      }
+    },
+    "notificationSettings.creditCardStatement.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Credit Card Statements"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Faturas de Cartão"
+          }
+        }
+      }
+    },
+    "notificationSettings.creditCardStatement.description": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reminders for upcoming statement due dates"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lembretes para datas de vencimento de faturas"
           }
         }
       }
@@ -7613,6 +7715,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Tipo"
+          }
+        }
+      }
+    },
+    "transactionDetails.label.paymentMethod": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Payment method"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Método de pagamento"
           }
         }
       }

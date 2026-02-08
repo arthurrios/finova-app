@@ -18,6 +18,7 @@ final class NotificationPreferencesManager {
   private let transactionNotificationsKey = "notificationPref_transactions"
   private let appUpdateNotificationsKey = "notificationPref_appUpdates"
   private let negativeBalanceNotificationsKey = "notificationPref_negativeBalance"
+  private let creditCardStatementNotificationsKey = "notificationPref_creditCardStatement"
   private let allNotificationsDisabledKey = "notificationPref_allDisabled"
 
   private init() {}
@@ -105,6 +106,26 @@ final class NotificationPreferencesManager {
     }
   }
 
+  // MARK: - Credit Card Statement Notifications (Local)
+
+  /// Whether credit card statement reminder notifications are enabled
+  /// Default: true
+  var creditCardStatementNotificationsEnabled: Bool {
+    get {
+      // Default to true if not set
+      if UserDefaults.standard.object(forKey: creditCardStatementNotificationsKey) == nil {
+        return true
+      }
+      return UserDefaults.standard.bool(forKey: creditCardStatementNotificationsKey)
+    }
+    set {
+      UserDefaults.standard.set(newValue, forKey: creditCardStatementNotificationsKey)
+      if !newValue {
+        removeCreditCardStatementNotifications()
+      }
+    }
+  }
+
   // MARK: - Helper Methods
 
   /// Check if a specific notification type should be shown
@@ -120,6 +141,8 @@ final class NotificationPreferencesManager {
       return appUpdateNotificationsEnabled
     case .negativeBalance:
       return negativeBalanceNotificationsEnabled
+    case .creditCardStatement:
+      return creditCardStatementNotificationsEnabled
     }
   }
 
@@ -178,12 +201,24 @@ final class NotificationPreferencesManager {
     }
   }
 
+  private func removeCreditCardStatementNotifications() {
+    UNUserNotificationCenter.current().getPendingNotificationRequests { requests in
+      let statementIds = requests
+        .filter { $0.identifier.hasPrefix("statement_due_") || $0.identifier.hasPrefix("statement_pay_") }
+        .map { $0.identifier }
+
+      UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: statementIds)
+      logInfo("Removed \(statementIds.count) credit card statement notifications")
+    }
+  }
+
   // MARK: - Reset to Defaults
 
   func resetToDefaults() {
     UserDefaults.standard.removeObject(forKey: transactionNotificationsKey)
     UserDefaults.standard.removeObject(forKey: appUpdateNotificationsKey)
     UserDefaults.standard.removeObject(forKey: negativeBalanceNotificationsKey)
+    UserDefaults.standard.removeObject(forKey: creditCardStatementNotificationsKey)
     UserDefaults.standard.removeObject(forKey: allNotificationsDisabledKey)
 
     // Re-subscribe to topics
@@ -199,4 +234,5 @@ enum NotificationType {
   case transaction
   case appUpdate
   case negativeBalance
+  case creditCardStatement
 }

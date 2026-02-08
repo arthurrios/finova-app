@@ -274,6 +274,7 @@ final class TransactionDetailsView: UIView {
   private var updatedAtValueLabel: UILabel!
   private var totalValueLabel: UILabel!
   private var lastInstallmentDateLabel: UILabel!
+  private var paymentMethodValueLabel: UILabel!
 
   // MARK: - Installments Section (for installment transactions)
   private let installmentsHeaderView = CardHeader(
@@ -542,7 +543,7 @@ final class TransactionDetailsView: UIView {
 
   private func setupBackButtonGlassEffect() {
     if #available(iOS 26.0, *) {
-      let glassEffect = UIGlassEffect()
+      let glassEffect = UIGlassEffect(style: .clear)
       glassEffect.isInteractive = true
       let glassView = UIVisualEffectView(effect: glassEffect)
       glassView.translatesAutoresizingMaskIntoConstraints = false
@@ -562,7 +563,8 @@ final class TransactionDetailsView: UIView {
 
   private func createDetailRow(
     title: String, value: String, isDate: Bool = false, isCreatedAt: Bool = false,
-    isUpdatedAt: Bool = false, isTotalValue: Bool = false, isLastInstallmentDate: Bool = false
+    isUpdatedAt: Bool = false, isTotalValue: Bool = false, isLastInstallmentDate: Bool = false,
+    isPaymentMethod: Bool = false
   ) -> UIView {
     let container = UIView()
     container.translatesAutoresizingMaskIntoConstraints = false
@@ -591,6 +593,8 @@ final class TransactionDetailsView: UIView {
       totalValueLabel = valueLabel
     } else if isLastInstallmentDate {
       lastInstallmentDateLabel = valueLabel
+    } else if isPaymentMethod {
+      paymentMethodValueLabel = valueLabel
     } else {
       typeValueLabel = valueLabel
     }
@@ -623,6 +627,14 @@ final class TransactionDetailsView: UIView {
     transactionDetailsContentView.addArrangedSubview(
       createDetailRow(title: "transactionDetails.label.type".localized, value: ""))
 
+    // Add payment method row if transaction has a credit card
+    if viewModel.transaction.creditCardId != nil {
+      transactionDetailsContentView.addArrangedSubview(
+        createDetailRow(
+          title: "transactionDetails.label.paymentMethod".localized, value: "",
+          isPaymentMethod: true))
+    }
+
     // Add installment-specific rows if this is an installment transaction
     if viewModel.transaction.mode == .installments {
       transactionDetailsContentView.addArrangedSubview(
@@ -633,9 +645,6 @@ final class TransactionDetailsView: UIView {
           title: "transactionDetails.label.lastInstallmentDate".localized, value: "",
           isLastInstallmentDate: true))
     }
-
-    // Add standard rows
-    // Removed createdAt and updatedAt fields as requested
   }
 
   // MARK: - Configuration
@@ -695,6 +704,11 @@ final class TransactionDetailsView: UIView {
     typeValueLabel.text =
       viewModel.transaction.type == .income
       ? "transactionDetails.type.income".localized : "transactionDetails.type.expense".localized
+
+    // Configure payment method
+    if let card = viewModel.getCreditCard() {
+      paymentMethodValueLabel?.text = "\(card.name) ****\(card.lastFourDigits)"
+    }
 
     // Configure installment-specific details
     if viewModel.transaction.mode == .installments {

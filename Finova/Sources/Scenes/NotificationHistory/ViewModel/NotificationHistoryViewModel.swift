@@ -14,6 +14,7 @@ protocol NotificationHistoryViewModelDelegate: AnyObject {
   func didClearAllNotifications()
   func didRequestOpenAppStore()
   func didRequestNavigateToTransaction(id: Int)
+  func didRequestNavigateToStatement(statementId: Int)
 }
 
 final class NotificationHistoryViewModel {
@@ -77,6 +78,12 @@ final class NotificationHistoryViewModel {
          let transactionIdString = notification.id.split(separator: "_").last,
          let transactionId = Int(transactionIdString) {
         delegate?.didRequestNavigateToTransaction(id: transactionId)
+      }
+    case .creditCardStatement:
+      // Extract statementId from ID (format: statement_due_<statementId> or statement_pay_<statementId>)
+      if let statementIdString = notification.id.split(separator: "_").last,
+         let statementId = Int(statementIdString) {
+        delegate?.didRequestNavigateToStatement(statementId: statementId)
       }
     case .monthly, .other:
       // No navigation for these types

@@ -1386,12 +1386,9 @@ extension DashboardViewController: UICollectionViewDataSource {
             let monthAnchor = model.date.monthAnchor
             cell.setMonthAnchor(monthAnchor)
 
-            // Set global filters BEFORE updateTransactions so they're applied correctly
-            // This is important because updateTransactions calls applyFilters() internally
-            cell.setFiltersWithoutApplying(globalFilters)
-
-            // Use refresh and updateTransactions to preserve day slider state
             cell.monthCard.refresh(with: model)
+
+            cell.setFiltersWithoutApplying(globalFilters)
             cell.updateTransactions(txs)
 
             // Restore budget view state if global budget view is active

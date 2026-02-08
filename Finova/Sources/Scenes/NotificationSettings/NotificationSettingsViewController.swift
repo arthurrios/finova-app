@@ -75,6 +75,10 @@ extension NotificationSettingsViewController: NotificationSettingsViewDelegate {
   func didToggleNegativeBalanceNotifications(_ isEnabled: Bool) {
     viewModel.toggleNegativeBalanceNotifications(isEnabled)
   }
+
+  func didToggleCreditCardStatementNotifications(_ isEnabled: Bool) {
+    viewModel.toggleCreditCardStatementNotifications(isEnabled)
+  }
 }
 
 // MARK: - NotificationSettingsViewModelDelegate
@@ -83,13 +87,15 @@ extension NotificationSettingsViewController: NotificationSettingsViewModelDeleg
     allDisabled: Bool,
     transactionEnabled: Bool,
     appUpdateEnabled: Bool,
-    negativeBalanceEnabled: Bool
+    negativeBalanceEnabled: Bool,
+    creditCardStatementEnabled: Bool
   ) {
     contentView.updateUI(
       allDisabled: allDisabled,
       transactionEnabled: transactionEnabled,
       appUpdateEnabled: appUpdateEnabled,
-      negativeBalanceEnabled: negativeBalanceEnabled
+      negativeBalanceEnabled: negativeBalanceEnabled,
+      creditCardStatementEnabled: creditCardStatementEnabled
     )
   }
 }

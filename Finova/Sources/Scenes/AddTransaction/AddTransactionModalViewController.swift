@@ -286,7 +286,8 @@ extension AddTransactionModalViewController: AddTransactionModalViewDelegate,
       amount: data.amount,
       dateString: data.date,
       categoryKey: data.category,
-      typeRaw: data.transactionType
+      typeRaw: data.transactionType,
+      creditCardId: data.creditCardId
     )
     handleUpdateResult(result)
   }
