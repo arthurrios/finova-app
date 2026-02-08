@@ -19,6 +19,8 @@ protocol BudgetAllocationDetailsViewDelegate: AnyObject {
 final class BudgetAllocationDetailsView: UIView {
 
     weak var delegate: BudgetAllocationDetailsViewDelegate?
+    private var isValuesHidden: Bool = false
+    private var currentViewModel: BudgetAllocationDetailsViewModel?
 
     // MARK: - UI Components
 
@@ -338,10 +340,48 @@ final class BudgetAllocationDetailsView: UIView {
     override init(frame: CGRect) {
         super.init(frame: frame)
         setupViews()
+        setupNotificationObserver()
     }
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    // MARK: - Balance Visibility
+
+    private func setupNotificationObserver() {
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleBalanceVisibilityChanged),
+            name: NSNotification.Name("BalanceVisibilityChanged"),
+            object: nil
+        )
+    }
+
+    @objc private func handleBalanceVisibilityChanged(_ notification: Notification) {
+        guard let userInfo = notification.userInfo,
+              let isHidden = userInfo["isHidden"] as? Bool
+        else { return }
+
+        if isHidden != isValuesHidden {
+            isValuesHidden = isHidden
+            updateValuesDisplay()
+        }
+    }
+
+    private func updateValuesDisplay() {
+        let hidden = "••••••"
+        if isValuesHidden {
+            allocatedValueLabel?.text = hidden
+            usedValueLabel?.text = hidden
+            remainingValueLabel?.text = hidden
+            remainingValueLabel?.textColor = Colors.gray700
+        } else if let viewModel = currentViewModel {
+            allocatedValueLabel?.text = viewModel.formattedAllocated
+            usedValueLabel?.text = viewModel.formattedUsed
+            remainingValueLabel?.text = viewModel.formattedRemaining
+            remainingValueLabel?.textColor = viewModel.status == .overBudget ? Colors.mainRed : Colors.gray700
+        }
     }
 
     // MARK: - Setup
@@ -639,6 +679,9 @@ final class BudgetAllocationDetailsView: UIView {
     // MARK: - Configuration
 
     func configure(with viewModel: BudgetAllocationDetailsViewModel) {
+        self.currentViewModel = viewModel
+        isValuesHidden = UserDefaultsManager.getHideValues()
+
         // Header - different title format for unallocated
         if viewModel.isUnallocatedMode {
             headerTitleLabel.text = viewModel.category.displayName
@@ -666,15 +709,22 @@ final class BudgetAllocationDetailsView: UIView {
         }
 
         // Summary values
-        allocatedValueLabel.text = viewModel.formattedAllocated
-        usedValueLabel.text = viewModel.formattedUsed
-        remainingValueLabel.text = viewModel.formattedRemaining
-
-        // Color remaining based on status
-        if viewModel.status == .overBudget {
-            remainingValueLabel.textColor = Colors.mainRed
-        } else {
+        if isValuesHidden {
+            let hidden = "••••••"
+            allocatedValueLabel.text = hidden
+            usedValueLabel.text = hidden
+            remainingValueLabel.text = hidden
             remainingValueLabel.textColor = Colors.gray700
+        } else {
+            allocatedValueLabel.text = viewModel.formattedAllocated
+            usedValueLabel.text = viewModel.formattedUsed
+            remainingValueLabel.text = viewModel.formattedRemaining
+
+            if viewModel.status == .overBudget {
+                remainingValueLabel.textColor = Colors.mainRed
+            } else {
+                remainingValueLabel.textColor = Colors.gray700
+            }
         }
 
         // Recurring badge - always hidden in unallocated mode
@@ -769,20 +819,28 @@ final class BudgetAllocationDetailsView: UIView {
     // MARK: - Public Methods
 
     func refreshTransactions(with viewModel: BudgetAllocationDetailsViewModel) {
+        self.currentViewModel = viewModel
+
         // Refresh circular progress and summary values
         circularProgressView.configure(
             percentage: viewModel.usagePercentage,
             status: viewModel.status
         )
 
-        usedValueLabel.text = viewModel.formattedUsed
-        remainingValueLabel.text = viewModel.formattedRemaining
-
-        // Color remaining based on status
-        if viewModel.status == .overBudget {
-            remainingValueLabel.textColor = Colors.mainRed
-        } else {
+        if isValuesHidden {
+            let hidden = "••••••"
+            usedValueLabel.text = hidden
+            remainingValueLabel.text = hidden
             remainingValueLabel.textColor = Colors.gray700
+        } else {
+            usedValueLabel.text = viewModel.formattedUsed
+            remainingValueLabel.text = viewModel.formattedRemaining
+
+            if viewModel.status == .overBudget {
+                remainingValueLabel.textColor = Colors.mainRed
+            } else {
+                remainingValueLabel.textColor = Colors.gray700
+            }
         }
 
         // Warning banner
@@ -865,7 +923,10 @@ extension BudgetAllocationDetailsView: UITableViewDataSource, UITableViewDelegat
             transactionType: transaction.type,
             transactionMode: transaction.mode,
             installmentNumber: transaction.installmentNumber,
-            totalInstallments: transaction.totalInstallments
+            totalInstallments: transaction.totalInstallments,
+            isCreditCardStatement: false,
+            statementTransactionCount: nil,
+            creditCardId: transaction.creditCardId
         )
 
         cell.configure(with: configuration)

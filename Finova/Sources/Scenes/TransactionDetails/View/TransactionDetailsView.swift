@@ -809,7 +809,10 @@ extension TransactionDetailsView: UITableViewDataSource, UITableViewDelegate {
       transactionType: transaction.type,
       transactionMode: transaction.mode,
       installmentNumber: transaction.installmentNumber,
-      totalInstallments: transaction.totalInstallments
+      totalInstallments: transaction.totalInstallments,
+      isCreditCardStatement: false,
+      statementTransactionCount: nil,
+      creditCardId: transaction.creditCardId
     )
 
     cell.configure(with: configuration)

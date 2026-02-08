@@ -119,6 +119,73 @@ final class TransactionRepository: TransactionRepositoryProtocol {
     return fetchAllTransactions().filter { $0.parentTransactionId != nil }
   }
 
+  // MARK: - Credit Card Fields
+
+  func updateCreditCardFields(transactionId: Int, creditCardId: Int, statementId: Int, isCreditCardStatement: Bool) throws {
+    try db.updateTransactionCreditCardFields(
+      transactionId: transactionId,
+      creditCardId: creditCardId,
+      statementId: statementId,
+      isCreditCardStatement: isCreditCardStatement
+    )
+
+    // Also update SecureLocalDataManager
+    var secureTransactions = SecureLocalDataManager.shared.loadTransactions()
+    if let index = secureTransactions.firstIndex(where: { $0.id == transactionId }) {
+      let existing = secureTransactions[index]
+      let updatedData = UITransactionData(
+        id: existing.id,
+        title: existing.title,
+        amount: existing.amount,
+        dateTimestamp: existing.dateTimestamp,
+        budgetMonthDate: existing.budgetMonthDate,
+        isRecurring: existing.isRecurring,
+        hasInstallments: existing.hasInstallments,
+        parentTransactionId: existing.parentTransactionId,
+        installmentNumber: existing.installmentNumber,
+        totalInstallments: existing.totalInstallments,
+        originalAmount: existing.originalAmount,
+        creditCardId: creditCardId,
+        statementId: statementId,
+        isCreditCardStatement: isCreditCardStatement,
+        category: existing.category,
+        type: existing.type
+      )
+      secureTransactions[index] = Transaction(data: updatedData)
+      SecureLocalDataManager.shared.saveTransactions(secureTransactions)
+    }
+  }
+
+  func clearCreditCardFields(transactionId: Int) throws {
+    try db.clearTransactionCreditCardFields(transactionId: transactionId)
+
+    // Also update SecureLocalDataManager
+    var secureTransactions = SecureLocalDataManager.shared.loadTransactions()
+    if let index = secureTransactions.firstIndex(where: { $0.id == transactionId }) {
+      let existing = secureTransactions[index]
+      let updatedData = UITransactionData(
+        id: existing.id,
+        title: existing.title,
+        amount: existing.amount,
+        dateTimestamp: existing.dateTimestamp,
+        budgetMonthDate: existing.budgetMonthDate,
+        isRecurring: existing.isRecurring,
+        hasInstallments: existing.hasInstallments,
+        parentTransactionId: existing.parentTransactionId,
+        installmentNumber: existing.installmentNumber,
+        totalInstallments: existing.totalInstallments,
+        originalAmount: existing.originalAmount,
+        creditCardId: nil,
+        statementId: nil,
+        isCreditCardStatement: nil,
+        category: existing.category,
+        type: existing.type
+      )
+      secureTransactions[index] = Transaction(data: updatedData)
+      SecureLocalDataManager.shared.saveTransactions(secureTransactions)
+    }
+  }
+
   // MARK: - Debug Methods
 
   /// Debug method to check for duplicate transactions in the same month
@@ -178,6 +245,11 @@ final class TransactionRepository: TransactionRepositoryProtocol {
         TransactionType.allCases.first(where: { String(describing: $0) == transaction.data.type })
         ?? .expense
 
+      // Preserve credit card fields: use model value if set, otherwise keep existing
+      let finalCreditCardId = transaction.data.creditCardId ?? existingTransaction.creditCardId
+      let finalStatementId = transaction.data.statementId ?? existingTransaction.statementId
+      let finalIsCreditCardStatement = transaction.data.isCreditCardStatement ?? existingTransaction.isCreditCardStatement
+
       let updatedData = UITransactionData(
         id: existingTransaction.id,
         title: transaction.data.title,
@@ -190,6 +262,9 @@ final class TransactionRepository: TransactionRepositoryProtocol {
         installmentNumber: existingTransaction.installmentNumber,
         totalInstallments: existingTransaction.totalInstallments,
         originalAmount: existingTransaction.originalAmount,
+        creditCardId: finalCreditCardId,
+        statementId: finalStatementId,
+        isCreditCardStatement: finalIsCreditCardStatement,
         category: categoryEnum,
         type: typeEnum
       )
@@ -375,6 +450,11 @@ final class TransactionRepository: TransactionRepositoryProtocol {
     // Calculate individual installment amount (total divided by number of installments)
     let individualAmount = newTotalAmount / newNumberOfInstallments
 
+    // Use new credit card from template if provided, otherwise preserve from existing installments
+    let originalCreditCardId = relatedTransactions.first(where: { $0.creditCardId != nil })?.creditCardId
+    let finalCreditCardId = templateTransaction.data.creditCardId ?? originalCreditCardId
+    let oldStatementIds = Set(relatedTransactions.compactMap { $0.statementId })
+
     // Delete all existing related transactions first
     for relatedTransaction in relatedTransactions {
       if let id = relatedTransaction.id {
@@ -385,43 +465,22 @@ final class TransactionRepository: TransactionRepositoryProtocol {
     // Create new installment series
     let calendar = Calendar.current
     let startDate = newDate
+    let creditCardService = CreditCardService()
+    let creditCardRepo = CreditCardRepository()
 
     for i in 0..<newNumberOfInstallments {
       // Calculate date for this installment (add i months to start date)
       let installmentDate = calendar.date(byAdding: .month, value: i, to: startDate) ?? startDate
 
-      // Create new installment transaction
-      let installmentData = UITransactionData(
-        id: nil,  // Will be assigned by database
-        title: templateTransaction.data.title,
-        amount: individualAmount,
-        dateTimestamp: Int(installmentDate.timeIntervalSince1970),
-        budgetMonthDate: installmentDate.monthAnchor,
-        isRecurring: false,
-        hasInstallments: true,
-        parentTransactionId: mainInstallmentTransactionId,
-        installmentNumber: i + 1,
-        totalInstallments: newNumberOfInstallments,
-        originalAmount: nil,
-        category: TransactionCategory.allCases.first(where: {
-          $0.key == templateTransaction.data.category
-        }) ?? .miscellaneous,
-        type: TransactionType.allCases.first(where: {
-          String(describing: $0) == templateTransaction.data.type
-        }) ?? .expense
-      )
-
-      let installmentTransaction = Transaction(data: installmentData)
-
       // Save the new installment
       let installmentModel = TransactionModel(
         id: nil,
-        title: installmentTransaction.title,
-        category: installmentTransaction.category.key,
-        amount: installmentTransaction.amount,
-        type: String(describing: installmentTransaction.type),
-        dateTimestamp: Int(installmentTransaction.date.timeIntervalSince1970),
-        budgetMonthDate: installmentTransaction.budgetMonthDate,
+        title: templateTransaction.data.title,
+        category: templateTransaction.data.category,
+        amount: individualAmount,
+        type: templateTransaction.data.type,
+        dateTimestamp: Int(installmentDate.timeIntervalSince1970),
+        budgetMonthDate: installmentDate.monthAnchor,
         isRecurring: false,
         hasInstallments: true,
         parentTransactionId: mainInstallmentTransactionId,
@@ -431,10 +490,32 @@ final class TransactionRepository: TransactionRepositoryProtocol {
       )
 
       do {
-        try insertTransaction(installmentModel)
+        let insertedId = try insertTransactionAndGetId(installmentModel)
+
+        // Assign credit card statement if installments are on a card
+        if let cardId = finalCreditCardId, let card = creditCardRepo.fetchCard(byId: cardId) {
+          if let uid = AuthenticationManager.shared.currentUser?.uid,
+             let statement = creditCardService.getOrCreateStatement(for: card, transactionDate: installmentDate, userId: uid) {
+            try updateCreditCardFields(
+              transactionId: insertedId,
+              creditCardId: cardId,
+              statementId: statement.id!,
+              isCreditCardStatement: false
+            )
+            creditCardService.recalculateStatementTotal(statementId: statement.id!)
+          }
+        }
       } catch {
         logError("Failed to create installment \(i + 1): \(error)")
         throw error
+      }
+    }
+
+    // Recalculate old statement totals that may no longer have these installments
+    if !oldStatementIds.isEmpty {
+      let creditCardSvc = CreditCardService()
+      for oldStmtId in oldStatementIds {
+        creditCardSvc.recalculateStatementTotal(statementId: oldStmtId)
       }
     }
   }

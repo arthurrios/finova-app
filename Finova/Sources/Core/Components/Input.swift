@@ -436,6 +436,7 @@ class Input: UIView {
   private var selectedMonth = Calendar.current.component(.month, from: Date())
   var pickerValues: [String]?
   var selectedPickerIndex: Int = 0
+  var onPickerSelectionChanged: ((Int) -> Void)?
   private var selectedYear = Calendar.current.component(.year, from: Date())
 
   private func monthOptionsCount() -> Int {
@@ -745,6 +746,7 @@ extension Input: UIPickerViewDataSource, UIPickerViewDelegate {
           .capitalized
         textField.text = human
       }
+      onPickerSelectionChanged?(row)
       return
     }
 

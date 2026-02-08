@@ -12,4 +12,5 @@ protocol SettingsViewDelegate: AnyObject {
     func didTapNotifications()
     func didTapLogout()
     func didTapCurrency()
+    func didTapCreditCards()
 }

@@ -265,7 +265,7 @@ class MonthCarouselCell: UICollectionViewCell {
         return tableView
     }()
     
-    private lazy var budgetCard: BudgetCard = {
+    private(set) lazy var budgetCard: BudgetCard = {
         let card = BudgetCard()
         card.isHidden = true
         card.delegate = self

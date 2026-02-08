@@ -18,10 +18,16 @@ final class AddTransactionModalViewModel {
     return cal
   }()
   private let notificationCenter = UNUserNotificationCenter.current()
+  private let creditCardService = CreditCardService()
+  private let creditCardRepo = CreditCardRepository()
 
   init(transactionRepo: TransactionRepository = TransactionRepository()) {
     self.transactionRepo = transactionRepo
-    self.recurringManager = RecurringTransactionManager(transactionRepo: transactionRepo)
+    self.recurringManager = RecurringTransactionManager(
+      transactionRepo: transactionRepo,
+      creditCardService: creditCardService,
+      creditCardRepo: creditCardRepo
+    )
   }
 
   func addTransaction(
@@ -30,7 +36,8 @@ final class AddTransactionModalViewModel {
     dateString: String,
     categoryKey: String,
     typeRaw: String,
-    isRecurring: Bool? = nil
+    isRecurring: Bool? = nil,
+    creditCardId: Int? = nil
   ) -> Result<Void, Error> {
 
     guard let date = DateFormatter.fullDateFormatter.date(from: dateString) else {
@@ -125,16 +132,33 @@ final class AddTransactionModalViewModel {
         type: type.key,
         dateTimestamp: timestamp,
         budgetMonthDate: anchor,
-        isRecurring: false
+        isRecurring: false,
+        creditCardId: creditCardId
       )
 
       do {
         let insertedId = try transactionRepo.insertTransactionAndGetId(model)
 
+        // Handle credit card statement assignment
+        if let cardId = creditCardId, let card = creditCardRepo.fetchCard(byId: cardId) {
+          guard let uid = AuthenticationManager.shared.currentUser?.uid else {
+            return .success(())
+          }
+          if let statement = creditCardService.getOrCreateStatement(for: card, transactionDate: date, userId: uid) {
+            try transactionRepo.updateCreditCardFields(
+              transactionId: insertedId,
+              creditCardId: cardId,
+              statementId: statement.id!,
+              isCreditCardStatement: false
+            )
+            creditCardService.recalculateStatementTotal(statementId: statement.id!)
+          }
+        }
+
         // Schedule notification for the new transaction with its ID
         scheduleNotificationForNewTransaction(insertedId, model)
 
-        // Monitorar saldo negativo após adicionar transação simples
+        // Monitor negative balance after adding transaction
         monitorNegativeBalance()
 
         // Invalidate ledger cache since transactions changed
@@ -154,6 +178,7 @@ final class AddTransactionModalViewModel {
     dateString: String,
     categoryKey: String,
     typeRaw: String,
+    creditCardId: Int? = nil,
     completion: @escaping (Result<Void, Error>) -> Void
   ) {
     guard let date = DateFormatter.fullDateFormatter.date(from: dateString) else {
@@ -187,7 +212,8 @@ final class AddTransactionModalViewModel {
       type: type.key,
       dateTimestamp: timestamp,
       budgetMonthDate: anchor,
-      isRecurring: true
+      isRecurring: true,
+      creditCardId: creditCardId
     )
 
     do {
@@ -207,6 +233,23 @@ final class AddTransactionModalViewModel {
       } else {
         try transactionRepo.updateParentTransactionId(
           transactionId: insertedId, parentId: insertedId)
+      }
+
+      // Assign parent recurring transaction to credit card statement
+      if let cardId = creditCardId, let card = creditCardRepo.fetchCard(byId: cardId) {
+        guard let uid = AuthenticationManager.shared.currentUser?.uid else {
+          completion(.success(()))
+          return
+        }
+        if let statement = creditCardService.getOrCreateStatement(for: card, transactionDate: date, userId: uid) {
+          try transactionRepo.updateCreditCardFields(
+            transactionId: insertedId,
+            creditCardId: cardId,
+            statementId: statement.id!,
+            isCreditCardStatement: false
+          )
+          creditCardService.recalculateStatementTotal(statementId: statement.id!)
+        }
       }
 
       // Generate instances for immediate window (next 2 months)
@@ -435,8 +478,22 @@ final class AddTransactionModalViewModel {
             totalInstallments: totalInstallments
           )
 
-          _ = try self.transactionRepo.insertTransactionAndGetId(installmentModel)
+          let insertedInstallmentId = try self.transactionRepo.insertTransactionAndGetId(installmentModel)
           allInstallments.append(installmentModel)
+
+          // Assign installment to correct credit card statement
+          if let cardId = data.creditCardId, let card = self.creditCardRepo.fetchCard(byId: cardId) {
+            guard let uid = AuthenticationManager.shared.currentUser?.uid else { break }
+            if let statement = self.creditCardService.getOrCreateStatement(for: card, transactionDate: installmentDate, userId: uid) {
+              try self.transactionRepo.updateCreditCardFields(
+                transactionId: insertedInstallmentId,
+                creditCardId: cardId,
+                statementId: statement.id!,
+                isCreditCardStatement: false
+              )
+              self.creditCardService.recalculateStatementTotal(statementId: statement.id!)
+            }
+          }
         }
 
         // Schedule notifications
@@ -828,7 +885,8 @@ final class AddTransactionModalViewModel {
     dateString: String,
     categoryKey: String,
     typeRaw: String,
-    isRecurring: Bool = false
+    isRecurring: Bool = false,
+    creditCardId: Int? = nil
   ) -> Result<Void, Error> {
 
     guard
@@ -850,6 +908,42 @@ final class AddTransactionModalViewModel {
     }
 
     do {
+      // Look up original transaction to preserve CC fields and recalculate statement
+      let originalTransaction = transactionRepo.fetchAllTransactions().first(where: { $0.id == id })
+      let originalCreditCardId = originalTransaction?.creditCardId
+      let originalStatementId = originalTransaction?.statementId
+
+      // Determine new credit card and statement assignment
+      var newCreditCardId: Int? = creditCardId
+      var newStatementId: Int? = originalStatementId
+
+      let creditCardChanged = creditCardId != originalCreditCardId
+
+      if creditCardChanged {
+        if let cardId = creditCardId, let card = creditCardRepo.fetchCard(byId: cardId) {
+          // Assigned to a credit card (new or changed)
+          guard let uid = AuthenticationManager.shared.currentUser?.uid else {
+            return .failure(TransactionError.repositoryUnavailable)
+          }
+          if let statement = creditCardService.getOrCreateStatement(for: card, transactionDate: dateObj, userId: uid) {
+            newStatementId = statement.id
+            newCreditCardId = cardId
+          }
+        } else {
+          // Removed from credit card → cash/debit
+          newCreditCardId = nil
+          newStatementId = nil
+        }
+      } else if let cardId = creditCardId, let card = creditCardRepo.fetchCard(byId: cardId) {
+        // Same card but date might have changed → recalculate statement
+        guard let uid = AuthenticationManager.shared.currentUser?.uid else {
+          return .failure(TransactionError.repositoryUnavailable)
+        }
+        if let statement = creditCardService.getOrCreateStatement(for: card, transactionDate: dateObj, userId: uid) {
+          newStatementId = statement.id
+        }
+      }
+
       let updatedTransaction = TransactionModel(
         id: id,
         title: title,
@@ -863,10 +957,23 @@ final class AddTransactionModalViewModel {
         parentTransactionId: nil,
         originalAmount: amount,
         installmentNumber: nil,
-        totalInstallments: nil
+        totalInstallments: nil,
+        creditCardId: newCreditCardId,
+        statementId: newStatementId
       )
 
       try transactionRepo.updateTransaction(updatedTransaction)
+
+      // Recalculate old statement if transaction moved away from it
+      if let oldStmtId = originalStatementId, oldStmtId != newStatementId {
+        creditCardService.recalculateStatementTotal(statementId: oldStmtId)
+      }
+
+      // Recalculate new statement
+      if let newStmtId = newStatementId {
+        creditCardService.recalculateStatementTotal(statementId: newStmtId)
+      }
+
       invalidateLedgerCache()
       return .success(())
 
@@ -1067,7 +1174,8 @@ final class AddTransactionModalViewModel {
         parentTransactionId: nil,
         originalAmount: data.totalAmount,
         installmentNumber: nil,
-        totalInstallments: data.installments
+        totalInstallments: data.installments,
+        creditCardId: data.creditCardId
       )
 
       do {
@@ -1269,6 +1377,7 @@ final class AddTransactionModalViewModel {
     dateString: String,
     categoryKey: String,
     typeRaw: String,
+    creditCardId: Int? = nil,
     editOption: RecurringEditOption,
     completion: @escaping (Result<Void, Error>) -> Void
   ) {
@@ -1323,7 +1432,8 @@ final class AddTransactionModalViewModel {
             dateString: dateString,
             categoryKey: categoryKey,
             typeRaw: typeRaw,
-            isRecurring: true
+            isRecurring: true,
+            creditCardId: creditCardId
           )
           completion(result)
         }
@@ -1344,7 +1454,8 @@ final class AddTransactionModalViewModel {
         parentTransactionId: parentTransactionId,
         originalAmount: amount,
         installmentNumber: nil,
-        totalInstallments: nil
+        totalInstallments: nil,
+        creditCardId: creditCardId
       )
 
       // Use async editing method

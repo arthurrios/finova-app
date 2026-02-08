@@ -7,12 +7,27 @@
 
 import Foundation
 
+enum PaymentMethod: Equatable {
+  case cashDebit
+  case creditCard(cardId: Int)
+}
+
 public struct AddTransactionData {
   let title: String
   let amount: Int
   let date: String
   let category: String
   let transactionType: String
+  let creditCardId: Int?
+
+  init(title: String, amount: Int, date: String, category: String, transactionType: String, creditCardId: Int? = nil) {
+    self.title = title
+    self.amount = amount
+    self.date = date
+    self.category = category
+    self.transactionType = transactionType
+    self.creditCardId = creditCardId
+  }
 }
 
 public struct InstallmentTransactionData {
@@ -22,6 +37,17 @@ public struct InstallmentTransactionData {
   let category: String
   let transactionType: String
   let installments: Int
+  let creditCardId: Int?
+
+  init(title: String, totalAmount: Int, date: String, category: String, transactionType: String, installments: Int, creditCardId: Int? = nil) {
+    self.title = title
+    self.totalAmount = totalAmount
+    self.date = date
+    self.category = category
+    self.transactionType = transactionType
+    self.installments = installments
+    self.creditCardId = creditCardId
+  }
 }
 
 protocol AddTransactionModalViewDelegate: AnyObject {
@@ -36,5 +62,6 @@ protocol AddTransactionModalViewDelegate: AnyObject {
   func updateSingleInstallmentTransactionData(id: Int, _ data: InstallmentTransactionData)
   func updateRecurringTransactionDataWithOption(
     id: Int, _ data: AddTransactionData, editOption: RecurringEditOption)
+  func didTapCreateCreditCard()
   func closeModal()
 }

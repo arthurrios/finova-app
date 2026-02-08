@@ -16,6 +16,7 @@ final class DashboardViewModel {
   private let balanceMonitor: BalanceMonitorManager
   private let monthlyNotificationManager: MonthlyNotificationManager
   let transactionLedger: TransactionLedgerService
+  private let creditCardService = CreditCardService()
   private let calendar = Calendar.current
 
   private let monthRange: ClosedRange<Int>
@@ -44,6 +45,11 @@ final class DashboardViewModel {
       transactionRepo: transactionRepo, budgetRepo: budgetRepo)
     self.transactionLedger = TransactionLedgerService(
       transactionRepo: transactionRepo, budgetRepo: budgetRepo)
+  }
+
+  func getStatementTransactions() -> [Transaction] {
+    guard let uid = AuthenticationManager.shared.currentUser?.uid else { return [] }
+    return creditCardService.generateStatementTransactions(userId: uid)
   }
 
   func loadMonthlyCards() -> [MonthBudgetCardType] {
@@ -235,6 +241,11 @@ final class DashboardViewModel {
           notificationCenter.removePendingNotificationRequests(withIdentifiers: [notificationId])
         }
 
+        // Recalculate statement total if this was a CC transaction
+        if let stmtId = transaction.statementId {
+          creditCardService.recalculateStatementTotal(statementId: stmtId)
+        }
+
         // Invalidate ledger cache since transactions changed
         transactionLedger.invalidateCache()
 
@@ -284,6 +295,10 @@ final class DashboardViewModel {
             selectedTransactionDate: transaction.date,
             cleanupOption: cleanupOption
           ) {
+            // Recalculate statement total if applicable
+            if let stmtId = transaction.statementId {
+              self.creditCardService.recalculateStatementTotal(statementId: stmtId)
+            }
             // Invalidate ledger cache since transactions changed
             self.transactionLedger.invalidateCache()
             completion(.success(()))
@@ -298,6 +313,10 @@ final class DashboardViewModel {
             selectedTransactionDate: transaction.date,
             cleanupOption: cleanupOption
           ) {
+            // Recalculate statement total if applicable
+            if let stmtId = transaction.statementId {
+              self.creditCardService.recalculateStatementTotal(statementId: stmtId)
+            }
             // Invalidate ledger cache since transactions changed
             self.transactionLedger.invalidateCache()
             completion(.success(()))
@@ -308,6 +327,10 @@ final class DashboardViewModel {
           // Handle simple transaction - should not reach here from complex deletion
           // but handle gracefully just in case
           try self.transactionRepo.delete(id: transactionId)
+          // Recalculate statement total if applicable
+          if let stmtId = transaction.statementId {
+            self.creditCardService.recalculateStatementTotal(statementId: stmtId)
+          }
           self.transactionLedger.invalidateCache()
           DispatchQueue.main.async {
             completion(.success(()))

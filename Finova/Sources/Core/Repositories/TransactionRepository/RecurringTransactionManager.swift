@@ -22,6 +22,8 @@ enum RecurringEditOption {
 
 final class RecurringTransactionManager {
   private let transactionRepo: TransactionRepository
+  private let creditCardService: CreditCardService
+  private let creditCardRepo: CreditCardRepository
   private let calendar: Calendar
   private let notificationCenter = UNUserNotificationCenter.current()
 
@@ -31,8 +33,14 @@ final class RecurringTransactionManager {
   private var currentOperations: Set<String> = []
   private let operationLock = NSLock()
 
-  init(transactionRepo: TransactionRepository = TransactionRepository()) {
+  init(
+    transactionRepo: TransactionRepository = TransactionRepository(),
+    creditCardService: CreditCardService = CreditCardService(),
+    creditCardRepo: CreditCardRepository = CreditCardRepository()
+  ) {
     self.transactionRepo = transactionRepo
+    self.creditCardService = creditCardService
+    self.creditCardRepo = creditCardRepo
 
     // Usar calendar com fuso horário UTC para consistência com monthAnchor
     var utcCalendar = Calendar(identifier: .gregorian)
@@ -166,7 +174,7 @@ final class RecurringTransactionManager {
           targetYear: targetYear
         )
 
-        // Create the instance
+        // Create the instance, preserving credit card association from parent
         let instanceModel = TransactionModel(
           title: recurringTx.title,
           category: recurringTx.category.key,
@@ -174,12 +182,19 @@ final class RecurringTransactionManager {
           type: recurringTx.type.key,
           dateTimestamp: Int(instanceDate.timeIntervalSince1970),
           budgetMonthDate: targetAnchor,
-          parentTransactionId: recurringTxId
+          parentTransactionId: recurringTxId,
+          creditCardId: recurringTx.creditCardId
         )
 
         do {
-          try transactionRepo.insertTransaction(instanceModel)
+          let insertedId = try transactionRepo.insertTransactionAndGetId(instanceModel)
           newInstances.append(instanceModel)
+
+          // Assign to correct monthly statement if linked to a credit card
+          if let cardId = recurringTx.creditCardId,
+             let uid = AuthenticationManager.shared.currentUser?.uid {
+            assignToStatement(transactionId: insertedId, creditCardId: cardId, transactionDate: instanceDate, userId: uid)
+          }
         } catch {
           logError("Error creating recurring transaction instance: \(error)")
         }
@@ -528,7 +543,7 @@ final class RecurringTransactionManager {
 
     // Build list of instances to update based on edit option
     // Store the original timestamp and budgetMonthDate to preserve them
-    var instancesToUpdate: [(id: Int, originalTimestamp: Int, originalBudgetMonthDate: Int, originalIsRecurring: Bool?, originalParentId: Int?)] = []
+    var instancesToUpdate: [(id: Int, originalTimestamp: Int, originalBudgetMonthDate: Int, originalIsRecurring: Bool?, originalParentId: Int?, originalCreditCardId: Int?, originalStatementId: Int?)] = []
 
     for instance in relatedInstances {
       guard let instanceId = instance.id else { continue }
@@ -552,7 +567,9 @@ final class RecurringTransactionManager {
           originalTimestamp: instance.dateTimestamp,
           originalBudgetMonthDate: instance.budgetMonthDate,
           originalIsRecurring: instance.isRecurring,
-          originalParentId: instance.parentTransactionId
+          originalParentId: instance.parentTransactionId,
+          originalCreditCardId: instance.creditCardId,
+          originalStatementId: instance.statementId
         ))
       }
     }
@@ -564,19 +581,24 @@ final class RecurringTransactionManager {
     localCalendar.timeZone = TimeZone.current
     let newDay = localCalendar.component(.day, from: selectedTransactionDate)
 
+    // Track old statement IDs that need recalculation
+    var oldStatementIdsToRecalculate: Set<Int> = []
+
     // Perform all updates
-    for (instanceId, originalTimestamp, originalBudgetMonthDate, originalIsRecurring, originalParentId) in instancesToUpdate {
+    for (instanceId, originalTimestamp, originalBudgetMonthDate, originalIsRecurring, originalParentId, originalCreditCardId, originalStatementId) in instancesToUpdate {
       let originalDate = Date(timeIntervalSince1970: TimeInterval(originalTimestamp))
       let originalDay = localCalendar.component(.day, from: originalDate)
 
       // Only recalculate date if the day actually changed
       let finalTimestamp: Int
       let finalBudgetMonthDate: Int
+      let dateChanged: Bool
 
       if newDay == originalDay {
         // Day didn't change - preserve original timestamp and budgetMonthDate exactly
         finalTimestamp = originalTimestamp
         finalBudgetMonthDate = originalBudgetMonthDate
+        dateChanged = false
       } else {
         // Day changed - need to recalculate the date
         let originalYear = localCalendar.component(.year, from: originalDate)
@@ -606,6 +628,7 @@ final class RecurringTransactionManager {
 
         finalTimestamp = Int(calculatedDate.timeIntervalSince1970)
         finalBudgetMonthDate = calculatedDate.monthAnchor
+        dateChanged = true
       }
 
       // Determine the correct isRecurring value
@@ -617,6 +640,11 @@ final class RecurringTransactionManager {
       // Determine the correct parentTransactionId value
       // Parent points to itself, children point to parent
       let finalParentId = isParent ? parentTransactionId : originalParentId
+
+      // Use the credit card ID from the edit data directly — nil means cash/debit
+      let finalCreditCardId = newData.data.creditCardId
+      let creditCardChanged = finalCreditCardId != originalCreditCardId
+      let creditCardRemoved = originalCreditCardId != nil && finalCreditCardId == nil
 
       let updatedTransaction = TransactionModel(
         id: instanceId,
@@ -631,10 +659,35 @@ final class RecurringTransactionManager {
         parentTransactionId: finalParentId,
         originalAmount: newData.data.originalAmount,
         installmentNumber: newData.data.installmentNumber,
-        totalInstallments: newData.data.totalInstallments
+        totalInstallments: newData.data.totalInstallments,
+        creditCardId: finalCreditCardId
       )
 
       try transactionRepo.updateTransactionDirectly(updatedTransaction)
+
+      // Handle credit card field changes
+      if creditCardRemoved {
+        // Card was removed: clear all credit card fields
+        try transactionRepo.clearCreditCardFields(transactionId: instanceId)
+        if let oldStmtId = originalStatementId {
+          oldStatementIdsToRecalculate.insert(oldStmtId)
+        }
+      } else if (dateChanged || creditCardChanged), let cardId = finalCreditCardId,
+         let uid = AuthenticationManager.shared.currentUser?.uid {
+        // Card changed or date changed: reassign to correct statement
+        let newDate = Date(timeIntervalSince1970: TimeInterval(finalTimestamp))
+        assignToStatement(transactionId: instanceId, creditCardId: cardId, transactionDate: newDate, userId: uid)
+
+        // Mark old statement for recalculation
+        if let oldStmtId = originalStatementId {
+          oldStatementIdsToRecalculate.insert(oldStmtId)
+        }
+      }
+    }
+
+    // Recalculate totals for old statements that lost transactions
+    for oldStmtId in oldStatementIdsToRecalculate {
+      creditCardService.recalculateStatementTotal(statementId: oldStmtId)
     }
   }
 
@@ -786,12 +839,19 @@ final class RecurringTransactionManager {
             type: recurringTx.type.key,
             dateTimestamp: Int(instanceDate.timeIntervalSince1970),
             budgetMonthDate: targetAnchor,
-            parentTransactionId: recurringTxId
+            parentTransactionId: recurringTxId,
+            creditCardId: recurringTx.creditCardId
           )
 
           do {
-            try self.transactionRepo.insertTransaction(instanceModel)
+            let insertedId = try self.transactionRepo.insertTransactionAndGetId(instanceModel)
             newInstancesCreated += 1
+
+            // Assign to correct monthly statement if linked to a credit card
+            if let cardId = recurringTx.creditCardId,
+               let uid = AuthenticationManager.shared.currentUser?.uid {
+              self.assignToStatement(transactionId: insertedId, creditCardId: cardId, transactionDate: instanceDate, userId: uid)
+            }
           } catch {
             logError("Error creating recurring instance: \(error)")
           }
@@ -876,6 +936,25 @@ final class RecurringTransactionManager {
     }.count
 
     return recurringCount > 0 || installmentParentCount > 0
+  }
+
+  // MARK: - Credit Card Statement Assignment
+
+  /// Assigns a transaction to the correct credit card statement based on its date.
+  private func assignToStatement(transactionId: Int, creditCardId: Int, transactionDate: Date, userId: String) {
+    guard let card = creditCardRepo.fetchCard(byId: creditCardId) else { return }
+    guard let statement = creditCardService.getOrCreateStatement(for: card, transactionDate: transactionDate, userId: userId) else { return }
+    do {
+      try transactionRepo.updateCreditCardFields(
+        transactionId: transactionId,
+        creditCardId: creditCardId,
+        statementId: statement.id!,
+        isCreditCardStatement: false
+      )
+      creditCardService.recalculateStatementTotal(statementId: statement.id!)
+    } catch {
+      logError("Error assigning transaction \(transactionId) to statement: \(error)")
+    }
   }
 
   // MARK: - Helper Methods

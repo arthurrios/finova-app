@@ -19,6 +19,7 @@ final class BudgetCard: UIView {
     private let gradientLayer = Colors.gradientBlack
     private var chartHostingController: UIViewController?
     private var currentMonthAnchor: Int = 0
+    private var isValuesHidden: Bool = false
 
     // MARK: - UI Components
 
@@ -55,6 +56,37 @@ final class BudgetCard: UIView {
         return label
     }()
 
+    private lazy var hideValuesToggleContainer: UIView = {
+        let container = UIView()
+        container.backgroundColor = .clear
+        container.translatesAutoresizingMaskIntoConstraints = false
+        container.isUserInteractionEnabled = true
+
+        container.addSubview(hideValuesIcon)
+        NSLayoutConstraint.activate([
+            hideValuesIcon.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+            hideValuesIcon.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+            hideValuesIcon.widthAnchor.constraint(equalToConstant: 24),
+            hideValuesIcon.heightAnchor.constraint(equalToConstant: 24),
+
+            container.widthAnchor.constraint(equalToConstant: 36),
+            container.heightAnchor.constraint(equalToConstant: 36),
+        ])
+
+        let tap = UITapGestureRecognizer(target: self, action: #selector(toggleHideValues))
+        container.addGestureRecognizer(tap)
+
+        return container
+    }()
+
+    private let hideValuesIcon: UIImageView = {
+        let imageView = UIImageView()
+        imageView.contentMode = .scaleAspectFit
+        imageView.tintColor = Colors.gray100
+        imageView.translatesAutoresizingMaskIntoConstraints = false
+        return imageView
+    }()
+
     private lazy var flipBackButton: UIButton = {
         let button = UIButton(type: .system)
         let config = UIImage.SymbolConfiguration(pointSize: 16, weight: .medium)
@@ -63,6 +95,14 @@ final class BudgetCard: UIView {
         button.addTarget(self, action: #selector(flipBack), for: .touchUpInside)
         button.translatesAutoresizingMaskIntoConstraints = false
         return button
+    }()
+
+    private let headerSeparator: UIView = {
+        let view = UIView()
+        view.backgroundColor = Colors.opaqueWhite
+        view.translatesAutoresizingMaskIntoConstraints = false
+        view.heightAnchor.constraint(equalToConstant: 1).isActive = true
+        return view
     }()
 
     private lazy var configButton: UIButton = {
@@ -197,6 +237,7 @@ final class BudgetCard: UIView {
     override init(frame: CGRect) {
         super.init(frame: frame)
         setupUI()
+        setupNotificationObserver()
     }
 
     required init?(coder: NSCoder) {
@@ -219,8 +260,10 @@ final class BudgetCard: UIView {
 
         headerHorizontalStackView.addArrangedSubview(headerDateStackView)
         headerHorizontalStackView.addArrangedSubview(UIView()) // Spacer
+        headerHorizontalStackView.addArrangedSubview(hideValuesToggleContainer)
         headerHorizontalStackView.addArrangedSubview(flipBackButton)
         headerHorizontalStackView.addArrangedSubview(configButton)
+        headerHorizontalStackView.setCustomSpacing(Metrics.spacing2, after: hideValuesToggleContainer)
         headerHorizontalStackView.setCustomSpacing(Metrics.spacing3, after: flipBackButton)
 
         // Footer setup - two columns: Remaining (potential savings), Saved (actual performance)
@@ -234,6 +277,7 @@ final class BudgetCard: UIView {
         footerStackView.addArrangedSubview(savedStackView)
 
         addSubview(headerHorizontalStackView)
+        addSubview(headerSeparator)
         addSubview(chartContainerView)
         addSubview(footerStackView)
         addSubview(progressBar)
@@ -255,8 +299,13 @@ final class BudgetCard: UIView {
             headerHorizontalStackView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Metrics.spacing6),
             headerHorizontalStackView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Metrics.spacing6),
 
-            // Chart container - centered between header and footer with minimum size
-            chartContainerView.topAnchor.constraint(equalTo: headerHorizontalStackView.bottomAnchor, constant: Metrics.spacing4),
+            // Separator
+            headerSeparator.topAnchor.constraint(equalTo: headerHorizontalStackView.bottomAnchor, constant: Metrics.spacing4),
+            headerSeparator.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Metrics.spacing6),
+            headerSeparator.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Metrics.spacing6),
+
+            // Chart container - centered between separator and footer with minimum size
+            chartContainerView.topAnchor.constraint(equalTo: headerSeparator.bottomAnchor, constant: Metrics.spacing4),
             chartContainerView.centerXAnchor.constraint(equalTo: centerXAnchor),
             chartContainerView.bottomAnchor.constraint(equalTo: footerStackView.topAnchor, constant: -Metrics.spacing4),
             chartContainerView.widthAnchor.constraint(equalTo: chartContainerView.heightAnchor),
@@ -275,7 +324,7 @@ final class BudgetCard: UIView {
             progressBar.heightAnchor.constraint(equalToConstant: 8),
 
             // No budget state view - centered in the card
-            noBudgetStateView.topAnchor.constraint(equalTo: headerHorizontalStackView.bottomAnchor),
+            noBudgetStateView.topAnchor.constraint(equalTo: headerSeparator.bottomAnchor),
             noBudgetStateView.leadingAnchor.constraint(equalTo: leadingAnchor),
             noBudgetStateView.trailingAnchor.constraint(equalTo: trailingAnchor),
             noBudgetStateView.bottomAnchor.constraint(equalTo: bottomAnchor),
@@ -312,6 +361,67 @@ final class BudgetCard: UIView {
         delegate?.didTapDefineBudget(forMonth: currentMonthAnchor)
     }
 
+    @objc private func toggleHideValues() {
+        isValuesHidden.toggle()
+        UserDefaultsManager.setHideValues(isValuesHidden)
+        updateHideValuesIcon()
+        updateValuesDisplay()
+
+        NotificationCenter.default.post(
+            name: NSNotification.Name("BalanceVisibilityChanged"),
+            object: self,
+            userInfo: ["isHidden": isValuesHidden]
+        )
+    }
+
+    private func updateHideValuesIcon() {
+        let iconName = isValuesHidden ? "eye" : "eye-closed"
+        hideValuesIcon.image = UIImage(named: iconName)?.withRenderingMode(.alwaysTemplate)
+    }
+
+    // MARK: - Balance Visibility
+
+    private func setupNotificationObserver() {
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleBalanceVisibilityChanged),
+            name: NSNotification.Name("BalanceVisibilityChanged"),
+            object: nil
+        )
+    }
+
+    @objc private func handleBalanceVisibilityChanged(_ notification: Notification) {
+        guard let userInfo = notification.userInfo,
+              let isHidden = userInfo["isHidden"] as? Bool
+        else { return }
+
+        if isHidden != isValuesHidden {
+            isValuesHidden = isHidden
+            updateHideValuesIcon()
+            updateValuesDisplay()
+        }
+    }
+
+    func updateBalanceVisibility(_ isHidden: Bool) {
+        isValuesHidden = isHidden
+        updateHideValuesIcon()
+        updateValuesDisplay()
+    }
+
+    private func updateValuesDisplay() {
+        guard let summary = unallocatedSummary else { return }
+        if isValuesHidden {
+            remainingValueLabel.text = hiddenValueString
+            remainingValueLabel.textColor = Colors.gray100
+            savedValueLabel.text = hiddenValueString
+            savedValueLabel.textColor = Colors.gray100
+        } else {
+            showBudgetMetrics(unallocatedSummary: summary)
+        }
+    }
+
+    private var hiddenValueString: String { "••••••" }
+
     // MARK: - Configuration
 
     func configure(
@@ -332,12 +442,19 @@ final class BudgetCard: UIView {
         monthLabel.applyStyle()
         yearLabel.text = "/ " + year
 
+        // Read initial hide values state
+        isValuesHidden = UserDefaultsManager.getHideValues()
+        updateHideValuesIcon()
+
         // Check if budget is set
         let hasBudget = unallocatedSummary.totalBudget > 0
 
         if hasBudget {
             // Show chart and metrics
             showBudgetMetrics(unallocatedSummary: unallocatedSummary)
+            if isValuesHidden {
+                updateValuesDisplay()
+            }
         } else {
             // Show "define budget" state
             showNoBudgetState()

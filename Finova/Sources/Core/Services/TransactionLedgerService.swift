@@ -115,8 +115,12 @@ final class TransactionLedgerService {
         return transactionMonthAnchor == anchor
       }
 
-      let expense = transactionsForMonth.filter { $0.type == .expense }.reduce(0) { $0 + $1.amount }
-      let income = transactionsForMonth.filter { $0.type == .income }.reduce(0) { $0 + $1.amount }
+      // Exclude credit card transactions from balance (they go to the statement instead)
+      let cashTransactions = transactionsForMonth.filter { tx in
+        tx.creditCardId == nil || tx.isCreditCardStatement == true
+      }
+      let expense = cashTransactions.filter { $0.type == .expense }.reduce(0) { $0 + $1.amount }
+      let income = cashTransactions.filter { $0.type == .income }.reduce(0) { $0 + $1.amount }
       let budgetLimit = budgetsByAnchor[anchor]
 
       let net = income - expense
@@ -201,9 +205,14 @@ final class TransactionLedgerService {
     let isCurrentMonth = calendar.isDate(monthDate, equalTo: today, toGranularity: .month)
     let isPastMonth = monthDate < today && !isCurrentMonth
 
+    // Exclude credit card transactions from balance
+    let cashTransactionsInMonth = transactionsInMonth.filter { tx in
+      tx.creditCardId == nil || tx.isCreditCardStatement == true
+    }
+
     if isPastMonth {
       // For past months, current balance = final balance (all transactions)
-      let netForMonth = transactionsInMonth.reduce(0) { result, transaction in
+      let netForMonth = cashTransactionsInMonth.reduce(0) { result, transaction in
         transaction.type == .income ? result + transaction.amount : result - transaction.amount
       }
       return previousBalance + netForMonth
@@ -218,8 +227,8 @@ final class TransactionLedgerService {
     let todayComponents = calendar.dateComponents([.year, .month, .day], from: today)
     let todayStart = calendar.date(from: todayComponents) ?? today
 
-    // Filter transactions up to and including today
-    let transactionsUpToToday = transactionsInMonth.filter { transaction in
+    // Filter transactions up to and including today (excluding CC transactions)
+    let transactionsUpToToday = cashTransactionsInMonth.filter { transaction in
       let transactionDate = Date(timeIntervalSince1970: TimeInterval(transaction.dateTimestamp))
       let transactionComponents = calendar.dateComponents(
         [.year, .month, .day], from: transactionDate)
@@ -241,10 +250,12 @@ final class TransactionLedgerService {
     let monthDate = Date(timeIntervalSince1970: TimeInterval(monthAnchor))
 
     // Get all transactions up to the current month using dynamic month anchor calculation
+    // Exclude credit card transactions from balance
     let relevantTransactions = allTransactions.filter { transaction in
       let transactionDate = Date(timeIntervalSince1970: TimeInterval(transaction.dateTimestamp))
       let transactionMonthAnchor = transactionDate.monthAnchor
       return transactionMonthAnchor <= monthAnchor
+        && (transaction.creditCardId == nil || transaction.isCreditCardStatement == true)
     }
 
     // Calculate running balance

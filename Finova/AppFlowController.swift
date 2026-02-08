@@ -284,6 +284,11 @@ extension AppFlowController: DashboardFlowDelegate, SettingsFlowDelegate, Notifi
         viewController.contentView.containerView.alpha = 1
     }
     
+    func navigateToCreditCards() {
+        let viewController = viewControllersFactory.makeCreditCardsViewController(flowDelegate: self)
+        navigationController?.pushViewController(viewController, animated: true)
+    }
+
     func dismissSettings() {
         navigationController?.popViewController(animated: true)
     }
@@ -315,7 +320,7 @@ extension AppFlowController: AddTransactionModalFlowDelegate {
     
     func didUpdateTransaction() {
         navigationController?.dismiss(animated: false)
-        
+
         // Refresh both Dashboard and Transaction Details after updating a transaction
         DispatchQueue.main.async {
             // Refresh Dashboard
@@ -326,7 +331,7 @@ extension AppFlowController: AddTransactionModalFlowDelegate {
             {
                 dashboardViewController.refreshAfterTransactionAdd()
             }
-            
+
             // Refresh Transaction Details if it's currently displayed
             if let transactionDetailsViewController = self.navigationController?
                 .viewControllers
@@ -335,6 +340,13 @@ extension AppFlowController: AddTransactionModalFlowDelegate {
             {
                 transactionDetailsViewController.refreshTransactionData()
             }
+        }
+    }
+
+    func didTapCreateCreditCard() {
+        navigationController?.dismiss(animated: true) {
+            let viewController = self.viewControllersFactory.makeAddCreditCardViewController(flowDelegate: self, cardToEdit: nil)
+            self.navigationController?.pushViewController(viewController, animated: true)
         }
     }
 }
@@ -374,6 +386,12 @@ extension AppFlowController: TransactionDetailsFlowDelegate {
     func navigateToTransactionDetails(transaction: Transaction) {
         let viewController = viewControllersFactory.makeTransactionDetailsViewController(
             flowDelegate: self, transaction: transaction)
+        navigationController?.pushViewController(viewController, animated: true)
+    }
+
+    func navigateToStatementDetails(card: CreditCard, statement: CreditCardStatement) {
+        let viewController = viewControllersFactory.makeStatementDetailsViewController(
+            flowDelegate: self, statement: statement, card: card)
         navigationController?.pushViewController(viewController, animated: true)
     }
 }
@@ -470,6 +488,64 @@ extension AppFlowController: BudgetAllocationDetailsFlowDelegate {
         viewController.modalPresentationStyle = .overCurrentContext
         viewController.modalTransitionStyle = .crossDissolve
         navigationController?.present(viewController, animated: true)
+    }
+}
+
+// MARK: - Credit Cards Flow
+extension AppFlowController: CreditCardsFlowDelegate {
+    func dismissCreditCards() {
+        navigationController?.popViewController(animated: true)
+    }
+
+    func navigateToAddCreditCard() {
+        let viewController = viewControllersFactory.makeAddCreditCardViewController(flowDelegate: self, cardToEdit: nil)
+        navigationController?.pushViewController(viewController, animated: true)
+    }
+
+    func navigateToEditCreditCard(_ card: CreditCard) {
+        let viewController = viewControllersFactory.makeAddCreditCardViewController(flowDelegate: self, cardToEdit: card)
+        navigationController?.pushViewController(viewController, animated: true)
+    }
+}
+
+// MARK: - Add Credit Card Flow
+extension AppFlowController: AddCreditCardFlowDelegate {
+    func dismissAddCreditCard() {
+        navigationController?.popViewController(animated: true)
+    }
+
+    func didSaveCreditCard() {
+        navigationController?.popViewController(animated: true)
+    }
+}
+
+// MARK: - Statement Details Flow
+extension AppFlowController: StatementDetailsFlowDelegate {
+    func dismissStatementDetails() {
+        navigationController?.popViewController(animated: true)
+    }
+
+    func didMarkStatementAsPaid() {
+        // Pop back and refresh dashboard
+        navigationController?.popViewController(animated: true)
+        refreshDashboard()
+    }
+
+    func didDeleteTransactionInStatement() {
+        // Refresh dashboard to reflect updated statement totals
+        refreshDashboard()
+    }
+
+    private func refreshDashboard() {
+        DispatchQueue.main.async {
+            if let dashboardViewController = self.navigationController?
+                .viewControllers
+                .compactMap({ $0 as? DashboardViewController })
+                .last
+            {
+                dashboardViewController.refreshAfterTransactionAdd()
+            }
+        }
     }
 }
 

@@ -13,9 +13,6 @@ final class AddTransactionModalViewController: UIViewController {
   let contentView: AddTransactionModalView
   weak var flowDelegate: AddTransactionModalFlowDelegate?
 
-  // Height constraint for dynamic modal sizing
-  private var heightConstraint: NSLayoutConstraint?
-
   // Track if we're in edit mode for keyboard handling
   private var isEditMode = false
 
@@ -48,22 +45,7 @@ final class AddTransactionModalViewController: UIViewController {
 
     // Set edit mode with transaction data
     viewController.configureForEdit(with: transaction)
-    // Adjust height for edit mode (smaller modal)
-    viewController.adjustHeightForEditMode()
     return viewController
-  }
-
-  // MARK: - Height Adjustment
-  private func adjustHeightForEditMode() {
-    // Update height constraint for edit mode (smaller modal)
-    heightConstraint?.isActive = false
-    heightConstraint = contentView.heightAnchor.constraint(
-      equalTo: view.heightAnchor, multiplier: 0.42)  // Reduced from 0.56 to 0.42
-    heightConstraint?.priority = UILayoutPriority(999)
-    heightConstraint?.isActive = true
-
-    // Update minimum height for edit mode
-    contentView.heightAnchor.constraint(greaterThanOrEqualToConstant: 320).isActive = true
   }
 
   private func configureForEdit(with transaction: Transaction) {
@@ -98,6 +80,14 @@ final class AddTransactionModalViewController: UIViewController {
     contentView.expenseSelectorButton.delegate = self
 
     setupView()
+    loadCreditCards()
+  }
+
+  private func loadCreditCards() {
+    guard let uid = AuthenticationManager.shared.currentUser?.uid else { return }
+    let cardRepo = CreditCardRepository()
+    let cards = cardRepo.fetchAllCards(userId: uid)
+    contentView.loadAvailableCards(cards)
   }
 
   override func viewWillAppear(_ animated: Bool) {
@@ -136,17 +126,9 @@ final class AddTransactionModalViewController: UIViewController {
       contentView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
     ])
 
-    // Use a priority-based approach for flexible height
-    heightConstraint = contentView.heightAnchor.constraint(
-      equalTo: view.heightAnchor, multiplier: 0.56)
-    heightConstraint?.priority = UILayoutPriority(999)
-    heightConstraint?.isActive = true
-
-    // Add a minimum height constraint to ensure content is always visible
-    contentView.heightAnchor.constraint(greaterThanOrEqualToConstant: 400).isActive = true
-
-    // Add a maximum height constraint to prevent oversizing
-    contentView.heightAnchor.constraint(lessThanOrEqualTo: view.heightAnchor, multiplier: 0.75)
+    // Modal auto-sizes to fit content (driven by self-sizing scroll view).
+    // Only cap with a max height — scroll kicks in if content exceeds it.
+    contentView.heightAnchor.constraint(lessThanOrEqualTo: view.heightAnchor, multiplier: 0.85)
       .isActive = true
   }
 
@@ -222,7 +204,8 @@ extension AddTransactionModalViewController: AddTransactionModalViewDelegate,
       amount: data.amount,
       dateString: data.date,
       categoryKey: data.category,
-      typeRaw: data.transactionType)
+      typeRaw: data.transactionType,
+      creditCardId: data.creditCardId)
 
     handleTransactionResult(result)
   }
@@ -237,7 +220,8 @@ extension AddTransactionModalViewController: AddTransactionModalViewDelegate,
       amount: data.amount,
       dateString: data.date,
       categoryKey: data.category,
-      typeRaw: data.transactionType
+      typeRaw: data.transactionType,
+      creditCardId: data.creditCardId
     ) { [weak self] result in
       DispatchQueue.main.async {
         self?.contentView.saveButton.stopLoading()
@@ -271,7 +255,8 @@ extension AddTransactionModalViewController: AddTransactionModalViewDelegate,
       amount: data.amount,
       dateString: data.date,
       categoryKey: data.category,
-      typeRaw: data.transactionType
+      typeRaw: data.transactionType,
+      creditCardId: data.creditCardId
     )
     handleUpdateResult(result)
   }
@@ -283,7 +268,8 @@ extension AddTransactionModalViewController: AddTransactionModalViewDelegate,
       amount: data.amount,
       dateString: data.date,
       categoryKey: data.category,
-      typeRaw: data.transactionType
+      typeRaw: data.transactionType,
+      creditCardId: data.creditCardId
     )
     handleUpdateResult(result)
   }
@@ -324,6 +310,7 @@ extension AddTransactionModalViewController: AddTransactionModalViewDelegate,
       dateString: data.date,
       categoryKey: data.category,
       typeRaw: data.transactionType,
+      creditCardId: data.creditCardId,
       editOption: editOption
     ) { [weak self] result in
       DispatchQueue.main.async {
@@ -403,6 +390,15 @@ extension AddTransactionModalViewController: AddTransactionModalViewDelegate,
         contentView.incomeSelectorButton.variant = .unselected
       }
     }
+
+    // Show payment method section only for expenses
+    let isExpense = contentView.expenseSelectorButton.variant == .selected
+    contentView.showPaymentMethodSection(isExpense)
+  }
+
+  func didTapCreateCreditCard() {
+    dismissModal()
+    flowDelegate?.didTapCreateCreditCard()
   }
 
   func closeModal() {

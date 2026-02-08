@@ -31,6 +31,11 @@ final class DashboardViewController: UIViewController {
     
     private var currentCell: MonthCarouselCell?
     weak var flowDelegate: DashboardFlowDelegate?
+
+    private func mergeWithStatementTransactions(_ transactions: [Transaction]) -> [Transaction] {
+        let statementTxs = viewModel.getStatementTransactions()
+        return transactions + statementTxs
+    }
     
     // MARK: - Shimmer State Tracking
     private var cardsWithActiveShimmer: Set<Int> = []
@@ -161,7 +166,7 @@ final class DashboardViewController: UIViewController {
 
         // Update the view models with fresh data
         syncedViewModel.setMonthData(monthData)
-        syncedViewModel.setTransactions(transactions)
+        syncedViewModel.setTransactions(mergeWithStatementTransactions(transactions))
 
         // Schedule notifications for any new transactions in the next 30 days
         scheduleNext30DaysNotifications()
@@ -305,8 +310,8 @@ final class DashboardViewController: UIViewController {
             
             // Update the view models
             self.syncedViewModel.setMonthData(monthData)
-            self.syncedViewModel.setTransactions(transactions)
-            
+            self.syncedViewModel.setTransactions(self.mergeWithStatementTransactions(transactions))
+
             // Schedule notifications for any new transactions in the next 30 days
             self.scheduleNext30DaysNotifications()
             
@@ -1181,8 +1186,8 @@ final class DashboardViewController: UIViewController {
         let monthData = viewModel.loadMonthlyCards()
         
         syncedViewModel.setMonthData(monthData)
-        syncedViewModel.setTransactions(transactions)
-        
+        syncedViewModel.setTransactions(mergeWithStatementTransactions(transactions))
+
         // Analyze and clean up any existing duplicate transactions
         _ = viewModel.analyzeDuplicateTransactions()
 
@@ -1721,15 +1726,16 @@ extension DashboardViewController: MonthBudgetCardDelegate {
     private func updateAllMonthCardsBalanceVisibility(_ isHidden: Bool) {
         // Store the global visibility state first
         UserDefaultsManager.setHideValues(isHidden)
-        
-        // Update all visible month cards immediately
+
+        // Update all visible month cards and budget cards immediately
         for cell in contentView.monthCarousel.visibleCells {
             if let monthCell = cell as? MonthCarouselCell {
                 monthCell.monthCard.updateBalanceVisibility(isHidden)
+                monthCell.budgetCard.updateBalanceVisibility(isHidden)
             }
         }
-        
-        // Post a notification to update any other month cards that might be cached
+
+        // Post a notification to update any other cards that might be cached
         NotificationCenter.default.post(
             name: NSNotification.Name("BalanceVisibilityChanged"),
             object: nil,
@@ -1767,6 +1773,11 @@ extension DashboardViewController: UITableViewDataSource, UITableViewDelegate {
         
         let tx = txs[indexPath.row]
         
+        let txCount: Int? = {
+            guard tx.isCreditCardStatement == true, let stmtId = tx.statementId else { return nil }
+            return (try? DBHelper.shared.getTransactionCountForStatement(statementId: stmtId)) ?? 0
+        }()
+
         let configuration = TransactionCellConfiguration(
             category: tx.category,
             title: tx.title,
@@ -1775,10 +1786,20 @@ extension DashboardViewController: UITableViewDataSource, UITableViewDelegate {
             transactionType: tx.type,
             transactionMode: tx.mode,
             installmentNumber: tx.installmentNumber,
-            totalInstallments: tx.totalInstallments
+            totalInstallments: tx.totalInstallments,
+            isCreditCardStatement: tx.isCreditCardStatement ?? false,
+            statementTransactionCount: txCount,
+            creditCardId: tx.creditCardId
         )
         cell.configure(with: configuration)
-        
+
+        // Credit card statement rows are not directly deletable
+        guard tx.isCreditCardStatement != true else {
+            cell.onDelete = nil
+            cell.selectionStyle = .none
+            return cell
+        }
+
         cell.onDelete = { [weak self] completion in
             guard let self = self else { return }
             
@@ -1841,7 +1862,22 @@ extension DashboardViewController: UITableViewDataSource, UITableViewDelegate {
         guard indexPath.row < txs.count else { return }
         
         let selectedTransaction = txs[indexPath.row]
-        
+
+        // Credit card statement rows navigate to Statement Details
+        if selectedTransaction.isCreditCardStatement == true,
+           let cardId = selectedTransaction.creditCardId,
+           let stmtId = selectedTransaction.statementId {
+            let cardRepo = CreditCardRepository()
+            let stmtRepo = StatementRepository()
+            if let card = cardRepo.fetchCard(byId: cardId) {
+                let statements = stmtRepo.fetchStatements(forCardId: cardId)
+                if let statement = statements.first(where: { $0.id == stmtId }) {
+                    flowDelegate?.navigateToStatementDetails(card: card, statement: statement)
+                    return
+                }
+            }
+        }
+
         flowDelegate?.navigateToTransactionDetails(transaction: selectedTransaction)
     }
 }
@@ -2256,8 +2292,8 @@ extension DashboardViewController {
             
             // Update the view models
             self.syncedViewModel.setMonthData(monthData)
-            self.syncedViewModel.setTransactions(transactions)
-            
+            self.syncedViewModel.setTransactions(self.mergeWithStatementTransactions(transactions))
+
             // Update current cell data safely first
             if let currentCell = self.currentCell {
                 let currentIndex = self.contentView.monthCarousel.indexPathsForVisibleItems.first?.item ?? 0

@@ -122,6 +122,31 @@ final class ViewControllersFactory: ViewControllersFactoryProtocol {
         return viewController
     }
     
+    func makeCreditCardsViewController(flowDelegate: CreditCardsFlowDelegate) -> CreditCardsViewController {
+        let contentView = CreditCardsView()
+        let viewModel = CreditCardsViewModel()
+        let viewController = CreditCardsViewController(
+            contentView: contentView, viewModel: viewModel, flowDelegate: flowDelegate)
+        return viewController
+    }
+
+    func makeAddCreditCardViewController(flowDelegate: AddCreditCardFlowDelegate, cardToEdit: CreditCard? = nil) -> AddCreditCardViewController {
+        let contentView = AddCreditCardView()
+        let viewModel = AddCreditCardViewModel()
+        viewModel.cardToEdit = cardToEdit
+        let viewController = AddCreditCardViewController(
+            contentView: contentView, viewModel: viewModel, flowDelegate: flowDelegate)
+        return viewController
+    }
+
+    func makeStatementDetailsViewController(flowDelegate: StatementDetailsFlowDelegate, statement: CreditCardStatement, card: CreditCard) -> StatementDetailsViewController {
+        let contentView = StatementDetailsView()
+        let viewModel = StatementDetailsViewModel(card: card, statement: statement)
+        let viewController = StatementDetailsViewController(
+            contentView: contentView, viewModel: viewModel, flowDelegate: flowDelegate)
+        return viewController
+    }
+
     // MARK: - Budget Allocation Details
 
     static func makeBudgetAllocationDetailsViewController(

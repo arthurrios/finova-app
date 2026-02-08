@@ -11,7 +11,7 @@ import UIKit
 final class AddTransactionModalView: UIView {
   weak var delegate: AddTransactionModalViewDelegate?
 
-  let categoryOptions = TransactionCategory.allCases
+  let categoryOptions = TransactionCategory.allCases.filter { $0 != .creditCard }
 
   // MARK: - Edit Mode Properties
   private var isEditMode = false
@@ -46,16 +46,29 @@ final class AddTransactionModalView: UIView {
   private var isAnimating = false
   private var pendingMode: TransactionMode?
 
+  private var contentHeightConstraint: NSLayoutConstraint?
+
+  private lazy var scrollView: UIScrollView = {
+    let sv = UIScrollView()
+    sv.showsVerticalScrollIndicator = false
+    sv.translatesAutoresizingMaskIntoConstraints = false
+    return sv
+  }()
+
   private lazy var contentStackView: UIStackView = {
     let sv = UIStackView(
       axis: .vertical, spacing: Metrics.spacing7, distribution: .fill,
       arrangedSubviews: [
-        headerStackView, inputStackView, transactionButtonsStackView, separator, saveButton,
+        headerStackView, inputStackView, paymentMethodSection,
+        transactionButtonsStackView, separator, saveButton,
       ])
     sv.directionalLayoutMargins = NSDirectionalEdgeInsets(
       top: Metrics.spacing10, leading: Metrics.spacing8, bottom: Metrics.spacing4,
       trailing: Metrics.spacing8)
     sv.isLayoutMarginsRelativeArrangement = true
+
+    // Bring payment method section closer to the value/date inputs
+    sv.setCustomSpacing(Metrics.spacing3, after: inputStackView)
 
     sv.setContentHuggingPriority(UILayoutPriority(251), for: .vertical)
     sv.setContentCompressionResistancePriority(UILayoutPriority(751), for: .vertical)
@@ -126,6 +139,78 @@ final class AddTransactionModalView: UIView {
     label.setContentCompressionResistancePriority(.required, for: .vertical)
     label.heightAnchor.constraint(equalToConstant: Metrics.spacing3).isActive = true
 
+    return label
+  }()
+
+  // MARK: - Payment Method Section (Credit Card)
+  private var selectedPaymentMethod: PaymentMethod = .cashDebit
+  private var availableCards: [CreditCard] = []
+  private var selectedCard: CreditCard?
+
+  private lazy var paymentMethodSection: UIStackView = {
+    let stack = UIStackView(
+      axis: .vertical, spacing: Metrics.spacing3,
+      arrangedSubviews: [paymentMethodTitleLabel, paymentOptionsStack, cardSelectorContainer, statementInfoBanner])
+    stack.isHidden = true  // Only show for expenses
+    return stack
+  }()
+
+  private let paymentMethodTitleLabel: UILabel = {
+    let label = UILabel()
+    label.text = "addTransactionModal.paymentMethod.title".localized
+    label.font = Fonts.textSMBold.font
+    label.textColor = Colors.gray600
+    label.translatesAutoresizingMaskIntoConstraints = false
+    return label
+  }()
+
+  private lazy var paymentOptionsStack = UIStackView(
+    axis: .horizontal, spacing: Metrics.spacing3, distribution: .fillEqually,
+    arrangedSubviews: [cashDebitOption, creditCardOption])
+
+  private lazy var cashDebitOption: PaymentMethodOptionView = {
+    let view = PaymentMethodOptionView(
+      title: "addTransactionModal.paymentMethod.cashDebit".localized,
+      subtitle: "addTransactionModal.paymentMethod.cashDebit.subtitle".localized)
+    view.setSelected(true)
+    view.onTap = { [weak self] in self?.selectPaymentMethod(.cashDebit) }
+    return view
+  }()
+
+  private lazy var creditCardOption: PaymentMethodOptionView = {
+    let view = PaymentMethodOptionView(
+      title: "addTransactionModal.paymentMethod.creditCard".localized,
+      subtitle: "addTransactionModal.paymentMethod.creditCard.subtitle".localized)
+    view.onTap = { [weak self] in self?.selectPaymentMethod(.creditCard(cardId: 0)) }
+    return view
+  }()
+
+  private lazy var cardSelectorContainer: UIStackView = {
+    let stack = UIStackView(axis: .vertical, spacing: Metrics.spacing2,
+      arrangedSubviews: [cardPickerInput, createCardButton])
+    stack.isHidden = true
+    return stack
+  }()
+
+  private let cardPickerInput = Input(
+    type: .picker(values: []),
+    placeholder: "addTransactionModal.paymentMethod.selectCard".localized,
+    icon: UIImage(named: "lucide_iconCreditCard"), iconPosition: .left)
+
+  private lazy var createCardButton: Button = {
+    let button = Button(variant: .outlined, label: "addTransactionModal.paymentMethod.createCard".localized)
+    button.isHidden = true
+    button.addTarget(self, action: #selector(didTapCreateCard), for: .touchUpInside)
+    return button
+  }()
+
+  private let statementInfoBanner: UILabel = {
+    let label = UILabel()
+    label.font = Fonts.textXS.font
+    label.textColor = Colors.gray500
+    label.numberOfLines = 0
+    label.isHidden = true
+    label.translatesAutoresizingMaskIntoConstraints = false
     return label
   }()
 
@@ -213,7 +298,7 @@ final class AddTransactionModalView: UIView {
   private let transactionTitleTextField = Input(
     placeholder: "addTransactionModal.input.transactionTitle".localized)
   let categoryPickerView = Input(
-    type: .picker(values: TransactionCategory.allCases.map { $0.key }),
+    type: .picker(values: TransactionCategory.allCases.filter { $0 != .creditCard }.map { $0.key }),
     placeholder: "addTransactionModal.input.category".localized, icon: UIImage(named: "tag"),
     iconPosition: .left)
 
@@ -288,8 +373,9 @@ final class AddTransactionModalView: UIView {
     backgroundColor = Colors.gray100
     layer.cornerRadius = CornerRadius.bottomSheet
 
-    // Add the default content stack view (for add mode)
-    addSubview(contentStackView)
+    // Add the default content stack view (for add mode) inside scroll view
+    addSubview(scrollView)
+    scrollView.addSubview(contentStackView)
     closeIconButton.addTarget(self, action: #selector(didTapClose), for: .touchUpInside)
 
     saveButton.addTarget(self, action: #selector(didTapSaveTransaction), for: .touchUpInside)
@@ -317,11 +403,25 @@ final class AddTransactionModalView: UIView {
     let currentContentStackView = isEditMode ? editModeContentStackView : contentStackView
 
     NSLayoutConstraint.activate([
-      currentContentStackView.topAnchor.constraint(equalTo: topAnchor),
-      currentContentStackView.leadingAnchor.constraint(equalTo: leadingAnchor),
-      currentContentStackView.trailingAnchor.constraint(equalTo: trailingAnchor),
-      currentContentStackView.bottomAnchor.constraint(equalTo: bottomAnchor),
+      scrollView.topAnchor.constraint(equalTo: topAnchor),
+      scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
+      scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
+      scrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
+
+      currentContentStackView.topAnchor.constraint(equalTo: scrollView.topAnchor),
+      currentContentStackView.leadingAnchor.constraint(equalTo: scrollView.leadingAnchor),
+      currentContentStackView.trailingAnchor.constraint(equalTo: scrollView.trailingAnchor),
+      currentContentStackView.bottomAnchor.constraint(equalTo: scrollView.bottomAnchor),
+      currentContentStackView.widthAnchor.constraint(equalTo: scrollView.widthAnchor),
     ])
+
+    // Self-sizing: scroll view prefers to match content height so the modal grows.
+    // Only scrolls when content exceeds the VC's max height cap.
+    contentHeightConstraint?.isActive = false
+    let heightC = scrollView.heightAnchor.constraint(equalTo: currentContentStackView.heightAnchor)
+    heightC.priority = .defaultHigh
+    heightC.isActive = true
+    contentHeightConstraint = heightC
   }
 
   private func setupTransactionModeControl() {
@@ -379,6 +479,10 @@ final class AddTransactionModalView: UIView {
 
   @objc private func didTapClose() {
     delegate?.closeModal()
+  }
+
+  @objc private func didTapCreateCard() {
+    delegate?.didTapCreateCreditCard()
   }
 
   // MARK: - Validation Helper
@@ -602,7 +706,8 @@ final class AddTransactionModalView: UIView {
         let installmentData = InstallmentTransactionData(
           title: title, totalAmount: amount, date: date, category: categoryKey,
           transactionType: typeKey,
-          installments: Int(installmentsInputWithSuffix.textField.text ?? "1") ?? 1)
+          installments: Int(installmentsInputWithSuffix.textField.text ?? "1") ?? 1,
+          creditCardId: getSelectedCreditCardId())
         delegate?.updateInstallmentTransactionData(id: transactionId, installmentData)
       } else if editingTransaction.mode == .recurring {
         // For recurring transactions, show alert with options
@@ -610,41 +715,157 @@ final class AddTransactionModalView: UIView {
           transactionId: transactionId,
           transactionData: AddTransactionData(
             title: title, amount: amount, date: date, category: categoryKey,
-            transactionType: typeKey),
+            transactionType: typeKey, creditCardId: getSelectedCreditCardId()),
           installmentData: nil,
           mode: selectedMode
         )
       } else {
-        // Normal transaction - proceed with edit
+        // Normal transaction - proceed with edit (include payment method change)
         delegate?.updateTransactionData(
           id: transactionId,
           AddTransactionData(
             title: title, amount: amount, date: date, category: categoryKey,
-            transactionType: typeKey)
+            transactionType: typeKey, creditCardId: getSelectedCreditCardId())
         )
       }
     } else {
       // Add mode
+      let creditCardId = getSelectedCreditCardId()
+
       switch selectedMode {
       case .normal:
         delegate?.sendTransactionData(
           AddTransactionData(
             title: title, amount: amount, date: date, category: categoryKey,
-            transactionType: typeKey)
+            transactionType: typeKey, creditCardId: creditCardId)
         )
       case .recurring:
         delegate?.sendRecurringTransactionData(
           AddTransactionData(
             title: title, amount: amount, date: date, category: categoryKey,
-            transactionType: typeKey)
+            transactionType: typeKey, creditCardId: creditCardId)
         )
       case .installments:
         let installmentsCount = Int(installmentsInputWithSuffix.textField.text ?? "1") ?? 1
         delegate?.sendInstallmentTransactionData(
           InstallmentTransactionData(
             title: title, totalAmount: amount, date: date, category: categoryKey,
-            transactionType: typeKey, installments: installmentsCount))
+            transactionType: typeKey, installments: installmentsCount, creditCardId: creditCardId))
       }
+    }
+  }
+
+  // MARK: - Payment Method Logic
+
+  private func selectPaymentMethod(_ method: PaymentMethod) {
+    cashDebitOption.setSelected(method == .cashDebit)
+    creditCardOption.setSelected(method != .cashDebit)
+
+    let showCardSelector = method != .cashDebit
+
+    // Update state before animating so layoutIfNeeded reflects all changes
+    if case .creditCard = method {
+      if let defaultCard = availableCards.first(where: { $0.isDefault }) {
+        selectedPaymentMethod = .creditCard(cardId: defaultCard.id ?? 0)
+        selectedCard = defaultCard
+        if let index = availableCards.firstIndex(where: { $0.id == defaultCard.id }) {
+          cardPickerInput.selectPickerValue(at: index)
+        }
+      } else {
+        selectedPaymentMethod = .creditCard(cardId: 0)
+        selectedCard = nil
+      }
+    } else {
+      selectedPaymentMethod = .cashDebit
+      selectedCard = nil
+    }
+
+    UIView.animate(withDuration: 0.25) {
+      self.cardSelectorContainer.isHidden = !showCardSelector
+      self.cardSelectorContainer.alpha = showCardSelector ? 1 : 0
+      self.updateStatementInfoBanner()
+      self.layoutIfNeeded()
+      if let vc = self.findViewController() { vc.view.layoutIfNeeded() }
+    }
+  }
+
+  func loadAvailableCards(_ cards: [CreditCard]) {
+    availableCards = cards
+    let names = cards.map { "\($0.name) ****\($0.lastFourDigits)" }
+
+    cardPickerInput.updatePickerValues(names)
+
+    if cards.isEmpty {
+      cardPickerInput.textField.text = "addTransactionModal.paymentMethod.noCards".localized
+      cardPickerInput.isUserInteractionEnabled = false
+      createCardButton.isHidden = false
+    } else {
+      cardPickerInput.isUserInteractionEnabled = true
+      createCardButton.isHidden = true
+    }
+
+    cardPickerInput.onPickerSelectionChanged = { [weak self] index in
+      guard let self, index < self.availableCards.count else { return }
+      let card = self.availableCards[index]
+      self.selectedPaymentMethod = .creditCard(cardId: card.id ?? 0)
+      self.selectedCard = card
+      self.updateStatementInfoBanner()
+    }
+
+    // Pre-select payment method for edit mode
+    if isEditMode, let editTx = editingTransaction, editTx.type == .expense {
+      if let cardId = editTx.creditCardId, cardId > 0 {
+        cashDebitOption.setSelected(false)
+        creditCardOption.setSelected(true)
+        cardSelectorContainer.isHidden = false
+        cardSelectorContainer.alpha = 1
+
+        if let cardIndex = availableCards.firstIndex(where: { $0.id == cardId }) {
+          cardPickerInput.selectPickerValue(at: cardIndex)
+          selectedCard = availableCards[cardIndex]
+          selectedPaymentMethod = .creditCard(cardId: cardId)
+          updateStatementInfoBanner()
+        }
+      } else {
+        cashDebitOption.setSelected(true)
+        creditCardOption.setSelected(false)
+        selectedPaymentMethod = .cashDebit
+      }
+    }
+  }
+
+  private func updateStatementInfoBanner() {
+    guard let card = selectedCard else {
+      statementInfoBanner.isHidden = true
+      return
+    }
+
+    let service = CreditCardService()
+    let closingDate = service.calculateClosingDate(card: card, transactionDate: Date())
+    let dueDate = service.calculateDueDate(closingDate: closingDate, card: card)
+    let monthName = DateFormatter.monthFormatter.string(from: closingDate)
+    let dueDateStr = DateFormatter.fullDateFormatter.string(from: dueDate)
+    statementInfoBanner.text = String(format: "addTransactionModal.paymentMethod.statementInfo".localized, monthName, dueDateStr)
+    statementInfoBanner.isHidden = false
+  }
+
+  func getSelectedCreditCardId() -> Int? {
+    if case .creditCard(let cardId) = selectedPaymentMethod, cardId > 0 {
+      return cardId
+    }
+    return nil
+  }
+
+  func showPaymentMethodSection(_ show: Bool) {
+    UIView.animate(withDuration: 0.25) {
+      self.paymentMethodSection.isHidden = !show
+      self.paymentMethodSection.alpha = show ? 1 : 0
+      self.layoutIfNeeded()
+      if let vc = self.findViewController() { vc.view.layoutIfNeeded() }
+    }
+
+    if !show {
+      selectPaymentMethod(.cashDebit)
     }
   }
 
@@ -656,7 +877,7 @@ final class AddTransactionModalView: UIView {
 
     // Switch to simplified layout for edit mode
     contentStackView.removeFromSuperview()
-    addSubview(editModeContentStackView)
+    scrollView.addSubview(editModeContentStackView)
     setupConstraints()
 
     // Update UI for edit mode
@@ -666,6 +887,15 @@ final class AddTransactionModalView: UIView {
 
     // Set up edit mode content based on transaction type
     setupEditModeContent(for: transaction)
+
+    // Show payment method section for expense transactions in edit mode
+    if transaction.type == .expense {
+      paymentMethodSection.isHidden = false
+      editModeContentStackView.insertArrangedSubview(paymentMethodSection, at: 2)
+      editModeContentStackView.setCustomSpacing(Metrics.spacing3, after: editModeInputStackView)
+    } else {
+      paymentMethodSection.isHidden = true
+    }
 
     // Populate fields with transaction data
     populateFields(with: transaction)

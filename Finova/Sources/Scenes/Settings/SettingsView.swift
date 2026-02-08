@@ -100,6 +100,18 @@ final class SettingsView: UIView {
     let currencyValueLabel = createDetailLabel(text: "")
     private let currencyChevron = createChevronView()
 
+    // Financial Section
+    private let financialHeaderView = createSectionHeader(title: "settings.section.financial".localized)
+
+    private let creditCardsContainer: UIView = {
+        let container = createSettingContainer()
+        container.isUserInteractionEnabled = true
+        return container
+    }()
+    private let creditCardsIconView = createIconView(imageName: "creditcard")
+    private let creditCardsLabel = createSettingLabel(text: "settings.creditCards.title".localized)
+    private let creditCardsChevron = createChevronView()
+
     // Notifications Section
     private let notificationsHeaderView = createSectionHeader(title: "settings.section.notifications".localized)
 
@@ -108,7 +120,7 @@ final class SettingsView: UIView {
         container.isUserInteractionEnabled = true
         return container
     }()
-    private let notificationsIconView = createIconView(imageName: "bell.fill")
+    private let notificationsIconView = createIconView(imageName: "bell")
     private let notificationsLabel = createSettingLabel(text: "settings.notifications.title".localized)
     private let notificationsChevron = createChevronView()
 
@@ -175,10 +187,10 @@ final class SettingsView: UIView {
         
         backButton.addTarget(self, action: #selector(handleDidTapBackButton), for: .touchUpInside)
         
-        addSubview(scrollView)
-        scrollView.addSubview(headerContainerView)
-        scrollView.addSubview(contentStackView)
+        addSubview(headerContainerView)
         headerContainerView.addSubview(headerItemsView)
+        addSubview(scrollView)
+        scrollView.addSubview(contentStackView)
         headerItemsView.addSubview(backButtonGlassContainer)
         backButtonGlassContainer.addSubview(backButton)
         setupBackButtonGlassEffect()
@@ -198,6 +210,11 @@ final class SettingsView: UIView {
         contentStackView.addArrangedSubview(preferencesHeaderView)
         setupCurrencyContainer()
         contentStackView.addArrangedSubview(currencyContainer)
+
+        // Financial section
+        contentStackView.addArrangedSubview(financialHeaderView)
+        setupCreditCardsContainer()
+        contentStackView.addArrangedSubview(creditCardsContainer)
 
         // Notifications section
         contentStackView.addArrangedSubview(notificationsHeaderView)
@@ -252,6 +269,23 @@ final class SettingsView: UIView {
 
             currencyValueLabel.trailingAnchor.constraint(equalTo: currencyChevron.leadingAnchor, constant: -Metrics.spacing2),
             currencyValueLabel.centerYAnchor.constraint(equalTo: currencyContainer.centerYAnchor)
+        ])
+    }
+
+    private func setupCreditCardsContainer() {
+        creditCardsContainer.addSubview(creditCardsIconView)
+        creditCardsContainer.addSubview(creditCardsLabel)
+        creditCardsContainer.addSubview(creditCardsChevron)
+
+        NSLayoutConstraint.activate([
+            creditCardsIconView.leadingAnchor.constraint(equalTo: creditCardsContainer.leadingAnchor, constant: Metrics.spacing4),
+            creditCardsIconView.centerYAnchor.constraint(equalTo: creditCardsContainer.centerYAnchor),
+
+            creditCardsLabel.leadingAnchor.constraint(equalTo: creditCardsIconView.trailingAnchor, constant: Metrics.spacing3),
+            creditCardsLabel.centerYAnchor.constraint(equalTo: creditCardsContainer.centerYAnchor),
+
+            creditCardsChevron.trailingAnchor.constraint(equalTo: creditCardsContainer.trailingAnchor, constant: -Metrics.spacing4),
+            creditCardsChevron.centerYAnchor.constraint(equalTo: creditCardsContainer.centerYAnchor),
         ])
     }
 
@@ -317,20 +351,16 @@ final class SettingsView: UIView {
 
     private func setupConstraints() {
         NSLayoutConstraint.activate([
-            scrollView.topAnchor.constraint(equalTo: topAnchor),
-            scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            scrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
-            
+            // Header fixed at top
             headerContainerView.topAnchor.constraint(equalTo: topAnchor),
-            headerContainerView.leadingAnchor.constraint(equalTo: scrollView.leadingAnchor),
-            headerContainerView.trailingAnchor.constraint(equalTo: scrollView.trailingAnchor),
-            
+            headerContainerView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            headerContainerView.trailingAnchor.constraint(equalTo: trailingAnchor),
+
             headerItemsView.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor),
             headerItemsView.leadingAnchor.constraint(equalTo: headerContainerView.leadingAnchor),
             headerItemsView.trailingAnchor.constraint(equalTo: headerContainerView.trailingAnchor),
             headerItemsView.bottomAnchor.constraint(equalTo: headerContainerView.bottomAnchor),
-            
+
             backButtonGlassContainer.topAnchor.constraint(equalTo: headerItemsView.layoutMarginsGuide.topAnchor),
             backButtonGlassContainer.leadingAnchor.constraint(
                 equalTo: headerItemsView.layoutMarginsGuide.leadingAnchor),
@@ -345,11 +375,18 @@ final class SettingsView: UIView {
             headerTitleLabel.leadingAnchor.constraint(
                 equalTo: backButtonGlassContainer.trailingAnchor, constant: Metrics.spacing4),
             headerTitleLabel.centerYAnchor.constraint(equalTo: backButtonGlassContainer.centerYAnchor),
-            
-            contentStackView.topAnchor.constraint(equalTo: headerContainerView.bottomAnchor, constant: Metrics.spacing4),
+
+            // Scroll view fills area below header
+            scrollView.topAnchor.constraint(equalTo: headerContainerView.bottomAnchor),
+            scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
+
+            // Content stack defines scroll content size
+            contentStackView.topAnchor.constraint(equalTo: scrollView.topAnchor, constant: Metrics.spacing4),
             contentStackView.leadingAnchor.constraint(equalTo: scrollView.leadingAnchor, constant: Metrics.spacing4),
             contentStackView.trailingAnchor.constraint(equalTo: scrollView.trailingAnchor, constant: -Metrics.spacing4),
-            contentStackView.bottomAnchor.constraint(equalTo: scrollView.bottomAnchor, constant: Metrics.spacing4),
+            contentStackView.bottomAnchor.constraint(equalTo: scrollView.bottomAnchor, constant: -Metrics.spacing4),
             contentStackView.widthAnchor.constraint(equalTo: scrollView.widthAnchor, constant: -2 * Metrics.spacing4)
         ])
     }
@@ -386,6 +423,9 @@ final class SettingsView: UIView {
         let notificationsTap = UITapGestureRecognizer(target: self, action: #selector(notificationsTapped))
         notificationsContainer.addGestureRecognizer(notificationsTap)
 
+        let creditCardsTap = UITapGestureRecognizer(target: self, action: #selector(creditCardsTapped))
+        creditCardsContainer.addGestureRecognizer(creditCardsTap)
+
         let logoutTap = UITapGestureRecognizer(target: self, action: #selector(logoutTapped))
         logoutContainer.addGestureRecognizer(logoutTap)
     }
@@ -408,6 +448,11 @@ final class SettingsView: UIView {
     @objc
     private func notificationsTapped() {
         delegate?.didTapNotifications()
+    }
+
+    @objc
+    private func creditCardsTapped() {
+        delegate?.didTapCreditCards()
     }
 
     @objc

@@ -32,4 +32,7 @@ protocol ViewControllersFactoryProtocol: AnyObject {
   func makeNotificationHistoryViewController(
     flowDelegate: NotificationHistoryFlowDelegate
   ) -> NotificationHistoryViewController
+  func makeCreditCardsViewController(flowDelegate: CreditCardsFlowDelegate) -> CreditCardsViewController
+  func makeAddCreditCardViewController(flowDelegate: AddCreditCardFlowDelegate, cardToEdit: CreditCard?) -> AddCreditCardViewController
+  func makeStatementDetailsViewController(flowDelegate: StatementDetailsFlowDelegate, statement: CreditCardStatement, card: CreditCard) -> StatementDetailsViewController
 }
