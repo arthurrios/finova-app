@@ -132,11 +132,7 @@ final class StatementDetailsViewModel {
                 return .failure(TransactionError.transactionNotFound)
             }
 
-            if option == .currentSelection {
-                try transactionRepo.deleteTransactionAndRelated(id: transactionId)
-            } else {
-                try transactionRepo.deleteTransactionWithOption(id: transactionId, option: option)
-            }
+            try transactionRepo.deleteTransactionWithOption(id: transactionId, option: option)
 
             recalculateAndReload()
             return .success(())

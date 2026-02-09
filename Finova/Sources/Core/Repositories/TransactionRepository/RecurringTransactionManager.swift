@@ -33,6 +33,11 @@ final class RecurringTransactionManager {
   private var currentOperations: Set<String> = []
   private let operationLock = NSLock()
 
+  // MARK: - Deleted Instance Tracking
+  // Tracks instances deleted via .currentSelection to prevent lazy generation from recreating them.
+  // Key: parentTransactionId, Value: set of month anchors that should NOT be regenerated.
+  private var deletedInstanceAnchors: [Int: Set<Int>] = [:]
+
   init(
     transactionRepo: TransactionRepository = TransactionRepository(),
     creditCardService: CreditCardService = CreditCardService(),
@@ -278,6 +283,20 @@ final class RecurringTransactionManager {
     onCleanupChoiceNeeded(.futureOnly)
   }
 
+  /// Record that a specific instance was intentionally deleted so lazy generation won't recreate it.
+  func trackDeletedInstance(parentId: Int, monthAnchor: Int) {
+    operationLock.lock()
+    defer { operationLock.unlock() }
+    deletedInstanceAnchors[parentId, default: []].insert(monthAnchor)
+  }
+
+  /// Clear deletion tracking for a parent (called when the parent itself is deleted).
+  func clearDeletedInstanceTracking(for parentId: Int) {
+    operationLock.lock()
+    defer { operationLock.unlock() }
+    deletedInstanceAnchors.removeValue(forKey: parentId)
+  }
+
   func cleanupRecurringInstancesFromDate(
     parentTransactionId: Int,
     selectedTransactionDate: Date,
@@ -350,6 +369,11 @@ final class RecurringTransactionManager {
         }
       }
 
+      // Track deleted anchors so lazy generation won't recreate them
+      if cleanupOption == .currentSelection && !instancesToDelete.isEmpty {
+        self.trackDeletedInstance(parentId: parentTransactionId, monthAnchor: selectedAnchor)
+      }
+
       if cleanupOption == .all {
         do {
           try self.transactionRepo.delete(id: parentTransactionId)
@@ -358,6 +382,7 @@ final class RecurringTransactionManager {
         } catch {
           logError("Error deleting parent recurring transaction \(parentTransactionId): \(error)")
         }
+        self.clearDeletedInstanceTracking(for: parentTransactionId)
       } else {
         // For non-"all" deletions, check if parent is now orphaned
         let remainingInstances = self.transactionRepo.fetchTransactionInstancesForRecurring(
@@ -371,6 +396,7 @@ final class RecurringTransactionManager {
           } catch {
             logError("Error deleting orphaned parent transaction \(parentTransactionId): \(error)")
           }
+          self.clearDeletedInstanceTracking(for: parentTransactionId)
         } else if cleanupOption == .futureOnly {
           // When deleting future instances, mark parent as no longer recurring
           // This prevents lazy generation from recreating deleted instances
@@ -380,6 +406,7 @@ final class RecurringTransactionManager {
           } catch {
             logError("Error updating isRecurring flag for parent \(parentTransactionId): \(error)")
           }
+          self.clearDeletedInstanceTracking(for: parentTransactionId)
         }
       }
     }
@@ -454,6 +481,12 @@ final class RecurringTransactionManager {
         }
       }
 
+      // Track deleted anchors so lazy generation won't recreate them
+      if cleanupOption == .currentSelection && !instancesToDelete.isEmpty {
+        let selectedAnchor = selectedTransactionDate.monthAnchor
+        self.trackDeletedInstance(parentId: parentTransactionId, monthAnchor: selectedAnchor)
+      }
+
       if cleanupOption == .all {
         do {
           try self.transactionRepo.delete(id: parentTransactionId)
@@ -462,6 +495,7 @@ final class RecurringTransactionManager {
         } catch {
           logError("Error deleting parent installment transaction: \(error)")
         }
+        self.clearDeletedInstanceTracking(for: parentTransactionId)
       } else if cleanupOption == .futureOnly {
         // For futureOnly, also delete the parent to prevent lazy regeneration
         // This is safe because the parent is just a hidden "Installment Parent" record
@@ -472,6 +506,7 @@ final class RecurringTransactionManager {
         } catch {
           logError("Error deleting parent installment transaction: \(error)")
         }
+        self.clearDeletedInstanceTracking(for: parentTransactionId)
       }
     }
   }
@@ -813,8 +848,14 @@ final class RecurringTransactionManager {
         // Get existing anchors from pre-built lookup
         let existingAnchors = instancesByParentId[recurringTxId] ?? []
 
-        // Only generate for months that don't have instances yet
+        // Get anchors of intentionally deleted instances (from .currentSelection deletion)
+        self.operationLock.lock()
+        let excludedAnchors = self.deletedInstanceAnchors[recurringTxId] ?? []
+        self.operationLock.unlock()
+
+        // Only generate for months that don't have instances yet and weren't intentionally deleted
         let missingAnchors = monthAnchors.subtracting(existingAnchors)
+          .subtracting(excludedAnchors)
           .filter { $0 != recurringTx.budgetMonthDate }  // Don't create for parent's month
           .filter { $0 > recurringTx.budgetMonthDate }  // Only future months
 
@@ -867,6 +908,12 @@ final class RecurringTransactionManager {
         else { continue }
 
         let existingAnchors = instancesByParentId[parentId] ?? []
+
+        // Get anchors of intentionally deleted instances (from .currentSelection deletion)
+        self.operationLock.lock()
+        let excludedAnchors = self.deletedInstanceAnchors[parentId] ?? []
+        self.operationLock.unlock()
+
         let parentDate = parent.date
         let originalAmount = parent.originalAmount ?? parent.amount
         let amountPerInstallment = originalAmount / totalInstallments
@@ -881,8 +928,9 @@ final class RecurringTransactionManager {
 
           let targetAnchor = targetDate.monthAnchor
 
-          // Only generate if this month is requested AND doesn't exist yet
-          guard monthAnchors.contains(targetAnchor), !existingAnchors.contains(targetAnchor) else {
+          // Only generate if this month is requested, doesn't exist yet, and wasn't intentionally deleted
+          guard monthAnchors.contains(targetAnchor), !existingAnchors.contains(targetAnchor),
+                !excludedAnchors.contains(targetAnchor) else {
             continue
           }
 
