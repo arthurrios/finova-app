@@ -10,6 +10,7 @@ import Foundation
 final class TransactionLedgerService {
   private let transactionRepo: TransactionRepository
   private let budgetRepo: BudgetRepository
+  private let creditCardService = CreditCardService()
   private let calendar = Calendar.current
 
   // Cache for performance optimization
@@ -25,6 +26,16 @@ final class TransactionLedgerService {
     self.budgetRepo = budgetRepo
   }
 
+  /// Fetches all transactions including synthetic CC statement transactions for balance calculations
+  private func fetchAllTransactionsIncludingStatements() -> [Transaction] {
+    var transactions = transactionRepo.fetchAllTransactions()
+    if let uid = AuthenticationManager.shared.currentUser?.uid {
+      let statementTxs = creditCardService.generateStatementTransactions(userId: uid)
+      transactions.append(contentsOf: statementTxs)
+    }
+    return transactions
+  }
+
   // MARK: - Monthly Calculations
 
   func calculateMonthlyData(for monthRange: ClosedRange<Int>, referenceDate: Date = Date())
@@ -38,7 +49,7 @@ final class TransactionLedgerService {
       }
     }
 
-    let allTransactions = transactionRepo.fetchAllTransactions()
+    let allTransactions = fetchAllTransactionsIncludingStatements()
 
     let budgetsByAnchor = budgetRepo.fetchBudgets()
       .reduce(into: [:]) { acc, entry in
@@ -187,7 +198,7 @@ final class TransactionLedgerService {
 
   /// Calculate the balance up to the current date within a specific month
   func calculateCurrentBalanceForMonth(anchor: Int, previousBalance: Int) -> Int {
-    let allTransactions = transactionRepo.fetchAllTransactions()
+    let allTransactions = fetchAllTransactionsIncludingStatements()
 
     let today = Date()
     let monthDate = Date(timeIntervalSince1970: TimeInterval(anchor))
@@ -245,7 +256,7 @@ final class TransactionLedgerService {
   }
 
   func calculateCurrentBalance(for monthAnchor: Int) -> Int {
-    let allTransactions = transactionRepo.fetchAllTransactions()
+    let allTransactions = fetchAllTransactionsIncludingStatements()
     let today = Date()
     let monthDate = Date(timeIntervalSince1970: TimeInterval(monthAnchor))
 
@@ -354,7 +365,7 @@ final class TransactionLedgerService {
 
   /// Calculate balance for a specific day within a month
   func calculateBalanceForDay(day: Int, monthAnchor: Int, previousMonthBalance: Int) -> Int {
-    let allTransactions = transactionRepo.fetchAllTransactions()
+    let allTransactions = fetchAllTransactionsIncludingStatements()
 
     // Get the month date from anchor
     let monthDate = Date(timeIntervalSince1970: TimeInterval(monthAnchor))
