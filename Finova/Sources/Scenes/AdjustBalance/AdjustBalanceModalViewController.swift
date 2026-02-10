@@ -18,6 +18,7 @@ final class AdjustBalanceModalViewController: UIViewController {
 
     private let contentView = AdjustBalanceModalView()
     private let currentCalculatedBalance: Int
+    private var bottomConstraint: NSLayoutConstraint?
     weak var flowDelegate: AdjustBalanceModalFlowDelegate?
 
     // MARK: - Initialization
@@ -66,40 +67,18 @@ final class AdjustBalanceModalViewController: UIViewController {
         view.addSubview(contentView)
         contentView.translatesAutoresizingMaskIntoConstraints = false
 
+        let bottom = contentView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+        self.bottomConstraint = bottom
+
         NSLayoutConstraint.activate([
             contentView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             contentView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            contentView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+            bottom
         ])
-
-        let heightConstraint = contentView.heightAnchor.constraint(
-            equalTo: view.heightAnchor, multiplier: 0.45)
-        heightConstraint.priority = UILayoutPriority(999)
-        heightConstraint.isActive = true
-
-        contentView.heightAnchor.constraint(greaterThanOrEqualToConstant: 360).isActive = true
-        contentView.heightAnchor.constraint(lessThanOrEqualTo: view.heightAnchor, multiplier: 0.55)
-            .isActive = true
     }
 
     @objc private func backgroundTapped() {
         flowDelegate?.dismissAdjustBalanceModal()
-    }
-}
-
-// MARK: - AdjustBalanceModalViewDelegate
-
-extension AdjustBalanceModalViewController: AdjustBalanceModalViewDelegate {
-
-    func didTapClose() {
-        flowDelegate?.dismissAdjustBalanceModal()
-    }
-
-    func didTapConfirm(realBalanceCents: Int) {
-        let oldOffset = UIDUserDefaultsManager.shared.getCurrentUserBalanceOffset()
-        let newOffset = realBalanceCents - currentCalculatedBalance + oldOffset
-        UIDUserDefaultsManager.shared.setCurrentUserBalanceOffset(newOffset)
-        flowDelegate?.didAdjustBalance()
     }
 }
 
@@ -135,23 +114,12 @@ extension AdjustBalanceModalViewController {
                 as? CGRect,
             let animationDuration = notification.userInfo?[
                 UIResponder.keyboardAnimationDurationUserInfoKey] as? Double
-        else {
-            return
-        }
+        else { return }
 
-        let keyboardHeight = keyboardFrame.height
-        let viewHeight = view.frame.height
-        let keyboardTopY = viewHeight - keyboardHeight
+        bottomConstraint?.constant = -keyboardFrame.height
 
-        let modalBottomY = contentView.frame.maxY
-
-        if modalBottomY > keyboardTopY {
-            let overlap = modalBottomY - keyboardTopY
-            let shiftAmount = min(overlap * 0.7, 200)
-
-            UIView.animate(withDuration: animationDuration, delay: 0, options: [.curveEaseInOut]) {
-                self.contentView.transform = CGAffineTransform(translationX: 0, y: -shiftAmount)
-            }
+        UIView.animate(withDuration: animationDuration, delay: 0, options: [.curveEaseInOut]) {
+            self.view.layoutIfNeeded()
         }
     }
 
@@ -161,8 +129,26 @@ extension AdjustBalanceModalViewController {
                 UIResponder.keyboardAnimationDurationUserInfoKey] as? Double
         else { return }
 
+        bottomConstraint?.constant = 0
+
         UIView.animate(withDuration: animationDuration, delay: 0, options: [.curveEaseInOut]) {
-            self.contentView.transform = .identity
+            self.view.layoutIfNeeded()
         }
+    }
+}
+
+// MARK: - AdjustBalanceModalViewDelegate
+
+extension AdjustBalanceModalViewController: AdjustBalanceModalViewDelegate {
+
+    func didTapClose() {
+        flowDelegate?.dismissAdjustBalanceModal()
+    }
+
+    func didTapConfirm(realBalanceCents: Int) {
+        let oldOffset = UIDUserDefaultsManager.shared.getCurrentUserBalanceOffset()
+        let newOffset = realBalanceCents - currentCalculatedBalance + oldOffset
+        UIDUserDefaultsManager.shared.setCurrentUserBalanceOffset(newOffset)
+        flowDelegate?.didAdjustBalance()
     }
 }

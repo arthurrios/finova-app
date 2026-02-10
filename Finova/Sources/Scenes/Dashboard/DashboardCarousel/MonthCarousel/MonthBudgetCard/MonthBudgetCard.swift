@@ -1262,31 +1262,40 @@ class MonthBudgetCard: UIView {
             return 0
         }
 
-        // Use the shared TransactionLedgerService to avoid creating a new instance
-        // with an empty cache that computes different balance values
-        let ledgerService = self.ledgerService ?? TransactionLedgerService()
-        
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone.current
+
         if isCurrentMonth() {
-            // For current month, use the existing method
-            let result = ledgerService.calculateCurrentMonthBalanceForDay(day: day)
-            return result
+            // For current month: if the selected day is today, use the pre-computed currentBalance
+            let today = calendar.component(.day, from: Date())
+            if day == today, let currentBalance = data.currentBalance {
+                return currentBalance
+            }
         } else {
-            // For other months, calculate balance for that specific day in that month
+            // For other months: if the selected day is the last day, use the pre-computed finalBalance
+            if let range = calendar.range(of: .day, in: .month, for: data.date),
+               day >= range.count,
+               let finalBalance = data.finalBalance {
+                return finalBalance
+            }
+        }
+
+        // For other days (user moved the day slider), calculate from the ledger service
+        let ledgerService = self.ledgerService ?? TransactionLedgerService()
+
+        if isCurrentMonth() {
+            return ledgerService.calculateCurrentMonthBalanceForDay(day: day)
+        } else {
             let monthAnchor = data.date.monthAnchor
-            
-            // Get previous month's final balance
-            // Calculate previous month anchor properly (go back one month, not just subtract 1 from timestamp)
-            let calendar = Calendar.current
             guard let previousMonthDate = calendar.date(byAdding: .month, value: -1, to: data.date) else {
                 return 0
             }
             let previousMonthAnchor = previousMonthDate.monthAnchor
             let previousMonthData = ledgerService.getMonthlyData(for: previousMonthAnchor)
             let previousBalance = previousMonthData?.finalBalance ?? 0
-            
-            let result = ledgerService.calculateBalanceForDay(
+
+            return ledgerService.calculateBalanceForDay(
                 day: day, monthAnchor: monthAnchor, previousMonthBalance: previousBalance)
-            return result
         }
     }
     

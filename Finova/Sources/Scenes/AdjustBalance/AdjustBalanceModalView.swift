@@ -129,8 +129,6 @@ final class AdjustBalanceModalView: UIView {
         closeIconButton.addTarget(self, action: #selector(didTapClose), for: .touchUpInside)
         confirmButton.addTarget(self, action: #selector(didTapConfirm), for: .touchUpInside)
 
-        realBalanceInput.addDoneButtonToolbar()
-
         setupConstraints()
     }
 
