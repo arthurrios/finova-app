@@ -329,6 +329,14 @@ extension AppFlowController: DashboardFlowDelegate, SettingsFlowDelegate, Notifi
         }
     }
 
+    func openAdjustBalanceModal(currentBalance: Int) {
+        let viewController = AdjustBalanceModalViewController(currentBalance: currentBalance)
+        viewController.flowDelegate = self
+        viewController.modalPresentationStyle = .overCurrentContext
+        viewController.modalTransitionStyle = .crossDissolve
+        navigationController?.present(viewController, animated: true)
+    }
+
     func openAddAllocationModal(forMonth monthAnchor: Int, preselectedCategory: TransactionCategory?) {
         let viewController = AddAllocationModalViewController(
             monthAnchor: monthAnchor,
@@ -626,6 +634,29 @@ extension AppFlowController: StatementDetailsFlowDelegate {
                 .last
             {
                 dashboardViewController.refreshAfterTransactionAdd()
+            }
+        }
+    }
+}
+
+// MARK: - AdjustBalanceModalFlowDelegate
+
+extension AppFlowController: AdjustBalanceModalFlowDelegate {
+    func dismissAdjustBalanceModal() {
+        navigationController?.dismiss(animated: true)
+    }
+
+    func didAdjustBalance() {
+        navigationController?.dismiss(animated: true) { [weak self] in
+            guard let self = self else { return }
+            DispatchQueue.main.async {
+                if let dashboardViewController = self.navigationController?
+                    .viewControllers
+                    .compactMap({ $0 as? DashboardViewController })
+                    .last
+                {
+                    dashboardViewController.refreshAfterBalanceAdjustment()
+                }
             }
         }
     }

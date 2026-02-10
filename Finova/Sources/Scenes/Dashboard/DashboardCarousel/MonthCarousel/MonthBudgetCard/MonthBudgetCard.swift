@@ -638,6 +638,11 @@ class MonthBudgetCard: UIView {
         headerToggleTapGesture = UITapGestureRecognizer(
             target: self, action: #selector(toggleHideValues))
         headerToggleContainer.addGestureRecognizer(headerToggleTapGesture!)
+
+        let longPressGesture = UILongPressGestureRecognizer(
+            target: self, action: #selector(handleBalanceLongPress(_:)))
+        longPressGesture.minimumPressDuration = 0.5
+        availableBudgetValueWithToggleContainer.addGestureRecognizer(longPressGesture)
     }
     
     private func setupNotificationObserver() {
@@ -789,6 +794,14 @@ class MonthBudgetCard: UIView {
     private func defineBudgetButtonTapped() {
         guard let budgetDate else { return }
         delegate?.didTapDefineBudgetButton(budgetDate: budgetDate)
+    }
+
+    @objc
+    private func handleBalanceLongPress(_ gesture: UILongPressGestureRecognizer) {
+        guard gesture.state == .began else { return }
+        let generator = UIImpactFeedbackGenerator(style: .medium)
+        generator.impactOccurred()
+        delegate?.didLongPressBalance()
     }
     
     @objc

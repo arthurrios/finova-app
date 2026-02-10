@@ -117,6 +117,16 @@ class UIDUserDefaultsManager {
     UserDefaults.standard.set(index, forKey: Self.globalCurrentMonthIndex)
   }
 
+  func getCurrentUserBalanceOffset() -> Int {
+    guard let uid = currentUserUID else { return 0 }
+    return UserDefaults.standard.integer(forKey: "balanceOffset_\(uid)")
+  }
+
+  func setCurrentUserBalanceOffset(_ offset: Int) {
+    guard let uid = currentUserUID else { return }
+    UserDefaults.standard.set(offset, forKey: "balanceOffset_\(uid)")
+  }
+
   func getBalanceDisplayMode() -> BalanceDisplayMode {
     let modeString = UserDefaults.standard.string(forKey: Self.globalBalanceDisplayMode) ?? "final"
     return modeString == "current" ? .current : .final

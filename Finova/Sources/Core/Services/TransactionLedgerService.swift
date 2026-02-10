@@ -86,7 +86,7 @@ final class TransactionLedgerService {
 
     // Calculate running balance
     var runningBalance = [Int: Int]()
-    var previousAvailable = 0
+    var previousAvailable = UIDUserDefaultsManager.shared.getCurrentUserBalanceOffset()
 
     let monthlyData = anchors.map { anchor in
       // Reconstruct date using the same method as monthAnchor calculation
@@ -270,7 +270,7 @@ final class TransactionLedgerService {
     }
 
     // Calculate running balance
-    var balance = 0
+    var balance = UIDUserDefaultsManager.shared.getCurrentUserBalanceOffset()
     for transaction in relevantTransactions.sorted(by: { $0.date < $1.date }) {
       if transaction.type == .income {
         balance += transaction.amount
@@ -395,7 +395,7 @@ final class TransactionLedgerService {
     }
 
     // Calculate running balance from the beginning of time up to target date
-    var runningBalance = 0
+    var runningBalance = UIDUserDefaultsManager.shared.getCurrentUserBalanceOffset()
     var lastProcessedMonthAnchor = -1
 
     // Group transactions by month

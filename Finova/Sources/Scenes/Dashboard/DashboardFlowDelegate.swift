@@ -18,4 +18,5 @@ protocol DashboardFlowDelegate: AnyObject {
     func navigateToAllocationDetails(allocation: BudgetAllocation)
     func navigateToUnallocatedDetails(unallocatedSpending: UnallocatedCategorySpending)
     func navigateToStatementDetails(card: CreditCard, statement: CreditCardStatement)
+    func openAdjustBalanceModal(currentBalance: Int)
 }
