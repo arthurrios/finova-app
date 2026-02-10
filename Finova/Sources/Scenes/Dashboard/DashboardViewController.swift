@@ -114,6 +114,11 @@ final class DashboardViewController: UIViewController {
         // Update notification badge count
         updateNotificationBadge()
 
+        // Refresh avatar in case it was changed in Profile screen
+        if let userImage = SecureLocalDataManager.shared.loadProfileImage() {
+            contentView.avatar.userImage = userImage
+        }
+
         // Evitar refresh desnecessário na primeira vez que a view aparece
         if isInitialLoadComplete {
             refreshDashboardData()
@@ -1229,14 +1234,10 @@ final class DashboardViewController: UIViewController {
 }
 
 extension DashboardViewController: DashboardViewDelegate {
-    func didTapSettings() {
-        self.flowDelegate?.navigateToSettings()
+    func didTapProfile() {
+        self.flowDelegate?.navigateToProfile()
     }
-    
-    func didTapProfileImage() {
-        selectProfileImage()
-    }
-    
+
     func didTapAddTransaction() {
         // If budget view is showing, open add allocation modal instead
         if let currentCell = currentCell, currentCell.isShowingBudgetView {
@@ -1269,35 +1270,6 @@ extension DashboardViewController: DashboardViewDelegate {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
             dashboardView.endRefreshing()
         }
-    }
-}
-
-extension DashboardViewController: UIImagePickerControllerDelegate, UINavigationControllerDelegate {
-    private func selectProfileImage() {
-        let imagePicker = UIImagePickerController()
-        imagePicker.delegate = self
-        imagePicker.sourceType = .photoLibrary
-        imagePicker.allowsEditing = true
-        present(imagePicker, animated: true, completion: nil)
-    }
-    
-    internal func imagePickerController(
-        _ picker: UIImagePickerController,
-        didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]
-    ) {
-        if let editedImage = info[UIImagePickerController.InfoKey.editedImage] as? UIImage {
-            contentView.avatar.userImage = editedImage
-            SecureLocalDataManager.shared.saveProfileImage(editedImage)
-        } else if let originalImage = info[.originalImage] as? UIImage {
-            contentView.avatar.userImage = originalImage
-            SecureLocalDataManager.shared.saveProfileImage(originalImage)
-        }
-        
-        dismiss(animated: true)
-    }
-    
-    func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
-        dismiss(animated: true)
     }
 }
 

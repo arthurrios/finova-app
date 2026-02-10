@@ -12,7 +12,7 @@ protocol DashboardFlowDelegate: AnyObject {
     func navigateToBudgets(date: Date?)
     func openAddTransactionModal()
     func openAddAllocationModal(forMonth monthAnchor: Int, preselectedCategory: TransactionCategory?)
-    func navigateToSettings()
+    func navigateToProfile()
     func navigateToNotificationHistory()
     func navigateToTransactionDetails(transaction: Transaction)
     func navigateToAllocationDetails(allocation: BudgetAllocation)

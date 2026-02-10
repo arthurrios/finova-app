@@ -10,7 +10,5 @@ protocol SettingsViewDelegate: AnyObject {
     func didToggleBiometric(_ isEnabled: Bool)
     func didTapDeleteAccount()
     func didTapNotifications()
-    func didTapLogout()
     func didTapCurrency()
-    func didTapCreditCards()
 }

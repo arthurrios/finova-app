@@ -100,18 +100,6 @@ final class SettingsView: UIView {
     let currencyValueLabel = createDetailLabel(text: "")
     private let currencyChevron = createChevronView()
 
-    // Financial Section
-    private let financialHeaderView = createSectionHeader(title: "settings.section.financial".localized)
-
-    private let creditCardsContainer: UIView = {
-        let container = createSettingContainer()
-        container.isUserInteractionEnabled = true
-        return container
-    }()
-    private let creditCardsIconView = createIconView(imageName: "creditcard")
-    private let creditCardsLabel = createSettingLabel(text: "settings.creditCards.title".localized)
-    private let creditCardsChevron = createChevronView()
-
     // Notifications Section
     private let notificationsHeaderView = createSectionHeader(title: "settings.section.notifications".localized)
 
@@ -154,30 +142,6 @@ final class SettingsView: UIView {
         return label
     }()
 
-    // Logout Button
-    private let logoutContainer: UIView = {
-        let container = createSettingContainer()
-        container.isUserInteractionEnabled = true
-        return container
-    }()
-
-    private let logoutIconView: UIImageView = {
-        let imageView = UIImageView()
-        imageView.image = UIImage(named: "logout")
-        imageView.tintColor = Colors.gray600
-        imageView.contentMode = .scaleAspectFit
-        imageView.translatesAutoresizingMaskIntoConstraints = false
-
-        NSLayoutConstraint.activate([
-            imageView.heightAnchor.constraint(equalToConstant: 20),
-            imageView.widthAnchor.constraint(equalToConstant: 20)
-        ])
-
-        return imageView
-    }()
-
-    private let logoutLabel = createSettingLabel(text: "settings.logout.title".localized)
-
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
@@ -211,11 +175,6 @@ final class SettingsView: UIView {
         setupCurrencyContainer()
         contentStackView.addArrangedSubview(currencyContainer)
 
-        // Financial section
-        contentStackView.addArrangedSubview(financialHeaderView)
-        setupCreditCardsContainer()
-        contentStackView.addArrangedSubview(creditCardsContainer)
-
         // Notifications section
         contentStackView.addArrangedSubview(notificationsHeaderView)
         setupNotificationsContainer()
@@ -230,8 +189,6 @@ final class SettingsView: UIView {
         contentStackView.addArrangedSubview(accountHeaderView)
         setupDeleteAccountContainer()
         contentStackView.addArrangedSubview(deleteAccountContainer)
-        setupLogoutContainer()
-        contentStackView.addArrangedSubview(logoutContainer)
     }
     
     private func setupBiometricContainer() {
@@ -269,23 +226,6 @@ final class SettingsView: UIView {
 
             currencyValueLabel.trailingAnchor.constraint(equalTo: currencyChevron.leadingAnchor, constant: -Metrics.spacing2),
             currencyValueLabel.centerYAnchor.constraint(equalTo: currencyContainer.centerYAnchor)
-        ])
-    }
-
-    private func setupCreditCardsContainer() {
-        creditCardsContainer.addSubview(creditCardsIconView)
-        creditCardsContainer.addSubview(creditCardsLabel)
-        creditCardsContainer.addSubview(creditCardsChevron)
-
-        NSLayoutConstraint.activate([
-            creditCardsIconView.leadingAnchor.constraint(equalTo: creditCardsContainer.leadingAnchor, constant: Metrics.spacing4),
-            creditCardsIconView.centerYAnchor.constraint(equalTo: creditCardsContainer.centerYAnchor),
-
-            creditCardsLabel.leadingAnchor.constraint(equalTo: creditCardsIconView.trailingAnchor, constant: Metrics.spacing3),
-            creditCardsLabel.centerYAnchor.constraint(equalTo: creditCardsContainer.centerYAnchor),
-
-            creditCardsChevron.trailingAnchor.constraint(equalTo: creditCardsContainer.trailingAnchor, constant: -Metrics.spacing4),
-            creditCardsChevron.centerYAnchor.constraint(equalTo: creditCardsContainer.centerYAnchor),
         ])
     }
 
@@ -333,19 +273,6 @@ final class SettingsView: UIView {
 
             deleteAccountLabel.leadingAnchor.constraint(equalTo: deleteAccountIconView.trailingAnchor, constant: Metrics.spacing3),
             deleteAccountLabel.centerYAnchor.constraint(equalTo: deleteAccountContainer.centerYAnchor)
-        ])
-    }
-
-    private func setupLogoutContainer() {
-        logoutContainer.addSubview(logoutIconView)
-        logoutContainer.addSubview(logoutLabel)
-
-        NSLayoutConstraint.activate([
-            logoutIconView.leadingAnchor.constraint(equalTo: logoutContainer.leadingAnchor, constant: Metrics.spacing4),
-            logoutIconView.centerYAnchor.constraint(equalTo: logoutContainer.centerYAnchor),
-
-            logoutLabel.leadingAnchor.constraint(equalTo: logoutIconView.trailingAnchor, constant: Metrics.spacing3),
-            logoutLabel.centerYAnchor.constraint(equalTo: logoutContainer.centerYAnchor)
         ])
     }
 
@@ -423,11 +350,6 @@ final class SettingsView: UIView {
         let notificationsTap = UITapGestureRecognizer(target: self, action: #selector(notificationsTapped))
         notificationsContainer.addGestureRecognizer(notificationsTap)
 
-        let creditCardsTap = UITapGestureRecognizer(target: self, action: #selector(creditCardsTapped))
-        creditCardsContainer.addGestureRecognizer(creditCardsTap)
-
-        let logoutTap = UITapGestureRecognizer(target: self, action: #selector(logoutTapped))
-        logoutContainer.addGestureRecognizer(logoutTap)
     }
 
     @objc
@@ -448,16 +370,6 @@ final class SettingsView: UIView {
     @objc
     private func notificationsTapped() {
         delegate?.didTapNotifications()
-    }
-
-    @objc
-    private func creditCardsTapped() {
-        delegate?.didTapCreditCards()
-    }
-
-    @objc
-    private func logoutTapped() {
-        delegate?.didTapLogout()
     }
 
     @objc

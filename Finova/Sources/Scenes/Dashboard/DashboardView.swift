@@ -41,22 +41,31 @@ final class DashboardView: UIView {
     return label
   }()
 
-  let welcomeSubtitleLabel: UILabel = {
+  let accountContextLabel: UILabel = {
     let label = UILabel()
     label.font = Fonts.textSM.font
-    label.textColor = Colors.gray500
-    label.text = "dashboard.welcomeSubtitle".localized
+    label.textColor = Colors.mainMagenta
+    label.text = "dashboard.context.label".localized
     label.textAlignment = .left
     label.translatesAutoresizingMaskIntoConstraints = false
     return label
   }()
 
-  private let settingsButton: UIButton = {
-    let btn = UIButton(type: .system)
-    btn.setImage(UIImage(named: "settingsOutlinedIcon"), for: .normal)
-    btn.tintColor = Colors.gray500
-    btn.translatesAutoresizingMaskIntoConstraints = false
-    return btn
+  private let accountContextChevron: UIImageView = {
+    let imageView = UIImageView()
+    let config = UIImage.SymbolConfiguration(pointSize: 10, weight: .semibold)
+    imageView.image = UIImage(systemName: "chevron.right", withConfiguration: config)
+    imageView.tintColor = Colors.mainMagenta
+    imageView.contentMode = .scaleAspectFit
+    imageView.translatesAutoresizingMaskIntoConstraints = false
+    return imageView
+  }()
+
+  private let profileTapArea: UIView = {
+    let view = UIView()
+    view.backgroundColor = .clear
+    view.translatesAutoresizingMaskIntoConstraints = false
+    return view
   }()
 
   private let notificationButton: UIButton = {
@@ -215,10 +224,11 @@ final class DashboardView: UIView {
 
     addSubview(headerContainerView)
     headerContainerView.addSubview(headerItemsView)
-    headerItemsView.addSubview(avatar)
-    headerItemsView.addSubview(welcomeTitleLabel)
-    headerItemsView.addSubview(welcomeSubtitleLabel)
-    headerItemsView.addSubview(settingsButton)
+    headerItemsView.addSubview(profileTapArea)
+    profileTapArea.addSubview(avatar)
+    profileTapArea.addSubview(welcomeTitleLabel)
+    profileTapArea.addSubview(accountContextLabel)
+    profileTapArea.addSubview(accountContextChevron)
     headerItemsView.addSubview(notificationButton)
     headerItemsView.addSubview(notificationBadge)
     notificationBadge.addSubview(notificationBadgeLabel)
@@ -236,8 +246,6 @@ final class DashboardView: UIView {
 
     bringSubviewToFront(addButtonGlassContainer)
 
-    settingsButton.addTarget(self, action: #selector(settingsTapped), for: .touchUpInside)
-
     notificationButton.addTarget(
       self,
       action: #selector(notificationsTapped),
@@ -248,7 +256,7 @@ final class DashboardView: UIView {
       action: #selector(handleTapAddButton),
       for: .touchUpInside)
 
-    setupImageGesture()
+    setupProfileTapGesture()
     setupRefreshControl()
   }
 
@@ -296,26 +304,31 @@ final class DashboardView: UIView {
       headerItemsView.trailingAnchor.constraint(equalTo: headerContainerView.trailingAnchor),
       headerItemsView.bottomAnchor.constraint(equalTo: headerContainerView.bottomAnchor),
 
-      avatar.leadingAnchor.constraint(equalTo: headerItemsView.layoutMarginsGuide.leadingAnchor),
-      avatar.topAnchor.constraint(equalTo: headerItemsView.layoutMarginsGuide.topAnchor),
+      profileTapArea.leadingAnchor.constraint(equalTo: headerItemsView.layoutMarginsGuide.leadingAnchor),
+      profileTapArea.topAnchor.constraint(equalTo: headerItemsView.layoutMarginsGuide.topAnchor),
+      profileTapArea.trailingAnchor.constraint(lessThanOrEqualTo: notificationButton.leadingAnchor, constant: -Metrics.spacing3),
+
+      avatar.leadingAnchor.constraint(equalTo: profileTapArea.leadingAnchor),
+      avatar.topAnchor.constraint(equalTo: profileTapArea.topAnchor),
+      avatar.bottomAnchor.constraint(equalTo: profileTapArea.bottomAnchor),
 
       welcomeTitleLabel.topAnchor.constraint(equalTo: avatar.topAnchor),
       welcomeTitleLabel.leadingAnchor.constraint(
         equalTo: avatar.trailingAnchor, constant: Metrics.spacing3),
 
-      welcomeSubtitleLabel.topAnchor.constraint(
+      accountContextLabel.topAnchor.constraint(
         equalTo: welcomeTitleLabel.bottomAnchor, constant: Metrics.spacing1),
-      welcomeSubtitleLabel.leadingAnchor.constraint(equalTo: welcomeTitleLabel.leadingAnchor),
+      accountContextLabel.leadingAnchor.constraint(equalTo: welcomeTitleLabel.leadingAnchor),
 
-      settingsButton.centerYAnchor.constraint(equalTo: avatar.centerYAnchor),
-      settingsButton.trailingAnchor.constraint(
-        equalTo: headerItemsView.layoutMarginsGuide.trailingAnchor),
-      settingsButton.heightAnchor.constraint(equalToConstant: Metrics.logoutButtonSize),
-      settingsButton.widthAnchor.constraint(equalToConstant: Metrics.logoutButtonSize),
+      accountContextChevron.centerYAnchor.constraint(equalTo: accountContextLabel.centerYAnchor),
+      accountContextChevron.leadingAnchor.constraint(equalTo: accountContextLabel.trailingAnchor, constant: Metrics.spacing1),
+      accountContextChevron.widthAnchor.constraint(equalToConstant: 10),
+      accountContextChevron.heightAnchor.constraint(equalToConstant: 10),
+      accountContextChevron.trailingAnchor.constraint(lessThanOrEqualTo: profileTapArea.trailingAnchor),
 
       notificationButton.centerYAnchor.constraint(equalTo: avatar.centerYAnchor),
       notificationButton.trailingAnchor.constraint(
-        equalTo: settingsButton.leadingAnchor, constant: -Metrics.spacing3),
+        equalTo: headerItemsView.layoutMarginsGuide.trailingAnchor),
       notificationButton.heightAnchor.constraint(equalToConstant: Metrics.logoutButtonSize),
       notificationButton.widthAnchor.constraint(equalToConstant: Metrics.logoutButtonSize),
 
@@ -411,25 +424,21 @@ final class DashboardView: UIView {
     delegate?.didTapNotifications()
   }
 
-  @objc private func settingsTapped() {
-    delegate?.didTapSettings()
-  }
-
   /// Updates the notification badge visibility and count
   func updateNotificationBadge(count: Int) {
     notificationBadge.isHidden = count == 0
     notificationBadgeLabel.text = count > 99 ? "99+" : "\(count)"
   }
 
-  private func setupImageGesture() {
+  private func setupProfileTapGesture() {
     let tapGestureRecognizer = UITapGestureRecognizer(
-      target: self, action: #selector(handleProfileImageTap))
-    avatar.addGestureRecognizer(tapGestureRecognizer)
+      target: self, action: #selector(handleProfileTap))
+    profileTapArea.addGestureRecognizer(tapGestureRecognizer)
   }
 
   @objc
-  private func handleProfileImageTap() {
-    delegate?.didTapProfileImage()
+  private func handleProfileTap() {
+    delegate?.didTapProfile()
   }
 
   override func layoutSubviews() {

@@ -218,7 +218,7 @@ extension AppFlowController: RegisterFlowDelegate {
 }
 
 // MARK: - Dashboard Flow
-extension AppFlowController: DashboardFlowDelegate, SettingsFlowDelegate, NotificationSettingsFlowDelegate, NotificationHistoryFlowDelegate {
+extension AppFlowController: DashboardFlowDelegate, SettingsFlowDelegate, ProfileFlowDelegate, NotificationSettingsFlowDelegate, NotificationHistoryFlowDelegate {
     func navigateToAllocationDetails(allocation: BudgetAllocation) {
         let viewController = ViewControllersFactory.makeBudgetAllocationDetailsViewController(allocation: allocation)
         viewController.flowDelegate = self
@@ -232,10 +232,18 @@ extension AppFlowController: DashboardFlowDelegate, SettingsFlowDelegate, Notifi
         viewController.flowDelegate = self
         navigationController?.pushViewController(viewController, animated: true)
     }
-    
-    
-    func navigateToSettings() {
+
+    func navigateToProfile() {
         navigationController?.dismiss(animated: false)
+        let viewController = viewControllersFactory.makeProfileViewController(flowDelegate: self)
+        navigationController?.pushViewController(viewController, animated: true)
+    }
+
+    func dismissProfile() {
+        navigationController?.popViewController(animated: true)
+    }
+
+    func navigateToSettings() {
         let viewController = viewControllersFactory.makeSettingsViewController(flowDelegate: self)
         navigationController?.pushViewController(viewController, animated: true)
     }

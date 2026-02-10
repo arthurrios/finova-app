@@ -71,6 +71,14 @@ final class ViewControllersFactory: ViewControllersFactoryProtocol {
         return viewController
     }
     
+    func makeProfileViewController(flowDelegate: ProfileFlowDelegate) -> ProfileViewController {
+        let contentView = ProfileView()
+        let viewModel = ProfileViewModel()
+        let viewController = ProfileViewController(
+            contentView: contentView, viewModel: viewModel, flowDelegate: flowDelegate)
+        return viewController
+    }
+
     func makeSettingsViewController(flowDelegate: SettingsFlowDelegate) -> SettingsViewController {
         let contentView = SettingsView()
         let viewModel = SettingsViewModel()

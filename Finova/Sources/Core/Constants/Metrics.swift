@@ -42,6 +42,8 @@ enum Metrics {
   static let loginHeroHeight: CGFloat = 360
   static let profileImageSize: CGFloat = 40
   static let profileIconSize: CGFloat = 20
+  static let profileLargeImageSize: CGFloat = 80
+  static let profileLargeIconSize: CGFloat = 40
   static var headerHeight: CGFloat {
     let keyWindow = UIApplication.shared.connectedScenes
       .compactMap { $0 as? UIWindowScene }

@@ -21,6 +21,7 @@ protocol ViewControllersFactoryProtocol: AnyObject {
     flowDelegate: AddTransactionModalFlowDelegate
   ) -> AddTransactionModalViewController
   func makeRegisterViewController(flowDelegate: RegisterFlowDelegate) -> RegisterViewController
+  func makeProfileViewController(flowDelegate: ProfileFlowDelegate) -> ProfileViewController
   func makeSettingsViewController(flowDelegate: SettingsFlowDelegate) -> SettingsViewController
   func makeTransactionDetailsViewController(
     flowDelegate: TransactionDetailsFlowDelegate,

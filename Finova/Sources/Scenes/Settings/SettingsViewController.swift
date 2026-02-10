@@ -69,19 +69,6 @@ extension SettingsViewController: SettingsViewDelegate {
         flowDelegate?.navigateToNotificationSettings()
     }
 
-    func didTapCreditCards() {
-        flowDelegate?.navigateToCreditCards()
-    }
-
-    func didTapLogout() {
-        AuthenticationManager.shared.signOut()
-        SecureLocalDataManager.shared.signOut()
-        UserDefaultsManager.signOutCurrentUser()
-
-        logInfo("Complete logout performed")
-        flowDelegate?.logout()
-    }
-
     func handleDidTapBackButton() {
         self.flowDelegate?.dismissSettings()
     }
