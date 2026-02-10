@@ -448,11 +448,7 @@ extension SplashViewController {
       UserDefaultsManager.updateCurrentUserSavedStatus(saved: true)
 
       DispatchQueue.main.async {
-        let supportsBiometrics = FaceIDManager.shared.deviceSupportsBiometrics
-        let biometricEnabled = UserDefaultsManager.getBiometricEnabled()
-        logInfo("[DEBUG] Auto-login biometric check: supportsBiometrics=\(supportsBiometrics), biometricEnabled=\(biometricEnabled)")
-
-        if supportsBiometrics && !biometricEnabled {
+        if FaceIDManager.shared.deviceSupportsBiometrics && !UserDefaultsManager.getBiometricEnabled() {
           self.askToEnableFaceIDAfterAutoLogin(for: user)
         } else {
           self.flowDelegate?.navigateDirectlyToDashboard()
