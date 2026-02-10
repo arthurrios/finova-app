@@ -6,7 +6,8 @@
 //
 
 protocol SettingsViewModelDelegate: AnyObject {
-  func didUpdateBiometricUI(isEnabled: Bool, isAvailable: Bool, biometricType: String)
+  func didUpdateBiometricUI(isEnabled: Bool, biometricType: String)
+  func didRequestOpenSettings(title: String, message: String)
   func didUpdateAppVersion(version: String)
   func didUpdateCurrency(displayText: String)
   func didEncounterBiometricError(title: String, message: String)

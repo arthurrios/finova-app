@@ -106,7 +106,6 @@ final class SettingsViewModel {
 
     delegate?.didUpdateBiometricUI(
       isEnabled: isBiometricEnabled,
-      isAvailable: isAvailable,
       biometricType: biometricTypeString
     )
   }
@@ -223,6 +222,18 @@ final class SettingsViewModel {
   }
 
   private func enableBiometric() {
+    if !isBiometricAvailable {
+      delegate?.didRequestOpenSettings(
+        title: biometricTypeString,
+        message: String(
+          format: "settings.biometric.notEnrolled.message".localized,
+          biometricTypeString
+        )
+      )
+      updateBiometricUI()
+      return
+    }
+
     FaceIDManager.shared.authenticateWithBiometrics(
       reason: "settings.biometric.enable.reason".localized
     ) { [weak self] success, error in
@@ -230,7 +241,6 @@ final class SettingsViewModel {
         if success {
           self?.isBiometricEnabled = true
           logInfo("Biometric authentication enabled globally")
-          // Update UI to reflect the change
           self?.updateBiometricUI()
         } else {
           if let error = error {
@@ -238,7 +248,6 @@ final class SettingsViewModel {
               title: "settings.biometric.error.title",
               message: FaceIDManager.shared.getFriendlyErrorMessage(for: error))
           }
-          // Reset switch to off position if authentication failed
           self?.updateBiometricUI()
         }
       }

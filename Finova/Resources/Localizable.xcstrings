@@ -2415,6 +2415,23 @@
         }
       }
     },
+    "biometrics.generic.name": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Biometrics"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Biometria"
+          }
+        }
+      }
+    },
     "biometric.error.authenticationFailed": {
       "extractionState": "manual",
       "localizations": {
@@ -6916,6 +6933,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Erro Biometria"
+          }
+        }
+      }
+    },
+    "settings.biometric.notEnrolled.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ is not set up on this device. Please enable it in your device Settings."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ não está configurado neste dispositivo. Ative nas Configurações do dispositivo."
+          }
+        }
+      }
+    },
+    "settings.biometric.openSettings": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Settings"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir Configurações"
           }
         }
       }

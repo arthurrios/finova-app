@@ -14,19 +14,32 @@ class FaceIDManager {
     private init() {}
     
     // MARK: - Face ID Availability
-    
+
+    /// Whether biometrics are enrolled and ready to use
     var isFaceIDAvailable: Bool {
         let context = LAContext()
         var error: NSError?
         return context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &error)
     }
-    
+
+    /// Whether the device has biometric hardware (even if disabled or not enrolled)
+    var deviceSupportsBiometrics: Bool {
+        let context = LAContext()
+        var error: NSError?
+        let canEvaluate = context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &error)
+        if canEvaluate { return true }
+        // biometryType is populated even when canEvaluatePolicy returns false
+        if context.biometryType != .none {
+            return true
+        }
+        return false
+    }
+
     var biometricType: LABiometryType {
         let context = LAContext()
         var error: NSError?
-        guard context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &error) else {
-            return .none
-        }
+        // canEvaluatePolicy populates context.biometryType even if it returns false
+        _ = context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &error)
         return context.biometryType
     }
     
@@ -39,9 +52,9 @@ class FaceIDManager {
         case .opticID:
             return "Optic ID"
         case .none:
-            return "Biometrics"
+            return "biometrics.generic.name".localized
         @unknown default:
-            return "Biometric Authentication"
+            return "biometrics.generic.name".localized
         }
     }
     

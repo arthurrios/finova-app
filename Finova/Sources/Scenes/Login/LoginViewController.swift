@@ -58,14 +58,18 @@ final class LoginViewController: UIViewController {
     }
     
     private func handleSuccessfulAuthentication() {
+        LoadingManager.shared.hideLoading()
+
         guard let currentUser = UserDefaultsManager.getUserWithUID() else {
-            // Fallback: go directly to dashboard
             flowDelegate?.navigateToDashboard()
             return
         }
-        
-        // Always prompt to enable Face ID if available and not enabled globally
-        if FaceIDManager.shared.isFaceIDAvailable && !UserDefaultsManager.getBiometricEnabled() {
+
+        let supportsBiometrics = FaceIDManager.shared.deviceSupportsBiometrics
+        let biometricEnabled = UserDefaultsManager.getBiometricEnabled()
+
+        // Always prompt to enable biometrics if device supports it and not enabled globally
+        if supportsBiometrics && !biometricEnabled {
             askEnableFaceID(for: currentUser)
         } else {
             flowDelegate?.navigateToDashboard()
@@ -96,40 +100,62 @@ final class LoginViewController: UIViewController {
     }
     
     private func askEnableFaceID(for user: User) {
-        // Use FaceIDManager instead of direct LocalAuthentication calls
-        guard FaceIDManager.shared.isFaceIDAvailable else {
-            // Device doesn't support biometrics - save user without Face ID using UID-based system
+        guard FaceIDManager.shared.deviceSupportsBiometrics else {
             UserDefaultsManager.updateCurrentUserSavedStatus(saved: true)
-            // Don't change global biometric setting when device doesn't support it
             flowDelegate?.navigateToDashboard()
             return
         }
-        
+
         let biometricType = FaceIDManager.shared.biometricTypeString
         let alertController = UIAlertController(
             title: String(format: "faceid.enable.title".localized, biometricType),
             message: String(format: "faceid.enable.message".localized, biometricType),
             preferredStyle: .alert
         )
-        
+
         let yesAction = UIAlertAction(
             title: String(format: "faceid.enable.button".localized, biometricType), style: .default
         ) { _ in
-            // Save user with Face ID enabled using UID-based system
             UserDefaultsManager.updateCurrentUserSavedStatus(saved: true)
-            // Enable biometric globally for the app
-            UserDefaultsManager.setBiometricEnabled(true)
-            logInfo("\(biometricType) enabled globally for app")
-            self.flowDelegate?.navigateToDashboard()
+
+            if FaceIDManager.shared.isFaceIDAvailable {
+                // Biometrics enrolled — enable right away
+                UserDefaultsManager.setBiometricEnabled(true)
+                logInfo("\(biometricType) enabled globally for app")
+                self.flowDelegate?.navigateToDashboard()
+            } else {
+                // Biometrics not enrolled — guide user to device Settings
+                let settingsAlert = UIAlertController(
+                    title: biometricType,
+                    message: String(
+                        format: "settings.biometric.notEnrolled.message".localized,
+                        biometricType
+                    ),
+                    preferredStyle: .alert
+                )
+                let openAction = UIAlertAction(
+                    title: "settings.biometric.openSettings".localized,
+                    style: .default
+                ) { _ in
+                    if let url = URL(string: UIApplication.openSettingsURLString) {
+                        UIApplication.shared.open(url)
+                    }
+                    self.flowDelegate?.navigateToDashboard()
+                }
+                let cancelAction = UIAlertAction(title: "skip".localized, style: .cancel) { _ in
+                    self.flowDelegate?.navigateToDashboard()
+                }
+                settingsAlert.addAction(openAction)
+                settingsAlert.addAction(cancelAction)
+                self.present(settingsAlert, animated: true)
+            }
         }
-        
+
         let noAction = UIAlertAction(title: "skip".localized, style: .cancel) { _ in
-            // Save user without Face ID using UID-based system
             UserDefaultsManager.updateCurrentUserSavedStatus(saved: true)
-            // Don't change global biometric setting when user skips
             self.flowDelegate?.navigateToDashboard()
         }
-        
+
         alertController.addAction(yesAction)
         alertController.addAction(noAction)
         present(alertController, animated: true)

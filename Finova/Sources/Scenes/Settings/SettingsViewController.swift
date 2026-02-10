@@ -75,11 +75,36 @@ extension SettingsViewController: SettingsViewDelegate {
 }
 
 extension SettingsViewController: SettingsViewModelDelegate {
-    func didUpdateBiometricUI(isEnabled: Bool, isAvailable: Bool, biometricType: String) {
+    func didUpdateBiometricUI(isEnabled: Bool, biometricType: String) {
         contentView.biometricSwitch.isOn = isEnabled
-        contentView.biometricSwitch.isEnabled = isAvailable
         contentView.biometricLabel.text = biometricType
-        contentView.biometricLabel.textColor = isAvailable ? Colors.gray700 : Colors.gray400
+    }
+
+    func didRequestOpenSettings(title: String, message: String) {
+        let alert = UIAlertController(
+            title: title,
+            message: message,
+            preferredStyle: .alert
+        )
+
+        let openSettingsAction = UIAlertAction(
+            title: "settings.biometric.openSettings".localized,
+            style: .default
+        ) { _ in
+            if let url = URL(string: UIApplication.openSettingsURLString) {
+                UIApplication.shared.open(url)
+            }
+        }
+
+        let cancelAction = UIAlertAction(
+            title: "alert.cancel".localized,
+            style: .cancel
+        )
+
+        alert.addAction(openSettingsAction)
+        alert.addAction(cancelAction)
+
+        present(alert, animated: true)
     }
 
     func didUpdateAppVersion(version: String) {

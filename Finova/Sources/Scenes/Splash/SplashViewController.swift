@@ -448,9 +448,73 @@ extension SplashViewController {
       UserDefaultsManager.updateCurrentUserSavedStatus(saved: true)
 
       DispatchQueue.main.async {
-        self.flowDelegate?.navigateDirectlyToDashboard()
+        let supportsBiometrics = FaceIDManager.shared.deviceSupportsBiometrics
+        let biometricEnabled = UserDefaultsManager.getBiometricEnabled()
+        logInfo("[DEBUG] Auto-login biometric check: supportsBiometrics=\(supportsBiometrics), biometricEnabled=\(biometricEnabled)")
+
+        if supportsBiometrics && !biometricEnabled {
+          self.askToEnableFaceIDAfterAutoLogin(for: user)
+        } else {
+          self.flowDelegate?.navigateDirectlyToDashboard()
+        }
       }
     }
+  }
+
+  private func askToEnableFaceIDAfterAutoLogin(for user: User) {
+    guard FaceIDManager.shared.deviceSupportsBiometrics else {
+      flowDelegate?.navigateDirectlyToDashboard()
+      return
+    }
+
+    let biometricType = FaceIDManager.shared.biometricTypeString
+    let alertController = UIAlertController(
+      title: String(format: "faceid.enable.title".localized, biometricType),
+      message: String(format: "faceid.enable.message".localized, biometricType),
+      preferredStyle: .alert
+    )
+
+    let yesAction = UIAlertAction(
+      title: String(format: "faceid.enable.button".localized, biometricType), style: .default
+    ) { _ in
+      if FaceIDManager.shared.isFaceIDAvailable {
+        UserDefaultsManager.setBiometricEnabled(true)
+        logInfo("[DEBUG] \(biometricType) enabled globally for app")
+        self.flowDelegate?.navigateDirectlyToDashboard()
+      } else {
+        let settingsAlert = UIAlertController(
+          title: biometricType,
+          message: String(
+            format: "settings.biometric.notEnrolled.message".localized,
+            biometricType
+          ),
+          preferredStyle: .alert
+        )
+        let openAction = UIAlertAction(
+          title: "settings.biometric.openSettings".localized,
+          style: .default
+        ) { _ in
+          if let url = URL(string: UIApplication.openSettingsURLString) {
+            UIApplication.shared.open(url)
+          }
+          self.flowDelegate?.navigateDirectlyToDashboard()
+        }
+        let cancelAction = UIAlertAction(title: "skip".localized, style: .cancel) { _ in
+          self.flowDelegate?.navigateDirectlyToDashboard()
+        }
+        settingsAlert.addAction(openAction)
+        settingsAlert.addAction(cancelAction)
+        self.present(settingsAlert, animated: true)
+      }
+    }
+
+    let noAction = UIAlertAction(title: "skip".localized, style: .cancel) { _ in
+      self.flowDelegate?.navigateDirectlyToDashboard()
+    }
+
+    alertController.addAction(yesAction)
+    alertController.addAction(noAction)
+    present(alertController, animated: true)
   }
 }
 #endif
