@@ -457,7 +457,7 @@ final class AddCreditCardView: UIView {
         closingDayInput.text = "\(card.closingDay)"
         dueDayInput.text = "\(card.dueDay)"
         if let limit = card.creditLimit {
-            creditLimitInput.text = limit.currencyString
+            creditLimitInput.setCentsValue(limit)
         }
 
         if let brandIndex = CardBrand.allCases.firstIndex(of: card.cardBrand) {
