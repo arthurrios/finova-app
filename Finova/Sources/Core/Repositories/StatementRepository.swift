@@ -36,6 +36,7 @@ class StatementRepository {
                     isPaid: row.isPaid,
                     paidDate: row.paidDate.map { Date(timeIntervalSince1970: TimeInterval($0)) },
                     paidAmount: row.paidAmount,
+                    isDatesOverridden: row.isDatesOverridden,
                     userId: row.userId,
                     createdAt: Date(timeIntervalSince1970: TimeInterval(row.createdAt)),
                     updatedAt: Date(timeIntervalSince1970: TimeInterval(row.updatedAt))
@@ -78,12 +79,13 @@ class StatementRepository {
         }
     }
 
-    func updateDates(statementId: Int, closingDate: Date, dueDate: Date) -> Bool {
+    func updateDates(statementId: Int, closingDate: Date, dueDate: Date, isDatesOverridden: Bool = false) -> Bool {
         do {
             try DBHelper.shared.updateStatementDates(
                 statementId: statementId,
                 closingDate: Int(closingDate.timeIntervalSince1970),
-                dueDate: Int(dueDate.timeIntervalSince1970)
+                dueDate: Int(dueDate.timeIntervalSince1970),
+                isDatesOverridden: isDatesOverridden
             )
             return true
         } catch {

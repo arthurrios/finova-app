@@ -40,6 +40,7 @@ class DBHelper {
             try createCreditCardStatementsTable()
             try migrateCreditCardColumns()
             try migrateCreditCardsTable()
+            try migrateCreditCardStatementsTable()
             isInitialized = true
             //            print("✅ Database initialized successfully")
         } catch {
@@ -1157,6 +1158,37 @@ class DBHelper {
         }
     }
 
+    private func migrateCreditCardStatementsTable() throws {
+        let checkQuery = "PRAGMA table_info(CreditCardStatements);"
+        var statement: OpaquePointer?
+
+        guard sqlite3_prepare_v2(db, checkQuery, -1, &statement, nil) == SQLITE_OK else {
+            let msg = String(cString: sqlite3_errmsg(db))
+            throw DBError.prepareFailed(message: msg)
+        }
+        defer { sqlite3_finalize(statement) }
+
+        var existingColumns: Set<String> = []
+        while sqlite3_step(statement) == SQLITE_ROW {
+            let columnName = String(cString: sqlite3_column_text(statement, 1))
+            existingColumns.insert(columnName)
+        }
+
+        if !existingColumns.contains("is_dates_overridden") {
+            let alterQuery = "ALTER TABLE CreditCardStatements ADD COLUMN is_dates_overridden INTEGER NOT NULL DEFAULT 0;"
+            var alterStatement: OpaquePointer?
+            guard sqlite3_prepare_v2(db, alterQuery, -1, &alterStatement, nil) == SQLITE_OK else {
+                let msg = String(cString: sqlite3_errmsg(db))
+                throw DBError.prepareFailed(message: msg)
+            }
+            defer { sqlite3_finalize(alterStatement) }
+            guard sqlite3_step(alterStatement) == SQLITE_DONE else {
+                let msg = String(cString: sqlite3_errmsg(db))
+                throw DBError.stepFailed(message: msg)
+            }
+        }
+    }
+
     // MARK: - Credit Card CRUD
     
     func insertCreditCard(
@@ -1375,9 +1407,9 @@ class DBHelper {
         return Int(sqlite3_last_insert_rowid(db))
     }
     
-    func getStatements(creditCardId: Int) throws -> [(id: Int, creditCardId: Int, closingDate: Int, dueDate: Int, totalAmount: Int, isPaid: Bool, paidDate: Int?, paidAmount: Int?, userId: String, createdAt: Int, updatedAt: Int)] {
+    func getStatements(creditCardId: Int) throws -> [(id: Int, creditCardId: Int, closingDate: Int, dueDate: Int, totalAmount: Int, isPaid: Bool, paidDate: Int?, paidAmount: Int?, userId: String, isDatesOverridden: Bool, createdAt: Int, updatedAt: Int)] {
         guard isInitialized else { return [] }
-        let query = "SELECT id, credit_card_id, closing_date, due_date, total_amount, is_paid, paid_date, paid_amount, user_id, created_at, updated_at FROM CreditCardStatements WHERE credit_card_id = ? ORDER BY due_date DESC;"
+        let query = "SELECT id, credit_card_id, closing_date, due_date, total_amount, is_paid, paid_date, paid_amount, user_id, is_dates_overridden, created_at, updated_at FROM CreditCardStatements WHERE credit_card_id = ? ORDER BY due_date DESC;"
         var statement: OpaquePointer?
         guard sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK else {
             let msg = String(cString: sqlite3_errmsg(db))
@@ -1385,8 +1417,8 @@ class DBHelper {
         }
         defer { sqlite3_finalize(statement) }
         sqlite3_bind_int64(statement, 1, Int64(creditCardId))
-        
-        var results: [(id: Int, creditCardId: Int, closingDate: Int, dueDate: Int, totalAmount: Int, isPaid: Bool, paidDate: Int?, paidAmount: Int?, userId: String, createdAt: Int, updatedAt: Int)] = []
+
+        var results: [(id: Int, creditCardId: Int, closingDate: Int, dueDate: Int, totalAmount: Int, isPaid: Bool, paidDate: Int?, paidAmount: Int?, userId: String, isDatesOverridden: Bool, createdAt: Int, updatedAt: Int)] = []
         while sqlite3_step(statement) == SQLITE_ROW {
             results.append((
                 Int(sqlite3_column_int64(statement, 0)),
@@ -1398,8 +1430,9 @@ class DBHelper {
                 sqlite3_column_type(statement, 6) == SQLITE_NULL ? nil : Int(sqlite3_column_int64(statement, 6)),
                 sqlite3_column_type(statement, 7) == SQLITE_NULL ? nil : Int(sqlite3_column_int64(statement, 7)),
                 String(cString: sqlite3_column_text(statement, 8)),
-                Int(sqlite3_column_int64(statement, 9)),
-                Int(sqlite3_column_int64(statement, 10))
+                sqlite3_column_int(statement, 9) == 1,
+                Int(sqlite3_column_int64(statement, 10)),
+                Int(sqlite3_column_int64(statement, 11))
             ))
         }
         return results
@@ -1473,9 +1506,9 @@ class DBHelper {
         }
     }
     
-    func updateStatementDates(statementId: Int, closingDate: Int, dueDate: Int) throws {
+    func updateStatementDates(statementId: Int, closingDate: Int, dueDate: Int, isDatesOverridden: Bool = false) throws {
         guard isInitialized else { return }
-        let query = "UPDATE CreditCardStatements SET closing_date = ?, due_date = ?, updated_at = ? WHERE id = ?;"
+        let query = "UPDATE CreditCardStatements SET closing_date = ?, due_date = ?, is_dates_overridden = ?, updated_at = ? WHERE id = ?;"
         var statement: OpaquePointer?
         guard sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK else {
             let msg = String(cString: sqlite3_errmsg(db))
@@ -1484,8 +1517,9 @@ class DBHelper {
         defer { sqlite3_finalize(statement) }
         sqlite3_bind_int64(statement, 1, Int64(closingDate))
         sqlite3_bind_int64(statement, 2, Int64(dueDate))
-        sqlite3_bind_int64(statement, 3, Int64(Date().timeIntervalSince1970))
-        sqlite3_bind_int64(statement, 4, Int64(statementId))
+        sqlite3_bind_int(statement, 3, isDatesOverridden ? 1 : 0)
+        sqlite3_bind_int64(statement, 4, Int64(Date().timeIntervalSince1970))
+        sqlite3_bind_int64(statement, 5, Int64(statementId))
         guard sqlite3_step(statement) == SQLITE_DONE else {
             let msg = String(cString: sqlite3_errmsg(db))
             throw DBError.stepFailed(message: msg)

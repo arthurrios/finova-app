@@ -1771,8 +1771,10 @@ extension DashboardViewController: UITableViewDataSource, UITableViewDelegate {
         let tx = txs[indexPath.row]
         
         let txCount: Int? = {
-            guard tx.isCreditCardStatement == true, let stmtId = tx.statementId else { return nil }
-            return (try? DBHelper.shared.getTransactionCountForStatement(statementId: stmtId)) ?? 0
+            guard tx.isCreditCardStatement == true else { return nil }
+            // Use the count embedded in the synthetic transaction (from secure store)
+            // to avoid stale DB vs secure store mismatch
+            return tx.totalInstallments ?? 0
         }()
 
         let configuration = TransactionCellConfiguration(

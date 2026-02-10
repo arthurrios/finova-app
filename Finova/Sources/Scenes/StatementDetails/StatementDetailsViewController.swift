@@ -237,7 +237,7 @@ extension StatementDetailsViewController: StatementDetailsViewModelDelegate {
         contentView.configure(with: viewModel)
     }
 
-    func didUpdateStatement() {
+    func didMarkStatementPaid() {
         contentView.configure(with: viewModel)
         flowDelegate?.didMarkStatementAsPaid()
     }

@@ -75,6 +75,7 @@ class CreditCardService {
             isPaid: false,
             paidDate: nil,
             paidAmount: nil,
+            isDatesOverridden: false,
             userId: userId,
             createdAt: Date(),
             updatedAt: Date()
@@ -106,18 +107,28 @@ class CreditCardService {
         let cards = cardRepo.fetchAllCards(userId: userId)
         var statementTransactions: [Transaction] = []
 
+        // Use the same source as the ViewModel to avoid stale DB vs secure store mismatch
+        let allSecureTransactions = SecureLocalDataManager.shared.loadTransactions()
+
         for card in cards {
             let statements = stmtRepo.fetchStatements(forCardId: card.id!)
 
             for stmt in statements {
-                guard stmt.totalAmount > 0 else { continue }
-
-                let txCount: Int
-                do {
-                    txCount = try DBHelper.shared.getTransactionCountForStatement(statementId: stmt.id!)
-                } catch {
-                    txCount = 0
+                // Count and sum from the secure store (consistent with what StatementDetailsViewModel shows)
+                let stmtTransactions = allSecureTransactions.filter {
+                    $0.statementId == stmt.id && $0.isCreditCardStatement != true
                 }
+
+                let realCount = stmtTransactions.count
+                let realTotal = stmtTransactions.reduce(0) { $0 + $1.amount }
+
+                // Clean up stale statements with no transactions
+                if realCount == 0 {
+                    recalculateStatementTotal(statementId: stmt.id!)
+                    continue
+                }
+
+                guard realTotal > 0 else { continue }
 
                 let title = String(format: "creditCard.statement.title".localized, card.name)
                 let dueTimestamp = Int(stmt.dueDate.timeIntervalSince1970)
@@ -125,15 +136,15 @@ class CreditCardService {
                 let data = UITransactionData(
                     id: -(stmt.id! * 1000 + (card.id ?? 0)),
                     title: title,
-                    amount: stmt.totalAmount,
+                    amount: realTotal,
                     dateTimestamp: dueTimestamp,
                     budgetMonthDate: stmt.closingDate.monthAnchor,
                     isRecurring: false,
                     hasInstallments: false,
                     parentTransactionId: nil,
                     installmentNumber: nil,
-                    totalInstallments: nil,
-                    originalAmount: stmt.totalAmount,
+                    totalInstallments: realCount,
+                    originalAmount: realTotal,
                     creditCardId: card.id,
                     statementId: stmt.id,
                     isCreditCardStatement: true,
@@ -149,16 +160,14 @@ class CreditCardService {
         return statementTransactions
     }
 
-    /// Recalculates closing and due dates for all unpaid statements of a card.
+    /// Recalculates closing and due dates for all unpaid statements of a card,
+    /// then reassigns transactions to the correct statements based on the new dates.
     /// Call this after editing a card's closingDay or dueDay.
-    func recalculateStatementDatesForCard(_ card: CreditCard) {
+    func recalculateStatementDatesForCard(_ card: CreditCard, userId: String? = nil, transactionRepo: TransactionRepository? = nil) {
         guard let cardId = card.id else { return }
         let statements = stmtRepo.fetchStatements(forCardId: cardId)
 
         for stmt in statements where !stmt.isPaid {
-            // Recalculate due date from the existing closing date using updated card settings
-            let newDueDate = calculateDueDate(closingDate: stmt.closingDate, card: card)
-
             // Recalculate closing date based on existing closing date's month
             let calendar = Calendar.current
             let month = calendar.component(.month, from: stmt.closingDate)
@@ -166,10 +175,66 @@ class CreditCardService {
             let newClosingDay = min(card.closingDay, daysInMonth(month: month, year: year))
             let newClosingDate = calendar.date(from: DateComponents(year: year, month: month, day: newClosingDay))!
 
-            // Also recalculate the due date using the new closing date
+            // Calculate due date using the new closing date
             let finalDueDate = calculateDueDate(closingDate: newClosingDate, card: card)
 
             _ = stmtRepo.updateDates(statementId: stmt.id!, closingDate: newClosingDate, dueDate: finalDueDate)
+        }
+
+        // Reassign transactions to correct statements based on new dates
+        guard let userId = userId, let transactionRepo = transactionRepo else { return }
+        reassignCardTransactions(card: card, userId: userId, transactionRepo: transactionRepo)
+    }
+
+    /// Reassigns all transactions for a card to their correct statements based on current card settings.
+    private func reassignCardTransactions(card: CreditCard, userId: String, transactionRepo: TransactionRepository) {
+        guard let cardId = card.id else { return }
+        let allTransactions = transactionRepo.fetchAllTransactions()
+        let cardTransactions = allTransactions.filter {
+            $0.creditCardId == cardId && $0.isCreditCardStatement != true
+        }
+
+        var affectedStatementIds = Set<Int>()
+
+        for tx in cardTransactions {
+            guard let txId = tx.id else { continue }
+
+            let transactionDate = Date(timeIntervalSince1970: TimeInterval(tx.dateTimestamp))
+            guard let correctStatement = getOrCreateStatement(for: card, transactionDate: transactionDate, userId: userId),
+                  let correctStmtId = correctStatement.id else { continue }
+
+            // Only update if the transaction is in the wrong statement
+            if tx.statementId != correctStmtId {
+                if let oldStmtId = tx.statementId {
+                    affectedStatementIds.insert(oldStmtId)
+                }
+                affectedStatementIds.insert(correctStmtId)
+
+                do {
+                    try transactionRepo.updateCreditCardFields(
+                        transactionId: txId,
+                        creditCardId: cardId,
+                        statementId: correctStmtId,
+                        isCreditCardStatement: false
+                    )
+                } catch {
+                    logError("Failed to reassign transaction \(txId) to statement \(correctStmtId): \(error)")
+                }
+            }
+        }
+
+        // Recalculate totals for all affected statements
+        for stmtId in affectedStatementIds {
+            recalculateStatementTotal(statementId: stmtId)
+        }
+    }
+
+    /// Ensures all credit card transactions are in the correct statement based on current card settings.
+    /// Moves misplaced transactions and cleans up empty statements.
+    func reassignMisplacedTransactions(userId: String, transactionRepo: TransactionRepository) {
+        let cards = cardRepo.fetchAllCards(userId: userId)
+        for card in cards {
+            reassignCardTransactions(card: card, userId: userId, transactionRepo: transactionRepo)
         }
     }
 

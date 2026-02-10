@@ -40,9 +40,13 @@ final class AddCreditCardViewModel {
 
             let updated = cardRepo.updateCard(existing)
 
-            // Recalculate unpaid statement dates when closing/due day changed
+            // Recalculate unpaid statement dates and reassign transactions when closing/due day changed
             if updated && datesChanged {
-                creditCardService.recalculateStatementDatesForCard(existing)
+                creditCardService.recalculateStatementDatesForCard(
+                    existing,
+                    userId: uid,
+                    transactionRepo: TransactionRepository()
+                )
             }
 
             return updated

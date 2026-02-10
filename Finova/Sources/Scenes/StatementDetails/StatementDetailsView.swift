@@ -95,8 +95,9 @@ final class StatementDetailsView: UIView {
 
     private let cardLabel = StatementDetailsView.createInfoRow(title: "statementDetails.card".localized)
     private let periodLabel = StatementDetailsView.createInfoRow(title: "statementDetails.period".localized)
-    private let totalLabel = StatementDetailsView.createInfoRow(title: "statementDetails.total".localized)
+    private let closingDateLabel = StatementDetailsView.createInfoRow(title: "statementDetails.closingDate".localized)
     private let dueDateLabel = StatementDetailsView.createInfoRow(title: "statementDetails.dueDate".localized)
+    private let totalLabel = StatementDetailsView.createInfoRow(title: "statementDetails.total".localized)
     private let statusLabel = StatementDetailsView.createInfoRow(title: "statementDetails.status".localized)
 
     private let paidInfoLabel: UILabel = {
@@ -196,8 +197,9 @@ final class StatementDetailsView: UIView {
         summaryCard.addSubview(summaryStackView)
         summaryStackView.addArrangedSubview(cardLabel.container)
         summaryStackView.addArrangedSubview(periodLabel.container)
-        summaryStackView.addArrangedSubview(totalLabel.container)
+        summaryStackView.addArrangedSubview(closingDateLabel.container)
         summaryStackView.addArrangedSubview(dueDateLabel.container)
+        summaryStackView.addArrangedSubview(totalLabel.container)
         summaryStackView.addArrangedSubview(statusLabel.container)
 
         scrollContentView.addSubview(paidInfoLabel)
@@ -334,9 +336,10 @@ final class StatementDetailsView: UIView {
 
         cardLabel.valueLabel.text = "\(viewModel.card.name) ****\(viewModel.card.lastFourDigits)"
         periodLabel.valueLabel.text = viewModel.periodText
+        closingDateLabel.valueLabel.text = viewModel.closingDateText
+        dueDateLabel.valueLabel.text = viewModel.dueDateText
         totalLabel.valueLabel.attributedText = viewModel.statementTotal.currencyAttributedString(
             symbolFont: Fonts.textXS.font, font: Fonts.titleMD)
-        dueDateLabel.valueLabel.text = viewModel.dueDateText
 
         statusLabel.valueLabel.text = viewModel.statusText
         statusLabel.valueLabel.textColor = viewModel.statusColor
@@ -409,6 +412,7 @@ final class StatementDetailsView: UIView {
 
         return (container, valueLabel)
     }
+
 }
 
 // MARK: - UITableViewDataSource & UITableViewDelegate

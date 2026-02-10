@@ -8,7 +8,7 @@ import UIKit
 
 protocol StatementDetailsViewModelDelegate: AnyObject {
     func didLoadTransactions(_ transactions: [Transaction])
-    func didUpdateStatement()
+    func didMarkStatementPaid()
 }
 
 final class StatementDetailsViewModel {
@@ -44,6 +44,10 @@ final class StatementDetailsViewModel {
         return "\(startStr) — \(endStr)"
     }
 
+    var closingDateText: String {
+        DateFormatter.fullDateFormatter.string(from: statement.closingDate)
+    }
+
     var dueDateText: String {
         DateFormatter.fullDateFormatter.string(from: statement.dueDate)
     }
@@ -72,7 +76,7 @@ final class StatementDetailsViewModel {
             statement.isPaid = true
             statement.paidDate = Date()
             statement.paidAmount = statementTotal
-            delegate?.didUpdateStatement()
+            delegate?.didMarkStatementPaid()
         }
     }
 

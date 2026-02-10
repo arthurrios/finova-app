@@ -7192,6 +7192,57 @@
         }
       }
     },
+    "statementDetails.closingDate": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Closing Date"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Data de Fechamento"
+          }
+        }
+      }
+    },
+    "statementDetails.editClosingDate": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Edit Closing Date"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Editar Data de Fechamento"
+          }
+        }
+      }
+    },
+    "statementDetails.editDueDate": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Edit Due Date"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Editar Data de Vencimento"
+          }
+        }
+      }
+    },
     "statementDetails.header.subtitle": {
       "extractionState": "manual",
       "localizations": {

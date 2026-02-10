@@ -17,6 +17,7 @@ struct CreditCardStatement: Codable {
     var isPaid: Bool
     var paidDate: Date?
     var paidAmount: Int?
+    var isDatesOverridden: Bool
     var userId: String
     var createdAt: Date
     var updatedAt: Date

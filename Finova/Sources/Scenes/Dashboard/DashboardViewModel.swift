@@ -53,9 +53,10 @@ final class DashboardViewModel {
   }
 
   func loadMonthlyCards() -> [MonthBudgetCardType] {
-    // Repair any orphaned credit card transactions (missing statements from edit bug)
+    // Repair credit card transactions: fix orphans and reassign misplaced ones
     if let uid = AuthenticationManager.shared.currentUser?.uid {
       creditCardService.repairOrphanedCreditCardTransactions(userId: uid, transactionRepo: transactionRepo)
+      creditCardService.reassignMisplacedTransactions(userId: uid, transactionRepo: transactionRepo)
     }
 
     // Use the transaction ledger service for all calculations
