@@ -1717,6 +1717,19 @@ extension DashboardViewController: MonthBudgetCardDelegate {
         // Update all month cards with the new visibility state
         updateAllMonthCardsBalanceVisibility(isHidden)
     }
+
+    func didLongPressBalance() {
+        let selectedIndex = syncedViewModel.selectedIndex
+        guard selectedIndex < syncedViewModel.monthData.count else { return }
+        let monthData = syncedViewModel.monthData[selectedIndex]
+        let currentBalance = monthData.currentBalance ?? monthData.finalBalance ?? 0
+        flowDelegate?.openAdjustBalanceModal(currentBalance: currentBalance)
+    }
+
+    func refreshAfterBalanceAdjustment() {
+        viewModel.transactionLedger.invalidateCache()
+        refreshAfterTransactionAdd()
+    }
     
     private func updateAllMonthCardsBalanceVisibility(_ isHidden: Bool) {
         // Store the global visibility state first

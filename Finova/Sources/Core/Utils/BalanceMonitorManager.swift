@@ -511,7 +511,7 @@ final class BalanceMonitorManager {
       }
 
     // Calcular o running balance até o mês atual
-    var previousAvailable = 0
+    var previousAvailable = UIDUserDefaultsManager.shared.getCurrentUserBalanceOffset()
 
     // Pegar todos os meses até o mês atual
     let currentMonth = calendar.dateInterval(of: .month, for: today)!
