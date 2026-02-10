@@ -383,8 +383,6 @@ final class BudgetAllocationRepository: BudgetAllocationRepositoryProtocol {
         do {
             let data = try JSONEncoder().encode(models)
             UserDefaults.standard.set(data, forKey: userDefaultsKey)
-            // Force synchronization to ensure persistence
-            UserDefaults.standard.synchronize()
             logDebug("BudgetAllocationRepository: Saved \(models.count) allocations to UserDefaults")
         } catch {
             logError("BudgetAllocationRepository: Failed to encode models: \(error)")

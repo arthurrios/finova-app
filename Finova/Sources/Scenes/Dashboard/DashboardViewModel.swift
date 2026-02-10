@@ -95,13 +95,16 @@ final class DashboardViewModel {
       }
 
       // Generate instances (the manager will handle checking what's needed)
-      self.recurringManager.generateInstancesLazilyForMonths(monthAnchors) { [weak self] in
+      self.recurringManager.generateInstancesLazilyForMonths(monthAnchors) { [weak self] newInstancesCreated in
         guard let self = self else { return }
 
         self.isLazyGenerationInProgress = false
+
+        // Only refresh UI if new instances were actually created
+        guard newInstancesCreated > 0 else { return }
+
         self.transactionLedger.invalidateCache()
 
-        // Notify UI to refresh if new instances were created
         DispatchQueue.main.async {
           self.onDataNeedsRefresh?()
         }
@@ -112,7 +115,7 @@ final class DashboardViewModel {
   /// Triggers lazy generation for a specific set of months (e.g., when user scrolls to new months)
   func triggerLazyGenerationForMonths(_ monthAnchors: Set<Int>, completion: (() -> Void)? = nil) {
     DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-      self?.recurringManager.generateInstancesLazilyForMonths(monthAnchors) { [weak self] in
+      self?.recurringManager.generateInstancesLazilyForMonths(monthAnchors) { [weak self] _ in
         self?.transactionLedger.invalidateCache()
         DispatchQueue.main.async {
           completion?()

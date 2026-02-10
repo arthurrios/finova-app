@@ -18,6 +18,7 @@ enum BalanceDisplayMode: Equatable {
 class MonthBudgetCard: UIView {
     weak var delegate: MonthBudgetCardDelegate?
     weak var flipDelegate: MonthCardFlipDelegate?
+    var ledgerService: TransactionLedgerService?
     private var budgetDate: Date?
     
     private var displayMode: BalanceDisplayMode = .final
@@ -1260,9 +1261,10 @@ class MonthBudgetCard: UIView {
             logDebug("calculateBalanceForDay: No currentMonthData, returning 0")
             return 0
         }
-        
-        // Use the TransactionLedgerService to calculate balance for specific day
-        let ledgerService = TransactionLedgerService()
+
+        // Use the shared TransactionLedgerService to avoid creating a new instance
+        // with an empty cache that computes different balance values
+        let ledgerService = self.ledgerService ?? TransactionLedgerService()
         
         if isCurrentMonth() {
             // For current month, use the existing method

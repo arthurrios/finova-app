@@ -297,6 +297,14 @@ final class BalanceMonitorManager {
     // Primeiro, remover notificações existentes para evitar duplicatas
     removeNegativeBalanceNotifications()
 
+    // Formatar a data de acordo com o idioma (created once outside loop)
+    let dateFormatter = DateFormatter()
+    if let languageCode = Locale.current.languageCode, languageCode == "en" {
+      dateFormatter.dateFormat = "MM/dd"
+    } else {
+      dateFormatter.dateFormat = "dd/MM"
+    }
+
     for negativeDay in negativeDays {
       // Calcular quantos dias faltam até o saldo ficar negativo
       // Usar startOfDay para normalizar as datas e obter o cálculo correto
@@ -315,15 +323,6 @@ final class BalanceMonitorManager {
       // Criar conteúdo da notificação
       let content = UNMutableNotificationContent()
       content.title = "notification.negative.balance.title".localized
-
-      // Formatar a data de acordo com o idioma
-      let dateFormatter = DateFormatter()
-      dateFormatter.dateFormat = "dd/MM"  // Formato padrão DD/MM
-
-      // Verificar se é inglês e ajustar formato
-      if let languageCode = Locale.current.languageCode, languageCode == "en" {
-        dateFormatter.dateFormat = "MM/dd"  // Formato MM/DD para inglês
-      }
 
       let formattedDate = dateFormatter.string(from: negativeDay)
 

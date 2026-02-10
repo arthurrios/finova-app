@@ -22,7 +22,6 @@ class UserDefaultsManager {
     let encoder = JSONEncoder()
     if let data = try? encoder.encode(user) {
       UserDefaults.standard.set(data, forKey: userKey)
-      UserDefaults.standard.synchronize()
     }
   }
 
@@ -38,7 +37,6 @@ class UserDefaultsManager {
 
   static func removeUser() {
     UserDefaults.standard.removeObject(forKey: userKey)
-    UserDefaults.standard.synchronize()
   }
 
   static func getCurrentMonthIndex() -> Int {
@@ -70,7 +68,6 @@ class UserDefaultsManager {
 
   static func setBiometricEnabled(_ isEnabled: Bool) {
     UserDefaults.standard.set(isEnabled, forKey: biometricEnabledKey)
-    UserDefaults.standard.synchronize()
   }
 
   static func getBiometricEnabled() -> Bool {
@@ -79,7 +76,6 @@ class UserDefaultsManager {
 
   static func setHideValues(_ isHidden: Bool) {
     UserDefaults.standard.set(isHidden, forKey: hideValuesKey)
-    UserDefaults.standard.synchronize()
   }
 
   static func getHideValues() -> Bool {
@@ -109,7 +105,6 @@ class UserDefaultsManager {
     UserDefaults.standard.removeObject(forKey: biometricEnabledKey)
     UserDefaults.standard.removeObject(forKey: currentMonthIndex)
     UserDefaults.standard.removeObject(forKey: balanceDisplayModeKey)
-    UserDefaults.standard.synchronize()
   }
 
   // MARK: - UID-Based User Management

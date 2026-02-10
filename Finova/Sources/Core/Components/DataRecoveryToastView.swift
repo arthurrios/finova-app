@@ -180,6 +180,16 @@ final class DataRecoveryToastView: UIView {
     ])
   }
 
+  // MARK: - Layout
+
+  override func layoutSubviews() {
+    super.layoutSubviews()
+    containerView.layer.shadowPath = UIBezierPath(
+      roundedRect: containerView.bounds,
+      cornerRadius: containerView.layer.cornerRadius
+    ).cgPath
+  }
+
   // MARK: - Animation Methods
   func show(animated: Bool = true) {
     isHidden = false

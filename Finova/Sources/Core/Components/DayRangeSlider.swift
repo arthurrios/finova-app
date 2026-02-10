@@ -606,6 +606,15 @@ class DayRangeSlider: UIView {
     // Update slider positions after layout
     updateSliderPositions()
     updateTooltips()
+
+    startThumbView.layer.shadowPath = UIBezierPath(
+      roundedRect: startThumbView.bounds,
+      cornerRadius: startThumbView.layer.cornerRadius
+    ).cgPath
+    endThumbView.layer.shadowPath = UIBezierPath(
+      roundedRect: endThumbView.bounds,
+      cornerRadius: endThumbView.layer.cornerRadius
+    ).cgPath
   }
 
   // MARK: - Public Methods

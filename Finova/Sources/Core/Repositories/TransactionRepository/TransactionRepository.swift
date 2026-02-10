@@ -11,6 +11,15 @@ import UserNotifications
 final class TransactionRepository: TransactionRepositoryProtocol {
   private let db = DBHelper.shared
 
+  // MARK: - In-Memory Cache
+  private static var cachedTransactions: [Transaction]?
+  private static var cacheUserUID: String?
+
+  static func invalidateCache() {
+    cachedTransactions = nil
+    cacheUserUID = nil
+  }
+
   func fetchTransactions() -> [Transaction] {
     // Return all transactions that should be visible in the UI
     let allTransactions = fetchAllTransactions()
@@ -31,6 +40,7 @@ final class TransactionRepository: TransactionRepositoryProtocol {
   }
 
   func insertTransaction(_ transaction: TransactionModel) throws {
+    Self.invalidateCache()
     // Insert to SQLite first
     let insertedId = try db.insertTransaction(transaction)
 
@@ -70,6 +80,7 @@ final class TransactionRepository: TransactionRepositoryProtocol {
   }
 
   func delete(id: Int) throws {
+    Self.invalidateCache()
     logDebug("TransactionRepository: Deleting transaction with id \(id)")
 
     // Delete from SQLite
@@ -97,7 +108,15 @@ final class TransactionRepository: TransactionRepositoryProtocol {
   func fetchAllTransactions() -> [Transaction] {
     // Returns ALL transactions including parent transactions (for internal operations)
     // 🔒 Use SecureLocalDataManager for UID-isolated data access ONLY
+    let currentUID = AuthenticationManager.shared.currentUser?.uid
+
+    if let cached = Self.cachedTransactions, Self.cacheUserUID == currentUID {
+      return cached
+    }
+
     let secureTransactions = SecureLocalDataManager.shared.loadTransactions()
+    Self.cachedTransactions = secureTransactions
+    Self.cacheUserUID = currentUID
 
     // NO fallback to SQLite - each user should only see their own data
     return secureTransactions
@@ -125,6 +144,7 @@ final class TransactionRepository: TransactionRepositoryProtocol {
   // MARK: - Credit Card Fields
 
   func updateCreditCardFields(transactionId: Int, creditCardId: Int, statementId: Int, isCreditCardStatement: Bool) throws {
+    Self.invalidateCache()
     try db.updateTransactionCreditCardFields(
       transactionId: transactionId,
       creditCardId: creditCardId,
@@ -160,6 +180,7 @@ final class TransactionRepository: TransactionRepositoryProtocol {
   }
 
   func clearCreditCardFields(transactionId: Int) throws {
+    Self.invalidateCache()
     try db.clearTransactionCreditCardFields(transactionId: transactionId)
 
     // Also update SecureLocalDataManager
@@ -197,6 +218,7 @@ final class TransactionRepository: TransactionRepositoryProtocol {
   }
 
   func insertTransactionAndGetId(_ transaction: TransactionModel) throws -> Int {
+    Self.invalidateCache()
     // Insert to SQLite first
     let insertedId = try db.insertTransaction(transaction)
 
@@ -234,6 +256,7 @@ final class TransactionRepository: TransactionRepositoryProtocol {
   }
 
   func updateTransactionDirectly(_ transaction: TransactionModel) throws {
+    Self.invalidateCache()
     // Update SQLite directly
     try db.updateTransaction(transaction)
 
@@ -292,6 +315,7 @@ final class TransactionRepository: TransactionRepositoryProtocol {
   }
 
   func updateParentTransactionId(transactionId: Int, parentId: Int) throws {
+    Self.invalidateCache()
     // Update SQLite first
     try db.updateTransactionParentId(transactionId: transactionId, parentId: parentId)
 
@@ -364,15 +388,16 @@ final class TransactionRepository: TransactionRepositoryProtocol {
     }
 
     // Get the new date from the template (this represents the new recurring day)
+    let calendar = Calendar.current
     let newDate = Date(timeIntervalSince1970: TimeInterval(templateTransaction.data.dateTimestamp))
-    let newDay = Calendar.current.component(.day, from: newDate)
+    let newDay = calendar.component(.day, from: newDate)
 
     // Update each related transaction
     for relatedTransaction in relatedTransactions {
       // Calculate the correct date for this transaction's month
       let originalDate = Date(timeIntervalSince1970: TimeInterval(relatedTransaction.dateTimestamp))
-      let originalMonth = Calendar.current.component(.month, from: originalDate)
-      let originalYear = Calendar.current.component(.year, from: originalDate)
+      let originalMonth = calendar.component(.month, from: originalDate)
+      let originalYear = calendar.component(.year, from: originalDate)
 
       // Create a new date with the same month/year but the new day
       var dateComponents = DateComponents()
@@ -381,7 +406,6 @@ final class TransactionRepository: TransactionRepositoryProtocol {
       dateComponents.day = newDay
 
       // Handle cases where the new day doesn't exist in the month (e.g., Feb 30)
-      let calendar = Calendar.current
       let adjustedDate: Date
       if let newDateForMonth = calendar.date(from: dateComponents) {
         adjustedDate = newDateForMonth
@@ -417,6 +441,7 @@ final class TransactionRepository: TransactionRepositoryProtocol {
     // HYBRID APPROACH: Recreate entire installment series with new parameters
     // This ensures data integrity and provides intuitive UX
 
+    let calendar = Calendar.current
     let newDate = Date(timeIntervalSince1970: TimeInterval(templateTransaction.data.dateTimestamp))
     let newTotalAmount = templateTransaction.data.amount
     let newNumberOfInstallments = templateTransaction.data.totalInstallments ?? 1
@@ -470,7 +495,6 @@ final class TransactionRepository: TransactionRepositoryProtocol {
     }
 
     // Create new installment series
-    let calendar = Calendar.current
     let startDate = newDate
     let creditCardService = CreditCardService()
     let creditCardRepo = CreditCardRepository()
@@ -535,6 +559,7 @@ final class TransactionRepository: TransactionRepositoryProtocol {
     amount: Int,
     date: Date
   ) throws {
+    Self.invalidateCache()
     // Create a transaction model with only the fields we want to update
     let updatedTransaction = TransactionModel(
       id: id,
@@ -593,6 +618,7 @@ final class TransactionRepository: TransactionRepositoryProtocol {
   }
 
   func updateTransactionParentId(transactionId: Int, parentId: Int) throws {
+    Self.invalidateCache()
     try db.updateTransactionParentId(transactionId: transactionId, parentId: parentId)
 
     // Also update SecureLocalDataManager for UID-isolated storage
@@ -627,6 +653,7 @@ final class TransactionRepository: TransactionRepositoryProtocol {
 
   /// Updates the isRecurring flag for a transaction (used when stopping future recurrence)
   func updateIsRecurring(transactionId: Int, isRecurring: Bool) throws {
+    Self.invalidateCache()
     try db.updateIsRecurring(transactionId: transactionId, isRecurring: isRecurring)
 
     // Also update SecureLocalDataManager for UID-isolated storage
@@ -936,7 +963,7 @@ final class TransactionRepository: TransactionRepositoryProtocol {
     }
 
     // Check if date is too far in the future (more than 1 year)
-    let oneYearFromNow = Calendar.current.date(byAdding: .year, value: 1, to: Date()) ?? Date()
+    let oneYearFromNow = calendar.date(byAdding: .year, value: 1, to: Date()) ?? Date()
     if tx.date > oneYearFromNow {
       return
     }

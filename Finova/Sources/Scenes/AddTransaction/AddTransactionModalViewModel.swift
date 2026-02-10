@@ -109,7 +109,7 @@ final class AddTransactionModalViewModel {
 
         // Generate only the immediate window of instances
         // Completion runs on background queue - heavy work stays there
-        recurringManager.generateInstancesLazilyForMonths(immediateMonthAnchors) { [weak self] in
+        recurringManager.generateInstancesLazilyForMonths(immediateMonthAnchors) { [weak self] _ in
           guard let self = self else { return }
           // These operations run on background thread (no UI blocking)
           self.scheduleNotificationsForRecurringTransactions()
@@ -264,7 +264,7 @@ final class AddTransactionModalViewModel {
       }()
 
       // Wait for instance generation to complete before calling completion
-      recurringManager.generateInstancesLazilyForMonths(immediateMonthAnchors) { [weak self] in
+      recurringManager.generateInstancesLazilyForMonths(immediateMonthAnchors) { [weak self] _ in
         guard let self = self else {
           DispatchQueue.main.async { completion(.success(())) }
           return

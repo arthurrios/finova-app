@@ -331,7 +331,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     }
 
     // Verificar se a data é muito no futuro (mais de 1 ano)
-    let oneYearFromNow = Calendar.current.date(byAdding: .year, value: 1, to: Date()) ?? Date()
+    let oneYearFromNow = calendar.date(byAdding: .year, value: 1, to: Date()) ?? Date()
     if tx.date > oneYearFromNow {
       print("🔔 ⚠️ Skipping notification for \(tx.title) - date too far in future")
       return
@@ -374,10 +374,8 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
       if let error = error {
         print("🔔 ❌ Error scheduling notification for \(tx.title): \(error)")
       } else {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd HH:mm"
         print(
-          "🔔 ✅ Scheduled notification for \(tx.title) at \(formatter.string(from: notificationDate))"
+          "🔔 ✅ Scheduled notification for \(tx.title) at \(DateFormatter.debugTimestampFormatter.string(from: notificationDate))"
         )
       }
     }

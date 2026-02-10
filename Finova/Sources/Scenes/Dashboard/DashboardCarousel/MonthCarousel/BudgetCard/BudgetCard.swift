@@ -371,11 +371,8 @@ final class BudgetCard: UIView {
         updateHideValuesIcon()
         updateValuesDisplay()
 
-        NotificationCenter.default.post(
-            name: NSNotification.Name("BalanceVisibilityChanged"),
-            object: self,
-            userInfo: ["isHidden": isValuesHidden]
-        )
+        // Notify delegate to update all other cards
+        delegate?.didToggleBalanceVisibility(isValuesHidden)
     }
 
     private func updateHideValuesIcon() {

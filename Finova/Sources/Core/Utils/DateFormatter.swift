@@ -75,4 +75,10 @@ extension DateFormatter {
     formatter.dateFormat = "yyyy-MM"
     return formatter
   }()
+
+  static let debugTimestampFormatter: DateFormatter = {
+    let formatter = DateFormatter()
+    formatter.dateFormat = "yyyy-MM-dd HH:mm"
+    return formatter
+  }()
 }

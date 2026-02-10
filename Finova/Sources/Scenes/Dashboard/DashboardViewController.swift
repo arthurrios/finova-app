@@ -20,6 +20,7 @@ final class DashboardViewController: UIViewController {
     private var currentCellTransactions: [Transaction] = []
     private var transactionsByMonth: [Int: [Transaction]] = [:]
     private var isInitialLoadComplete = false
+    private var hasAppearedBefore = false
     private var isDeletionInProgress = false
     private let updateToastContainer = UpdateToastContainer()
     private let updateToastManager = UpdateToastManager.shared
@@ -52,6 +53,9 @@ final class DashboardViewController: UIViewController {
     // MARK: - Budget View State Tracking
     /// Global state for showing budget view (applies to all months)
     private var isGlobalBudgetViewActive: Bool = false
+
+    // MARK: - Debounce
+    private var refreshWorkItem: DispatchWorkItem?
 
     // MARK: - Global Filter State
     /// Global filters that apply to all months
@@ -114,13 +118,18 @@ final class DashboardViewController: UIViewController {
         // Update notification badge count
         updateNotificationBadge()
 
-        // Refresh avatar in case it was changed in Profile screen
-        if let userImage = SecureLocalDataManager.shared.loadProfileImage() {
-            contentView.avatar.userImage = userImage
+        // Refresh avatar in case it was changed in Profile screen (async to avoid blocking main thread)
+        DispatchQueue.global(qos: .userInitiated).async {
+            let userImage = SecureLocalDataManager.shared.loadProfileImage()
+            if let image = userImage {
+                DispatchQueue.main.async { [weak self] in
+                    self?.contentView.avatar.userImage = image
+                }
+            }
         }
 
-        // Evitar refresh desnecessário na primeira vez que a view aparece
-        if isInitialLoadComplete {
+        // Skip refresh on first appearance — loadData() in viewDidLoad already loaded fresh data
+        if isInitialLoadComplete && hasAppearedBefore {
             refreshDashboardData()
 
             // Recalculate current day for day slider when dashboard appears in foreground
@@ -129,6 +138,7 @@ final class DashboardViewController: UIViewController {
             // Check for update toast when dashboard appears
             checkForUpdateToastOnForeground()
         }
+        hasAppearedBefore = true
     }
 
     /// Restores the budget view state for the currently visible cell if it was showing budget view
@@ -165,6 +175,20 @@ final class DashboardViewController: UIViewController {
     }
     
     private func refreshDashboardData() {
+        // Debounce rapid calls to coalesce multiple reloads
+        refreshWorkItem?.cancel()
+        let workItem = DispatchWorkItem { [weak self] in
+            self?.performDashboardRefresh()
+        }
+        refreshWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1, execute: workItem)
+    }
+
+    private func performDashboardRefresh() {
+        // Invalidate caches so we get fresh data
+        viewModel.transactionLedger.invalidateCache()
+        TransactionRepository.invalidateCache()
+
         // Load fresh data from repositories
         let monthData = viewModel.loadMonthlyCards()
         let transactions = viewModel.transactionRepo.fetchTransactions()
@@ -219,6 +243,10 @@ final class DashboardViewController: UIViewController {
         // Also refresh all visible cells in the collection view
         DispatchQueue.main.async {
             self.refreshVisibleCells()
+
+            // Clean up any orphaned per-card shimmer overlays (tag 998)
+            // that may have been left active when navigating away mid-load
+            self.hideShimmerOnAllCards()
         }
     }
     
@@ -608,10 +636,15 @@ final class DashboardViewController: UIViewController {
     private func setup() {
         view.addSubview(contentView)
         buildHierarchy()
-        
+
         contentView.delegate = self
         syncedViewModel.delegate = self
-        
+
+        // Refresh dashboard when lazy generation creates new recurring/installment instances
+        viewModel.onDataNeedsRefresh = { [weak self] in
+            self?.refreshDashboardData()
+        }
+
         // Setup notification observers for transaction data changes
         setupNotificationObservers()
         
@@ -1180,10 +1213,15 @@ final class DashboardViewController: UIViewController {
         // Check if budget migration is needed (run once)
         checkAndRunBudgetMigrationIfNeeded()
         
-        if let userImage = SecureLocalDataManager.shared.loadProfileImage() {
-            contentView.avatar.userImage = userImage
+        DispatchQueue.global(qos: .userInitiated).async {
+            let userImage = SecureLocalDataManager.shared.loadProfileImage()
+            if let image = userImage {
+                DispatchQueue.main.async { [weak self] in
+                    self?.contentView.avatar.userImage = image
+                }
+            }
         }
-        
+
         // Safely load transactions with authentication check
         transactions = viewModel.transactionRepo.fetchTransactions()
 
@@ -1331,6 +1369,9 @@ extension DashboardViewController: UICollectionViewDataSource {
                 // Flip all visible cells to match the global state
                 self.flipAllVisibleCellsToGlobalState()
             }
+            cell.onBalanceVisibilityToggled = { [weak self] isHidden in
+                self?.updateAllMonthCardsBalanceVisibility(isHidden)
+            }
 
             cell.transactionTableView.dataSource = self
             cell.transactionTableView.delegate = self
@@ -1358,6 +1399,7 @@ extension DashboardViewController: UICollectionViewDataSource {
             let monthAnchor = model.date.monthAnchor
             cell.setMonthAnchor(monthAnchor)
 
+            cell.monthCard.ledgerService = viewModel.transactionLedger
             cell.monthCard.refresh(with: model)
 
             cell.setFiltersWithoutApplying(globalFilters)
@@ -1996,25 +2038,25 @@ extension DashboardViewController {
         }
         
         // Safety mechanism for single card
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
-            self.hideShimmerOnAllCards()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) { [weak self] in
+            self?.hideShimmerOnAllCards()
         }
     }
-    
+
     private func showShimmerOnAllVisibleCards() {
         let visibleIndexPaths = contentView.monthCarousel.indexPathsForVisibleItems
-        
+
         for indexPath in visibleIndexPaths {
             if let cell = contentView.monthCarousel.cellForItem(at: indexPath) as? MonthCarouselCell {
                 showShimmerLoadingOnCard(cell.monthCard)
                 cardsWithActiveShimmer.insert(indexPath.item)
             }
         }
-        
+
         // Safety mechanism: ensure shimmer doesn't get stuck for more than 3 seconds
         // This is only a fallback - normal operation should hide shimmer immediately after data updates
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
-            self.hideShimmerOnAllCards()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) { [weak self] in
+            self?.hideShimmerOnAllCards()
         }
     }
     

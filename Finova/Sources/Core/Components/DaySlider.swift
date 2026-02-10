@@ -449,5 +449,9 @@ class DaySlider: UIView {
     super.layoutSubviews()
     updateSliderPosition()
     updateDayIndicators()
+    thumbView.layer.shadowPath = UIBezierPath(
+      roundedRect: thumbView.bounds,
+      cornerRadius: thumbView.layer.cornerRadius
+    ).cgPath
   }
 }

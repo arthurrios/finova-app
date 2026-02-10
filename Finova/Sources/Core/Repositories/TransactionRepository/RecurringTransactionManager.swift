@@ -787,16 +787,16 @@ final class RecurringTransactionManager {
   ///   - completion: Optional completion handler called when generation is complete
   func generateInstancesLazilyForMonths(
     _ monthAnchors: Set<Int>,
-    completion: (() -> Void)? = nil
+    completion: ((_ newInstancesCreated: Int) -> Void)? = nil
   ) {
     guard !monthAnchors.isEmpty else {
-      DispatchQueue.main.async { completion?() }
+      DispatchQueue.main.async { completion?(0) }
       return
     }
 
     operationQueue.async { [weak self] in
       guard let self = self else {
-        DispatchQueue.main.async { completion?() }
+        DispatchQueue.main.async { completion?(0) }
         return
       }
 
@@ -805,7 +805,7 @@ final class RecurringTransactionManager {
 
       // Early exit if no transactions
       guard !allTransactions.isEmpty else {
-        DispatchQueue.main.async { completion?() }
+        DispatchQueue.main.async { completion?(0) }
         return
       }
 
@@ -834,7 +834,7 @@ final class RecurringTransactionManager {
 
       // Early exit if no parents to process
       guard !recurringParents.isEmpty || !installmentParents.isEmpty else {
-        DispatchQueue.main.async { completion?() }
+        DispatchQueue.main.async { completion?(0) }
         return
       }
 
@@ -969,7 +969,7 @@ final class RecurringTransactionManager {
       }
 
       // Call completion on current (background) queue - callers should dispatch to main if needed
-      completion?()
+      completion?(newInstancesCreated)
     }
   }
 

@@ -9,7 +9,10 @@ import Foundation
 import UIKit
 
 final class ViewControllersFactory: ViewControllersFactoryProtocol {
-    
+
+    // MARK: - Shared Repository Instances
+    let transactionRepository = TransactionRepository()
+
     func makeRegisterViewController(flowDelegate: any RegisterFlowDelegate) -> RegisterViewController
     {
         let contentView = RegisterView()
@@ -93,7 +96,7 @@ final class ViewControllersFactory: ViewControllersFactoryProtocol {
     ) -> TransactionDetailsViewController {
         let contentView = TransactionDetailsView()
         let viewModel = TransactionDetailsViewModel(
-            transactionRepository: TransactionRepository(),
+            transactionRepository: transactionRepository,
             transaction: transaction
         )
         let viewController = TransactionDetailsViewController(

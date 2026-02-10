@@ -32,7 +32,7 @@ class UIDUserDefaultsManager {
       } else {
         UserDefaults.standard.removeObject(forKey: Self.currentUserUIDKey)
       }
-      UserDefaults.standard.synchronize()
+
     }
   }
 
@@ -43,7 +43,7 @@ class UIDUserDefaultsManager {
     let encoder = JSONEncoder()
     if let data = try? encoder.encode(settings) {
       UserDefaults.standard.set(data, forKey: key)
-      UserDefaults.standard.synchronize()
+
       logInfo("Saved settings for user: \(uid)")
     }
   }

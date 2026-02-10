@@ -41,27 +41,12 @@ final class TransactionLedgerService {
   func calculateMonthlyData(for monthRange: ClosedRange<Int>, referenceDate: Date = Date())
     -> [MonthBudgetCardType]
   {
-    // Check if cache is still valid
-    if Date().timeIntervalSince(lastCacheUpdate) < cacheValidityDuration {
-      let cachedData = monthRange.compactMap { monthlyDataCache[$0] }
-      if cachedData.count == monthRange.count {
-        return cachedData
-      }
-    }
-
-    let allTransactions = fetchAllTransactionsIncludingStatements()
-
-    let budgetsByAnchor = budgetRepo.fetchBudgets()
-      .reduce(into: [:]) { acc, entry in
-        acc[entry.monthDate] = entry.amount
-      }
-
-    var anchors: [Int] = []
     let currentComponents = calendar.dateComponents([.year, .month], from: referenceDate)
     let currentYear = currentComponents.year!
     let currentMonth = currentComponents.month!
 
-    // Generate month anchors
+    // Generate month anchors from offsets
+    var anchors: [Int] = []
     for offset in monthRange {
       let targetMonth = currentMonth + offset
       let targetYear = currentYear + (targetMonth - 1) / 12
@@ -83,6 +68,21 @@ final class TransactionLedgerService {
       let anchor = monthDate.monthAnchor
       anchors.append(anchor)
     }
+
+    // Check if cache is still valid (look up by anchor, not offset)
+    if Date().timeIntervalSince(lastCacheUpdate) < cacheValidityDuration {
+      let cachedData = anchors.compactMap { monthlyDataCache[$0] }
+      if cachedData.count == anchors.count {
+        return cachedData
+      }
+    }
+
+    let allTransactions = fetchAllTransactionsIncludingStatements()
+
+    let budgetsByAnchor = budgetRepo.fetchBudgets()
+      .reduce(into: [:]) { acc, entry in
+        acc[entry.monthDate] = entry.amount
+      }
 
     // Calculate running balance
     var runningBalance = [Int: Int]()
@@ -139,7 +139,7 @@ final class TransactionLedgerService {
 
       // Calculate current balance (balance up to current date within the month)
       let currentBalance = calculateCurrentBalanceForMonth(
-        anchor: anchor, previousBalance: previousAvailable)
+        anchor: anchor, previousBalance: previousAvailable, transactions: allTransactions)
 
       let monthData = MonthBudgetCardType(
         date: date,
@@ -197,13 +197,11 @@ final class TransactionLedgerService {
   // MARK: - Balance Calculations
 
   /// Calculate the balance up to the current date within a specific month
-  func calculateCurrentBalanceForMonth(anchor: Int, previousBalance: Int) -> Int {
-    let allTransactions = fetchAllTransactionsIncludingStatements()
+  func calculateCurrentBalanceForMonth(anchor: Int, previousBalance: Int, transactions: [Transaction]? = nil) -> Int {
+    let allTransactions = transactions ?? fetchAllTransactionsIncludingStatements()
 
     let today = Date()
     let monthDate = Date(timeIntervalSince1970: TimeInterval(anchor))
-
-    let calendar = Calendar.current
 
     // Get transactions for this month
     let transactionsInMonth = allTransactions.filter { transaction in
@@ -364,8 +362,8 @@ final class TransactionLedgerService {
   // MARK: - Daily Balance Calculations
 
   /// Calculate balance for a specific day within a month
-  func calculateBalanceForDay(day: Int, monthAnchor: Int, previousMonthBalance: Int) -> Int {
-    let allTransactions = fetchAllTransactionsIncludingStatements()
+  func calculateBalanceForDay(day: Int, monthAnchor: Int, previousMonthBalance: Int, transactions: [Transaction]? = nil) -> Int {
+    let allTransactions = transactions ?? fetchAllTransactionsIncludingStatements()
 
     // Get the month date from anchor
     let monthDate = Date(timeIntervalSince1970: TimeInterval(monthAnchor))

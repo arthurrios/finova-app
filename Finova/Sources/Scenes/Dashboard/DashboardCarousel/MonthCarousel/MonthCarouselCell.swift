@@ -76,6 +76,7 @@ class MonthCarouselCell: UICollectionViewCell {
     var onBudgetsConfigTapped: ((Int) -> Void)?
     var onDefineBudgetTapped: ((Int) -> Void)?
     var onBudgetViewStateChanged: ((Int, Bool) -> Void)?  // (monthAnchor, isShowingBudgetView)
+    var onBalanceVisibilityToggled: ((Bool) -> Void)?
 
     // MARK: - Properties
 
@@ -1392,6 +1393,10 @@ extension MonthCarouselCell: MonthCardFlipDelegate {
 
     func didTapDefineBudget(forMonth monthAnchor: Int) {
         onDefineBudgetTapped?(monthAnchor)
+    }
+
+    func didToggleBalanceVisibility(_ isHidden: Bool) {
+        onBalanceVisibilityToggled?(isHidden)
     }
 }
 

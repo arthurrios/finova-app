@@ -18,8 +18,8 @@ class SecureLocalDataManager {
   private var currentUserUID: String?
   private var encryptionKey: SymmetricKey?
 
-  /// Serial queue for thread-safe file operations
-  private let fileQueue = DispatchQueue(label: "com.finova.secureLocalDataManager.fileQueue")
+  /// Concurrent queue for thread-safe file operations (reader-writer pattern)
+  private let fileQueue = DispatchQueue(label: "com.finova.secureLocalDataManager.fileQueue", attributes: .concurrent)
 
   private init() {}
 
@@ -512,8 +512,8 @@ class SecureLocalDataManager {
       return
     }
 
-    // Use serial queue for thread-safe file operations
-    fileQueue.sync {
+    // Use barrier for exclusive write access (reader-writer pattern)
+    fileQueue.sync(flags: .barrier) {
       do {
         let jsonData = try JSONEncoder().encode(data)
         let encryptedData = try AES.GCM.seal(jsonData, using: encryptionKey)
