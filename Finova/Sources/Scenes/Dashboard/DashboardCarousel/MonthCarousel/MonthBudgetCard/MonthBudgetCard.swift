@@ -514,13 +514,13 @@ class MonthBudgetCard: UIView {
     private func updateAvailableBudgetDisplay() {
         logDebug("updateAvailableBudgetDisplay called with displayMode = \(displayMode)")
         guard let data = currentMonthData else { return }
-        
+
         if data.budgetLimit != nil && data.budgetLimit! > 0 {
             // Budget is set - show budget information
             availableBudgetValueLabel.isHidden = false
             availableBudgetValueWithToggleContainer.isHidden = false
             availableBudgetTextLabelContainer.isHidden = false
-            availableBudgetTextLabel.isHidden = false
+            availableBudgetTextLabel.isHidden = isFilterActive
             defineBudgetButton.isHidden = true
 
             let displayValue: Int
@@ -714,7 +714,8 @@ class MonthBudgetCard: UIView {
                 equalTo: availableBudgetValueLabel.leadingAnchor),
             container.centerYAnchor.constraint(
                 equalTo: availableBudgetValueWithToggleContainer.centerYAnchor),
-            container.widthAnchor.constraint(greaterThanOrEqualToConstant: 150),
+            container.trailingAnchor.constraint(
+                equalTo: hideValuesToggleContainer.leadingAnchor, constant: -8),
         ])
         
         // Ensure toggle is initially in the budget value container
@@ -757,8 +758,8 @@ class MonthBudgetCard: UIView {
             hostController.view.translatesAutoresizingMaskIntoConstraints = false
             NSLayoutConstraint.activate([
                 hostController.view.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+                hostController.view.trailingAnchor.constraint(equalTo: container.trailingAnchor),
                 hostController.view.centerYAnchor.constraint(equalTo: container.centerYAnchor),
-                hostController.view.widthAnchor.constraint(equalToConstant: 180),
                 hostController.view.heightAnchor.constraint(equalTo: container.heightAnchor),
             ])
         } else {
@@ -997,13 +998,13 @@ class MonthBudgetCard: UIView {
     
     private func updateAvailableBudgetDisplayWithVisibility() {
         guard let data = currentMonthData else { return }
-        
+
         if data.budgetLimit != nil && data.budgetLimit! > 0 {
             // Budget is set - show budget information
             availableBudgetValueLabel.isHidden = false
             availableBudgetValueWithToggleContainer.isHidden = false
             availableBudgetTextLabelContainer.isHidden = false
-            availableBudgetTextLabel.isHidden = false
+            availableBudgetTextLabel.isHidden = isFilterActive
             defineBudgetButton.isHidden = true
             
             let displayValue: Int

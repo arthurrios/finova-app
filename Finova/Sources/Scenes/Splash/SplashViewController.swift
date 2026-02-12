@@ -21,6 +21,9 @@ final class SplashViewController: UIViewController {
   /// Set to `true` to skip login and go straight to Dashboard with test credentials.
   /// Disable this (or set to `false`) when you want to test the normal auth flow.
   private let autoLoginEnabled = true
+  /// Set to `true` to clear and repopulate demo data on every auto-login.
+  /// Set to `false` to keep existing data untouched.
+  private let seedDemoData = true
   private let debugEmail = "jack@email.com"
   private let debugPassword = "Test@123"
   #endif
@@ -446,6 +449,10 @@ extension SplashViewController {
 
       UserDefaultsManager.saveUserWithUID(user: user)
       UserDefaultsManager.updateCurrentUserSavedStatus(saved: true)
+
+      if self.seedDemoData {
+        DemoSeedGenerator.seed(for: firebaseUser.uid)
+      }
 
       DispatchQueue.main.async {
         if FaceIDManager.shared.deviceSupportsBiometrics && !UserDefaultsManager.getBiometricEnabled() {

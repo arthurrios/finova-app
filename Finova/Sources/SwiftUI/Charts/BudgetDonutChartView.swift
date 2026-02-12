@@ -274,10 +274,9 @@ struct BudgetDonutChartView: View {
                         if index >= 0 && index < allocations.count {
                             // Allocated category tapped
                             onSegmentTapped?(allocations[index].category)
-                        } else if let spending = getUnallocatedSpending(for: index) {
-                            // Unallocated spending category tapped
-                            onUnallocatedSpendingTapped?(spending)
                         }
+                        // Unallocated spending and remaining budget segments
+                        // only update the center display via selectedIndex
                     }
                 } else {
                     selectedIndex = nil
