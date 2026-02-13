@@ -486,16 +486,4 @@ final class DashboardViewModel {
     monthlyNotificationManager.setupMonthlyNotificationSystem()
   }
 
-  // MARK: - Recovery Methods
-
-  /// Attempt to recover transactions from SQLite
-  func attemptTransactionRecovery() -> Bool {
-    return transactionLedger.attemptTransactionRecovery()
-  }
-
-  /// Check if transactions exist in SQLite
-  func checkSQLiteRecovery() -> [Transaction] {
-    return transactionLedger.checkSQLiteRecovery()
-  }
-
 }

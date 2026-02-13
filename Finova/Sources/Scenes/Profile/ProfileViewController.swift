@@ -77,7 +77,6 @@ extension ProfileViewController: ProfileViewDelegate {
             style: .destructive
         ) { [weak self] _ in
             AuthenticationManager.shared.signOut()
-            SecureLocalDataManager.shared.signOut()
             UserDefaultsManager.signOutCurrentUser()
 
             logInfo("Complete logout performed from Profile")

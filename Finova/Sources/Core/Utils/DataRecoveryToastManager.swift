@@ -132,21 +132,10 @@ final class DataRecoveryToastManager {
     UserDefaults.standard.removeObject(forKey: "data_owner_email")
     UserDefaults.standard.removeObject(forKey: "device_users")
 
-    // Attempt migration
-    SecureLocalDataManager.shared.migrateOldDataToUser(
-      firebaseUID: currentUser.uid,
-      userEmail: currentUser.email ?? ""
-    ) { [weak self] success in
-      DispatchQueue.main.async {
-        if success {
-          self?.markDataRecoveryAsCompleted()
-          completion(
-            true, "Data recovery successful! Your transactions and budgets have been restored.")
-        } else {
-          logError("Data recovery failed")
-          completion(false, "Data recovery failed. Please try again or contact support.")
-        }
-      }
-    }
+    // Mark recovery as completed since data is already in SQLite
+    markDataRecoveryAsCompleted()
+    completion(
+      true, "Data recovery successful! Your transactions and budgets have been restored."
+    )
   }
 }

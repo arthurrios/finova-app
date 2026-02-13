@@ -13,10 +13,8 @@ class AuthTestHelper {
         logDebug("Testing Authentication Flow...")
 
         let authManager = AuthenticationManager.shared
-        let dataManager = SecureLocalDataManager.shared
 
         logInfo("AuthenticationManager initialized")
-        logInfo("SecureLocalDataManager initialized")
 
         // Test User model creation
         let testUser = User(

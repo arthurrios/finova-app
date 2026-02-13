@@ -244,9 +244,6 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
       return
     }
 
-    // Authenticate SecureLocalDataManager
-    SecureLocalDataManager.shared.authenticateUser(firebaseUID: firebaseUID)
-
     let transactionRepo = TransactionRepository()
     let allTxs = transactionRepo.fetchAllTransactions()
     let now = Date()
@@ -403,8 +400,6 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
       return
     }
 
-    SecureLocalDataManager.shared.authenticateUser(firebaseUID: firebaseUID)
-
     let transactionRepo = TransactionRepository()
     let allTxs = transactionRepo.fetchAllTransactions()
     let now = Date()
@@ -449,8 +444,6 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
       print("🔔 ❌ Cannot schedule statement notifications: User not authenticated")
       return
     }
-
-    SecureLocalDataManager.shared.authenticateUser(firebaseUID: firebaseUID)
 
     let cardRepo = CreditCardRepository()
     let statementRepo = StatementRepository()
@@ -696,9 +689,6 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
       return
     }
 
-    // Authenticate SecureLocalDataManager
-    SecureLocalDataManager.shared.authenticateUser(firebaseUID: firebaseUID)
-
     // Create balance monitor and check current month
     let balanceMonitor = BalanceMonitorManager()
     balanceMonitor.monitorCurrentMonthBalance()
@@ -718,9 +708,6 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
       return
     }
 
-    // Authenticate SecureLocalDataManager
-    SecureLocalDataManager.shared.authenticateUser(firebaseUID: firebaseUID)
-
     // Create monthly notification manager and setup system
     let monthlyManager = MonthlyNotificationManager()
     monthlyManager.setupMonthlyNotificationSystem()
@@ -737,9 +724,6 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
       print("🔔 ❌ Cannot check monthly notifications: User not authenticated")
       return
     }
-
-    // Authenticate SecureLocalDataManager
-    SecureLocalDataManager.shared.authenticateUser(firebaseUID: firebaseUID)
 
     let currentDate = Date()
     let calendar = Calendar.current

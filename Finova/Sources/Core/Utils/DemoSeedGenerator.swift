@@ -29,9 +29,12 @@ struct DemoSeedGenerator {
         // Transactions (SQLite + secure storage)
         TransactionRepository().clearAllTransactionsForTesting()
 
-        // Secure storage
-        SecureLocalDataManager.shared.clearUserData()
-        SecureLocalDataManager.shared.authenticateUser(firebaseUID: userUID)
+        // User data
+        if let uid = UIDUserDefaultsManager.shared.currentUserUID {
+            DBHelper.shared.deleteAllTransactions(forUser: uid)
+            DBHelper.shared.deleteAllBudgets(forUser: uid)
+            ProfileImageManager.shared.removeProfileImage()
+        }
 
         // Budgets
         try? DBHelper.shared.deleteAllBudgets()

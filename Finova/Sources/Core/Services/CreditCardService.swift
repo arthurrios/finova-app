@@ -107,8 +107,8 @@ class CreditCardService {
         let cards = cardRepo.fetchAllCards(userId: userId)
         var statementTransactions: [Transaction] = []
 
-        // Use the same source as the ViewModel to avoid stale DB vs secure store mismatch
-        let allSecureTransactions = SecureLocalDataManager.shared.loadTransactions()
+        // Use the same source as the ViewModel
+        let allSecureTransactions = TransactionRepository().fetchAllTransactions()
 
         for card in cards {
             let statements = stmtRepo.fetchStatements(forCardId: card.id!)
@@ -272,7 +272,7 @@ class CreditCardService {
     }
 
     /// Generates synthetic statement transactions for a specific card.
-    /// When `includeAllUsers` is true, uses DB queries (all users) instead of SecureLocalDataManager (UID-isolated).
+    /// When `includeAllUsers` is true, uses DB queries (all users) instead of UID-isolated store.
     func generateStatementTransactions(forCard card: CreditCard, includeAllUsers: Bool) -> [Transaction] {
         guard let cardId = card.id else { return [] }
         var statementTransactions: [Transaction] = []
@@ -290,8 +290,8 @@ class CreditCardService {
                 realCount = (try? DBHelper.shared.getTransactionCountForStatement(statementId: stmtId)) ?? 0
                 realTotal = (try? DBHelper.shared.getTransactionSumForStatement(statementId: stmtId)) ?? 0
             } else {
-                let allSecureTransactions = SecureLocalDataManager.shared.loadTransactions()
-                let stmtTransactions = allSecureTransactions.filter {
+                let allTransactions = TransactionRepository().fetchAllTransactions()
+                let stmtTransactions = allTransactions.filter {
                     $0.statementId == stmtId && $0.isCreditCardStatement != true
                 }
                 realCount = stmtTransactions.count

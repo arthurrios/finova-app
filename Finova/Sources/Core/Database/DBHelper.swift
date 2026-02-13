@@ -46,6 +46,7 @@ class DBHelper {
             try createGroupInvitationsTable()
             try createSyncMetadataTable()
             try migrateExistingTablesForSync()
+            try migrateUserIdColumns()
             isInitialized = true
             //            print("✅ Database initialized successfully")
         } catch {
@@ -96,20 +97,26 @@ class DBHelper {
             logWarning("Database not initialized, skipping budget insert")
             return
         }
-        
-        let insertQuery = "INSERT INTO Budgets (month_date, amount) VALUES (?, ?);"
+
+        let uid = UIDUserDefaultsManager.shared.currentUserUID
+        let insertQuery = "INSERT INTO Budgets (month_date, amount, user_id) VALUES (?, ?, ?);"
         var statement: OpaquePointer?
-        
+
         guard sqlite3_prepare_v2(db, insertQuery, -1, &statement, nil) == SQLITE_OK else {
             let msg = String(cString: sqlite3_errmsg(db))
             throw DBError.prepareFailed(message: msg)
         }
-        
+
         defer { sqlite3_finalize(statement) }
-        
+
         sqlite3_bind_int64(statement, 1, Int64(monthDate))
         sqlite3_bind_int64(statement, 2, Int64(amount))
-        
+        if let uid = uid {
+            sqlite3_bind_text(statement, 3, uid, -1, SQLITE_TRANSIENT)
+        } else {
+            sqlite3_bind_null(statement, 3)
+        }
+
         guard sqlite3_step(statement) == SQLITE_DONE else {
             let msg = String(cString: sqlite3_errmsg(db))
             throw DBError.stepFailed(message: msg)
@@ -351,8 +358,9 @@ class DBHelper {
               original_amount,
               credit_card_id,
               statement_id,
-              is_credit_card_statement
-              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+              is_credit_card_statement,
+              user_id
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
       """
         
         var statement: OpaquePointer?
@@ -423,6 +431,12 @@ class DBHelper {
             sqlite3_bind_int(statement, 15, isCreditCardStatement ? 1 : 0)
         } else {
             sqlite3_bind_null(statement, 15)
+        }
+
+        if let uid = UIDUserDefaultsManager.shared.currentUserUID {
+            sqlite3_bind_text(statement, 16, uid, -1, SQLITE_TRANSIENT)
+        } else {
+            sqlite3_bind_null(statement, 16)
         }
 
         guard sqlite3_step(statement) == SQLITE_DONE else {
@@ -1797,6 +1811,84 @@ class DBHelper {
         try addColumnIfNotExists(table: "CreditCardStatements", column: "sync_status", definition: "TEXT DEFAULT 'pending'")
     }
 
+    // MARK: - User ID Migration
+
+    private func migrateUserIdColumns() throws {
+        try addColumnIfNotExists(table: "Transactions", column: "user_id", definition: "TEXT")
+        try addColumnIfNotExists(table: "Budgets", column: "user_id", definition: "TEXT")
+    }
+
+    func backfillUserIds(uid: String) {
+        guard isInitialized else {
+            logWarning("[Backfill] DBHelper not initialized, skipping backfill")
+            return
+        }
+        // Count rows that need backfill before updating
+        var txCount: Int = 0
+        var budgetCount: Int = 0
+        var stmt: OpaquePointer?
+        if sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM Transactions WHERE user_id IS NULL;", -1, &stmt, nil) == SQLITE_OK {
+            if sqlite3_step(stmt) == SQLITE_ROW { txCount = Int(sqlite3_column_int64(stmt, 0)) }
+            sqlite3_finalize(stmt)
+        }
+        if sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM Budgets WHERE user_id IS NULL;", -1, &stmt, nil) == SQLITE_OK {
+            if sqlite3_step(stmt) == SQLITE_ROW { budgetCount = Int(sqlite3_column_int64(stmt, 0)) }
+            sqlite3_finalize(stmt)
+        }
+        if txCount > 0 || budgetCount > 0 {
+            logInfo("[Backfill] Setting user_id=\(uid) for \(txCount) transactions and \(budgetCount) budgets")
+        }
+        executeSyncUpdate("UPDATE Transactions SET user_id = ? WHERE user_id IS NULL;", textBindings: [uid])
+        executeSyncUpdate("UPDATE Budgets SET user_id = ? WHERE user_id IS NULL;", textBindings: [uid])
+    }
+
+    // MARK: - User-Filtered Queries
+
+    func getTransactions(forUser uid: String) throws -> [Transaction] {
+        guard isInitialized else { return [] }
+
+        let query = """
+          SELECT id, title, category, type, amount, date, budget_month_date,
+                 is_recurring, has_installments, parent_transaction_id,
+                 installment_number, total_installments, original_amount,
+                 credit_card_id, statement_id, is_credit_card_statement
+          FROM Transactions WHERE user_id = ?;
+          """
+
+        return try executeTransactionQueryPublicText(query, textBindings: [uid])
+    }
+
+    func getBudgets(forUser uid: String) throws -> [BudgetModel] {
+        guard isInitialized else { return [] }
+
+        let query = "SELECT month_date, amount FROM Budgets WHERE user_id = ?;"
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK else {
+            let msg = String(cString: sqlite3_errmsg(db))
+            throw DBError.prepareFailed(message: msg)
+        }
+        defer { sqlite3_finalize(statement) }
+        sqlite3_bind_text(statement, 1, uid, -1, SQLITE_TRANSIENT)
+
+        var results: [BudgetModel] = []
+        while sqlite3_step(statement) == SQLITE_ROW {
+            let monthDate = Int(sqlite3_column_int64(statement, 0))
+            let amount = Int(sqlite3_column_int64(statement, 1))
+            results.append(BudgetModel(monthDate: monthDate, amount: amount))
+        }
+        return results
+    }
+
+    func deleteAllTransactions(forUser uid: String) {
+        guard isInitialized else { return }
+        executeSyncUpdate("DELETE FROM Transactions WHERE user_id = ?;", textBindings: [uid])
+    }
+
+    func deleteAllBudgets(forUser uid: String) {
+        guard isInitialized else { return }
+        executeSyncUpdate("DELETE FROM Budgets WHERE user_id = ?;", textBindings: [uid])
+    }
+
     // MARK: - CloudKit Sync Helpers
 
     func executeTransactionQueryPublic(_ query: String, bindValues: [Int] = []) throws -> [Transaction] {
@@ -1936,6 +2028,11 @@ class DBHelper {
         else { sqlite3_bind_null(statement, 15) }
 
         sqlite3_bind_text(statement, 16, ckRecordName, -1, SQLITE_TRANSIENT)
+
+        // Bind user_id if the query has a 17th placeholder
+        if let uid = UIDUserDefaultsManager.shared.currentUserUID {
+            sqlite3_bind_text(statement, 17, uid, -1, SQLITE_TRANSIENT)
+        }
 
         sqlite3_step(statement)
     }

@@ -51,10 +51,6 @@ final class TransactionDetailsViewController: UIViewController {
   }
 
   private func setup() {
-    if let user = UserDefaultsManager.getUser(), let firebaseUID = user.firebaseUID {
-      SecureLocalDataManager.shared.authenticateUser(firebaseUID: firebaseUID)
-    }
-
     view.addSubview(contentView)
     buildHierarchy()
     setupDelegates()

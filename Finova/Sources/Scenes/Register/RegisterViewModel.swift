@@ -61,22 +61,9 @@ extension RegisterViewModel: AuthenticationManagerDelegate {
     func authenticationDidComplete(user: User) {
         logInfo("RegisterViewModel received user: '\(user.name)' with UID: '\(user.firebaseUID ?? "nil")'")
         
-        // Migrate old data if this is first Firebase registration
         if let firebaseUID = user.firebaseUID {
-            DataMigrationManager.shared.checkAndPerformMigration(for: firebaseUID, userEmail: user.email) { success in
-                if success {
-                    logInfo("Data migration completed for new user")
-                    
-                    // Get migration statistics for logging
-                    let stats = DataMigrationManager.shared.getMigrationStatistics(for: firebaseUID)
-                    logInfo("Migration Statistics:\n\(stats.summary)")
-                } else {
-                    logError("Data migration failed for new user")
-                }
-            }
-            
-            // Authenticate with secure data manager
-            SecureLocalDataManager.shared.authenticateUser(firebaseUID: firebaseUID)
+            UIDUserDefaultsManager.shared.currentUserUID = firebaseUID
+            DBHelper.shared.backfillUserIds(uid: firebaseUID)
         }
         
         // Save user locally

@@ -21,9 +21,6 @@ import Foundation
 
       DataCleanupManager.shared.forceCleanup()
 
-      // Also reset migration state
-      DataMigrationManager.shared.resetMigrationState()
-
       logInfo("DEBUG: Global data cleanup completed")
     }
 
@@ -44,25 +41,9 @@ import Foundation
       if let user = UserDefaultsManager.getUser() {
         logDebug("Current User: \(user.name) (\(user.firebaseUID ?? "no UID"))")
 
-        if let uid = user.firebaseUID {
-          SecureLocalDataManager.shared.authenticateUser(firebaseUID: uid)
-          let secureTransactions = SecureLocalDataManager.shared.loadTransactions()
-          let secureBudgets = SecureLocalDataManager.shared.loadBudgets()
-
-          logDebug("Secure Data for \(uid):")
-          logDebug("   Transactions: \(secureTransactions.count)")
-          logDebug("   Budgets: \(secureBudgets.count)")
-        }
-      } else {
+        } else {
         logWarning("No user logged in")
       }
-
-      // Check migration status
-      let migrationState = DataMigrationManager.shared.getMigrationState()
-      logDebug("Migration Status:")
-      logDebug("   Global Migration Complete: \(migrationState.isGlobalMigrationComplete)")
-      logDebug("   Data Owner: \(migrationState.dataOwner ?? "none")")
-      logDebug("   Has Existing Data: \(migrationState.hasExistingData)")
 
       // Check cleanup status
       let cleanupCompleted = DataCleanupManager.shared.isCleanupCompleted()
@@ -82,9 +63,8 @@ import Foundation
       // Clear user data
       UserDefaultsManager.removeUser()
 
-      // Sign out from auth systems
+      // Sign out from auth
       AuthenticationManager.shared.signOut()
-      SecureLocalDataManager.shared.signOut()
 
       logInfo("DEBUG: Everything reset - ready for clean testing")
     }

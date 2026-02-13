@@ -78,9 +78,6 @@ final class NotificationDebugManager {
       return
     }
 
-    // Authenticate SecureLocalDataManager
-    SecureLocalDataManager.shared.authenticateUser(firebaseUID: firebaseUID)
-
     let transactionRepo = TransactionRepository()
     let allTransactions = transactionRepo.fetchAllTransactions()
     let now = Date()
@@ -244,9 +241,6 @@ final class NotificationDebugManager {
     else {
       return false
     }
-
-    // Authenticate SecureLocalDataManager
-    SecureLocalDataManager.shared.authenticateUser(firebaseUID: firebaseUID)
 
     let transactionRepo = TransactionRepository()
     let allTransactions = transactionRepo.fetchAllTransactions()

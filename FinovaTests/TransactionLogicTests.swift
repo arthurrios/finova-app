@@ -19,10 +19,10 @@ class TransactionLogicTests: XCTestCase {
     override func setUp() {
         super.setUp()
         
-        // Authenticate a test user for secure data access
+        // Set up a test user UID for data access
         let testUID = "test_user_transaction_logic_\(UUID().uuidString)"
-        SecureLocalDataManager.shared.authenticateUser(firebaseUID: testUID)
-        print("🧪 Authenticated test user: \(testUID)")
+        UIDUserDefaultsManager.shared.currentUserUID = testUID
+        print("🧪 Set test user UID: \(testUID)")
         
         transactionRepo = TransactionRepository()
         recurringManager = RecurringTransactionManager(transactionRepo: transactionRepo)
@@ -58,9 +58,9 @@ class TransactionLogicTests: XCTestCase {
     override func tearDown() {
         clearTestData()
         
-        // Clear secure data and sign out test user
-        SecureLocalDataManager.shared.signOut()
-        print("🧪 Signed out test user and cleared secure data")
+        // Clear test user UID
+        UIDUserDefaultsManager.shared.signOut()
+        print("🧪 Cleared test user UID")
         
         super.tearDown()
     }
@@ -69,17 +69,15 @@ class TransactionLogicTests: XCTestCase {
     
     private func authenticateUniqueTestUser(testName: String = #function) {
         let testUID = "test_\(testName)_\(UUID().uuidString.prefix(8))"
-        SecureLocalDataManager.shared.authenticateUser(firebaseUID: testUID)
-        print("🧪 \(testName): Authenticated unique test user: \(testUID)")
+        UIDUserDefaultsManager.shared.currentUserUID = testUID
+        print("🧪 \(testName): Set unique test user UID: \(testUID)")
     }
     
     private func clearTestData() {
         // Clear SQLite data using the dedicated test cleanup method
         transactionRepo.clearAllTransactionsForTesting()
         
-        // Clear secure user data (encrypted storage)
-        SecureLocalDataManager.shared.clearUserData()
-        print("🧪 Cleared both SQLite and secure user data")
+        print("🧪 Cleared SQLite test data")
         
         // Verify SQLite cleanup worked
         let remainingTransactions = transactionRepo.fetchAllTransactions()
@@ -93,11 +91,6 @@ class TransactionLogicTests: XCTestCase {
             }
         }
         
-        // Verify secure data cleanup
-        let secureTransactions = SecureLocalDataManager.shared.loadTransactions()
-        if !secureTransactions.isEmpty {
-            print("⚠️ Still have \(secureTransactions.count) transactions in secure storage")
-        }
     }
     
     // MARK: - Recurring Transaction Creation Tests

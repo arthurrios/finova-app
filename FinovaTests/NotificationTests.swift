@@ -19,10 +19,10 @@ class NotificationTests: XCTestCase {
   override func setUp() {
     super.setUp()
 
-    // Authenticate a test user for secure data access
+    // Set up a test user UID for data access
     let testUID = "test_user_notifications_\(UUID().uuidString)"
-    SecureLocalDataManager.shared.authenticateUser(firebaseUID: testUID)
-    print("🧪 Authenticated test user for notifications: \(testUID)")
+    UIDUserDefaultsManager.shared.currentUserUID = testUID
+    print("🧪 Set test user UID for notifications: \(testUID)")
 
     // Create a test user in UserDefaults for notification scheduling
     let testUser = User(

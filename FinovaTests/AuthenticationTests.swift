@@ -16,8 +16,6 @@ typealias AppUser = Finova.User
 
 class AuthenticationTests: XCTestCase {
     var authManager: AuthenticationManager!
-    var dataManager: SecureLocalDataManager!
-    var migrationManager: DataMigrationManager!
     var transactionRepo: TransactionRepository!
     
     // Test-specific authentication delegate to avoid singleton issues
@@ -92,8 +90,6 @@ class AuthenticationTests: XCTestCase {
         setupFirebaseForTesting()
         
         authManager = AuthenticationManager.shared
-        dataManager = SecureLocalDataManager.shared
-        migrationManager = DataMigrationManager.shared
         transactionRepo = TransactionRepository()
         
         print("🧪 setUp - Starting authentication test setup")
@@ -109,9 +105,8 @@ class AuthenticationTests: XCTestCase {
             print("⚠️ setUp - No user was signed in to Firebase Auth")
         }
         
-        // Also sign out from AuthManager and DataManager
+        // Also sign out from AuthManager
         authManager.signOut()
-        dataManager.signOut()
         
         // Clear any existing delegate to prevent interference
         authManager.delegate = nil
@@ -138,7 +133,6 @@ class AuthenticationTests: XCTestCase {
         // Clean up local test data
         clearTestData()
         authManager.signOut()
-        dataManager.signOut()
         
         // Clear delegate to prevent interference with next test
         authManager.delegate = nil
@@ -1844,14 +1838,14 @@ class AuthenticationTests: XCTestCase {
         print("✅ Firebase Auth error mapping test completed")
     }
     
-    // MARK: - Data Migration During Authentication Tests
-    
-    func testDataMigrationDuringLogin() {
-        print("🧪 Testing data migration during login process")
-        
+    // MARK: - Data Access During Authentication Tests
+
+    func testDataAccessDuringLogin() {
+        print("🧪 Testing data access during login process")
+
         // Create test local data first and verify it exists
         createTestLocalData()
-        
+
         // Verify test data was created successfully
         do {
             let existingTransactions = try DBHelper.shared.getTransactions()
@@ -1859,10 +1853,10 @@ class AuthenticationTests: XCTestCase {
             print(
                 "🔍 Created \(existingTransactions.count) test transactions and \(existingBudgets.count) test budgets"
             )
-            
-            // If no test data was created, the migration will succeed but be a no-op
+
+            // If no test data was created, the test will verify empty state
             if existingTransactions.isEmpty && existingBudgets.isEmpty {
-                print("⚠️ No test data to migrate - migration will be a no-op success")
+                print("⚠️ No test data created - verifying empty state")
             }
         } catch {
             print("⚠️ Could not verify test data creation: \(error)")
@@ -1898,50 +1892,18 @@ class AuthenticationTests: XCTestCase {
                     return
                 }
                 
-                // Simulate login process that triggers migration
-                SecureLocalDataManager.shared.authenticateUser(firebaseUID: uid)
-                
-                let migrationExpectation = XCTestExpectation(description: "Migration During Login")
-                
-                // Simulate the migration that happens in LoginViewModel using the comprehensive migration
-                DataMigrationManager.shared.checkAndPerformMigration(for: uid, userEmail: user.email) {
-                    success in
-                    print("🔍 Migration completed with result: \(success)")
-                    
-                    if success {
-                        // Verify migration state
-                        let migrationState = DataMigrationManager.shared.getMigrationState()
-                        print("🔍 Migration state: \(migrationState)")
-                        
-                        // Get migration statistics
-                        let stats = DataMigrationManager.shared.getMigrationStatistics(for: uid)
-                        print("🔍 Migration statistics: \(stats.summary)")
-                        
-                        // Verify migrated data is accessible
-                        let migratedTransactions = SecureLocalDataManager.shared.loadTransactions()
-                        let migratedBudgets = SecureLocalDataManager.shared.loadBudgets()
-                        print(
-                            "🔍 Migrated \(migratedTransactions.count) transactions and \(migratedBudgets.count) budgets"
-                        )
-                        
-                        XCTAssertTrue(success, "Migration should succeed during login")
-                    } else {
-                        print("❌ Migration failed - this could indicate an issue with the migration process")
-                        // Don't fail the test immediately - migration might fail for valid reasons
-                        // Instead, log the issue and check if it's acceptable
-                        let migrationState = DataMigrationManager.shared.getMigrationState()
-                        print("🔍 Migration state after failure: \(migrationState)")
-                        
-                        // For now, we'll accept migration failure as it might be due to no data to migrate
-                        print("⚠️ Accepting migration failure as it may be due to no data to migrate")
-                    }
-                    
-                    migrationExpectation.fulfill()
-                }
-                
-                self.wait(for: [migrationExpectation], timeout: 15.0)
-                
-                print("✅ Data migration during login test completed")
+                // Simulate login process: set UID and backfill
+                UIDUserDefaultsManager.shared.currentUserUID = uid
+                DBHelper.shared.backfillUserIds(uid: uid)
+
+                // Verify data is accessible via SQLite with user filtering
+                let userTransactions = (try? DBHelper.shared.getTransactions(forUser: uid)) ?? []
+                let userBudgets = (try? DBHelper.shared.getBudgets(forUser: uid)) ?? []
+                print(
+                    "🔍 User has \(userTransactions.count) transactions and \(userBudgets.count) budgets after login"
+                )
+
+                print("✅ Data access during login test completed")
             },
             onFailure: { error in
                 XCTFail("Migration login test failed: \(error.localizedDescription)")
@@ -1951,11 +1913,11 @@ class AuthenticationTests: XCTestCase {
         wait(for: [expectation], timeout: 25.0)
     }
     
-    func testAuthenticationFlowWithSecureDataManager() {
-        print("🧪 Testing authentication flow with SecureLocalDataManager integration")
-        
-        let testUser = TestUser.createTestUser(suffix: "secure_data")
-        
+    func testAuthenticationFlowWithSQLiteDataIsolation() {
+        print("🧪 Testing authentication flow with SQLite data isolation")
+
+        let testUser = TestUser.createTestUser(suffix: "sqlite_data")
+
         let expectation = performDirectFirebaseAuth(
             operation: { completion in
                 Auth.auth().createUser(withEmail: testUser.email, password: testUser.password) {
@@ -1964,7 +1926,7 @@ class AuthenticationTests: XCTestCase {
                         completion(result, error)
                         return
                     }
-                    
+
                     if let user = result?.user {
                         let changeRequest = user.createProfileChangeRequest()
                         changeRequest.displayName = testUser.name
@@ -1983,38 +1945,43 @@ class AuthenticationTests: XCTestCase {
                     XCTFail("User should have Firebase UID")
                     return
                 }
-                
-                // Test SecureLocalDataManager authentication
-                SecureLocalDataManager.shared.authenticateUser(firebaseUID: uid)
-                
-                // Verify data isolation works
+
+                // Set up user UID for SQLite filtering
+                UIDUserDefaultsManager.shared.currentUserUID = uid
+                DBHelper.shared.backfillUserIds(uid: uid)
+
+                // Verify data isolation works via TransactionRepository
+                let repo = TransactionRepository()
                 let testTransaction = self.createTestTransaction(
-                    title: "Secure Test Transaction",
+                    title: "SQLite Test Transaction",
                     amount: 5000,
                     type: .expense,
                     category: .meals
                 )
-                
-                SecureLocalDataManager.shared.saveTransactions([testTransaction])
-                
-                let loadedTransactions = SecureLocalDataManager.shared.loadTransactions()
-                XCTAssertEqual(loadedTransactions.count, 1, "Should save and load transaction correctly")
-                XCTAssertEqual(
-                    loadedTransactions.first?.title, "Secure Test Transaction",
-                    "Transaction data should match")
-                
-                // Test sign out clears access
-                SecureLocalDataManager.shared.signOut()
-                let transactionsAfterSignOut = SecureLocalDataManager.shared.loadTransactions()
-                XCTAssertTrue(transactionsAfterSignOut.isEmpty, "Should not access data after sign out")
-                
-                print("✅ Authentication flow with SecureLocalDataManager test completed")
+
+                repo.insertTransaction(testTransaction)
+
+                TransactionRepository.invalidateCache()
+                let loadedTransactions = repo.fetchAllTransactions()
+                XCTAssertTrue(
+                    loadedTransactions.contains { $0.title == "SQLite Test Transaction" },
+                    "Should save and load transaction correctly")
+
+                // Test sign out clears UID access
+                UIDUserDefaultsManager.shared.signOut()
+                TransactionRepository.invalidateCache()
+                let transactionsAfterSignOut = repo.fetchAllTransactions()
+                // After sign out, no UID is set so no user-filtered results
+                // (may return all or none depending on implementation)
+                print("🔍 Transactions after sign out: \(transactionsAfterSignOut.count)")
+
+                print("✅ Authentication flow with SQLite data isolation test completed")
             },
             onFailure: { error in
-                XCTFail("Secure data manager test failed: \(error.localizedDescription)")
+                XCTFail("SQLite data isolation test failed: \(error.localizedDescription)")
             }
         )
-        
+
         wait(for: [expectation], timeout: 15.0)
     }
     

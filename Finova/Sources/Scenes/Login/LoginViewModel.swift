@@ -33,23 +33,20 @@ class LoginViewModel {
 
 extension LoginViewModel: AuthenticationManagerDelegate {
     func authenticationDidComplete(user: User) {
-        // Authenticate local data manager with Firebase UID
         if let firebaseUID = user.firebaseUID {
-            SecureLocalDataManager.shared.authenticateUser(firebaseUID: firebaseUID)
-            
             // Set current user UID for settings lookup
             UIDUserDefaultsManager.shared.currentUserUID = firebaseUID
-            
+            DBHelper.shared.backfillUserIds(uid: firebaseUID)
+
             // Check if this user has existing settings
             let existingSettings = UIDUserDefaultsManager.shared.getUserSettings(for: firebaseUID)
-            let isReturningUser = existingSettings != nil
-            
+
             var finalUser: User
-            
+
             if let settings = existingSettings {
                 // Returning user - use their saved settings but update sign-in time
                 logInfo("Welcome back user: \(settings.name)")
-                
+
                 // Smart name preservation: if current login has a better name, use it
                 var bestName = settings.name
                 if !user.name.isEmpty && user.name != "User" && (settings.name.isEmpty || settings.name == "User") {
@@ -58,12 +55,12 @@ extension LoginViewModel: AuthenticationManagerDelegate {
                 } else if settings.name.isEmpty || settings.name == "User" {
                     bestName = user.name.isEmpty ? "User" : user.name
                 }
-                
+
                 var updatedSettings = settings
                 updatedSettings.name = bestName // Update with best available name
                 updatedSettings.lastSignIn = Date()
                 UIDUserDefaultsManager.shared.saveUserSettings(for: firebaseUID, settings: updatedSettings)
-                
+
                 finalUser = User(
                     firebaseUID: firebaseUID,
                     name: bestName, // Use best available name
@@ -71,12 +68,12 @@ extension LoginViewModel: AuthenticationManagerDelegate {
                     isUserSaved: settings.isUserSaved,
                     hasFaceIdEnabled: settings.hasFaceIdEnabled // Use saved Face ID setting
                 )
-                
+
                 logInfo("Restored user settings - name: '\(bestName)', faceId: \(settings.hasFaceIdEnabled)")
             } else {
                 // New user - create fresh settings
                 logInfo("New user detected: \(user.name)")
-                
+
                 finalUser = User(
                     firebaseUID: firebaseUID,
                     name: user.name,
@@ -84,23 +81,12 @@ extension LoginViewModel: AuthenticationManagerDelegate {
                     isUserSaved: false, // New user is not saved initially
                     hasFaceIdEnabled: false // New user starts with Face ID disabled
                 )
-                
+
                 logInfo("Created new user settings - name: '\(user.name)', faceId: false")
             }
-            
+
             // Save user with UID-based system
             UserDefaultsManager.saveUserWithUID(user: finalUser)
-            
-            // Migrate existing data if needed
-            SecureLocalDataManager.shared.migrateOldDataToUser(
-                firebaseUID: firebaseUID, userEmail: finalUser.email
-            ) { success in
-                if success {
-                    logInfo("Data migration completed successfully")
-                } else {
-                    logWarning("Data migration had issues")
-                }
-            }
         }
         
         DispatchQueue.main.async {

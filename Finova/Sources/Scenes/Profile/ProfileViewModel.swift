@@ -26,14 +26,14 @@ final class ProfileViewModel {
             userEmail = user.email
         }
 
-        profileImage = SecureLocalDataManager.shared.loadProfileImage()
+        profileImage = ProfileImageManager.shared.loadProfileImage()
 
         delegate?.didUpdateUserInfo()
         delegate?.didUpdateProfileImage(profileImage)
     }
 
     func updateProfileImage(_ image: UIImage) {
-        SecureLocalDataManager.shared.saveProfileImage(image)
+        ProfileImageManager.shared.saveProfileImage(image)
         profileImage = image
         delegate?.didUpdateProfileImage(image)
     }

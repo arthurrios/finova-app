@@ -55,7 +55,7 @@ final class AddTransactionModalViewController: UIViewController {
     // For installment transactions, set the total amount instead of individual amount
     if transaction.mode == .installments {
       // Calculate total amount from all related installments
-      let allTransactions = SecureLocalDataManager.shared.loadTransactions()
+      let allTransactions = TransactionRepository().fetchAllTransactions()
       let installmentGroupId = transaction.parentTransactionId ?? transaction.id
       let relatedTransactions = allTransactions.filter { t in
         t.id == installmentGroupId || t.parentTransactionId == installmentGroupId
@@ -70,10 +70,6 @@ final class AddTransactionModalViewController: UIViewController {
 
   override func viewDidLoad() {
     super.viewDidLoad()
-
-    if let user = UserDefaultsManager.getUser(), let firebaseUID = user.firebaseUID {
-      SecureLocalDataManager.shared.authenticateUser(firebaseUID: firebaseUID)
-    }
 
     contentView.delegate = self
     contentView.incomeSelectorButton.delegate = self

@@ -58,9 +58,6 @@ final class SplashViewController: UIViewController {
     #endif
 
     if let firebaseUser = AuthenticationManager.shared.currentUser {
-      // Authenticate local data manager with Firebase UID
-      SecureLocalDataManager.shared.authenticateUser(firebaseUID: firebaseUser.uid)
-
       // One-time cleanup of ghost records inserted by CloudKit sync
       let didCleanup = Self.performCloudGhostCleanupIfNeeded()
 
@@ -71,6 +68,7 @@ final class SplashViewController: UIViewController {
 
       // Set current user UID for settings lookup
       UIDUserDefaultsManager.shared.currentUserUID = firebaseUser.uid
+      DBHelper.shared.backfillUserIds(uid: firebaseUser.uid)
 
       // Check if this user has existing settings
       let existingSettings = UIDUserDefaultsManager.shared.getUserSettings(for: firebaseUser.uid)
@@ -252,9 +250,6 @@ extension SplashViewController {
 
         // Ensure Firebase user is still available before navigating
         if let firebaseUser = AuthenticationManager.shared.currentUser {
-          // Re-authenticate SecureLocalDataManager to ensure it's properly set
-          SecureLocalDataManager.shared.authenticateUser(firebaseUID: firebaseUser.uid)
-
           // Final safety check before navigation
           DispatchQueue.main.async {
             self.flowDelegate?.navigateDirectlyToDashboard()
@@ -306,7 +301,6 @@ extension SplashViewController {
     // Sign out from Firebase and clear local data
     AuthenticationManager.shared.signOut()
     UserDefaultsManager.removeUser()
-    SecureLocalDataManager.shared.signOut()
 
     // Navigate to login
     gradientLayer.removeFromSuperlayer()
@@ -343,8 +337,6 @@ extension SplashViewController {
 
       // Ensure Firebase user is still available
       if let firebaseUser = AuthenticationManager.shared.currentUser {
-        // Ensure SecureLocalDataManager is authenticated
-        SecureLocalDataManager.shared.authenticateUser(firebaseUID: firebaseUser.uid)
         // Now authenticate with the newly enabled Face ID
         self.authenticateWithFaceID()
       } else {
@@ -360,9 +352,6 @@ extension SplashViewController {
 
       // Ensure Firebase user is still available before navigating
       if let firebaseUser = AuthenticationManager.shared.currentUser {
-        // Ensure SecureLocalDataManager is authenticated
-        SecureLocalDataManager.shared.authenticateUser(firebaseUID: firebaseUser.uid)
-
         // Final safety check before navigation
         DispatchQueue.main.async {
           self.flowDelegate?.navigateDirectlyToDashboard()
@@ -426,12 +415,12 @@ extension SplashViewController {
       logInfo("[DEBUG] Auto-login succeeded for UID: \(firebaseUser.uid)")
 
       // Replicate the same setup that LoginViewModel.authenticationDidComplete performs
-      SecureLocalDataManager.shared.authenticateUser(firebaseUID: firebaseUser.uid)
       let didCleanup = Self.performCloudGhostCleanupIfNeeded()
       if !didCleanup {
         SyncEngine.shared.performFullSync()
       }
       UIDUserDefaultsManager.shared.currentUserUID = firebaseUser.uid
+      DBHelper.shared.backfillUserIds(uid: firebaseUser.uid)
 
       let existingSettings = UIDUserDefaultsManager.shared.getUserSettings(for: firebaseUser.uid)
 
@@ -547,19 +536,16 @@ extension SplashViewController {
       return false
     }
 
-    logWarning("[GhostCleanup-v5] Starting: physically delete encrypted file, rebuild from SQLite")
+    logWarning("[GhostCleanup-v5] Starting: clean SQLite and reset sync tokens")
 
-    // 1. Physically delete the encrypted transactions file from disk
-    SecureLocalDataManager.shared.deleteTransactionsFile()
-
-    // 2. Clean SQLite (remove CK ghosts) and rebuild SecureStore from it
+    // 1. Clean SQLite (remove CK ghosts)
     let repo = TransactionRepository()
     repo.removeCloudInsertedRecords()
 
-    // 3. Reset CloudKit change tokens so stale records aren't re-pulled
+    // 2. Reset CloudKit change tokens so stale records aren't re-pulled
     SyncStateManager.shared.resetAllTokens()
 
-    // 4. Invalidate the in-memory cache one final time (belt-and-suspenders)
+    // 3. Invalidate the in-memory cache one final time (belt-and-suspenders)
     TransactionRepository.invalidateCache()
 
     UserDefaults.standard.set(true, forKey: cloudGhostCleanupKey)

@@ -134,27 +134,11 @@ final class SettingsViewModel {
     UserDefaults.standard.removeObject(forKey: "data_owner_email")
     UserDefaults.standard.removeObject(forKey: "device_users")
 
-    logWarning("EMERGENCY RECOVERY: Cleared migration flags, attempting recovery...")
+    logWarning("EMERGENCY RECOVERY: Cleared migration flags")
 
-    // Force migration attempt
-    SecureLocalDataManager.shared.migrateOldDataToUser(
-      firebaseUID: currentUser.uid,
-      userEmail: currentUser.email ?? ""
-    ) { [weak self] success in
-      DispatchQueue.main.async {
-        if success {
-          logInfo("EMERGENCY RECOVERY: Data recovery successful!")
-          let message = "Data recovery successful! Please restart the app to see your data."
-          completion(true, message)
-          self?.delegate?.didCompleteDataRecovery(success: true, message: message)
-        } else {
-          logError("EMERGENCY RECOVERY: Data recovery failed")
-          let message = "Data recovery failed. Please contact support for assistance."
-          completion(false, message)
-          self?.delegate?.didCompleteDataRecovery(success: false, message: message)
-        }
-      }
-    }
+    let message = "Recovery flags cleared. Please restart the app."
+    completion(true, message)
+    delegate?.didCompleteDataRecovery(success: true, message: message)
   }
 
   // MARK: - Public Methods
@@ -284,27 +268,17 @@ final class SettingsViewModel {
 
   private func clearCurrentUserDataForDeletion() {
     // Clear only current user's data - preserves other users' data on device
-    SecureLocalDataManager.shared.clearUserData()  // Current user only
+    if let uid = UIDUserDefaultsManager.shared.currentUserUID {
+      DBHelper.shared.deleteAllTransactions(forUser: uid)
+      DBHelper.shared.deleteAllBudgets(forUser: uid)
+      ProfileImageManager.shared.removeProfileImage()
+    }
 
     // Clear current user's UserDefaults
     UserDefaultsManager.removeUser()
     UserDefaultsManager.clearAllSettings()
 
-    // Clear current user's app-specific data
-    clearCurrentUserAppSpecificData()
-
     logInfo("Current user data cleared for account deletion")
-  }
-
-  private func clearCurrentUserAppSpecificData() {
-    // Clear only current user's profile image (if stored per-user)
-    // Do NOT call clearAllGlobalProfileImages() as it affects all users
-
-    // Reset migration state for current user only
-    DataMigrationManager.shared.resetCurrentUserMigrationState()
-
-    // Clear current user's data ownership only
-    SecureLocalDataManager.shared.clearCurrentUserDataOwnership()
   }
 
   private func handleAccountDeletionError(_ error: Error) {
@@ -323,7 +297,6 @@ final class SettingsViewModel {
   private func handleSuccessfulAccountDeletion() {
     // Sign out from authentication systems
     AuthenticationManager.shared.signOut()
-    SecureLocalDataManager.shared.signOut()
 
     delegate?.didCompleteAccountDeletion()
   }
@@ -338,14 +311,15 @@ final class SettingsViewModel {
 
   private func clearCurrentUserLocalData() {
     // Clear only the current user's data - preserve other users' data
-    SecureLocalDataManager.shared.clearUserData()  // This clears only current user
+    if let uid = UIDUserDefaultsManager.shared.currentUserUID {
+      DBHelper.shared.deleteAllTransactions(forUser: uid)
+      DBHelper.shared.deleteAllBudgets(forUser: uid)
+      ProfileImageManager.shared.removeProfileImage()
+    }
 
     // Clear current user's UserDefaults
     UserDefaultsManager.removeUser()
     UserDefaultsManager.clearAllSettings()
-
-    // Clear only current user's app-specific data (no global cleanup)
-    clearCurrentUserAppSpecificData()
 
     logInfo("Current user data cleared (preserving other users' data)")
   }

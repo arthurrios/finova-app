@@ -892,9 +892,6 @@ final class AddTransactionModalViewModel {
       return
     }
 
-    // Authenticate SecureLocalDataManager
-    SecureLocalDataManager.shared.authenticateUser(firebaseUID: firebaseUID)
-
     // Create balance monitor and check current month
     let balanceMonitor = BalanceMonitorManager()
     balanceMonitor.monitorCurrentMonthBalance()

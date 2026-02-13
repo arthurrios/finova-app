@@ -108,8 +108,6 @@ final class DashboardViewController: UIViewController {
         // Setup notification badge
         setupNotificationBadge()
 
-        // 🔄 Attempt to recover transactions from SQLite (if they were accidentally deleted)
-        attemptTransactionRecovery()
     }
 
     override func viewWillAppear(_ animated: Bool) {
@@ -120,7 +118,7 @@ final class DashboardViewController: UIViewController {
 
         // Refresh avatar in case it was changed in Profile screen (async to avoid blocking main thread)
         DispatchQueue.global(qos: .userInitiated).async {
-            let userImage = SecureLocalDataManager.shared.loadProfileImage()
+            let userImage = ProfileImageManager.shared.loadProfileImage()
             if let image = userImage {
                 DispatchQueue.main.async { [weak self] in
                     self?.contentView.avatar.userImage = image
@@ -1134,6 +1132,7 @@ final class DashboardViewController: UIViewController {
         if let firebaseUser = AuthenticationManager.shared.currentUser {
             // Ensure current UID is set
             UIDUserDefaultsManager.shared.currentUserUID = firebaseUser.uid
+            DBHelper.shared.backfillUserIds(uid: firebaseUser.uid)
 
             // Try to get UID-based settings
             if let uidSettings = UIDUserDefaultsManager.shared.getUserSettings(for: firebaseUser.uid) {
@@ -1190,23 +1189,13 @@ final class DashboardViewController: UIViewController {
         }
         
         if let user = displayUser {
-            // Authenticate SecureLocalDataManager for UID-isolated data access
             if let firebaseUID = user.firebaseUID {
-                SecureLocalDataManager.shared.authenticateUser(firebaseUID: firebaseUID)
-
                 // Ensure user settings are properly created in UID-based system
                 if UIDUserDefaultsManager.shared.getUserSettings(for: firebaseUID) == nil {
                     UserDefaultsManager.updateCurrentUserSavedStatus(saved: user.isUserSaved)
                     if user.hasFaceIdEnabled {
                         UserDefaultsManager.updateCurrentUserFaceID(enabled: true)
                     }
-                }
-
-                // Double-check authentication is working
-                let currentUID = SecureLocalDataManager.shared.getCurrentUserUID()
-                if currentUID != firebaseUID {
-                    // Re-authenticate
-                    SecureLocalDataManager.shared.authenticateUser(firebaseUID: firebaseUID)
                 }
             }
 
@@ -1221,7 +1210,7 @@ final class DashboardViewController: UIViewController {
         checkAndRunBudgetMigrationIfNeeded()
         
         DispatchQueue.global(qos: .userInitiated).async {
-            let userImage = SecureLocalDataManager.shared.loadProfileImage()
+            let userImage = ProfileImageManager.shared.loadProfileImage()
             if let image = userImage {
                 DispatchQueue.main.async { [weak self] in
                     self?.contentView.avatar.userImage = image
@@ -2450,9 +2439,6 @@ extension DashboardViewController {
             return
         }
         
-        // Authenticate SecureLocalDataManager
-        SecureLocalDataManager.shared.authenticateUser(firebaseUID: firebaseUID)
-        
         // Get all transactions
         let allTxs = viewModel.transactionRepo.fetchAllTransactions()
         let now = Date()
@@ -2566,25 +2552,6 @@ extension DashboardViewController {
     
     // MARK: - Recovery Methods
     
-    /// Attempt to recover transactions from SQLite
-    private func attemptTransactionRecovery() {
-        // Check if there are transactions in SQLite
-        let sqliteTransactions = viewModel.checkSQLiteRecovery()
-
-        if sqliteTransactions.count > 0 {
-            // Attempt recovery
-            let recoverySuccess = viewModel.attemptTransactionRecovery()
-
-            if recoverySuccess {
-                // Refresh the dashboard after recovery
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                    self.refreshDashboardData()
-                }
-            } else {
-                logError("Transaction recovery failed")
-            }
-        }
-    }
 }
 
 // MARK: - UpdateToastManagerDelegate
