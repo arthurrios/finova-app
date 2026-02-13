@@ -45,7 +45,19 @@ final class TransactionRepository: TransactionRepositoryProtocol {
   func delete(id: Int) throws {
     Self.invalidateCache()
     logDebug("TransactionRepository: Deleting transaction with id \(id)")
-    try db.deleteTransaction(id: id)
+
+    // Check if this record has been synced to CloudKit
+    let ckName = fetchCKRecordName(for: id)
+    if ckName != nil {
+      // Soft-delete: mark as deleted and pendingDelete so SyncEngine can delete from CK
+      db.executeSyncUpdate(
+        "UPDATE Transactions SET is_deleted = 1, sync_status = 'pendingDelete' WHERE id = ?;",
+        intBindings: [id]
+      )
+    } else {
+      // Not synced — safe to hard-delete
+      try db.deleteTransaction(id: id)
+    }
     NotificationCenter.default.post(name: .transactionDataChanged, object: nil)
   }
 
@@ -619,7 +631,7 @@ final class TransactionRepository: TransactionRepositoryProtocol {
                is_recurring, has_installments, parent_transaction_id,
                installment_number, total_installments, original_amount,
                credit_card_id, statement_id, is_credit_card_statement
-        FROM Transactions WHERE sync_status = 'pending' AND user_id = ?;
+        FROM Transactions WHERE sync_status = 'pending' AND user_id = ? AND (is_deleted IS NULL OR is_deleted = 0);
         """
       return (try? db.executeTransactionQueryPublicText(query, textBindings: [uid])) ?? []
     }
@@ -628,27 +640,18 @@ final class TransactionRepository: TransactionRepositoryProtocol {
              is_recurring, has_installments, parent_transaction_id,
              installment_number, total_installments, original_amount,
              credit_card_id, statement_id, is_credit_card_statement
-      FROM Transactions WHERE sync_status = 'pending';
+      FROM Transactions WHERE sync_status = 'pending' AND (is_deleted IS NULL OR is_deleted = 0);
       """
     return (try? db.executeTransactionQueryPublic(query)) ?? []
   }
 
   func markAsSynced(ckRecordName: String) {
     Self.invalidateCache()
-    // Try matching by existing ck_record_id (for re-synced records)
+    // Phase 3C: CK record name is pre-stored before push, so matching by ck_record_id is sufficient
     db.executeSyncUpdate(
-      "UPDATE Transactions SET sync_status = 'synced', ck_record_id = ? WHERE ck_record_id = ?;",
-      textBindings: [ckRecordName, ckRecordName]
+      "UPDATE Transactions SET sync_status = 'synced' WHERE ck_record_id = ?;",
+      textBindings: [ckRecordName]
     )
-    // Also match by local id for first-time sync (ck_record_id is still NULL)
-    if let idString = ckRecordName.components(separatedBy: "transaction-").last,
-       let localId = Int(idString) {
-      db.executeSyncUpdate(
-        "UPDATE Transactions SET sync_status = 'synced', ck_record_id = ? WHERE id = ? AND ck_record_id IS NULL;",
-        textBindings: [ckRecordName],
-        intBindings: [localId]
-      )
-    }
   }
 
   func setCKRecordId(for localId: Int, ckRecordName: String) {
@@ -659,7 +662,7 @@ final class TransactionRepository: TransactionRepositoryProtocol {
     )
   }
 
-  func insertFromCloud(_ transaction: Transaction, ckRecordName: String) {
+  func insertFromCloud(_ transaction: Transaction, ckRecordName: String, parentCKRecordName: String? = nil) {
     Self.invalidateCache()
     let category = transaction.category.key
     let type = String(describing: transaction.type)
@@ -676,8 +679,8 @@ final class TransactionRepository: TransactionRepositoryProtocol {
          is_recurring, has_installments, parent_transaction_id,
          installment_number, total_installments, original_amount,
          credit_card_id, statement_id, is_credit_card_statement,
-         ck_record_id, sync_status, user_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced', ?);
+         ck_record_id, sync_status, user_id, ck_modified_at, ck_parent_record_name)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced', ?, ?, ?);
       """
 
     db.executeCloudInsert(
@@ -685,8 +688,23 @@ final class TransactionRepository: TransactionRepositoryProtocol {
       transaction: transaction,
       category: category,
       type: type,
-      ckRecordName: ckRecordName
+      ckRecordName: ckRecordName,
+      parentCKRecordName: parentCKRecordName
     )
+
+    // Phase 4D: Remap parent ID via CK record name
+    if let parentCKName = parentCKRecordName,
+       let localParent = fetchTransaction(byCKRecordName: parentCKName) {
+      // Find the newly inserted row by ck_record_id and update its parent_transaction_id
+      if let insertedRow = fetchTransaction(byCKRecordName: ckRecordName),
+         let insertedId = insertedRow.id,
+         let parentId = localParent.id {
+        db.executeSyncUpdate(
+          "UPDATE Transactions SET parent_transaction_id = ? WHERE id = ?;",
+          intBindings: [parentId, insertedId]
+        )
+      }
+    }
   }
 
   func updateFromCloud(_ transaction: Transaction, ckRecordName: String) {
@@ -701,7 +719,7 @@ final class TransactionRepository: TransactionRepositoryProtocol {
         parent_transaction_id = ?, installment_number = ?,
         total_installments = ?, original_amount = ?,
         credit_card_id = ?, statement_id = ?, is_credit_card_statement = ?,
-        sync_status = 'synced'
+        sync_status = 'synced', ck_modified_at = ?
       WHERE ck_record_id = ?;
       """
 
@@ -715,13 +733,31 @@ final class TransactionRepository: TransactionRepositoryProtocol {
   }
 
   func markSyncPending(for id: Int) {
+    let now = Int(Date().timeIntervalSince1970)
     db.executeSyncUpdate(
-      "UPDATE Transactions SET sync_status = 'pending' WHERE id = ?;",
-      intBindings: [id]
+      "UPDATE Transactions SET sync_status = 'pending', ck_modified_at = ? WHERE id = ?;",
+      intBindings: [now, id]
     )
   }
 
   func softDeleteByCKRecordName(_ recordName: String) {
+    Self.invalidateCache()
+    db.executeSyncUpdate(
+      "DELETE FROM Transactions WHERE ck_record_id = ?;",
+      textBindings: [recordName]
+    )
+  }
+
+  func fetchPendingDeletes() -> [(ckRecordName: String, localId: Int)] {
+    var results: [(ckRecordName: String, localId: Int)] = []
+    let query = "SELECT id, ck_record_id FROM Transactions WHERE sync_status = 'pendingDelete' AND ck_record_id IS NOT NULL;"
+    if let rows = db.fetchIdAndCKRecordName(query) {
+      results = rows
+    }
+    return results
+  }
+
+  func hardDeleteByCKRecordName(_ recordName: String) {
     Self.invalidateCache()
     db.executeSyncUpdate(
       "DELETE FROM Transactions WHERE ck_record_id = ?;",
@@ -738,6 +774,60 @@ final class TransactionRepository: TransactionRepositoryProtocol {
       FROM Transactions WHERE id = ?;
       """
     return (try? db.executeTransactionQueryPublic(query, bindValues: [id]))?.first
+  }
+
+  func fetchCKRecordName(for id: Int) -> String? {
+    return db.fetchSingleString(
+      "SELECT ck_record_id FROM Transactions WHERE id = ?;",
+      intBinding: id
+    )
+  }
+
+  func fetchMatchingRecurringInstance(title: String, amount: Int, budgetMonthDate: Int) -> Transaction? {
+    let query = """
+      SELECT id, title, category, type, amount, date, budget_month_date,
+             is_recurring, has_installments, parent_transaction_id,
+             installment_number, total_installments, original_amount,
+             credit_card_id, statement_id, is_credit_card_statement
+      FROM Transactions
+      WHERE title = ? AND amount = ? AND budget_month_date = ?
+        AND parent_transaction_id IS NOT NULL AND is_deleted = 0
+      LIMIT 1;
+      """
+    return (try? db.executeTransactionQueryMixed(
+      query, textBindings: [title], intBindings: [amount, budgetMonthDate]
+    ))?.first
+  }
+
+  /// Matches any transaction (parent, instance, or normal) by title + amount + budget_month_date.
+  /// Used as a last-resort fallback in ConflictResolver to prevent duplicate inserts.
+  func fetchMatchingTransaction(title: String, amount: Int, budgetMonthDate: Int) -> Transaction? {
+    let query = """
+      SELECT id, title, category, type, amount, date, budget_month_date,
+             is_recurring, has_installments, parent_transaction_id,
+             installment_number, total_installments, original_amount,
+             credit_card_id, statement_id, is_credit_card_statement
+      FROM Transactions
+      WHERE title = ? AND amount = ? AND budget_month_date = ?
+        AND (is_deleted IS NULL OR is_deleted = 0)
+      LIMIT 1;
+      """
+    return (try? db.executeTransactionQueryMixed(
+      query, textBindings: [title], intBindings: [amount, budgetMonthDate]
+    ))?.first
+  }
+
+  func fetchRecurringInstance(parentId: Int, budgetMonthDate: Int) -> Transaction? {
+    let query = """
+      SELECT id, title, category, type, amount, date, budget_month_date,
+             is_recurring, has_installments, parent_transaction_id,
+             installment_number, total_installments, original_amount,
+             credit_card_id, statement_id, is_credit_card_statement
+      FROM Transactions
+      WHERE parent_transaction_id = ? AND budget_month_date = ? AND is_deleted = 0
+      LIMIT 1;
+      """
+    return (try? db.executeTransactionQueryPublic(query, bindValues: [parentId, budgetMonthDate]))?.first
   }
 
   func fetchTransaction(byCKRecordName recordName: String) -> Transaction? {
@@ -765,7 +855,7 @@ final class TransactionRepository: TransactionRepositoryProtocol {
              is_recurring, has_installments, parent_transaction_id,
              installment_number, total_installments, original_amount,
              credit_card_id, statement_id, is_credit_card_statement
-      FROM Transactions WHERE shared_group_id = ?;
+      FROM Transactions WHERE shared_group_id = ? AND (is_deleted IS NULL OR is_deleted = 0);
       """
     return (try? db.executeTransactionQueryPublicText(query, textBindings: [groupId])) ?? []
   }
@@ -774,6 +864,15 @@ final class TransactionRepository: TransactionRepositoryProtocol {
     Self.invalidateCache()
     db.executeSyncUpdate("DELETE FROM Transactions WHERE ck_record_id IS NOT NULL;")
     db.executeSyncUpdate("UPDATE Transactions SET sync_status = 'pending', ck_record_id = NULL, ck_modified_at = NULL;")
+  }
+
+  /// Fixes orphaned parent_transaction_id references, then deduplicates recurring instances.
+  /// Must be called after processing all incoming CloudKit records.
+  func fixAndDeduplicateAfterSync() {
+    Self.invalidateCache()
+    db.fixOrphanedParentTransactionIds()
+    db.deduplicateRecurringTransactions()
+    Self.invalidateCache()
   }
 
   func updateSharedGroupId(transactionId: Int, groupId: String?) {

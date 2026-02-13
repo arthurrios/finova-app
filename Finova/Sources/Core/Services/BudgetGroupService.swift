@@ -91,18 +91,27 @@ final class BudgetGroupService {
         let userName = UserDefaultsManager.getUser()?.name ?? user.displayName ?? "User"
         let userEmail = user.email ?? ""
 
-        // Create invitation record
-        let invitation = GroupInvitation(
+        // Create invitation record with share URL
+        var invitation = GroupInvitation(
             groupId: group.id,
             groupName: group.name,
             inviterName: userName,
             inviterEmail: userEmail,
             inviteeEmail: email
         )
+        invitation.ckShareUrl = group.ckShareUrl
         repository.insertInvitation(invitation)
 
-        // Push invitation via CloudKit
-        pushInvitationToCloud(invitation, group: group, completion: completion)
+        // Push invitation via CloudKit (add participant to share), then save to public DB
+        pushInvitationToCloud(invitation, group: group) { [weak self] result in
+            switch result {
+            case .success:
+                self?.saveInvitationToPublicDB(invitation)
+                completion(.success(()))
+            case .failure(let error):
+                completion(.failure(error))
+            }
+        }
     }
 
     func currentUserCan(_ permission: WritableKeyPath<GroupPermissions, Bool>, in group: BudgetGroup) -> Bool {
@@ -254,6 +263,83 @@ final class BudgetGroupService {
         }
 
         cloudKit.container.add(fetchOp)
+    }
+
+    // MARK: - Public Database Invitation
+
+    private func saveInvitationToPublicDB(_ invitation: GroupInvitation) {
+        let recordID = CKRecord.ID(recordName: "invitation-\(invitation.id)")
+        let record = CKRecord(recordType: "GroupInvitation", recordID: recordID)
+
+        record["inviteeEmail"] = invitation.inviteeEmail
+        record["groupId"] = invitation.groupId
+        record["groupName"] = invitation.groupName
+        record["inviterName"] = invitation.inviterName
+        record["inviterEmail"] = invitation.inviterEmail
+        record["ckShareUrl"] = invitation.ckShareUrl
+        record["status"] = "pending"
+        record["createdAt"] = invitation.createdAt as NSDate
+
+        let operation = CKModifyRecordsOperation(recordsToSave: [record], recordIDsToDelete: nil)
+        operation.modifyRecordsResultBlock = { result in
+            switch result {
+            case .success:
+                logInfo("Invitation saved to public DB: \(invitation.id)")
+            case .failure(let error):
+                logError("Failed to save invitation to public DB: \(error)")
+            }
+        }
+        operation.qualityOfService = .utility
+        cloudKit.publicDatabase.add(operation)
+    }
+
+    func fetchRemoteInvitations(completion: @escaping () -> Void) {
+        guard let email = AuthenticationManager.shared.currentUser?.email else {
+            completion()
+            return
+        }
+
+        let predicate = NSPredicate(format: "inviteeEmail == %@ AND status == %@", email, "pending")
+        let query = CKQuery(recordType: "GroupInvitation", predicate: predicate)
+
+        cloudKit.publicDatabase.fetch(withQuery: query) { [weak self] result in
+            guard let self = self else {
+                completion()
+                return
+            }
+
+            switch result {
+            case .success(let (matchResults, _)):
+                var newInvitations = false
+                for (_, recordResult) in matchResults {
+                    if case .success(let record) = recordResult {
+                        var invitation = GroupInvitation(
+                            id: record.recordID.recordName.replacingOccurrences(of: "invitation-", with: ""),
+                            groupId: record["groupId"] as? String ?? "",
+                            groupName: record["groupName"] as? String ?? "",
+                            inviterName: record["inviterName"] as? String ?? "",
+                            inviterEmail: record["inviterEmail"] as? String ?? "",
+                            inviteeEmail: record["inviteeEmail"] as? String ?? "",
+                            createdAt: record["createdAt"] as? Date ?? Date()
+                        )
+                        invitation.ckShareUrl = record["ckShareUrl"] as? String
+
+                        if self.repository.fetchInvitation(byId: invitation.id) == nil {
+                            self.repository.insertInvitation(invitation)
+                            newInvitations = true
+                        }
+                    }
+                }
+                if newInvitations {
+                    DispatchQueue.main.async {
+                        NotificationCenter.default.post(name: .groupInvitationReceived, object: nil)
+                    }
+                }
+            case .failure(let error):
+                logError("Failed to fetch remote invitations: \(error)")
+            }
+            completion()
+        }
     }
 }
 

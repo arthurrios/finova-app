@@ -19,12 +19,17 @@ extension Transaction: CKRecordConvertible {
     }
 
     func toCKRecord(in zoneID: CKRecordZone.ID) -> CKRecord {
+        return toCKRecord(in: zoneID, storedRecordName: nil)
+    }
+
+    func toCKRecord(in zoneID: CKRecordZone.ID, storedRecordName: String?) -> CKRecord {
         let recordID: CKRecord.ID
-        if let existingID = ckRecordID {
-            recordID = existingID
+        if let storedName = storedRecordName {
+            recordID = CKRecord.ID(recordName: storedName, zoneID: zoneID)
         } else {
+            // Phase 3A: Use UUID-based names for new records to avoid cross-device ID collisions
             recordID = CKRecord.ID(
-                recordName: "transaction-\(id ?? 0)",
+                recordName: "transaction-\(UUID().uuidString)",
                 zoneID: zoneID
             )
         }
@@ -46,6 +51,13 @@ extension Transaction: CKRecordConvertible {
         record["creditCardId"] = creditCardId as CKRecordValue?
         record["statementId"] = statementId as CKRecordValue?
         record["isCreditCardStatement"] = ((isCreditCardStatement ?? false) ? 1 : 0) as CKRecordValue
+
+        // Phase 4A: Store parent's CK record name for cross-device parent resolution
+        if let parentId = parentTransactionId {
+            let parentCKName = TransactionRepository().fetchCKRecordName(for: parentId)
+            record["parentCKRecordName"] = parentCKName as CKRecordValue?
+        }
+
         return record
     }
 

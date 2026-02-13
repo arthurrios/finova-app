@@ -163,6 +163,8 @@ final class InviteMemberView: UIView {
 
     let sendButton = Button(variant: .base, label: "invite.send.button".localized)
 
+    private(set) var footerBottomConstraint: NSLayoutConstraint!
+
     override init(frame: CGRect) {
         super.init(frame: frame)
         backgroundColor = Colors.gray100
@@ -231,13 +233,15 @@ final class InviteMemberView: UIView {
 
             footerStackView.leadingAnchor.constraint(equalTo: leadingAnchor),
             footerStackView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            footerStackView.bottomAnchor.constraint(equalTo: safeAreaLayoutGuide.bottomAnchor),
 
             scrollFadeView.leadingAnchor.constraint(equalTo: scrollView.leadingAnchor),
             scrollFadeView.trailingAnchor.constraint(equalTo: scrollView.trailingAnchor),
             scrollFadeView.bottomAnchor.constraint(equalTo: scrollView.bottomAnchor),
             scrollFadeView.heightAnchor.constraint(equalToConstant: 32),
         ])
+
+        footerBottomConstraint = footerStackView.bottomAnchor.constraint(equalTo: safeAreaLayoutGuide.bottomAnchor)
+        footerBottomConstraint.isActive = true
     }
 
     private func setupScrollFade() {

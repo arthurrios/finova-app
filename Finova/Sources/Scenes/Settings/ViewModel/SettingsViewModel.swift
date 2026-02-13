@@ -84,6 +84,21 @@ final class SettingsViewModel {
     ("SAR", "Saudi Riyal")
   ]
 
+  // MARK: - Mirror Mode
+
+  var isMirrorModeEnabled: Bool {
+    return MirrorModeManager.shared.isEnabled
+  }
+
+  var mirrorGroupName: String? {
+    guard let groupId = MirrorModeManager.shared.linkedGroupId else { return nil }
+    return BudgetGroupService.shared.fetchGroup(byId: groupId)?.name
+  }
+
+  var availableGroups: [BudgetGroup] {
+    return BudgetGroupService.shared.fetchAllGroups()
+  }
+
   // MARK: - Initialization
 
   init() {
@@ -94,6 +109,7 @@ final class SettingsViewModel {
 
   private func configureInitialSettings() {
     updateBiometricUI()
+    updateMirrorModeUI()
     delegate?.didUpdateAppVersion(version: appVersionString)
   }
 
@@ -151,7 +167,40 @@ final class SettingsViewModel {
   func refreshAllSettings() {
     updateBiometricUI()
     updateCurrencyUI()
+    updateMirrorModeUI()
     delegate?.didUpdateAppVersion(version: appVersionString)
+  }
+
+  // MARK: - Mirror Mode Management
+
+  private func updateMirrorModeUI() {
+    delegate?.didUpdateMirrorMode(
+      isEnabled: isMirrorModeEnabled,
+      groupName: mirrorGroupName
+    )
+  }
+
+  func toggleMirrorMode(_ enabled: Bool) {
+    if enabled {
+      let groups = availableGroups
+      if groups.isEmpty {
+        delegate?.didUpdateMirrorMode(isEnabled: false, groupName: nil)
+        return
+      }
+      if groups.count == 1, let group = groups.first {
+        selectMirrorGroup(group)
+      } else {
+        delegate?.didRequestGroupSelection(groups: groups)
+      }
+    } else {
+      MirrorModeManager.shared.disableMirrorMode()
+      updateMirrorModeUI()
+    }
+  }
+
+  func selectMirrorGroup(_ group: BudgetGroup) {
+    MirrorModeManager.shared.enableMirrorMode(groupId: group.id)
+    updateMirrorModeUI()
   }
 
   // MARK: - Currency Management

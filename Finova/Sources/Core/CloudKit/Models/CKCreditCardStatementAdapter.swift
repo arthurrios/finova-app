@@ -27,11 +27,19 @@ extension CreditCardStatement: CKRecordConvertible {
     }
 
     func toCKRecord(in zoneID: CKRecordZone.ID) -> CKRecord {
+        return toCKRecord(in: zoneID, storedRecordName: nil)
+    }
+
+    func toCKRecord(in zoneID: CKRecordZone.ID, storedRecordName: String?) -> CKRecord {
         let actualZone = targetZoneID(for: creditCardId)
-        let recordID = CKRecord.ID(
-            recordName: "statement-\(id ?? 0)",
-            zoneID: actualZone
-        )
+        let recordName: String
+        if let storedName = storedRecordName {
+            recordName = storedName
+        } else {
+            // Phase 3A: Use UUID-based names for new records to avoid cross-device ID collisions
+            recordName = "statement-\(UUID().uuidString)"
+        }
+        let recordID = CKRecord.ID(recordName: recordName, zoneID: actualZone)
         let record = CKRecord(recordType: Self.recordType, recordID: recordID)
         record["localId"] = (id ?? 0) as CKRecordValue
         record["creditCardId"] = creditCardId as CKRecordValue

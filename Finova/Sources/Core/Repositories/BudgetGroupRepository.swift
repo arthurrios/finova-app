@@ -160,6 +160,14 @@ final class BudgetGroupRepository {
         ])
     }
 
+    func fetchInvitation(byId id: String) -> GroupInvitation? {
+        let query = """
+            SELECT id, group_id, group_name, inviter_name, inviter_email, invitee_email, status, ck_share_url, created_at, responded_at
+            FROM GroupInvitations WHERE id = ?
+            """
+        return db.fetchGroupInvitationRows(query, textBindings: [id]).first
+    }
+
     func fetchPendingInvitations(forEmail email: String) -> [GroupInvitation] {
         let query = """
             SELECT id, group_id, group_name, inviter_name, inviter_email, invitee_email, status, ck_share_url, created_at, responded_at

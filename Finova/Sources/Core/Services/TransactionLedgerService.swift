@@ -117,19 +117,73 @@ final class TransactionLedgerService {
       let net = income - expense
       let available = previousAvailable + net
 
+      // Calculate current balance (balance up to current date) for groups too
+      let currentBalance = calculateCurrentBalanceForGroupMonth(
+        anchor: anchor, previousBalance: previousAvailable,
+        transactions: allTransactions)
+
       let monthData = MonthBudgetCardType(
         date: date,
         month: localizedMonth,
         usedValue: expense,
         budgetLimit: budgetLimit,
         finalBalance: available,
-        currentBalance: available,
+        currentBalance: currentBalance,
         previousBalance: previousAvailable
       )
 
       previousAvailable = available
       return monthData
     }
+  }
+
+  /// Calculate the balance up to the current date for a group month
+  private func calculateCurrentBalanceForGroupMonth(
+    anchor: Int, previousBalance: Int, transactions: [Transaction]
+  ) -> Int {
+    let today = Date()
+    let monthDate = Date(timeIntervalSince1970: TimeInterval(anchor))
+
+    let transactionsInMonth = transactions.filter { transaction in
+      let transactionDate = Date(timeIntervalSince1970: TimeInterval(transaction.dateTimestamp))
+      return transactionDate.monthAnchor == anchor
+    }
+
+    let isCurrentMonth = calendar.isDate(monthDate, equalTo: today, toGranularity: .month)
+    let isPastMonth = monthDate < today && !isCurrentMonth
+
+    let cashTransactions = transactionsInMonth.filter { tx in
+      tx.creditCardId == nil || tx.isCreditCardStatement == true
+    }
+
+    if isPastMonth {
+      let netForMonth = cashTransactions.reduce(0) { result, transaction in
+        transaction.type == .income ? result + transaction.amount : result - transaction.amount
+      }
+      return previousBalance + netForMonth
+    }
+
+    if !isCurrentMonth {
+      return previousBalance
+    }
+
+    // Current month: only include transactions up to today
+    let todayComponents = calendar.dateComponents([.year, .month, .day], from: today)
+    let todayStart = calendar.date(from: todayComponents) ?? today
+
+    let transactionsUpToToday = cashTransactions.filter { transaction in
+      let transactionDate = Date(timeIntervalSince1970: TimeInterval(transaction.dateTimestamp))
+      let transactionComponents = calendar.dateComponents(
+        [.year, .month, .day], from: transactionDate)
+      let transactionDateOnly = calendar.date(from: transactionComponents) ?? transactionDate
+      return transactionDateOnly <= todayStart
+    }
+
+    let netUpToToday = transactionsUpToToday.reduce(0) { result, transaction in
+      transaction.type == .income ? result + transaction.amount : result - transaction.amount
+    }
+
+    return previousBalance + netUpToToday
   }
 
   // MARK: - Monthly Calculations

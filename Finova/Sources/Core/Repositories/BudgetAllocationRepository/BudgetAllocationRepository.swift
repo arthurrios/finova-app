@@ -29,7 +29,31 @@ protocol BudgetAllocationRepositoryProtocol {
 final class BudgetAllocationRepository: BudgetAllocationRepositoryProtocol {
 
     private let db = DBHelper.shared
-    private let userDefaultsKey = "budgetAllocations"
+    private static let userDefaultsKey = "budgetAllocations"
+
+    // MARK: - One-Time Migration from UserDefaults to SQLite
+
+    static func migrateFromUserDefaultsIfNeeded() {
+        let migrationKey = "budgetAllocations_migrated_to_sqlite"
+        guard !UserDefaults.standard.bool(forKey: migrationKey) else { return }
+
+        guard let data = UserDefaults.standard.data(forKey: userDefaultsKey),
+              let models = try? JSONDecoder().decode([BudgetAllocationModel].self, from: data),
+              !models.isEmpty
+        else {
+            UserDefaults.standard.set(true, forKey: migrationKey)
+            return
+        }
+
+        let db = DBHelper.shared
+        for model in models {
+            _ = db.insertBudgetAllocation(model)
+        }
+
+        UserDefaults.standard.removeObject(forKey: userDefaultsKey)
+        UserDefaults.standard.set(true, forKey: migrationKey)
+        logInfo("BudgetAllocationRepository: Migrated \(models.count) allocations from UserDefaults to SQLite")
+    }
 
     // MARK: - Fetch Methods
 
@@ -39,44 +63,33 @@ final class BudgetAllocationRepository: BudgetAllocationRepositoryProtocol {
     }
 
     func fetchAllAllocations() -> [BudgetAllocation] {
-        // Load from UserDefaults for now (can be migrated to DB later)
-        guard let data = UserDefaults.standard.data(forKey: userDefaultsKey),
-              let models = try? JSONDecoder().decode([BudgetAllocationModel].self, from: data)
-        else {
-            return []
-        }
-
+        let uid = UIDUserDefaultsManager.shared.currentUserUID
+        let models = db.fetchAllBudgetAllocations(userId: uid)
         return models.map { BudgetAllocation(from: $0) }
     }
 
     // MARK: - Insert
 
     func insertAllocation(_ model: BudgetAllocationModel) throws -> Int {
-        var models = loadModels()
-
         // Check for duplicate (same category and month)
-        if models.contains(where: {
+        let allModels = db.fetchAllBudgetAllocations(userId: UIDUserDefaultsManager.shared.currentUserUID)
+        if allModels.contains(where: {
             $0.categoryKey == model.categoryKey && $0.monthDate == model.monthDate
         }) {
             throw BudgetAllocationError.duplicateAllocation
         }
 
-        // Generate new ID
-        let newId = (models.map { $0.id ?? 0 }.max() ?? 0) + 1
-        let modelWithId = BudgetAllocationModel(
-            id: newId,
-            monthDate: model.monthDate,
-            categoryKey: model.categoryKey,
-            allocatedAmount: model.allocatedAmount,
-            isRecurring: model.isRecurring,
-            parentAllocationId: model.parentAllocationId,
-            sharedGroupId: model.sharedGroupId
-        )
+        let newId = db.insertBudgetAllocation(model)
+        guard newId > 0 else {
+            throw BudgetAllocationError.invalidAmount
+        }
 
-        models.append(modelWithId)
-        saveModels(models)
+        if MirrorModeManager.shared.isEnabled,
+           let groupId = MirrorModeManager.shared.linkedGroupId,
+           model.sharedGroupId == nil {
+            updateSharedGroupId(allocationId: newId, groupId: groupId)
+        }
 
-        // Notify that data has changed (ensure on main thread for UI updates)
         DispatchQueue.main.async {
             NotificationCenter.default.post(name: .allocationDataChanged, object: nil)
         }
@@ -87,348 +100,366 @@ final class BudgetAllocationRepository: BudgetAllocationRepositoryProtocol {
     // MARK: - Update
 
     func updateAllocation(_ model: BudgetAllocationModel) throws {
-        var models = loadModels()
-
-        logDebug("BudgetAllocationRepository: updateAllocation called for id \(String(describing: model.id))")
-        logDebug("BudgetAllocationRepository: Looking for model with id \(String(describing: model.id)) in \(models.count) models")
-        logDebug("BudgetAllocationRepository: Available IDs: \(models.compactMap { $0.id })")
-
-        guard let index = models.firstIndex(where: { $0.id != nil && $0.id! == model.id }) else {
-            logError("BudgetAllocationRepository: Could not find allocation with id \(String(describing: model.id))")
+        guard let id = model.id else {
             throw BudgetAllocationError.allocationNotFound
         }
 
-        logDebug("BudgetAllocationRepository: Found allocation at index \(index), updating ONLY this one")
-        logDebug("BudgetAllocationRepository: Before - amount: \(models[index].allocatedAmount), After - amount: \(model.allocatedAmount)")
+        guard db.fetchBudgetAllocation(byId: id) != nil else {
+            logError("BudgetAllocationRepository: Could not find allocation with id \(id)")
+            throw BudgetAllocationError.allocationNotFound
+        }
 
-        models[index] = model
-        saveModels(models)
+        updateAllocationRow(model)
 
-        // Notify that data has changed
         NotificationCenter.default.post(name: .allocationDataChanged, object: nil)
     }
 
     func updateRecurringAllocationAndFuture(id: Int, newAmount: Int) throws {
-        var models = loadModels()
-
-        logDebug("BudgetAllocationRepository: updateRecurringAllocationAndFuture called with id: \(id), newAmount: \(newAmount)")
-        logDebug("BudgetAllocationRepository: Total models in storage: \(models.count)")
-
-        guard let allocation = models.first(where: { $0.id != nil && $0.id! == id }) else {
+        guard let allocation = db.fetchBudgetAllocation(byId: id) else {
             logError("BudgetAllocationRepository: Allocation with id \(id) not found for future update")
             throw BudgetAllocationError.allocationNotFound
         }
 
-        // Get the parent allocation ID
         let parentId = allocation.parentAllocationId ?? id
-        logDebug("BudgetAllocationRepository: Current allocation parentAllocationId: \(String(describing: allocation.parentAllocationId)), using parentId: \(parentId)")
-
-        // Find the current allocation's month date
         let currentMonthDate = allocation.monthDate
-        logDebug("BudgetAllocationRepository: Current allocation monthDate: \(currentMonthDate)")
 
-        var updatedCount = 0
-        var updatedIds: [Int] = []
+        let allModels = db.fetchAllBudgetAllocations(userId: UIDUserDefaultsManager.shared.currentUserUID)
+        for model in allModels {
+            guard let modelId = model.id else { continue }
 
-        // Update all allocations with the same parent that are >= current month
-        // ALSO update the parent allocation so future lazily-generated instances use the new amount
-        for i in models.indices {
-            guard let modelId = models[i].id else { continue }
-
-            // Check if this is the allocation being updated
             let isCurrentAllocation = modelId == id
-
-            // Check if this is the parent (must update parent so future instances get new amount)
             let isParent = modelId == parentId
+            let isRelatedChild = model.parentAllocationId == parentId
+            let isFutureOrCurrent = model.monthDate >= currentMonthDate
 
-            // Check if this is a child allocation in the future
-            let isRelatedChild = models[i].parentAllocationId == parentId
-            let isFutureOrCurrent = models[i].monthDate >= currentMonthDate
-
-            if isCurrentAllocation || isParent || (isRelatedChild && isFutureOrCurrent) {
-                logDebug("BudgetAllocationRepository: Updating allocation id=\(modelId), monthDate=\(models[i].monthDate), reason: isCurrentAllocation=\(isCurrentAllocation), isParent=\(isParent), isRelatedChild=\(isRelatedChild), isFutureOrCurrent=\(isFutureOrCurrent)")
-                models[i] = BudgetAllocationModel(
-                    id: models[i].id,
-                    monthDate: models[i].monthDate,
-                    categoryKey: models[i].categoryKey,
-                    allocatedAmount: newAmount,
-                    isRecurring: models[i].isRecurring,
-                    parentAllocationId: models[i].parentAllocationId,
-                    sharedGroupId: models[i].sharedGroupId
+            if isCurrentAllocation || ((isParent || isRelatedChild) && isFutureOrCurrent) {
+                db.executeSyncUpdate(
+                    "UPDATE BudgetAllocations SET allocated_amount = ?, sync_status = 'pending' WHERE id = ?;",
+                    intBindings: [newAmount, modelId]
                 )
-                updatedCount += 1
-                updatedIds.append(modelId)
             }
         }
 
-        logDebug("BudgetAllocationRepository: Updated \(updatedCount) allocations (future+current+parent), IDs: \(updatedIds)")
-
-        saveModels(models)
-
-        // Notify that data has changed
         NotificationCenter.default.post(name: .allocationDataChanged, object: nil)
     }
 
     func updateAllRecurringAllocations(id: Int, newAmount: Int) throws {
-        var models = loadModels()
-
-        logDebug("BudgetAllocationRepository: updateAllRecurringAllocations called with id: \(id), newAmount: \(newAmount)")
-
-        guard let allocation = models.first(where: { $0.id != nil && $0.id! == id }) else {
+        guard let allocation = db.fetchBudgetAllocation(byId: id) else {
             logError("BudgetAllocationRepository: Allocation with id \(id) not found for all update")
             throw BudgetAllocationError.allocationNotFound
         }
 
-        // Get the parent allocation ID (use this allocation's ID if it's the parent)
         let parentId = allocation.parentAllocationId ?? id
-        logDebug("BudgetAllocationRepository: Using parentId: \(parentId)")
 
-        var updatedCount = 0
-        var updatedIds: [Int] = []
-
-        // Update ALL allocations in this recurring series (past, present, future)
-        for i in models.indices {
-            guard let modelId = models[i].id else { continue }
-
-            if modelId == parentId || models[i].parentAllocationId == parentId {
-                logDebug("BudgetAllocationRepository: Updating allocation id=\(modelId), monthDate=\(models[i].monthDate)")
-                models[i] = BudgetAllocationModel(
-                    id: models[i].id,
-                    monthDate: models[i].monthDate,
-                    categoryKey: models[i].categoryKey,
-                    allocatedAmount: newAmount,
-                    isRecurring: models[i].isRecurring,
-                    parentAllocationId: models[i].parentAllocationId,
-                    sharedGroupId: models[i].sharedGroupId
+        let allModels = db.fetchAllBudgetAllocations(userId: UIDUserDefaultsManager.shared.currentUserUID)
+        for model in allModels {
+            guard let modelId = model.id else { continue }
+            if modelId == parentId || model.parentAllocationId == parentId {
+                db.executeSyncUpdate(
+                    "UPDATE BudgetAllocations SET allocated_amount = ?, sync_status = 'pending' WHERE id = ?;",
+                    intBindings: [newAmount, modelId]
                 )
-                updatedCount += 1
-                updatedIds.append(modelId)
             }
         }
 
-        logDebug("BudgetAllocationRepository: Updated \(updatedCount) allocations (all occurrences), IDs: \(updatedIds)")
-
-        saveModels(models)
-
-        // Notify that data has changed
         NotificationCenter.default.post(name: .allocationDataChanged, object: nil)
     }
 
     // MARK: - Delete
 
     func deleteAllocation(id: Int) throws {
-        var models = loadModels()
-
-        logDebug("BudgetAllocationRepository: deleteAllocation called with id: \(id)")
-        logDebug("BudgetAllocationRepository: Current models count: \(models.count)")
-        logDebug("BudgetAllocationRepository: Model IDs: \(models.compactMap { $0.id })")
-
-        // Explicitly unwrap optional ID for comparison
-        guard let index = models.firstIndex(where: { $0.id != nil && $0.id! == id }) else {
-            logError("BudgetAllocationRepository: Allocation with id \(id) not found for deletion. Available IDs: \(models.compactMap { $0.id })")
+        guard let allocationToDelete = db.fetchBudgetAllocation(byId: id) else {
+            logError("BudgetAllocationRepository: Allocation with id \(id) not found for deletion")
             throw BudgetAllocationError.allocationNotFound
         }
 
-        let allocationToDelete = models[index]
-
-        // If this is a recurring child instance, stop the parent from regenerating it
-        // by setting isRecurring=false on the parent
         if let parentId = allocationToDelete.parentAllocationId {
-            if let parentIndex = models.firstIndex(where: { $0.id != nil && $0.id! == parentId }) {
-                let parentModel = models[parentIndex]
-                models[parentIndex] = BudgetAllocationModel(
-                    id: parentModel.id,
-                    monthDate: parentModel.monthDate,
-                    categoryKey: parentModel.categoryKey,
-                    allocatedAmount: parentModel.allocatedAmount,
-                    isRecurring: false,
-                    parentAllocationId: parentModel.parentAllocationId,
-                    sharedGroupId: parentModel.sharedGroupId
-                )
-                logDebug("BudgetAllocationRepository: Set isRecurring=false on parent \(parentId) to prevent lazy regeneration")
-            }
-        }
-        // If this is a parent allocation being deleted, also check if it's recurring
-        // and update to prevent any orphan-related issues
-        else if allocationToDelete.isRecurring {
-            // Parent being deleted - no need to modify isRecurring as it's being removed
-            logDebug("BudgetAllocationRepository: Deleting recurring parent allocation \(id)")
+            db.executeSyncUpdate(
+                "UPDATE BudgetAllocations SET is_recurring = 0, sync_status = 'pending' WHERE id = ?;",
+                intBindings: [parentId]
+            )
         }
 
-        logDebug("BudgetAllocationRepository: Found allocation at index \(index), removing...")
-        models.remove(at: index)
-        logDebug("BudgetAllocationRepository: Models count after removal: \(models.count)")
-        saveModels(models)
+        let ckName = fetchCKRecordName(for: id)
+        if ckName != nil {
+            db.executeSyncUpdate(
+                "UPDATE BudgetAllocations SET is_deleted = 1, sync_status = 'pendingDelete' WHERE id = ?;",
+                intBindings: [id]
+            )
+        } else {
+            db.executeSyncUpdate(
+                "DELETE FROM BudgetAllocations WHERE id = ?;",
+                intBindings: [id]
+            )
+        }
 
-        // Notify that data has changed
         NotificationCenter.default.post(name: .allocationDataChanged, object: nil)
-        logDebug("BudgetAllocationRepository: Notification posted for allocation deletion")
     }
 
     func deleteRecurringAllocationAndFuture(id: Int) throws {
-        var models = loadModels()
-
-        guard let allocation = models.first(where: { $0.id != nil && $0.id! == id }) else {
+        guard let allocation = db.fetchBudgetAllocation(byId: id) else {
             logError("BudgetAllocationRepository: Allocation with id \(id) not found for future deletion")
             throw BudgetAllocationError.allocationNotFound
         }
 
-        // Get the parent allocation ID
         let parentId = allocation.parentAllocationId ?? id
-
-        // Find the current allocation's month date
         let currentMonthDate = allocation.monthDate
 
-        let countBefore = models.count
+        let allModels = db.fetchAllBudgetAllocations(userId: UIDUserDefaultsManager.shared.currentUserUID)
+        for model in allModels {
+            guard let modelId = model.id else { continue }
 
-        // Remove all allocations with the same parent that are >= current month
-        // Also remove the current allocation itself
-        models.removeAll { model in
-            guard let modelId = model.id else { return false }
-
-            // Check if this is the allocation being deleted
             if modelId == id {
-                return true
+                db.executeSyncUpdate("DELETE FROM BudgetAllocations WHERE id = ?;", intBindings: [modelId])
+                continue
             }
 
-            // Check if related to the recurring series and in future/current month
             let isRelated = modelId == parentId || model.parentAllocationId == parentId
             let isFutureOrCurrent = model.monthDate >= currentMonthDate
-            return isRelated && isFutureOrCurrent
+            if isRelated && isFutureOrCurrent {
+                db.executeSyncUpdate("DELETE FROM BudgetAllocations WHERE id = ?;", intBindings: [modelId])
+            }
         }
 
-        let countAfter = models.count
-        logDebug("BudgetAllocationRepository: Deleted \(countBefore - countAfter) allocations (future+current)")
-
-        // IMPORTANT: Stop the parent from generating new future instances via lazy generation
-        // Check if the parent allocation still exists (wasn't deleted because it's in the past)
-        if let parentIndex = models.firstIndex(where: { $0.id != nil && $0.id! == parentId }) {
-            // Parent still exists (in a past month) - set isRecurring to false to stop future generation
-            let parentModel = models[parentIndex]
-            models[parentIndex] = BudgetAllocationModel(
-                id: parentModel.id,
-                monthDate: parentModel.monthDate,
-                categoryKey: parentModel.categoryKey,
-                allocatedAmount: parentModel.allocatedAmount,
-                isRecurring: false,
-                parentAllocationId: parentModel.parentAllocationId,
-                sharedGroupId: parentModel.sharedGroupId
+        // Stop parent from generating future instances
+        if db.fetchBudgetAllocation(byId: parentId) != nil {
+            db.executeSyncUpdate(
+                "UPDATE BudgetAllocations SET is_recurring = 0, sync_status = 'pending' WHERE id = ?;",
+                intBindings: [parentId]
             )
-            logDebug("BudgetAllocationRepository: Set isRecurring=false on parent \(parentId) to prevent lazy regeneration")
         }
 
-        saveModels(models)
-
-        // Notify that data has changed
         NotificationCenter.default.post(name: .allocationDataChanged, object: nil)
     }
 
     func deleteAllRecurringAllocations(id: Int) throws {
-        var models = loadModels()
-
-        guard let allocation = models.first(where: { $0.id != nil && $0.id! == id }) else {
+        guard let allocation = db.fetchBudgetAllocation(byId: id) else {
             logError("BudgetAllocationRepository: Allocation with id \(id) not found for all deletion")
             throw BudgetAllocationError.allocationNotFound
         }
 
-        // Get the parent allocation ID (use this allocation's ID if it's the parent)
         let parentId = allocation.parentAllocationId ?? id
 
-        let countBefore = models.count
-
-        // Remove ALL allocations in this recurring series (past, present, future)
-        models.removeAll { model in
-            guard let modelId = model.id else { return false }
-            return modelId == parentId || model.parentAllocationId == parentId
+        let allModels = db.fetchAllBudgetAllocations(userId: UIDUserDefaultsManager.shared.currentUserUID)
+        for model in allModels {
+            guard let modelId = model.id else { continue }
+            if modelId == parentId || model.parentAllocationId == parentId {
+                db.executeSyncUpdate("DELETE FROM BudgetAllocations WHERE id = ?;", intBindings: [modelId])
+            }
         }
 
-        let countAfter = models.count
-        logDebug("BudgetAllocationRepository: Deleted \(countBefore - countAfter) allocations (all occurrences)")
-
-        saveModels(models)
-
-        // Notify that data has changed
         NotificationCenter.default.post(name: .allocationDataChanged, object: nil)
     }
 
     // MARK: - Update Is Recurring
 
     func updateIsRecurring(allocationId: Int, isRecurring: Bool) throws {
-        var models = loadModels()
-
-        guard let index = models.firstIndex(where: { $0.id != nil && $0.id! == allocationId }) else {
+        guard db.fetchBudgetAllocation(byId: allocationId) != nil else {
             logError("BudgetAllocationRepository: Allocation with id \(allocationId) not found for isRecurring update")
             throw BudgetAllocationError.allocationNotFound
         }
 
-        let existingModel = models[index]
-        models[index] = BudgetAllocationModel(
-            id: existingModel.id,
-            monthDate: existingModel.monthDate,
-            categoryKey: existingModel.categoryKey,
-            allocatedAmount: existingModel.allocatedAmount,
-            isRecurring: isRecurring,
-            parentAllocationId: existingModel.parentAllocationId,
-            sharedGroupId: existingModel.sharedGroupId
+        db.executeSyncUpdate(
+            "UPDATE BudgetAllocations SET is_recurring = ?, sync_status = 'pending' WHERE id = ?;",
+            intBindings: [isRecurring ? 1 : 0, allocationId]
         )
-
-        logDebug("BudgetAllocationRepository: Updated isRecurring to \(isRecurring) for allocation \(allocationId)")
-        saveModels(models)
     }
 
-    // MARK: - Migration
+    // MARK: - Mirror Mode
+
+    func updateSharedGroupId(allocationId: Int, groupId: String?) {
+        if let groupId = groupId {
+            db.executeSyncUpdate(
+                "UPDATE BudgetAllocations SET shared_group_id = ?, sync_status = 'pending' WHERE id = ?;",
+                textBindings: [groupId],
+                intBindings: [allocationId]
+            )
+        } else {
+            db.executeSyncUpdate(
+                "UPDATE BudgetAllocations SET shared_group_id = NULL, sync_status = 'pending' WHERE id = ?;",
+                intBindings: [allocationId]
+            )
+        }
+    }
+
+    // MARK: - Group Migration
 
     func fetchPersonalAllocationsCount() -> Int {
-        let models = loadModels()
+        let models = db.fetchAllBudgetAllocations(userId: UIDUserDefaultsManager.shared.currentUserUID)
         return models.filter { $0.sharedGroupId == nil }.count
     }
 
     func migrateAllocationsToGroup(groupId: String) -> Int {
-        var models = loadModels()
+        let models = db.fetchAllBudgetAllocations(userId: UIDUserDefaultsManager.shared.currentUserUID)
         var migratedCount = 0
 
-        for i in models.indices {
-            guard models[i].sharedGroupId == nil else { continue }
-            models[i] = BudgetAllocationModel(
-                id: models[i].id,
-                monthDate: models[i].monthDate,
-                categoryKey: models[i].categoryKey,
-                allocatedAmount: models[i].allocatedAmount,
-                isRecurring: models[i].isRecurring,
-                parentAllocationId: models[i].parentAllocationId,
-                sharedGroupId: groupId
+        for model in models {
+            guard model.sharedGroupId == nil, let id = model.id else { continue }
+            db.executeSyncUpdate(
+                "UPDATE BudgetAllocations SET shared_group_id = ?, sync_status = 'pending' WHERE id = ?;",
+                textBindings: [groupId],
+                intBindings: [id]
             )
             migratedCount += 1
         }
 
         if migratedCount > 0 {
-            saveModels(models)
             logDebug("BudgetAllocationRepository: Migrated \(migratedCount) allocations to group \(groupId)")
         }
 
         return migratedCount
     }
 
+    // MARK: - CloudKit Sync Methods
+
+    func fetchPendingSync() -> [BudgetAllocationModel] {
+        return db.fetchPendingSyncAllocations(
+            userId: UIDUserDefaultsManager.shared.currentUserUID
+        )
+    }
+
+    func markAsSynced(ckRecordName: String) {
+        // Phase 3C: CK record name is pre-stored before push, so matching by ck_record_id is sufficient
+        db.executeSyncUpdate(
+            "UPDATE BudgetAllocations SET sync_status = 'synced' WHERE ck_record_id = ?;",
+            textBindings: [ckRecordName]
+        )
+    }
+
+    func insertFromCloud(_ allocation: BudgetAllocationModel, ckRecordName: String) {
+        db.executeSyncUpdate(
+            "DELETE FROM BudgetAllocations WHERE ck_record_id = ?;",
+            textBindings: [ckRecordName]
+        )
+
+        db.executeGroupWrite(
+            """
+            INSERT INTO BudgetAllocations
+                (month_date, category_key, allocated_amount, is_recurring,
+                 parent_allocation_id, user_id, shared_group_id, ck_record_id, sync_status, ck_modified_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'synced', ?);
+            """,
+            orderedBindings: [
+                allocation.monthDate,
+                allocation.categoryKey,
+                allocation.allocatedAmount,
+                allocation.isRecurring ? 1 : 0,
+                allocation.parentAllocationId,
+                UIDUserDefaultsManager.shared.currentUserUID,
+                allocation.sharedGroupId,
+                ckRecordName,
+                Int(Date().timeIntervalSince1970)
+            ]
+        )
+    }
+
+    func updateFromCloud(_ allocation: BudgetAllocationModel, ckRecordName: String) {
+        db.executeGroupWrite(
+            """
+            UPDATE BudgetAllocations SET
+                month_date = ?, category_key = ?, allocated_amount = ?,
+                is_recurring = ?, parent_allocation_id = ?,
+                sync_status = 'synced', ck_modified_at = ?
+            WHERE ck_record_id = ?;
+            """,
+            orderedBindings: [
+                allocation.monthDate,
+                allocation.categoryKey,
+                allocation.allocatedAmount,
+                allocation.isRecurring ? 1 : 0,
+                allocation.parentAllocationId,
+                Int(Date().timeIntervalSince1970),
+                ckRecordName
+            ]
+        )
+    }
+
+    func softDeleteByCKRecordName(_ recordName: String) {
+        db.executeSyncUpdate(
+            "DELETE FROM BudgetAllocations WHERE ck_record_id = ?;",
+            textBindings: [recordName]
+        )
+    }
+
+    func fetchPendingDeletes() -> [(ckRecordName: String, localId: Int)] {
+        let query = "SELECT id, ck_record_id FROM BudgetAllocations WHERE sync_status = 'pendingDelete' AND ck_record_id IS NOT NULL;"
+        return db.fetchIdAndCKRecordName(query) ?? []
+    }
+
+    func hardDeleteByCKRecordName(_ recordName: String) {
+        db.executeSyncUpdate(
+            "DELETE FROM BudgetAllocations WHERE ck_record_id = ?;",
+            textBindings: [recordName]
+        )
+    }
+
+    func fetchCKRecordName(for id: Int) -> String? {
+        return db.fetchSingleString(
+            "SELECT ck_record_id FROM BudgetAllocations WHERE id = ?;",
+            intBinding: id
+        )
+    }
+
+    func fetchAllocation(byCKRecordName recordName: String) -> BudgetAllocationModel? {
+        let allModels = db.fetchAllBudgetAllocations(userId: nil)
+        // We need to check ck_record_id which isn't in the standard fetch - use fetchSingleInt
+        let id = db.fetchSingleInt(
+            "SELECT id FROM BudgetAllocations WHERE ck_record_id = ?;",
+            textBinding: recordName
+        )
+        guard let id = id else { return nil }
+        return db.fetchBudgetAllocation(byId: id)
+    }
+
+    func lastModifiedDate(for id: Int) -> Date? {
+        let query = "SELECT ck_modified_at FROM BudgetAllocations WHERE id = ?;"
+        guard let timestamp = db.fetchSingleInt(query, intBinding: id), timestamp > 0 else {
+            return nil
+        }
+        return Date(timeIntervalSince1970: TimeInterval(timestamp))
+    }
+
+    func markSyncPending(for id: Int) {
+        let now = Int(Date().timeIntervalSince1970)
+        db.executeSyncUpdate(
+            "UPDATE BudgetAllocations SET sync_status = 'pending', ck_modified_at = ? WHERE id = ?;",
+            intBindings: [now, id]
+        )
+    }
+
+    func setCKRecordId(for localId: Int, ckRecordName: String) {
+        db.executeSyncUpdate(
+            "UPDATE BudgetAllocations SET ck_record_id = ? WHERE id = ? AND ck_record_id IS NULL;",
+            textBindings: [ckRecordName],
+            intBindings: [localId]
+        )
+    }
+
     // MARK: - Private Helpers
 
-    private func loadModels() -> [BudgetAllocationModel] {
-        guard let data = UserDefaults.standard.data(forKey: userDefaultsKey),
-              let models = try? JSONDecoder().decode([BudgetAllocationModel].self, from: data)
-        else {
-            return []
-        }
-        return models
+    private func updateAllocationRow(_ model: BudgetAllocationModel) {
+        guard let id = model.id else { return }
+        // Use executeGroupWrite for mixed binding types
+        db.executeGroupWrite(
+            """
+            UPDATE BudgetAllocations SET
+                month_date = ?, category_key = ?, allocated_amount = ?,
+                is_recurring = ?, parent_allocation_id = ?, shared_group_id = ?,
+                sync_status = 'pending'
+            WHERE id = ?;
+            """,
+            orderedBindings: [
+                model.monthDate,
+                model.categoryKey,
+                model.allocatedAmount,
+                model.isRecurring ? 1 : 0,
+                model.parentAllocationId,
+                model.sharedGroupId,
+                id
+            ]
+        )
     }
 
-    private func saveModels(_ models: [BudgetAllocationModel]) {
-        do {
-            let data = try JSONEncoder().encode(models)
-            UserDefaults.standard.set(data, forKey: userDefaultsKey)
-            logDebug("BudgetAllocationRepository: Saved \(models.count) allocations to UserDefaults")
-        } catch {
-            logError("BudgetAllocationRepository: Failed to encode models: \(error)")
-        }
-    }
 }
 
 // MARK: - Notification Extension

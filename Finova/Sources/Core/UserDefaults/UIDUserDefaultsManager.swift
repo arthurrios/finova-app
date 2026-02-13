@@ -5,6 +5,7 @@
 //  Created by Arthur Rios on 27/01/25.
 //
 
+import CloudKit
 import Foundation
 
 /// Manages user-specific settings linked to Firebase UID
@@ -125,6 +126,11 @@ class UIDUserDefaultsManager {
   func setCurrentUserBalanceOffset(_ offset: Int) {
     guard let uid = currentUserUID else { return }
     UserDefaults.standard.set(offset, forKey: "balanceOffset_\(uid)")
+    pushBalanceOffsetToCloud(offset, key: "personal", uid: uid)
+    if MirrorModeManager.shared.isEnabled,
+       let groupId = MirrorModeManager.shared.linkedGroupId {
+      setGroupBalanceOffset(offset, groupId: groupId)
+    }
   }
 
   func getGroupBalanceOffset(groupId: String) -> Int {
@@ -133,6 +139,77 @@ class UIDUserDefaultsManager {
 
   func setGroupBalanceOffset(_ offset: Int, groupId: String) {
     UserDefaults.standard.set(offset, forKey: "balanceOffset_group_\(groupId)")
+    if let uid = currentUserUID {
+      pushBalanceOffsetToCloud(offset, key: "group-\(groupId)", uid: uid)
+    }
+  }
+
+  // MARK: - CloudKit Balance Offset Sync
+
+  private func pushBalanceOffsetToCloud(_ offset: Int, key: String, uid: String) {
+    let recordID = CKRecord.ID(
+      recordName: "balanceOffset-\(uid)-\(key)",
+      zoneID: CloudKitManager.privateZoneID
+    )
+    let record = CKRecord(recordType: "BalanceOffset", recordID: recordID)
+    record["offset"] = offset as CKRecordValue
+    record["key"] = key as CKRecordValue
+    record["updatedAt"] = Date() as CKRecordValue
+
+    let operation = CKModifyRecordsOperation(recordsToSave: [record], recordIDsToDelete: nil)
+    operation.savePolicy = .changedKeys
+    operation.qualityOfService = .utility
+    operation.modifyRecordsResultBlock = { result in
+      switch result {
+      case .success:
+        logInfo("Balance offset synced to CloudKit: \(key) = \(offset)")
+      case .failure(let error):
+        logError("Failed to sync balance offset to CloudKit: \(error)")
+      }
+    }
+    CloudKitManager.shared.privateDatabase.add(operation)
+  }
+
+  func fetchBalanceOffsetsFromCloud(completion: @escaping () -> Void) {
+    guard let uid = currentUserUID else {
+      completion()
+      return
+    }
+
+    // Fetch personal offset by known record ID (avoids CKQuery which requires queryable indexes)
+    let personalRecordID = CKRecord.ID(
+      recordName: "balanceOffset-\(uid)-personal",
+      zoneID: CloudKitManager.privateZoneID
+    )
+
+    CloudKitManager.shared.privateDatabase.fetch(withRecordID: personalRecordID) { [weak self] record, error in
+      guard let self = self else {
+        completion()
+        return
+      }
+
+      if let record = record,
+         let offset = record["offset"] as? Int {
+        let currentLocal = UserDefaults.standard.integer(forKey: "balanceOffset_\(uid)")
+        if currentLocal != offset {
+          UserDefaults.standard.set(offset, forKey: "balanceOffset_\(uid)")
+          logInfo("Balance offset updated from CloudKit: personal = \(offset)")
+          DispatchQueue.main.async {
+            NotificationCenter.default.post(name: .transactionDataChanged, object: nil)
+          }
+        }
+      } else if let ckError = error as? CKError, ckError.code == .unknownItem {
+        // No personal offset in CloudKit yet — push local if non-zero
+        let localOffset = UserDefaults.standard.integer(forKey: "balanceOffset_\(uid)")
+        if localOffset != 0 {
+          self.pushBalanceOffsetToCloud(localOffset, key: "personal", uid: uid)
+        }
+      } else if let error = error {
+        logError("Failed to fetch personal balance offset from CloudKit: \(error)")
+      }
+
+      completion()
+    }
   }
 
   func getBalanceDisplayMode() -> BalanceDisplayMode {

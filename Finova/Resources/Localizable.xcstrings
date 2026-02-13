@@ -8845,6 +8845,91 @@
         }
       }
     },
+    "settings.section.mirrorMode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mirror Mode"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modo Espelho"
+          }
+        }
+      }
+    },
+    "settings.mirrorMode.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mirror to Group"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Espelhar para Grupo"
+          }
+        }
+      }
+    },
+    "settings.mirrorMode.noGroup": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No group selected"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nenhum grupo selecionado"
+          }
+        }
+      }
+    },
+    "settings.mirrorMode.selectGroup.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Select Group"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Selecionar Grupo"
+          }
+        }
+      }
+    },
+    "settings.mirrorMode.selectGroup.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose which group to mirror your personal data to."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Escolha para qual grupo espelhar seus dados pessoais."
+          }
+        }
+      }
+    },
     "budgetGroups.header.title": {
       "extractionState": "manual",
       "localizations": {

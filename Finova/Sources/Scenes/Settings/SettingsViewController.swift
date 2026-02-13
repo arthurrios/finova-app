@@ -73,6 +73,17 @@ extension SettingsViewController: SettingsViewDelegate {
         flowDelegate?.navigateToSyncSettings()
     }
 
+    func didToggleMirrorMode(_ isEnabled: Bool) {
+        viewModel.toggleMirrorMode(isEnabled)
+    }
+
+    func didTapMirrorGroupPicker() {
+        let groups = viewModel.availableGroups
+        if !groups.isEmpty {
+            showGroupSelectionSheet(groups: groups)
+        }
+    }
+
     func handleDidTapBackButton() {
         self.flowDelegate?.dismissSettings()
     }
@@ -154,6 +165,20 @@ extension SettingsViewController: SettingsViewModelDelegate {
         alert.addAction(UIAlertAction(title: "OK", style: .default))
         present(alert, animated: true)
     }
+
+    func didUpdateMirrorMode(isEnabled: Bool, groupName: String?) {
+        contentView.mirrorModeSwitch.isOn = isEnabled
+        contentView.mirrorGroupContainer.isHidden = !isEnabled
+        if let groupName = groupName {
+            contentView.mirrorGroupLabel.text = groupName
+        } else {
+            contentView.mirrorGroupLabel.text = "settings.mirrorMode.noGroup".localized
+        }
+    }
+
+    func didRequestGroupSelection(groups: [BudgetGroup]) {
+        showGroupSelectionSheet(groups: groups)
+    }
 }
 
 // MARK: - Currency Picker
@@ -198,6 +223,44 @@ extension SettingsViewController {
         if let popoverController = alert.popoverPresentationController {
             popoverController.sourceView = contentView.currencyValueLabel
             popoverController.sourceRect = contentView.currencyValueLabel.bounds
+        }
+
+        present(alert, animated: true)
+    }
+}
+
+// MARK: - Mirror Mode Group Selection
+extension SettingsViewController {
+
+    private func showGroupSelectionSheet(groups: [BudgetGroup]) {
+        let alert = UIAlertController(
+            title: "settings.mirrorMode.selectGroup.title".localized,
+            message: "settings.mirrorMode.selectGroup.message".localized,
+            preferredStyle: .actionSheet
+        )
+
+        for group in groups {
+            let action = UIAlertAction(title: group.name, style: .default) { [weak self] _ in
+                self?.viewModel.selectMirrorGroup(group)
+            }
+            if group.id == MirrorModeManager.shared.linkedGroupId {
+                action.setValue(true, forKey: "checked")
+            }
+            alert.addAction(action)
+        }
+
+        alert.addAction(UIAlertAction(title: "alert.cancel".localized, style: .cancel) { [weak self] _ in
+            // If user cancels without selecting a group and mirror mode was just toggled on,
+            // revert the toggle since no group was selected
+            if !MirrorModeManager.shared.isEnabled {
+                self?.contentView.mirrorModeSwitch.isOn = false
+                self?.contentView.mirrorGroupContainer.isHidden = true
+            }
+        })
+
+        if let popoverController = alert.popoverPresentationController {
+            popoverController.sourceView = contentView.mirrorGroupContainer
+            popoverController.sourceRect = contentView.mirrorGroupContainer.bounds
         }
 
         present(alert, animated: true)

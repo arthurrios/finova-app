@@ -18,4 +18,6 @@ extension Notification.Name {
   static let budgetGroupDataChanged = Notification.Name("budgetGroupDataChanged")
   static let groupInvitationReceived = Notification.Name("groupInvitationReceived")
   static let groupMemberActionOccurred = Notification.Name("groupMemberActionOccurred")
+  static let budgetDataChanged = Notification.Name("budgetDataChanged")
+  static let creditCardDataChanged = Notification.Name("creditCardDataChanged")
 }

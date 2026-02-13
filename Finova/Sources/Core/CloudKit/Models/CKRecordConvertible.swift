@@ -12,5 +12,12 @@ protocol CKRecordConvertible {
     var ckRecordID: CKRecord.ID? { get }
 
     func toCKRecord(in zoneID: CKRecordZone.ID) -> CKRecord
+    func toCKRecord(in zoneID: CKRecordZone.ID, storedRecordName: String?) -> CKRecord
     static func fromCKRecord(_ record: CKRecord) -> Self?
+}
+
+extension CKRecordConvertible {
+    func toCKRecord(in zoneID: CKRecordZone.ID, storedRecordName: String?) -> CKRecord {
+        return toCKRecord(in: zoneID)
+    }
 }

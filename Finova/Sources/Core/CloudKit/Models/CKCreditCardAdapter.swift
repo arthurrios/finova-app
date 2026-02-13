@@ -26,12 +26,17 @@ extension CreditCard: CKRecordConvertible {
     }
 
     func toCKRecord(in zoneID: CKRecordZone.ID) -> CKRecord {
+        return toCKRecord(in: zoneID, storedRecordName: nil)
+    }
+
+    func toCKRecord(in zoneID: CKRecordZone.ID, storedRecordName: String?) -> CKRecord {
         let recordID: CKRecord.ID
-        if let existingID = ckRecordID {
-            recordID = existingID
+        if let storedName = storedRecordName {
+            recordID = CKRecord.ID(recordName: storedName, zoneID: targetZoneID)
         } else {
+            // Phase 3A: Use UUID-based names for new records to avoid cross-device ID collisions
             recordID = CKRecord.ID(
-                recordName: "creditCard-\(id ?? 0)",
+                recordName: "creditCard-\(UUID().uuidString)",
                 zoneID: targetZoneID
             )
         }

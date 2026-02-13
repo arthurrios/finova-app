@@ -49,6 +49,13 @@ class AppFlowController {
             name: .navigateToStatementDetails,
             object: nil
         )
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handlePendingInvitations),
+            name: .groupInvitationReceived,
+            object: nil
+        )
     }
     
     /// Handles navigation to transaction details from notification tap
@@ -130,6 +137,17 @@ class AppFlowController {
 
             self.navigateToStatementDetails(card: card, statement: statement)
         }
+    }
+
+    /// Handles pending group invitations received from CloudKit
+    @objc private func handlePendingInvitations() {
+        let invitations = BudgetGroupService.shared.fetchPendingInvitations()
+        guard let first = invitations.first else { return }
+
+        // Avoid presenting over an existing modal
+        guard navigationController?.presentedViewController == nil else { return }
+
+        presentGroupInvitation(first)
     }
 
     /// Handles app foreground refresh notification

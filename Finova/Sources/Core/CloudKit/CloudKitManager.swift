@@ -27,6 +27,7 @@ final class CloudKitManager {
     let container: CKContainer
     let privateDatabase: CKDatabase
     let sharedDatabase: CKDatabase
+    let publicDatabase: CKDatabase
 
     private(set) var accountStatus: CloudKitAccountStatus = .couldNotDetermine
     private(set) var isCloudKitAvailable: Bool = false
@@ -42,6 +43,7 @@ final class CloudKitManager {
         container = CKContainer(identifier: "iCloud.com.arthurrios.Finova")
         privateDatabase = container.privateCloudDatabase
         sharedDatabase = container.sharedCloudDatabase
+        publicDatabase = container.publicCloudDatabase
     }
 
     // MARK: - Account Status

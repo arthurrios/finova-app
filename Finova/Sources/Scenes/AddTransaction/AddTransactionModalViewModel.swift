@@ -92,6 +92,9 @@ final class AddTransactionModalViewModel {
           transactionRepo.updateSharedGroupId(transactionId: insertedId, groupId: groupId)
           GroupNotificationService.shared.logActivity(
             action: .transactionCreated, groupId: groupId, detail: title)
+        } else if MirrorModeManager.shared.isEnabled,
+                  let groupId = MirrorModeManager.shared.linkedGroupId {
+          transactionRepo.updateSharedGroupId(transactionId: insertedId, groupId: groupId)
         }
 
         // Check for similar existing recurring transactions
@@ -161,6 +164,9 @@ final class AddTransactionModalViewModel {
           transactionRepo.updateSharedGroupId(transactionId: insertedId, groupId: groupId)
           GroupNotificationService.shared.logActivity(
             action: .transactionCreated, groupId: groupId, detail: title)
+        } else if MirrorModeManager.shared.isEnabled,
+                  let groupId = MirrorModeManager.shared.linkedGroupId {
+          transactionRepo.updateSharedGroupId(transactionId: insertedId, groupId: groupId)
         }
 
         // Handle credit card statement assignment

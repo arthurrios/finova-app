@@ -48,6 +48,7 @@ final class GroupInvitationViewModel {
                 )
                 self.repository.insertGroup(group)
                 self.repository.updateInvitationStatus(id: self.invitation.id, status: "accepted")
+                self.updateRemoteInvitationStatus("accepted")
 
                 SyncEngine.shared.performFullSync()
 
@@ -58,5 +59,24 @@ final class GroupInvitationViewModel {
 
     func declineInvitation() {
         repository.updateInvitationStatus(id: invitation.id, status: "declined")
+        updateRemoteInvitationStatus("declined")
+    }
+
+    private func updateRemoteInvitationStatus(_ status: String) {
+        let recordID = CKRecord.ID(recordName: "invitation-\(invitation.id)")
+        CloudKitManager.shared.publicDatabase.fetch(withRecordID: recordID) { record, error in
+            guard let record = record else {
+                if let error = error {
+                    logError("Failed to fetch invitation record for status update: \(error)")
+                }
+                return
+            }
+            record["status"] = status
+            CloudKitManager.shared.publicDatabase.save(record) { _, error in
+                if let error = error {
+                    logError("Failed to update invitation status in public DB: \(error)")
+                }
+            }
+        }
     }
 }

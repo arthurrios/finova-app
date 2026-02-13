@@ -5,6 +5,7 @@
 //  Created by Arthur Rios on 07/05/25.
 //
 
+import CloudKit
 import GoogleSignIn
 import UIKit
 
@@ -63,6 +64,23 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     }
     SyncEngine.shared.performFullSync()
     triggerAppRefresh()
+  }
+
+  func windowScene(
+    _ windowScene: UIWindowScene,
+    userDidAcceptCloudKitShareWith cloudKitShareMetadata: CKShare.Metadata
+  ) {
+    CloudKitManager.shared.container.accept(cloudKitShareMetadata) { share, error in
+      guard error == nil else {
+        logError("Failed to accept CloudKit share: \(error!)")
+        return
+      }
+      SyncEngine.shared.performFullSync()
+
+      DispatchQueue.main.async {
+        NotificationCenter.default.post(name: .budgetGroupDataChanged, object: nil)
+      }
+    }
   }
 
   func sceneDidEnterBackground(_ scene: UIScene) {

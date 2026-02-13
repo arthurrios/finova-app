@@ -69,6 +69,7 @@ final class SplashViewController: UIViewController {
       // Set current user UID for settings lookup
       UIDUserDefaultsManager.shared.currentUserUID = firebaseUser.uid
       DBHelper.shared.backfillUserIds(uid: firebaseUser.uid)
+      BudgetAllocationRepository.migrateFromUserDefaultsIfNeeded()
 
       // Check if this user has existing settings
       let existingSettings = UIDUserDefaultsManager.shared.getUserSettings(for: firebaseUser.uid)

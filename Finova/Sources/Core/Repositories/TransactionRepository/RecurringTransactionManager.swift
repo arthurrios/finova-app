@@ -195,6 +195,12 @@ final class RecurringTransactionManager {
           let insertedId = try transactionRepo.insertTransactionAndGetId(instanceModel)
           newInstances.append(instanceModel)
 
+          // Mirror mode: tag new instance with group ID
+          if MirrorModeManager.shared.isEnabled,
+             let groupId = MirrorModeManager.shared.linkedGroupId {
+            transactionRepo.updateSharedGroupId(transactionId: insertedId, groupId: groupId)
+          }
+
           // Assign to correct monthly statement if linked to a credit card
           if let cardId = recurringTx.creditCardId,
              let uid = AuthenticationManager.shared.currentUser?.uid {
@@ -823,6 +829,14 @@ final class RecurringTransactionManager {
         }
       }
 
+      // Build a set of existing (title, budgetMonthDate) to prevent duplicates
+      // even when parent_transaction_id is wrong (cross-device ID mismatch)
+      // or amounts differ slightly (rounding, edits on different devices).
+      var existingTitleAnchors: Set<String> = []
+      for tx in allTransactions {
+        existingTitleAnchors.insert("\(tx.title)|\(tx.budgetMonthDate)")
+      }
+
       // Filter recurring parents and installment parents
       let recurringParents = allTransactions.filter {
         $0.isRecurring == true && ($0.parentTransactionId == nil || $0.parentTransactionId == $0.id)
@@ -864,6 +878,12 @@ final class RecurringTransactionManager {
         let originalDate = Date(timeIntervalSince1970: TimeInterval(recurringTx.dateTimestamp))
 
         for targetAnchor in missingAnchors {
+          // Safety check: skip if a transaction with same title+month already exists
+          // This prevents duplicates when parent_transaction_id is wrong (cross-device sync)
+          // or amounts differ slightly between devices
+          let key = "\(recurringTx.title)|\(targetAnchor)"
+          guard !existingTitleAnchors.contains(key) else { continue }
+
           let targetDate = Date(timeIntervalSince1970: TimeInterval(targetAnchor))
           let targetYear = self.calendar.component(.year, from: targetDate)
           let targetMonth = self.calendar.component(.month, from: targetDate)
@@ -888,6 +908,13 @@ final class RecurringTransactionManager {
           do {
             let insertedId = try self.transactionRepo.insertTransactionAndGetId(instanceModel)
             newInstancesCreated += 1
+            existingTitleAnchors.insert(key)
+
+            // Mirror mode: tag new instance with group ID
+            if MirrorModeManager.shared.isEnabled,
+               let groupId = MirrorModeManager.shared.linkedGroupId {
+              self.transactionRepo.updateSharedGroupId(transactionId: insertedId, groupId: groupId)
+            }
 
             // Assign to correct monthly statement if linked to a credit card
             if let cardId = recurringTx.creditCardId,
@@ -934,6 +961,13 @@ final class RecurringTransactionManager {
             continue
           }
 
+          let installmentAmount =
+            installmentNumber == 1 ? amountPerInstallment + remainder : amountPerInstallment
+
+          // Safety check: skip if a transaction with same title+month already exists
+          let instKey = "\(cleanTitle)|\(targetAnchor)"
+          guard !existingTitleAnchors.contains(instKey) else { continue }
+
           let targetYear = self.calendar.component(.year, from: targetDate)
           let targetMonth = self.calendar.component(.month, from: targetDate)
 
@@ -942,9 +976,6 @@ final class RecurringTransactionManager {
             targetMonth: targetMonth,
             targetYear: targetYear
           )
-
-          let installmentAmount =
-            installmentNumber == 1 ? amountPerInstallment + remainder : amountPerInstallment
 
           let installmentModel = TransactionModel(
             title: cleanTitle,
@@ -962,6 +993,7 @@ final class RecurringTransactionManager {
           do {
             try self.transactionRepo.insertTransaction(installmentModel)
             newInstancesCreated += 1
+            existingTitleAnchors.insert(instKey)
           } catch {
             logError("Error creating installment instance: \(error)")
           }
