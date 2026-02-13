@@ -13,6 +13,7 @@ protocol TransactionDetailsViewDelegate: AnyObject {
   func didTapDelete()
   func didTapBack()
   func didTapDeleteInstallment(_ transaction: Transaction)
+  func didTapMoveToGroup()
 }
 
 final class TransactionDetailsView: UIView {
@@ -303,6 +304,43 @@ final class TransactionDetailsView: UIView {
   private var contentBottomConstraint: NSLayoutConstraint?
   private var installmentTransactions: [Transaction] = []
 
+  // MARK: - Move to Group Row
+  private lazy var moveToGroupContainer: UIView = {
+    let container = UIView()
+    container.backgroundColor = Colors.gray100
+    container.layer.cornerRadius = CornerRadius.large
+    container.isUserInteractionEnabled = true
+    container.translatesAutoresizingMaskIntoConstraints = false
+    container.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(didTapMoveToGroup)))
+    return container
+  }()
+
+  private let moveToGroupIcon: UIImageView = {
+    let iv = UIImageView()
+    iv.image = UIImage(systemName: "arrow.right.arrow.left")
+    iv.tintColor = Colors.gray600
+    iv.contentMode = .scaleAspectFit
+    iv.translatesAutoresizingMaskIntoConstraints = false
+    return iv
+  }()
+
+  private let moveToGroupLabel: UILabel = {
+    let label = UILabel()
+    label.font = Fonts.titleSM.font
+    label.textColor = Colors.gray700
+    label.translatesAutoresizingMaskIntoConstraints = false
+    return label
+  }()
+
+  private let moveToGroupChevron: UIImageView = {
+    let iv = UIImageView()
+    iv.image = UIImage(systemName: "chevron.right")
+    iv.tintColor = Colors.gray500
+    iv.contentMode = .scaleAspectFit
+    iv.translatesAutoresizingMaskIntoConstraints = false
+    return iv
+  }()
+
   // MARK: - Action Buttons (Bottom)
   private lazy var actionButtonsContainerView: UIView = {
     let view = UIView()
@@ -388,6 +426,13 @@ final class TransactionDetailsView: UIView {
     // Add transaction details section
     contentView.addSubview(transactionDetailsHeaderView)
     contentView.addSubview(transactionDetailsContentView)
+
+    // Add move-to-group row
+    contentView.addSubview(moveToGroupContainer)
+    moveToGroupContainer.addSubview(moveToGroupIcon)
+    moveToGroupContainer.addSubview(moveToGroupLabel)
+    moveToGroupContainer.addSubview(moveToGroupChevron)
+    moveToGroupContainer.isHidden = true
 
     // Add installments section (will be hidden by default)
     contentView.addSubview(installmentsHeaderView)
@@ -493,9 +538,34 @@ final class TransactionDetailsView: UIView {
       transactionDetailsContentView.trailingAnchor.constraint(
         equalTo: transactionDetailsHeaderView.trailingAnchor),
 
+      // Move to group row
+      moveToGroupContainer.topAnchor.constraint(
+        equalTo: transactionDetailsContentView.bottomAnchor, constant: Metrics.spacing4),
+      moveToGroupContainer.leadingAnchor.constraint(
+        equalTo: contentView.leadingAnchor, constant: Metrics.spacing4),
+      moveToGroupContainer.trailingAnchor.constraint(
+        equalTo: contentView.trailingAnchor, constant: -Metrics.spacing4),
+      moveToGroupContainer.heightAnchor.constraint(equalToConstant: Metrics.buttonHeight),
+
+      moveToGroupIcon.leadingAnchor.constraint(
+        equalTo: moveToGroupContainer.leadingAnchor, constant: Metrics.spacing4),
+      moveToGroupIcon.centerYAnchor.constraint(equalTo: moveToGroupContainer.centerYAnchor),
+      moveToGroupIcon.widthAnchor.constraint(equalToConstant: 20),
+      moveToGroupIcon.heightAnchor.constraint(equalToConstant: 20),
+
+      moveToGroupLabel.leadingAnchor.constraint(
+        equalTo: moveToGroupIcon.trailingAnchor, constant: Metrics.spacing3),
+      moveToGroupLabel.centerYAnchor.constraint(equalTo: moveToGroupContainer.centerYAnchor),
+
+      moveToGroupChevron.trailingAnchor.constraint(
+        equalTo: moveToGroupContainer.trailingAnchor, constant: -Metrics.spacing4),
+      moveToGroupChevron.centerYAnchor.constraint(equalTo: moveToGroupContainer.centerYAnchor),
+      moveToGroupChevron.widthAnchor.constraint(equalToConstant: 12),
+      moveToGroupChevron.heightAnchor.constraint(equalToConstant: 12),
+
       // Installments section
       installmentsHeaderView.topAnchor.constraint(
-        equalTo: transactionDetailsContentView.bottomAnchor, constant: Metrics.spacing6),
+        equalTo: moveToGroupContainer.bottomAnchor, constant: Metrics.spacing6),
       installmentsHeaderView.leadingAnchor.constraint(
         equalTo: contentView.leadingAnchor, constant: Metrics.spacing4),
       installmentsHeaderView.trailingAnchor.constraint(
@@ -786,6 +856,34 @@ final class TransactionDetailsView: UIView {
 
     // Always hide installments section for now
     installmentsHeaderView.isHidden = true
+
+    // Apply permission checks for group context
+    let group = viewModel.getGroup()
+    let canEdit = viewModel.canEditTransaction(in: group)
+    let canDelete = viewModel.canDeleteTransaction(in: group)
+    editButton.isEnabled = canEdit
+    editButton.alpha = canEdit ? 1.0 : 0.5
+    deleteButton.isEnabled = canDelete
+    deleteButton.alpha = canDelete ? 1.0 : 0.5
+
+    // Configure move-to-group row
+    let isInGroup = viewModel.isInGroup()
+    let hasGroups = !viewModel.getAvailableGroups().isEmpty
+    moveToGroupContainer.isHidden = !hasGroups && !isInGroup
+    moveToGroupLabel.text = isInGroup
+      ? "transactionDetails.moveToPersonal".localized
+      : "transactionDetails.moveToGroup".localized
+
+    // Update bottom constraint based on move-to-group visibility
+    contentBottomConstraint?.isActive = false
+    if !moveToGroupContainer.isHidden {
+      contentBottomConstraint = moveToGroupContainer.bottomAnchor.constraint(
+        equalTo: contentView.bottomAnchor, constant: -Metrics.spacing4)
+    } else {
+      contentBottomConstraint = transactionDetailsContentView.bottomAnchor.constraint(
+        equalTo: contentView.bottomAnchor, constant: -Metrics.spacing4)
+    }
+    contentBottomConstraint?.isActive = true
   }
 
   // MARK: - Actions
@@ -799,6 +897,10 @@ final class TransactionDetailsView: UIView {
 
   @objc private func didTapBack() {
     delegate?.didTapBack()
+  }
+
+  @objc private func didTapMoveToGroup() {
+    delegate?.didTapMoveToGroup()
   }
 }
 

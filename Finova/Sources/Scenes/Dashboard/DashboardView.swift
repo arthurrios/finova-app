@@ -68,6 +68,20 @@ final class DashboardView: UIView {
     return view
   }()
 
+  private let profileTapButton: UIButton = {
+    let btn = UIButton(type: .custom)
+    btn.backgroundColor = .clear
+    btn.translatesAutoresizingMaskIntoConstraints = false
+    return btn
+  }()
+
+  private let contextTapArea: UIView = {
+    let view = UIView()
+    view.backgroundColor = .clear
+    view.translatesAutoresizingMaskIntoConstraints = false
+    return view
+  }()
+
   private let notificationButton: UIButton = {
     let btn = UIButton(type: .system)
     btn.setImage(UIImage(named: "bell"), for: .normal)
@@ -227,11 +241,13 @@ final class DashboardView: UIView {
     headerItemsView.addSubview(profileTapArea)
     profileTapArea.addSubview(avatar)
     profileTapArea.addSubview(welcomeTitleLabel)
-    profileTapArea.addSubview(accountContextLabel)
-    profileTapArea.addSubview(accountContextChevron)
+    headerItemsView.addSubview(contextTapArea)
+    contextTapArea.addSubview(accountContextLabel)
+    contextTapArea.addSubview(accountContextChevron)
     headerItemsView.addSubview(notificationButton)
     headerItemsView.addSubview(notificationBadge)
     notificationBadge.addSubview(notificationBadgeLabel)
+    headerItemsView.addSubview(profileTapButton)
 
     addSubview(monthSelectorShimmerView)
     addSubview(monthCardShimmerView)
@@ -257,6 +273,7 @@ final class DashboardView: UIView {
       for: .touchUpInside)
 
     setupProfileTapGesture()
+    setupContextTapGesture()
     setupRefreshControl()
   }
 
@@ -312,19 +329,29 @@ final class DashboardView: UIView {
       avatar.topAnchor.constraint(equalTo: profileTapArea.topAnchor),
       avatar.bottomAnchor.constraint(equalTo: profileTapArea.bottomAnchor),
 
+      // Clear button overlay on welcome area — topmost in z-order, guaranteed to receive taps
+      profileTapButton.topAnchor.constraint(equalTo: profileTapArea.topAnchor),
+      profileTapButton.leadingAnchor.constraint(equalTo: profileTapArea.leadingAnchor),
+      profileTapButton.trailingAnchor.constraint(equalTo: profileTapArea.trailingAnchor),
+      profileTapButton.bottomAnchor.constraint(equalTo: profileTapArea.bottomAnchor),
+
       welcomeTitleLabel.topAnchor.constraint(equalTo: avatar.topAnchor),
       welcomeTitleLabel.leadingAnchor.constraint(
         equalTo: avatar.trailingAnchor, constant: Metrics.spacing3),
 
-      accountContextLabel.topAnchor.constraint(
+      contextTapArea.topAnchor.constraint(
         equalTo: welcomeTitleLabel.bottomAnchor, constant: Metrics.spacing1),
-      accountContextLabel.leadingAnchor.constraint(equalTo: welcomeTitleLabel.leadingAnchor),
+      contextTapArea.leadingAnchor.constraint(equalTo: welcomeTitleLabel.leadingAnchor),
+
+      accountContextLabel.topAnchor.constraint(equalTo: contextTapArea.topAnchor),
+      accountContextLabel.leadingAnchor.constraint(equalTo: contextTapArea.leadingAnchor),
+      accountContextLabel.bottomAnchor.constraint(equalTo: contextTapArea.bottomAnchor),
 
       accountContextChevron.centerYAnchor.constraint(equalTo: accountContextLabel.centerYAnchor),
       accountContextChevron.leadingAnchor.constraint(equalTo: accountContextLabel.trailingAnchor, constant: Metrics.spacing1),
       accountContextChevron.widthAnchor.constraint(equalToConstant: 10),
       accountContextChevron.heightAnchor.constraint(equalToConstant: 10),
-      accountContextChevron.trailingAnchor.constraint(lessThanOrEqualTo: profileTapArea.trailingAnchor),
+      accountContextChevron.trailingAnchor.constraint(equalTo: contextTapArea.trailingAnchor),
 
       notificationButton.centerYAnchor.constraint(equalTo: avatar.centerYAnchor),
       notificationButton.trailingAnchor.constraint(
@@ -431,9 +458,46 @@ final class DashboardView: UIView {
   }
 
   private func setupProfileTapGesture() {
-    let tapGestureRecognizer = UITapGestureRecognizer(
-      target: self, action: #selector(handleProfileTap))
-    profileTapArea.addGestureRecognizer(tapGestureRecognizer)
+    profileTapButton.addTarget(self, action: #selector(handleProfileTap), for: .touchUpInside)
+  }
+
+  private func setupContextTapGesture() {
+    let tapGesture = UITapGestureRecognizer(
+      target: self, action: #selector(handleContextTap))
+    contextTapArea.addGestureRecognizer(tapGesture)
+  }
+
+  @objc private func handleContextTap() {
+    if currentHasGroups {
+      delegate?.didTapContextSwitch()
+    } else {
+      delegate?.didTapProfile()
+    }
+  }
+
+  private var currentHasGroups: Bool = false
+
+  func configureContextChip(currentContext: DataContext, hasGroups: Bool) {
+    currentHasGroups = hasGroups
+
+    if hasGroups {
+      accountContextChevron.image = UIImage(
+        systemName: "chevron.down",
+        withConfiguration: UIImage.SymbolConfiguration(pointSize: 10, weight: .semibold))
+    } else {
+      accountContextChevron.image = UIImage(
+        systemName: "chevron.right",
+        withConfiguration: UIImage.SymbolConfiguration(pointSize: 10, weight: .semibold))
+    }
+
+    switch currentContext {
+    case .personal:
+      accountContextLabel.text = hasGroups
+        ? "dashboard.context.personal".localized
+        : "dashboard.context.label".localized
+    case .group(let group):
+      accountContextLabel.text = group.name
+    }
   }
 
   @objc

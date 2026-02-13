@@ -76,12 +76,12 @@ final class AddTransactionModalView: UIView {
     return sv
   }()
 
-  // Simplified content stack for edit mode (no transaction type buttons or mode controls)
+  // Simplified content stack for edit mode (no mode controls)
   private lazy var editModeContentStackView: UIStackView = {
     let sv = UIStackView(
       axis: .vertical, spacing: Metrics.spacing7, distribution: .fill,
       arrangedSubviews: [
-        headerStackView, editModeInputStackView, separator, saveButton,
+        headerStackView, editModeInputStackView, transactionButtonsStackView, separator, saveButton,
       ])
     sv.directionalLayoutMargins = NSDirectionalEdgeInsets(
       top: Metrics.spacing10, leading: Metrics.spacing8, bottom: Metrics.spacing4,
@@ -295,6 +295,33 @@ final class AddTransactionModalView: UIView {
     return button
   }()
 
+  // MARK: - Group Context Banner
+  let groupContextBanner: UIView = {
+    let view = UIView()
+    view.backgroundColor = Colors.mainMagenta.withAlphaComponent(0.1)
+    view.layer.cornerRadius = CornerRadius.medium
+    view.isHidden = true
+    view.translatesAutoresizingMaskIntoConstraints = false
+    return view
+  }()
+
+  private let groupBannerIcon: UIImageView = {
+    let iv = UIImageView()
+    iv.image = UIImage(systemName: "person.3.fill")
+    iv.tintColor = Colors.mainMagenta
+    iv.contentMode = .scaleAspectFit
+    iv.translatesAutoresizingMaskIntoConstraints = false
+    return iv
+  }()
+
+  let groupBannerLabel: UILabel = {
+    let label = UILabel()
+    label.font = Fonts.textXS.font
+    label.textColor = Colors.mainMagenta
+    label.translatesAutoresizingMaskIntoConstraints = false
+    return label
+  }()
+
   private let transactionTitleTextField = Input(
     placeholder: "addTransactionModal.input.transactionTitle".localized)
   let categoryPickerView = Input(
@@ -378,6 +405,9 @@ final class AddTransactionModalView: UIView {
     scrollView.addSubview(contentStackView)
     closeIconButton.addTarget(self, action: #selector(didTapClose), for: .touchUpInside)
 
+    // Setup group context banner
+    setupGroupBanner()
+
     saveButton.addTarget(self, action: #selector(didTapSaveTransaction), for: .touchUpInside)
 
     // Add Done button toolbar to inputs that need it
@@ -431,6 +461,38 @@ final class AddTransactionModalView: UIView {
 
   @objc private func dateDidChange() {
     updateStatementInfoBanner()
+  }
+
+  private func setupGroupBanner() {
+    groupContextBanner.addSubview(groupBannerIcon)
+    groupContextBanner.addSubview(groupBannerLabel)
+
+    NSLayoutConstraint.activate([
+      groupContextBanner.heightAnchor.constraint(equalToConstant: 32),
+
+      groupBannerIcon.leadingAnchor.constraint(equalTo: groupContextBanner.leadingAnchor, constant: Metrics.spacing3),
+      groupBannerIcon.centerYAnchor.constraint(equalTo: groupContextBanner.centerYAnchor),
+      groupBannerIcon.widthAnchor.constraint(equalToConstant: 16),
+      groupBannerIcon.heightAnchor.constraint(equalToConstant: 16),
+
+      groupBannerLabel.leadingAnchor.constraint(equalTo: groupBannerIcon.trailingAnchor, constant: Metrics.spacing2),
+      groupBannerLabel.centerYAnchor.constraint(equalTo: groupContextBanner.centerYAnchor),
+      groupBannerLabel.trailingAnchor.constraint(lessThanOrEqualTo: groupContextBanner.trailingAnchor, constant: -Metrics.spacing3),
+    ])
+
+    // Insert banner after the header in the content stack
+    contentStackView.insertArrangedSubview(groupContextBanner, at: 1)
+    contentStackView.setCustomSpacing(Metrics.spacing3, after: headerStackView)
+  }
+
+  func configureGroupContext(_ context: DataContext) {
+    switch context {
+    case .personal:
+      groupContextBanner.isHidden = true
+    case .group(let group):
+      groupContextBanner.isHidden = false
+      groupBannerLabel.text = String(format: "dashboard.context.addingTo".localized, group.name)
+    }
   }
 
   private func setupTransactionModeControl() {
@@ -650,11 +712,9 @@ final class AddTransactionModalView: UIView {
       return !isInputValid(input)
     }
 
-    // Only validate transaction type in add mode
     let isTransactionTypeError =
-      !isEditMode
-      && (incomeSelectorButton.superview != nil && incomeSelectorButton.variant != .selected
-        && expenseSelectorButton.superview != nil && expenseSelectorButton.variant != .selected)
+      incomeSelectorButton.superview != nil && incomeSelectorButton.variant != .selected
+        && expenseSelectorButton.superview != nil && expenseSelectorButton.variant != .selected
 
     invalids.forEach { $0.setError(true) }
 
@@ -693,15 +753,13 @@ final class AddTransactionModalView: UIView {
     let typeKey: String
     let selectedMode: TransactionMode
 
+    // Always get type from UI controls (selectors are now visible in edit mode too)
+    typeEnum = incomeSelectorButton.variant == .selected ? .income : .expense
+    typeKey = String(describing: typeEnum)
+
     if isEditMode, let editingTransaction = editingTransaction {
-      // In edit mode, use existing transaction data
-      typeEnum = editingTransaction.type
-      typeKey = String(describing: typeEnum)
       selectedMode = editingTransaction.mode
     } else {
-      // In add mode, get from UI controls
-      typeEnum = incomeSelectorButton.variant == .selected ? .income : .expense
-      typeKey = String(describing: typeEnum)
       selectedMode = transactionModelControl.getSelectedMode()
     }
 
@@ -884,6 +942,14 @@ final class AddTransactionModalView: UIView {
   }
 
   func showPaymentMethodSection(_ show: Bool) {
+    if show && isEditMode && paymentMethodSection.superview == nil {
+      // Insert after editModeInputStackView in the edit mode stack
+      if let inputIndex = editModeContentStackView.arrangedSubviews.firstIndex(of: editModeInputStackView) {
+        editModeContentStackView.insertArrangedSubview(paymentMethodSection, at: inputIndex + 1)
+        editModeContentStackView.setCustomSpacing(Metrics.spacing3, after: editModeInputStackView)
+      }
+    }
+
     UIView.animate(withDuration: 0.25) {
       self.paymentMethodSection.isHidden = !show
       self.paymentMethodSection.alpha = show ? 1 : 0
@@ -918,7 +984,7 @@ final class AddTransactionModalView: UIView {
     // Show payment method section for expense transactions in edit mode
     if transaction.type == .expense {
       paymentMethodSection.isHidden = false
-      editModeContentStackView.insertArrangedSubview(paymentMethodSection, at: 2)
+      editModeContentStackView.insertArrangedSubview(paymentMethodSection, at: 3)
       editModeContentStackView.setCustomSpacing(Metrics.spacing3, after: editModeInputStackView)
     } else {
       paymentMethodSection.isHidden = true
@@ -988,18 +1054,17 @@ final class AddTransactionModalView: UIView {
       }
     }
 
-    // Only populate non-editable fields if not in edit mode
-    if !isEditMode {
-      // Populate transaction type
-      if transaction.type == .income {
-        incomeSelectorButton.variant = .selected
-        expenseSelectorButton.variant = .normal
-      } else {
-        incomeSelectorButton.variant = .normal
-        expenseSelectorButton.variant = .selected
-      }
+    // Populate transaction type (both add and edit mode)
+    if transaction.type == .income {
+      incomeSelectorButton.variant = .selected
+      expenseSelectorButton.variant = .normal
+    } else {
+      incomeSelectorButton.variant = .normal
+      expenseSelectorButton.variant = .selected
+    }
 
-      // Populate transaction mode
+    if !isEditMode {
+      // Populate transaction mode (only in add mode)
       transactionModelControl.setSelectedMode(transaction.mode)
       if transaction.mode == .installments, let totalInstallments = transaction.totalInstallments {
         installmentsInputWithSuffix.text = String(totalInstallments)

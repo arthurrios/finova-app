@@ -65,4 +65,15 @@ final class BudgetRepository: BudgetRepositoryProtocol {
     let budgets = fetchBudgets()
     return budgets.contains { $0.monthDate == monthDate }
   }
+
+  // MARK: - Group Queries
+
+  func fetchBudgetsForGroup(groupId: String) -> [BudgetModel] {
+    do {
+      return try db.fetchBudgetsForGroup(groupId: groupId)
+    } catch {
+      logError("Failed to fetch budgets for group: \(error)")
+      return []
+    }
+  }
 }

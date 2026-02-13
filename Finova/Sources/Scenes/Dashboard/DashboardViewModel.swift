@@ -22,6 +22,9 @@ final class DashboardViewModel {
   private let monthRange: ClosedRange<Int>
   private let notificationCenter = UNUserNotificationCenter.current()
 
+  /// Current viewing context — defaults to personal
+  var currentContext: DataContext = .personal
+
   var onCleanupChoiceNeeded: ((RecurringCleanupOption) -> Void)?
 
   /// Callback to notify UI that data has changed and needs refresh
@@ -48,27 +51,53 @@ final class DashboardViewModel {
   }
 
   func getStatementTransactions() -> [Transaction] {
-    guard let uid = AuthenticationManager.shared.currentUser?.uid else { return [] }
-    return creditCardService.generateStatementTransactions(userId: uid)
+    switch currentContext {
+    case .personal:
+      guard let uid = AuthenticationManager.shared.currentUser?.uid else { return [] }
+      return creditCardService.generateStatementTransactions(userId: uid)
+    case .group(let group):
+      let sharedCards = CreditCardRepository().fetchCardsForGroup(groupId: group.id)
+      return sharedCards.flatMap {
+        creditCardService.generateStatementTransactions(forCard: $0, includeAllUsers: true)
+      }
+    }
   }
 
   func loadMonthlyCards() -> [MonthBudgetCardType] {
-    // Repair credit card transactions: fix orphans and reassign misplaced ones
-    if let uid = AuthenticationManager.shared.currentUser?.uid {
-      creditCardService.repairOrphanedCreditCardTransactions(userId: uid, transactionRepo: transactionRepo)
-      creditCardService.reassignMisplacedTransactions(userId: uid, transactionRepo: transactionRepo)
+    switch currentContext {
+    case .personal:
+      // Repair credit card transactions: fix orphans and reassign misplaced ones
+      if let uid = AuthenticationManager.shared.currentUser?.uid {
+        creditCardService.repairOrphanedCreditCardTransactions(userId: uid, transactionRepo: transactionRepo)
+        creditCardService.reassignMisplacedTransactions(userId: uid, transactionRepo: transactionRepo)
+      }
+
+      // Use the transaction ledger service for all calculations
+      let monthlyData = transactionLedger.calculateMonthlyData(for: monthRange)
+
+      // Monitor negative balance after loading data
+      balanceMonitor.monitorCurrentMonthBalance()
+
+      // Trigger lazy generation AFTER returning data (non-blocking)
+      triggerLazyGenerationInBackground()
+
+      return monthlyData
+
+    case .group(let group):
+      return transactionLedger.calculateMonthlyDataForGroup(
+        groupId: group.id, for: monthRange
+      )
     }
+  }
 
-    // Use the transaction ledger service for all calculations
-    let monthlyData = transactionLedger.calculateMonthlyData(for: monthRange)
+  func switchContext(to context: DataContext) {
+    currentContext = context
+    transactionLedger.invalidateCache()
+    onDataNeedsRefresh?()
+  }
 
-    // Monitor negative balance after loading data
-    balanceMonitor.monitorCurrentMonthBalance()
-
-    // Trigger lazy generation AFTER returning data (non-blocking)
-    triggerLazyGenerationInBackground()
-
-    return monthlyData
+  func getAvailableGroups() -> [BudgetGroup] {
+    return BudgetGroupService.shared.fetchAllGroups()
   }
 
   /// Triggers lazy generation in background without blocking UI

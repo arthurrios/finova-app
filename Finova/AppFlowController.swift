@@ -218,7 +218,7 @@ extension AppFlowController: RegisterFlowDelegate {
 }
 
 // MARK: - Dashboard Flow
-extension AppFlowController: DashboardFlowDelegate, SettingsFlowDelegate, ProfileFlowDelegate, NotificationSettingsFlowDelegate, NotificationHistoryFlowDelegate {
+extension AppFlowController: DashboardFlowDelegate, SettingsFlowDelegate, ProfileFlowDelegate, NotificationSettingsFlowDelegate, NotificationHistoryFlowDelegate, SyncSettingsFlowDelegate {
     func navigateToAllocationDetails(allocation: BudgetAllocation) {
         let viewController = ViewControllersFactory.makeBudgetAllocationDetailsViewController(allocation: allocation)
         viewController.flowDelegate = self
@@ -327,9 +327,10 @@ extension AppFlowController: DashboardFlowDelegate, SettingsFlowDelegate, Profil
         navigationController?.pushViewController(viewController, animated: true)
     }
     
-    func openAddTransactionModal() {
+    func openAddTransactionModal(context: DataContext) {
         let viewController = viewControllersFactory.makeAddTransactionModalViewController(
             flowDelegate: self)
+        viewController.viewModel.activeContext = context
         viewController.modalPresentationStyle = .overCurrentContext
         viewController.modalTransitionStyle = .crossDissolve
         navigationController?.present(viewController, animated: false) {
@@ -388,6 +389,20 @@ extension AppFlowController: DashboardFlowDelegate, SettingsFlowDelegate, Profil
     }
 
     func dismissSettings() {
+        navigationController?.popViewController(animated: true)
+    }
+
+    func navigateToBudgetGroups() {
+        let viewController = viewControllersFactory.makeBudgetGroupsViewController(flowDelegate: self)
+        navigationController?.pushViewController(viewController, animated: true)
+    }
+
+    func navigateToSyncSettings() {
+        let viewController = viewControllersFactory.makeSyncSettingsViewController(flowDelegate: self)
+        navigationController?.pushViewController(viewController, animated: true)
+    }
+
+    func dismissSyncSettings() {
         navigationController?.popViewController(animated: true)
     }
 }
@@ -667,6 +682,97 @@ extension AppFlowController: AdjustBalanceModalFlowDelegate {
                 }
             }
         }
+    }
+}
+
+// MARK: - Budget Groups Flow
+extension AppFlowController: BudgetGroupsFlowDelegate {
+    func dismissBudgetGroups() {
+        navigationController?.popViewController(animated: true)
+    }
+
+    func navigateToGroupDetails(group: BudgetGroup) {
+        let viewController = viewControllersFactory.makeGroupDetailsViewController(flowDelegate: self, group: group)
+        navigationController?.pushViewController(viewController, animated: true)
+    }
+
+    func openCreateGroupModal() {
+        // Handled inline by BudgetGroupsViewController via alert
+    }
+}
+
+// MARK: - Group Details Flow
+extension AppFlowController: GroupDetailsFlowDelegate {
+    func dismissGroupDetails() {
+        navigationController?.popViewController(animated: true)
+    }
+
+    func navigateToMemberPermissions(member: GroupMember, group: BudgetGroup) {
+        let viewController = viewControllersFactory.makeMemberPermissionsViewController(
+            flowDelegate: self, member: member, group: group)
+        navigationController?.pushViewController(viewController, animated: true)
+    }
+
+    func openInviteMemberModal(group: BudgetGroup) {
+        let vc = viewControllersFactory.makeInviteMemberViewController(flowDelegate: self, group: group)
+        vc.modalPresentationStyle = .pageSheet
+        if let sheet = vc.sheetPresentationController {
+            let defaultDetent = UISheetPresentationController.Detent.custom(
+                identifier: InviteMemberViewController.defaultDetentIdentifier
+            ) { context in
+                return context.maximumDetentValue * 0.50
+            }
+            let expandedDetent = UISheetPresentationController.Detent.custom(
+                identifier: InviteMemberViewController.expandedDetentIdentifier
+            ) { context in
+                return context.maximumDetentValue * 0.95
+            }
+            sheet.detents = [defaultDetent, expandedDetent]
+            sheet.selectedDetentIdentifier = InviteMemberViewController.defaultDetentIdentifier
+            sheet.prefersGrabberVisible = true
+            sheet.preferredCornerRadius = CornerRadius.bottomSheet
+        }
+        navigationController?.present(vc, animated: true)
+    }
+}
+
+// MARK: - InviteMemberFlowDelegate
+extension AppFlowController: InviteMemberFlowDelegate {
+    func dismissInviteMember() {
+        navigationController?.dismiss(animated: true)
+    }
+}
+
+// MARK: - MemberPermissionsFlowDelegate
+extension AppFlowController: MemberPermissionsFlowDelegate {
+    func dismissMemberPermissions() {
+        navigationController?.popViewController(animated: true)
+    }
+}
+
+// MARK: - GroupInvitationFlowDelegate
+extension AppFlowController: GroupInvitationFlowDelegate {
+    func presentGroupInvitation(_ invitation: GroupInvitation) {
+        let vc = viewControllersFactory.makeGroupInvitationViewController(
+            flowDelegate: self, invitation: invitation)
+        vc.modalPresentationStyle = .pageSheet
+        if let sheet = vc.sheetPresentationController {
+            sheet.detents = [.medium()]
+            sheet.prefersGrabberVisible = true
+            sheet.preferredCornerRadius = CornerRadius.bottomSheet
+        }
+        navigationController?.topViewController?.present(vc, animated: true)
+    }
+
+    func didAcceptInvitation() {
+        navigationController?.dismiss(animated: true) { [weak self] in
+            // Refresh budget groups list if visible
+            NotificationCenter.default.post(name: .budgetGroupDataChanged, object: nil)
+        }
+    }
+
+    func didDeclineInvitation() {
+        navigationController?.dismiss(animated: true)
     }
 }
 

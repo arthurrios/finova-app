@@ -69,6 +69,10 @@ extension SettingsViewController: SettingsViewDelegate {
         flowDelegate?.navigateToNotificationSettings()
     }
 
+    func didTapSyncSettings() {
+        flowDelegate?.navigateToSyncSettings()
+    }
+
     func handleDidTapBackButton() {
         self.flowDelegate?.dismissSettings()
     }

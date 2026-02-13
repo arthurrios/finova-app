@@ -10,7 +10,7 @@ import Foundation
 protocol DashboardFlowDelegate: AnyObject {
     func logout()
     func navigateToBudgets(date: Date?)
-    func openAddTransactionModal()
+    func openAddTransactionModal(context: DataContext)
     func openAddAllocationModal(forMonth monthAnchor: Int, preselectedCategory: TransactionCategory?)
     func navigateToProfile()
     func navigateToNotificationHistory()

@@ -30,6 +30,16 @@ final class AddTransactionModalViewModel {
     )
   }
 
+  /// Current context for transaction creation — determines which group (if any) the transaction belongs to
+  var activeContext: DataContext = .personal
+
+  // MARK: - Permission Checks
+
+  func canAddTransaction(in group: BudgetGroup?) -> Bool {
+    guard let group = group else { return true }
+    return BudgetGroupService.shared.currentUserCan(\.canCreateTransactions, in: group)
+  }
+
   func addTransaction(
     title: String,
     amount: Int,
@@ -76,6 +86,13 @@ final class AddTransactionModalViewModel {
 
       do {
         let insertedId = try transactionRepo.insertTransactionAndGetId(model)
+
+        // Assign to group if in group context
+        if let groupId = activeContext.groupId {
+          transactionRepo.updateSharedGroupId(transactionId: insertedId, groupId: groupId)
+          GroupNotificationService.shared.logActivity(
+            action: .transactionCreated, groupId: groupId, detail: title)
+        }
 
         // Check for similar existing recurring transactions
         if let existingSimilar = recurringManager.findSimilarRecurringTransaction(
@@ -138,6 +155,13 @@ final class AddTransactionModalViewModel {
 
       do {
         let insertedId = try transactionRepo.insertTransactionAndGetId(model)
+
+        // Assign to group if in group context
+        if let groupId = activeContext.groupId {
+          transactionRepo.updateSharedGroupId(transactionId: insertedId, groupId: groupId)
+          GroupNotificationService.shared.logActivity(
+            action: .transactionCreated, groupId: groupId, detail: title)
+        }
 
         // Handle credit card statement assignment
         if let cardId = creditCardId, let card = creditCardRepo.fetchCard(byId: cardId) {

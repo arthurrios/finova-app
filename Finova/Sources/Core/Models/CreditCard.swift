@@ -22,6 +22,7 @@ struct CreditCard: Codable {
     var isDefault: Bool
     var createdAt: Date
     var updatedAt: Date
+    var sharedGroupId: String?
 }
 
 enum CardBrand: String, Codable, CaseIterable {

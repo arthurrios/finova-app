@@ -20,6 +20,8 @@ protocol BudgetAllocationRepositoryProtocol {
     func deleteRecurringAllocationAndFuture(id: Int) throws
     func deleteAllRecurringAllocations(id: Int) throws
     func updateIsRecurring(allocationId: Int, isRecurring: Bool) throws
+    func fetchPersonalAllocationsCount() -> Int
+    func migrateAllocationsToGroup(groupId: String) -> Int
 }
 
 // MARK: - Implementation
@@ -67,7 +69,8 @@ final class BudgetAllocationRepository: BudgetAllocationRepositoryProtocol {
             categoryKey: model.categoryKey,
             allocatedAmount: model.allocatedAmount,
             isRecurring: model.isRecurring,
-            parentAllocationId: model.parentAllocationId
+            parentAllocationId: model.parentAllocationId,
+            sharedGroupId: model.sharedGroupId
         )
 
         models.append(modelWithId)
@@ -150,7 +153,8 @@ final class BudgetAllocationRepository: BudgetAllocationRepositoryProtocol {
                     categoryKey: models[i].categoryKey,
                     allocatedAmount: newAmount,
                     isRecurring: models[i].isRecurring,
-                    parentAllocationId: models[i].parentAllocationId
+                    parentAllocationId: models[i].parentAllocationId,
+                    sharedGroupId: models[i].sharedGroupId
                 )
                 updatedCount += 1
                 updatedIds.append(modelId)
@@ -194,7 +198,8 @@ final class BudgetAllocationRepository: BudgetAllocationRepositoryProtocol {
                     categoryKey: models[i].categoryKey,
                     allocatedAmount: newAmount,
                     isRecurring: models[i].isRecurring,
-                    parentAllocationId: models[i].parentAllocationId
+                    parentAllocationId: models[i].parentAllocationId,
+                    sharedGroupId: models[i].sharedGroupId
                 )
                 updatedCount += 1
                 updatedIds.append(modelId)
@@ -237,7 +242,8 @@ final class BudgetAllocationRepository: BudgetAllocationRepositoryProtocol {
                     categoryKey: parentModel.categoryKey,
                     allocatedAmount: parentModel.allocatedAmount,
                     isRecurring: false,
-                    parentAllocationId: parentModel.parentAllocationId
+                    parentAllocationId: parentModel.parentAllocationId,
+                    sharedGroupId: parentModel.sharedGroupId
                 )
                 logDebug("BudgetAllocationRepository: Set isRecurring=false on parent \(parentId) to prevent lazy regeneration")
             }
@@ -305,7 +311,8 @@ final class BudgetAllocationRepository: BudgetAllocationRepositoryProtocol {
                 categoryKey: parentModel.categoryKey,
                 allocatedAmount: parentModel.allocatedAmount,
                 isRecurring: false,
-                parentAllocationId: parentModel.parentAllocationId
+                parentAllocationId: parentModel.parentAllocationId,
+                sharedGroupId: parentModel.sharedGroupId
             )
             logDebug("BudgetAllocationRepository: Set isRecurring=false on parent \(parentId) to prevent lazy regeneration")
         }
@@ -361,11 +368,45 @@ final class BudgetAllocationRepository: BudgetAllocationRepositoryProtocol {
             categoryKey: existingModel.categoryKey,
             allocatedAmount: existingModel.allocatedAmount,
             isRecurring: isRecurring,
-            parentAllocationId: existingModel.parentAllocationId
+            parentAllocationId: existingModel.parentAllocationId,
+            sharedGroupId: existingModel.sharedGroupId
         )
 
         logDebug("BudgetAllocationRepository: Updated isRecurring to \(isRecurring) for allocation \(allocationId)")
         saveModels(models)
+    }
+
+    // MARK: - Migration
+
+    func fetchPersonalAllocationsCount() -> Int {
+        let models = loadModels()
+        return models.filter { $0.sharedGroupId == nil }.count
+    }
+
+    func migrateAllocationsToGroup(groupId: String) -> Int {
+        var models = loadModels()
+        var migratedCount = 0
+
+        for i in models.indices {
+            guard models[i].sharedGroupId == nil else { continue }
+            models[i] = BudgetAllocationModel(
+                id: models[i].id,
+                monthDate: models[i].monthDate,
+                categoryKey: models[i].categoryKey,
+                allocatedAmount: models[i].allocatedAmount,
+                isRecurring: models[i].isRecurring,
+                parentAllocationId: models[i].parentAllocationId,
+                sharedGroupId: groupId
+            )
+            migratedCount += 1
+        }
+
+        if migratedCount > 0 {
+            saveModels(models)
+            logDebug("BudgetAllocationRepository: Migrated \(migratedCount) allocations to group \(groupId)")
+        }
+
+        return migratedCount
     }
 
     // MARK: - Private Helpers

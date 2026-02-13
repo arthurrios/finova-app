@@ -93,6 +93,13 @@
 			name = Frameworks;
 			sourceTree = "<group>";
 		};
+		5A853876C9D032AA4BD919A8 /* Finova */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			path = Finova;
+			sourceTree = "<group>";
+		};
 		B6EF22C3E549CEB7DB518A3F /* Pods */ = {
 			isa = PBXGroup;
 			children = (
@@ -116,6 +123,7 @@
 				C6D36BDB2DCB81B700A9AB2E /* Products */,
 				B6EF22C3E549CEB7DB518A3F /* Pods */,
 				3C7D365F56378FE2A0877202 /* Frameworks */,
+				5A853876C9D032AA4BD919A8 /* Finova */,
 			);
 			sourceTree = "<group>";
 		};
@@ -385,7 +393,7 @@
 				CODE_SIGN_ENTITLEMENTS = Finova/Finova.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 6;
+				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = AVJYPRL2JA;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -403,7 +411,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.5.0;
+				MARKETING_VERSION = 1.6.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.arthurrios.FinanceApp;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -422,7 +430,7 @@
 				CODE_SIGN_ENTITLEMENTS = Finova/Finova.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 6;
+				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = AVJYPRL2JA;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -440,7 +448,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.5.0;
+				MARKETING_VERSION = 1.6.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.arthurrios.FinanceApp;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";

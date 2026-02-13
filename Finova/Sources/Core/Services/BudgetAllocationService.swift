@@ -78,7 +78,8 @@ final class BudgetAllocationService {
             categoryKey: existing.category.key,
             allocatedAmount: newAmount,
             isRecurring: existing.isRecurring,
-            parentAllocationId: existing.parentAllocationId
+            parentAllocationId: existing.parentAllocationId,
+            sharedGroupId: existing.sharedGroupId
         )
 
         try allocationRepo.updateAllocation(updated)
@@ -260,6 +261,18 @@ final class BudgetAllocationService {
         return usage
     }
 
+    /// Group-aware version: calculates spending by category using all group members' transactions.
+    func calculateUsageByCategory(forMonth monthAnchor: Int, groupId: String) -> [String: Int] {
+        let transactions = transactionRepo.fetchTransactionsForGroup(groupId: groupId)
+            .filter { $0.budgetMonthDate == monthAnchor && $0.type == .expense }
+
+        var usage: [String: Int] = [:]
+        for transaction in transactions {
+            usage[transaction.category.key, default: 0] += transaction.amount
+        }
+        return usage
+    }
+
     /// Generates recurring allocation instances for a month if they don't exist.
     /// Uses lazy generation pattern - instances are created on-demand when viewing a month.
     private func generateRecurringInstancesIfNeeded(forMonth monthAnchor: Int) {
@@ -297,7 +310,8 @@ final class BudgetAllocationService {
                     categoryKey: parent.category.key,
                     allocatedAmount: parent.allocatedAmount,
                     isRecurring: true,  // Child instances are still part of the recurring series
-                    parentAllocationId: parentId
+                    parentAllocationId: parentId,
+                    sharedGroupId: parent.sharedGroupId
                 )
                 _ = try? allocationRepo.insertAllocation(instance)
             } else {

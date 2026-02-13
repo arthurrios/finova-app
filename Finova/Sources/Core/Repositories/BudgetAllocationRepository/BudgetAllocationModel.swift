@@ -10,20 +10,22 @@ import UIKit
 // MARK: - Database Model
 
 struct BudgetAllocationModel: Codable {
-    
+
     let id: Int?
     let monthDate: Int
     let categoryKey: String
     let allocatedAmount: Int
     let isRecurring: Bool
     let parentAllocationId: Int?
-    
+    let sharedGroupId: String?
+
     init(id: Int? = nil,
          monthDate: Int,
          categoryKey: String,
          allocatedAmount: Int,
          isRecurring: Bool = false,
-         parentAllocationId: Int? = nil
+         parentAllocationId: Int? = nil,
+         sharedGroupId: String? = nil
     ) {
         self.id = id
         self.monthDate = monthDate
@@ -31,6 +33,7 @@ struct BudgetAllocationModel: Codable {
         self.allocatedAmount = allocatedAmount
         self.isRecurring = isRecurring
         self.parentAllocationId = parentAllocationId
+        self.sharedGroupId = sharedGroupId
     }
 }
 
@@ -82,7 +85,8 @@ struct BudgetAllocation: Identifiable {
     let allocatedAmount: Int
     let isRecurring: Bool
     let parentAllocationId: Int?
-    
+    let sharedGroupId: String?
+
     var usedAmount: Int = 0
     
     var remainingAmount: Int { allocatedAmount - usedAmount }
@@ -106,6 +110,7 @@ struct BudgetAllocation: Identifiable {
         allocatedAmount: Int,
         isRecurring: Bool = false,
         parentAllocationId: Int? = nil,
+        sharedGroupId: String? = nil,
         usedAmount: Int = 0
     ) {
         self.dbId = dbId
@@ -114,6 +119,7 @@ struct BudgetAllocation: Identifiable {
         self.allocatedAmount = allocatedAmount
         self.isRecurring = isRecurring
         self.parentAllocationId = parentAllocationId
+        self.sharedGroupId = sharedGroupId
         self.usedAmount = usedAmount
     }
 
@@ -126,6 +132,7 @@ struct BudgetAllocation: Identifiable {
         self.allocatedAmount = model.allocatedAmount
         self.isRecurring = model.isRecurring
         self.parentAllocationId = model.parentAllocationId
+        self.sharedGroupId = model.sharedGroupId
         self.usedAmount = 0
     }
 

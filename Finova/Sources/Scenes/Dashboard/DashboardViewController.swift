@@ -191,7 +191,13 @@ final class DashboardViewController: UIViewController {
 
         // Load fresh data from repositories
         let monthData = viewModel.loadMonthlyCards()
-        let transactions = viewModel.transactionRepo.fetchTransactions()
+        let transactions: [Transaction]
+        switch viewModel.currentContext {
+        case .personal:
+            transactions = viewModel.transactionRepo.fetchTransactions()
+        case .group(let group):
+            transactions = viewModel.transactionRepo.fetchTransactionsForGroup(groupId: group.id)
+        }
 
         // Update the view models with fresh data
         syncedViewModel.setMonthData(monthData)
@@ -669,6 +675,7 @@ final class DashboardViewController: UIViewController {
             name: .currencyDidChange,
             object: nil
         )
+
     }
 
     @objc private func handleCurrencyDidChange() {
@@ -1223,7 +1230,12 @@ final class DashboardViewController: UIViewController {
         }
 
         // Safely load transactions with authentication check
-        transactions = viewModel.transactionRepo.fetchTransactions()
+        switch viewModel.currentContext {
+        case .personal:
+            transactions = viewModel.transactionRepo.fetchTransactions()
+        case .group(let group):
+            transactions = viewModel.transactionRepo.fetchTransactionsForGroup(groupId: group.id)
+        }
 
         // Safely load monthly cards data
         let monthData = viewModel.loadMonthlyCards()
@@ -1235,7 +1247,10 @@ final class DashboardViewController: UIViewController {
         _ = viewModel.analyzeDuplicateTransactions()
 
         viewModel.cleanupExistingDuplicates()
-        
+
+        // Configure context chip
+        updateContextChip()
+
         contentView.monthCarousel.layoutIfNeeded()
 
         // Marcar que o carregamento inicial foi concluído
@@ -1284,15 +1299,68 @@ extension DashboardViewController: DashboardViewDelegate {
             isGlobalBudgetViewActive = true
             self.flowDelegate?.openAddAllocationModal(forMonth: monthAnchor, preselectedCategory: nil)
         } else {
-            self.flowDelegate?.openAddTransactionModal()
+            self.flowDelegate?.openAddTransactionModal(context: viewModel.currentContext)
         }
     }
     
+    func didTapContextSwitch() {
+        let groups = viewModel.getAvailableGroups()
+        guard !groups.isEmpty else { return }
+
+        let alert = UIAlertController(
+            title: "dashboard.context.switch".localized,
+            message: nil,
+            preferredStyle: .actionSheet
+        )
+
+        // Personal option
+        let personalAction = UIAlertAction(
+            title: "dashboard.context.personal".localized,
+            style: .default
+        ) { [weak self] _ in
+            self?.switchToContext(.personal)
+        }
+        if viewModel.currentContext == .personal {
+            personalAction.setValue(true, forKey: "checked")
+        }
+        alert.addAction(personalAction)
+
+        // Group options
+        for group in groups {
+            let action = UIAlertAction(title: group.name, style: .default) { [weak self] _ in
+                self?.switchToContext(.group(group))
+            }
+            if case .group(let current) = viewModel.currentContext, current.id == group.id {
+                action.setValue(true, forKey: "checked")
+            }
+            alert.addAction(action)
+        }
+
+        alert.addAction(UIAlertAction(title: "alert.cancel".localized, style: .cancel))
+        present(alert, animated: true)
+    }
+
+    private func switchToContext(_ context: DataContext) {
+        viewModel.switchContext(to: context)
+        updateContextChip()
+    }
+
+    func updateContextChip() {
+        let hasGroups = !viewModel.getAvailableGroups().isEmpty
+        contentView.configureContextChip(
+            currentContext: viewModel.currentContext,
+            hasGroups: hasGroups
+        )
+    }
+
     func didTapNotifications() {
         self.flowDelegate?.navigateToNotificationHistory()
     }
     
     func dashboardViewDidRequestRefresh(_ dashboardView: DashboardView) {
+        // Trigger iCloud sync on pull-to-refresh
+        SyncEngine.shared.performFullSync()
+
         // Refresh dashboard data and recalculate current day with animation
         refreshDashboardData()
         

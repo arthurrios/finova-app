@@ -13,4 +13,9 @@ extension Notification.Name {
   static let navigateToTransactionDetails = Notification.Name("navigateToTransactionDetails")
   static let currencyDidChange = Notification.Name("currencyDidChange")
   static let navigateToStatementDetails = Notification.Name("navigateToStatementDetails")
+  static let cloudKitRemoteNotificationReceived = Notification.Name("cloudKitRemoteNotificationReceived")
+  static let syncStatusDidChange = Notification.Name("syncStatusDidChange")
+  static let budgetGroupDataChanged = Notification.Name("budgetGroupDataChanged")
+  static let groupInvitationReceived = Notification.Name("groupInvitationReceived")
+  static let groupMemberActionOccurred = Notification.Name("groupMemberActionOccurred")
 }

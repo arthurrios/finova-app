@@ -36,4 +36,10 @@ protocol ViewControllersFactoryProtocol: AnyObject {
   func makeCreditCardsViewController(flowDelegate: CreditCardsFlowDelegate) -> CreditCardsViewController
   func makeAddCreditCardViewController(flowDelegate: AddCreditCardFlowDelegate, cardToEdit: CreditCard?) -> AddCreditCardViewController
   func makeStatementDetailsViewController(flowDelegate: StatementDetailsFlowDelegate, statement: CreditCardStatement, card: CreditCard) -> StatementDetailsViewController
+  func makeBudgetGroupsViewController(flowDelegate: BudgetGroupsFlowDelegate) -> BudgetGroupsViewController
+  func makeGroupDetailsViewController(flowDelegate: GroupDetailsFlowDelegate, group: BudgetGroup) -> GroupDetailsViewController
+  func makeInviteMemberViewController(flowDelegate: InviteMemberFlowDelegate, group: BudgetGroup) -> InviteMemberViewController
+  func makeMemberPermissionsViewController(flowDelegate: MemberPermissionsFlowDelegate, member: GroupMember, group: BudgetGroup) -> MemberPermissionsViewController
+  func makeGroupInvitationViewController(flowDelegate: GroupInvitationFlowDelegate, invitation: GroupInvitation) -> GroupInvitationViewController
+  func makeSyncSettingsViewController(flowDelegate: SyncSettingsFlowDelegate) -> SyncSettingsViewController
 }

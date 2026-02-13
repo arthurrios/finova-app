@@ -81,13 +81,22 @@ final class AddTransactionModalViewController: UIViewController {
 
     setupView()
     loadCreditCards()
+
+    // Configure group context banner
+    contentView.configureGroupContext(viewModel.activeContext)
   }
 
   private func loadCreditCards() {
-    guard let uid = AuthenticationManager.shared.currentUser?.uid else { return }
     let cardRepo = CreditCardRepository()
-    let cards = cardRepo.fetchAllCards(userId: uid)
-    contentView.loadAvailableCards(cards)
+    switch viewModel.activeContext {
+    case .personal:
+      guard let uid = AuthenticationManager.shared.currentUser?.uid else { return }
+      let cards = cardRepo.fetchAllCards(userId: uid)
+      contentView.loadAvailableCards(cards)
+    case .group(let group):
+      let cards = cardRepo.fetchCardsForGroup(groupId: group.id)
+      contentView.loadAvailableCards(cards)
+    }
   }
 
   override func viewWillAppear(_ animated: Bool) {

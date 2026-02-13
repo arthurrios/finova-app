@@ -112,4 +112,47 @@ class CreditCardRepository {
             return false
         }
     }
+
+    // MARK: - Group Sharing
+
+    func shareCard(cardId: Int, withGroupId groupId: String) {
+        DBHelper.shared.executeSyncUpdate(
+            "UPDATE CreditCards SET shared_group_id = ?, sync_status = 'pending' WHERE id = ?;",
+            textBindings: [groupId],
+            intBindings: [cardId]
+        )
+    }
+
+    func unshareCard(cardId: Int) {
+        DBHelper.shared.executeSyncUpdate(
+            "UPDATE CreditCards SET shared_group_id = NULL, sync_status = 'pending' WHERE id = ?;",
+            intBindings: [cardId]
+        )
+    }
+
+    func fetchCardsForGroup(groupId: String) -> [CreditCard] {
+        do {
+            let rows = try DBHelper.shared.getCreditCardsForGroup(groupId: groupId)
+            return rows.map { row in
+                CreditCard(
+                    id: row.id,
+                    name: row.name,
+                    lastFourDigits: row.lastFourDigits,
+                    cardBrand: CardBrand(rawValue: row.cardBrand) ?? .other,
+                    closingDay: row.closingDay,
+                    dueDay: row.dueDay,
+                    creditLimit: row.creditLimit,
+                    cardColor: CardColor(rawValue: row.cardColor) ?? .blue,
+                    userId: row.userId,
+                    isDeleted: row.isDeleted,
+                    isDefault: row.isDefault,
+                    createdAt: Date(timeIntervalSince1970: TimeInterval(row.createdAt)),
+                    updatedAt: Date(timeIntervalSince1970: TimeInterval(row.updatedAt))
+                )
+            }
+        } catch {
+            logError("Failed to fetch credit cards for group: \(error)")
+            return []
+        }
+    }
 }

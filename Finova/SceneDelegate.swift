@@ -18,6 +18,7 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     options connectionOptions: UIScene.ConnectionOptions
   ) {
     guard let windowScene = (scene as? UIWindowScene) else { return }
+
     let window = UIWindow(windowScene: windowScene)
     flowController = AppFlowController()
     let rootViewController = flowController?.startFlow()
@@ -57,6 +58,10 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     // Called as the scene transitions from the background to the foreground.
     // Use this method to undo the changes made on entering the background.
     logInfo("Scene will enter foreground - triggering app refresh")
+    if CloudKitManager.shared.isCloudKitAvailable {
+      showSyncToastOnCurrentWindow()
+    }
+    SyncEngine.shared.performFullSync()
     triggerAppRefresh()
   }
 
@@ -135,6 +140,28 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     }
   }
 
+  /// Shows the sync toast on the current window when returning to foreground
+  private func showSyncToastOnCurrentWindow() {
+    guard let window = window else { return }
+
+    // Don't show duplicate
+    if window.viewWithTag(SyncToastWindowTag) != nil { return }
+
+    let container = SyncToastContainer()
+    container.tag = SyncToastWindowTag
+    container.translatesAutoresizingMaskIntoConstraints = false
+
+    window.addSubview(container)
+    NSLayoutConstraint.activate([
+      container.topAnchor.constraint(equalTo: window.topAnchor),
+      container.leadingAnchor.constraint(equalTo: window.leadingAnchor),
+      container.trailingAnchor.constraint(equalTo: window.trailingAnchor),
+      container.bottomAnchor.constraint(equalTo: window.bottomAnchor),
+    ])
+
+    container.showSyncToast()
+  }
+
   /// Shows the update toast on the current window regardless of which screen is visible
   private func showUpdateToastOnCurrentWindow() {
     guard let window = window else {
@@ -171,10 +198,12 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
 
     logInfo("Update toast shown on window")
   }
+
 }
 
 // MARK: - Constants
 
+private let SyncToastWindowTag = 99998
 private let UpdateToastWindowTag = 99999
 
 // MARK: - Associated Keys for objc_setAssociatedObject

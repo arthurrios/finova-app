@@ -55,6 +55,13 @@ struct DemoSeedGenerator {
             }
         }
 
+        // Budget groups & invitations
+        let groupRepo = BudgetGroupRepository()
+        for group in groupRepo.fetchAllGroups() {
+            groupRepo.softDeleteGroup(id: group.id)
+        }
+        groupRepo.deleteAllInvitations()
+
         // Balance offset
         UIDUserDefaultsManager.shared.setCurrentUserBalanceOffset(0)
 
@@ -94,6 +101,9 @@ struct DemoSeedGenerator {
 
         // --- Credit cards & statements ---
         seedCreditCards(userUID: userUID, monthDates: monthDates, txRepo: txRepo, cal: cal)
+
+        // --- Budget groups & members ---
+        seedBudgetGroups(userUID: userUID)
 
         // Refresh cache
         TransactionRepository.invalidateCache()
@@ -490,6 +500,98 @@ struct DemoSeedGenerator {
                 }
             }
         }
+    }
+
+    // MARK: - Budget Groups
+
+    private static func seedBudgetGroups(userUID: String) {
+        let repo = BudgetGroupRepository()
+
+        let userName = AuthenticationManager.shared.currentUser?.displayName ?? "You"
+        let userEmail = AuthenticationManager.shared.currentUser?.email ?? "you@email.com"
+
+        let groupId = UUID().uuidString
+
+        let group = BudgetGroup(
+            id: groupId,
+            name: "Family Budget",
+            ownerId: userUID,
+            ownerName: userName,
+            ownerEmail: userEmail,
+            currency: "BRL"
+        )
+        repo.insertGroup(group)
+
+        // Owner member
+        let ownerMember = GroupMember(
+            groupId: groupId,
+            userId: userUID,
+            name: userName,
+            email: userEmail,
+            role: .owner,
+            permissions: .fullAccess,
+            lastActive: Date()
+        )
+        repo.insertMember(ownerMember)
+
+        // Regular member (for testing permissions screen)
+        let regularMember = GroupMember(
+            groupId: groupId,
+            userId: "demo-user-alice",
+            name: "Alice",
+            email: "alice@email.com",
+            role: .member,
+            permissions: .canAdd,
+            lastActive: Calendar.current.date(byAdding: .hour, value: -3, to: Date())
+        )
+        repo.insertMember(regularMember)
+
+        // Another member
+        let viewOnlyMember = GroupMember(
+            groupId: groupId,
+            userId: "demo-user-bob",
+            name: "Bob",
+            email: "bob@email.com",
+            role: .member,
+            permissions: .viewOnly,
+            lastActive: Calendar.current.date(byAdding: .day, value: -2, to: Date())
+        )
+        repo.insertMember(viewOnlyMember)
+
+        // Extra members to test "+N" indicator and scrolling
+        let carol = GroupMember(
+            groupId: groupId,
+            userId: "demo-user-carol",
+            name: "Carol",
+            email: "carol@email.com",
+            role: .member,
+            permissions: .canAdd,
+            lastActive: Calendar.current.date(byAdding: .hour, value: -12, to: Date())
+        )
+        repo.insertMember(carol)
+
+        let dave = GroupMember(
+            groupId: groupId,
+            userId: "demo-user-dave",
+            name: "Dave",
+            email: "dave@email.com",
+            role: .member,
+            permissions: .memberDefault,
+            lastActive: Calendar.current.date(byAdding: .day, value: -5, to: Date())
+        )
+        repo.insertMember(dave)
+
+        // Pending invitation (for testing GroupInvitation screen)
+        let pendingInvitation = GroupInvitation(
+            groupId: UUID().uuidString,
+            groupName: "Roommates Expenses",
+            inviterName: "Emma",
+            inviterEmail: "emma@email.com",
+            inviteeEmail: userEmail
+        )
+        repo.insertInvitation(pendingInvitation)
+
+        logInfo("[DemoSeed] Inserted 1 budget group with 5 members + 1 pending invitation")
     }
 
     // MARK: - Date Helpers

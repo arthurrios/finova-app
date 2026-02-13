@@ -36,6 +36,102 @@ final class TransactionLedgerService {
     return transactions
   }
 
+  // MARK: - Group-Aware Fetching
+
+  /// Fetches transactions for group context — includes ALL members' transactions
+  private func fetchGroupTransactionsIncludingStatements(groupId: String) -> [Transaction] {
+    var transactions = transactionRepo.fetchTransactionsForGroup(groupId: groupId)
+
+    let sharedCards = CreditCardRepository().fetchCardsForGroup(groupId: groupId)
+    for card in sharedCards {
+      let statementTxs = creditCardService.generateStatementTransactions(
+        forCard: card,
+        includeAllUsers: true
+      )
+      transactions.append(contentsOf: statementTxs)
+    }
+    return transactions
+  }
+
+  /// Group-aware monthly data calculation
+  func calculateMonthlyDataForGroup(
+    groupId: String,
+    for monthRange: ClosedRange<Int>,
+    referenceDate: Date = Date()
+  ) -> [MonthBudgetCardType] {
+    let currentComponents = calendar.dateComponents([.year, .month], from: referenceDate)
+    let currentYear = currentComponents.year!
+    let currentMonth = currentComponents.month!
+
+    var anchors: [Int] = []
+    for offset in monthRange {
+      let targetMonth = currentMonth + offset
+      let targetYear = currentYear + (targetMonth - 1) / 12
+      let normalizedMonth = ((targetMonth - 1) % 12) + 1
+
+      var components = DateComponents()
+      components.year = targetYear
+      components.month = normalizedMonth
+      components.day = 1
+      components.hour = 0
+      components.minute = 0
+      components.second = 0
+
+      guard let monthDate = calendar.date(from: components) else { continue }
+      anchors.append(monthDate.monthAnchor)
+    }
+
+    let allTransactions = fetchGroupTransactionsIncludingStatements(groupId: groupId)
+    let budgetsByAnchor = budgetRepo.fetchBudgetsForGroup(groupId: groupId)
+      .reduce(into: [:]) { acc, entry in acc[entry.monthDate] = entry.amount }
+
+    var previousAvailable = 0
+
+    return anchors.map { anchor in
+      var cal = Calendar(identifier: .gregorian)
+      cal.timeZone = TimeZone.current
+      let anchorDate = Date(timeIntervalSince1970: TimeInterval(anchor))
+      let components = cal.dateComponents([.year, .month], from: anchorDate)
+
+      guard let date = cal.date(from: components) else {
+        return MonthBudgetCardType(
+          date: Date(timeIntervalSince1970: TimeInterval(anchor)),
+          month: "Unknown", usedValue: 0, budgetLimit: nil,
+          finalBalance: 0, currentBalance: 0, previousBalance: 0)
+      }
+
+      let month = DateFormatter.monthFormatter.string(from: date)
+      let localizedMonth = "month.\(month.lowercased())".localized
+
+      let transactionsForMonth = allTransactions.filter { transaction in
+        let txDate = Date(timeIntervalSince1970: TimeInterval(transaction.dateTimestamp))
+        return txDate.monthAnchor == anchor
+      }
+
+      let cashTransactions = transactionsForMonth.filter { tx in
+        tx.creditCardId == nil || tx.isCreditCardStatement == true
+      }
+      let expense = cashTransactions.filter { $0.type == .expense }.reduce(0) { $0 + $1.amount }
+      let income = cashTransactions.filter { $0.type == .income }.reduce(0) { $0 + $1.amount }
+      let budgetLimit = budgetsByAnchor[anchor]
+      let net = income - expense
+      let available = previousAvailable + net
+
+      let monthData = MonthBudgetCardType(
+        date: date,
+        month: localizedMonth,
+        usedValue: expense,
+        budgetLimit: budgetLimit,
+        finalBalance: available,
+        currentBalance: available,
+        previousBalance: previousAvailable
+      )
+
+      previousAvailable = available
+      return monthData
+    }
+  }
+
   // MARK: - Monthly Calculations
 
   func calculateMonthlyData(for monthRange: ClosedRange<Int>, referenceDate: Date = Date())

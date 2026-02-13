@@ -11,4 +11,5 @@ protocol SettingsViewDelegate: AnyObject {
     func didTapDeleteAccount()
     func didTapNotifications()
     func didTapCurrency()
+    func didTapSyncSettings()
 }

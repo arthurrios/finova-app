@@ -158,6 +158,54 @@ final class ViewControllersFactory: ViewControllersFactoryProtocol {
         return viewController
     }
 
+    func makeBudgetGroupsViewController(flowDelegate: BudgetGroupsFlowDelegate) -> BudgetGroupsViewController {
+        let contentView = BudgetGroupsView()
+        let viewModel = BudgetGroupsViewModel()
+        let viewController = BudgetGroupsViewController(
+            contentView: contentView, viewModel: viewModel, flowDelegate: flowDelegate)
+        return viewController
+    }
+
+    func makeGroupDetailsViewController(flowDelegate: GroupDetailsFlowDelegate, group: BudgetGroup) -> GroupDetailsViewController {
+        let contentView = GroupDetailsView()
+        let viewModel = GroupDetailsViewModel(group: group)
+        let viewController = GroupDetailsViewController(
+            contentView: contentView, viewModel: viewModel, flowDelegate: flowDelegate)
+        return viewController
+    }
+
+    func makeInviteMemberViewController(flowDelegate: InviteMemberFlowDelegate, group: BudgetGroup) -> InviteMemberViewController {
+        let contentView = InviteMemberView()
+        let viewModel = InviteMemberViewModel(group: group)
+        let viewController = InviteMemberViewController(
+            contentView: contentView, viewModel: viewModel, flowDelegate: flowDelegate)
+        return viewController
+    }
+
+    func makeMemberPermissionsViewController(flowDelegate: MemberPermissionsFlowDelegate, member: GroupMember, group: BudgetGroup) -> MemberPermissionsViewController {
+        let contentView = MemberPermissionsView()
+        let viewModel = MemberPermissionsViewModel(member: member, group: group)
+        let viewController = MemberPermissionsViewController(
+            contentView: contentView, viewModel: viewModel, flowDelegate: flowDelegate)
+        return viewController
+    }
+
+    func makeGroupInvitationViewController(flowDelegate: GroupInvitationFlowDelegate, invitation: GroupInvitation) -> GroupInvitationViewController {
+        let contentView = GroupInvitationView()
+        let viewModel = GroupInvitationViewModel(invitation: invitation)
+        let viewController = GroupInvitationViewController(
+            contentView: contentView, viewModel: viewModel, flowDelegate: flowDelegate)
+        return viewController
+    }
+
+    func makeSyncSettingsViewController(flowDelegate: SyncSettingsFlowDelegate) -> SyncSettingsViewController {
+        let contentView = SyncSettingsView()
+        let viewModel = SyncSettingsViewModel()
+        let viewController = SyncSettingsViewController(
+            contentView: contentView, viewModel: viewModel, flowDelegate: flowDelegate)
+        return viewController
+    }
+
     // MARK: - Budget Allocation Details
 
     static func makeBudgetAllocationDetailsViewController(

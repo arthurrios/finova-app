@@ -1006,4 +1006,201 @@ final class TransactionRepository: TransactionRepositoryProtocol {
       }
     }
   }
+
+  // MARK: - CloudKit Sync Methods
+
+  func fetchPendingSync() -> [Transaction] {
+    let query = """
+      SELECT id, title, category, type, amount, date, budget_month_date,
+             is_recurring, has_installments, parent_transaction_id,
+             installment_number, total_installments, original_amount,
+             credit_card_id, statement_id, is_credit_card_statement
+      FROM Transactions WHERE sync_status = 'pending';
+      """
+    return (try? db.executeTransactionQueryPublic(query)) ?? []
+  }
+
+  func markAsSynced(ckRecordName: String) {
+    Self.invalidateCache()
+    db.executeSyncUpdate(
+      "UPDATE Transactions SET sync_status = 'synced', ck_record_id = ? WHERE ck_record_id = ?;",
+      textBindings: [ckRecordName, ckRecordName]
+    )
+  }
+
+  func insertFromCloud(_ transaction: Transaction, ckRecordName: String) {
+    Self.invalidateCache()
+    let category = transaction.category.key
+    let type = String(describing: transaction.type)
+
+    let query = """
+      INSERT OR REPLACE INTO Transactions
+        (title, category, type, amount, date, budget_month_date,
+         is_recurring, has_installments, parent_transaction_id,
+         installment_number, total_installments, original_amount,
+         credit_card_id, statement_id, is_credit_card_statement,
+         ck_record_id, sync_status)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced');
+      """
+
+    db.executeCloudInsert(
+      query,
+      transaction: transaction,
+      category: category,
+      type: type,
+      ckRecordName: ckRecordName
+    )
+
+    // Also update SecureLocalDataManager
+    var secureTransactions = SecureLocalDataManager.shared.loadTransactions()
+    secureTransactions.append(transaction)
+    SecureLocalDataManager.shared.saveTransactions(secureTransactions)
+  }
+
+  func updateFromCloud(_ transaction: Transaction, ckRecordName: String) {
+    Self.invalidateCache()
+    let category = transaction.category.key
+    let type = String(describing: transaction.type)
+
+    let query = """
+      UPDATE Transactions SET
+        title = ?, category = ?, type = ?, amount = ?, date = ?,
+        budget_month_date = ?, is_recurring = ?, has_installments = ?,
+        parent_transaction_id = ?, installment_number = ?,
+        total_installments = ?, original_amount = ?,
+        credit_card_id = ?, statement_id = ?, is_credit_card_statement = ?,
+        sync_status = 'synced'
+      WHERE ck_record_id = ?;
+      """
+
+    db.executeCloudUpdate(
+      query,
+      transaction: transaction,
+      category: category,
+      type: type,
+      ckRecordName: ckRecordName
+    )
+
+    // Also update SecureLocalDataManager
+    var secureTransactions = SecureLocalDataManager.shared.loadTransactions()
+    if let txId = transaction.id,
+       let index = secureTransactions.firstIndex(where: { $0.id == txId }) {
+      secureTransactions[index] = transaction
+      SecureLocalDataManager.shared.saveTransactions(secureTransactions)
+    }
+  }
+
+  func markSyncPending(for id: Int) {
+    db.executeSyncUpdate(
+      "UPDATE Transactions SET sync_status = 'pending' WHERE id = ?;",
+      intBindings: [id]
+    )
+  }
+
+  func softDeleteByCKRecordName(_ recordName: String) {
+    Self.invalidateCache()
+    // Get the transaction id before deleting for SecureLocalDataManager cleanup
+    let fetchQuery = "SELECT id FROM Transactions WHERE ck_record_id = ?;"
+    if let txId = db.fetchSingleInt(fetchQuery, textBinding: recordName) {
+      db.executeSyncUpdate(
+        "DELETE FROM Transactions WHERE ck_record_id = ?;",
+        textBindings: [recordName]
+      )
+      // Also remove from SecureLocalDataManager
+      var secureTransactions = SecureLocalDataManager.shared.loadTransactions()
+      secureTransactions.removeAll { $0.id == txId }
+      SecureLocalDataManager.shared.saveTransactions(secureTransactions)
+    }
+  }
+
+  func fetchTransaction(byId id: Int) -> Transaction? {
+    let query = """
+      SELECT id, title, category, type, amount, date, budget_month_date,
+             is_recurring, has_installments, parent_transaction_id,
+             installment_number, total_installments, original_amount,
+             credit_card_id, statement_id, is_credit_card_statement
+      FROM Transactions WHERE id = ?;
+      """
+    return (try? db.executeTransactionQueryPublic(query, bindValues: [id]))?.first
+  }
+
+  func lastModifiedDate(for id: Int) -> Date? {
+    let query = "SELECT ck_modified_at FROM Transactions WHERE id = ?;"
+    guard let timestamp = db.fetchSingleInt(query, intBinding: id), timestamp > 0 else {
+      return nil
+    }
+    return Date(timeIntervalSince1970: TimeInterval(timestamp))
+  }
+
+  func fetchTransactionsForGroup(groupId: String) -> [Transaction] {
+    let query = """
+      SELECT id, title, category, type, amount, date, budget_month_date,
+             is_recurring, has_installments, parent_transaction_id,
+             installment_number, total_installments, original_amount,
+             credit_card_id, statement_id, is_credit_card_statement
+      FROM Transactions WHERE shared_group_id = ?;
+      """
+    return (try? db.executeTransactionQueryPublicText(query, textBindings: [groupId])) ?? []
+  }
+
+  /// Removes all transactions that were inserted from CloudKit sync (ghost records).
+  /// Original local transactions (ck_record_id IS NULL) are preserved.
+  /// Also rebuilds SecureLocalDataManager from the clean SQLite data.
+  func removeCloudInsertedRecords() {
+    Self.invalidateCache()
+
+    // Delete ghost records from SQLite
+    db.executeSyncUpdate("DELETE FROM Transactions WHERE ck_record_id IS NOT NULL;")
+
+    // Also reset sync columns on remaining local transactions
+    db.executeSyncUpdate("UPDATE Transactions SET sync_status = 'pending', ck_record_id = NULL, ck_modified_at = NULL;")
+
+    rebuildSecureStoreFromSQLite()
+  }
+
+  /// Reads all transactions from SQLite and overwrites SecureLocalDataManager.
+  func rebuildSecureStoreFromSQLite() {
+    Self.invalidateCache()
+
+    let query = """
+      SELECT id, title, category, type, amount, date, budget_month_date,
+             is_recurring, has_installments, parent_transaction_id,
+             installment_number, total_installments, original_amount,
+             credit_card_id, statement_id, is_credit_card_statement
+      FROM Transactions ORDER BY id;
+      """
+    let sqliteTransactions = (try? db.executeTransactionQueryPublic(query)) ?? []
+    logWarning("[GhostCleanup] SQLite rows: \(sqliteTransactions.count)")
+
+    SecureLocalDataManager.shared.saveTransactions(sqliteTransactions)
+
+    // Verify the round-trip: load back and compare counts + sample titles
+    let rebuilt = SecureLocalDataManager.shared.loadTransactions()
+    logWarning("[GhostCleanup] SecureStore after rebuild: \(rebuilt.count)")
+
+    if rebuilt.count != sqliteTransactions.count {
+      logError("[GhostCleanup] MISMATCH — SQLite=\(sqliteTransactions.count) vs SecureStore=\(rebuilt.count)")
+    }
+
+    // Log a few samples so we can verify data integrity
+    for tx in rebuilt.prefix(3) {
+      logWarning("[GhostCleanup] Sample: id=\(tx.id ?? -1) title='\(tx.title)' cat=\(tx.category.key)")
+    }
+  }
+
+  func updateSharedGroupId(transactionId: Int, groupId: String?) {
+    Self.invalidateCache()
+    if let groupId = groupId {
+      db.executeSyncUpdate(
+        "UPDATE Transactions SET shared_group_id = ?, sync_status = 'pending' WHERE id = ?;",
+        textBindings: [groupId],
+        intBindings: [transactionId]
+      )
+    } else {
+      db.executeSyncUpdate(
+        "UPDATE Transactions SET shared_group_id = NULL, sync_status = 'pending' WHERE id = ?;",
+        intBindings: [transactionId]
+      )
+    }
+  }
 }

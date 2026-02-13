@@ -179,6 +179,15 @@ final class ProfileView: UIView {
     private let creditCardsLabel = createSettingLabel(text: "profile.creditCards.title".localized)
     private let creditCardsChevron = createChevronView()
 
+    private let budgetGroupsContainer: UIView = {
+        let container = createSettingContainer()
+        container.isUserInteractionEnabled = true
+        return container
+    }()
+    private let budgetGroupsIconView = createIconView(imageName: "person.3")
+    private let budgetGroupsLabel = createSettingLabel(text: "settings.budgetGroups.title".localized)
+    private let budgetGroupsChevron = createChevronView()
+
     // MARK: - General Section
 
     private let generalHeaderView = createSectionHeader(title: "profile.section.general".localized)
@@ -275,6 +284,8 @@ final class ProfileView: UIView {
         contentStackView.addArrangedSubview(financialHeaderView)
         setupCreditCardsContainer()
         contentStackView.addArrangedSubview(creditCardsContainer)
+        setupBudgetGroupsContainer()
+        contentStackView.addArrangedSubview(budgetGroupsContainer)
 
         // General section
         contentStackView.addArrangedSubview(generalHeaderView)
@@ -354,6 +365,23 @@ final class ProfileView: UIView {
 
             creditCardsChevron.trailingAnchor.constraint(equalTo: creditCardsContainer.trailingAnchor, constant: -Metrics.spacing4),
             creditCardsChevron.centerYAnchor.constraint(equalTo: creditCardsContainer.centerYAnchor)
+        ])
+    }
+
+    private func setupBudgetGroupsContainer() {
+        budgetGroupsContainer.addSubview(budgetGroupsIconView)
+        budgetGroupsContainer.addSubview(budgetGroupsLabel)
+        budgetGroupsContainer.addSubview(budgetGroupsChevron)
+
+        NSLayoutConstraint.activate([
+            budgetGroupsIconView.leadingAnchor.constraint(equalTo: budgetGroupsContainer.leadingAnchor, constant: Metrics.spacing4),
+            budgetGroupsIconView.centerYAnchor.constraint(equalTo: budgetGroupsContainer.centerYAnchor),
+
+            budgetGroupsLabel.leadingAnchor.constraint(equalTo: budgetGroupsIconView.trailingAnchor, constant: Metrics.spacing3),
+            budgetGroupsLabel.centerYAnchor.constraint(equalTo: budgetGroupsContainer.centerYAnchor),
+
+            budgetGroupsChevron.trailingAnchor.constraint(equalTo: budgetGroupsContainer.trailingAnchor, constant: -Metrics.spacing4),
+            budgetGroupsChevron.centerYAnchor.constraint(equalTo: budgetGroupsContainer.centerYAnchor)
         ])
     }
 
@@ -458,6 +486,9 @@ final class ProfileView: UIView {
         let creditCardsTap = UITapGestureRecognizer(target: self, action: #selector(creditCardsTapped))
         creditCardsContainer.addGestureRecognizer(creditCardsTap)
 
+        let budgetGroupsTap = UITapGestureRecognizer(target: self, action: #selector(budgetGroupsTapped))
+        budgetGroupsContainer.addGestureRecognizer(budgetGroupsTap)
+
         let settingsTap = UITapGestureRecognizer(target: self, action: #selector(settingsTapped))
         settingsContainer.addGestureRecognizer(settingsTap)
 
@@ -475,6 +506,10 @@ final class ProfileView: UIView {
 
     @objc private func creditCardsTapped() {
         delegate?.didTapCreditCards()
+    }
+
+    @objc private func budgetGroupsTapped() {
+        delegate?.didTapBudgetGroups()
     }
 
     @objc private func settingsTapped() {

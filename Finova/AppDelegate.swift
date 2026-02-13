@@ -178,6 +178,18 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     print("❌ Failed to register for remote notifications: \(error.localizedDescription)")
   }
 
+  // MARK: - CloudKit Remote Notifications
+
+  func application(
+    _ application: UIApplication,
+    didReceiveRemoteNotification userInfo: [AnyHashable: Any],
+    fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void
+  ) {
+    CloudKitManager.shared.handleRemoteNotification(userInfo: userInfo) {
+      completionHandler(.newData)
+    }
+  }
+
   // MARK: - MessagingDelegate
 
   func messaging(_ messaging: Messaging, didReceiveRegistrationToken fcmToken: String?) {

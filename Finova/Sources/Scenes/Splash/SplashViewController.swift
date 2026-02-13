@@ -23,7 +23,7 @@ final class SplashViewController: UIViewController {
   private let autoLoginEnabled = true
   /// Set to `true` to clear and repopulate demo data on every auto-login.
   /// Set to `false` to keep existing data untouched.
-  private let seedDemoData = true
+  private let seedDemoData = false
   private let debugEmail = "jack@email.com"
   private let debugPassword = "Test@123"
   #endif
@@ -60,6 +60,14 @@ final class SplashViewController: UIViewController {
     if let firebaseUser = AuthenticationManager.shared.currentUser {
       // Authenticate local data manager with Firebase UID
       SecureLocalDataManager.shared.authenticateUser(firebaseUID: firebaseUser.uid)
+
+      // One-time cleanup of ghost records inserted by CloudKit sync
+      let didCleanup = Self.performCloudGhostCleanupIfNeeded()
+
+      // Trigger iCloud sync on launch (skip if cleanup just ran to prevent re-corruption)
+      if !didCleanup {
+        SyncEngine.shared.performFullSync()
+      }
 
       // Set current user UID for settings lookup
       UIDUserDefaultsManager.shared.currentUserUID = firebaseUser.uid
@@ -419,6 +427,10 @@ extension SplashViewController {
 
       // Replicate the same setup that LoginViewModel.authenticationDidComplete performs
       SecureLocalDataManager.shared.authenticateUser(firebaseUID: firebaseUser.uid)
+      let didCleanup = Self.performCloudGhostCleanupIfNeeded()
+      if !didCleanup {
+        SyncEngine.shared.performFullSync()
+      }
       UIDUserDefaultsManager.shared.currentUserUID = firebaseUser.uid
 
       let existingSettings = UIDUserDefaultsManager.shared.getUserSettings(for: firebaseUser.uid)
@@ -521,3 +533,37 @@ extension SplashViewController {
   }
 }
 #endif
+
+// MARK: - One-Time Cloud Ghost Cleanup
+
+extension SplashViewController {
+  private static let cloudGhostCleanupKey = "hasPerformedCloudGhostCleanup_v5"
+
+  /// Runs one-time cleanup to fix data corrupted by CloudKit sync.
+  /// Returns `true` if cleanup ran this launch (caller should skip sync).
+  @discardableResult
+  static func performCloudGhostCleanupIfNeeded() -> Bool {
+    guard !UserDefaults.standard.bool(forKey: cloudGhostCleanupKey) else {
+      return false
+    }
+
+    logWarning("[GhostCleanup-v5] Starting: physically delete encrypted file, rebuild from SQLite")
+
+    // 1. Physically delete the encrypted transactions file from disk
+    SecureLocalDataManager.shared.deleteTransactionsFile()
+
+    // 2. Clean SQLite (remove CK ghosts) and rebuild SecureStore from it
+    let repo = TransactionRepository()
+    repo.removeCloudInsertedRecords()
+
+    // 3. Reset CloudKit change tokens so stale records aren't re-pulled
+    SyncStateManager.shared.resetAllTokens()
+
+    // 4. Invalidate the in-memory cache one final time (belt-and-suspenders)
+    TransactionRepository.invalidateCache()
+
+    UserDefaults.standard.set(true, forKey: cloudGhostCleanupKey)
+    logWarning("[GhostCleanup-v5] Complete")
+    return true
+  }
+}

@@ -271,6 +271,82 @@ class CreditCardService {
         }
     }
 
+    /// Generates synthetic statement transactions for a specific card.
+    /// When `includeAllUsers` is true, uses DB queries (all users) instead of SecureLocalDataManager (UID-isolated).
+    func generateStatementTransactions(forCard card: CreditCard, includeAllUsers: Bool) -> [Transaction] {
+        guard let cardId = card.id else { return [] }
+        var statementTransactions: [Transaction] = []
+
+        let statements = stmtRepo.fetchStatements(forCardId: cardId)
+
+        for stmt in statements {
+            guard let stmtId = stmt.id else { continue }
+
+            let realCount: Int
+            let realTotal: Int
+
+            if includeAllUsers {
+                // Use DB directly — includes ALL users' transactions
+                realCount = (try? DBHelper.shared.getTransactionCountForStatement(statementId: stmtId)) ?? 0
+                realTotal = (try? DBHelper.shared.getTransactionSumForStatement(statementId: stmtId)) ?? 0
+            } else {
+                let allSecureTransactions = SecureLocalDataManager.shared.loadTransactions()
+                let stmtTransactions = allSecureTransactions.filter {
+                    $0.statementId == stmtId && $0.isCreditCardStatement != true
+                }
+                realCount = stmtTransactions.count
+                realTotal = stmtTransactions.reduce(0) { $0 + $1.amount }
+            }
+
+            if realCount == 0 {
+                recalculateStatementTotal(statementId: stmtId)
+                continue
+            }
+
+            guard realTotal > 0 else { continue }
+
+            let title = String(format: "creditCard.statement.title".localized, card.name)
+            let dueTimestamp = Int(stmt.dueDate.timeIntervalSince1970)
+
+            let data = UITransactionData(
+                id: -(stmtId * 1000 + cardId),
+                title: title,
+                amount: realTotal,
+                dateTimestamp: dueTimestamp,
+                budgetMonthDate: stmt.closingDate.monthAnchor,
+                isRecurring: false,
+                hasInstallments: false,
+                parentTransactionId: nil,
+                installmentNumber: nil,
+                totalInstallments: realCount,
+                originalAmount: realTotal,
+                creditCardId: cardId,
+                statementId: stmtId,
+                isCreditCardStatement: true,
+                category: .creditCard,
+                type: .expense
+            )
+
+            statementTransactions.append(Transaction(data: data))
+        }
+
+        return statementTransactions
+    }
+
+    /// Recalculates a shared statement total using DB (all users) instead of UID-isolated store.
+    func recalculateSharedStatementTotal(statementId: Int) {
+        stmtRepo.recalculateTotal(statementId: statementId)
+
+        do {
+            let count = try DBHelper.shared.getTransactionCountForStatement(statementId: statementId)
+            if count == 0 {
+                _ = stmtRepo.deleteStatement(statementId: statementId)
+            }
+        } catch {
+            logError("Failed to check shared statement transaction count: \(error)")
+        }
+    }
+
     private func daysInMonth(month: Int, year: Int) -> Int {
         let calendar = Calendar.current
         let components = DateComponents(year: year, month: month)

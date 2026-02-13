@@ -182,6 +182,64 @@ final class TransactionDetailsViewModel {
     return .simple
   }
 
+  // MARK: - Permission Checks
+
+  func canEditTransaction(in group: BudgetGroup?) -> Bool {
+    guard let group = group else { return true }
+    return BudgetGroupService.shared.currentUserCan(\.canEditTransactions, in: group)
+  }
+
+  func canDeleteTransaction(in group: BudgetGroup?) -> Bool {
+    guard let group = group else { return true }
+    return BudgetGroupService.shared.currentUserCan(\.canDeleteTransactions, in: group)
+  }
+
+  /// Returns the BudgetGroup this transaction belongs to, if any.
+  func getGroup() -> BudgetGroup? {
+    guard let groupId = getSharedGroupId() else { return nil }
+    return BudgetGroupService.shared.fetchGroup(byId: groupId)
+  }
+
+  // MARK: - Group Context
+
+  func getSharedGroupId() -> String? {
+    guard let txId = transaction.id else { return nil }
+    return DBHelper.shared.getSharedGroupId(transactionId: txId)
+  }
+
+  func isInGroup() -> Bool {
+    return getSharedGroupId() != nil
+  }
+
+  func getAvailableGroups() -> [BudgetGroup] {
+    return BudgetGroupService.shared.fetchAllGroups()
+  }
+
+  func moveTransactionToGroup(_ groupId: String) {
+    guard let txId = transaction.id else { return }
+    let repo = transactionRepository as? TransactionRepository
+    repo?.updateSharedGroupId(transactionId: txId, groupId: groupId)
+
+    GroupNotificationService.shared.logActivity(
+      action: .transactionCreated,
+      groupId: groupId,
+      detail: transaction.title
+    )
+  }
+
+  func moveTransactionToPersonal() {
+    guard let txId = transaction.id else { return }
+    if let groupId = getSharedGroupId() {
+      GroupNotificationService.shared.logActivity(
+        action: .transactionDeleted,
+        groupId: groupId,
+        detail: transaction.title
+      )
+    }
+    let repo = transactionRepository as? TransactionRepository
+    repo?.updateSharedGroupId(transactionId: txId, groupId: nil)
+  }
+
   func refreshTransaction() {
     // Reload the transaction from the repository to get fresh data
     guard let transactionId = transaction.id else { return }

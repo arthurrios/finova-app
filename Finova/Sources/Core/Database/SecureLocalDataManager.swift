@@ -328,6 +328,31 @@ class SecureLocalDataManager {
     }
   }
 
+  /// Physically deletes the encrypted transactions file from disk.
+  /// Call this before rebuilding to ensure no stale data persists.
+  func deleteTransactionsFile() {
+    guard let uid = currentUserUID else {
+      logError("Cannot delete transactions file: No authenticated user")
+      return
+    }
+
+    fileQueue.sync(flags: .barrier) {
+      let userDirectory = getUserDataDirectory(for: uid)
+      let fileURL = userDirectory.appendingPathComponent("transactions.json")
+
+      if FileManager.default.fileExists(atPath: fileURL.path) {
+        do {
+          try FileManager.default.removeItem(at: fileURL)
+          logWarning("[SecureStore] Deleted transactions file at \(fileURL.path)")
+        } catch {
+          logError("[SecureStore] Failed to delete transactions file: \(error)")
+        }
+      } else {
+        logWarning("[SecureStore] No transactions file to delete at \(fileURL.path)")
+      }
+    }
+  }
+
   // MARK: - Security & Data Ownership
 
   private func validateDataOwnership(for firebaseUID: String, email: String) -> Bool {
@@ -518,10 +543,15 @@ class SecureLocalDataManager {
         let jsonData = try JSONEncoder().encode(data)
         let encryptedData = try AES.GCM.seal(jsonData, using: encryptionKey)
 
+        guard let combinedData = encryptedData.combined else {
+          logError("AES.GCM.seal produced nil combined data — file NOT written for \(filename)")
+          return
+        }
+
         let userDirectory = getUserDataDirectory(for: userUID)
         let fileURL = userDirectory.appendingPathComponent(filename)
 
-        try encryptedData.combined?.write(to: fileURL)
+        try combinedData.write(to: fileURL)
       } catch {
         logError("Failed to save encrypted data: \(error)")
       }

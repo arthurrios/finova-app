@@ -100,6 +100,42 @@ extension TransactionDetailsViewController: TransactionDetailsViewDelegate {
     flowDelegate?.dismissTransactionDetails()
   }
 
+  func didTapMoveToGroup() {
+    if viewModel.isInGroup() {
+      // Move to Personal — confirmation
+      showConfirmation(
+        title: "transactionDetails.moveToPersonal.title".localized,
+        message: "transactionDetails.moveToPersonal.message".localized,
+        okTitle: "alert.ok".localized
+      ) { [weak self] in
+        self?.viewModel.moveTransactionToPersonal()
+        self?.contentView.configure(with: self!.viewModel)
+        NotificationCenter.default.post(name: .budgetGroupDataChanged, object: nil)
+      }
+    } else {
+      // Move to Group — show action sheet with available groups
+      let groups = viewModel.getAvailableGroups()
+      guard !groups.isEmpty else { return }
+
+      let alert = UIAlertController(
+        title: "transactionDetails.moveToGroup.title".localized,
+        message: "transactionDetails.moveToGroup.message".localized,
+        preferredStyle: .actionSheet
+      )
+
+      for group in groups {
+        alert.addAction(UIAlertAction(title: group.name, style: .default) { [weak self] _ in
+          self?.viewModel.moveTransactionToGroup(group.id)
+          self?.contentView.configure(with: self!.viewModel)
+          NotificationCenter.default.post(name: .budgetGroupDataChanged, object: nil)
+        })
+      }
+
+      alert.addAction(UIAlertAction(title: "alert.cancel".localized, style: .cancel))
+      present(alert, animated: true)
+    }
+  }
+
   func didTapDeleteInstallment(_ transaction: Transaction) {
     // Get transaction type to determine deletion options
     let transactionType = viewModel.getTransactionType(for: transaction)

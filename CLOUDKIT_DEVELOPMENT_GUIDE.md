@@ -1862,14 +1862,13 @@ NotificationCenter.default.addObserver(
 
 **BUILD**: Run the app. The dashboard header should now show a small cloud icon with "Synced" text next to the welcome subtitle. It will show "Offline" if no iCloud account.
 
-### 2.3 — Add "Sharing" Section to Settings (BUILD checkpoint 3)
+### 2.3 — Add "Sharing" Section to Settings + Budget Groups to Profile (BUILD checkpoint 3)
 
-Add to `SettingsView.swift` a new section between Financial and Notifications:
+**Budget Groups** is added to `ProfileView.swift` in the **Financial** section (alongside Credit Cards) for better discoverability. Only **iCloud Sync** remains in Settings.
 
+Add to `ProfileView.swift` — new row in the Financial section after Credit Cards:
 ```swift
 // New properties
-private let sharingHeaderView = createSectionHeader(title: "settings.section.sharing".localized)
-
 private let budgetGroupsContainer: UIView = {
     let container = createSettingContainer()
     container.isUserInteractionEnabled = true
@@ -1878,6 +1877,28 @@ private let budgetGroupsContainer: UIView = {
 private let budgetGroupsIconView = createIconView(imageName: "person.3")
 private let budgetGroupsLabel = createSettingLabel(text: "settings.budgetGroups.title".localized)
 private let budgetGroupsChevron = createChevronView()
+```
+
+Add in `setupSections()` after creditCardsContainer:
+```swift
+setupBudgetGroupsContainer()
+contentStackView.addArrangedSubview(budgetGroupsContainer)
+```
+
+Update `ProfileViewDelegate`:
+```swift
+func didTapBudgetGroups()
+```
+
+Update `ProfileFlowDelegate`:
+```swift
+func navigateToBudgetGroups()
+```
+
+Add to `SettingsView.swift` — a "Sharing" section with only iCloud Sync:
+
+```swift
+private let sharingHeaderView = createSectionHeader(title: "settings.section.sharing".localized)
 
 private let syncSettingsContainer: UIView = {
     let container = createSettingContainer()
@@ -1890,38 +1911,17 @@ let syncStatusDetailLabel = createDetailLabel(text: "")
 private let syncSettingsChevron = createChevronView()
 ```
 
-Add in `setupSections()` after the financial section:
-```swift
-// Sharing section
-contentStackView.addArrangedSubview(sharingHeaderView)
-setupBudgetGroupsContainer()
-contentStackView.addArrangedSubview(budgetGroupsContainer)
-setupSyncSettingsContainer()
-contentStackView.addArrangedSubview(syncSettingsContainer)
-```
-
-Add tap gestures and delegate methods:
-```swift
-let budgetGroupsTap = UITapGestureRecognizer(target: self, action: #selector(budgetGroupsTapped))
-budgetGroupsContainer.addGestureRecognizer(budgetGroupsTap)
-
-let syncSettingsTap = UITapGestureRecognizer(target: self, action: #selector(syncSettingsTapped))
-syncSettingsContainer.addGestureRecognizer(syncSettingsTap)
-```
-
 Update `SettingsFlowDelegate`:
 ```swift
 public protocol SettingsFlowDelegate: AnyObject {
     func dismissSettings()
     func logout()
     func navigateToNotificationSettings()
-    func navigateToCreditCards()
-    func navigateToBudgetGroups()     // NEW
     func navigateToSyncSettings()     // NEW
 }
 ```
 
-**BUILD**: Run the app. Navigate to Settings. You should see the new "Sharing" section with "Budget Groups" and "iCloud Sync" rows between Financial and Notifications sections.
+**BUILD**: Run the app. Navigate to Profile → see Budget Groups row in Financial section. Navigate to Settings → see "Sharing" section with iCloud Sync row.
 
 ---
 
@@ -2730,7 +2730,7 @@ final class EmptyGroupsView: UIView {
 
 **Wire into ViewControllersFactory and AppFlowController.**
 
-**BUILD**: Navigate Settings → Budget Groups. See the empty state with person.3 icon, title, subtitle.
+**BUILD**: Navigate Profile → Budget Groups. See the empty state with person.3 icon, title, subtitle.
 
 ### 4.2 — BudgetGroupCell (BUILD checkpoint 2)
 
@@ -4812,9 +4812,9 @@ func declineInvitation() {
 }
 ```
 
-Add pending invitation badge to the Budget Groups row in Settings:
+Add pending invitation badge to the Budget Groups row in Profile:
 ```swift
-// In SettingsView, add badge to budgetGroupsContainer:
+// In ProfileView, add badge to budgetGroupsContainer:
 let invitationBadge: UIView = {
     let badge = UIView()
     badge.backgroundColor = Colors.mainMagenta
@@ -4831,7 +4831,7 @@ let invitationBadge: UIView = {
 // Position: trailing edge of budgetGroupsContainer, offset by -spacing2
 ```
 
-**BUILD**: Accept an invitation → group appears in Budget Groups list. Badge shows on Settings row when pending invitations exist.
+**BUILD**: Accept an invitation → group appears in Budget Groups list. Badge shows on Profile row when pending invitations exist.
 
 ---
 

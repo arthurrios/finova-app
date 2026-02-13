@@ -100,6 +100,19 @@ final class SettingsView: UIView {
     let currencyValueLabel = createDetailLabel(text: "")
     private let currencyChevron = createChevronView()
 
+    // Sharing Section
+    private let sharingHeaderView = createSectionHeader(title: "settings.section.sharing".localized)
+
+    private let syncSettingsContainer: UIView = {
+        let container = createSettingContainer()
+        container.isUserInteractionEnabled = true
+        return container
+    }()
+    private let syncSettingsIconView = createIconView(imageName: "icloud")
+    private let syncSettingsLabel = createSettingLabel(text: "settings.sync.title".localized)
+    let syncStatusDetailLabel = createDetailLabel(text: "")
+    private let syncSettingsChevron = createChevronView()
+
     // Notifications Section
     private let notificationsHeaderView = createSectionHeader(title: "settings.section.notifications".localized)
 
@@ -175,6 +188,11 @@ final class SettingsView: UIView {
         setupCurrencyContainer()
         contentStackView.addArrangedSubview(currencyContainer)
 
+        // Sharing section
+        contentStackView.addArrangedSubview(sharingHeaderView)
+        setupSyncSettingsContainer()
+        contentStackView.addArrangedSubview(syncSettingsContainer)
+
         // Notifications section
         contentStackView.addArrangedSubview(notificationsHeaderView)
         setupNotificationsContainer()
@@ -226,6 +244,27 @@ final class SettingsView: UIView {
 
             currencyValueLabel.trailingAnchor.constraint(equalTo: currencyChevron.leadingAnchor, constant: -Metrics.spacing2),
             currencyValueLabel.centerYAnchor.constraint(equalTo: currencyContainer.centerYAnchor)
+        ])
+    }
+
+    private func setupSyncSettingsContainer() {
+        syncSettingsContainer.addSubview(syncSettingsIconView)
+        syncSettingsContainer.addSubview(syncSettingsLabel)
+        syncSettingsContainer.addSubview(syncStatusDetailLabel)
+        syncSettingsContainer.addSubview(syncSettingsChevron)
+
+        NSLayoutConstraint.activate([
+            syncSettingsIconView.leadingAnchor.constraint(equalTo: syncSettingsContainer.leadingAnchor, constant: Metrics.spacing4),
+            syncSettingsIconView.centerYAnchor.constraint(equalTo: syncSettingsContainer.centerYAnchor),
+
+            syncSettingsLabel.leadingAnchor.constraint(equalTo: syncSettingsIconView.trailingAnchor, constant: Metrics.spacing3),
+            syncSettingsLabel.centerYAnchor.constraint(equalTo: syncSettingsContainer.centerYAnchor),
+
+            syncSettingsChevron.trailingAnchor.constraint(equalTo: syncSettingsContainer.trailingAnchor, constant: -Metrics.spacing4),
+            syncSettingsChevron.centerYAnchor.constraint(equalTo: syncSettingsContainer.centerYAnchor),
+
+            syncStatusDetailLabel.trailingAnchor.constraint(equalTo: syncSettingsChevron.leadingAnchor, constant: -Metrics.spacing2),
+            syncStatusDetailLabel.centerYAnchor.constraint(equalTo: syncSettingsContainer.centerYAnchor)
         ])
     }
 
@@ -350,6 +389,8 @@ final class SettingsView: UIView {
         let notificationsTap = UITapGestureRecognizer(target: self, action: #selector(notificationsTapped))
         notificationsContainer.addGestureRecognizer(notificationsTap)
 
+        let syncSettingsTap = UITapGestureRecognizer(target: self, action: #selector(syncSettingsTapped))
+        syncSettingsContainer.addGestureRecognizer(syncSettingsTap)
     }
 
     @objc
@@ -375,6 +416,11 @@ final class SettingsView: UIView {
     @objc
     private func handleDidTapBackButton() {
         delegate?.handleDidTapBackButton()
+    }
+
+    @objc
+    private func syncSettingsTapped() {
+        delegate?.didTapSyncSettings()
     }
 }
 
