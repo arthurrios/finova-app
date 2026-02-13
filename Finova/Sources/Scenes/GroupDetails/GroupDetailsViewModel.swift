@@ -33,9 +33,31 @@ final class GroupDetailsViewModel {
     }
 
     func loadGroupDetails() {
-        guard let updated = repository.fetchGroup(byId: group.id) else { return }
+        guard var updated = repository.fetchGroup(byId: group.id) else { return }
+        updated.members = repository.fetchMembers(forGroupId: updated.id)
+
+        // Refresh owner name from local user data if current user is the owner
+        if updated.isOwner, let savedName = UserDefaultsManager.getUser()?.name, !savedName.isEmpty, savedName != "User" {
+            if updated.ownerName != savedName {
+                updated.ownerName = savedName
+                repository.updateGroup(updated)
+            }
+            // Also update the owner member record
+            if let ownerMember = updated.members.first(where: { $0.role == .owner }),
+               ownerMember.name != savedName {
+                var updatedMember = ownerMember
+                updatedMember.name = savedName
+                repository.updateMember(updatedMember)
+                // Refresh members after update
+                updated.members = repository.fetchMembers(forGroupId: updated.id)
+            }
+        }
+
+        // Populate shared cards from database
+        let cardRepo = CreditCardRepository()
+        updated.sharedCards = cardRepo.fetchCardsForGroup(groupId: updated.id)
+
         group = updated
-        group.members = repository.fetchMembers(forGroupId: group.id)
         onGroupUpdated?()
     }
 
@@ -72,14 +94,21 @@ final class GroupDetailsViewModel {
     // MARK: - Migration
 
     func fetchMigrationCounts() -> MigrationCounts {
+        guard let uid = UIDUserDefaultsManager.shared.currentUserUID else {
+            return MigrationCounts(transactions: 0, budgets: 0, creditCards: 0, allocations: 0)
+        }
+
         let transactions = db.fetchSingleInt(
-            "SELECT COUNT(*) FROM transactions WHERE shared_group_id IS NULL"
+            "SELECT COUNT(*) FROM Transactions WHERE shared_group_id IS NULL AND user_id = ?",
+            textBinding: uid
         ) ?? 0
         let budgets = db.fetchSingleInt(
-            "SELECT COUNT(*) FROM budgets WHERE shared_group_id IS NULL"
+            "SELECT COUNT(*) FROM Budgets WHERE shared_group_id IS NULL AND user_id = ?",
+            textBinding: uid
         ) ?? 0
         let creditCards = db.fetchSingleInt(
-            "SELECT COUNT(*) FROM credit_cards WHERE shared_group_id IS NULL"
+            "SELECT COUNT(*) FROM CreditCards WHERE shared_group_id IS NULL AND user_id = ? AND is_deleted = 0",
+            textBinding: uid
         ) ?? 0
         let allocations = allocationRepository.fetchPersonalAllocationsCount()
 
@@ -93,21 +122,25 @@ final class GroupDetailsViewModel {
 
     func migratePersonalData(completion: @escaping () -> Void) {
         let groupId = group.id
+        guard let uid = UIDUserDefaultsManager.shared.currentUserUID else {
+            completion()
+            return
+        }
 
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self = self else { return }
 
             self.db.executeSyncUpdate(
-                "UPDATE transactions SET shared_group_id = ?, sync_status = 'pending' WHERE shared_group_id IS NULL",
-                textBindings: [groupId]
+                "UPDATE Transactions SET shared_group_id = ?, sync_status = 'pending' WHERE shared_group_id IS NULL AND user_id = ?",
+                textBindings: [groupId, uid]
             )
             self.db.executeSyncUpdate(
-                "UPDATE budgets SET shared_group_id = ?, sync_status = 'pending' WHERE shared_group_id IS NULL",
-                textBindings: [groupId]
+                "UPDATE Budgets SET shared_group_id = ?, sync_status = 'pending' WHERE shared_group_id IS NULL AND user_id = ?",
+                textBindings: [groupId, uid]
             )
             self.db.executeSyncUpdate(
-                "UPDATE credit_cards SET shared_group_id = ?, sync_status = 'pending' WHERE shared_group_id IS NULL",
-                textBindings: [groupId]
+                "UPDATE CreditCards SET shared_group_id = ?, sync_status = 'pending' WHERE shared_group_id IS NULL AND user_id = ? AND is_deleted = 0",
+                textBindings: [groupId, uid]
             )
 
             _ = self.allocationRepository.migrateAllocationsToGroup(groupId: groupId)

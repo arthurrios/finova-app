@@ -635,9 +635,27 @@ final class TransactionRepository: TransactionRepositoryProtocol {
 
   func markAsSynced(ckRecordName: String) {
     Self.invalidateCache()
+    // Try matching by existing ck_record_id (for re-synced records)
     db.executeSyncUpdate(
       "UPDATE Transactions SET sync_status = 'synced', ck_record_id = ? WHERE ck_record_id = ?;",
       textBindings: [ckRecordName, ckRecordName]
+    )
+    // Also match by local id for first-time sync (ck_record_id is still NULL)
+    if let idString = ckRecordName.components(separatedBy: "transaction-").last,
+       let localId = Int(idString) {
+      db.executeSyncUpdate(
+        "UPDATE Transactions SET sync_status = 'synced', ck_record_id = ? WHERE id = ? AND ck_record_id IS NULL;",
+        textBindings: [ckRecordName],
+        intBindings: [localId]
+      )
+    }
+  }
+
+  func setCKRecordId(for localId: Int, ckRecordName: String) {
+    db.executeSyncUpdate(
+      "UPDATE Transactions SET ck_record_id = ? WHERE id = ? AND ck_record_id IS NULL;",
+      textBindings: [ckRecordName],
+      intBindings: [localId]
     )
   }
 

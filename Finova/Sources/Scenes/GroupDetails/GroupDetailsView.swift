@@ -194,6 +194,7 @@ final class GroupDetailsView: UIView {
     }()
 
     var membersTableHeightConstraint: NSLayoutConstraint?
+    var sharedCardsTableHeightConstraint: NSLayoutConstraint?
 
     // MARK: - Shared Cards Section
     private let sharedCardsSectionHeaderView = createSectionHeader(
@@ -360,6 +361,9 @@ final class GroupDetailsView: UIView {
         contentStackView.addArrangedSubview(sharedCardsSectionHeaderView)
         contentStackView.addArrangedSubview(emptyCardsView)
         contentStackView.addArrangedSubview(sharedCardsTableView)
+
+        sharedCardsTableHeightConstraint = sharedCardsTableView.heightAnchor.constraint(equalToConstant: 0)
+        sharedCardsTableHeightConstraint?.isActive = true
 
         // Import section
         contentStackView.addArrangedSubview(importSectionHeaderView)
@@ -625,6 +629,11 @@ final class GroupDetailsView: UIView {
 
     func updateMembersTableHeight(count: Int) {
         membersTableHeightConstraint?.constant = CGFloat(count) * 80
+    }
+
+    func updateSharedCardsTableHeight(count: Int) {
+        // Each card cell: 100 (card preview) + padding ~ 150
+        sharedCardsTableHeightConstraint?.constant = CGFloat(count) * 150
     }
 
     private func updateDetailRowValue(_ row: UIView, value: String) {

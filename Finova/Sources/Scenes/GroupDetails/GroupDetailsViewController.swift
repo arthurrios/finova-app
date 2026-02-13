@@ -45,6 +45,10 @@ final class GroupDetailsViewController: UIViewController {
         contentView.membersTableView.delegate = self
         contentView.membersTableView.dataSource = self
         contentView.membersTableView.register(GroupMemberCell.self, forCellReuseIdentifier: GroupMemberCell.identifier)
+
+        contentView.sharedCardsTableView.delegate = self
+        contentView.sharedCardsTableView.dataSource = self
+        contentView.sharedCardsTableView.register(SharedCardTableViewCell.self, forCellReuseIdentifier: SharedCardTableViewCell.identifier)
     }
 
     private func bindViewModel() {
@@ -53,6 +57,8 @@ final class GroupDetailsViewController: UIViewController {
             self.contentView.configure(with: self.viewModel.group)
             self.contentView.membersTableView.reloadData()
             self.contentView.updateMembersTableHeight(count: self.viewModel.group.members.count)
+            self.contentView.sharedCardsTableView.reloadData()
+            self.contentView.updateSharedCardsTableHeight(count: self.viewModel.group.sharedCards.count)
         }
 
         viewModel.onError = { [weak self] message in
@@ -252,10 +258,22 @@ extension GroupDetailsViewController {
 // MARK: - UITableViewDataSource & UITableViewDelegate
 extension GroupDetailsViewController: UITableViewDataSource, UITableViewDelegate {
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
+        if tableView === contentView.sharedCardsTableView {
+            return viewModel.group.sharedCards.count
+        }
         return viewModel.group.members.count
     }
 
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+        if tableView === contentView.sharedCardsTableView {
+            guard let cell = tableView.dequeueReusableCell(withIdentifier: SharedCardTableViewCell.identifier, for: indexPath) as? SharedCardTableViewCell else {
+                return UITableViewCell()
+            }
+            let card = viewModel.group.sharedCards[indexPath.row]
+            cell.configure(with: card)
+            return cell
+        }
+
         guard let cell = tableView.dequeueReusableCell(withIdentifier: GroupMemberCell.identifier, for: indexPath) as? GroupMemberCell else {
             return UITableViewCell()
         }
@@ -265,6 +283,7 @@ extension GroupDetailsViewController: UITableViewDataSource, UITableViewDelegate
     }
 
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+        if tableView === contentView.sharedCardsTableView { return }
         let member = viewModel.group.members[indexPath.row]
         didSelectMember(member)
     }

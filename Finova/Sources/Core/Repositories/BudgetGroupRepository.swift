@@ -58,11 +58,12 @@ final class BudgetGroupRepository {
 
     func updateGroup(_ group: BudgetGroup) {
         let query = """
-            UPDATE BudgetGroups SET name = ?, currency = ?, ck_record_id = ?, ck_share_url = ?, updated_at = ?, is_deleted = ?
+            UPDATE BudgetGroups SET name = ?, owner_name = ?, currency = ?, ck_record_id = ?, ck_share_url = ?, updated_at = ?, is_deleted = ?
             WHERE id = ?
             """
         db.executeGroupWrite(query, orderedBindings: [
             group.name,
+            group.ownerName,
             group.currency,
             group.ckRecordId,
             group.ckShareUrl,

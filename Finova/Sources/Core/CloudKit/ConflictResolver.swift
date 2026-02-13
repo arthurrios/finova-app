@@ -34,6 +34,9 @@ final class ConflictResolver {
         // Fallback: check by local id
         if let remoteId = remote.id,
            let local = repo.fetchTransaction(byId: remoteId) {
+            // Set ck_record_id on the local row so updateFromCloud's WHERE clause matches
+            repo.setCKRecordId(for: remoteId, ckRecordName: recordName)
+
             let remoteModDate = ckRecord.modificationDate ?? Date.distantPast
             let localModDate = repo.lastModifiedDate(for: local.id ?? 0) ?? Date.distantPast
 

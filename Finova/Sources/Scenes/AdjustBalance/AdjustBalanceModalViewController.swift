@@ -18,13 +18,15 @@ final class AdjustBalanceModalViewController: UIViewController {
 
     private let contentView = AdjustBalanceModalView()
     private let currentCalculatedBalance: Int
+    private let context: DataContext
     private var bottomConstraint: NSLayoutConstraint?
     weak var flowDelegate: AdjustBalanceModalFlowDelegate?
 
     // MARK: - Initialization
 
-    init(currentBalance: Int) {
+    init(currentBalance: Int, context: DataContext = .personal) {
         self.currentCalculatedBalance = currentBalance
+        self.context = context
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -146,9 +148,16 @@ extension AdjustBalanceModalViewController: AdjustBalanceModalViewDelegate {
     }
 
     func didTapConfirm(realBalanceCents: Int) {
-        let oldOffset = UIDUserDefaultsManager.shared.getCurrentUserBalanceOffset()
-        let newOffset = realBalanceCents - currentCalculatedBalance + oldOffset
-        UIDUserDefaultsManager.shared.setCurrentUserBalanceOffset(newOffset)
+        switch context {
+        case .personal:
+            let oldOffset = UIDUserDefaultsManager.shared.getCurrentUserBalanceOffset()
+            let newOffset = realBalanceCents - currentCalculatedBalance + oldOffset
+            UIDUserDefaultsManager.shared.setCurrentUserBalanceOffset(newOffset)
+        case .group(let group):
+            let oldOffset = UIDUserDefaultsManager.shared.getGroupBalanceOffset(groupId: group.id)
+            let newOffset = realBalanceCents - currentCalculatedBalance + oldOffset
+            UIDUserDefaultsManager.shared.setGroupBalanceOffset(newOffset, groupId: group.id)
+        }
         flowDelegate?.didAdjustBalance()
     }
 }

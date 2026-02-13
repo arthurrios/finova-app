@@ -37,6 +37,7 @@ final class SyncEngine {
     private let stateManager = SyncStateManager.shared
     private let syncQueue = DispatchQueue(label: "com.finova.syncengine", qos: .utility)
     private var isSyncing = false
+    private var hasSetupSubscriptions = false
 
     private init() {
         setupObservers()
@@ -79,10 +80,26 @@ final class SyncEngine {
 
     private func executeSyncCycle() {
         guard !isSyncing else { return }
-        guard cloudKit.isCloudKitAvailable else {
-            status = .idle
-            return
+
+        if cloudKit.isCloudKitAvailable {
+            startSyncOperations()
+        } else {
+            // Check account status first — isCloudKitAvailable may not be set yet
+            cloudKit.checkAccountStatus { [weak self] accountStatus in
+                guard let self = self else { return }
+                guard accountStatus == .available else {
+                    self.status = .idle
+                    return
+                }
+                self.syncQueue.async {
+                    self.startSyncOperations()
+                }
+            }
         }
+    }
+
+    private func startSyncOperations() {
+        guard !isSyncing else { return }
 
         isSyncing = true
         status = .syncing
@@ -91,6 +108,7 @@ final class SyncEngine {
 
             switch result {
             case .success:
+                self.setupSubscriptionsIfNeeded()
                 self.fetchPrivateDatabaseChanges { result in
                     switch result {
                     case .success:
@@ -120,6 +138,22 @@ final class SyncEngine {
         cloudKit.createPrivateZoneIfNeeded(completion: completion)
     }
 
+    private func setupSubscriptionsIfNeeded() {
+        guard !hasSetupSubscriptions else { return }
+        hasSetupSubscriptions = true
+
+        cloudKit.setupPrivateDatabaseSubscription { result in
+            if case .failure(let error) = result {
+                logError("Failed to setup private subscription: \(error.localizedDescription)")
+            }
+        }
+        cloudKit.setupSharedDatabaseSubscription { result in
+            if case .failure(let error) = result {
+                logError("Failed to setup shared subscription: \(error.localizedDescription)")
+            }
+        }
+    }
+
     // MARK: - Fetch Changes (Pull)
 
     private func fetchPrivateDatabaseChanges(completion: @escaping (Result<Void, Error>) -> Void) {
@@ -142,7 +176,13 @@ final class SyncEngine {
                     self?.fetchZoneChanges(zoneIDs: changedZoneIDs, database: .private, completion: completion)
                 }
             case .failure(let error):
-                completion(.failure(error))
+                if let ckError = error as? CKError, ckError.code == .changeTokenExpired {
+                    logWarning("Change token expired for privateDB — resetting and retrying")
+                    self?.stateManager.resetAllTokens()
+                    self?.fetchPrivateDatabaseChanges(completion: completion)
+                } else {
+                    completion(.failure(error))
+                }
             }
         }
 
@@ -190,11 +230,17 @@ final class SyncEngine {
                 let dbKey = database == .private ? "private" : "shared"
                 self?.stateManager.saveChangeToken(token, for: zoneID.zoneName, database: dbKey)
             case .failure(let error):
-                logError("Zone fetch failed for \(zoneID.zoneName): \(error)")
+                if let ckError = error as? CKError, ckError.code == .changeTokenExpired {
+                    let dbKey = database == .private ? "private" : "shared"
+                    logWarning("Zone change token expired for \(zoneID.zoneName) — resetting")
+                    self?.stateManager.saveChangeToken(nil, for: zoneID.zoneName, database: dbKey)
+                } else {
+                    logError("Zone fetch failed for \(zoneID.zoneName): \(error)")
+                }
             }
         }
 
-        operation.fetchRecordZoneChangesResultBlock = { result in
+        operation.fetchRecordZoneChangesResultBlock = { [weak self] result in
             switch result {
             case .success:
                 DispatchQueue.main.async {
@@ -202,7 +248,13 @@ final class SyncEngine {
                 }
                 completion(.success(()))
             case .failure(let error):
-                completion(.failure(error))
+                if let ckError = error as? CKError, ckError.code == .changeTokenExpired {
+                    logWarning("Zone changes token expired — resetting all tokens and retrying")
+                    self?.stateManager.resetAllTokens()
+                    self?.fetchZoneChanges(zoneIDs: zoneIDs, database: database, completion: completion)
+                } else {
+                    completion(.failure(error))
+                }
             }
         }
 

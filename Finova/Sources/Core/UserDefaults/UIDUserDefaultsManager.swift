@@ -127,6 +127,14 @@ class UIDUserDefaultsManager {
     UserDefaults.standard.set(offset, forKey: "balanceOffset_\(uid)")
   }
 
+  func getGroupBalanceOffset(groupId: String) -> Int {
+    return UserDefaults.standard.integer(forKey: "balanceOffset_group_\(groupId)")
+  }
+
+  func setGroupBalanceOffset(_ offset: Int, groupId: String) {
+    UserDefaults.standard.set(offset, forKey: "balanceOffset_group_\(groupId)")
+  }
+
   func getBalanceDisplayMode() -> BalanceDisplayMode {
     let modeString = UserDefaults.standard.string(forKey: Self.globalBalanceDisplayMode) ?? "final"
     return modeString == "current" ? .current : .final

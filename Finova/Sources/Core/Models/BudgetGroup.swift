@@ -11,8 +11,8 @@ struct BudgetGroup: Codable, Equatable {
     let id: String
     var name: String
     let ownerId: String
-    let ownerName: String
-    let ownerEmail: String
+    var ownerName: String
+    var ownerEmail: String
     var currency: String       // ISO 4217 code — enforced group-wide
     var ckRecordId: String?
     var ckShareUrl: String?

@@ -15,7 +15,6 @@ final class SyncToastView: UIView {
         let blurEffect = UIBlurEffect(style: .systemMaterial)
         let view = UIVisualEffectView(effect: blurEffect)
         view.translatesAutoresizingMaskIntoConstraints = false
-        view.layer.cornerRadius = 20
         view.layer.masksToBounds = true
         return view
     }()
@@ -24,7 +23,6 @@ final class SyncToastView: UIView {
         let view = UIView()
         view.translatesAutoresizingMaskIntoConstraints = false
         view.backgroundColor = UIColor.systemBackground.withAlphaComponent(0.95)
-        view.layer.cornerRadius = 20
         view.layer.masksToBounds = true
         return view
     }()
@@ -111,7 +109,10 @@ final class SyncToastView: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        layer.shadowPath = UIBezierPath(roundedRect: bounds, cornerRadius: 20).cgPath
+        let pillRadius = bounds.height / 2
+        backgroundView.layer.cornerRadius = pillRadius
+        blurEffectView.layer.cornerRadius = pillRadius
+        layer.shadowPath = UIBezierPath(roundedRect: bounds, cornerRadius: pillRadius).cgPath
     }
 
     // MARK: - Public API

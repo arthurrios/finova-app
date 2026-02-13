@@ -21,7 +21,7 @@ final class BudgetGroupService {
         }
 
         let userId = user.uid
-        let userName = user.displayName ?? "User"
+        let userName = UserDefaultsManager.getUser()?.name ?? user.displayName ?? "User"
         let userEmail = user.email ?? ""
 
         let group = BudgetGroup(
@@ -88,7 +88,7 @@ final class BudgetGroupService {
 
         guard let user = AuthenticationManager.shared.currentUser else { return }
 
-        let userName = user.displayName ?? "User"
+        let userName = UserDefaultsManager.getUser()?.name ?? user.displayName ?? "User"
         let userEmail = user.email ?? ""
 
         // Create invitation record

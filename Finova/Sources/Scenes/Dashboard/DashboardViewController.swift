@@ -1796,7 +1796,7 @@ extension DashboardViewController: MonthBudgetCardDelegate {
         guard selectedIndex < syncedViewModel.monthData.count else { return }
         let monthData = syncedViewModel.monthData[selectedIndex]
         let currentBalance = monthData.currentBalance ?? monthData.finalBalance ?? 0
-        flowDelegate?.openAdjustBalanceModal(currentBalance: currentBalance)
+        flowDelegate?.openAdjustBalanceModal(currentBalance: currentBalance, context: viewModel.currentContext)
     }
 
     func refreshAfterBalanceAdjustment() {

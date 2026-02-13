@@ -338,8 +338,8 @@ extension AppFlowController: DashboardFlowDelegate, SettingsFlowDelegate, Profil
         }
     }
 
-    func openAdjustBalanceModal(currentBalance: Int) {
-        let viewController = AdjustBalanceModalViewController(currentBalance: currentBalance)
+    func openAdjustBalanceModal(currentBalance: Int, context: DataContext) {
+        let viewController = AdjustBalanceModalViewController(currentBalance: currentBalance, context: context)
         viewController.flowDelegate = self
         viewController.modalPresentationStyle = .overCurrentContext
         viewController.modalTransitionStyle = .crossDissolve

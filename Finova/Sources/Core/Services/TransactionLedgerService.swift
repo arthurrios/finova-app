@@ -85,7 +85,7 @@ final class TransactionLedgerService {
     let budgetsByAnchor = budgetRepo.fetchBudgetsForGroup(groupId: groupId)
       .reduce(into: [:]) { acc, entry in acc[entry.monthDate] = entry.amount }
 
-    var previousAvailable = 0
+    var previousAvailable = UIDUserDefaultsManager.shared.getGroupBalanceOffset(groupId: groupId)
 
     return anchors.map { anchor in
       var cal = Calendar(identifier: .gregorian)
