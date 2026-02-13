@@ -613,6 +613,16 @@ final class TransactionRepository: TransactionRepositoryProtocol {
   // MARK: - CloudKit Sync Methods
 
   func fetchPendingSync() -> [Transaction] {
+    if let uid = UIDUserDefaultsManager.shared.currentUserUID {
+      let query = """
+        SELECT id, title, category, type, amount, date, budget_month_date,
+               is_recurring, has_installments, parent_transaction_id,
+               installment_number, total_installments, original_amount,
+               credit_card_id, statement_id, is_credit_card_statement
+        FROM Transactions WHERE sync_status = 'pending' AND user_id = ?;
+        """
+      return (try? db.executeTransactionQueryPublicText(query, textBindings: [uid])) ?? []
+    }
     let query = """
       SELECT id, title, category, type, amount, date, budget_month_date,
              is_recurring, has_installments, parent_transaction_id,
@@ -636,8 +646,14 @@ final class TransactionRepository: TransactionRepositoryProtocol {
     let category = transaction.category.key
     let type = String(describing: transaction.type)
 
+    // Remove any existing row with this ck_record_id to prevent duplicates
+    db.executeSyncUpdate(
+      "DELETE FROM Transactions WHERE ck_record_id = ?;",
+      textBindings: [ckRecordName]
+    )
+
     let query = """
-      INSERT OR REPLACE INTO Transactions
+      INSERT INTO Transactions
         (title, category, type, amount, date, budget_month_date,
          is_recurring, has_installments, parent_transaction_id,
          installment_number, total_installments, original_amount,
@@ -704,6 +720,17 @@ final class TransactionRepository: TransactionRepositoryProtocol {
       FROM Transactions WHERE id = ?;
       """
     return (try? db.executeTransactionQueryPublic(query, bindValues: [id]))?.first
+  }
+
+  func fetchTransaction(byCKRecordName recordName: String) -> Transaction? {
+    let query = """
+      SELECT id, title, category, type, amount, date, budget_month_date,
+             is_recurring, has_installments, parent_transaction_id,
+             installment_number, total_installments, original_amount,
+             credit_card_id, statement_id, is_credit_card_statement
+      FROM Transactions WHERE ck_record_id = ?;
+      """
+    return (try? db.executeTransactionQueryPublicText(query, textBindings: [recordName]))?.first
   }
 
   func lastModifiedDate(for id: Int) -> Date? {

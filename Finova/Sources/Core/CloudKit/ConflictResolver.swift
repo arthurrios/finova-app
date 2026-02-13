@@ -15,22 +15,37 @@ final class ConflictResolver {
 
     func resolveTransaction(remote: Transaction, ckRecord: CKRecord) {
         let repo = TransactionRepository()
+        let recordName = ckRecord.recordID.recordName
 
-        guard let remoteId = remote.id,
-              let local = repo.fetchTransaction(byId: remoteId) else {
-            // New record from cloud - insert locally
-            repo.insertFromCloud(remote, ckRecordName: ckRecord.recordID.recordName)
+        // First check if we already have this cloud record locally (by ck_record_id)
+        if let existing = repo.fetchTransaction(byCKRecordName: recordName) {
+            // Record exists locally — compare modification dates
+            let remoteModDate = ckRecord.modificationDate ?? Date.distantPast
+            let localModDate = repo.lastModifiedDate(for: existing.id ?? 0) ?? Date.distantPast
+
+            if remoteModDate > localModDate {
+                repo.updateFromCloud(remote, ckRecordName: recordName)
+            } else {
+                repo.markSyncPending(for: existing.id ?? 0)
+            }
             return
         }
 
-        // Compare modification dates - last writer wins
-        let remoteModDate = ckRecord.modificationDate ?? Date.distantPast
-        let localModDate = repo.lastModifiedDate(for: local.id ?? 0) ?? Date.distantPast
+        // Fallback: check by local id
+        if let remoteId = remote.id,
+           let local = repo.fetchTransaction(byId: remoteId) {
+            let remoteModDate = ckRecord.modificationDate ?? Date.distantPast
+            let localModDate = repo.lastModifiedDate(for: local.id ?? 0) ?? Date.distantPast
 
-        if remoteModDate > localModDate {
-            repo.updateFromCloud(remote, ckRecordName: ckRecord.recordID.recordName)
-        } else {
-            repo.markSyncPending(for: local.id ?? 0)
+            if remoteModDate > localModDate {
+                repo.updateFromCloud(remote, ckRecordName: recordName)
+            } else {
+                repo.markSyncPending(for: local.id ?? 0)
+            }
+            return
         }
+
+        // Truly new record — insert
+        repo.insertFromCloud(remote, ckRecordName: recordName)
     }
 }

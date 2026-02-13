@@ -128,23 +128,37 @@ class DBHelper {
             logWarning("Database not initialized, skipping budget update")
             return
         }
-        
-        let updateQuery = "UPDATE Budgets SET amount = ? WHERE month_date = ?;"
-        var statement: OpaquePointer?
-        
-        guard sqlite3_prepare_v2(db, updateQuery, -1, &statement, nil) == SQLITE_OK else {
-            let msg = String(cString: sqlite3_errmsg(db))
-            throw DBError.prepareFailed(message: msg)
-        }
-        
-        defer { sqlite3_finalize(statement) }
-        
-        sqlite3_bind_int64(statement, 1, Int64(amount))
-        sqlite3_bind_int64(statement, 2, Int64(monthDate))
-        
-        guard sqlite3_step(statement) == SQLITE_DONE else {
-            let msg = String(cString: sqlite3_errmsg(db))
-            throw DBError.stepFailed(message: msg)
+
+        let updateQuery: String
+        if let uid = UIDUserDefaultsManager.shared.currentUserUID {
+            updateQuery = "UPDATE Budgets SET amount = ? WHERE month_date = ? AND user_id = ?;"
+            var statement: OpaquePointer?
+            guard sqlite3_prepare_v2(db, updateQuery, -1, &statement, nil) == SQLITE_OK else {
+                let msg = String(cString: sqlite3_errmsg(db))
+                throw DBError.prepareFailed(message: msg)
+            }
+            defer { sqlite3_finalize(statement) }
+            sqlite3_bind_int64(statement, 1, Int64(amount))
+            sqlite3_bind_int64(statement, 2, Int64(monthDate))
+            sqlite3_bind_text(statement, 3, uid, -1, SQLITE_TRANSIENT)
+            guard sqlite3_step(statement) == SQLITE_DONE else {
+                let msg = String(cString: sqlite3_errmsg(db))
+                throw DBError.stepFailed(message: msg)
+            }
+        } else {
+            updateQuery = "UPDATE Budgets SET amount = ? WHERE month_date = ?;"
+            var statement: OpaquePointer?
+            guard sqlite3_prepare_v2(db, updateQuery, -1, &statement, nil) == SQLITE_OK else {
+                let msg = String(cString: sqlite3_errmsg(db))
+                throw DBError.prepareFailed(message: msg)
+            }
+            defer { sqlite3_finalize(statement) }
+            sqlite3_bind_int64(statement, 1, Int64(amount))
+            sqlite3_bind_int64(statement, 2, Int64(monthDate))
+            guard sqlite3_step(statement) == SQLITE_DONE else {
+                let msg = String(cString: sqlite3_errmsg(db))
+                throw DBError.stepFailed(message: msg)
+            }
         }
     }
     
@@ -207,22 +221,34 @@ class DBHelper {
             logWarning("Database not initialized, skipping budget delete")
             return
         }
-        
-        let deleteQuery = "DELETE FROM Budgets WHERE month_date = ?;"
-        var statement: OpaquePointer?
-        
-        guard sqlite3_prepare_v2(db, deleteQuery, -1, &statement, nil) == SQLITE_OK else {
-            let msg = String(cString: sqlite3_errmsg(db))
-            throw DBError.prepareFailed(message: msg)
-        }
-        
-        defer { sqlite3_finalize(statement) }
-        
-        sqlite3_bind_int64(statement, 1, Int64(monthDate))
-        
-        guard sqlite3_step(statement) == SQLITE_DONE else {
-            let msg = String(cString: sqlite3_errmsg(db))
-            throw DBError.stepFailed(message: msg)
+
+        if let uid = UIDUserDefaultsManager.shared.currentUserUID {
+            let deleteQuery = "DELETE FROM Budgets WHERE month_date = ? AND user_id = ?;"
+            var statement: OpaquePointer?
+            guard sqlite3_prepare_v2(db, deleteQuery, -1, &statement, nil) == SQLITE_OK else {
+                let msg = String(cString: sqlite3_errmsg(db))
+                throw DBError.prepareFailed(message: msg)
+            }
+            defer { sqlite3_finalize(statement) }
+            sqlite3_bind_int64(statement, 1, Int64(monthDate))
+            sqlite3_bind_text(statement, 2, uid, -1, SQLITE_TRANSIENT)
+            guard sqlite3_step(statement) == SQLITE_DONE else {
+                let msg = String(cString: sqlite3_errmsg(db))
+                throw DBError.stepFailed(message: msg)
+            }
+        } else {
+            let deleteQuery = "DELETE FROM Budgets WHERE month_date = ?;"
+            var statement: OpaquePointer?
+            guard sqlite3_prepare_v2(db, deleteQuery, -1, &statement, nil) == SQLITE_OK else {
+                let msg = String(cString: sqlite3_errmsg(db))
+                throw DBError.prepareFailed(message: msg)
+            }
+            defer { sqlite3_finalize(statement) }
+            sqlite3_bind_int64(statement, 1, Int64(monthDate))
+            guard sqlite3_step(statement) == SQLITE_DONE else {
+                let msg = String(cString: sqlite3_errmsg(db))
+                throw DBError.stepFailed(message: msg)
+            }
         }
     }
     
@@ -1840,6 +1866,23 @@ class DBHelper {
         }
         executeSyncUpdate("UPDATE Transactions SET user_id = ? WHERE user_id IS NULL;", textBindings: [uid])
         executeSyncUpdate("UPDATE Budgets SET user_id = ? WHERE user_id IS NULL;", textBindings: [uid])
+
+        // Remove duplicate cloud records (keep only the row with the lowest id for each ck_record_id)
+        let dedup = """
+          DELETE FROM Transactions WHERE id NOT IN (
+            SELECT MIN(id) FROM Transactions GROUP BY ck_record_id
+          ) AND ck_record_id IS NOT NULL;
+          """
+        var dedupStmt: OpaquePointer?
+        if sqlite3_prepare_v2(db, dedup, -1, &dedupStmt, nil) == SQLITE_OK {
+            if sqlite3_step(dedupStmt) == SQLITE_DONE {
+                let removed = sqlite3_changes(db)
+                if removed > 0 {
+                    logWarning("[Backfill] Removed \(removed) duplicate cloud-synced transactions")
+                }
+            }
+            sqlite3_finalize(dedupStmt)
+        }
     }
 
     // MARK: - User-Filtered Queries
