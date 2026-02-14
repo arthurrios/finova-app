@@ -7,6 +7,7 @@
 
 import CloudKit
 import Foundation
+import UserNotifications
 
 final class BudgetGroupService {
     static let shared = BudgetGroupService()
@@ -60,7 +61,10 @@ final class BudgetGroupService {
     }
 
     func fetchAllGroups() -> [BudgetGroup] {
-        return repository.fetchAllGroups()
+        let groups = repository.fetchAllGroups()
+        // Fix existing shares that have restrictive permissions
+        upgradeExistingSharePermissions(groups: groups)
+        return groups
     }
 
     func fetchGroup(byId id: String) -> BudgetGroup? {
@@ -103,13 +107,16 @@ final class BudgetGroupService {
         repository.insertInvitation(invitation)
 
         // Push invitation via CloudKit (add participant to share), then save to public DB
-        pushInvitationToCloud(invitation, group: group) { [weak self] result in
-            switch result {
-            case .success:
-                self?.saveInvitationToPublicDB(invitation)
-                completion(.success(()))
-            case .failure(let error):
-                completion(.failure(error))
+        // CKShare participant addition is best-effort; public DB save is the critical path
+        pushInvitationToCloud(invitation, group: group) { [weak self] _ in
+            self?.saveInvitationToPublicDB(invitation) { saveResult in
+                switch saveResult {
+                case .success:
+                    completion(.success(()))
+                case .failure(let error):
+                    logError("Failed to save invitation to public DB: \(error)")
+                    completion(.failure(error))
+                }
             }
         }
     }
@@ -133,6 +140,50 @@ final class BudgetGroupService {
 
     func respondToInvitation(id: String, accept: Bool) {
         repository.updateInvitationStatus(id: id, status: accept ? "accepted" : "declined")
+    }
+
+    // MARK: - Share Permission Migration
+
+    /// Upgrades existing CKShares from .none to .readWrite so invitees can accept via URL.
+    /// Only runs for groups owned by the current user that have a share URL.
+    private func upgradeExistingSharePermissions(groups: [BudgetGroup]) {
+        let ownedGroups = groups.filter { $0.isOwner && $0.ckShareUrl != nil }
+        guard !ownedGroups.isEmpty else { return }
+
+        for group in ownedGroups {
+            guard let urlString = group.ckShareUrl, let shareURL = URL(string: urlString) else { continue }
+
+            let fetchOp = CKFetchShareMetadataOperation(shareURLs: [shareURL])
+            fetchOp.shouldFetchRootRecord = false
+            fetchOp.perShareMetadataResultBlock = { [weak self] _, result in
+                guard let self = self else { return }
+                switch result {
+                case .success(let metadata):
+                    let shareRecordID = metadata.share.recordID
+                    self.cloudKit.privateDatabase.fetch(withRecordID: shareRecordID) { record, _ in
+                        guard let share = record as? CKShare else { return }
+                        guard share.publicPermission != .readWrite else { return }
+
+                        share.publicPermission = .readWrite
+                        let saveOp = CKModifyRecordsOperation(recordsToSave: [share], recordIDsToDelete: nil)
+                        saveOp.modifyRecordsResultBlock = { result in
+                            switch result {
+                            case .success:
+                                logInfo("Upgraded CKShare permission to .readWrite for group \(group.name)")
+                            case .failure(let error):
+                                logError("Failed to upgrade CKShare permission for group \(group.name): \(error)")
+                            }
+                        }
+                        saveOp.qualityOfService = .utility
+                        self.cloudKit.privateDatabase.add(saveOp)
+                    }
+                case .failure(let error):
+                    logError("Failed to fetch share metadata for permission upgrade: \(error)")
+                }
+            }
+            fetchOp.qualityOfService = .utility
+            cloudKit.container.add(fetchOp)
+        }
     }
 
     // MARK: - CloudKit Share
@@ -173,7 +224,7 @@ final class BudgetGroupService {
         // Create a CKShare rooted on this record
         let share = CKShare(rootRecord: record)
         share[CKShare.SystemFieldKey.title] = group.name as CKRecordValue
-        share.publicPermission = .none // Only explicit participants
+        share.publicPermission = .readWrite // Anyone with the share URL can accept
 
         let operation = CKModifyRecordsOperation(recordsToSave: [record, share], recordIDsToDelete: nil)
         operation.modifyRecordsResultBlock = { [weak self] result in
@@ -200,14 +251,18 @@ final class BudgetGroupService {
         // Use CKShare to add participant by email lookup
         guard let shareURLString = group.ckShareUrl,
               let shareURL = URL(string: shareURLString) else {
-            completion(.failure(NSError(domain: "BudgetGroupService", code: 3, userInfo: nil)))
+            logError("CKShare URL missing for group \(group.id) — skipping participant add")
+            // Still allow the invitation to be saved to public DB even without CKShare
+            completion(.success(()))
             return
         }
 
         // Fetch the share, add participant
         cloudKit.container.fetchShareMetadata(with: shareURL) { [weak self] metadata, error in
             guard let self = self, let metadata = metadata else {
-                completion(.failure(error ?? NSError(domain: "BudgetGroupService", code: 4, userInfo: nil)))
+                logError("Failed to fetch share metadata: \(error?.localizedDescription ?? "unknown")")
+                // Allow invitation to proceed via public DB even if share lookup fails
+                completion(.success(()))
                 return
             }
 
@@ -216,7 +271,10 @@ final class BudgetGroupService {
                 withEmailAddress: invitation.inviteeEmail
             ) { participant, error in
                 guard let participant = participant else {
-                    completion(.failure(error ?? NSError(domain: "BudgetGroupService", code: 5, userInfo: nil)))
+                    logError("Could not find iCloud participant for \(invitation.inviteeEmail): \(error?.localizedDescription ?? "unknown")")
+                    // Allow invitation to proceed via public DB even if participant lookup fails
+                    // The invitee can still see the invitation and accept via share URL
+                    completion(.success(()))
                     return
                 }
 
@@ -237,28 +295,40 @@ final class BudgetGroupService {
         let fetchOp = CKFetchShareMetadataOperation(shareURLs: [shareURL])
         fetchOp.shouldFetchRootRecord = true
 
-        fetchOp.perShareMetadataResultBlock = { url, result in
+        fetchOp.perShareMetadataResultBlock = { [weak self] url, result in
+            guard let self = self else {
+                completion(.success(()))
+                return
+            }
             switch result {
             case .success(let metadata):
-                guard let shareRecordID = metadata.share.recordID as CKRecord.ID? else { return }
+                let shareRecordID = metadata.share.recordID
                 // Fetch and modify the share
                 self.cloudKit.privateDatabase.fetch(withRecordID: shareRecordID) { record, error in
-                    guard let share = record as? CKShare else { return }
+                    guard let share = record as? CKShare else {
+                        logError("Failed to fetch CKShare record: \(error?.localizedDescription ?? "not a CKShare")")
+                        completion(.success(()))
+                        return
+                    }
                     share.addParticipant(participant)
 
                     let saveOp = CKModifyRecordsOperation(recordsToSave: [share], recordIDsToDelete: nil)
                     saveOp.modifyRecordsResultBlock = { result in
                         switch result {
                         case .success:
+                            logInfo("Participant added to CKShare successfully")
                             completion(.success(()))
                         case .failure(let error):
-                            completion(.failure(error))
+                            logError("Failed to save participant to CKShare: \(error)")
+                            // Still allow invitation to proceed
+                            completion(.success(()))
                         }
                     }
                     self.cloudKit.privateDatabase.add(saveOp)
                 }
             case .failure(let error):
-                completion(.failure(error))
+                logError("Failed to fetch share metadata for participant add: \(error)")
+                completion(.success(()))
             }
         }
 
@@ -267,7 +337,7 @@ final class BudgetGroupService {
 
     // MARK: - Public Database Invitation
 
-    private func saveInvitationToPublicDB(_ invitation: GroupInvitation) {
+    private func saveInvitationToPublicDB(_ invitation: GroupInvitation, completion: @escaping (Result<Void, Error>) -> Void) {
         let recordID = CKRecord.ID(recordName: "invitation-\(invitation.id)")
         let record = CKRecord(recordType: "GroupInvitation", recordID: recordID)
 
@@ -285,19 +355,24 @@ final class BudgetGroupService {
             switch result {
             case .success:
                 logInfo("Invitation saved to public DB: \(invitation.id)")
+                completion(.success(()))
             case .failure(let error):
                 logError("Failed to save invitation to public DB: \(error)")
+                completion(.failure(error))
             }
         }
-        operation.qualityOfService = .utility
+        operation.qualityOfService = .userInitiated
         cloudKit.publicDatabase.add(operation)
     }
 
     func fetchRemoteInvitations(completion: @escaping () -> Void) {
         guard let email = AuthenticationManager.shared.currentUser?.email else {
+            logWarning("Cannot fetch invitations: no current user email")
             completion()
             return
         }
+
+        logInfo("Fetching remote invitations for \(email)...")
 
         let predicate = NSPredicate(format: "inviteeEmail == %@ AND status == %@", email, "pending")
         let query = CKQuery(recordType: "GroupInvitation", predicate: predicate)
@@ -310,9 +385,11 @@ final class BudgetGroupService {
 
             switch result {
             case .success(let (matchResults, _)):
+                logInfo("Found \(matchResults.count) invitation(s) in public DB")
                 var newInvitations = false
                 for (_, recordResult) in matchResults {
-                    if case .success(let record) = recordResult {
+                    switch recordResult {
+                    case .success(let record):
                         var invitation = GroupInvitation(
                             id: record.recordID.recordName.replacingOccurrences(of: "invitation-", with: ""),
                             groupId: record["groupId"] as? String ?? "",
@@ -327,7 +404,29 @@ final class BudgetGroupService {
                         if self.repository.fetchInvitation(byId: invitation.id) == nil {
                             self.repository.insertInvitation(invitation)
                             newInvitations = true
+                            logInfo("New invitation discovered: \(invitation.groupName) from \(invitation.inviterName)")
+
+                            // Schedule local notification for foreground/immediate delivery
+                            let content = UNMutableNotificationContent()
+                            content.title = "budgetGroups.invitation.notificationTitle".localized
+                            content.body = String(format: "budgetGroups.invitation.notificationBody".localized, invitation.inviterName, invitation.groupName)
+                            content.sound = .default
+                            content.userInfo = [
+                                "type": "group_invitation",
+                                "invitationId": invitation.id,
+                                "groupId": invitation.groupId
+                            ]
+
+                            let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 1, repeats: false)
+                            let request = UNNotificationRequest(
+                                identifier: "group_invitation_\(invitation.id)",
+                                content: content,
+                                trigger: trigger
+                            )
+                            UNUserNotificationCenter.current().add(request)
                         }
+                    case .failure(let error):
+                        logError("Failed to fetch individual invitation record: \(error)")
                     }
                 }
                 if newInvitations {
@@ -336,7 +435,10 @@ final class BudgetGroupService {
                     }
                 }
             case .failure(let error):
-                logError("Failed to fetch remote invitations: \(error)")
+                logError("Failed to fetch remote invitations from public DB: \(error)")
+                if let ckError = error as? CKError {
+                    logError("CKError code: \(ckError.code.rawValue) — ensure 'inviteeEmail' and 'status' are marked as Queryable in CloudKit Dashboard")
+                }
             }
             completion()
         }

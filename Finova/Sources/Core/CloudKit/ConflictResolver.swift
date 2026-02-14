@@ -18,6 +18,7 @@ final class ConflictResolver {
     func resolveTransaction(remote: Transaction, ckRecord: CKRecord) {
         let repo = TransactionRepository()
         let recordName = ckRecord.recordID.recordName
+        let sharedGroupId = ckRecord["sharedGroupId"] as? String
 
         // Step 1: Match by CK record name (most reliable)
         if let existing = repo.fetchTransaction(byCKRecordName: recordName) {
@@ -25,7 +26,7 @@ final class ConflictResolver {
             let localModDate = repo.lastModifiedDate(for: existing.id ?? 0) ?? Date.distantPast
 
             if remoteModDate > localModDate {
-                repo.updateFromCloud(remote, ckRecordName: recordName)
+                repo.updateFromCloud(remote, ckRecordName: recordName, sharedGroupId: sharedGroupId)
             } else {
                 repo.markSyncPending(for: existing.id ?? 0)
             }
@@ -60,7 +61,7 @@ final class ConflictResolver {
                         let localModDate = repo.lastModifiedDate(for: localId) ?? Date.distantPast
 
                         if remoteModDate > localModDate {
-                            repo.updateFromCloud(remote, ckRecordName: recordName)
+                            repo.updateFromCloud(remote, ckRecordName: recordName, sharedGroupId: sharedGroupId)
                         } else {
                             repo.markSyncPending(for: localId)
                         }
@@ -91,7 +92,7 @@ final class ConflictResolver {
                     let localModDate = repo.lastModifiedDate(for: localId) ?? Date.distantPast
 
                     if remoteModDate > localModDate {
-                        repo.updateFromCloud(remote, ckRecordName: recordName)
+                        repo.updateFromCloud(remote, ckRecordName: recordName, sharedGroupId: sharedGroupId)
                     } else {
                         repo.markSyncPending(for: localId)
                     }
@@ -118,7 +119,7 @@ final class ConflictResolver {
                 let localModDate = repo.lastModifiedDate(for: localId) ?? Date.distantPast
 
                 if remoteModDate > localModDate {
-                    repo.updateFromCloud(remote, ckRecordName: recordName)
+                    repo.updateFromCloud(remote, ckRecordName: recordName, sharedGroupId: sharedGroupId)
                 } else {
                     repo.markSyncPending(for: localId)
                 }
@@ -131,7 +132,7 @@ final class ConflictResolver {
         }
 
         // Phase 4C: Pass parentCKRecordName so insertFromCloud can remap parent ID
-        repo.insertFromCloud(remote, ckRecordName: recordName, parentCKRecordName: parentCKRecordName)
+        repo.insertFromCloud(remote, ckRecordName: recordName, parentCKRecordName: parentCKRecordName, sharedGroupId: sharedGroupId)
     }
 
     // MARK: - Budget

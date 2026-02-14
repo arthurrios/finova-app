@@ -9066,6 +9066,57 @@
         }
       }
     },
+    "budgetGroups.invitation.notificationTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Group Invitation"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Convite de Grupo"
+          }
+        }
+      }
+    },
+    "budgetGroups.invitation.notificationBody": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ invited you to join the group \"%@\""
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ convidou você para o grupo \"%@\""
+          }
+        }
+      }
+    },
+    "budgetGroups.cell.pendingInvite": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pending invite from %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Convite pendente de %@"
+          }
+        }
+      }
+    },
     "groupDetails.header.title": {
       "extractionState": "manual",
       "localizations": {

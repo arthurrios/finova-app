@@ -138,6 +138,58 @@ final class CloudKitManager {
         privateDatabase.add(operation)
     }
 
+    func setupPublicInvitationSubscription(email: String, completion: @escaping (Result<Void, Error>) -> Void) {
+        let oldSubscriptionID = "finova-public-invitations-\(email.hashValue)"
+        let subscriptionID = "finova-public-invitations-v2-\(email.hashValue)"
+
+        // Delete old silent-only subscription
+        let deleteOp = CKModifySubscriptionsOperation(
+            subscriptionsToSave: nil,
+            subscriptionIDsToDelete: [oldSubscriptionID]
+        )
+        deleteOp.modifySubscriptionsResultBlock = { _ in }
+        deleteOp.qualityOfService = .utility
+        publicDatabase.add(deleteOp)
+        let predicate = NSPredicate(format: "inviteeEmail == %@ AND status == %@", email, "pending")
+        let subscription = CKQuerySubscription(
+            recordType: "GroupInvitation",
+            predicate: predicate,
+            subscriptionID: subscriptionID,
+            options: [.firesOnRecordCreation, .firesOnRecordUpdate]
+        )
+
+        let notificationInfo = CKSubscription.NotificationInfo()
+        notificationInfo.titleLocalizationKey = "budgetGroups.invitation.notificationTitle"
+        notificationInfo.alertLocalizationKey = "budgetGroups.invitation.notificationBody"
+        notificationInfo.alertLocalizationArgs = ["inviterName", "groupName"]
+        notificationInfo.soundName = "default"
+        notificationInfo.shouldSendContentAvailable = true
+        notificationInfo.desiredKeys = ["inviterName", "groupName", "groupId"]
+        subscription.notificationInfo = notificationInfo
+
+        let operation = CKModifySubscriptionsOperation(
+            subscriptionsToSave: [subscription],
+            subscriptionIDsToDelete: nil
+        )
+        operation.modifySubscriptionsResultBlock = { result in
+            switch result {
+            case .success:
+                logInfo("CloudKit public invitation subscription set up for \(email)")
+                DispatchQueue.main.async { completion(.success(())) }
+            case .failure(let error):
+                if let ckError = error as? CKError, ckError.code == .serverRejectedRequest {
+                    // Subscription already exists
+                    DispatchQueue.main.async { completion(.success(())) }
+                } else {
+                    logError("CloudKit public invitation subscription failed: \(error.localizedDescription)")
+                    DispatchQueue.main.async { completion(.failure(error)) }
+                }
+            }
+        }
+        operation.qualityOfService = .utility
+        publicDatabase.add(operation)
+    }
+
     func setupSharedDatabaseSubscription(completion: @escaping (Result<Void, Error>) -> Void) {
         let subscriptionID = "finova-shared-changes"
         let subscription = CKDatabaseSubscription(subscriptionID: subscriptionID)

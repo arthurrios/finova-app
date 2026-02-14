@@ -39,6 +39,7 @@ final class SyncEngine {
     private var isSyncing = false
     private var hasSetupSubscriptions = false
     private var isProcessingCloudData = false
+    private var pushThrottledUntil: Date?
 
     private init() {
         setupObservers()
@@ -86,6 +87,8 @@ final class SyncEngine {
     }
 
     @objc private func handleRemoteNotification() {
+        // Also fetch invitations immediately (public DB notifications don't trigger private DB changes)
+        BudgetGroupService.shared.fetchRemoteInvitations {}
         performFullSync()
     }
 
@@ -182,6 +185,14 @@ final class SyncEngine {
         cloudKit.setupSharedDatabaseSubscription { result in
             if case .failure(let error) = result {
                 logError("Failed to setup shared subscription: \(error.localizedDescription)")
+            }
+        }
+        // Public DB subscription for group invitations
+        if let email = AuthenticationManager.shared.currentUser?.email {
+            cloudKit.setupPublicInvitationSubscription(email: email) { result in
+                if case .failure(let error) = result {
+                    logError("Failed to setup public invitation subscription: \(error.localizedDescription)")
+                }
             }
         }
     }
@@ -306,9 +317,16 @@ final class SyncEngine {
 
     // MARK: - Push Local Changes
 
-    private static let batchSize = 400
+    private static let batchSize = 50
 
     private func pushLocalChanges(completion: ((Result<Void, Error>) -> Void)? = nil) {
+        // Respect CloudKit throttle window
+        if let throttledUntil = pushThrottledUntil, Date() < throttledUntil {
+            let remaining = Int(throttledUntil.timeIntervalSinceNow)
+            logWarning("Push throttled — retrying in \(remaining)s")
+            completion?(.success(()))
+            return
+        }
         var allRecords: [CKRecord] = []
         var allDeleteIDs: [CKRecord.ID] = []
 
@@ -321,6 +339,10 @@ final class SyncEngine {
             // Phase 3B: Store CK record name before push
             if let txId = tx.id, storedName == nil {
                 txRepo.setCKRecordId(for: txId, ckRecordName: record.recordID.recordName)
+            }
+            // Mirror mode: include shared_group_id in CK record
+            if let txId = tx.id, let groupId = txRepo.fetchSharedGroupId(for: txId) {
+                record["sharedGroupId"] = groupId as CKRecordValue
             }
             allRecords.append(record)
         }
@@ -426,7 +448,9 @@ final class SyncEngine {
         operation.savePolicy = .changedKeys
         operation.isAtomic = false
 
-        operation.perRecordSaveBlock = { recordID, result in
+        var hitQuotaLimit = false
+
+        operation.perRecordSaveBlock = { [weak self] recordID, result in
             let name = recordID.recordName
             switch result {
             case .success:
@@ -442,16 +466,46 @@ final class SyncEngine {
                     BudgetAllocationRepository().markAsSynced(ckRecordName: name)
                 }
             case .failure(let error):
-                logError("Failed to push record \(recordID): \(error)")
+                if let ckError = error as? CKError, ckError.code == .quotaExceeded {
+                    if !hitQuotaLimit {
+                        hitQuotaLimit = true
+                        let retryAfter = ckError.retryAfterSeconds ?? 300
+                        self?.pushThrottledUntil = Date().addingTimeInterval(retryAfter)
+                        logWarning("CloudKit quota exceeded — throttling pushes for \(Int(retryAfter))s. Pending records will sync later.")
+                        // Schedule a retry after the cooldown
+                        self?.syncQueue.asyncAfter(deadline: .now() + retryAfter + 5) {
+                            self?.pushThrottledUntil = nil
+                            self?.pushLocalChanges()
+                        }
+                    }
+                } else {
+                    logError("Failed to push record \(recordID): \(error)")
+                }
             }
         }
 
         operation.modifyRecordsResultBlock = { [weak self] result in
+            if hitQuotaLimit {
+                // Stop processing remaining batches — will retry after cooldown
+                completion?(.success(()))
+                return
+            }
             switch result {
             case .success:
                 self?.pushBatches(batches, deleteIDs: deleteIDs, index: index + 1, completion: completion)
             case .failure(let error):
-                completion?(.failure(error))
+                if let ckError = error as? CKError, ckError.code == .quotaExceeded {
+                    let retryAfter = ckError.retryAfterSeconds ?? 300
+                    self?.pushThrottledUntil = Date().addingTimeInterval(retryAfter)
+                    logWarning("CloudKit quota exceeded (batch level) — throttling for \(Int(retryAfter))s")
+                    self?.syncQueue.asyncAfter(deadline: .now() + retryAfter + 5) {
+                        self?.pushThrottledUntil = nil
+                        self?.pushLocalChanges()
+                    }
+                    completion?(.success(()))
+                } else {
+                    completion?(.failure(error))
+                }
             }
         }
 
@@ -463,7 +517,7 @@ final class SyncEngine {
         let operation = CKModifyRecordsOperation(recordsToSave: nil, recordIDsToDelete: deleteIDs)
         operation.isAtomic = false
 
-        operation.perRecordDeleteBlock = { recordID, result in
+        operation.perRecordDeleteBlock = { [weak self] recordID, result in
             let name = recordID.recordName
             switch result {
             case .success:
@@ -480,16 +534,32 @@ final class SyncEngine {
                     BudgetAllocationRepository().hardDeleteByCKRecordName(name)
                 }
             case .failure(let error):
-                logError("Failed to delete record \(recordID) from CloudKit: \(error)")
+                if let ckError = error as? CKError, ckError.code == .quotaExceeded {
+                    let retryAfter = ckError.retryAfterSeconds ?? 300
+                    self?.pushThrottledUntil = Date().addingTimeInterval(retryAfter)
+                } else {
+                    logError("Failed to delete record \(recordID) from CloudKit: \(error)")
+                }
             }
         }
 
-        operation.modifyRecordsResultBlock = { result in
+        operation.modifyRecordsResultBlock = { [weak self] result in
             switch result {
             case .success:
                 completion?(.success(()))
             case .failure(let error):
-                completion?(.failure(error))
+                if let ckError = error as? CKError, ckError.code == .quotaExceeded {
+                    let retryAfter = ckError.retryAfterSeconds ?? 300
+                    self?.pushThrottledUntil = Date().addingTimeInterval(retryAfter)
+                    logWarning("CloudKit quota exceeded during deletes — will retry in \(Int(retryAfter))s")
+                    self?.syncQueue.asyncAfter(deadline: .now() + retryAfter + 5) {
+                        self?.pushThrottledUntil = nil
+                        self?.pushLocalChanges()
+                    }
+                    completion?(.success(()))
+                } else {
+                    completion?(.failure(error))
+                }
             }
         }
 

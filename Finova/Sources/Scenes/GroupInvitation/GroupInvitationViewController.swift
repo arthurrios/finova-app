@@ -59,4 +59,8 @@ extension GroupInvitationViewController: GroupInvitationViewDelegate {
         viewModel.declineInvitation()
         flowDelegate?.didDeclineInvitation()
     }
+
+    func didTapClose() {
+        flowDelegate?.didDismissInvitation()
+    }
 }

@@ -22,8 +22,8 @@ final class DashboardViewModel {
   private let monthRange: ClosedRange<Int>
   private let notificationCenter = UNUserNotificationCenter.current()
 
-  /// Current viewing context — defaults to personal
-  var currentContext: DataContext = .personal
+  /// Current viewing context — restored from last session or defaults to personal
+  var currentContext: DataContext
 
   var onCleanupChoiceNeeded: ((RecurringCleanupOption) -> Void)?
 
@@ -48,6 +48,7 @@ final class DashboardViewModel {
       transactionRepo: transactionRepo, budgetRepo: budgetRepo)
     self.transactionLedger = TransactionLedgerService(
       transactionRepo: transactionRepo, budgetRepo: budgetRepo)
+    self.currentContext = UIDUserDefaultsManager.shared.getLastContext()
   }
 
   func getStatementTransactions() -> [Transaction] {
@@ -92,6 +93,7 @@ final class DashboardViewModel {
 
   func switchContext(to context: DataContext) {
     currentContext = context
+    UIDUserDefaultsManager.shared.saveLastContext(context)
     transactionLedger.invalidateCache()
     onDataNeedsRefresh?()
   }

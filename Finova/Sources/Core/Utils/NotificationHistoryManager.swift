@@ -26,6 +26,7 @@ struct NotificationHistoryItem: Codable, Identifiable {
     case recurring
     case monthly
     case creditCardStatement
+    case groupInvitation
     case other
   }
 }
@@ -291,6 +292,8 @@ final class NotificationHistoryManager {
         return .recurring
       case "credit_card_statement":
         return .creditCardStatement
+      case "group_invitation":
+        return .groupInvitation
       default:
         return .other
       }
@@ -311,6 +314,8 @@ final class NotificationHistoryManager {
       return .monthly
     } else if id.hasPrefix("statement_due_") || id.hasPrefix("statement_pay_") {
       return .creditCardStatement
+    } else if id.hasPrefix("group_invitation_") {
+      return .groupInvitation
     }
     return .other
   }

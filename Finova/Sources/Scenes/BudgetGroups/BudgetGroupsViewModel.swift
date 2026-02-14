@@ -12,10 +12,12 @@ final class BudgetGroupsViewModel {
     private let repository = BudgetGroupRepository()
 
     private(set) var groups: [BudgetGroup] = []
+    private(set) var pendingInvitations: [GroupInvitation] = []
     var onGroupsUpdated: (() -> Void)?
     var onError: ((String) -> Void)?
 
-    var isEmpty: Bool { groups.isEmpty }
+    var hasPendingInvitations: Bool { !pendingInvitations.isEmpty }
+    var isEmpty: Bool { groups.isEmpty && pendingInvitations.isEmpty }
 
     func loadGroups() {
         groups = repository.fetchAllGroups()
@@ -23,6 +25,7 @@ final class BudgetGroupsViewModel {
         for i in groups.indices {
             groups[i].members = repository.fetchMembers(forGroupId: groups[i].id)
         }
+        pendingInvitations = BudgetGroupService.shared.fetchPendingInvitations()
         onGroupsUpdated?()
     }
 

@@ -359,6 +359,7 @@ final class BudgetAllocationRepository: BudgetAllocationRepositoryProtocol {
             UPDATE BudgetAllocations SET
                 month_date = ?, category_key = ?, allocated_amount = ?,
                 is_recurring = ?, parent_allocation_id = ?,
+                shared_group_id = ?,
                 sync_status = 'synced', ck_modified_at = ?
             WHERE ck_record_id = ?;
             """,
@@ -368,6 +369,7 @@ final class BudgetAllocationRepository: BudgetAllocationRepositoryProtocol {
                 allocation.allocatedAmount,
                 allocation.isRecurring ? 1 : 0,
                 allocation.parentAllocationId,
+                allocation.sharedGroupId,
                 Int(Date().timeIntervalSince1970),
                 ckRecordName
             ]

@@ -12,6 +12,7 @@ protocol NotificationHistoryFlowDelegate: AnyObject {
   func openAppStoreFromNotificationHistory()
   func navigateToTransactionDetailsFromNotificationHistory(transactionId: Int)
   func navigateToStatementDetailsFromNotificationHistory(statementId: Int)
+  func navigateToGroupInvitationFromNotificationHistory(invitationId: String)
 }
 
 final class NotificationHistoryViewController: UIViewController {
@@ -139,6 +140,10 @@ extension NotificationHistoryViewController: NotificationHistoryViewModelDelegat
 
   func didRequestNavigateToStatement(statementId: Int) {
     flowDelegate?.navigateToStatementDetailsFromNotificationHistory(statementId: statementId)
+  }
+
+  func didRequestNavigateToGroupInvitation(invitationId: String) {
+    flowDelegate?.navigateToGroupInvitationFromNotificationHistory(invitationId: invitationId)
   }
 }
 

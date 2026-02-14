@@ -2213,7 +2213,8 @@ class DBHelper {
         category: String,
         type: String,
         ckRecordName: String,
-        parentCKRecordName: String? = nil
+        parentCKRecordName: String? = nil,
+        sharedGroupId: String? = nil
     ) {
         guard isInitialized else { return }
         var statement: OpaquePointer?
@@ -2265,6 +2266,13 @@ class DBHelper {
             sqlite3_bind_null(statement, 19)
         }
 
+        // Bind shared_group_id
+        if let groupId = sharedGroupId {
+            sqlite3_bind_text(statement, 20, groupId, -1, SQLITE_TRANSIENT)
+        } else {
+            sqlite3_bind_null(statement, 20)
+        }
+
         sqlite3_step(statement)
     }
 
@@ -2273,7 +2281,8 @@ class DBHelper {
         transaction: Transaction,
         category: String,
         type: String,
-        ckRecordName: String
+        ckRecordName: String,
+        sharedGroupId: String? = nil
     ) {
         guard isInitialized else { return }
         var statement: OpaquePointer?
@@ -2308,8 +2317,14 @@ class DBHelper {
 
         // ck_modified_at (position 16 in the UPDATE query)
         sqlite3_bind_int64(statement, 16, Int64(Date().timeIntervalSince1970))
-        // ck_record_id (position 17 in the WHERE clause)
-        sqlite3_bind_text(statement, 17, ckRecordName, -1, SQLITE_TRANSIENT)
+        // shared_group_id (position 17)
+        if let groupId = sharedGroupId {
+            sqlite3_bind_text(statement, 17, groupId, -1, SQLITE_TRANSIENT)
+        } else {
+            sqlite3_bind_null(statement, 17)
+        }
+        // ck_record_id (position 18 in the WHERE clause)
+        sqlite3_bind_text(statement, 18, ckRecordName, -1, SQLITE_TRANSIENT)
 
         sqlite3_step(statement)
     }
@@ -2508,9 +2523,9 @@ class DBHelper {
         guard isInitialized else { return [] }
         let query: String
         if userId != nil {
-            query = "SELECT month_date, amount FROM Budgets WHERE sync_status = 'pending' AND user_id = ? AND (is_deleted IS NULL OR is_deleted = 0);"
+            query = "SELECT month_date, amount, shared_group_id FROM Budgets WHERE sync_status = 'pending' AND user_id = ? AND (is_deleted IS NULL OR is_deleted = 0);"
         } else {
-            query = "SELECT month_date, amount FROM Budgets WHERE sync_status = 'pending' AND (is_deleted IS NULL OR is_deleted = 0);"
+            query = "SELECT month_date, amount, shared_group_id FROM Budgets WHERE sync_status = 'pending' AND (is_deleted IS NULL OR is_deleted = 0);"
         }
         var statement: OpaquePointer?
         guard sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK else { return [] }
@@ -2522,7 +2537,12 @@ class DBHelper {
         while sqlite3_step(statement) == SQLITE_ROW {
             let monthDate = Int(sqlite3_column_int64(statement, 0))
             let amount = Int(sqlite3_column_int64(statement, 1))
-            results.append(BudgetModel(monthDate: monthDate, amount: amount))
+            let sharedGroupId: String? = {
+                if sqlite3_column_type(statement, 2) == SQLITE_NULL { return nil }
+                guard let ptr = sqlite3_column_text(statement, 2) else { return nil }
+                return String(cString: ptr)
+            }()
+            results.append(BudgetModel(monthDate: monthDate, amount: amount, sharedGroupId: sharedGroupId))
         }
         return results
     }

@@ -35,7 +35,7 @@ final class GroupInvitationView: UIView {
 
     private lazy var invitationCardContent: UIStackView = {
         let stack = UIStackView(
-            axis: .vertical, spacing: Metrics.spacing4,
+            axis: .vertical, spacing: Metrics.spacing5,
             arrangedSubviews: [groupInfoStack, separatorLine, permissionsSummaryStack])
         stack.layoutMargins = UIEdgeInsets(
             top: Metrics.spacing5, left: Metrics.spacing5,
@@ -131,7 +131,7 @@ final class GroupInvitationView: UIView {
     }()
 
     private lazy var permissionsSummaryStack: UIStackView = {
-        return UIStackView(axis: .vertical, spacing: Metrics.spacing2,
+        return UIStackView(axis: .vertical, spacing: Metrics.spacing3,
             arrangedSubviews: [permissionsTitleLabel, permissionsListLabel])
     }()
 
@@ -196,13 +196,17 @@ final class GroupInvitationView: UIView {
             arrangedSubviews: [acceptButton, declineButton])
         contentStackView.addArrangedSubview(buttonStack)
 
-        closeIconButton.addTarget(self, action: #selector(declineTapped), for: .touchUpInside)
+        closeIconButton.addTarget(self, action: #selector(closeTapped), for: .touchUpInside)
         acceptButton.addTarget(self, action: #selector(acceptTapped), for: .touchUpInside)
         declineButton.addTarget(self, action: #selector(declineTapped), for: .touchUpInside)
     }
 
     private func setupLayout() {
-        contentStackView.pinToEdges(of: self)
+        NSLayoutConstraint.activate([
+            contentStackView.topAnchor.constraint(equalTo: topAnchor),
+            contentStackView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            contentStackView.trailingAnchor.constraint(equalTo: trailingAnchor),
+        ])
     }
 
     // MARK: - Configuration
@@ -222,4 +226,5 @@ final class GroupInvitationView: UIView {
 
     @objc private func acceptTapped() { delegate?.didTapAccept() }
     @objc private func declineTapped() { delegate?.didTapDecline() }
+    @objc private func closeTapped() { delegate?.didTapClose() }
 }

@@ -242,6 +242,7 @@ class CreditCardRepository {
                 name = ?, last_four_digits = ?, card_brand = ?,
                 closing_day = ?, due_day = ?, credit_limit = ?,
                 card_color = ?, is_deleted = ?, is_default = ?,
+                shared_group_id = ?,
                 updated_at = ?, sync_status = 'synced', ck_modified_at = ?
             WHERE ck_record_id = ?;
             """,
@@ -255,6 +256,7 @@ class CreditCardRepository {
                 card.cardColor.rawValue,
                 card.isDeleted ? 1 : 0,
                 card.isDefault ? 1 : 0,
+                card.sharedGroupId,
                 Int(Date().timeIntervalSince1970),
                 Int(Date().timeIntervalSince1970),
                 ckRecordName

@@ -185,8 +185,14 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     didReceiveRemoteNotification userInfo: [AnyHashable: Any],
     fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void
   ) {
-    CloudKitManager.shared.handleRemoteNotification(userInfo: userInfo) {
-      completionHandler(.newData)
+    // Fetch group invitations directly before completionHandler is called.
+    // This ensures the local notification is scheduled before the system
+    // suspends the app — relying on SyncEngine (lazy singleton) + internal
+    // NotificationCenter is unreliable when the app is woken in background.
+    BudgetGroupService.shared.fetchRemoteInvitations { [weak self] in
+      CloudKitManager.shared.handleRemoteNotification(userInfo: userInfo) {
+        completionHandler(.newData)
+      }
     }
   }
 
@@ -556,6 +562,21 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     willPresent notification: UNNotification,
     withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
   ) {
+    let userInfo = notification.request.content.userInfo
+
+    // Handle CloudKit invitation push — add to history with proper ID for tap navigation
+    if let invitationId = extractInvitationIdFromCloudKitPush(userInfo) {
+      let content = notification.request.content
+      NotificationHistoryManager.shared.addNotification(
+        id: "group_invitation_\(invitationId)",
+        title: content.title,
+        body: content.body,
+        type: .groupInvitation
+      )
+      completionHandler([.alert, .sound, .badge])
+      return
+    }
+
     // Track notification in history
     NotificationHistoryManager.shared.handleDeliveredLocalNotification(notification)
 
@@ -590,6 +611,31 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
           name: .navigateToTransactionDetails,
           object: nil,
           userInfo: ["transactionId": transactionId]
+        )
+      }
+      completionHandler()
+      return
+    }
+
+    // Check if this is a group invitation notification (local or CloudKit push)
+    if let invitationId = extractInvitationIdFromCloudKitPush(userInfo) ??
+        (userInfo["type"] as? String == "group_invitation" ? userInfo["invitationId"] as? String : nil) {
+      // Add to history if from CloudKit push (background/killed app)
+      let content = notification.request.content
+      let historyId = "group_invitation_\(invitationId)"
+      NotificationHistoryManager.shared.addNotification(
+        id: historyId,
+        title: content.title,
+        body: content.body,
+        type: .groupInvitation
+      )
+      NotificationHistoryManager.shared.markAsRead(id: historyId)
+
+      DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+        NotificationCenter.default.post(
+          name: .navigateToGroupInvitation,
+          object: nil,
+          userInfo: ["invitationId": invitationId]
         )
       }
       completionHandler()
@@ -675,6 +721,20 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     }
 
     completionHandler()
+  }
+
+  // MARK: - CloudKit Push Helpers
+
+  /// Extracts invitation ID from a CloudKit query notification push payload.
+  /// CloudKit push userInfo contains a "ck" dictionary with "qry" > "rid" (record ID in format "invitation-<uuid>").
+  private func extractInvitationIdFromCloudKitPush(_ userInfo: [AnyHashable: Any]) -> String? {
+    guard let ck = userInfo["ck"] as? [String: Any],
+          let qry = ck["qry"] as? [String: Any],
+          let recordName = qry["rid"] as? String,
+          recordName.hasPrefix("invitation-") else {
+      return nil
+    }
+    return recordName.replacingOccurrences(of: "invitation-", with: "")
   }
 
   // MARK: - Balance Monitoring

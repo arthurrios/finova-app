@@ -459,7 +459,7 @@ final class NotificationHistoryCell: UITableViewCell {
       return formatter.string(from: date)
     }
   }
-
+ 
   private func icon(for type: NotificationHistoryItem.NotificationType) -> UIImage? {
     switch type {
     case .transaction:
@@ -476,6 +476,8 @@ final class NotificationHistoryCell: UITableViewCell {
       return UIImage(systemName: "calendar.badge.clock")
     case .creditCardStatement:
       return UIImage(systemName: "creditcard.and.123")
+    case .groupInvitation:
+      return UIImage(systemName: "envelope")
     case .other:
       return UIImage(systemName: "bell")
     }

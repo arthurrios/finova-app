@@ -182,9 +182,9 @@ class StatementRepository {
             """
             INSERT INTO CreditCardStatements
                 (credit_card_id, closing_date, due_date, total_amount,
-                 is_paid, paid_date, paid_amount, user_id,
+                 is_paid, paid_date, paid_amount, is_dates_overridden, user_id,
                  created_at, updated_at, ck_record_id, sync_status, ck_modified_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced', ?);
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced', ?);
             """,
             orderedBindings: [
                 stmt.creditCardId,
@@ -194,6 +194,7 @@ class StatementRepository {
                 stmt.isPaid ? 1 : 0,
                 stmt.paidDate.map { Int($0.timeIntervalSince1970) },
                 stmt.paidAmount,
+                stmt.isDatesOverridden ? 1 : 0,
                 stmt.userId,
                 Int(stmt.createdAt.timeIntervalSince1970),
                 Int(stmt.updatedAt.timeIntervalSince1970),
@@ -209,7 +210,8 @@ class StatementRepository {
             UPDATE CreditCardStatements SET
                 credit_card_id = ?, closing_date = ?, due_date = ?,
                 total_amount = ?, is_paid = ?, paid_date = ?,
-                paid_amount = ?, updated_at = ?, sync_status = 'synced', ck_modified_at = ?
+                paid_amount = ?, is_dates_overridden = ?,
+                updated_at = ?, sync_status = 'synced', ck_modified_at = ?
             WHERE ck_record_id = ?;
             """,
             orderedBindings: [
@@ -220,6 +222,7 @@ class StatementRepository {
                 stmt.isPaid ? 1 : 0,
                 stmt.paidDate.map { Int($0.timeIntervalSince1970) },
                 stmt.paidAmount,
+                stmt.isDatesOverridden ? 1 : 0,
                 Int(Date().timeIntervalSince1970),
                 Int(Date().timeIntervalSince1970),
                 ckRecordName

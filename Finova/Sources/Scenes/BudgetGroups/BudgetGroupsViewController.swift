@@ -29,6 +29,7 @@ final class BudgetGroupsViewController: UIViewController {
         setupDelegates()
         setupTableView()
         bindViewModel()
+        setupObservers()
         viewModel.loadGroups()
     }
 
@@ -45,6 +46,18 @@ final class BudgetGroupsViewController: UIViewController {
         contentView.tableView.delegate = self
         contentView.tableView.dataSource = self
         contentView.tableView.register(BudgetGroupCell.self, forCellReuseIdentifier: BudgetGroupCell.identifier)
+        contentView.tableView.register(PendingInvitationCell.self, forCellReuseIdentifier: PendingInvitationCell.identifier)
+    }
+
+    private func setupObservers() {
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(reloadData),
+            name: .budgetGroupDataChanged, object: nil
+        )
+    }
+
+    @objc private func reloadData() {
+        viewModel.loadGroups()
     }
 
     private func bindViewModel() {
@@ -103,24 +116,44 @@ extension BudgetGroupsViewController: BudgetGroupsViewDelegate {
 
 // MARK: - UITableViewDataSource & UITableViewDelegate
 extension BudgetGroupsViewController: UITableViewDataSource, UITableViewDelegate {
+    func numberOfSections(in tableView: UITableView) -> Int {
+        return 2
+    }
+
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        return viewModel.groups.count
+        return section == 0 ? viewModel.pendingInvitations.count : viewModel.groups.count
     }
 
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-        guard let cell = tableView.dequeueReusableCell(withIdentifier: BudgetGroupCell.identifier, for: indexPath) as? BudgetGroupCell else {
-            return UITableViewCell()
+        if indexPath.section == 0 {
+            guard let cell = tableView.dequeueReusableCell(withIdentifier: PendingInvitationCell.identifier, for: indexPath) as? PendingInvitationCell else {
+                return UITableViewCell()
+            }
+            cell.configure(with: viewModel.pendingInvitations[indexPath.row])
+            return cell
+        } else {
+            guard let cell = tableView.dequeueReusableCell(withIdentifier: BudgetGroupCell.identifier, for: indexPath) as? BudgetGroupCell else {
+                return UITableViewCell()
+            }
+            cell.configure(with: viewModel.groups[indexPath.row])
+            return cell
         }
-        cell.configure(with: viewModel.groups[indexPath.row])
-        return cell
     }
 
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
-        let group = viewModel.groups[indexPath.row]
-        didSelectGroup(group)
+        if indexPath.section == 0 {
+            let invitation = viewModel.pendingInvitations[indexPath.row]
+            flowDelegate?.presentGroupInvitationFromGroups(invitation: invitation)
+        } else {
+            let group = viewModel.groups[indexPath.row]
+            didSelectGroup(group)
+        }
     }
 
     func tableView(_ tableView: UITableView, trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath) -> UISwipeActionsConfiguration? {
+        // No swipe-to-delete for pending invitations
+        guard indexPath.section == 1 else { return nil }
+
         let group = viewModel.groups[indexPath.row]
         guard group.isOwner else { return nil }
 

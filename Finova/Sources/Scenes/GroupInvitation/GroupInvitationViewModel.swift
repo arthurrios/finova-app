@@ -19,41 +19,40 @@ final class GroupInvitationViewModel {
     }
 
     func acceptInvitation(completion: @escaping (Result<BudgetGroup, Error>) -> Void) {
-        guard let shareURL = invitation.ckShareUrl,
-              let url = URL(string: shareURL) else {
-            completion(.failure(NSError(domain: "GroupInvitation", code: 1,
-                userInfo: [NSLocalizedDescriptionKey: "Invalid share URL"])))
-            return
-        }
+        // Create group locally and update invitation status regardless of CKShare result
+        let group = BudgetGroup(
+            id: invitation.groupId,
+            name: invitation.groupName,
+            ownerId: "",
+            ownerName: invitation.inviterName,
+            ownerEmail: invitation.inviterEmail
+        )
+        repository.insertGroup(group)
+        repository.updateInvitationStatus(id: invitation.id, status: "accepted")
+        updateRemoteInvitationStatus("accepted")
 
-        CloudKitManager.shared.container.fetchShareMetadata(with: url) { metadata, error in
-            guard let metadata = metadata else {
-                completion(.failure(error ?? NSError(domain: "GroupInvitation", code: 2, userInfo: nil)))
-                return
-            }
-
-            CloudKitManager.shared.container.accept(metadata) { [weak self] _, error in
-                guard let self = self else { return }
-                if let error = error {
-                    DispatchQueue.main.async { completion(.failure(error)) }
-                    return
+        // CKShare acceptance is best-effort — group works via public DB sync
+        if let shareURL = invitation.ckShareUrl, let url = URL(string: shareURL) {
+            CloudKitManager.shared.container.fetchShareMetadata(with: url) { metadata, error in
+                if let metadata = metadata {
+                    CloudKitManager.shared.container.accept(metadata) { _, error in
+                        if let error = error {
+                            logError("CKShare acceptance failed (non-blocking): \(error.localizedDescription)")
+                        } else {
+                            logInfo("CKShare accepted successfully")
+                        }
+                        SyncEngine.shared.performFullSync()
+                        DispatchQueue.main.async { completion(.success(group)) }
+                    }
+                } else {
+                    logError("CKShare metadata fetch failed (non-blocking): \(error?.localizedDescription ?? "unknown")")
+                    SyncEngine.shared.performFullSync()
+                    DispatchQueue.main.async { completion(.success(group)) }
                 }
-
-                let group = BudgetGroup(
-                    id: self.invitation.groupId,
-                    name: self.invitation.groupName,
-                    ownerId: "",
-                    ownerName: self.invitation.inviterName,
-                    ownerEmail: self.invitation.inviterEmail
-                )
-                self.repository.insertGroup(group)
-                self.repository.updateInvitationStatus(id: self.invitation.id, status: "accepted")
-                self.updateRemoteInvitationStatus("accepted")
-
-                SyncEngine.shared.performFullSync()
-
-                DispatchQueue.main.async { completion(.success(group)) }
             }
+        } else {
+            SyncEngine.shared.performFullSync()
+            DispatchQueue.main.async { completion(.success(group)) }
         }
     }
 

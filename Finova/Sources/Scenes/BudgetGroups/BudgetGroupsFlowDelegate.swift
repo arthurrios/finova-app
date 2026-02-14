@@ -9,4 +9,5 @@ protocol BudgetGroupsFlowDelegate: AnyObject {
     func dismissBudgetGroups()
     func navigateToGroupDetails(group: BudgetGroup)
     func openCreateGroupModal()
+    func presentGroupInvitationFromGroups(invitation: GroupInvitation)
 }

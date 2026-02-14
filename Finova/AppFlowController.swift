@@ -56,6 +56,13 @@ class AppFlowController {
             name: .groupInvitationReceived,
             object: nil
         )
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleNavigateToGroupInvitation(_:)),
+            name: .navigateToGroupInvitation,
+            object: nil
+        )
     }
     
     /// Handles navigation to transaction details from notification tap
@@ -141,6 +148,9 @@ class AppFlowController {
 
     /// Handles pending group invitations received from CloudKit
     @objc private func handlePendingInvitations() {
+        // Only auto-present if user is on the dashboard (not splash/login)
+        guard navigationController?.topViewController is DashboardViewController else { return }
+
         let invitations = BudgetGroupService.shared.fetchPendingInvitations()
         guard let first = invitations.first else { return }
 
@@ -148,6 +158,24 @@ class AppFlowController {
         guard navigationController?.presentedViewController == nil else { return }
 
         presentGroupInvitation(first)
+    }
+
+    /// Handles navigation to group invitation from notification tap
+    @objc private func handleNavigateToGroupInvitation(_ notification: Notification) {
+        guard let invitationId = notification.userInfo?["invitationId"] as? String else { return }
+
+        let repo = BudgetGroupRepository()
+        guard let invitation = repo.fetchInvitation(byId: invitationId),
+              invitation.status == "pending" else { return }
+
+        // Dismiss any existing modals first
+        guard navigationController?.presentedViewController == nil else {
+            navigationController?.dismiss(animated: false) { [weak self] in
+                self?.presentGroupInvitation(invitation)
+            }
+            return
+        }
+        presentGroupInvitation(invitation)
     }
 
     /// Handles app foreground refresh notification
@@ -326,6 +354,18 @@ extension AppFlowController: DashboardFlowDelegate, SettingsFlowDelegate, Profil
 
         navigationController?.popViewController(animated: false)
         navigateToStatementDetails(card: card, statement: statement)
+    }
+
+    func navigateToGroupInvitationFromNotificationHistory(invitationId: String) {
+        let repo = BudgetGroupRepository()
+        guard let invitation = repo.fetchInvitation(byId: invitationId) else { return }
+
+        guard invitation.status == "pending" else {
+            // Invitation already responded to — just pop back
+            navigationController?.popViewController(animated: true)
+            return
+        }
+        presentGroupInvitation(invitation)
     }
 
     func navigateToTransactionDetailsFromNotificationHistory(transactionId: Int) {
@@ -717,6 +757,10 @@ extension AppFlowController: BudgetGroupsFlowDelegate {
     func openCreateGroupModal() {
         // Handled inline by BudgetGroupsViewController via alert
     }
+
+    func presentGroupInvitationFromGroups(invitation: GroupInvitation) {
+        presentGroupInvitation(invitation)
+    }
 }
 
 // MARK: - Group Details Flow
@@ -790,6 +834,10 @@ extension AppFlowController: GroupInvitationFlowDelegate {
     }
 
     func didDeclineInvitation() {
+        navigationController?.dismiss(animated: true)
+    }
+
+    func didDismissInvitation() {
         navigationController?.dismiss(animated: true)
     }
 }

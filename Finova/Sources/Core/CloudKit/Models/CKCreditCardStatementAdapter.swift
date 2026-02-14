@@ -50,6 +50,7 @@ extension CreditCardStatement: CKRecordConvertible {
         record["paidDate"] = paidDate as CKRecordValue?
         record["paidAmount"] = (paidAmount ?? 0) as CKRecordValue
         record["userId"] = userId as CKRecordValue
+        record["isDatesOverridden"] = (isDatesOverridden ? 1 : 0) as CKRecordValue
         return record
     }
 
@@ -70,7 +71,7 @@ extension CreditCardStatement: CKRecordConvertible {
             isPaid: (record["isPaid"] as? Int) == 1,
             paidDate: record["paidDate"] as? Date,
             paidAmount: record["paidAmount"] as? Int,
-            isDatesOverridden: false,
+            isDatesOverridden: (record["isDatesOverridden"] as? Int) == 1,
             userId: userId,
             createdAt: record.creationDate ?? Date(),
             updatedAt: record.modificationDate ?? Date()

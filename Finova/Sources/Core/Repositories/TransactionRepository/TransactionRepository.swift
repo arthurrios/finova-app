@@ -622,6 +622,13 @@ final class TransactionRepository: TransactionRepositoryProtocol {
     }
   }
 
+  func fetchSharedGroupId(for transactionId: Int) -> String? {
+    return db.fetchSingleString(
+      "SELECT shared_group_id FROM Transactions WHERE id = ?;",
+      intBinding: transactionId
+    )
+  }
+
   // MARK: - CloudKit Sync Methods
 
   func fetchPendingSync() -> [Transaction] {
@@ -662,7 +669,7 @@ final class TransactionRepository: TransactionRepositoryProtocol {
     )
   }
 
-  func insertFromCloud(_ transaction: Transaction, ckRecordName: String, parentCKRecordName: String? = nil) {
+  func insertFromCloud(_ transaction: Transaction, ckRecordName: String, parentCKRecordName: String? = nil, sharedGroupId: String? = nil) {
     Self.invalidateCache()
     let category = transaction.category.key
     let type = String(describing: transaction.type)
@@ -679,8 +686,9 @@ final class TransactionRepository: TransactionRepositoryProtocol {
          is_recurring, has_installments, parent_transaction_id,
          installment_number, total_installments, original_amount,
          credit_card_id, statement_id, is_credit_card_statement,
-         ck_record_id, sync_status, user_id, ck_modified_at, ck_parent_record_name)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced', ?, ?, ?);
+         ck_record_id, sync_status, user_id, ck_modified_at, ck_parent_record_name,
+         shared_group_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced', ?, ?, ?, ?);
       """
 
     db.executeCloudInsert(
@@ -689,7 +697,8 @@ final class TransactionRepository: TransactionRepositoryProtocol {
       category: category,
       type: type,
       ckRecordName: ckRecordName,
-      parentCKRecordName: parentCKRecordName
+      parentCKRecordName: parentCKRecordName,
+      sharedGroupId: sharedGroupId
     )
 
     // Phase 4D: Remap parent ID via CK record name
@@ -707,7 +716,7 @@ final class TransactionRepository: TransactionRepositoryProtocol {
     }
   }
 
-  func updateFromCloud(_ transaction: Transaction, ckRecordName: String) {
+  func updateFromCloud(_ transaction: Transaction, ckRecordName: String, sharedGroupId: String? = nil) {
     Self.invalidateCache()
     let category = transaction.category.key
     let type = String(describing: transaction.type)
@@ -719,7 +728,8 @@ final class TransactionRepository: TransactionRepositoryProtocol {
         parent_transaction_id = ?, installment_number = ?,
         total_installments = ?, original_amount = ?,
         credit_card_id = ?, statement_id = ?, is_credit_card_statement = ?,
-        sync_status = 'synced', ck_modified_at = ?
+        sync_status = 'synced', ck_modified_at = ?,
+        shared_group_id = ?
       WHERE ck_record_id = ?;
       """
 
@@ -728,7 +738,8 @@ final class TransactionRepository: TransactionRepositoryProtocol {
       transaction: transaction,
       category: category,
       type: type,
-      ckRecordName: ckRecordName
+      ckRecordName: ckRecordName,
+      sharedGroupId: sharedGroupId
     )
   }
 

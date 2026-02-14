@@ -24,6 +24,7 @@ extension BudgetModel: CKRecordConvertible {
         record["monthDate"] = monthDate as CKRecordValue
         record["amount"] = amount as CKRecordValue
         record["userId"] = (UIDUserDefaultsManager.shared.currentUserUID ?? "") as CKRecordValue
+        record["sharedGroupId"] = sharedGroupId as CKRecordValue?
         return record
     }
 
@@ -32,6 +33,10 @@ extension BudgetModel: CKRecordConvertible {
               let amount = record["amount"] as? Int
         else { return nil }
 
-        return BudgetModel(monthDate: monthDate, amount: amount)
+        return BudgetModel(
+            monthDate: monthDate,
+            amount: amount,
+            sharedGroupId: record["sharedGroupId"] as? String
+        )
     }
 }

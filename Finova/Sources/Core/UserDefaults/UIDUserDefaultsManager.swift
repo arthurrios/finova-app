@@ -176,15 +176,19 @@ class UIDUserDefaultsManager {
       return
     }
 
+    let dispatchGroup = DispatchGroup()
+    var didUpdate = false
+
     // Fetch personal offset by known record ID (avoids CKQuery which requires queryable indexes)
     let personalRecordID = CKRecord.ID(
       recordName: "balanceOffset-\(uid)-personal",
       zoneID: CloudKitManager.privateZoneID
     )
 
+    dispatchGroup.enter()
     CloudKitManager.shared.privateDatabase.fetch(withRecordID: personalRecordID) { [weak self] record, error in
       guard let self = self else {
-        completion()
+        dispatchGroup.leave()
         return
       }
 
@@ -194,9 +198,7 @@ class UIDUserDefaultsManager {
         if currentLocal != offset {
           UserDefaults.standard.set(offset, forKey: "balanceOffset_\(uid)")
           logInfo("Balance offset updated from CloudKit: personal = \(offset)")
-          DispatchQueue.main.async {
-            NotificationCenter.default.post(name: .transactionDataChanged, object: nil)
-          }
+          didUpdate = true
         }
       } else if let ckError = error as? CKError, ckError.code == .unknownItem {
         // No personal offset in CloudKit yet — push local if non-zero
@@ -208,6 +210,39 @@ class UIDUserDefaultsManager {
         logError("Failed to fetch personal balance offset from CloudKit: \(error)")
       }
 
+      dispatchGroup.leave()
+    }
+
+    // Fetch group balance offsets for all known groups
+    let groups = BudgetGroupService.shared.fetchAllGroups()
+    for group in groups {
+      let groupRecordID = CKRecord.ID(
+        recordName: "balanceOffset-\(uid)-group-\(group.id)",
+        zoneID: CloudKitManager.privateZoneID
+      )
+
+      dispatchGroup.enter()
+      CloudKitManager.shared.privateDatabase.fetch(withRecordID: groupRecordID) { record, error in
+        if let record = record,
+           let offset = record["offset"] as? Int {
+          let currentLocal = UserDefaults.standard.integer(forKey: "balanceOffset_group_\(group.id)")
+          if currentLocal != offset {
+            UserDefaults.standard.set(offset, forKey: "balanceOffset_group_\(group.id)")
+            logInfo("Balance offset updated from CloudKit: group-\(group.id) = \(offset)")
+            didUpdate = true
+          }
+        } else if let error = error, (error as? CKError)?.code != .unknownItem {
+          logError("Failed to fetch group balance offset from CloudKit: \(error)")
+        }
+
+        dispatchGroup.leave()
+      }
+    }
+
+    dispatchGroup.notify(queue: .main) {
+      if didUpdate {
+        NotificationCenter.default.post(name: .transactionDataChanged, object: nil)
+      }
       completion()
     }
   }
@@ -229,6 +264,32 @@ class UIDUserDefaultsManager {
       return
     }
     UserDefaults.standard.set(modeString, forKey: Self.globalBalanceDisplayMode)
+  }
+
+  // MARK: - Last Active Context
+
+  func saveLastContext(_ context: DataContext) {
+    guard let uid = currentUserUID else { return }
+    let key = "lastContext_\(uid)"
+    switch context {
+    case .personal:
+      UserDefaults.standard.set("personal", forKey: key)
+    case .group(let group):
+      UserDefaults.standard.set(group.id, forKey: key)
+    }
+  }
+
+  func getLastContext() -> DataContext {
+    guard let uid = currentUserUID else { return .personal }
+    let key = "lastContext_\(uid)"
+    guard let value = UserDefaults.standard.string(forKey: key), value != "personal" else {
+      return .personal
+    }
+    // value is a group ID — look it up
+    if let group = BudgetGroupService.shared.fetchGroup(byId: value) {
+      return .group(group)
+    }
+    return .personal
   }
 
   // MARK: - Cleanup Methods

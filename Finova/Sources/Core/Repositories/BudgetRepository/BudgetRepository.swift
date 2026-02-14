@@ -118,13 +118,14 @@ final class BudgetRepository: BudgetRepositoryProtocol {
 
     db.executeGroupWrite(
       """
-      INSERT INTO Budgets (month_date, amount, user_id, ck_record_id, sync_status, ck_modified_at)
-      VALUES (?, ?, ?, ?, 'synced', ?);
+      INSERT INTO Budgets (month_date, amount, user_id, shared_group_id, ck_record_id, sync_status, ck_modified_at)
+      VALUES (?, ?, ?, ?, ?, 'synced', ?);
       """,
       orderedBindings: [
         budget.monthDate,
         budget.amount,
         UIDUserDefaultsManager.shared.currentUserUID,
+        budget.sharedGroupId,
         ckRecordName,
         Int(Date().timeIntervalSince1970)
       ]
@@ -134,11 +135,12 @@ final class BudgetRepository: BudgetRepositoryProtocol {
   func updateFromCloud(_ budget: BudgetModel, ckRecordName: String) {
     db.executeGroupWrite(
       """
-      UPDATE Budgets SET amount = ?, sync_status = 'synced', ck_modified_at = ?
+      UPDATE Budgets SET amount = ?, shared_group_id = ?, sync_status = 'synced', ck_modified_at = ?
       WHERE ck_record_id = ?;
       """,
       orderedBindings: [
         budget.amount,
+        budget.sharedGroupId,
         Int(Date().timeIntervalSince1970),
         ckRecordName
       ]
