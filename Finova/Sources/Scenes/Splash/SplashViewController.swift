@@ -63,7 +63,8 @@ final class SplashViewController: UIViewController {
 
       // Trigger iCloud sync on launch (skip if cleanup just ran to prevent re-corruption)
       if !didCleanup {
-        SyncEngine.shared.performFullSync()
+        let needsRePush = Self.performSyncRePushIfNeeded()
+        SyncEngine.shared.performFullSync(forceFullFetch: needsRePush, forceRePush: needsRePush)
       }
 
       // Set current user UID for settings lookup
@@ -523,6 +524,23 @@ extension SplashViewController {
   }
 }
 #endif
+
+// MARK: - One-Time Sync Re-Push
+
+extension SplashViewController {
+  private static let syncRePushKey = "hasPerformedSyncRePush_v3"
+
+  /// One-time: resets all sync_status to 'pending' so data gets re-pushed to CloudKit.
+  /// Returns `true` if the re-push was triggered.
+  static func performSyncRePushIfNeeded() -> Bool {
+    guard !UserDefaults.standard.bool(forKey: syncRePushKey) else {
+      return false
+    }
+    logWarning("[SyncRePush] Triggering one-time full re-push of all data to CloudKit")
+    UserDefaults.standard.set(true, forKey: syncRePushKey)
+    return true
+  }
+}
 
 // MARK: - One-Time Cloud Ghost Cleanup
 

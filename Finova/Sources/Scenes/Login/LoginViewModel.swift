@@ -87,8 +87,11 @@ extension LoginViewModel: AuthenticationManagerDelegate {
 
             // Save user with UID-based system
             UserDefaultsManager.saveUserWithUID(user: finalUser)
+
+            // Force full fetch to pull ALL data from CloudKit on login
+            SyncEngine.shared.performFullSync(forceFullFetch: true)
         }
-        
+
         DispatchQueue.main.async {
             self.successResult?()
         }

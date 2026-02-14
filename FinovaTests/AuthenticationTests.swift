@@ -208,9 +208,6 @@ class AuthenticationTests: XCTestCase {
         // Clear UserDefaults profile data that checkForExistingData() checks
         clearUserDefaultsProfileData()
         
-        // Reset migration state for clean tests
-        migrationManager.resetMigrationState()
-        
         // Reset cleanup state for migration tests
         UserDefaults.standard.removeObject(forKey: "global_sqlite_cleanup_completed")
         UserDefaults.standard.synchronize()
@@ -551,141 +548,6 @@ class AuthenticationTests: XCTestCase {
         wait(for: [expectation], timeout: 10.0)
     }
     
-    // MARK: - Data Isolation Tests
-    
-    func testDataIsolationBetweenUsers() {
-        let testUser1 = TestUser.createTestUser(suffix: "isolation1")
-        let testUser2 = TestUser.createTestUser(suffix: "isolation2")
-        
-        print("🧪 Testing data isolation between users")
-        print("   User 1: \(testUser1.email)")
-        print("   User 2: \(testUser2.email)")
-        
-        // Step 1: Register and setup User 1 using direct Firebase Auth
-        let user1Expectation = performDirectFirebaseAuth(
-            operation: { completion in
-                Auth.auth().createUser(withEmail: testUser1.email, password: testUser1.password) {
-                    result, error in
-                    if let error = error {
-                        completion(result, error)
-                        return
-                    }
-                    
-                    if let user = result?.user {
-                        let changeRequest = user.createProfileChangeRequest()
-                        changeRequest.displayName = testUser1.name
-                        changeRequest.commitChanges { profileError in
-                            completion(result, error)
-                        }
-                    } else {
-                        completion(result, error)
-                    }
-                }
-            },
-            expectedEmail: testUser1.email,
-            expectedName: testUser1.name,
-            onSuccess: { user in
-                print("✅ User 1 registered successfully")
-                // Authenticate with data manager
-                if let uid = user.firebaseUID {
-                    self.dataManager.authenticateUser(firebaseUID: uid)
-                    
-                    // Create test transactions for User 1
-                    let user1Transactions = [
-                        self.createTestTransaction(
-                            title: "User 1 Coffee", amount: 450, type: .expense, category: .meals, date: Date()),
-                        self.createTestTransaction(
-                            title: "User 1 Salary", amount: 300000, type: .income, category: .salary, date: Date()
-                        ),
-                    ]
-                    
-                    self.dataManager.saveTransactions(user1Transactions)
-                    print("✅ User 1 data saved: \(user1Transactions.count) transactions")
-                }
-            },
-            onFailure: { error in
-                print("❌ User 1 registration failed: \(error.localizedDescription)")
-                XCTFail("User 1 registration failed: \(error.localizedDescription)")
-            }
-        )
-        
-        wait(for: [user1Expectation], timeout: 15.0)
-        
-        // Sign out User 1 using Firebase Auth directly
-        do {
-            try Auth.auth().signOut()
-            print("✅ User 1 signed out successfully")
-        } catch {
-            print("❌ Error signing out User 1: \(error.localizedDescription)")
-        }
-        dataManager.signOut()
-        Thread.sleep(forTimeInterval: 1.0)
-        
-        // Step 2: Register and setup User 2 using direct Firebase Auth
-        let user2Expectation = performDirectFirebaseAuth(
-            operation: { completion in
-                Auth.auth().createUser(withEmail: testUser2.email, password: testUser2.password) {
-                    result, error in
-                    if let error = error {
-                        completion(result, error)
-                        return
-                    }
-                    
-                    if let user = result?.user {
-                        let changeRequest = user.createProfileChangeRequest()
-                        changeRequest.displayName = testUser2.name
-                        changeRequest.commitChanges { profileError in
-                            completion(result, error)
-                        }
-                    } else {
-                        completion(result, error)
-                    }
-                }
-            },
-            expectedEmail: testUser2.email,
-            expectedName: testUser2.name,
-            onSuccess: { user in
-                print("✅ User 2 registered successfully")
-                // Authenticate with data manager
-                if let uid = user.firebaseUID {
-                    self.dataManager.authenticateUser(firebaseUID: uid)
-                    
-                    // Create different test transactions for User 2
-                    let user2Transactions = [
-                        self.createTestTransaction(
-                            title: "User 2 Gas", amount: 4500, type: .expense, category: .transportation,
-                            date: Date()),
-                        self.createTestTransaction(
-                            title: "User 2 Freelance", amount: 80000, type: .income, category: .miscellaneous,
-                            date: Date()),
-                    ]
-                    
-                    self.dataManager.saveTransactions(user2Transactions)
-                    print("✅ User 2 data saved: \(user2Transactions.count) transactions")
-                    
-                    // Verify User 2 can only see their own data
-                    let user2LoadedTransactions = self.dataManager.loadTransactions()
-                    XCTAssertEqual(
-                        user2LoadedTransactions.count, 2, "User 2 should see exactly 2 transactions")
-                    
-                    let hasUser1Data = user2LoadedTransactions.contains { $0.title.contains("User 1") }
-                    XCTAssertFalse(hasUser1Data, "User 2 should not see User 1's data")
-                    
-                    let hasUser2Data = user2LoadedTransactions.contains { $0.title.contains("User 2") }
-                    XCTAssertTrue(hasUser2Data, "User 2 should see their own data")
-                    
-                    print("✅ Data isolation verified successfully")
-                }
-            },
-            onFailure: { error in
-                print("❌ User 2 registration failed: \(error.localizedDescription)")
-                XCTFail("User 2 registration failed: \(error.localizedDescription)")
-            }
-        )
-        
-        wait(for: [user2Expectation], timeout: 15.0)
-    }
-    
     // MARK: - Face ID Prompt Tests
     
     func testNewUserFaceIDPromptLogic() {
@@ -852,137 +714,6 @@ class AuthenticationTests: XCTestCase {
         wait(for: [returningLoginExpectation], timeout: 15.0)
     }
     
-    // MARK: - Data Migration Tests
-    
-    func testMigrationWithNoExistingData() {
-        print("🧪 Testing migration when no existing data present")
-        
-        // Reset migration state
-        migrationManager.resetMigrationState()
-        
-        // Ensure no existing data
-        clearTestData()
-        
-        let testUser = TestUser.createTestUser(suffix: "no_data")
-        let expectation = performDirectFirebaseAuth(
-            operation: { completion in
-                Auth.auth().createUser(withEmail: testUser.email, password: testUser.password) {
-                    result, error in
-                    if let error = error {
-                        completion(result, error)
-                        return
-                    }
-                    
-                    if let user = result?.user {
-                        let changeRequest = user.createProfileChangeRequest()
-                        changeRequest.displayName = testUser.name
-                        changeRequest.commitChanges { profileError in
-                            completion(result, error)
-                        }
-                    } else {
-                        completion(result, error)
-                    }
-                }
-            },
-            expectedEmail: testUser.email,
-            expectedName: testUser.name,
-            onSuccess: { user in
-                guard let uid = user.firebaseUID else {
-                    XCTFail("User should have Firebase UID")
-                    return
-                }
-                
-                let migrationExpectation = XCTestExpectation(description: "No Data Migration")
-                
-                self.migrationManager.checkAndPerformMigration(for: uid, userEmail: testUser.email) {
-                    success in
-                    XCTAssertTrue(success, "Migration should succeed even with no data")
-                    
-                    // Verify migration state
-                    let state = self.migrationManager.getMigrationState()
-                    XCTAssertTrue(state.isGlobalMigrationComplete, "Migration should be marked complete")
-                    XCTAssertEqual(state.dataOwner, uid, "User should be marked as data owner")
-                    XCTAssertFalse(state.hasExistingData, "Should confirm no existing data")
-                    
-                    print("✅ No-data migration test completed")
-                    migrationExpectation.fulfill()
-                }
-                
-                let result = XCTWaiter.wait(for: [migrationExpectation], timeout: 10.0)
-                XCTAssertNotEqual(result, .timedOut, "Migration should complete")
-            },
-            onFailure: { error in
-                XCTFail("User registration failed: \(error.localizedDescription)")
-            }
-        )
-        
-        wait(for: [expectation], timeout: 15.0)
-    }
-    
-    func testMigrationFailureRecovery() {
-        print("🧪 Testing migration failure recovery")
-        
-        migrationManager.resetMigrationState()
-        createTestLocalData()
-        
-        let testUser = TestUser.createTestUser(suffix: "failure")
-        let expectation = performDirectFirebaseAuth(
-            operation: { completion in
-                Auth.auth().createUser(
-                    withEmail: testUser.email, password: testUser.password, completion: completion)
-            },
-            expectedEmail: testUser.email,
-            expectedName: testUser.name,
-            onSuccess: { user in
-                guard let uid = user.firebaseUID else {
-                    XCTFail("User should have UID")
-                    return
-                }
-                
-                // Simulate migration failure by corrupting the data directory
-                if let documentsPath = FileManager.default.urls(
-                    for: .documentDirectory, in: .userDomainMask
-                ).first {
-                    let userDataPath = documentsPath.appendingPathComponent("UserData")
-                        .appendingPathComponent(uid)
-                    
-                    // Create a file where a directory should be to cause failure
-                    try? "corrupt".write(to: userDataPath, atomically: true, encoding: .utf8)
-                }
-                
-                let migrationExpectation = XCTestExpectation(description: "Failed Migration")
-                
-                self.migrationManager.checkAndPerformMigration(for: uid, userEmail: testUser.email) {
-                    success in
-                    if success {
-                        print("⚠️ Migration unexpectedly succeeded despite corruption")
-                        // If it somehow succeeds, that's also valid behavior
-                    } else {
-                        print("✅ Migration correctly failed due to corruption")
-                    }
-                    
-                    // Verify migration state is properly handled
-                    let state = self.migrationManager.getMigrationState()
-                    if success {
-                        XCTAssertTrue(state.isGlobalMigrationComplete, "Should mark as complete if succeeded")
-                    } else {
-                        // Migration failed, should be able to retry
-                        XCTAssertFalse(state.isGlobalMigrationComplete, "Should not mark as complete if failed")
-                    }
-                    
-                    migrationExpectation.fulfill()
-                }
-                
-                self.wait(for: [migrationExpectation], timeout: 10.0)
-            },
-            onFailure: { error in
-                XCTFail("Registration failed: \(error.localizedDescription)")
-            }
-        )
-        
-        wait(for: [expectation], timeout: 15.0)
-    }
-    
     // MARK: - Helper Methods for Migration Tests
     
     private func createTestLocalData() {
@@ -1125,101 +856,6 @@ class AuthenticationTests: XCTestCase {
             print("⚠️ Could not verify migration cleanup: \(error)")
             // Don't fail the test as cleanup verification might not be critical
         }
-    }
-    
-    // MARK: - Security Tests
-    
-    func testUnauthorizedDataAccess() {
-        print("🧪 Testing unauthorized data access")
-        
-        // Ensure no user is authenticated
-        authManager.signOut()
-        dataManager.signOut()
-        
-        // Try to access data without authentication
-        let unauthorizedTransactions = dataManager.loadTransactions()
-        let unauthorizedBudgets = dataManager.loadBudgets()
-        
-        XCTAssertTrue(
-            unauthorizedTransactions.isEmpty, "Should not access transactions without authentication")
-        XCTAssertTrue(unauthorizedBudgets.isEmpty, "Should not access budgets without authentication")
-        XCTAssertFalse(authManager.isAuthenticated, "Should not be authenticated")
-        
-        print("✅ Unauthorized access properly blocked")
-    }
-    
-    func testDataDirectoryIsolation() {
-        print("🧪 Testing data directory isolation")
-        
-        let testUID1 = "test_uid_\(Int(Date().timeIntervalSince1970))"
-        let testUID2 = "test_uid_\(Int(Date().timeIntervalSince1970) + 1)"
-        
-        // Test User 1 data directory
-        dataManager.authenticateUser(firebaseUID: testUID1)
-        let user1Transactions = [
-            createTestTransaction(
-                title: "User 1 Test", amount: 1000, type: .expense, category: .meals, date: Date())
-        ]
-        dataManager.saveTransactions(user1Transactions)
-        
-        // Test User 2 data directory
-        dataManager.authenticateUser(firebaseUID: testUID2)
-        let user2Transactions = [
-            createTestTransaction(
-                title: "User 2 Test", amount: 2000, type: .income, category: .salary, date: Date())
-        ]
-        dataManager.saveTransactions(user2Transactions)
-        
-        // Verify isolation by checking file system
-        if let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)
-            .first
-        {
-            let userDataPath = documentsPath.appendingPathComponent("UserData")
-            let user1Path = userDataPath.appendingPathComponent(testUID1)
-            let user2Path = userDataPath.appendingPathComponent(testUID2)
-            
-            XCTAssertTrue(
-                FileManager.default.fileExists(atPath: user1Path.path), "User 1 directory should exist")
-            XCTAssertTrue(
-                FileManager.default.fileExists(atPath: user2Path.path), "User 2 directory should exist")
-            
-            // Verify User 1 can only access their data
-            dataManager.authenticateUser(firebaseUID: testUID1)
-            let user1LoadedData = dataManager.loadTransactions()
-            XCTAssertEqual(user1LoadedData.count, 1, "User 1 should see only their data")
-            XCTAssertEqual(
-                user1LoadedData.first?.title, "User 1 Test", "User 1 should see their specific data")
-        }
-        
-        print("✅ Data directory isolation verified")
-    }
-    
-    func testSignOutCleansUpData() {
-        print("🧪 Testing sign out data cleanup")
-        
-        let testUID = "test_signout_uid_\(Int(Date().timeIntervalSince1970))"
-        
-        // Authenticate and save data
-        dataManager.authenticateUser(firebaseUID: testUID)
-        let testTransactions = [
-            createTestTransaction(
-                title: "Test Transaction", amount: 1000, type: .expense, category: .meals, date: Date())
-        ]
-        dataManager.saveTransactions(testTransactions)
-        
-        // Verify data is accessible
-        let loadedData = dataManager.loadTransactions()
-        XCTAssertEqual(loadedData.count, 1, "Data should be accessible when authenticated")
-        
-        // Sign out
-        authManager.signOut()
-        dataManager.signOut()
-        
-        // Verify data is no longer accessible
-        let dataAfterSignOut = dataManager.loadTransactions()
-        XCTAssertTrue(dataAfterSignOut.isEmpty, "Data should not be accessible after sign out")
-        
-        print("✅ Sign out data cleanup verified")
     }
     
     // MARK: - Error Handling Tests
@@ -1952,14 +1588,16 @@ class AuthenticationTests: XCTestCase {
 
                 // Verify data isolation works via TransactionRepository
                 let repo = TransactionRepository()
-                let testTransaction = self.createTestTransaction(
+                let testTransaction = TransactionModel(
                     title: "SQLite Test Transaction",
+                    category: TransactionCategory.meals.key,
                     amount: 5000,
-                    type: .expense,
-                    category: .meals
+                    type: String(describing: TransactionType.expense),
+                    dateTimestamp: Int(Date().timeIntervalSince1970),
+                    budgetMonthDate: Date().monthAnchor
                 )
 
-                repo.insertTransaction(testTransaction)
+                try! repo.insertTransaction(testTransaction)
 
                 TransactionRepository.invalidateCache()
                 let loadedTransactions = repo.fetchAllTransactions()

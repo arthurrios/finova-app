@@ -33,8 +33,9 @@ final class SyncEngine {
         }
     }
 
-    private let cloudKit = CloudKitManager.shared
-    private let stateManager = SyncStateManager.shared
+    private let cloudKitOps: CloudKitOperationsProvider
+    private let stateManager: SyncStateManager
+    private let postSyncActions: PostSyncActions
     private let syncQueue = DispatchQueue(label: "com.finova.syncengine", qos: .utility)
     private var isSyncing = false
     private var hasSetupSubscriptions = false
@@ -42,7 +43,17 @@ final class SyncEngine {
     private var pushThrottledUntil: Date?
 
     private init() {
+        self.cloudKitOps = RealCloudKitOperations()
+        self.stateManager = SyncStateManager.shared
+        self.postSyncActions = RealPostSyncActions()
         setupObservers()
+    }
+
+    init(cloudKitOps: CloudKitOperationsProvider, stateManager: SyncStateManager = .shared,
+         postSyncActions: PostSyncActions = RealPostSyncActions()) {
+        self.cloudKitOps = cloudKitOps
+        self.stateManager = stateManager
+        self.postSyncActions = postSyncActions
     }
 
     private func setupObservers() {
@@ -80,10 +91,29 @@ final class SyncEngine {
 
     // MARK: - Public API
 
-    func performFullSync() {
+    func performFullSync(forceFullFetch: Bool = false, forceRePush: Bool = false, completion: (() -> Void)? = nil) {
         syncQueue.async { [weak self] in
-            self?.executeSyncCycle()
+            if forceFullFetch {
+                self?.stateManager.resetAllTokens()
+            }
+            if forceRePush {
+                Self.resetAllSyncStatuses()
+            }
+            self?.executeSyncCycle(completion: completion)
         }
+    }
+
+    /// Resets all sync_status values to 'pending' so everything gets re-pushed to CloudKit.
+    private static func resetAllSyncStatuses() {
+        logWarning("[Sync] Resetting all sync statuses to 'pending' for re-push")
+        let tables = ["Transactions", "Budgets", "CreditCards", "CreditCardStatements", "BudgetAllocations"]
+        for table in tables {
+            DBHelper.shared.executeSyncUpdate(
+                "UPDATE \(table) SET sync_status = 'pending' WHERE sync_status = 'synced' AND (is_deleted IS NULL OR is_deleted = 0);",
+                textBindings: []
+            )
+        }
+        TransactionRepository.invalidateCache()
     }
 
     @objc private func handleRemoteNotification() {
@@ -101,33 +131,51 @@ final class SyncEngine {
 
     // MARK: - Sync Cycle
 
-    private func executeSyncCycle() {
-        guard !isSyncing else { return }
+    private func executeSyncCycle(completion: (() -> Void)? = nil) {
+        guard !isSyncing else {
+            logWarning("[Sync] Already syncing — skipping")
+            completion?()
+            return
+        }
 
-        if cloudKit.isCloudKitAvailable {
-            startSyncOperations()
+        logWarning("[Sync] Starting sync cycle (isAvailable=\(cloudKitOps.isAvailable))")
+
+        if cloudKitOps.isAvailable {
+            startSyncOperations(completion: completion)
         } else {
-            // Check account status first — isCloudKitAvailable may not be set yet
-            cloudKit.checkAccountStatus { [weak self] accountStatus in
-                guard let self = self else { return }
+            // Check account status first — isAvailable may not be set yet
+            cloudKitOps.checkAccountStatus { [weak self] accountStatus in
+                guard let self = self else {
+                    completion?()
+                    return
+                }
+                logWarning("[Sync] Account status check: \(accountStatus)")
                 guard accountStatus == .available else {
+                    logWarning("[Sync] Account not available (\(accountStatus)) — aborting")
                     self.status = .idle
+                    completion?()
                     return
                 }
                 self.syncQueue.async {
-                    self.startSyncOperations()
+                    self.startSyncOperations(completion: completion)
                 }
             }
         }
     }
 
-    private func startSyncOperations() {
-        guard !isSyncing else { return }
+    private func startSyncOperations(completion: (() -> Void)? = nil) {
+        guard !isSyncing else {
+            completion?()
+            return
+        }
 
         isSyncing = true
         status = .syncing
-        ensureZoneExists { [weak self] result in
-            guard let self = self else { return }
+        cloudKitOps.ensureZoneExists { [weak self] result in
+            guard let self = self else {
+                completion?()
+                return
+            }
 
             switch result {
             case .success:
@@ -139,98 +187,77 @@ final class SyncEngine {
                             switch pushResult {
                             case .success:
                                 self.stateManager.updateLastSyncDate(for: "privateDB")
-                                // Fetch balance offsets and invitations in parallel
-                                let group = DispatchGroup()
-                                group.enter()
-                                UIDUserDefaultsManager.shared.fetchBalanceOffsetsFromCloud {
-                                    group.leave()
-                                }
-                                group.enter()
-                                BudgetGroupService.shared.fetchRemoteInvitations {
-                                    group.leave()
-                                }
-                                group.notify(queue: self.syncQueue) {
-                                    self.status = .synced
+                                self.postSyncActions.performPostSyncFetches {
+                                    self.syncQueue.async {
+                                        logWarning("[Sync] Sync cycle complete — status: synced")
+                                        self.status = .synced
+                                        self.isSyncing = false
+                                        completion?()
+                                    }
                                 }
                             case .failure(let error):
+                                logError("[Sync] Push failed: \(error.localizedDescription)")
                                 self.status = .error(error)
+                                self.isSyncing = false
+                                completion?()
                             }
-                            self.isSyncing = false
                         }
                     case .failure(let error):
+                        logError("[Sync] Fetch changes failed: \(error.localizedDescription)")
                         self.status = .error(error)
                         self.isSyncing = false
+                        completion?()
                     }
                 }
             case .failure(let error):
+                logError("[Sync] Zone creation failed: \(error.localizedDescription)")
                 self.status = .error(error)
                 self.isSyncing = false
+                completion?()
             }
         }
-    }
-
-    private func ensureZoneExists(completion: @escaping (Result<Void, Error>) -> Void) {
-        cloudKit.createPrivateZoneIfNeeded(completion: completion)
     }
 
     private func setupSubscriptionsIfNeeded() {
         guard !hasSetupSubscriptions else { return }
         hasSetupSubscriptions = true
-
-        cloudKit.setupPrivateDatabaseSubscription { result in
-            if case .failure(let error) = result {
-                logError("Failed to setup private subscription: \(error.localizedDescription)")
-            }
-        }
-        cloudKit.setupSharedDatabaseSubscription { result in
-            if case .failure(let error) = result {
-                logError("Failed to setup shared subscription: \(error.localizedDescription)")
-            }
-        }
-        // Public DB subscription for group invitations
-        if let email = AuthenticationManager.shared.currentUser?.email {
-            cloudKit.setupPublicInvitationSubscription(email: email) { result in
-                if case .failure(let error) = result {
-                    logError("Failed to setup public invitation subscription: \(error.localizedDescription)")
-                }
-            }
-        }
+        cloudKitOps.setupSubscriptions(email: AuthenticationManager.shared.currentUser?.email)
     }
 
     // MARK: - Fetch Changes (Pull)
 
     private func fetchPrivateDatabaseChanges(completion: @escaping (Result<Void, Error>) -> Void) {
         let token = stateManager.changeToken(for: "privateDB", database: "private")
-
-        let operation = CKFetchDatabaseChangesOperation(previousServerChangeToken: token)
+        logWarning("[Sync] Fetching database changes (hasToken=\(token != nil))")
         var changedZoneIDs: [CKRecordZone.ID] = []
 
-        operation.recordZoneWithIDChangedBlock = { zoneID in
-            changedZoneIDs.append(zoneID)
-        }
-
-        operation.fetchDatabaseChangesResultBlock = { [weak self] result in
-            switch result {
-            case .success(let (token, _)):
-                self?.stateManager.saveChangeToken(token, for: "privateDB", database: "private")
-                if changedZoneIDs.isEmpty {
-                    completion(.success(()))
-                } else {
-                    self?.fetchZoneChanges(zoneIDs: changedZoneIDs, database: .private, completion: completion)
-                }
-            case .failure(let error):
-                if let ckError = error as? CKError, ckError.code == .changeTokenExpired {
-                    logWarning("Change token expired for privateDB — resetting and retrying")
-                    self?.stateManager.resetAllTokens()
-                    self?.fetchPrivateDatabaseChanges(completion: completion)
-                } else {
-                    completion(.failure(error))
+        cloudKitOps.fetchDatabaseChanges(
+            token: token,
+            changedZoneHandler: { zoneID in
+                changedZoneIDs.append(zoneID)
+            },
+            completion: { [weak self] result in
+                switch result {
+                case .success(let newToken):
+                    logWarning("[Sync] Database changes fetched — \(changedZoneIDs.count) changed zone(s)")
+                    self?.stateManager.saveChangeToken(newToken, for: "privateDB", database: "private")
+                    if changedZoneIDs.isEmpty {
+                        logWarning("[Sync] No changed zones — skipping zone fetch")
+                        completion(.success(()))
+                    } else {
+                        self?.fetchZoneChanges(zoneIDs: changedZoneIDs, database: .private, completion: completion)
+                    }
+                case .failure(let error):
+                    if let ckError = error as? CKError, ckError.code == .changeTokenExpired {
+                        logWarning("Change token expired for privateDB — resetting and retrying")
+                        self?.stateManager.resetAllTokens()
+                        self?.fetchPrivateDatabaseChanges(completion: completion)
+                    } else {
+                        completion(.failure(error))
+                    }
                 }
             }
-        }
-
-        operation.qualityOfService = .userInitiated
-        cloudKit.privateDatabase.add(operation)
+        )
     }
 
     private func fetchZoneChanges(
@@ -238,81 +265,59 @@ final class SyncEngine {
         database: CKDatabase.Scope,
         completion: @escaping (Result<Void, Error>) -> Void
     ) {
-        var configurations: [CKRecordZone.ID: CKFetchRecordZoneChangesOperation.ZoneConfiguration] = [:]
-
-        for zoneID in zoneIDs {
-            let config = CKFetchRecordZoneChangesOperation.ZoneConfiguration()
-            config.previousServerChangeToken = stateManager.changeToken(
-                for: zoneID.zoneName,
-                database: database == .private ? "private" : "shared"
-            )
-            configurations[zoneID] = config
-        }
-
-        let operation = CKFetchRecordZoneChangesOperation(
-            recordZoneIDs: zoneIDs,
-            configurationsByRecordZoneID: configurations
-        )
-
         self.isProcessingCloudData = true
+        var pulledRecordCount = 0
+        var pulledDeleteCount = 0
 
-        operation.recordWasChangedBlock = { [weak self] recordID, result in
-            switch result {
-            case .success(let record):
+        logWarning("[Sync] Fetching zone changes for \(zoneIDs.map { $0.zoneName })")
+
+        cloudKitOps.fetchZoneChanges(
+            zoneIDs: zoneIDs,
+            database: database,
+            tokenForZone: { [weak self] zoneID in
+                let dbKey = database == .private ? "private" : "shared"
+                return self?.stateManager.changeToken(for: zoneID.zoneName, database: dbKey)
+            },
+            recordHandler: { [weak self] record in
+                pulledRecordCount += 1
                 self?.processIncomingRecord(record)
-            case .failure(let error):
-                logError("Failed to fetch record \(recordID): \(error)")
-            }
-        }
-
-        operation.recordWithIDWasDeletedBlock = { [weak self] recordID, recordType in
-            self?.processDeletedRecord(recordID: recordID, recordType: recordType)
-        }
-
-        operation.recordZoneFetchResultBlock = { [weak self] zoneID, result in
-            switch result {
-            case .success(let (token, _, _)):
+            },
+            deleteHandler: { [weak self] recordID, recordType in
+                pulledDeleteCount += 1
+                self?.processDeletedRecord(recordID: recordID, recordType: recordType)
+            },
+            zoneTokenHandler: { [weak self] zoneID, token in
                 let dbKey = database == .private ? "private" : "shared"
                 self?.stateManager.saveChangeToken(token, for: zoneID.zoneName, database: dbKey)
-            case .failure(let error):
-                if let ckError = error as? CKError, ckError.code == .changeTokenExpired {
-                    let dbKey = database == .private ? "private" : "shared"
-                    logWarning("Zone change token expired for \(zoneID.zoneName) — resetting")
-                    self?.stateManager.saveChangeToken(nil, for: zoneID.zoneName, database: dbKey)
-                } else {
-                    logError("Zone fetch failed for \(zoneID.zoneName): \(error)")
+            },
+            completion: { [weak self] result in
+                self?.isProcessingCloudData = false
+                switch result {
+                case .success:
+                    logWarning("[Sync] Pull complete — \(pulledRecordCount) record(s), \(pulledDeleteCount) delete(s)")
+                    TransactionRepository.invalidateCache()
+                    let localCount = TransactionRepository().fetchAllTransactions().count
+                    logWarning("[Sync] Local DB has \(localCount) transaction(s) after pull")
+                    TransactionRepository().fixAndDeduplicateAfterSync()
+
+                    DispatchQueue.main.async {
+                        NotificationCenter.default.post(name: .transactionDataChanged, object: nil)
+                        NotificationCenter.default.post(name: .budgetDataChanged, object: nil)
+                        NotificationCenter.default.post(name: .creditCardDataChanged, object: nil)
+                        NotificationCenter.default.post(name: .allocationDataChanged, object: nil)
+                    }
+                    completion(.success(()))
+                case .failure(let error):
+                    if let ckError = error as? CKError, ckError.code == .changeTokenExpired {
+                        logWarning("Zone changes token expired — resetting all tokens and retrying")
+                        self?.stateManager.resetAllTokens()
+                        self?.fetchZoneChanges(zoneIDs: zoneIDs, database: database, completion: completion)
+                    } else {
+                        completion(.failure(error))
+                    }
                 }
             }
-        }
-
-        operation.fetchRecordZoneChangesResultBlock = { [weak self] result in
-            self?.isProcessingCloudData = false
-            switch result {
-            case .success:
-                // Post-sync fix: remap orphaned parent IDs + deduplicate recurring instances
-                TransactionRepository().fixAndDeduplicateAfterSync()
-
-                DispatchQueue.main.async {
-                    NotificationCenter.default.post(name: .transactionDataChanged, object: nil)
-                    NotificationCenter.default.post(name: .budgetDataChanged, object: nil)
-                    NotificationCenter.default.post(name: .creditCardDataChanged, object: nil)
-                    NotificationCenter.default.post(name: .allocationDataChanged, object: nil)
-                }
-                completion(.success(()))
-            case .failure(let error):
-                if let ckError = error as? CKError, ckError.code == .changeTokenExpired {
-                    logWarning("Zone changes token expired — resetting all tokens and retrying")
-                    self?.stateManager.resetAllTokens()
-                    self?.fetchZoneChanges(zoneIDs: zoneIDs, database: database, completion: completion)
-                } else {
-                    completion(.failure(error))
-                }
-            }
-        }
-
-        let db = database == .private ? cloudKit.privateDatabase : cloudKit.sharedDatabase
-        operation.qualityOfService = .userInitiated
-        db.add(operation)
+        )
     }
 
     // MARK: - Push Local Changes
@@ -332,7 +337,10 @@ final class SyncEngine {
 
         // Transactions — use stored ck_record_id to avoid creating duplicate CK records
         let txRepo = TransactionRepository()
+        TransactionRepository.invalidateCache()
+        let allTxCount = txRepo.fetchAllTransactions().count
         let pendingTransactions = txRepo.fetchPendingSync()
+        logWarning("[Sync] Transactions: \(allTxCount) total, \(pendingTransactions.count) pending")
         for tx in pendingTransactions {
             let storedName = tx.id.flatMap { txRepo.fetchCKRecordName(for: $0) }
             let record = tx.toCKRecord(in: CloudKitManager.privateZoneID, storedRecordName: storedName)
@@ -415,6 +423,8 @@ final class SyncEngine {
             allDeleteIDs.append(CKRecord.ID(recordName: pending.ckRecordName, zoneID: CloudKitManager.privateZoneID))
         }
 
+        logWarning("[Sync] Push: \(allRecords.count) record(s) to save, \(allDeleteIDs.count) to delete")
+
         guard !allRecords.isEmpty || !allDeleteIDs.isEmpty else {
             completion?(.success(()))
             return
@@ -444,16 +454,16 @@ final class SyncEngine {
         }
 
         let batch = batches[index]
-        let operation = CKModifyRecordsOperation(recordsToSave: batch, recordIDsToDelete: nil)
-        operation.savePolicy = .changedKeys
-        operation.isAtomic = false
-
         var hitQuotaLimit = false
 
-        operation.perRecordSaveBlock = { [weak self] recordID, result in
+        var batchSuccessCount = 0
+        var batchFailureCount = 0
+
+        cloudKitOps.saveRecords(batch) { [weak self] recordID, result in
             let name = recordID.recordName
             switch result {
             case .success:
+                batchSuccessCount += 1
                 if name.hasPrefix("transaction-") {
                     TransactionRepository().markAsSynced(ckRecordName: name)
                 } else if name.hasPrefix("budget-") {
@@ -466,27 +476,24 @@ final class SyncEngine {
                     BudgetAllocationRepository().markAsSynced(ckRecordName: name)
                 }
             case .failure(let error):
+                batchFailureCount += 1
                 if let ckError = error as? CKError, ckError.code == .quotaExceeded {
                     if !hitQuotaLimit {
                         hitQuotaLimit = true
                         let retryAfter = ckError.retryAfterSeconds ?? 300
                         self?.pushThrottledUntil = Date().addingTimeInterval(retryAfter)
-                        logWarning("CloudKit quota exceeded — throttling pushes for \(Int(retryAfter))s. Pending records will sync later.")
-                        // Schedule a retry after the cooldown
-                        self?.syncQueue.asyncAfter(deadline: .now() + retryAfter + 5) {
-                            self?.pushThrottledUntil = nil
-                            self?.pushLocalChanges()
-                        }
+                        logWarning("[Sync] ⚠️ CloudKit quota exceeded — throttling for \(Int(retryAfter))s. Pending records will sync on next launch.")
                     }
                 } else {
-                    logError("Failed to push record \(recordID): \(error)")
+                    logWarning("[Sync] ❌ Failed to push record \(name): \(error.localizedDescription)")
                 }
             }
-        }
+        } completion: { [weak self] result in
+            logWarning("[Sync] Batch \(index + 1)/\(batches.count) result: \(batchSuccessCount) succeeded, \(batchFailureCount) failed")
 
-        operation.modifyRecordsResultBlock = { [weak self] result in
             if hitQuotaLimit {
-                // Stop processing remaining batches — will retry after cooldown
+                // Stop processing remaining batches — pending records will sync on next launch
+                logWarning("[Sync] Stopping push due to quota limit. Remaining records will sync later.")
                 completion?(.success(()))
                 return
             }
@@ -497,27 +504,18 @@ final class SyncEngine {
                 if let ckError = error as? CKError, ckError.code == .quotaExceeded {
                     let retryAfter = ckError.retryAfterSeconds ?? 300
                     self?.pushThrottledUntil = Date().addingTimeInterval(retryAfter)
-                    logWarning("CloudKit quota exceeded (batch level) — throttling for \(Int(retryAfter))s")
-                    self?.syncQueue.asyncAfter(deadline: .now() + retryAfter + 5) {
-                        self?.pushThrottledUntil = nil
-                        self?.pushLocalChanges()
-                    }
+                    logWarning("[Sync] ⚠️ CloudKit quota exceeded (batch level) — throttling for \(Int(retryAfter))s")
                     completion?(.success(()))
                 } else {
+                    logWarning("[Sync] ❌ Batch \(index + 1)/\(batches.count) failed: \(error.localizedDescription)")
                     completion?(.failure(error))
                 }
             }
         }
-
-        operation.qualityOfService = .userInitiated
-        cloudKit.privateDatabase.add(operation)
     }
 
     private func pushDeletes(_ deleteIDs: [CKRecord.ID], completion: ((Result<Void, Error>) -> Void)?) {
-        let operation = CKModifyRecordsOperation(recordsToSave: nil, recordIDsToDelete: deleteIDs)
-        operation.isAtomic = false
-
-        operation.perRecordDeleteBlock = { [weak self] recordID, result in
+        cloudKitOps.deleteRecords(deleteIDs) { [weak self] recordID, result in
             let name = recordID.recordName
             switch result {
             case .success:
@@ -538,12 +536,10 @@ final class SyncEngine {
                     let retryAfter = ckError.retryAfterSeconds ?? 300
                     self?.pushThrottledUntil = Date().addingTimeInterval(retryAfter)
                 } else {
-                    logError("Failed to delete record \(recordID) from CloudKit: \(error)")
+                    logWarning("[Sync] ❌ Failed to delete record \(recordID.recordName): \(error.localizedDescription)")
                 }
             }
-        }
-
-        operation.modifyRecordsResultBlock = { [weak self] result in
+        } completion: { [weak self] result in
             switch result {
             case .success:
                 completion?(.success(()))
@@ -551,28 +547,26 @@ final class SyncEngine {
                 if let ckError = error as? CKError, ckError.code == .quotaExceeded {
                     let retryAfter = ckError.retryAfterSeconds ?? 300
                     self?.pushThrottledUntil = Date().addingTimeInterval(retryAfter)
-                    logWarning("CloudKit quota exceeded during deletes — will retry in \(Int(retryAfter))s")
-                    self?.syncQueue.asyncAfter(deadline: .now() + retryAfter + 5) {
-                        self?.pushThrottledUntil = nil
-                        self?.pushLocalChanges()
-                    }
+                    logWarning("[Sync] ⚠️ CloudKit quota exceeded during deletes — throttling for \(Int(retryAfter))s")
                     completion?(.success(()))
                 } else {
                     completion?(.failure(error))
                 }
             }
         }
-
-        operation.qualityOfService = .userInitiated
-        cloudKit.privateDatabase.add(operation)
     }
 
     // MARK: - Process Incoming Records
 
     private func processIncomingRecord(_ record: CKRecord) {
+        logWarning("[Sync] Processing incoming record: type=\(record.recordType), name=\(record.recordID.recordName)")
         switch record.recordType {
         case "Transaction":
-            guard let transaction = Transaction.fromCKRecord(record) else { return }
+            guard let transaction = Transaction.fromCKRecord(record) else {
+                logError("[Sync] Failed to parse Transaction from CKRecord \(record.recordID.recordName)")
+                return
+            }
+            logWarning("[Sync] Resolved transaction: \(transaction.title) amount=\(transaction.amount)")
             ConflictResolver.shared.resolveTransaction(remote: transaction, ckRecord: record)
         case "Budget":
             guard let budget = BudgetModel.fromCKRecord(record) else { return }
