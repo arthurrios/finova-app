@@ -49,7 +49,9 @@ extension CreditCardStatement: CKRecordConvertible {
         record["paidDate"] = paidDate as CKRecordValue?
         record["paidAmount"] = (paidAmount ?? 0) as CKRecordValue
         record["userId"] = userId as CKRecordValue
-        record["isDatesOverridden"] = (isDatesOverridden ? 1 : 0) as CKRecordValue
+        // NOTE: isDatesOverridden is stored locally but NOT synced to CloudKit yet.
+        // Deploy schema changes to CloudKit production first, then uncomment:
+        // record["isDatesOverridden"] = (isDatesOverridden ? 1 : 0) as CKRecordValue
         return record
     }
 

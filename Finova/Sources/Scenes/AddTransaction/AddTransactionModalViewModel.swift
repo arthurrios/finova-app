@@ -249,6 +249,14 @@ final class AddTransactionModalViewModel {
     do {
       let insertedId = try transactionRepo.insertTransactionAndGetId(model)
 
+      // Assign to group if in group context or mirror mode
+      if let groupId = self.activeContext.groupId {
+        self.transactionRepo.updateSharedGroupId(transactionId: insertedId, groupId: groupId)
+      } else if MirrorModeManager.shared.isEnabled,
+                let groupId = MirrorModeManager.shared.linkedGroupId {
+        self.transactionRepo.updateSharedGroupId(transactionId: insertedId, groupId: groupId)
+      }
+
       // Check for similar existing recurring transactions
       if let existingSimilar = recurringManager.findSimilarRecurringTransaction(
         title: title,

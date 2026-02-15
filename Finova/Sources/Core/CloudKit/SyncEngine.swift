@@ -183,6 +183,8 @@ final class SyncEngine {
                 self.fetchPrivateDatabaseChanges { result in
                     switch result {
                     case .success:
+                        // Mirror mode: ensure all personal data is tagged with group ID before push
+                        MirrorModeManager.shared.reconcileMirrorData()
                         self.pushLocalChanges { pushResult in
                             switch pushResult {
                             case .success:
@@ -298,7 +300,10 @@ final class SyncEngine {
                     TransactionRepository.invalidateCache()
                     let localCount = TransactionRepository().fetchAllTransactions().count
                     logWarning("[Sync] Local DB has \(localCount) transaction(s) after pull")
-                    TransactionRepository().fixAndDeduplicateAfterSync()
+                    // NOTE: fixAndDeduplicateAfterSync() removed from per-sync execution.
+                    // The ConflictResolver already handles deduplication during pull.
+                    // Running dedup after every sync was too aggressive — it deleted
+                    // legitimate transactions that shared (title, budget_month_date).
 
                     DispatchQueue.main.async {
                         NotificationCenter.default.post(name: .transactionDataChanged, object: nil)
@@ -635,6 +640,11 @@ final class SyncEngine {
                     logInfo("Balance offset updated from sync: personal = \(offset)")
                     didUpdate = true
                 }
+                // Mirror mode: keep linked group offset in sync locally
+                if MirrorModeManager.shared.isEnabled,
+                   let groupId = MirrorModeManager.shared.linkedGroupId {
+                    UserDefaults.standard.set(offset, forKey: "balanceOffset_group_\(groupId)")
+                }
             } else if key.hasPrefix("group-") {
                 let groupId = String(key.dropFirst("group-".count))
                 let current = UserDefaults.standard.integer(forKey: "balanceOffset_group_\(groupId)")
@@ -642,6 +652,11 @@ final class SyncEngine {
                     UserDefaults.standard.set(offset, forKey: "balanceOffset_group_\(groupId)")
                     logInfo("Balance offset updated from sync: \(key) = \(offset)")
                     didUpdate = true
+                }
+                // Mirror mode: keep personal offset in sync locally
+                if MirrorModeManager.shared.isEnabled,
+                   MirrorModeManager.shared.linkedGroupId == groupId {
+                    UserDefaults.standard.set(offset, forKey: "balanceOffset_\(uid)")
                 }
             }
             if didUpdate {

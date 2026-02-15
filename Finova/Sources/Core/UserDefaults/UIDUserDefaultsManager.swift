@@ -179,6 +179,12 @@ class UIDUserDefaultsManager {
     let dispatchGroup = DispatchGroup()
     var didUpdate = false
 
+    // Track fetched values for mirror mode reconciliation
+    var fetchedPersonalOffset: Int?
+    var fetchedPersonalDate: Date?
+    var fetchedGroupOffsets: [(groupId: String, offset: Int, updatedAt: Date)] = []
+    let groupOffsetsQueue = DispatchQueue(label: "com.finova.groupOffsets")
+
     // Fetch personal offset by known record ID (avoids CKQuery which requires queryable indexes)
     let personalRecordID = CKRecord.ID(
       recordName: "balanceOffset-\(uid)-personal",
@@ -194,6 +200,8 @@ class UIDUserDefaultsManager {
 
       if let record = record,
          let offset = record["offset"] as? Int {
+        fetchedPersonalOffset = offset
+        fetchedPersonalDate = record["updatedAt"] as? Date
         let currentLocal = UserDefaults.standard.integer(forKey: "balanceOffset_\(uid)")
         if currentLocal != offset {
           UserDefaults.standard.set(offset, forKey: "balanceOffset_\(uid)")
@@ -225,6 +233,10 @@ class UIDUserDefaultsManager {
       CloudKitManager.shared.privateDatabase.fetch(withRecordID: groupRecordID) { record, error in
         if let record = record,
            let offset = record["offset"] as? Int {
+          let updatedAt = record["updatedAt"] as? Date ?? .distantPast
+          groupOffsetsQueue.sync {
+            fetchedGroupOffsets.append((groupId: group.id, offset: offset, updatedAt: updatedAt))
+          }
           let currentLocal = UserDefaults.standard.integer(forKey: "balanceOffset_group_\(group.id)")
           if currentLocal != offset {
             UserDefaults.standard.set(offset, forKey: "balanceOffset_group_\(group.id)")
@@ -239,7 +251,36 @@ class UIDUserDefaultsManager {
       }
     }
 
-    dispatchGroup.notify(queue: .main) {
+    dispatchGroup.notify(queue: .main) { [weak self] in
+      // Mirror mode reconciliation: ensure personal and linked group offsets stay in sync
+      if MirrorModeManager.shared.isEnabled,
+         let mirrorGroupId = MirrorModeManager.shared.linkedGroupId,
+         let self = self {
+        let personalOffset = fetchedPersonalOffset ?? UserDefaults.standard.integer(forKey: "balanceOffset_\(uid)")
+        let personalDate = fetchedPersonalDate ?? .distantPast
+
+        let groupEntry = fetchedGroupOffsets.first(where: { $0.groupId == mirrorGroupId })
+        let groupOffset = groupEntry?.offset ?? UserDefaults.standard.integer(forKey: "balanceOffset_group_\(mirrorGroupId)")
+        let groupDate = groupEntry?.updatedAt ?? .distantPast
+
+        if personalOffset != groupOffset {
+          // Use the most recently updated value as source of truth
+          let sourceOffset = personalDate >= groupDate ? personalOffset : groupOffset
+          logInfo("Mirror reconciliation: personal=\(personalOffset) group=\(groupOffset), using \(personalDate >= groupDate ? "personal" : "group") = \(sourceOffset)")
+
+          UserDefaults.standard.set(sourceOffset, forKey: "balanceOffset_\(uid)")
+          UserDefaults.standard.set(sourceOffset, forKey: "balanceOffset_group_\(mirrorGroupId)")
+
+          // Push corrected value to the stale side
+          if personalDate >= groupDate {
+            self.pushBalanceOffsetToCloud(sourceOffset, key: "group-\(mirrorGroupId)", uid: uid)
+          } else {
+            self.pushBalanceOffsetToCloud(sourceOffset, key: "personal", uid: uid)
+          }
+          didUpdate = true
+        }
+      }
+
       if didUpdate {
         NotificationCenter.default.post(name: .transactionDataChanged, object: nil)
       }

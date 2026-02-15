@@ -1000,6 +1000,11 @@ final class RecurringTransactionManager {
         }
       }
 
+      // Mirror mode: ensure all newly created instances are tagged with group ID
+      if newInstancesCreated > 0 {
+        MirrorModeManager.shared.reconcileMirrorData()
+      }
+
       // Call completion on current (background) queue - callers should dispatch to main if needed
       completion?(newInstancesCreated)
     }

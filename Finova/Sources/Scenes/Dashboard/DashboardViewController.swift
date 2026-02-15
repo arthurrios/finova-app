@@ -1232,11 +1232,6 @@ final class DashboardViewController: UIViewController {
         syncedViewModel.setMonthData(monthData)
         syncedViewModel.setTransactions(mergeWithStatementTransactions(transactions))
 
-        // Analyze and clean up any existing duplicate transactions
-        _ = viewModel.analyzeDuplicateTransactions()
-
-        viewModel.cleanupExistingDuplicates()
-
         // Configure context chip
         updateContextChip()
 

@@ -2813,15 +2813,17 @@ class DBHelper {
     /// and remaps them to the correct local parent (matched by title + is_recurring).
     func fixOrphanedParentTransactionIds() {
         guard isInitialized else { return }
+        guard let uid = UIDUserDefaultsManager.shared.currentUserUID else { return }
 
-        // Case 1: parent_transaction_id points to a non-existent row
+        // Case 1: parent_transaction_id points to a non-existent row (scoped to current user)
         let findOrphansQuery = """
             SELECT DISTINCT t.parent_transaction_id, t.title
             FROM Transactions t
             WHERE t.parent_transaction_id IS NOT NULL
+              AND t.user_id = ?
               AND (t.is_deleted IS NULL OR t.is_deleted = 0)
               AND t.parent_transaction_id NOT IN (
-                SELECT id FROM Transactions WHERE (is_deleted IS NULL OR is_deleted = 0)
+                SELECT id FROM Transactions WHERE (is_deleted IS NULL OR is_deleted = 0) AND user_id = ?
               );
             """
 
@@ -2832,6 +2834,7 @@ class DBHelper {
             FROM Transactions t
             JOIN Transactions p ON p.id = t.parent_transaction_id
             WHERE t.parent_transaction_id IS NOT NULL
+              AND t.user_id = ?
               AND (t.is_deleted IS NULL OR t.is_deleted = 0)
               AND (p.is_deleted IS NULL OR p.is_deleted = 0)
               AND p.title != t.title;
@@ -2841,6 +2844,8 @@ class DBHelper {
         var stmt: OpaquePointer?
 
         if sqlite3_prepare_v2(db, findOrphansQuery, -1, &stmt, nil) == SQLITE_OK {
+            sqlite3_bind_text(stmt, 1, (uid as NSString).utf8String, -1, nil)
+            sqlite3_bind_text(stmt, 2, (uid as NSString).utf8String, -1, nil)
             while sqlite3_step(stmt) == SQLITE_ROW {
                 let oldParentId = Int(sqlite3_column_int64(stmt, 0))
                 let title = String(cString: sqlite3_column_text(stmt, 1))
@@ -2850,6 +2855,7 @@ class DBHelper {
         sqlite3_finalize(stmt)
 
         if sqlite3_prepare_v2(db, findMismatchQuery, -1, &stmt, nil) == SQLITE_OK {
+            sqlite3_bind_text(stmt, 1, (uid as NSString).utf8String, -1, nil)
             while sqlite3_step(stmt) == SQLITE_ROW {
                 let oldParentId = Int(sqlite3_column_int64(stmt, 0))
                 let title = String(cString: sqlite3_column_text(stmt, 1))
@@ -2864,10 +2870,11 @@ class DBHelper {
         guard !orphanGroups.isEmpty else { return }
 
         for group in orphanGroups {
-            // Find the correct local parent by title + is_recurring
+            // Find the correct local parent by title + is_recurring (scoped to current user)
             let findParentQuery = """
                 SELECT id FROM Transactions
                 WHERE title = ? AND is_recurring = 1
+                  AND user_id = ?
                   AND (is_deleted IS NULL OR is_deleted = 0)
                   AND (parent_transaction_id IS NULL OR parent_transaction_id = id)
                 LIMIT 1;
@@ -2876,6 +2883,7 @@ class DBHelper {
             var newParentId: Int?
             if sqlite3_prepare_v2(db, findParentQuery, -1, &findStmt, nil) == SQLITE_OK {
                 sqlite3_bind_text(findStmt, 1, (group.title as NSString).utf8String, -1, nil)
+                sqlite3_bind_text(findStmt, 2, (uid as NSString).utf8String, -1, nil)
                 if sqlite3_step(findStmt) == SQLITE_ROW {
                     newParentId = Int(sqlite3_column_int64(findStmt, 0))
                 }
@@ -2886,13 +2894,14 @@ class DBHelper {
             // Don't remap if it's already pointing to the correct parent
             guard correctParentId != group.oldParentId else { continue }
 
-            // Remap orphaned instances to the correct parent (mixed int+text bindings)
-            let updateQuery = "UPDATE Transactions SET parent_transaction_id = ? WHERE parent_transaction_id = ? AND title = ? AND (is_deleted IS NULL OR is_deleted = 0);"
+            // Remap orphaned instances to the correct parent (mixed int+text bindings, scoped to user)
+            let updateQuery = "UPDATE Transactions SET parent_transaction_id = ? WHERE parent_transaction_id = ? AND title = ? AND user_id = ? AND (is_deleted IS NULL OR is_deleted = 0);"
             var updateStmt: OpaquePointer?
             if sqlite3_prepare_v2(db, updateQuery, -1, &updateStmt, nil) == SQLITE_OK {
                 sqlite3_bind_int64(updateStmt, 1, Int64(correctParentId))
                 sqlite3_bind_int64(updateStmt, 2, Int64(group.oldParentId))
                 sqlite3_bind_text(updateStmt, 3, (group.title as NSString).utf8String, -1, nil)
+                sqlite3_bind_text(updateStmt, 4, (uid as NSString).utf8String, -1, nil)
                 sqlite3_step(updateStmt)
             }
             sqlite3_finalize(updateStmt)
@@ -2905,49 +2914,86 @@ class DBHelper {
     /// This handles duplicate recurring parents, instances, and normal transactions.
     func deduplicateRecurringTransactions() {
         guard isInitialized else { return }
+        guard let uid = UIDUserDefaultsManager.shared.currentUserUID else { return }
 
-        // Dedup recurring/installment instances by (title, budget_month_date) only.
-        // Amounts may differ slightly across devices (rounding, edits), so we don't include amount.
-        // Only targets transactions with parent_transaction_id (instances), not one-off transactions.
+        // Log what will be deduplicated for debugging
+        logDuplicatesBeforeDedup(uid: uid)
+
+        // Dedup recurring/installment instances by (user_id, title, budget_month_date).
+        // Scoped to current user to prevent cross-user deletion in group context.
+        // Only targets SYNCED transactions (ck_record_id IS NOT NULL) to preserve
+        // newly created local transactions that haven't been pushed yet.
         let instanceQuery = """
             UPDATE Transactions SET is_deleted = 1, sync_status = 'pendingDelete'
             WHERE (is_deleted IS NULL OR is_deleted = 0)
               AND parent_transaction_id IS NOT NULL
+              AND user_id = ?
+              AND ck_record_id IS NOT NULL
               AND id NOT IN (
                 SELECT MIN(id) FROM Transactions
                 WHERE (is_deleted IS NULL OR is_deleted = 0)
                   AND parent_transaction_id IS NOT NULL
-                GROUP BY title, budget_month_date
+                  AND user_id = ?
+                GROUP BY user_id, title, budget_month_date
               );
             """
 
-        // Dedup recurring parents by (title, budget_month_date) — prevents duplicate parents
+        // Dedup recurring parents by (user_id, title, budget_month_date) — prevents duplicate parents.
+        // Only targets SYNCED parents to preserve newly created local ones.
         let parentQuery = """
             UPDATE Transactions SET is_deleted = 1, sync_status = 'pendingDelete'
             WHERE (is_deleted IS NULL OR is_deleted = 0)
               AND is_recurring = 1
+              AND user_id = ?
+              AND ck_record_id IS NOT NULL
               AND (parent_transaction_id IS NULL OR parent_transaction_id = id)
               AND id NOT IN (
                 SELECT MIN(id) FROM Transactions
                 WHERE (is_deleted IS NULL OR is_deleted = 0)
                   AND is_recurring = 1
+                  AND user_id = ?
                   AND (parent_transaction_id IS NULL OR parent_transaction_id = id)
-                GROUP BY title, budget_month_date
+                GROUP BY user_id, title, budget_month_date
               );
             """
 
         for (label, query) in [("instances", instanceQuery), ("parents", parentQuery)] {
             var stmt: OpaquePointer?
             if sqlite3_prepare_v2(db, query, -1, &stmt, nil) == SQLITE_OK {
+                sqlite3_bind_text(stmt, 1, (uid as NSString).utf8String, -1, nil)
+                sqlite3_bind_text(stmt, 2, (uid as NSString).utf8String, -1, nil)
                 if sqlite3_step(stmt) == SQLITE_DONE {
                     let removed = sqlite3_changes(db)
                     if removed > 0 {
-                        logInfo("[Dedup] Soft-deleted \(removed) duplicate \(label)")
+                        logWarning("[Dedup] Soft-deleted \(removed) duplicate \(label) for user \(uid)")
                     }
                 }
             }
             sqlite3_finalize(stmt)
         }
+    }
+
+    private func logDuplicatesBeforeDedup(uid: String) {
+        let query = """
+            SELECT title, budget_month_date, COUNT(*) as cnt
+            FROM Transactions
+            WHERE (is_deleted IS NULL OR is_deleted = 0)
+              AND parent_transaction_id IS NOT NULL
+              AND user_id = ?
+            GROUP BY title, budget_month_date
+            HAVING cnt > 1;
+            """
+        var stmt: OpaquePointer?
+        if sqlite3_prepare_v2(db, query, -1, &stmt, nil) == SQLITE_OK {
+            sqlite3_bind_text(stmt, 1, (uid as NSString).utf8String, -1, nil)
+            while sqlite3_step(stmt) == SQLITE_ROW {
+                let title = String(cString: sqlite3_column_text(stmt, 0))
+                let monthDate = sqlite3_column_int64(stmt, 1)
+                let count = sqlite3_column_int(stmt, 2)
+                logWarning("[Dedup] Found \(count) instances of '\(title)' for month \(monthDate) — will keep 1, delete \(count - 1)")
+            }
+        }
+        sqlite3_finalize(stmt)
     }
 
     private func addColumnIfNotExists(table: String, column: String, definition: String) throws {

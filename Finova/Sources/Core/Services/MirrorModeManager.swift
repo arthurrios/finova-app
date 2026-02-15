@@ -88,6 +88,44 @@ final class MirrorModeManager {
         logInfo("MirrorModeManager: Initial mirror sync completed for group \(groupId)")
     }
 
+    // MARK: - Continuous Reconciliation
+
+    /// Ensures all personal data is tagged with the linked group ID.
+    /// Call this after sync pull, lazy generation, or any data mutation to keep mirror mode consistent.
+    func reconcileMirrorData() {
+        guard isEnabled,
+              let groupId = linkedGroupId,
+              let uid = UIDUserDefaultsManager.shared.currentUserUID
+        else { return }
+
+        // Tag any un-tagged transactions belonging to this user
+        db.executeSyncUpdate(
+            "UPDATE Transactions SET shared_group_id = ?, sync_status = 'pending' WHERE user_id = ? AND (shared_group_id IS NULL) AND (is_deleted IS NULL OR is_deleted = 0);",
+            textBindings: [groupId, uid]
+        )
+
+        // Tag any un-tagged budgets
+        db.executeSyncUpdate(
+            "UPDATE Budgets SET shared_group_id = ?, sync_status = 'pending' WHERE user_id = ? AND (shared_group_id IS NULL);",
+            textBindings: [groupId, uid]
+        )
+
+        // Tag any un-tagged credit cards
+        db.executeSyncUpdate(
+            "UPDATE CreditCards SET shared_group_id = ?, sync_status = 'pending' WHERE user_id = ? AND (shared_group_id IS NULL) AND is_deleted = 0;",
+            textBindings: [groupId, uid]
+        )
+
+        // Tag any un-tagged allocations
+        db.executeSyncUpdate(
+            "UPDATE BudgetAllocations SET shared_group_id = ?, sync_status = 'pending' WHERE user_id = ? AND (shared_group_id IS NULL);",
+            textBindings: [groupId, uid]
+        )
+
+        TransactionRepository.invalidateCache()
+        logInfo("MirrorReconcile: reconciliation completed for group \(groupId)")
+    }
+
     // MARK: - Remove Mirror
 
     private func removeGroupIdFromPersonalData(groupId: String) {
