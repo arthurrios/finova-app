@@ -41,6 +41,7 @@ final class SyncEngine {
     private var hasSetupSubscriptions = false
     private var isProcessingCloudData = false
     private var pushThrottledUntil: Date?
+    private var needsPostSyncPush = false
 
     private init() {
         self.cloudKitOps = RealCloudKitOperations()
@@ -123,8 +124,23 @@ final class SyncEngine {
     }
 
     @objc private func handleLocalDataChange() {
-        guard !isProcessingCloudData else { return }
+        guard !isProcessingCloudData else {
+            // A sync is in progress — flag that we need a follow-up push
+            // (e.g., lazy-generated recurring instances created during sync)
+            needsPostSyncPush = true
+            return
+        }
         syncQueue.asyncAfter(deadline: .now() + 2.0) { [weak self] in
+            self?.pushLocalChanges()
+        }
+    }
+
+    /// If local data changed while a sync was in progress, push the pending records now.
+    private func drainPostSyncPush() {
+        guard needsPostSyncPush else { return }
+        needsPostSyncPush = false
+        logWarning("[Sync] Draining post-sync push for records created during sync")
+        syncQueue.asyncAfter(deadline: .now() + 1.0) { [weak self] in
             self?.pushLocalChanges()
         }
     }
@@ -194,6 +210,7 @@ final class SyncEngine {
                                         logWarning("[Sync] Sync cycle complete — status: synced")
                                         self.status = .synced
                                         self.isSyncing = false
+                                        self.drainPostSyncPush()
                                         completion?()
                                     }
                                 }
@@ -201,6 +218,7 @@ final class SyncEngine {
                                 logError("[Sync] Push failed: \(error.localizedDescription)")
                                 self.status = .error(error)
                                 self.isSyncing = false
+                                self.drainPostSyncPush()
                                 completion?()
                             }
                         }
@@ -208,6 +226,7 @@ final class SyncEngine {
                         logError("[Sync] Fetch changes failed: \(error.localizedDescription)")
                         self.status = .error(error)
                         self.isSyncing = false
+                        self.drainPostSyncPush()
                         completion?()
                     }
                 }
@@ -215,6 +234,7 @@ final class SyncEngine {
                 logError("[Sync] Zone creation failed: \(error.localizedDescription)")
                 self.status = .error(error)
                 self.isSyncing = false
+                self.drainPostSyncPush()
                 completion?()
             }
         }
