@@ -61,6 +61,9 @@ final class SplashViewController: UIViewController {
       // One-time cleanup of ghost records inserted by CloudKit sync
       let didCleanup = Self.performCloudGhostCleanupIfNeeded()
 
+      // One-time fix: tag credit cards + missed transactions with shared_group_id for mirror mode
+      Self.performMirrorModeCreditCardFixIfNeeded()
+
       // Trigger iCloud sync on launch (skip if cleanup just ran to prevent re-corruption)
       if !didCleanup {
         let needsRePush = Self.performSyncRePushIfNeeded()
@@ -528,7 +531,7 @@ extension SplashViewController {
 // MARK: - One-Time Sync Re-Push
 
 extension SplashViewController {
-  private static let syncRePushKey = "hasPerformedSyncRePush_v3"
+  private static let syncRePushKey = "hasPerformedSyncRePush_v4"
 
   /// One-time: resets all sync_status to 'pending' so data gets re-pushed to CloudKit.
   /// Returns `true` if the re-push was triggered.
@@ -539,6 +542,45 @@ extension SplashViewController {
     logWarning("[SyncRePush] Triggering one-time full re-push of all data to CloudKit")
     UserDefaults.standard.set(true, forKey: syncRePushKey)
     return true
+  }
+}
+
+// MARK: - One-Time Mirror Mode Credit Card Fix
+
+extension SplashViewController {
+  private static let mirrorCCFixKey = "hasPerformedMirrorCCFix_v1"
+
+  /// One-time: if mirror mode is active, tag credit cards and any missed transactions with shared_group_id.
+  static func performMirrorModeCreditCardFixIfNeeded() {
+    guard !UserDefaults.standard.bool(forKey: mirrorCCFixKey) else { return }
+    guard MirrorModeManager.shared.isEnabled,
+          let groupId = MirrorModeManager.shared.linkedGroupId,
+          let uid = UIDUserDefaultsManager.shared.currentUserUID
+    else {
+      // No mirror mode — mark as done so we don't check again
+      UserDefaults.standard.set(true, forKey: mirrorCCFixKey)
+      return
+    }
+
+    logWarning("[MirrorCCFix] Tagging untagged credit cards and transactions with group \(groupId)")
+
+    let db = DBHelper.shared
+
+    // Tag credit cards
+    db.executeSyncUpdate(
+      "UPDATE CreditCards SET shared_group_id = ?, sync_status = 'pending' WHERE user_id = ? AND shared_group_id IS NULL AND is_deleted = 0;",
+      textBindings: [groupId, uid]
+    )
+
+    // Tag any missed transactions (e.g. installment parents/children)
+    db.executeSyncUpdate(
+      "UPDATE Transactions SET shared_group_id = ?, sync_status = 'pending' WHERE user_id = ? AND shared_group_id IS NULL AND (is_deleted IS NULL OR is_deleted = 0);",
+      textBindings: [groupId, uid]
+    )
+
+    TransactionRepository.invalidateCache()
+    UserDefaults.standard.set(true, forKey: mirrorCCFixKey)
+    logWarning("[MirrorCCFix] Complete")
   }
 }
 

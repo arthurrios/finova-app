@@ -322,6 +322,13 @@ class CreditCardRepository {
         )
     }
 
+    func fetchSharedGroupId(for cardId: Int) -> String? {
+        return db.fetchSingleString(
+            "SELECT shared_group_id FROM CreditCards WHERE id = ?;",
+            intBinding: cardId
+        )
+    }
+
     // MARK: - Private Helpers
 
     private func pendingSyncCardIds(userId: String) -> Set<Int> {

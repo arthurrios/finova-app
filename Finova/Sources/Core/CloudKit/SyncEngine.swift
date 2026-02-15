@@ -381,6 +381,10 @@ final class SyncEngine {
             if let cardId = card.id, storedName == nil {
                 cardRepo.setCKRecordId(for: cardId, ckRecordName: record.recordID.recordName)
             }
+            // Mirror mode: include shared_group_id in CK record
+            if let cardId = card.id, let groupId = cardRepo.fetchSharedGroupId(for: cardId) {
+                record["sharedGroupId"] = groupId as CKRecordValue
+            }
             allRecords.append(record)
         }
 

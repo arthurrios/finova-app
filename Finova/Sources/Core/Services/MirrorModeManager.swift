@@ -61,22 +61,28 @@ final class MirrorModeManager {
             textBindings: [groupId, uid]
         )
 
-        // 3. Allocations: use existing migration method
+        // 3. Credit Cards: tag all personal credit cards
+        db.executeSyncUpdate(
+            "UPDATE CreditCards SET shared_group_id = ?, sync_status = 'pending' WHERE user_id = ? AND (shared_group_id IS NULL) AND is_deleted = 0;",
+            textBindings: [groupId, uid]
+        )
+
+        // 4. Allocations: use existing migration method
         let allocationRepo = BudgetAllocationRepository()
         _ = allocationRepo.migrateAllocationsToGroup(groupId: groupId)
 
-        // 4. Balance offset: copy personal to group
+        // 5. Balance offset: copy personal to group
         let personalOffset = UIDUserDefaultsManager.shared.getCurrentUserBalanceOffset()
         UIDUserDefaultsManager.shared.setGroupBalanceOffset(personalOffset, groupId: groupId)
 
-        // 5. Post notifications
+        // 6. Post notifications
         DispatchQueue.main.async {
             NotificationCenter.default.post(name: .transactionDataChanged, object: nil)
             NotificationCenter.default.post(name: .budgetDataChanged, object: nil)
             NotificationCenter.default.post(name: .allocationDataChanged, object: nil)
         }
 
-        // 6. Trigger CloudKit sync
+        // 7. Trigger CloudKit sync
         SyncEngine.shared.performFullSync()
 
         logInfo("MirrorModeManager: Initial mirror sync completed for group \(groupId)")
@@ -94,6 +100,11 @@ final class MirrorModeManager {
 
         db.executeSyncUpdate(
             "UPDATE Budgets SET shared_group_id = NULL, sync_status = 'pending' WHERE user_id = ? AND shared_group_id = ?;",
+            textBindings: [uid, groupId]
+        )
+
+        db.executeSyncUpdate(
+            "UPDATE CreditCards SET shared_group_id = NULL, sync_status = 'pending' WHERE user_id = ? AND shared_group_id = ? AND is_deleted = 0;",
             textBindings: [uid, groupId]
         )
 

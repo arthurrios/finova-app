@@ -362,6 +362,13 @@ final class AddTransactionModalViewModel {
 
       let parentId = try transactionRepo.insertTransactionAndGetId(parentModel)
 
+      // Assign parent to group if in group context or mirror mode
+      let groupId: String? = activeContext.groupId
+        ?? (MirrorModeManager.shared.isEnabled ? MirrorModeManager.shared.linkedGroupId : nil)
+      if let groupId = groupId {
+        transactionRepo.updateSharedGroupId(transactionId: parentId, groupId: groupId)
+      }
+
       // LAZY GENERATION: Only create immediate installments (first 3 months)
       // Additional installments will be generated lazily when the user navigates to those months
       let immediateInstallmentCount = min(3, totalInstallments)
@@ -397,7 +404,12 @@ final class AddTransactionModalViewModel {
           totalInstallments: totalInstallments
         )
 
-        _ = try transactionRepo.insertTransactionAndGetId(installmentModel)
+        let installmentId = try transactionRepo.insertTransactionAndGetId(installmentModel)
+
+        // Assign installment to group
+        if let groupId = groupId {
+          transactionRepo.updateSharedGroupId(transactionId: installmentId, groupId: groupId)
+        }
 
         // Adicionar à lista para notificações otimizadas
         allInstallments.append(installmentModel)
@@ -475,6 +487,13 @@ final class AddTransactionModalViewModel {
 
         let parentId = try self.transactionRepo.insertTransactionAndGetId(parentModel)
 
+        // Assign parent to group if in group context or mirror mode
+        let groupId: String? = self.activeContext.groupId
+          ?? (MirrorModeManager.shared.isEnabled ? MirrorModeManager.shared.linkedGroupId : nil)
+        if let groupId = groupId {
+          self.transactionRepo.updateSharedGroupId(transactionId: parentId, groupId: groupId)
+        }
+
         // Create immediate installments (first 3 months)
         let immediateInstallmentCount = min(3, totalInstallments)
         var allInstallments: [TransactionModel] = []
@@ -510,6 +529,11 @@ final class AddTransactionModalViewModel {
 
           let insertedInstallmentId = try self.transactionRepo.insertTransactionAndGetId(installmentModel)
           allInstallments.append(installmentModel)
+
+          // Assign installment to group
+          if let groupId = groupId {
+            self.transactionRepo.updateSharedGroupId(transactionId: insertedInstallmentId, groupId: groupId)
+          }
 
           // Assign installment to correct credit card statement
           if let cardId = data.creditCardId, let card = self.creditCardRepo.fetchCard(byId: cardId) {
