@@ -328,6 +328,12 @@ final class GroupDetailsView: UIView {
 
         // Add rename button to the name row
         groupNameRow.addSubview(renameButton)
+        if let valueLabel = groupNameRow.subviews.compactMap({ $0 as? UILabel }).last {
+            for constraint in groupNameRow.constraints where constraint.firstItem === valueLabel && constraint.firstAnchor == valueLabel.trailingAnchor {
+                constraint.isActive = false
+            }
+            valueLabel.trailingAnchor.constraint(equalTo: renameButton.leadingAnchor, constant: -Metrics.spacing2).isActive = true
+        }
         NSLayoutConstraint.activate([
             renameButton.trailingAnchor.constraint(equalTo: groupNameRow.trailingAnchor),
             renameButton.centerYAnchor.constraint(equalTo: groupNameRow.centerYAnchor),
@@ -643,7 +649,7 @@ final class GroupDetailsView: UIView {
     }
 
     private func updateDetailRowValue(_ row: UIView, value: String) {
-        if let valueLabel = row.subviews.last as? UILabel {
+        if let valueLabel = row.subviews.compactMap({ $0 as? UILabel }).last {
             valueLabel.text = value
         }
     }
