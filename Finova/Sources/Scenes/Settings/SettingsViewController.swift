@@ -156,16 +156,6 @@ extension SettingsViewController: SettingsViewModelDelegate {
         }
     }
     
-    func didCompleteDataRecovery(success: Bool, message: String) {
-        let alert = UIAlertController(
-            title: success ? "✅ Recovery Complete" : "❌ Recovery Failed",
-            message: message,
-            preferredStyle: .alert
-        )
-        alert.addAction(UIAlertAction(title: "OK", style: .default))
-        present(alert, animated: true)
-    }
-
     func didUpdateMirrorMode(isEnabled: Bool, groupName: String?) {
         contentView.mirrorModeSwitch.isOn = isEnabled
         contentView.mirrorGroupContainer.isHidden = !isEnabled

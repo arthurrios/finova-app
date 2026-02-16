@@ -126,37 +126,6 @@ final class SettingsViewModel {
     )
   }
 
-  // MARK: - Emergency Data Recovery
-
-  func attemptEmergencyDataRecovery(completion: @escaping (Bool, String) -> Void) {
-    guard let currentUser = AuthenticationManager.shared.currentUser else {
-      completion(false, "No authenticated user found")
-      return
-    }
-
-    logWarning("EMERGENCY RECOVERY: Starting manual data recovery for \(currentUser.uid)")
-
-    // Clear migration flags to force re-attempt
-    let migrationKey = "data_migrated_to_firebase_\(currentUser.uid)"
-    let emergencyKey = "emergency_recovery_attempted_\(currentUser.uid)"
-    let globalMigrationKey = "global_local_data_migrated_to_firebase"
-
-    UserDefaults.standard.removeObject(forKey: migrationKey)
-    UserDefaults.standard.removeObject(forKey: emergencyKey)
-    UserDefaults.standard.removeObject(forKey: globalMigrationKey)
-
-    // Also clear ownership restrictions
-    UserDefaults.standard.removeObject(forKey: "data_owner_uid")
-    UserDefaults.standard.removeObject(forKey: "data_owner_email")
-    UserDefaults.standard.removeObject(forKey: "device_users")
-
-    logWarning("EMERGENCY RECOVERY: Cleared migration flags")
-
-    let message = "Recovery flags cleared. Please restart the app."
-    completion(true, message)
-    delegate?.didCompleteDataRecovery(success: true, message: message)
-  }
-
   // MARK: - Public Methods
 
   func refreshBiometricUI() {
