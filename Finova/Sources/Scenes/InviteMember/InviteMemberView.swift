@@ -163,7 +163,7 @@ final class InviteMemberView: UIView {
 
     let sendButton = Button(variant: .base, label: "invite.send.button".localized)
 
-    private(set) var footerBottomConstraint: NSLayoutConstraint!
+    private var footerBottomConstraint: NSLayoutConstraint!
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -335,6 +335,13 @@ final class InviteMemberView: UIView {
             guard index < customPermissionsStack.arrangedSubviews.count,
                   let row = customPermissionsStack.arrangedSubviews[index] as? PermissionToggleRow else { continue }
             row.configure(title: perm.label, description: "", isOn: perm.isEnabled)
+        }
+    }
+
+    func adjustFooterForKeyboard(overlap: CGFloat) {
+        footerBottomConstraint.constant = -overlap
+        UIView.animate(withDuration: 0.25) {
+            self.layoutIfNeeded()
         }
     }
 

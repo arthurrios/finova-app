@@ -674,6 +674,14 @@ final class DashboardViewController: UIViewController {
             object: nil
         )
 
+        // Listen for group data changes to update context chip (e.g., groups restored from CloudKit)
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleGroupDataChanged),
+            name: .budgetGroupDataChanged,
+            object: nil
+        )
+
     }
 
     @objc private func handleCurrencyDidChange() {
@@ -682,6 +690,12 @@ final class DashboardViewController: UIViewController {
         logDebug("Current AppConfig.currencyCode: \(AppConfig.currencyCode)")
         DispatchQueue.main.async { [weak self] in
             self?.contentView.monthCarousel.reloadData()
+        }
+    }
+
+    @objc private func handleGroupDataChanged() {
+        DispatchQueue.main.async { [weak self] in
+            self?.updateContextChip()
         }
     }
     
@@ -818,9 +832,10 @@ final class DashboardViewController: UIViewController {
             viewModel.forceRefreshCurrentMonthBalance()
         }
 
-        // Refresh the dashboard data
+        // Refresh the dashboard data and context chip (groups may have been discovered during sync)
         DispatchQueue.main.async {
             self.refreshDashboardData()
+            self.updateContextChip()
         }
     }
     

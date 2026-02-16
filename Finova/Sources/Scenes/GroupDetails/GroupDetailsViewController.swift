@@ -58,7 +58,7 @@ final class GroupDetailsViewController: UIViewController {
             self.contentView.membersTableView.reloadData()
             self.contentView.updateMembersTableHeight(count: self.viewModel.group.members.count)
             self.contentView.sharedCardsTableView.reloadData()
-            self.contentView.updateSharedCardsTableHeight(count: self.viewModel.group.sharedCards.count)
+            self.contentView.updateSharedCardsTableHeight()
         }
 
         viewModel.onError = { [weak self] message in

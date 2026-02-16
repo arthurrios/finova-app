@@ -58,6 +58,10 @@ final class SplashViewController: UIViewController {
     #endif
 
     if let firebaseUser = AuthenticationManager.shared.currentUser {
+      // Set current user UID BEFORE sync starts — sync post-actions need UID
+      UIDUserDefaultsManager.shared.currentUserUID = firebaseUser.uid
+      DBHelper.shared.backfillUserIds(uid: firebaseUser.uid)
+
       // One-time cleanup of ghost records inserted by CloudKit sync
       let didCleanup = Self.performCloudGhostCleanupIfNeeded()
 
@@ -69,10 +73,6 @@ final class SplashViewController: UIViewController {
         let needsRePush = Self.performSyncRePushIfNeeded()
         SyncEngine.shared.performFullSync(forceFullFetch: needsRePush, forceRePush: needsRePush)
       }
-
-      // Set current user UID for settings lookup
-      UIDUserDefaultsManager.shared.currentUserUID = firebaseUser.uid
-      DBHelper.shared.backfillUserIds(uid: firebaseUser.uid)
       BudgetAllocationRepository.migrateFromUserDefaultsIfNeeded()
 
       // Check if this user has existing settings
@@ -420,12 +420,12 @@ extension SplashViewController {
       logInfo("[DEBUG] Auto-login succeeded for UID: \(firebaseUser.uid)")
 
       // Replicate the same setup that LoginViewModel.authenticationDidComplete performs
-      let didCleanup = Self.performCloudGhostCleanupIfNeeded()
-      if !didCleanup {
-        SyncEngine.shared.performFullSync()
-      }
       UIDUserDefaultsManager.shared.currentUserUID = firebaseUser.uid
       DBHelper.shared.backfillUserIds(uid: firebaseUser.uid)
+      let didCleanup = Self.performCloudGhostCleanupIfNeeded()
+      if !didCleanup {
+        SyncEngine.shared.performFullSync(forceFullFetch: true)
+      }
 
       let existingSettings = UIDUserDefaultsManager.shared.getUserSettings(for: firebaseUser.uid)
 

@@ -784,12 +784,9 @@ extension AppFlowController: GroupDetailsFlowDelegate {
             ) { context in
                 return context.maximumDetentValue * 0.50
             }
-            let expandedDetent = UISheetPresentationController.Detent.custom(
-                identifier: InviteMemberViewController.expandedDetentIdentifier
-            ) { context in
-                return context.maximumDetentValue * 0.95
-            }
-            sheet.detents = [defaultDetent, expandedDetent]
+            // Only set default detent initially — VC manages adding/removing
+            // expanded detent dynamically to prevent keyboard auto-expansion
+            sheet.detents = [defaultDetent]
             sheet.selectedDetentIdentifier = InviteMemberViewController.defaultDetentIdentifier
             sheet.prefersGrabberVisible = true
             sheet.preferredCornerRadius = CornerRadius.bottomSheet

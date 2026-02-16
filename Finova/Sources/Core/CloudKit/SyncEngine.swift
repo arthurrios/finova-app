@@ -205,13 +205,22 @@ final class SyncEngine {
                             switch pushResult {
                             case .success:
                                 self.stateManager.updateLastSyncDate(for: "privateDB")
-                                self.postSyncActions.performPostSyncFetches {
-                                    self.syncQueue.async {
-                                        logWarning("[Sync] Sync cycle complete — status: synced")
-                                        self.status = .synced
-                                        self.isSyncing = false
-                                        self.drainPostSyncPush()
-                                        completion?()
+                                // Discover groups from ALL zones (fallback for missed zone changes)
+                                self.discoverGroupsFromAllZones {
+                                    self.postSyncActions.performPostSyncFetches {
+                                        // Post a final data refresh after ALL post-sync actions complete
+                                        // (balance offsets, invitations, etc. are now up-to-date)
+                                        DispatchQueue.main.async {
+                                            NotificationCenter.default.post(name: .transactionDataChanged, object: nil)
+                                            NotificationCenter.default.post(name: .budgetGroupDataChanged, object: nil)
+                                        }
+                                        self.syncQueue.async {
+                                            logWarning("[Sync] Sync cycle complete — status: synced")
+                                            self.status = .synced
+                                            self.isSyncing = false
+                                            self.drainPostSyncPush()
+                                            completion?()
+                                        }
                                     }
                                 }
                             case .failure(let error):
@@ -261,8 +270,10 @@ final class SyncEngine {
             completion: { [weak self] result in
                 switch result {
                 case .success(let newToken):
-                    logWarning("[Sync] Database changes fetched — \(changedZoneIDs.count) changed zone(s)")
+                    let zoneNames = changedZoneIDs.map { $0.zoneName }
+                    logWarning("[Sync] Database changes fetched — \(changedZoneIDs.count) changed zone(s): \(zoneNames)")
                     self?.stateManager.saveChangeToken(newToken, for: "privateDB", database: "private")
+
                     if changedZoneIDs.isEmpty {
                         logWarning("[Sync] No changed zones — skipping zone fetch")
                         completion(.success(()))
@@ -614,8 +625,7 @@ final class SyncEngine {
         case "BalanceOffset":
             processBalanceOffset(record)
         case "BudgetGroup":
-            // BudgetGroup records are managed via shared database/invitations — no conflict resolution needed
-            break
+            processIncomingBudgetGroup(record)
         case _ where record.recordType.hasPrefix("cloudkit."):
             // System record types (cloudkit.share, etc.) — ignore silently
             break
@@ -682,6 +692,178 @@ final class SyncEngine {
             if didUpdate {
                 NotificationCenter.default.post(name: .transactionDataChanged, object: nil)
             }
+        }
+    }
+
+    /// Enumerates ALL record zones in the private database and ensures any Group-{id} zones
+    /// have corresponding local BudgetGroup entries. This is a robust fallback that bypasses
+    /// the change token flow entirely — handles cases where fetchDatabaseChanges doesn't
+    /// report CKShare-based zones.
+    private func discoverGroupsFromAllZones(completion: @escaping () -> Void) {
+        let repo = BudgetGroupRepository()
+        let existingGroups = repo.fetchAllGroups()
+        let existingGroupIds = Set(existingGroups.map { $0.id })
+
+        logWarning("[Sync] discoverGroupsFromAllZones: \(existingGroupIds.count) local group(s)")
+
+        let operation = CKFetchRecordZonesOperation.fetchAllRecordZonesOperation()
+        var groupZoneIDs: [CKRecordZone.ID] = []
+
+        operation.perRecordZoneResultBlock = { zoneID, result in
+            switch result {
+            case .success:
+                if zoneID.zoneName.hasPrefix("Group-") {
+                    let groupId = String(zoneID.zoneName.dropFirst("Group-".count))
+                    if !existingGroupIds.contains(groupId) {
+                        groupZoneIDs.append(zoneID)
+                        logWarning("[Sync] Discovered missing group zone: \(zoneID.zoneName)")
+                    }
+                }
+            case .failure(let error):
+                logError("[Sync] Failed to fetch zone \(zoneID.zoneName): \(error.localizedDescription)")
+            }
+        }
+
+        operation.fetchRecordZonesResultBlock = { [weak self] result in
+            switch result {
+            case .success:
+                logWarning("[Sync] Zone enumeration complete — \(groupZoneIDs.count) missing group zone(s) to restore")
+                guard !groupZoneIDs.isEmpty else {
+                    completion()
+                    return
+                }
+                self?.fetchMissingGroupRecords(from: groupZoneIDs, completion: completion)
+            case .failure(let error):
+                logError("[Sync] Zone enumeration failed: \(error.localizedDescription)")
+                completion()
+            }
+        }
+
+        operation.qualityOfService = .userInitiated
+        CloudKitManager.shared.privateDatabase.add(operation)
+    }
+
+    /// Fetches BudgetGroup records from group zones that don't have local entries.
+    private func fetchMissingGroupRecords(from zoneIDs: [CKRecordZone.ID], completion: @escaping () -> Void) {
+        let group = DispatchGroup()
+
+        for zoneID in zoneIDs {
+            let groupId = String(zoneID.zoneName.dropFirst("Group-".count))
+            let recordID = CKRecord.ID(recordName: "budgetGroup-\(groupId)", zoneID: zoneID)
+
+            group.enter()
+            CloudKitManager.shared.privateDatabase.fetch(withRecordID: recordID) { [weak self] record, error in
+                if let record = record {
+                    logWarning("[Sync] Fetched missing BudgetGroup record for zone \(zoneID.zoneName)")
+                    self?.processIncomingBudgetGroup(record)
+                } else if let error = error {
+                    logWarning("[Sync] Could not fetch BudgetGroup for zone '\(zoneID.zoneName)': \(error.localizedDescription)")
+                    // Create placeholder so the group is at least visible
+                    self?.createPlaceholderGroup(groupId: groupId)
+                }
+                group.leave()
+            }
+        }
+
+        group.notify(queue: .global(qos: .utility)) {
+            completion()
+        }
+    }
+
+    /// Creates a minimal BudgetGroup from zone info when the CKRecord isn't available.
+    private func createPlaceholderGroup(groupId: String) {
+        let repo = BudgetGroupRepository()
+        guard repo.fetchGroup(byId: groupId) == nil else { return }
+        guard let uid = AuthenticationManager.shared.currentUser?.uid else { return }
+
+        let userName = UserDefaultsManager.getUser()?.name ?? "User"
+        let userEmail = AuthenticationManager.shared.currentUser?.email ?? ""
+        let group = BudgetGroup(
+            id: groupId,
+            name: "Group",
+            ownerId: uid,
+            ownerName: userName,
+            ownerEmail: userEmail
+        )
+        repo.insertGroup(group)
+
+        let ownerMember = GroupMember(
+            groupId: groupId,
+            userId: uid,
+            name: userName,
+            email: userEmail,
+            role: .owner,
+            permissions: .fullAccess
+        )
+        repo.insertMember(ownerMember)
+        logInfo("[Sync] Created placeholder BudgetGroup for group \(groupId)")
+
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(name: .budgetGroupDataChanged, object: nil)
+        }
+    }
+
+    private func processIncomingBudgetGroup(_ record: CKRecord) {
+        guard let name = record["name"] as? String,
+              let ownerId = record["ownerId"] as? String,
+              let ownerName = record["ownerName"] as? String
+        else {
+            logError("[Sync] Failed to parse BudgetGroup from CKRecord \(record.recordID.recordName)")
+            return
+        }
+
+        // Extract group ID from record name "budgetGroup-{id}"
+        let recordName = record.recordID.recordName
+        guard recordName.hasPrefix("budgetGroup-") else {
+            logWarning("[Sync] Unexpected BudgetGroup record name: \(recordName)")
+            return
+        }
+        let groupId = String(recordName.dropFirst("budgetGroup-".count))
+
+        let repo = BudgetGroupRepository()
+        let ownerEmail = (ownerId == AuthenticationManager.shared.currentUser?.uid)
+            ? (AuthenticationManager.shared.currentUser?.email ?? "")
+            : ""
+
+        // Check if group already exists locally
+        if let existing = repo.fetchGroup(byId: groupId) {
+            // Always update to ensure name, ownerName, and is_deleted are correct
+            var updated = existing
+            updated.name = name
+            updated.ownerName = ownerName
+            updated.isDeleted = false  // Restore if it was soft-deleted
+            repo.updateGroup(updated)
+            logInfo("[Sync] Updated BudgetGroup from CloudKit: \(name) (\(groupId)) isDeleted was: \(existing.isDeleted)")
+        } else {
+            let group = BudgetGroup(
+                id: groupId,
+                name: name,
+                ownerId: ownerId,
+                ownerName: ownerName,
+                ownerEmail: ownerEmail,
+                createdAt: record.creationDate ?? Date(),
+                updatedAt: record.modificationDate ?? Date()
+            )
+
+            repo.insertGroup(group)
+            logInfo("[Sync] Inserted new BudgetGroup from CloudKit: \(name) (\(groupId))")
+
+            // Add the owner as a member
+            if let uid = AuthenticationManager.shared.currentUser?.uid, ownerId == uid {
+                let ownerMember = GroupMember(
+                    groupId: groupId,
+                    userId: uid,
+                    name: ownerName,
+                    email: ownerEmail,
+                    role: .owner,
+                    permissions: .fullAccess
+                )
+                repo.insertMember(ownerMember)
+            }
+        }
+
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(name: .budgetGroupDataChanged, object: nil)
         }
     }
 }

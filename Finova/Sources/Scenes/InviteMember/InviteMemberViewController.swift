@@ -15,6 +15,18 @@ final class InviteMemberViewController: UIViewController {
     static let defaultDetentIdentifier = UISheetPresentationController.Detent.Identifier("inviteDefault")
     static let expandedDetentIdentifier = UISheetPresentationController.Detent.Identifier("inviteExpanded")
 
+    private lazy var defaultDetent = UISheetPresentationController.Detent.custom(
+        identifier: Self.defaultDetentIdentifier
+    ) { context in
+        context.maximumDetentValue * 0.50
+    }
+
+    private lazy var expandedDetent = UISheetPresentationController.Detent.custom(
+        identifier: Self.expandedDetentIdentifier
+    ) { context in
+        context.maximumDetentValue * 0.95
+    }
+
     init(contentView: InviteMemberView, viewModel: InviteMemberViewModel, flowDelegate: InviteMemberFlowDelegate) {
         self.contentView = contentView
         self.viewModel = viewModel
@@ -34,16 +46,21 @@ final class InviteMemberViewController: UIViewController {
         setupPermissionToggleCallbacks()
         bindViewModel()
         hideKeyboardWhenTappedAround()
+
+        NotificationCenter.default.addObserver(self, selector: #selector(keyboardWillShow(_:)), name: UIResponder.keyboardWillShowNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(keyboardWillHide(_:)), name: UIResponder.keyboardWillHideNotification, object: nil)
     }
 
-    override func viewWillAppear(_ animated: Bool) {
-        super.viewWillAppear(animated)
-        startSheetKeyboardObservers()
+    @objc private func keyboardWillShow(_ notification: Notification) {
+        guard let keyboardFrame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else { return }
+        let keyboardTop = keyboardFrame.origin.y
+        let sheetBottom = view.convert(view.bounds, to: nil).maxY
+        let overlap = max(0, sheetBottom - keyboardTop)
+        contentView.adjustFooterForKeyboard(overlap: overlap)
     }
 
-    override func viewWillDisappear(_ animated: Bool) {
-        super.viewWillDisappear(animated)
-        stopSheetKeyboardObservers()
+    @objc private func keyboardWillHide(_ notification: Notification) {
+        contentView.adjustFooterForKeyboard(overlap: 0)
     }
 
     private func setupPresetHandler() {
@@ -65,12 +82,17 @@ final class InviteMemberViewController: UIViewController {
 
     private func updateSheetDetent(isCustom: Bool) {
         guard let sheet = sheetPresentationController else { return }
-        let targetIdentifier: UISheetPresentationController.Detent.Identifier = isCustom
-            ? Self.expandedDetentIdentifier
-            : Self.defaultDetentIdentifier
 
         sheet.animateChanges {
-            sheet.selectedDetentIdentifier = targetIdentifier
+            if isCustom {
+                // Add expanded detent and switch to it
+                sheet.detents = [self.defaultDetent, self.expandedDetent]
+                sheet.selectedDetentIdentifier = Self.expandedDetentIdentifier
+            } else {
+                // Remove expanded detent — prevents keyboard from expanding sheet
+                sheet.detents = [self.defaultDetent]
+                sheet.selectedDetentIdentifier = Self.defaultDetentIdentifier
+            }
         }
     }
 
@@ -121,66 +143,6 @@ extension InviteMemberViewController: InviteMemberViewDelegate {
                 alert.addAction(UIAlertAction(title: "alert.ok".localized, style: .default))
                 self?.present(alert, animated: true)
             }
-        }
-    }
-}
-
-// MARK: - Keyboard Handling
-extension InviteMemberViewController {
-
-    func startSheetKeyboardObservers() {
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(sheetKeyboardWillShow(notification:)),
-            name: UIResponder.keyboardWillShowNotification,
-            object: nil
-        )
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(sheetKeyboardWillHide(notification:)),
-            name: UIResponder.keyboardWillHideNotification,
-            object: nil
-        )
-    }
-
-    func stopSheetKeyboardObservers() {
-        NotificationCenter.default.removeObserver(
-            self, name: UIResponder.keyboardWillShowNotification, object: nil)
-        NotificationCenter.default.removeObserver(
-            self, name: UIResponder.keyboardWillHideNotification, object: nil)
-    }
-
-    @objc private func sheetKeyboardWillShow(notification: Notification) {
-        guard
-            let keyboardFrame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect,
-            let animationDuration = notification.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double
-        else { return }
-
-        let keyboardTopInView = view.convert(keyboardFrame, from: nil).origin.y
-        let footerBottom = contentView.footerBottomConstraint.constant == 0
-            ? view.safeAreaInsets.bottom
-            : 0
-        let viewBottom = view.bounds.height - footerBottom
-        let overlap = viewBottom - keyboardTopInView
-
-        guard overlap > 0 else { return }
-
-        contentView.footerBottomConstraint.constant = -overlap
-
-        UIView.animate(withDuration: animationDuration, delay: 0, options: [.curveEaseInOut]) {
-            self.view.layoutIfNeeded()
-        }
-    }
-
-    @objc private func sheetKeyboardWillHide(notification: Notification) {
-        guard
-            let animationDuration = notification.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double
-        else { return }
-
-        contentView.footerBottomConstraint.constant = 0
-
-        UIView.animate(withDuration: animationDuration, delay: 0, options: [.curveEaseInOut]) {
-            self.view.layoutIfNeeded()
         }
     }
 }

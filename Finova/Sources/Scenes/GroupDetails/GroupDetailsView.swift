@@ -205,6 +205,8 @@ final class GroupDetailsView: UIView {
         table.backgroundColor = .clear
         table.separatorStyle = .none
         table.isScrollEnabled = false
+        table.rowHeight = UITableView.automaticDimension
+        table.estimatedRowHeight = 170
         table.translatesAutoresizingMaskIntoConstraints = false
         return table
     }()
@@ -631,9 +633,13 @@ final class GroupDetailsView: UIView {
         membersTableHeightConstraint?.constant = CGFloat(count) * 80
     }
 
-    func updateSharedCardsTableHeight(count: Int) {
-        // Each card cell: 100 (card preview) + padding ~ 150
-        sharedCardsTableHeightConstraint?.constant = CGFloat(count) * 150
+    func updateSharedCardsTableHeight() {
+        // Defer to next layout pass so Auto Layout calculates actual cell heights
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            self.sharedCardsTableView.layoutIfNeeded()
+            self.sharedCardsTableHeightConstraint?.constant = self.sharedCardsTableView.contentSize.height
+        }
     }
 
     private func updateDetailRowValue(_ row: UIView, value: String) {
