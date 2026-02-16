@@ -11,6 +11,7 @@ protocol SyncSettingsViewDelegate: AnyObject {
   func handleDidTapBackButton()
   func didTapSyncNow()
   func didTapResetSync()
+  func didTapResumeUpload()
 }
 
 final class SyncSettingsView: UIView {
@@ -98,6 +99,78 @@ final class SyncSettingsView: UIView {
     return label
   }()
 
+  // Data Sync Section
+  private let dataSyncSectionStack: UIStackView = {
+    let stack = UIStackView()
+    stack.axis = .vertical
+    stack.spacing = Metrics.spacing4
+    stack.translatesAutoresizingMaskIntoConstraints = false
+    return stack
+  }()
+
+  private let dataSyncHeaderView = createSectionHeader(title: "syncSettings.dataSync.title".localized)
+
+  // Download row
+  private let downloadContainer = createSettingContainer()
+  private let downloadIconView = createIconView(imageName: "arrow.down.circle")
+  private let downloadLabel = createSettingLabel(text: "syncSettings.download.title".localized)
+  private let downloadDetailLabel: UILabel = {
+    let label = UILabel()
+    label.font = Fonts.textSM.font
+    label.textColor = Colors.gray500
+    label.textAlignment = .right
+    label.translatesAutoresizingMaskIntoConstraints = false
+    return label
+  }()
+
+  // Upload container
+  private let uploadProgressContainer: UIView = {
+    let container = UIView()
+    container.backgroundColor = Colors.gray100
+    container.layer.cornerRadius = CornerRadius.large
+    container.translatesAutoresizingMaskIntoConstraints = false
+    return container
+  }()
+
+  private let uploadIconView = createIconView(imageName: "arrow.up.circle")
+
+  private let uploadStatusLabel: UILabel = {
+    let label = UILabel()
+    label.font = Fonts.titleSM.font
+    label.textColor = Colors.gray700
+    label.translatesAutoresizingMaskIntoConstraints = false
+    return label
+  }()
+
+  private let uploadDetailLabel: UILabel = {
+    let label = UILabel()
+    label.font = Fonts.textXS.font
+    label.textColor = Colors.gray500
+    label.translatesAutoresizingMaskIntoConstraints = false
+    return label
+  }()
+
+  private let uploadProgressBar: RoundedProgressBar = {
+    let bar = RoundedProgressBar()
+    bar.trackTintColor = Colors.gray200
+    bar.progressTintColor = Colors.mainMagenta
+    bar.cornerRadius = 3
+    bar.translatesAutoresizingMaskIntoConstraints = false
+    return bar
+  }()
+
+  private let uploadResumeButton: UIButton = {
+    let btn = UIButton(type: .system)
+    btn.setTitle("syncSettings.upload.resume".localized, for: .normal)
+    btn.setTitleColor(.white, for: .normal)
+    btn.titleLabel?.font = Fonts.buttonSM.font
+    btn.backgroundColor = Colors.mainMagenta
+    btn.layer.cornerRadius = CornerRadius.large
+    btn.translatesAutoresizingMaskIntoConstraints = false
+    btn.isHidden = true
+    return btn
+  }()
+
   // Actions Section
   private let actionsHeaderView = createSectionHeader(title: "syncSettings.section.actions".localized)
 
@@ -144,6 +217,7 @@ final class SyncSettingsView: UIView {
     backButton.addTarget(self, action: #selector(handleDidTapBackButton), for: .touchUpInside)
     syncNowButton.addTarget(self, action: #selector(didTapSyncNow), for: .touchUpInside)
     resetButton.addTarget(self, action: #selector(didTapResetSync), for: .touchUpInside)
+    uploadResumeButton.addTarget(self, action: #selector(didTapResumeUpload), for: .touchUpInside)
 
     addSubview(scrollView)
     scrollView.addSubview(headerContainerView)
@@ -167,6 +241,10 @@ final class SyncSettingsView: UIView {
     // Last sync row
     setupLastSyncContainer()
     contentStackView.addArrangedSubview(lastSyncContainer)
+
+    // Data sync section (download + upload)
+    setupDataSyncSection()
+    contentStackView.addArrangedSubview(dataSyncSectionStack)
 
     // Actions section
     contentStackView.addArrangedSubview(actionsHeaderView)
@@ -241,6 +319,65 @@ final class SyncSettingsView: UIView {
     ])
   }
 
+  private func setupDataSyncSection() {
+    dataSyncSectionStack.addArrangedSubview(dataSyncHeaderView)
+
+    // Download row
+    setupDownloadContainer()
+    dataSyncSectionStack.addArrangedSubview(downloadContainer)
+
+    // Upload container
+    dataSyncSectionStack.addArrangedSubview(uploadProgressContainer)
+
+    uploadProgressContainer.addSubview(uploadIconView)
+    uploadProgressContainer.addSubview(uploadStatusLabel)
+    uploadProgressContainer.addSubview(uploadDetailLabel)
+    uploadProgressContainer.addSubview(uploadProgressBar)
+    uploadProgressContainer.addSubview(uploadResumeButton)
+
+    NSLayoutConstraint.activate([
+      uploadIconView.topAnchor.constraint(equalTo: uploadProgressContainer.topAnchor, constant: Metrics.spacing4),
+      uploadIconView.leadingAnchor.constraint(equalTo: uploadProgressContainer.leadingAnchor, constant: Metrics.spacing4),
+
+      uploadStatusLabel.centerYAnchor.constraint(equalTo: uploadIconView.centerYAnchor),
+      uploadStatusLabel.leadingAnchor.constraint(equalTo: uploadIconView.trailingAnchor, constant: Metrics.spacing3),
+      uploadStatusLabel.trailingAnchor.constraint(equalTo: uploadResumeButton.leadingAnchor, constant: -Metrics.spacing2),
+
+      uploadDetailLabel.topAnchor.constraint(equalTo: uploadIconView.bottomAnchor, constant: Metrics.spacing2),
+      uploadDetailLabel.leadingAnchor.constraint(equalTo: uploadProgressContainer.leadingAnchor, constant: Metrics.spacing4),
+      uploadDetailLabel.trailingAnchor.constraint(equalTo: uploadProgressContainer.trailingAnchor, constant: -Metrics.spacing4),
+
+      uploadProgressBar.topAnchor.constraint(equalTo: uploadDetailLabel.bottomAnchor, constant: Metrics.spacing3),
+      uploadProgressBar.leadingAnchor.constraint(equalTo: uploadProgressContainer.leadingAnchor, constant: Metrics.spacing4),
+      uploadProgressBar.trailingAnchor.constraint(equalTo: uploadProgressContainer.trailingAnchor, constant: -Metrics.spacing4),
+      uploadProgressBar.heightAnchor.constraint(equalToConstant: 6),
+      uploadProgressBar.bottomAnchor.constraint(equalTo: uploadProgressContainer.bottomAnchor, constant: -Metrics.spacing4),
+
+      uploadResumeButton.centerYAnchor.constraint(equalTo: uploadStatusLabel.centerYAnchor),
+      uploadResumeButton.trailingAnchor.constraint(equalTo: uploadProgressContainer.trailingAnchor, constant: -Metrics.spacing4),
+      uploadResumeButton.heightAnchor.constraint(equalToConstant: 32),
+      uploadResumeButton.widthAnchor.constraint(equalToConstant: 80),
+    ])
+  }
+
+  private func setupDownloadContainer() {
+    downloadContainer.addSubview(downloadIconView)
+    downloadContainer.addSubview(downloadLabel)
+    downloadContainer.addSubview(downloadDetailLabel)
+
+    NSLayoutConstraint.activate([
+      downloadIconView.leadingAnchor.constraint(equalTo: downloadContainer.leadingAnchor, constant: Metrics.spacing4),
+      downloadIconView.centerYAnchor.constraint(equalTo: downloadContainer.centerYAnchor),
+
+      downloadLabel.leadingAnchor.constraint(equalTo: downloadIconView.trailingAnchor, constant: Metrics.spacing3),
+      downloadLabel.centerYAnchor.constraint(equalTo: downloadContainer.centerYAnchor),
+
+      downloadDetailLabel.trailingAnchor.constraint(equalTo: downloadContainer.trailingAnchor, constant: -Metrics.spacing4),
+      downloadDetailLabel.centerYAnchor.constraint(equalTo: downloadContainer.centerYAnchor),
+      downloadDetailLabel.leadingAnchor.constraint(greaterThanOrEqualTo: downloadLabel.trailingAnchor, constant: Metrics.spacing2)
+    ])
+  }
+
   private func setupConstraints() {
     NSLayoutConstraint.activate([
       scrollView.topAnchor.constraint(equalTo: topAnchor),
@@ -305,6 +442,56 @@ final class SyncSettingsView: UIView {
     lastSyncDetailLabel.text = lastSyncText
   }
 
+  func updateUploadProgress(current: Int, total: Int, status: UploadStatus) {
+    switch status {
+    case .uploading:
+      uploadStatusLabel.text = "syncSettings.upload.uploading".localized
+      uploadStatusLabel.textColor = Colors.mainMagenta
+      uploadIconView.tintColor = Colors.mainMagenta
+      uploadResumeButton.isHidden = true
+    case .complete:
+      uploadStatusLabel.text = "syncSettings.upload.complete".localized
+      uploadStatusLabel.textColor = Colors.mainGreen
+      uploadIconView.tintColor = Colors.mainGreen
+      uploadResumeButton.isHidden = true
+    case .incomplete:
+      uploadStatusLabel.text = "syncSettings.upload.incomplete".localized
+      uploadStatusLabel.textColor = Colors.mainRed
+      uploadIconView.tintColor = Colors.mainRed
+      uploadResumeButton.isHidden = false
+    }
+
+    if total > 0 {
+      uploadDetailLabel.text = String(format: "syncSettings.upload.records".localized, current, total)
+    } else {
+      uploadDetailLabel.text = nil
+    }
+
+    let fraction: Float = total > 0 ? Float(current) / Float(total) : (status == .complete ? 1.0 : 0.0)
+    uploadProgressBar.setProgress(fraction, animated: true)
+  }
+
+  func updateDownloadStatus(_ status: SyncStatusIndicator.Status) {
+    switch status {
+    case .syncing:
+      downloadDetailLabel.text = "syncSettings.download.syncing".localized
+      downloadDetailLabel.textColor = Colors.mainMagenta
+      downloadIconView.tintColor = Colors.mainMagenta
+    case .synced:
+      downloadDetailLabel.text = "syncSettings.download.upToDate".localized
+      downloadDetailLabel.textColor = Colors.mainGreen
+      downloadIconView.tintColor = Colors.mainGreen
+    case .error:
+      downloadDetailLabel.text = "syncSettings.download.error".localized
+      downloadDetailLabel.textColor = Colors.mainRed
+      downloadIconView.tintColor = Colors.mainRed
+    case .idle, .offline:
+      downloadDetailLabel.text = "syncSettings.download.idle".localized
+      downloadDetailLabel.textColor = Colors.gray500
+      downloadIconView.tintColor = Colors.gray600
+    }
+  }
+
   // MARK: - Actions
 
   @objc
@@ -320,6 +507,11 @@ final class SyncSettingsView: UIView {
   @objc
   private func didTapResetSync() {
     delegate?.didTapResetSync()
+  }
+
+  @objc
+  private func didTapResumeUpload() {
+    delegate?.didTapResumeUpload()
   }
 }
 

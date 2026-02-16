@@ -43,10 +43,28 @@ final class SyncToastView: UIView {
         return label
     }()
 
+    private let batchLabel: UILabel = {
+        let label = UILabel()
+        label.font = Fonts.textXS.font
+        label.textColor = Colors.gray500
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.isHidden = true
+        return label
+    }()
+
     private let contentStack: UIStackView = {
         let stack = UIStackView()
         stack.axis = .horizontal
         stack.spacing = 6
+        stack.alignment = .center
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        return stack
+    }()
+
+    private let outerStack: UIStackView = {
+        let stack = UIStackView()
+        stack.axis = .vertical
+        stack.spacing = 2
         stack.alignment = .center
         stack.translatesAutoresizingMaskIntoConstraints = false
         return stack
@@ -71,10 +89,13 @@ final class SyncToastView: UIView {
 
         addSubview(backgroundView)
         addSubview(blurEffectView)
-        addSubview(contentStack)
+        addSubview(outerStack)
 
         contentStack.addArrangedSubview(iconView)
         contentStack.addArrangedSubview(statusLabel)
+
+        outerStack.addArrangedSubview(contentStack)
+        outerStack.addArrangedSubview(batchLabel)
 
         NSLayoutConstraint.activate([
             backgroundView.topAnchor.constraint(equalTo: topAnchor),
@@ -87,10 +108,10 @@ final class SyncToastView: UIView {
             blurEffectView.trailingAnchor.constraint(equalTo: trailingAnchor),
             blurEffectView.bottomAnchor.constraint(equalTo: bottomAnchor),
 
-            contentStack.topAnchor.constraint(equalTo: topAnchor, constant: 8),
-            contentStack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -8),
-            contentStack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
-            contentStack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
+            outerStack.topAnchor.constraint(equalTo: topAnchor, constant: 8),
+            outerStack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -8),
+            outerStack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+            outerStack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
 
             iconView.widthAnchor.constraint(equalToConstant: 16),
             iconView.heightAnchor.constraint(equalToConstant: 16),
@@ -117,8 +138,22 @@ final class SyncToastView: UIView {
 
     // MARK: - Public API
 
+    func updatePushProgress(_ progress: SyncPushProgress) {
+        stopSpinning()
+
+        iconView.image = UIImage(systemName: "arrow.triangle.2.circlepath")
+        iconView.tintColor = Colors.mainMagenta
+        statusLabel.text = "sync.toast.uploading".localized
+        statusLabel.textColor = Colors.mainMagenta
+        startSpinning()
+
+        batchLabel.text = String(format: "sync.toast.batchProgress".localized, progress.currentBatch, progress.totalBatches)
+        batchLabel.isHidden = false
+    }
+
     func updateStatus(_ status: SyncStatusIndicator.Status) {
         stopSpinning()
+        batchLabel.isHidden = true
 
         switch status {
         case .syncing:

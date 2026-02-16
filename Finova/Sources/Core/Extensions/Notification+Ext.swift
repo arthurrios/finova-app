@@ -21,4 +21,5 @@ extension Notification.Name {
   static let groupMemberActionOccurred = Notification.Name("groupMemberActionOccurred")
   static let budgetDataChanged = Notification.Name("budgetDataChanged")
   static let creditCardDataChanged = Notification.Name("creditCardDataChanged")
+  static let syncPushProgressDidChange = Notification.Name("syncPushProgressDidChange")
 }

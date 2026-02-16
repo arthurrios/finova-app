@@ -68,10 +68,18 @@ final class SplashViewController: UIViewController {
       // One-time fix: tag credit cards + missed transactions with shared_group_id for mirror mode
       Self.performMirrorModeCreditCardFixIfNeeded()
 
+      // One-time: wipe local transactions and rebuild from CloudKit (fixes duplicates)
+      let needsRebuild = Self.performTransactionRebuildIfNeeded()
+
       // Trigger iCloud sync on launch (skip if cleanup just ran to prevent re-corruption)
       if !didCleanup {
         let needsRePush = Self.performSyncRePushIfNeeded()
-        SyncEngine.shared.performFullSync(forceFullFetch: needsRePush, forceRePush: needsRePush)
+        let forceFullFetch = needsRePush || needsRebuild
+        if needsRePush {
+          // Ensure balance offset is pushed to CloudKit during re-push
+          Self.pushBalanceOffsetIfNeeded(uid: firebaseUser.uid)
+        }
+        SyncEngine.shared.performFullSync(forceFullFetch: forceFullFetch, forceRePush: needsRePush)
       }
       BudgetAllocationRepository.migrateFromUserDefaultsIfNeeded()
 
@@ -528,10 +536,29 @@ extension SplashViewController {
 }
 #endif
 
+// MARK: - One-Time Transaction Rebuild
+
+extension SplashViewController {
+  private static let txRebuildKey = "hasPerformedTxRebuild_v1"
+
+  /// One-time: wipes local transactions and resets sync tokens so everything is rebuilt from CloudKit.
+  /// Fixes duplicates created by a conflict resolver bug.
+  static func performTransactionRebuildIfNeeded() -> Bool {
+    guard !UserDefaults.standard.bool(forKey: txRebuildKey) else { return false }
+    UserDefaults.standard.set(true, forKey: txRebuildKey)
+
+    logWarning("[TxRebuild] Wiping local transactions for clean rebuild from CloudKit")
+    DBHelper.shared.executeSyncUpdate("DELETE FROM Transactions;", textBindings: [])
+    TransactionRepository.invalidateCache()
+    SyncStateManager.shared.resetAllTokens()
+    return true
+  }
+}
+
 // MARK: - One-Time Sync Re-Push
 
 extension SplashViewController {
-  private static let syncRePushKey = "hasPerformedSyncRePush_v4"
+  private static let syncRePushKey = "hasPerformedSyncRePush_v5"
 
   /// One-time: resets all sync_status to 'pending' so data gets re-pushed to CloudKit.
   /// Returns `true` if the re-push was triggered.
@@ -543,6 +570,26 @@ extension SplashViewController {
     UserDefaults.standard.set(true, forKey: syncRePushKey)
     return true
   }
+
+  /// Pushes the local balance offset to CloudKit so the other device gets the correct value.
+  static func pushBalanceOffsetIfNeeded(uid: String) {
+    let personalOffset = UserDefaults.standard.integer(forKey: "balanceOffset_\(uid)")
+    if personalOffset != 0 {
+      logWarning("[SyncRePush] Pushing personal balance offset to CloudKit: \(personalOffset)")
+      UIDUserDefaultsManager.shared.setCurrentUserBalanceOffset(personalOffset)
+    }
+    // Also push group offsets if mirror mode is active
+    if MirrorModeManager.shared.isEnabled,
+       let groupId = MirrorModeManager.shared.linkedGroupId {
+      let groupOffset = UserDefaults.standard.integer(forKey: "balanceOffset_group_\(groupId)")
+      if groupOffset != 0 {
+        logWarning("[SyncRePush] Pushing group balance offset to CloudKit: \(groupOffset)")
+        UIDUserDefaultsManager.shared.setGroupBalanceOffset(groupOffset, groupId: groupId)
+      }
+    }
+  }
+
+
 }
 
 // MARK: - One-Time Mirror Mode Credit Card Fix

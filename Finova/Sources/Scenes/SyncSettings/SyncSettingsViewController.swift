@@ -76,12 +76,18 @@ extension SyncSettingsViewController: SyncSettingsViewDelegate {
     })
     present(alert, animated: true)
   }
+
+  func didTapResumeUpload() {
+    viewModel.resumeUpload()
+  }
 }
 
 // MARK: - SyncSettingsViewModelDelegate
 extension SyncSettingsViewController: SyncSettingsViewModelDelegate {
   func didUpdateSyncState(status: SyncStatusIndicator.Status, lastSyncText: String) {
-    contentView.updateUI(status: status, lastSyncText: lastSyncText)
+    DispatchQueue.main.async { [weak self] in
+      self?.contentView.updateUI(status: status, lastSyncText: lastSyncText)
+    }
   }
 
   func didShowCloudKitUnavailableAlert() {
@@ -92,5 +98,17 @@ extension SyncSettingsViewController: SyncSettingsViewModelDelegate {
     )
     alert.addAction(UIAlertAction(title: "OK", style: .default))
     present(alert, animated: true)
+  }
+
+  func didUpdateUploadProgress(currentRecords: Int, totalRecords: Int, status: UploadStatus) {
+    DispatchQueue.main.async { [weak self] in
+      self?.contentView.updateUploadProgress(current: currentRecords, total: totalRecords, status: status)
+    }
+  }
+
+  func didUpdateDownloadStatus(_ status: SyncStatusIndicator.Status) {
+    DispatchQueue.main.async { [weak self] in
+      self?.contentView.updateDownloadStatus(status)
+    }
   }
 }

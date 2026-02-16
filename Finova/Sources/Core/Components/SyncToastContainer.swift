@@ -91,6 +91,12 @@ final class SyncToastContainer: UIView {
             name: .syncStatusDidChange,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleSyncPushProgress(_:)),
+            name: .syncPushProgressDidChange,
+            object: nil
+        )
     }
 
     @objc private func handleSyncStatusChange(_ notification: Notification) {
@@ -104,7 +110,7 @@ final class SyncToastContainer: UIView {
             toastView?.updateStatus(.syncing)
         case .synced:
             toastView?.updateStatus(.synced)
-            scheduleDismiss(after: 2.0)
+            scheduleDismiss(after: 3.0)
         case .error:
             toastView?.updateStatus(.error)
             scheduleDismiss(after: 3.0)
@@ -112,6 +118,21 @@ final class SyncToastContainer: UIView {
             // CloudKit unavailable — dismiss immediately
             hideSyncToast(animated: true)
         }
+    }
+
+    @objc private func handleSyncPushProgress(_ notification: Notification) {
+        guard let progress = notification.object as? SyncPushProgress else { return }
+
+        // Auto-show toast if not visible
+        if !isShowing {
+            showSyncToast()
+        }
+
+        toastView?.updatePushProgress(progress)
+
+        // Cancel dismiss timer — don't auto-hide during active push
+        dismissTimer?.invalidate()
+        dismissTimer = nil
     }
 
     // MARK: - Private Helpers

@@ -157,7 +157,7 @@ class UIDUserDefaultsManager {
     record["updatedAt"] = Date() as CKRecordValue
 
     let operation = CKModifyRecordsOperation(recordsToSave: [record], recordIDsToDelete: nil)
-    operation.savePolicy = .changedKeys
+    operation.savePolicy = .allKeys
     operation.qualityOfService = .utility
     operation.modifyRecordsResultBlock = { result in
       switch result {
@@ -172,6 +172,14 @@ class UIDUserDefaultsManager {
 
   func fetchBalanceOffsetsFromCloud(completion: @escaping () -> Void) {
     guard let uid = currentUserUID else {
+      completion()
+      return
+    }
+
+    // If the pull phase already delivered a fresh BalanceOffset record,
+    // skip re-fetching to avoid overwriting with a potentially stale value.
+    if SyncEngine.shared.didReceiveBalanceOffsetDuringPull {
+      logInfo("Skipping fetchBalanceOffsetsFromCloud — offset already updated during pull")
       completion()
       return
     }

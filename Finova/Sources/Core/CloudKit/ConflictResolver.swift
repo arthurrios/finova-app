@@ -67,7 +67,7 @@ final class ConflictResolver {
                         }
                         return
                     }
-                    // Already linked to a different CK record — skip insert to avoid duplicate
+                    // Already linked to a different CK record — skip to avoid duplicate
                     if existingCKName != recordName {
                         return
                     }

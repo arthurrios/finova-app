@@ -7,9 +7,17 @@
 
 import Foundation
 
+enum UploadStatus {
+  case uploading
+  case complete
+  case incomplete
+}
+
 protocol SyncSettingsViewModelDelegate: AnyObject {
   func didUpdateSyncState(status: SyncStatusIndicator.Status, lastSyncText: String)
   func didShowCloudKitUnavailableAlert()
+  func didUpdateUploadProgress(currentRecords: Int, totalRecords: Int, status: UploadStatus)
+  func didUpdateDownloadStatus(_ status: SyncStatusIndicator.Status)
 }
 
 final class SyncSettingsViewModel {
@@ -26,6 +34,12 @@ final class SyncSettingsViewModel {
       name: .syncStatusDidChange,
       object: nil
     )
+    NotificationCenter.default.addObserver(
+      self,
+      selector: #selector(handleSyncPushProgress(_:)),
+      name: .syncPushProgressDidChange,
+      object: nil
+    )
   }
 
   deinit {
@@ -40,6 +54,12 @@ final class SyncSettingsViewModel {
       let status = self.mapStatus(self.syncEngine.status)
       let lastSyncText = self.formatLastSyncDate()
       self.delegate?.didUpdateSyncState(status: status, lastSyncText: lastSyncText)
+
+      // Download status
+      self.delegate?.didUpdateDownloadStatus(status)
+
+      // Upload status — always visible
+      self.refreshUploadStatus()
     }
   }
 
@@ -62,6 +82,14 @@ final class SyncSettingsViewModel {
     syncEngine.performFullSync()
   }
 
+  func resumeUpload() {
+    guard cloudKitManager.isCloudKitAvailable else {
+      delegate?.didShowCloudKitUnavailableAlert()
+      return
+    }
+    syncEngine.performFullSync(forceRePush: true)
+  }
+
   // MARK: - Private Methods
 
   @objc private func handleSyncStatusChange(_ notification: Notification) {
@@ -74,6 +102,65 @@ final class SyncSettingsViewModel {
       lastSyncText = formatLastSyncDate()
     }
     delegate?.didUpdateSyncState(status: status, lastSyncText: lastSyncText)
+
+    // Download status
+    delegate?.didUpdateDownloadStatus(status)
+
+    // Refresh upload status on sync completion
+    if case .synced = syncStatus {
+      refreshUploadStatus()
+    }
+  }
+
+  @objc private func handleSyncPushProgress(_ notification: Notification) {
+    guard let progress = notification.object as? SyncPushProgress else { return }
+    let completedRecords = recordsCompletedForProgress(progress)
+    delegate?.didUpdateUploadProgress(
+      currentRecords: completedRecords,
+      totalRecords: progress.totalRecords,
+      status: .uploading
+    )
+  }
+
+  private func recordsCompletedForProgress(_ progress: SyncPushProgress) -> Int {
+    guard progress.totalBatches > 0 else { return 0 }
+    let recordsPerBatch = progress.totalRecords / progress.totalBatches
+    return min(progress.currentBatch * recordsPerBatch, progress.totalRecords)
+  }
+
+  private func refreshUploadStatus() {
+    if let progress = syncEngine.currentPushProgress {
+      let completedRecords = recordsCompletedForProgress(progress)
+      delegate?.didUpdateUploadProgress(
+        currentRecords: completedRecords,
+        totalRecords: progress.totalRecords,
+        status: .uploading
+      )
+    } else {
+      let pendingCount = countPendingRecords()
+      if pendingCount > 0 {
+        delegate?.didUpdateUploadProgress(
+          currentRecords: 0,
+          totalRecords: pendingCount,
+          status: .incomplete
+        )
+      } else {
+        delegate?.didUpdateUploadProgress(
+          currentRecords: 0,
+          totalRecords: 0,
+          status: .complete
+        )
+      }
+    }
+  }
+
+  private func countPendingRecords() -> Int {
+    let txCount = TransactionRepository().fetchPendingSync().count
+    let budgetCount = BudgetRepository().fetchPendingSync().count
+    let cardCount = CreditCardRepository().fetchPendingSync().count
+    let stmtCount = StatementRepository().fetchPendingSync().count
+    let allocCount = BudgetAllocationRepository().fetchPendingSync().count
+    return txCount + budgetCount + cardCount + stmtCount + allocCount
   }
 
   private func mapStatus(_ syncStatus: SyncStatus) -> SyncStatusIndicator.Status {

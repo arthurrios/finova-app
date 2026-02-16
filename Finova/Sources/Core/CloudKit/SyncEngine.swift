@@ -15,6 +15,12 @@ enum SyncStatus {
     case error(Error)
 }
 
+struct SyncPushProgress {
+    let currentBatch: Int
+    let totalBatches: Int
+    let totalRecords: Int
+}
+
 protocol SyncEngineDelegate: AnyObject {
     func syncEngineDidChangeStatus(_ status: SyncStatus)
     func syncEngineDidUpdateData()
@@ -42,6 +48,11 @@ final class SyncEngine {
     private var isProcessingCloudData = false
     private var pushThrottledUntil: Date?
     private var needsPostSyncPush = false
+    private(set) var currentPushProgress: SyncPushProgress?
+    private var isInitialPush = false
+    /// Tracks whether a BalanceOffset record was received during the current pull,
+    /// so post-sync fetchBalanceOffsetsFromCloud can skip re-fetching a potentially stale value.
+    private(set) var didReceiveBalanceOffsetDuringPull = false
 
     private init() {
         self.cloudKitOps = RealCloudKitOperations()
@@ -124,14 +135,15 @@ final class SyncEngine {
     }
 
     @objc private func handleLocalDataChange() {
-        guard !isProcessingCloudData else {
+        guard !isProcessingCloudData && !isSyncing else {
             // A sync is in progress — flag that we need a follow-up push
             // (e.g., lazy-generated recurring instances created during sync)
             needsPostSyncPush = true
             return
         }
         syncQueue.asyncAfter(deadline: .now() + 2.0) { [weak self] in
-            self?.pushLocalChanges()
+            guard let self = self, !self.isSyncing else { return }
+            self.pushLocalChanges()
         }
     }
 
@@ -186,6 +198,7 @@ final class SyncEngine {
         }
 
         isSyncing = true
+        didReceiveBalanceOffsetDuringPull = false
         status = .syncing
         cloudKitOps.ensureZoneExists { [weak self] result in
             guard let self = self else {
@@ -208,10 +221,11 @@ final class SyncEngine {
                                 // Discover groups from ALL zones (fallback for missed zone changes)
                                 self.discoverGroupsFromAllZones {
                                     self.postSyncActions.performPostSyncFetches {
-                                        // Post a final data refresh after ALL post-sync actions complete
-                                        // (balance offsets, invitations, etc. are now up-to-date)
+                                        // Only post budgetGroupDataChanged for invitation updates.
+                                        // transactionDataChanged is already posted by fetchZoneChanges
+                                        // and fetchBalanceOffsetsFromCloud — posting it here again
+                                        // causes an infinite handleLocalDataChange → pushLocalChanges loop.
                                         DispatchQueue.main.async {
-                                            NotificationCenter.default.post(name: .transactionDataChanged, object: nil)
                                             NotificationCenter.default.post(name: .budgetGroupDataChanged, object: nil)
                                         }
                                         self.syncQueue.async {
@@ -474,6 +488,16 @@ final class SyncEngine {
             Array(allRecords[$0..<min($0 + Self.batchSize, allRecords.count)])
         }
 
+        // Detect initial push: many records and never completed before
+        if allRecords.count > Self.batchSize && !UserDefaults.standard.bool(forKey: "hasCompletedInitialCloudPush_v1") {
+            isInitialPush = true
+            let progress = SyncPushProgress(currentBatch: 0, totalBatches: batches.count, totalRecords: allRecords.count)
+            currentPushProgress = progress
+            DispatchQueue.main.async {
+                NotificationCenter.default.post(name: .syncPushProgressDidChange, object: progress)
+            }
+        }
+
         pushBatches(batches, deleteIDs: allDeleteIDs, index: 0, completion: completion)
     }
 
@@ -484,6 +508,13 @@ final class SyncEngine {
         completion: ((Result<Void, Error>) -> Void)?
     ) {
         guard index < batches.count else {
+            // All batches complete — mark initial push as done
+            if isInitialPush {
+                UserDefaults.standard.set(true, forKey: "hasCompletedInitialCloudPush_v1")
+                isInitialPush = false
+                currentPushProgress = nil
+            }
+
             // After all save batches, send deletes if any
             if !deleteIDs.isEmpty {
                 pushDeletes(deleteIDs, completion: completion)
@@ -531,6 +562,14 @@ final class SyncEngine {
         } completion: { [weak self] result in
             logWarning("[Sync] Batch \(index + 1)/\(batches.count) result: \(batchSuccessCount) succeeded, \(batchFailureCount) failed")
 
+            if let self = self, self.isInitialPush {
+                let progress = SyncPushProgress(currentBatch: index + 1, totalBatches: batches.count, totalRecords: batches.reduce(0) { $0 + $1.count })
+                self.currentPushProgress = progress
+                DispatchQueue.main.async {
+                    NotificationCenter.default.post(name: .syncPushProgressDidChange, object: progress)
+                }
+            }
+
             if hitQuotaLimit {
                 // Stop processing remaining batches — pending records will sync on next launch
                 logWarning("[Sync] Stopping push due to quota limit. Remaining records will sync later.")
@@ -539,13 +578,29 @@ final class SyncEngine {
             }
             switch result {
             case .success:
-                self?.pushBatches(batches, deleteIDs: deleteIDs, index: index + 1, completion: completion)
+                // Throttle between batches to avoid CloudKit rate limiting
+                let delay: TimeInterval = batches.count > 5 ? 1.5 : 0.5
+                DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + delay) {
+                    self?.pushBatches(batches, deleteIDs: deleteIDs, index: index + 1, completion: completion)
+                }
             case .failure(let error):
-                if let ckError = error as? CKError, ckError.code == .quotaExceeded {
-                    let retryAfter = ckError.retryAfterSeconds ?? 300
-                    self?.pushThrottledUntil = Date().addingTimeInterval(retryAfter)
-                    logWarning("[Sync] ⚠️ CloudKit quota exceeded (batch level) — throttling for \(Int(retryAfter))s")
-                    completion?(.success(()))
+                if let ckError = error as? CKError {
+                    switch ckError.code {
+                    case .quotaExceeded:
+                        let retryAfter = ckError.retryAfterSeconds ?? 300
+                        self?.pushThrottledUntil = Date().addingTimeInterval(retryAfter)
+                        logWarning("[Sync] ⚠️ CloudKit quota exceeded (batch level) — throttling for \(Int(retryAfter))s")
+                        completion?(.success(()))
+                    case .serviceUnavailable, .requestRateLimited, .zoneBusy:
+                        let retryAfter = ckError.retryAfterSeconds ?? 3
+                        logWarning("[Sync] ⚠️ Batch \(index + 1)/\(batches.count) throttled (code \(ckError.code.rawValue)) — retrying in \(Int(retryAfter))s")
+                        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + retryAfter) {
+                            self?.pushBatches(batches, deleteIDs: deleteIDs, index: index, completion: completion)
+                        }
+                    default:
+                        logWarning("[Sync] ❌ Batch \(index + 1)/\(batches.count) failed: \(error.localizedDescription)")
+                        completion?(.failure(error))
+                    }
                 } else {
                     logWarning("[Sync] ❌ Batch \(index + 1)/\(batches.count) failed: \(error.localizedDescription)")
                     completion?(.failure(error))
@@ -560,23 +615,21 @@ final class SyncEngine {
             switch result {
             case .success:
                 // Hard-delete the local row after successful CK deletion
-                if name.hasPrefix("transaction-") {
-                    TransactionRepository().hardDeleteByCKRecordName(name)
-                } else if name.hasPrefix("budget-") {
-                    BudgetRepository().hardDeleteByCKRecordName(name)
-                } else if name.hasPrefix("creditCard-") {
-                    CreditCardRepository().hardDeleteByCKRecordName(name)
-                } else if name.hasPrefix("statement-") {
-                    StatementRepository().hardDeleteByCKRecordName(name)
-                } else if name.hasPrefix("allocation-") {
-                    BudgetAllocationRepository().hardDeleteByCKRecordName(name)
-                }
+                Self.hardDeleteLocal(recordName: name)
             case .failure(let error):
-                if let ckError = error as? CKError, ckError.code == .quotaExceeded {
-                    let retryAfter = ckError.retryAfterSeconds ?? 300
-                    self?.pushThrottledUntil = Date().addingTimeInterval(retryAfter)
+                if let ckError = error as? CKError {
+                    if ckError.code == .unknownItem {
+                        // Record already gone from CloudKit — still clean up locally
+                        logWarning("[Sync] Record \(name) already deleted from CloudKit — hard-deleting locally")
+                        Self.hardDeleteLocal(recordName: name)
+                    } else if ckError.code == .quotaExceeded {
+                        let retryAfter = ckError.retryAfterSeconds ?? 300
+                        self?.pushThrottledUntil = Date().addingTimeInterval(retryAfter)
+                    } else {
+                        logWarning("[Sync] ❌ Failed to delete record \(name): \(error.localizedDescription)")
+                    }
                 } else {
-                    logWarning("[Sync] ❌ Failed to delete record \(recordID.recordName): \(error.localizedDescription)")
+                    logWarning("[Sync] ❌ Failed to delete record \(name): \(error.localizedDescription)")
                 }
             }
         } completion: { [weak self] result in
@@ -593,6 +646,20 @@ final class SyncEngine {
                     completion?(.failure(error))
                 }
             }
+        }
+    }
+
+    private static func hardDeleteLocal(recordName name: String) {
+        if name.hasPrefix("transaction-") {
+            TransactionRepository().hardDeleteByCKRecordName(name)
+        } else if name.hasPrefix("budget-") {
+            BudgetRepository().hardDeleteByCKRecordName(name)
+        } else if name.hasPrefix("creditCard-") {
+            CreditCardRepository().hardDeleteByCKRecordName(name)
+        } else if name.hasPrefix("statement-") {
+            StatementRepository().hardDeleteByCKRecordName(name)
+        } else if name.hasPrefix("allocation-") {
+            BudgetAllocationRepository().hardDeleteByCKRecordName(name)
         }
     }
 
@@ -661,6 +728,8 @@ final class SyncEngine {
               let uid = UIDUserDefaultsManager.shared.currentUserUID
         else { return }
 
+        didReceiveBalanceOffsetDuringPull = true
+
         DispatchQueue.main.async {
             var didUpdate = false
             if key == "personal" {
@@ -707,16 +776,21 @@ final class SyncEngine {
         logWarning("[Sync] discoverGroupsFromAllZones: \(existingGroupIds.count) local group(s)")
 
         let operation = CKFetchRecordZonesOperation.fetchAllRecordZonesOperation()
-        var groupZoneIDs: [CKRecordZone.ID] = []
+        var newGroupZoneIDs: [CKRecordZone.ID] = []
+        var unfetchedZoneIDs: [CKRecordZone.ID] = []
 
-        operation.perRecordZoneResultBlock = { zoneID, result in
+        operation.perRecordZoneResultBlock = { [weak self] zoneID, result in
             switch result {
             case .success:
                 if zoneID.zoneName.hasPrefix("Group-") {
                     let groupId = String(zoneID.zoneName.dropFirst("Group-".count))
                     if !existingGroupIds.contains(groupId) {
-                        groupZoneIDs.append(zoneID)
+                        newGroupZoneIDs.append(zoneID)
                         logWarning("[Sync] Discovered missing group zone: \(zoneID.zoneName)")
+                    } else if self?.stateManager.changeToken(for: zoneID.zoneName, database: "private") == nil {
+                        // Group exists locally but zone changes were never fetched
+                        unfetchedZoneIDs.append(zoneID)
+                        logWarning("[Sync] Group zone exists but never fetched: \(zoneID.zoneName)")
                     }
                 }
             case .failure(let error):
@@ -727,12 +801,26 @@ final class SyncEngine {
         operation.fetchRecordZonesResultBlock = { [weak self] result in
             switch result {
             case .success:
-                logWarning("[Sync] Zone enumeration complete — \(groupZoneIDs.count) missing group zone(s) to restore")
-                guard !groupZoneIDs.isEmpty else {
-                    completion()
-                    return
+                logWarning("[Sync] Zone enumeration complete — \(newGroupZoneIDs.count) new, \(unfetchedZoneIDs.count) unfetched group zone(s)")
+
+                let handleUnfetchedZones = {
+                    guard !unfetchedZoneIDs.isEmpty else {
+                        completion()
+                        return
+                    }
+                    logWarning("[Sync] Fetching zone changes for \(unfetchedZoneIDs.count) previously unfetched group zone(s)")
+                    self?.fetchZoneChanges(zoneIDs: unfetchedZoneIDs, database: .private) { _ in
+                        completion()
+                    }
                 }
-                self?.fetchMissingGroupRecords(from: groupZoneIDs, completion: completion)
+
+                if !newGroupZoneIDs.isEmpty {
+                    self?.fetchMissingGroupRecords(from: newGroupZoneIDs) {
+                        handleUnfetchedZones()
+                    }
+                } else {
+                    handleUnfetchedZones()
+                }
             case .failure(let error):
                 logError("[Sync] Zone enumeration failed: \(error.localizedDescription)")
                 completion()
@@ -743,7 +831,8 @@ final class SyncEngine {
         CloudKitManager.shared.privateDatabase.add(operation)
     }
 
-    /// Fetches BudgetGroup records from group zones that don't have local entries.
+    /// Fetches BudgetGroup records from group zones that don't have local entries,
+    /// then fetches zone changes to pull their transactions and other data.
     private func fetchMissingGroupRecords(from zoneIDs: [CKRecordZone.ID], completion: @escaping () -> Void) {
         let group = DispatchGroup()
 
@@ -765,8 +854,12 @@ final class SyncEngine {
             }
         }
 
-        group.notify(queue: .global(qos: .utility)) {
-            completion()
+        group.notify(queue: .global(qos: .utility)) { [weak self] in
+            // Now fetch zone changes for these zones to pull transactions, budgets, etc.
+            logWarning("[Sync] Fetching zone changes for \(zoneIDs.count) newly discovered group zone(s)")
+            self?.fetchZoneChanges(zoneIDs: zoneIDs, database: .private) { _ in
+                completion()
+            }
         }
     }
 
