@@ -212,14 +212,21 @@ final class SyncEngine {
                 self.fetchPrivateDatabaseChanges { result in
                     switch result {
                     case .success:
-                        // Mirror mode: ensure all personal data is tagged with group ID before push
-                        MirrorModeManager.shared.reconcileMirrorData()
-                        self.pushLocalChanges { pushResult in
+                        // Fetch shared DB changes (group zones from other iCloud accounts)
+                        self.fetchSharedDatabaseChanges {
+                            // Mirror mode: ensure all personal data is tagged with group ID before push
+                            MirrorModeManager.shared.reconcileMirrorData()
+                            self.pushLocalChanges { pushResult in
                             switch pushResult {
                             case .success:
                                 self.stateManager.updateLastSyncDate(for: "privateDB")
                                 // Discover groups from ALL zones (fallback for missed zone changes)
                                 self.discoverGroupsFromAllZones {
+                                    // Re-run reconciliation to tag any transactions pulled during zone discovery
+                                    if MirrorModeManager.shared.isEnabled {
+                                        MirrorModeManager.shared.reconcileMirrorData()
+                                        self.needsPostSyncPush = true
+                                    }
                                     self.postSyncActions.performPostSyncFetches {
                                         // Only post budgetGroupDataChanged for invitation updates.
                                         // transactionDataChanged is already posted by fetchZoneChanges
@@ -229,6 +236,18 @@ final class SyncEngine {
                                             NotificationCenter.default.post(name: .budgetGroupDataChanged, object: nil)
                                         }
                                         self.syncQueue.async {
+                                            // Diagnostic: group balance state
+                                            if let uid = UIDUserDefaultsManager.shared.currentUserUID {
+                                                let personalOffset = UserDefaults.standard.integer(forKey: "balanceOffset_\(uid)")
+                                                let groups = BudgetGroupRepository().fetchAllGroups()
+                                                for g in groups {
+                                                    let groupOffset = UserDefaults.standard.integer(forKey: "balanceOffset_group_\(g.id)")
+                                                    let txRepo = TransactionRepository()
+                                                    let mirrorTxCount = txRepo.fetchTransactionsForGroup(groupId: g.id).count
+                                                    let allTxCount = txRepo.fetchAllTransactions().count
+                                                    logWarning("[Sync] Balance diagnostic: personalOffset=\(personalOffset), groupOffset=\(groupOffset) (group '\(g.name)'), mirrorTx=\(mirrorTxCount)/\(allTxCount)")
+                                                }
+                                            }
                                             logWarning("[Sync] Sync cycle complete — status: synced")
                                             self.status = .synced
                                             self.isSyncing = false
@@ -245,6 +264,7 @@ final class SyncEngine {
                                 completion?()
                             }
                         }
+                        } // fetchSharedDatabaseChanges
                     case .failure(let error):
                         logError("[Sync] Fetch changes failed: \(error.localizedDescription)")
                         self.status = .error(error)
@@ -305,6 +325,50 @@ final class SyncEngine {
                 }
             }
         )
+    }
+
+    /// Fetches changes from the shared database (group zones shared by other iCloud accounts).
+    /// Non-fatal — if this fails, sync continues with private data only.
+    private func fetchSharedDatabaseChanges(completion: @escaping () -> Void) {
+        let token = stateManager.changeToken(for: "sharedDB", database: "shared")
+        logWarning("[Sync] Fetching shared database changes (hasToken=\(token != nil))")
+        var changedZoneIDs: [CKRecordZone.ID] = []
+
+        let operation = CKFetchDatabaseChangesOperation(previousServerChangeToken: token)
+
+        operation.recordZoneWithIDChangedBlock = { zoneID in
+            changedZoneIDs.append(zoneID)
+        }
+
+        operation.fetchDatabaseChangesResultBlock = { [weak self] result in
+            switch result {
+            case .success(let (newToken, _)):
+                let zoneNames = changedZoneIDs.map { $0.zoneName }
+                logWarning("[Sync] Shared DB changes fetched — \(changedZoneIDs.count) changed zone(s): \(zoneNames)")
+                self?.stateManager.saveChangeToken(newToken, for: "sharedDB", database: "shared")
+
+                if changedZoneIDs.isEmpty {
+                    logWarning("[Sync] No changed shared zones — skipping")
+                    completion()
+                } else {
+                    self?.fetchZoneChanges(zoneIDs: changedZoneIDs, database: .shared) { _ in
+                        completion()
+                    }
+                }
+            case .failure(let error):
+                if let ckError = error as? CKError, ckError.code == .changeTokenExpired {
+                    logWarning("[Sync] Shared DB change token expired — resetting and retrying")
+                    self?.stateManager.saveChangeToken(nil, for: "sharedDB", database: "shared")
+                    self?.fetchSharedDatabaseChanges(completion: completion)
+                } else {
+                    logWarning("[Sync] Shared DB changes fetch failed (non-fatal): \(error.localizedDescription)")
+                    completion()
+                }
+            }
+        }
+
+        operation.qualityOfService = .userInitiated
+        CloudKitManager.shared.sharedDatabase.add(operation)
     }
 
     private func fetchZoneChanges(
@@ -773,15 +837,25 @@ final class SyncEngine {
         let existingGroups = repo.fetchAllGroups()
         let existingGroupIds = Set(existingGroups.map { $0.id })
 
-        logWarning("[Sync] discoverGroupsFromAllZones: \(existingGroupIds.count) local group(s)")
+        logWarning("[Sync] discoverGroupsFromAllZones: \(existingGroupIds.count) local group(s): \(existingGroupIds)")
+        // Also check for soft-deleted groups that might be hidden
+        let allGroupRows = DBHelper.shared.fetchBudgetGroupRows(
+            "SELECT id, name, owner_id, owner_name, owner_email, currency, ck_record_id, ck_share_url, created_at, updated_at, is_deleted FROM BudgetGroups"
+        )
+        for g in allGroupRows {
+            logWarning("[Sync]   group '\(g.name)' id=\(g.id) owner=\(g.ownerId) isDeleted=\(g.isDeleted) ckRecord=\(g.ckRecordId ?? "nil") ckShare=\(g.ckShareUrl ?? "nil")")
+        }
 
         let operation = CKFetchRecordZonesOperation.fetchAllRecordZonesOperation()
         var newGroupZoneIDs: [CKRecordZone.ID] = []
         var unfetchedZoneIDs: [CKRecordZone.ID] = []
 
+        var allZoneNames: [String] = []
+
         operation.perRecordZoneResultBlock = { [weak self] zoneID, result in
             switch result {
             case .success:
+                allZoneNames.append(zoneID.zoneName)
                 if zoneID.zoneName.hasPrefix("Group-") {
                     let groupId = String(zoneID.zoneName.dropFirst("Group-".count))
                     if !existingGroupIds.contains(groupId) {
@@ -801,29 +875,63 @@ final class SyncEngine {
         operation.fetchRecordZonesResultBlock = { [weak self] result in
             switch result {
             case .success:
-                logWarning("[Sync] Zone enumeration complete — \(newGroupZoneIDs.count) new, \(unfetchedZoneIDs.count) unfetched group zone(s)")
+                logWarning("[Sync] Private zone enumeration complete — all zones: \(allZoneNames)")
+                logWarning("[Sync] Private zone enumeration — \(newGroupZoneIDs.count) new, \(unfetchedZoneIDs.count) unfetched group zone(s)")
 
-                let handleUnfetchedZones = {
-                    guard !unfetchedZoneIDs.isEmpty else {
-                        completion()
-                        return
-                    }
-                    logWarning("[Sync] Fetching zone changes for \(unfetchedZoneIDs.count) previously unfetched group zone(s)")
-                    self?.fetchZoneChanges(zoneIDs: unfetchedZoneIDs, database: .private) { _ in
-                        completion()
-                    }
+                // Detect local groups whose CloudKit zones are missing and need repair
+                let foundGroupZoneIds = Set(
+                    allZoneNames
+                        .filter { $0.hasPrefix("Group-") }
+                        .map { String($0.dropFirst("Group-".count)) }
+                )
+                let orphanedGroups = existingGroups.filter { group in
+                    group.ckRecordId != nil && !foundGroupZoneIds.contains(group.id)
+                }
+                if !orphanedGroups.isEmpty {
+                    logWarning("[Sync] Found \(orphanedGroups.count) local group(s) with missing CloudKit zones — repairing")
                 }
 
-                if !newGroupZoneIDs.isEmpty {
-                    self?.fetchMissingGroupRecords(from: newGroupZoneIDs) {
+                let continueAfterRepair = {
+                    let handleUnfetchedZones = {
+                        guard !unfetchedZoneIDs.isEmpty else {
+                            self?.discoverGroupsFromSharedDatabase(
+                                existingGroupIds: existingGroupIds,
+                                completion: completion
+                            )
+                            return
+                        }
+                        logWarning("[Sync] Fetching zone changes for \(unfetchedZoneIDs.count) previously unfetched group zone(s)")
+                        self?.fetchZoneChanges(zoneIDs: unfetchedZoneIDs, database: .private) { _ in
+                            self?.discoverGroupsFromSharedDatabase(
+                                existingGroupIds: existingGroupIds,
+                                completion: completion
+                            )
+                        }
+                    }
+
+                    if !newGroupZoneIDs.isEmpty {
+                        self?.fetchMissingGroupRecords(from: newGroupZoneIDs, database: .private) {
+                            handleUnfetchedZones()
+                        }
+                    } else {
                         handleUnfetchedZones()
                     }
+                }
+
+                if !orphanedGroups.isEmpty {
+                    self?.repairMissingGroupZones(orphanedGroups) {
+                        continueAfterRepair()
+                    }
                 } else {
-                    handleUnfetchedZones()
+                    continueAfterRepair()
                 }
             case .failure(let error):
-                logError("[Sync] Zone enumeration failed: \(error.localizedDescription)")
-                completion()
+                logError("[Sync] Private zone enumeration failed: \(error.localizedDescription)")
+                // Still try shared DB even if private fails
+                self?.discoverGroupsFromSharedDatabase(
+                    existingGroupIds: existingGroupIds,
+                    completion: completion
+                )
             }
         }
 
@@ -831,22 +939,160 @@ final class SyncEngine {
         CloudKitManager.shared.privateDatabase.add(operation)
     }
 
+    /// Discovers group zones in the shared database (zones shared by other iCloud accounts).
+    private func discoverGroupsFromSharedDatabase(
+        existingGroupIds: Set<String>,
+        completion: @escaping () -> Void
+    ) {
+        let operation = CKFetchRecordZonesOperation.fetchAllRecordZonesOperation()
+        var sharedGroupZoneIDs: [CKRecordZone.ID] = []
+        var sharedUnfetchedZoneIDs: [CKRecordZone.ID] = []
+
+        operation.perRecordZoneResultBlock = { [weak self] zoneID, result in
+            switch result {
+            case .success:
+                logWarning("[Sync] Shared DB zone found: \(zoneID.zoneName) (owner: \(zoneID.ownerName))")
+                if zoneID.zoneName.hasPrefix("Group-") {
+                    let groupId = String(zoneID.zoneName.dropFirst("Group-".count))
+                    if !existingGroupIds.contains(groupId) {
+                        sharedGroupZoneIDs.append(zoneID)
+                        logWarning("[Sync] Discovered missing shared group zone: \(zoneID.zoneName)")
+                    } else if self?.stateManager.changeToken(for: zoneID.zoneName, database: "shared") == nil {
+                        sharedUnfetchedZoneIDs.append(zoneID)
+                        logWarning("[Sync] Shared group zone exists but never fetched: \(zoneID.zoneName)")
+                    }
+                }
+            case .failure(let error):
+                logError("[Sync] Failed to fetch shared zone \(zoneID.zoneName): \(error.localizedDescription)")
+            }
+        }
+
+        operation.fetchRecordZonesResultBlock = { [weak self] result in
+            switch result {
+            case .success:
+                logWarning("[Sync] Shared DB zone enumeration complete — \(sharedGroupZoneIDs.count) new, \(sharedUnfetchedZoneIDs.count) unfetched group zone(s)")
+
+                let handleSharedUnfetched = {
+                    guard !sharedUnfetchedZoneIDs.isEmpty else {
+                        completion()
+                        return
+                    }
+                    logWarning("[Sync] Fetching zone changes for \(sharedUnfetchedZoneIDs.count) shared group zone(s)")
+                    self?.fetchZoneChanges(zoneIDs: sharedUnfetchedZoneIDs, database: .shared) { _ in
+                        completion()
+                    }
+                }
+
+                if !sharedGroupZoneIDs.isEmpty {
+                    self?.fetchMissingGroupRecords(from: sharedGroupZoneIDs, database: .shared) {
+                        handleSharedUnfetched()
+                    }
+                } else {
+                    handleSharedUnfetched()
+                }
+            case .failure(let error):
+                logError("[Sync] Shared DB zone enumeration failed: \(error.localizedDescription)")
+                completion()
+            }
+        }
+
+        operation.qualityOfService = .userInitiated
+        CloudKitManager.shared.sharedDatabase.add(operation)
+    }
+
+    /// Re-creates CloudKit zones and BudgetGroup records for local groups whose zones
+    /// have gone missing from CloudKit. This repairs the state so other devices can discover them.
+    private func repairMissingGroupZones(_ groups: [BudgetGroup], completion: @escaping () -> Void) {
+        let dispatchGroup = DispatchGroup()
+
+        for group in groups {
+            guard group.isOwner else {
+                logWarning("[Sync] Skipping repair for group '\(group.name)' — not owner")
+                continue
+            }
+
+            dispatchGroup.enter()
+
+            let zoneID = CKRecordZone.ID(zoneName: "Group-\(group.id)", ownerName: CKCurrentUserDefaultName)
+            let zone = CKRecordZone(zoneID: zoneID)
+
+            logWarning("[Sync] Repairing group zone for '\(group.name)' (id=\(group.id))")
+
+            // Step 1: Re-create the zone
+            let zoneOp = CKModifyRecordZonesOperation(recordZonesToSave: [zone], recordZoneIDsToDelete: nil)
+            zoneOp.modifyRecordZonesResultBlock = { result in
+                switch result {
+                case .success:
+                    logWarning("[Sync] Zone re-created for group '\(group.name)'")
+
+                    // Step 2: Re-create the BudgetGroup record and CKShare
+                    let recordID = CKRecord.ID(recordName: "budgetGroup-\(group.id)", zoneID: zoneID)
+                    let record = CKRecord(recordType: "BudgetGroup", recordID: recordID)
+                    record["name"] = group.name as CKRecordValue
+                    record["ownerId"] = group.ownerId as CKRecordValue
+                    record["ownerName"] = group.ownerName as CKRecordValue
+
+                    let share = CKShare(rootRecord: record)
+                    share[CKShare.SystemFieldKey.title] = group.name as CKRecordValue
+                    share.publicPermission = .readWrite
+
+                    let saveOp = CKModifyRecordsOperation(recordsToSave: [record, share], recordIDsToDelete: nil)
+                    saveOp.modifyRecordsResultBlock = { saveResult in
+                        switch saveResult {
+                        case .success:
+                            // Update local share URL
+                            if let newShareURL = share.url?.absoluteString {
+                                var updated = group
+                                updated.ckShareUrl = newShareURL
+                                BudgetGroupRepository().updateGroup(updated)
+                                logWarning("[Sync] Group '\(group.name)' repaired — new share URL: \(newShareURL)")
+                            } else {
+                                logWarning("[Sync] Group '\(group.name)' repaired (no share URL returned)")
+                            }
+                        case .failure(let error):
+                            logError("[Sync] Failed to save BudgetGroup record for repair: \(error.localizedDescription)")
+                        }
+                        dispatchGroup.leave()
+                    }
+                    saveOp.qualityOfService = .userInitiated
+                    CloudKitManager.shared.privateDatabase.add(saveOp)
+
+                case .failure(let error):
+                    logError("[Sync] Failed to re-create zone for group '\(group.name)': \(error.localizedDescription)")
+                    dispatchGroup.leave()
+                }
+            }
+            zoneOp.qualityOfService = .userInitiated
+            CloudKitManager.shared.privateDatabase.add(zoneOp)
+        }
+
+        dispatchGroup.notify(queue: .global(qos: .utility)) {
+            completion()
+        }
+    }
+
     /// Fetches BudgetGroup records from group zones that don't have local entries,
     /// then fetches zone changes to pull their transactions and other data.
-    private func fetchMissingGroupRecords(from zoneIDs: [CKRecordZone.ID], completion: @escaping () -> Void) {
+    private func fetchMissingGroupRecords(
+        from zoneIDs: [CKRecordZone.ID],
+        database: CKDatabase.Scope = .private,
+        completion: @escaping () -> Void
+    ) {
         let group = DispatchGroup()
+        let db = database == .private ? CloudKitManager.shared.privateDatabase : CloudKitManager.shared.sharedDatabase
+        let dbLabel = database == .private ? "private" : "shared"
 
         for zoneID in zoneIDs {
             let groupId = String(zoneID.zoneName.dropFirst("Group-".count))
             let recordID = CKRecord.ID(recordName: "budgetGroup-\(groupId)", zoneID: zoneID)
 
             group.enter()
-            CloudKitManager.shared.privateDatabase.fetch(withRecordID: recordID) { [weak self] record, error in
+            db.fetch(withRecordID: recordID) { [weak self] record, error in
                 if let record = record {
-                    logWarning("[Sync] Fetched missing BudgetGroup record for zone \(zoneID.zoneName)")
+                    logWarning("[Sync] Fetched missing BudgetGroup record from \(dbLabel) DB for zone \(zoneID.zoneName)")
                     self?.processIncomingBudgetGroup(record)
                 } else if let error = error {
-                    logWarning("[Sync] Could not fetch BudgetGroup for zone '\(zoneID.zoneName)': \(error.localizedDescription)")
+                    logWarning("[Sync] Could not fetch BudgetGroup for zone '\(zoneID.zoneName)' from \(dbLabel) DB: \(error.localizedDescription)")
                     // Create placeholder so the group is at least visible
                     self?.createPlaceholderGroup(groupId: groupId)
                 }
@@ -856,8 +1102,8 @@ final class SyncEngine {
 
         group.notify(queue: .global(qos: .utility)) { [weak self] in
             // Now fetch zone changes for these zones to pull transactions, budgets, etc.
-            logWarning("[Sync] Fetching zone changes for \(zoneIDs.count) newly discovered group zone(s)")
-            self?.fetchZoneChanges(zoneIDs: zoneIDs, database: .private) { _ in
+            logWarning("[Sync] Fetching zone changes for \(zoneIDs.count) newly discovered group zone(s) from \(dbLabel) DB")
+            self?.fetchZoneChanges(zoneIDs: zoneIDs, database: database) { _ in
                 completion()
             }
         }
@@ -940,18 +1186,26 @@ final class SyncEngine {
 
             repo.insertGroup(group)
             logInfo("[Sync] Inserted new BudgetGroup from CloudKit: \(name) (\(groupId))")
+        }
 
-            // Add the owner as a member
-            if let uid = AuthenticationManager.shared.currentUser?.uid, ownerId == uid {
-                let ownerMember = GroupMember(
+        // Ensure the current user is a member (owner or invited member)
+        if let uid = AuthenticationManager.shared.currentUser?.uid {
+            let existingMembers = repo.fetchMembers(forGroupId: groupId)
+            let alreadyMember = existingMembers.contains(where: { $0.userId == uid })
+            if !alreadyMember {
+                let userName = UserDefaultsManager.getUser()?.name ?? "User"
+                let userEmail = AuthenticationManager.shared.currentUser?.email ?? ""
+                let isOwner = ownerId == uid
+                let member = GroupMember(
                     groupId: groupId,
                     userId: uid,
-                    name: ownerName,
-                    email: ownerEmail,
-                    role: .owner,
-                    permissions: .fullAccess
+                    name: isOwner ? ownerName : userName,
+                    email: isOwner ? ownerEmail : userEmail,
+                    role: isOwner ? .owner : .member,
+                    permissions: isOwner ? .fullAccess : .memberDefault
                 )
-                repo.insertMember(ownerMember)
+                repo.insertMember(member)
+                logInfo("[Sync] Added current user as \(isOwner ? "owner" : "member") of group \(name) (\(groupId))")
             }
         }
 

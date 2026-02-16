@@ -62,6 +62,9 @@ final class SplashViewController: UIViewController {
       UIDUserDefaultsManager.shared.currentUserUID = firebaseUser.uid
       DBHelper.shared.backfillUserIds(uid: firebaseUser.uid)
 
+      // Reconcile mirror mode state from iCloud key-value store
+      MirrorModeManager.shared.reconcileCloudState()
+
       // One-time cleanup of ghost records inserted by CloudKit sync
       let didCleanup = Self.performCloudGhostCleanupIfNeeded()
 
