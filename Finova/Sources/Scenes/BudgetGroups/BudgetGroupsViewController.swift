@@ -151,17 +151,34 @@ extension BudgetGroupsViewController: UITableViewDataSource, UITableViewDelegate
     }
 
     func tableView(_ tableView: UITableView, trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath) -> UISwipeActionsConfiguration? {
-        // No swipe-to-delete for pending invitations
+        // No swipe actions for pending invitations
         guard indexPath.section == 1 else { return nil }
 
         let group = viewModel.groups[indexPath.row]
-        guard group.isOwner else { return nil }
 
-        let deleteAction = UIContextualAction(style: .destructive, title: "alert.delete".localized) { [weak self] _, _, completionHandler in
-            self?.viewModel.deleteGroup(at: indexPath.row)
-            completionHandler(true)
+        if group.isOwner {
+            let deleteAction = UIContextualAction(style: .destructive, title: "alert.delete".localized) { [weak self] _, _, completionHandler in
+                self?.viewModel.deleteGroup(at: indexPath.row)
+                completionHandler(true)
+            }
+            return UISwipeActionsConfiguration(actions: [deleteAction])
+        } else {
+            let leaveAction = UIContextualAction(style: .destructive, title: "groupDetails.leave.button".localized) { [weak self] _, _, completionHandler in
+                let alert = UIAlertController(
+                    title: "groupDetails.leave.button".localized,
+                    message: "groupDetails.leave.confirm".localized,
+                    preferredStyle: .alert
+                )
+                alert.addAction(UIAlertAction(title: "alert.cancel".localized, style: .cancel) { _ in
+                    completionHandler(false)
+                })
+                alert.addAction(UIAlertAction(title: "groupDetails.leave.button".localized, style: .destructive) { _ in
+                    self?.viewModel.leaveGroup(at: indexPath.row)
+                    completionHandler(true)
+                })
+                self?.present(alert, animated: true)
+            }
+            return UISwipeActionsConfiguration(actions: [leaveAction])
         }
-
-        return UISwipeActionsConfiguration(actions: [deleteAction])
     }
 }

@@ -139,13 +139,17 @@ final class CloudKitManager {
     }
 
     func setupPublicInvitationSubscription(email: String, completion: @escaping (Result<Void, Error>) -> Void) {
-        let oldSubscriptionID = "finova-public-invitations-\(email.hashValue)"
-        let subscriptionID = "finova-public-invitations-v2-\(email.hashValue)"
+        let oldSubscriptionIDs = [
+            "finova-public-invitations-\(email.hashValue)",
+            "finova-public-invitations-v2-\(email.hashValue)",
+            "finova-public-invitations-v3-\(email.hashValue)"
+        ]
+        let subscriptionID = "finova-public-invitations-v4-\(email.hashValue)"
 
-        // Delete old silent-only subscription
+        // Delete old subscription versions
         let deleteOp = CKModifySubscriptionsOperation(
             subscriptionsToSave: nil,
-            subscriptionIDsToDelete: [oldSubscriptionID]
+            subscriptionIDsToDelete: oldSubscriptionIDs
         )
         deleteOp.modifySubscriptionsResultBlock = { _ in }
         deleteOp.qualityOfService = .utility
@@ -158,12 +162,14 @@ final class CloudKitManager {
             options: [.firesOnRecordCreation, .firesOnRecordUpdate]
         )
 
+        // Use visible alert so iOS delivers reliably in background.
+        // Silent-only pushes (content-available without alert) are throttled by iOS.
         let notificationInfo = CKSubscription.NotificationInfo()
+        notificationInfo.shouldSendContentAvailable = true
         notificationInfo.titleLocalizationKey = "budgetGroups.invitation.notificationTitle"
         notificationInfo.alertLocalizationKey = "budgetGroups.invitation.notificationBody"
         notificationInfo.alertLocalizationArgs = ["inviterName", "groupName"]
         notificationInfo.soundName = "default"
-        notificationInfo.shouldSendContentAvailable = true
         notificationInfo.desiredKeys = ["inviterName", "groupName", "groupId"]
         subscription.notificationInfo = notificationInfo
 

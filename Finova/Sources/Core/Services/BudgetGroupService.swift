@@ -7,7 +7,6 @@
 
 import CloudKit
 import Foundation
-import UserNotifications
 
 final class BudgetGroupService {
     static let shared = BudgetGroupService()
@@ -405,25 +404,6 @@ final class BudgetGroupService {
                             self.repository.insertInvitation(invitation)
                             newInvitations = true
                             logInfo("New invitation discovered: \(invitation.groupName) from \(invitation.inviterName)")
-
-                            // Schedule local notification for foreground/immediate delivery
-                            let content = UNMutableNotificationContent()
-                            content.title = "budgetGroups.invitation.notificationTitle".localized
-                            content.body = String(format: "budgetGroups.invitation.notificationBody".localized, invitation.inviterName, invitation.groupName)
-                            content.sound = .default
-                            content.userInfo = [
-                                "type": "group_invitation",
-                                "invitationId": invitation.id,
-                                "groupId": invitation.groupId
-                            ]
-
-                            let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 1, repeats: false)
-                            let request = UNNotificationRequest(
-                                identifier: "group_invitation_\(invitation.id)",
-                                content: content,
-                                trigger: trigger
-                            )
-                            UNUserNotificationCenter.current().add(request)
                         }
                     case .failure(let error):
                         logError("Failed to fetch individual invitation record: \(error)")

@@ -27,6 +27,8 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     window.rootViewController = rootViewController
     self.window = window
     self.window?.makeKeyAndVisible()
+
+    setupSyncToastObserver()
   }
 
   func scene(_ scene: UIScene, openURLContexts URLContexts: Set<UIOpenURLContext>) {
@@ -59,9 +61,6 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     // Called as the scene transitions from the background to the foreground.
     // Use this method to undo the changes made on entering the background.
     logInfo("Scene will enter foreground - triggering app refresh")
-    if CloudKitManager.shared.isCloudKitAvailable {
-      showSyncToastOnCurrentWindow()
-    }
     SyncEngine.shared.performFullSync()
     triggerAppRefresh()
   }
@@ -158,7 +157,38 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     }
   }
 
-  /// Shows the sync toast on the current window when returning to foreground
+  // MARK: - Sync Toast
+
+  /// Observes sync status changes and shows the toast for all sync triggers
+  private func setupSyncToastObserver() {
+    NotificationCenter.default.addObserver(
+      self,
+      selector: #selector(handleSyncStatusForToast(_:)),
+      name: .syncStatusDidChange,
+      object: nil
+    )
+  }
+
+  @objc private func handleSyncStatusForToast(_ notification: Notification) {
+    guard let status = notification.object as? SyncStatus else { return }
+
+    switch status {
+    case .syncing:
+      // Don't show toast if user is on the SyncSettings screen
+      guard !isOnSyncSettingsScreen() else { return }
+      showSyncToastOnCurrentWindow()
+    default:
+      // SyncToastContainer handles .synced / .error / .idle internally
+      break
+    }
+  }
+
+  private func isOnSyncSettingsScreen() -> Bool {
+    guard let nav = window?.rootViewController as? UINavigationController else { return false }
+    return nav.topViewController is SyncSettingsViewController
+  }
+
+  /// Shows the sync toast on the current window
   private func showSyncToastOnCurrentWindow() {
     guard let window = window else { return }
 

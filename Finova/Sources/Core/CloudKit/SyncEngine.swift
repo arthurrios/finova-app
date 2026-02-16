@@ -216,6 +216,10 @@ final class SyncEngine {
                         self.fetchSharedDatabaseChanges {
                             // Mirror mode: ensure all personal data is tagged with group ID before push
                             MirrorModeManager.shared.reconcileMirrorData()
+                            // One-time recovery: reset tokens if migration caused data loss
+                            self.recoverFromGroupZoneMigration()
+                            // One-time migration: move group-tagged records from private zone to group zones
+                            self.migrateGroupRecordsToGroupZones()
                             self.pushLocalChanges { pushResult in
                             switch pushResult {
                             case .success:
@@ -228,13 +232,6 @@ final class SyncEngine {
                                         self.needsPostSyncPush = true
                                     }
                                     self.postSyncActions.performPostSyncFetches {
-                                        // Only post budgetGroupDataChanged for invitation updates.
-                                        // transactionDataChanged is already posted by fetchZoneChanges
-                                        // and fetchBalanceOffsetsFromCloud — posting it here again
-                                        // causes an infinite handleLocalDataChange → pushLocalChanges loop.
-                                        DispatchQueue.main.async {
-                                            NotificationCenter.default.post(name: .budgetGroupDataChanged, object: nil)
-                                        }
                                         self.syncQueue.async {
                                             // Diagnostic: group balance state
                                             if let uid = UIDUserDefaultsManager.shared.currentUserUID {
@@ -252,6 +249,21 @@ final class SyncEngine {
                                             self.status = .synced
                                             self.isSyncing = false
                                             self.drainPostSyncPush()
+
+                                            // Post ALL data notifications once at the end of the sync cycle.
+                                            // This ensures the UI only refreshes after pull + reconciliation
+                                            // + push have all completed, avoiding intermediate broken states.
+                                            // handleLocalDataChange guards against re-entrance via isSyncing check
+                                            // and any pending records will already have been pushed above.
+                                            TransactionRepository.invalidateCache()
+                                            DispatchQueue.main.async {
+                                                NotificationCenter.default.post(name: .transactionDataChanged, object: nil)
+                                                NotificationCenter.default.post(name: .budgetDataChanged, object: nil)
+                                                NotificationCenter.default.post(name: .creditCardDataChanged, object: nil)
+                                                NotificationCenter.default.post(name: .allocationDataChanged, object: nil)
+                                                NotificationCenter.default.post(name: .budgetGroupDataChanged, object: nil)
+                                            }
+
                                             completion?()
                                         }
                                     }
@@ -414,12 +426,9 @@ final class SyncEngine {
                     // Running dedup after every sync was too aggressive — it deleted
                     // legitimate transactions that shared (title, budget_month_date).
 
-                    DispatchQueue.main.async {
-                        NotificationCenter.default.post(name: .transactionDataChanged, object: nil)
-                        NotificationCenter.default.post(name: .budgetDataChanged, object: nil)
-                        NotificationCenter.default.post(name: .creditCardDataChanged, object: nil)
-                        NotificationCenter.default.post(name: .allocationDataChanged, object: nil)
-                    }
+                    // Data notifications are deferred to the end of the sync cycle
+                    // so the UI only refreshes once all pull + reconciliation + push
+                    // steps have completed, avoiding intermediate/broken states.
                     completion(.success(()))
                 case .failure(let error):
                     if let ckError = error as? CKError, ckError.code == .changeTokenExpired {
@@ -432,6 +441,63 @@ final class SyncEngine {
                 }
             }
         )
+    }
+
+    // MARK: - Group Zone Routing
+
+    /// Returns the appropriate CKRecordZone.ID for a given group.
+    /// For groups owned by the current user, returns the group zone in the private DB.
+    /// Otherwise, returns the private zone (member-to-owner push not yet supported).
+    private func targetZoneID(forGroupId groupId: String?) -> CKRecordZone.ID {
+        guard let groupId = groupId, !groupId.isEmpty else {
+            return CloudKitManager.privateZoneID
+        }
+
+        let group = BudgetGroupRepository().fetchGroup(byId: groupId)
+        guard let group = group, group.isOwner else {
+            return CloudKitManager.privateZoneID
+        }
+
+        return CKRecordZone.ID(zoneName: "Group-\(groupId)", ownerName: CKCurrentUserDefaultName)
+    }
+
+    /// One-time migration: marks group-tagged synced records as pending so they get
+    /// re-pushed to group zones instead of FinovaPrivateZone.
+    private func migrateGroupRecordsToGroupZones() {
+        guard !UserDefaults.standard.bool(forKey: "hasCompletedGroupZoneMigration_v1") else { return }
+
+        // Tables with shared_group_id column
+        let groupTables = ["Transactions", "Budgets", "CreditCards", "BudgetAllocations"]
+        for table in groupTables {
+            DBHelper.shared.executeSyncUpdate(
+                "UPDATE \(table) SET sync_status = 'pending' WHERE sync_status = 'synced' AND shared_group_id IS NOT NULL AND shared_group_id != '';",
+                textBindings: []
+            )
+        }
+
+        // CreditCardStatements don't have shared_group_id — mark them pending
+        // if their parent credit card belongs to a group
+        DBHelper.shared.executeSyncUpdate(
+            "UPDATE CreditCardStatements SET sync_status = 'pending' WHERE sync_status = 'synced' AND credit_card_id IN (SELECT id FROM CreditCards WHERE shared_group_id IS NOT NULL AND shared_group_id != '');",
+            textBindings: []
+        )
+
+        TransactionRepository.invalidateCache()
+        UserDefaults.standard.set(true, forKey: "hasCompletedGroupZoneMigration_v1")
+        logWarning("[Sync] Migrated group records to pending for group zone push")
+    }
+
+    /// Recovery: if the group zone migration already ran and the private-zone
+    /// deletes corrupted local data, reset tokens to force a full re-fetch
+    /// from CloudKit.  The Group zone still has every record, so the pull
+    /// will restore whatever was lost.
+    private func recoverFromGroupZoneMigration() {
+        guard UserDefaults.standard.bool(forKey: "hasCompletedGroupZoneMigration_v1"),
+              !UserDefaults.standard.bool(forKey: "hasRecoveredGroupZoneMigration_v1") else { return }
+
+        logWarning("[Sync] Recovering from group zone migration — resetting tokens for full re-fetch")
+        stateManager.resetAllTokens()
+        UserDefaults.standard.set(true, forKey: "hasRecoveredGroupZoneMigration_v1")
     }
 
     // MARK: - Push Local Changes
@@ -457,13 +523,16 @@ final class SyncEngine {
         logWarning("[Sync] Transactions: \(allTxCount) total, \(pendingTransactions.count) pending")
         for tx in pendingTransactions {
             let storedName = tx.id.flatMap { txRepo.fetchCKRecordName(for: $0) }
-            let record = tx.toCKRecord(in: CloudKitManager.privateZoneID, storedRecordName: storedName)
+            let groupId = tx.id.flatMap { txRepo.fetchSharedGroupId(for: $0) }
+            let zone = targetZoneID(forGroupId: groupId)
+
+            let record = tx.toCKRecord(in: zone, storedRecordName: storedName)
             // Phase 3B: Store CK record name before push
             if let txId = tx.id, storedName == nil {
                 txRepo.setCKRecordId(for: txId, ckRecordName: record.recordID.recordName)
             }
-            // Mirror mode: include shared_group_id in CK record
-            if let txId = tx.id, let groupId = txRepo.fetchSharedGroupId(for: txId) {
+            // Include shared_group_id in CK record
+            if let groupId = groupId {
                 record["sharedGroupId"] = groupId as CKRecordValue
             }
             allRecords.append(record)
@@ -471,19 +540,28 @@ final class SyncEngine {
 
         // Transaction deletes
         for pending in txRepo.fetchPendingDeletes() {
-            allDeleteIDs.append(CKRecord.ID(recordName: pending.ckRecordName, zoneID: CloudKitManager.privateZoneID))
+            let groupId = txRepo.fetchSharedGroupId(for: pending.localId)
+            let zone = targetZoneID(forGroupId: groupId)
+            allDeleteIDs.append(CKRecord.ID(recordName: pending.ckRecordName, zoneID: zone))
         }
 
         // Budgets (uses monthDate as key — deterministic across devices)
         let budgetRepo = BudgetRepository()
         let pendingBudgets = budgetRepo.fetchPendingSync()
-        allRecords += pendingBudgets.map {
-            $0.toCKRecord(in: CloudKitManager.privateZoneID)
+        for budget in pendingBudgets {
+            let zone = targetZoneID(forGroupId: budget.sharedGroupId)
+            let record = budget.toCKRecord(in: zone)
+            allRecords.append(record)
         }
 
         // Budget deletes
         for pending in budgetRepo.fetchPendingDeletes() {
-            allDeleteIDs.append(CKRecord.ID(recordName: pending.ckRecordName, zoneID: CloudKitManager.privateZoneID))
+            let groupId = DBHelper.shared.fetchSingleString(
+                "SELECT shared_group_id FROM Budgets WHERE month_date = ?;",
+                intBinding: pending.monthDate
+            )
+            let zone = targetZoneID(forGroupId: groupId)
+            allDeleteIDs.append(CKRecord.ID(recordName: pending.ckRecordName, zoneID: zone))
         }
 
         // Credit Cards — use stored ck_record_id
@@ -491,12 +569,14 @@ final class SyncEngine {
         let pendingCards = cardRepo.fetchPendingSync()
         for card in pendingCards {
             let storedName = card.id.flatMap { cardRepo.fetchCKRecordName(for: $0) }
-            let record = card.toCKRecord(in: CloudKitManager.privateZoneID, storedRecordName: storedName)
+            let groupId = card.sharedGroupId
+            let zone = targetZoneID(forGroupId: groupId)
+
+            let record = card.toCKRecord(in: zone, storedRecordName: storedName)
             if let cardId = card.id, storedName == nil {
                 cardRepo.setCKRecordId(for: cardId, ckRecordName: record.recordID.recordName)
             }
-            // Mirror mode: include shared_group_id in CK record
-            if let cardId = card.id, let groupId = cardRepo.fetchSharedGroupId(for: cardId) {
+            if let groupId = groupId {
                 record["sharedGroupId"] = groupId as CKRecordValue
             }
             allRecords.append(record)
@@ -504,15 +584,21 @@ final class SyncEngine {
 
         // Credit Card deletes
         for pending in cardRepo.fetchPendingDeletes() {
-            allDeleteIDs.append(CKRecord.ID(recordName: pending.ckRecordName, zoneID: CloudKitManager.privateZoneID))
+            let groupId = cardRepo.fetchSharedGroupId(for: pending.localId)
+            let zone = targetZoneID(forGroupId: groupId)
+            allDeleteIDs.append(CKRecord.ID(recordName: pending.ckRecordName, zoneID: zone))
         }
 
         // Credit Card Statements — use stored ck_record_id
+        // Statements inherit their group zone from their parent credit card
         let stmtRepo = StatementRepository()
         let pendingStmts = stmtRepo.fetchPendingSync()
         for stmt in pendingStmts {
             let storedName = stmt.id.flatMap { stmtRepo.fetchCKRecordName(for: $0) }
-            let record = stmt.toCKRecord(in: CloudKitManager.privateZoneID, storedRecordName: storedName)
+            let parentGroupId = cardRepo.fetchSharedGroupId(for: stmt.creditCardId)
+            let zone = targetZoneID(forGroupId: parentGroupId)
+
+            let record = stmt.toCKRecord(in: zone, storedRecordName: storedName)
             if let stmtId = stmt.id, storedName == nil {
                 stmtRepo.setCKRecordId(for: stmtId, ckRecordName: record.recordID.recordName)
             }
@@ -521,7 +607,13 @@ final class SyncEngine {
 
         // Statement deletes
         for pending in stmtRepo.fetchPendingDeletes() {
-            allDeleteIDs.append(CKRecord.ID(recordName: pending.ckRecordName, zoneID: CloudKitManager.privateZoneID))
+            let parentCardId = DBHelper.shared.fetchSingleInt(
+                "SELECT credit_card_id FROM CreditCardStatements WHERE id = ?;",
+                intBinding: pending.localId
+            )
+            let parentGroupId = parentCardId.flatMap { cardRepo.fetchSharedGroupId(for: $0) }
+            let zone = targetZoneID(forGroupId: parentGroupId)
+            allDeleteIDs.append(CKRecord.ID(recordName: pending.ckRecordName, zoneID: zone))
         }
 
         // Budget Allocations — use stored ck_record_id
@@ -529,7 +621,9 @@ final class SyncEngine {
         let pendingAllocs = allocRepo.fetchPendingSync()
         for alloc in pendingAllocs {
             let storedName = alloc.id.flatMap { allocRepo.fetchCKRecordName(for: $0) }
-            let record = alloc.toCKRecord(in: CloudKitManager.privateZoneID, storedRecordName: storedName)
+            let zone = targetZoneID(forGroupId: alloc.sharedGroupId)
+
+            let record = alloc.toCKRecord(in: zone, storedRecordName: storedName)
             if let allocId = alloc.id, storedName == nil {
                 allocRepo.setCKRecordId(for: allocId, ckRecordName: record.recordID.recordName)
             }
@@ -538,7 +632,12 @@ final class SyncEngine {
 
         // Allocation deletes
         for pending in allocRepo.fetchPendingDeletes() {
-            allDeleteIDs.append(CKRecord.ID(recordName: pending.ckRecordName, zoneID: CloudKitManager.privateZoneID))
+            let groupId = DBHelper.shared.fetchSingleString(
+                "SELECT shared_group_id FROM BudgetAllocations WHERE id = ?;",
+                intBinding: pending.localId
+            )
+            let zone = targetZoneID(forGroupId: groupId)
+            allDeleteIDs.append(CKRecord.ID(recordName: pending.ckRecordName, zoneID: zone))
         }
 
         logWarning("[Sync] Push: \(allRecords.count) record(s) to save, \(allDeleteIDs.count) to delete")
@@ -730,7 +829,27 @@ final class SyncEngine {
     // MARK: - Process Incoming Records
 
     private func processIncomingRecord(_ record: CKRecord) {
-        logWarning("[Sync] Processing incoming record: type=\(record.recordType), name=\(record.recordID.recordName)")
+        logWarning("[Sync] Processing incoming record: type=\(record.recordType), name=\(record.recordID.recordName), zone=\(record.recordID.zoneID.zoneName)")
+
+        // Extract group ID from zone name (e.g. "Group-ABC123" → "ABC123")
+        // and inject into the record so ConflictResolver can tag it
+        let zoneName = record.recordID.zoneID.zoneName
+        if zoneName.hasPrefix("Group-"), record["sharedGroupId"] == nil {
+            let groupId = String(zoneName.dropFirst("Group-".count))
+            record["sharedGroupId"] = groupId as CKRecordValue
+        }
+
+        // Mirror mode: records from the private zone don't carry sharedGroupId in CloudKit.
+        // Without this, updateFromCloud(sharedGroupId: nil) clears shared_group_id on the
+        // local record, breaking the group view until reconcileMirrorData re-tags them.
+        // Inject the linked group ID so the local tag is preserved through the pull.
+        if !zoneName.hasPrefix("Group-"),
+           record["sharedGroupId"] == nil,
+           MirrorModeManager.shared.isEnabled,
+           let mirrorGroupId = MirrorModeManager.shared.linkedGroupId {
+            record["sharedGroupId"] = mirrorGroupId as CKRecordValue
+        }
+
         switch record.recordType {
         case "Transaction":
             guard let transaction = Transaction.fromCKRecord(record) else {
@@ -822,9 +941,8 @@ final class SyncEngine {
                     UserDefaults.standard.set(offset, forKey: "balanceOffset_\(uid)")
                 }
             }
-            if didUpdate {
-                NotificationCenter.default.post(name: .transactionDataChanged, object: nil)
-            }
+            // Balance offset update notification is deferred to the end of
+            // the sync cycle along with all other data notifications.
         }
     }
 
