@@ -12,7 +12,7 @@ This document outlines a **hybrid release strategy** that combines the best of b
 |--------|--------|
 | **Current Version** | 1.0.5 (in development: 1.4.0) |
 | **Architecture** | MVVM + Repository + Flow Coordinator |
-| **Data Storage** | Local SQLite with CryptoKit encryption |
+| **Data Storage** | Local SQLite |
 | **Cloud Capabilities** | Firebase Auth only (no data sync) |
 | **Monetization** | None (StoreKit not implemented) |
 | **User Base** | Small early adopter group |
