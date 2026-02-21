@@ -114,6 +114,13 @@ final class TransactionLedgerService {
       let expense = cashTransactions.filter { $0.type == .expense }.reduce(0) { $0 + $1.amount }
       let income = cashTransactions.filter { $0.type == .income }.reduce(0) { $0 + $1.amount }
       let budgetLimit = budgetsByAnchor[anchor]
+
+      // usedValue counts CC expenses in the month they were purchased (same logic as personal path).
+      let usedTransactions = transactionsForMonth.filter { tx in
+        tx.isCreditCardStatement != true
+      }
+      let usedValue = usedTransactions.filter { $0.type == .expense }.reduce(0) { $0 + $1.amount }
+
       let net = income - expense
       let available = previousAvailable + net
 
@@ -125,7 +132,7 @@ final class TransactionLedgerService {
       let monthData = MonthBudgetCardType(
         date: date,
         month: localizedMonth,
-        usedValue: expense,
+        usedValue: usedValue,
         budgetLimit: budgetLimit,
         finalBalance: available,
         currentBalance: currentBalance,
@@ -284,6 +291,14 @@ final class TransactionLedgerService {
       let income = cashTransactions.filter { $0.type == .income }.reduce(0) { $0 + $1.amount }
       let budgetLimit = budgetsByAnchor[anchor]
 
+      // usedValue counts CC expenses in the month they were purchased, not when the statement is due.
+      // Synthetic CC statement transactions (isCreditCardStatement == true) are excluded so they
+      // don't double-count in the due month; individual CC transactions appear here by purchase date.
+      let usedTransactions = transactionsForMonth.filter { tx in
+        tx.isCreditCardStatement != true
+      }
+      let usedValue = usedTransactions.filter { $0.type == .expense }.reduce(0) { $0 + $1.amount }
+
       let net = income - expense
       let available = previousAvailable + net
 
@@ -294,7 +309,7 @@ final class TransactionLedgerService {
       let monthData = MonthBudgetCardType(
         date: date,
         month: localizedMonth,
-        usedValue: expense,
+        usedValue: usedValue,
         budgetLimit: budgetLimit,
         finalBalance: available,
         currentBalance: currentBalance,
