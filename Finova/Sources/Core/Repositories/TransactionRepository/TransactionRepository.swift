@@ -251,7 +251,15 @@ final class TransactionRepository: TransactionRepositoryProtocol {
     let finalCreditCardId = templateTransaction.data.creditCardId ?? originalCreditCardId
     let oldStatementIds = Set(relatedTransactions.compactMap { $0.statementId })
 
+    // Update the parent installment record in place rather than deleting it.
+    // Deleting the parent causes newly-created children to point to a soft-deleted
+    // (invisible) parent, making the edit appear as a "new set" of transactions.
+    try updateTransactionDirectly(templateTransaction)
+    markSyncPending(for: mainInstallmentTransactionId)
+
+    // Delete only the individual installment children, not the parent.
     for relatedTransaction in relatedTransactions {
+      guard relatedTransaction.parentTransactionId != nil else { continue }
       if let id = relatedTransaction.id {
         try delete(id: id)
       }
