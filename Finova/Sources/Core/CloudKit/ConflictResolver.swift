@@ -13,6 +13,17 @@ final class ConflictResolver {
 
     private init() {}
 
+    // MARK: - System Fields Persistence
+
+    /// Encodes a CKRecord's system fields (including recordChangeTag) and persists them
+    /// so the next push can use `.ifServerRecordUnchanged` with the correct tag.
+    private func storeSystemFields(from ckRecord: CKRecord, table: String) {
+        let coder = NSKeyedArchiver(requiringSecureCoding: true)
+        ckRecord.encodeSystemFields(with: coder)
+        coder.finishEncoding()
+        DBHelper.shared.saveSystemFields(coder.encodedData, ckRecordName: ckRecord.recordID.recordName, table: table)
+    }
+
     // MARK: - Transaction
 
     func resolveTransaction(remote: Transaction, ckRecord: CKRecord) {
@@ -23,13 +34,18 @@ final class ConflictResolver {
         // Step 1: Match by CK record name (most reliable)
         if let existing = repo.fetchTransaction(byCKRecordName: recordName) {
             let remoteModDate = ckRecord.modificationDate ?? Date.distantPast
-            let localModDate = repo.lastModifiedDate(for: existing.id ?? 0) ?? Date.distantPast
-
-            if remoteModDate > localModDate {
-                repo.updateFromCloud(remote, ckRecordName: recordName, sharedGroupId: sharedGroupId)
+            if let localModDate = repo.lastModifiedDate(for: existing.id ?? 0) {
+                if remoteModDate > localModDate {
+                    repo.updateFromCloud(remote, ckRecordName: recordName, sharedGroupId: sharedGroupId)
+                } else {
+                    repo.markSyncPending(for: existing.id ?? 0)
+                }
             } else {
+                // No local modification timestamp — record was created locally but never synced.
+                // Keep the local data; markSyncPending will set ck_modified_at and it will be pushed.
                 repo.markSyncPending(for: existing.id ?? 0)
             }
+            storeSystemFields(from: ckRecord, table: "Transactions")
             return
         }
 
@@ -58,13 +74,16 @@ final class ConflictResolver {
                         repo.setCKRecordId(for: localId, ckRecordName: recordName)
 
                         let remoteModDate = ckRecord.modificationDate ?? Date.distantPast
-                        let localModDate = repo.lastModifiedDate(for: localId) ?? Date.distantPast
-
-                        if remoteModDate > localModDate {
-                            repo.updateFromCloud(remote, ckRecordName: recordName, sharedGroupId: sharedGroupId)
+                        if let localModDate = repo.lastModifiedDate(for: localId) {
+                            if remoteModDate > localModDate {
+                                repo.updateFromCloud(remote, ckRecordName: recordName, sharedGroupId: sharedGroupId)
+                            } else {
+                                repo.markSyncPending(for: localId)
+                            }
                         } else {
                             repo.markSyncPending(for: localId)
                         }
+                        storeSystemFields(from: ckRecord, table: "Transactions")
                         return
                     }
                     // Already linked to a different CK record — skip to avoid duplicate
@@ -73,6 +92,23 @@ final class ConflictResolver {
                     }
                 }
             }
+        }
+
+        // Creation-date guard: if this CKRecord was first saved to CloudKit AFTER this
+        // device's last successful pull, this device has never seen it before.
+        // Skip the fuzzy-match steps (3 & 4) — there is no valid local counterpart to
+        // link it to, and matching by title/amount/month risks conflating it with a
+        // completely different local transaction that silently overwrites Device A's data.
+        // (If both devices independently created the same transaction, they will appear
+        // as two separate CloudKit records — a visible duplicate is better than silent loss.)
+        // Note: if lastSyncDate is nil (never synced), skip this guard so first-sync
+        // deduplication still runs normally.
+        if let creationDate = ckRecord.creationDate,
+           let lastSync = SyncStateManager.shared.lastSyncDate(for: "privateDB"),
+           creationDate > lastSync {
+            repo.insertFromCloud(remote, ckRecordName: recordName, parentCKRecordName: parentCKRecordName, sharedGroupId: sharedGroupId)
+            storeSystemFields(from: ckRecord, table: "Transactions")
+            return
         }
 
         // Step 3: Fallback for recurring instances — match by title + amount + month
@@ -89,13 +125,16 @@ final class ConflictResolver {
                     repo.setCKRecordId(for: localId, ckRecordName: recordName)
 
                     let remoteModDate = ckRecord.modificationDate ?? Date.distantPast
-                    let localModDate = repo.lastModifiedDate(for: localId) ?? Date.distantPast
-
-                    if remoteModDate > localModDate {
-                        repo.updateFromCloud(remote, ckRecordName: recordName, sharedGroupId: sharedGroupId)
+                    if let localModDate = repo.lastModifiedDate(for: localId) {
+                        if remoteModDate > localModDate {
+                            repo.updateFromCloud(remote, ckRecordName: recordName, sharedGroupId: sharedGroupId)
+                        } else {
+                            repo.markSyncPending(for: localId)
+                        }
                     } else {
                         repo.markSyncPending(for: localId)
                     }
+                    storeSystemFields(from: ckRecord, table: "Transactions")
                     return
                 }
                 if existingCKName != recordName {
@@ -116,13 +155,16 @@ final class ConflictResolver {
                 repo.setCKRecordId(for: localId, ckRecordName: recordName)
 
                 let remoteModDate = ckRecord.modificationDate ?? Date.distantPast
-                let localModDate = repo.lastModifiedDate(for: localId) ?? Date.distantPast
-
-                if remoteModDate > localModDate {
-                    repo.updateFromCloud(remote, ckRecordName: recordName, sharedGroupId: sharedGroupId)
+                if let localModDate = repo.lastModifiedDate(for: localId) {
+                    if remoteModDate > localModDate {
+                        repo.updateFromCloud(remote, ckRecordName: recordName, sharedGroupId: sharedGroupId)
+                    } else {
+                        repo.markSyncPending(for: localId)
+                    }
                 } else {
                     repo.markSyncPending(for: localId)
                 }
+                storeSystemFields(from: ckRecord, table: "Transactions")
                 return
             }
             // Already linked to a different CK record — skip to avoid duplicate
@@ -133,6 +175,7 @@ final class ConflictResolver {
 
         // Phase 4C: Pass parentCKRecordName so insertFromCloud can remap parent ID
         repo.insertFromCloud(remote, ckRecordName: recordName, parentCKRecordName: parentCKRecordName, sharedGroupId: sharedGroupId)
+        storeSystemFields(from: ckRecord, table: "Transactions")
     }
 
     // MARK: - Budget
@@ -143,13 +186,16 @@ final class ConflictResolver {
 
         if let existing = repo.fetchBudget(byCKRecordName: recordName) {
             let remoteModDate = ckRecord.modificationDate ?? Date.distantPast
-            let localModDate = repo.lastModifiedDate(forMonthDate: existing.monthDate) ?? Date.distantPast
-
-            if remoteModDate > localModDate {
-                repo.updateFromCloud(remote, ckRecordName: recordName)
+            if let localModDate = repo.lastModifiedDate(forMonthDate: existing.monthDate) {
+                if remoteModDate > localModDate {
+                    repo.updateFromCloud(remote, ckRecordName: recordName)
+                } else {
+                    repo.markSyncPending(forMonthDate: existing.monthDate)
+                }
             } else {
                 repo.markSyncPending(forMonthDate: existing.monthDate)
             }
+            storeSystemFields(from: ckRecord, table: "Budgets")
             return
         }
 
@@ -157,17 +203,21 @@ final class ConflictResolver {
             repo.setCKRecordId(forMonthDate: remote.monthDate, ckRecordName: recordName)
 
             let remoteModDate = ckRecord.modificationDate ?? Date.distantPast
-            let localModDate = repo.lastModifiedDate(forMonthDate: local.monthDate) ?? Date.distantPast
-
-            if remoteModDate > localModDate {
-                repo.updateFromCloud(remote, ckRecordName: recordName)
+            if let localModDate = repo.lastModifiedDate(forMonthDate: local.monthDate) {
+                if remoteModDate > localModDate {
+                    repo.updateFromCloud(remote, ckRecordName: recordName)
+                } else {
+                    repo.markSyncPending(forMonthDate: local.monthDate)
+                }
             } else {
                 repo.markSyncPending(forMonthDate: local.monthDate)
             }
+            storeSystemFields(from: ckRecord, table: "Budgets")
             return
         }
 
         repo.insertFromCloud(remote, ckRecordName: recordName)
+        storeSystemFields(from: ckRecord, table: "Budgets")
     }
 
     // MARK: - Credit Card
@@ -178,13 +228,16 @@ final class ConflictResolver {
 
         if let existing = repo.fetchCard(byCKRecordName: recordName) {
             let remoteModDate = ckRecord.modificationDate ?? Date.distantPast
-            let localModDate = repo.lastModifiedDate(for: existing.id ?? 0) ?? Date.distantPast
-
-            if remoteModDate > localModDate {
-                repo.updateFromCloud(remote, ckRecordName: recordName)
+            if let localModDate = repo.lastModifiedDate(for: existing.id ?? 0) {
+                if remoteModDate > localModDate {
+                    repo.updateFromCloud(remote, ckRecordName: recordName)
+                } else {
+                    repo.markSyncPending(for: existing.id ?? 0)
+                }
             } else {
                 repo.markSyncPending(for: existing.id ?? 0)
             }
+            storeSystemFields(from: ckRecord, table: "CreditCards")
             return
         }
 
@@ -192,6 +245,7 @@ final class ConflictResolver {
         // matching by local auto-increment ID is dangerous (cross-device ID collisions).
 
         repo.insertFromCloud(remote, ckRecordName: recordName)
+        storeSystemFields(from: ckRecord, table: "CreditCards")
     }
 
     // MARK: - Credit Card Statement
@@ -202,13 +256,16 @@ final class ConflictResolver {
 
         if let existing = repo.fetchStatement(byCKRecordName: recordName) {
             let remoteModDate = ckRecord.modificationDate ?? Date.distantPast
-            let localModDate = repo.lastModifiedDate(for: existing.id ?? 0) ?? Date.distantPast
-
-            if remoteModDate > localModDate {
-                repo.updateFromCloud(remote, ckRecordName: recordName)
+            if let localModDate = repo.lastModifiedDate(for: existing.id ?? 0) {
+                if remoteModDate > localModDate {
+                    repo.updateFromCloud(remote, ckRecordName: recordName)
+                } else {
+                    repo.markSyncPending(for: existing.id ?? 0)
+                }
             } else {
                 repo.markSyncPending(for: existing.id ?? 0)
             }
+            storeSystemFields(from: ckRecord, table: "CreditCardStatements")
             return
         }
 
@@ -216,6 +273,7 @@ final class ConflictResolver {
         // matching by local auto-increment ID is dangerous (cross-device ID collisions).
 
         repo.insertFromCloud(remote, ckRecordName: recordName)
+        storeSystemFields(from: ckRecord, table: "CreditCardStatements")
     }
 
     // MARK: - Budget Allocation
@@ -226,13 +284,16 @@ final class ConflictResolver {
 
         if let existing = repo.fetchAllocation(byCKRecordName: recordName) {
             let remoteModDate = ckRecord.modificationDate ?? Date.distantPast
-            let localModDate = repo.lastModifiedDate(for: existing.id ?? 0) ?? Date.distantPast
-
-            if remoteModDate > localModDate {
-                repo.updateFromCloud(remote, ckRecordName: recordName)
+            if let localModDate = repo.lastModifiedDate(for: existing.id ?? 0) {
+                if remoteModDate > localModDate {
+                    repo.updateFromCloud(remote, ckRecordName: recordName)
+                } else {
+                    repo.markSyncPending(for: existing.id ?? 0)
+                }
             } else {
                 repo.markSyncPending(for: existing.id ?? 0)
             }
+            storeSystemFields(from: ckRecord, table: "BudgetAllocations")
             return
         }
 
@@ -240,5 +301,6 @@ final class ConflictResolver {
         // matching by local auto-increment ID is dangerous (cross-device ID collisions).
 
         repo.insertFromCloud(remote, ckRecordName: recordName)
+        storeSystemFields(from: ckRecord, table: "BudgetAllocations")
     }
 }

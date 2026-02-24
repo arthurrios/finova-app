@@ -16,6 +16,9 @@ final class AddTransactionModalViewController: UIViewController {
   // Track if we're in edit mode for keyboard handling
   private var isEditMode = false
 
+  // Used to cancel the hide-reset when the user switches directly between fields
+  private var keyboardHideWorkItem: DispatchWorkItem?
+
   init(
     contentView: AddTransactionModalView, flowDelegate: AddTransactionModalFlowDelegate,
     viewModel: AddTransactionModalViewModel
@@ -435,6 +438,11 @@ extension AddTransactionModalViewController: AddTransactionModalViewDelegate,
   }
 
   @objc private func modalKeyboardWillShow(notification: Notification) {
+    // If the user switched directly from one field to another, cancel the pending
+    // hide-reset so the modal doesn't jump down then back up.
+    keyboardHideWorkItem?.cancel()
+    keyboardHideWorkItem = nil
+
     guard
       let keyboardFrame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey]
         as? CGRect,
@@ -444,21 +452,18 @@ extension AddTransactionModalViewController: AddTransactionModalViewDelegate,
       return
     }
 
-    // Calculate the available space above the keyboard
-    let keyboardHeight = keyboardFrame.height
-    let viewHeight = view.frame.height
-    let keyboardTopY = viewHeight - keyboardHeight
+    // Convert keyboard frame to this view's coordinate space so the math is correct
+    // even when the VC is presented as a sheet on iPad (not necessarily full-screen).
+    let keyboardTopY = view.convert(keyboardFrame, from: nil).minY
 
-    // Get the modal's current position
-    let modalBottomY = contentView.frame.maxY
+    // Shift exactly enough so the active input clears the keyboard with 16pt padding.
+    // Using the precise field position avoids under-shifting (which lets the keyboard
+    // overlap the input and intercept touches) and over-shifting.
+    let fieldOriginalBottom = activeInputOriginalBottomY()
+    let targetY = keyboardTopY - 16
 
-    // Check if the modal is being covered by the keyboard
-    if modalBottomY > keyboardTopY {
-      // Modal is being covered - calculate how much to shift up
-      let overlap = modalBottomY - keyboardTopY
-      // Shift by more of the overlap to ensure keyboard clearance
-      let shiftAmount = min(overlap * 0.7, 200)  // Max 200px shift, or 70% of overlap
-
+    if fieldOriginalBottom > targetY {
+      let shiftAmount = fieldOriginalBottom - targetY
       UIView.animate(withDuration: animationDuration, delay: 0, options: [.curveEaseInOut]) {
         self.contentView.transform = CGAffineTransform(translationX: 0, y: -shiftAmount)
       }
@@ -471,8 +476,40 @@ extension AddTransactionModalViewController: AddTransactionModalViewDelegate,
         UIResponder.keyboardAnimationDurationUserInfoKey] as? Double
     else { return }
 
-    UIView.animate(withDuration: animationDuration, delay: 0, options: [.curveEaseInOut]) {
-      self.contentView.transform = .identity
+    // Delay the reset slightly. If another keyboardWillShow arrives within that window
+    // (user switched fields), the work item is cancelled and the modal stays put.
+    let workItem = DispatchWorkItem { [weak self] in
+      UIView.animate(withDuration: animationDuration, delay: 0, options: [.curveEaseInOut]) {
+        self?.contentView.transform = .identity
+      }
     }
+    keyboardHideWorkItem = workItem
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.05, execute: workItem)
+  }
+
+  /// Returns the original (pre-transform) bottom Y of the currently focused input
+  /// in the view controller's view coordinate space.
+  private func activeInputOriginalBottomY() -> CGFloat {
+    func findFirstResponder(in searchView: UIView) -> UIView? {
+      if searchView.isFirstResponder { return searchView }
+      for sub in searchView.subviews {
+        if let found = findFirstResponder(in: sub) { return found }
+      }
+      return nil
+    }
+
+    guard let responder = findFirstResponder(in: contentView) else {
+      // No active input — fall back to the modal's natural bottom edge.
+      return view.bounds.height
+    }
+
+    // Convert the responder's frame into contentView-local coordinates.
+    // This is unaffected by contentView's own transform, so it gives us
+    // the original layout position.
+    let frameInContentView = responder.convert(responder.bounds, to: contentView)
+
+    // contentView is bottom-anchored to view, so its original top = view.height - contentView.height.
+    let originalContentTopY = view.bounds.height - contentView.bounds.height
+    return originalContentTopY + frameInContentView.maxY
   }
 }

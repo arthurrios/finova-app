@@ -50,9 +50,11 @@ class DBHelper {
             try migrateSyncColumnsV2()
             try createBudgetAllocationsTable()
             try migrateSyncColumnsV3()
+            try migrateSyncColumnsV4()
             isInitialized = true
             performSyncFixMigration()
             performParentIdFixMigration()
+            performPendingModifiedAtMigration()
             //            print("✅ Database initialized successfully")
         } catch {
             //            print("⚠️ Database initialization failed: \(error)")
@@ -104,7 +106,7 @@ class DBHelper {
         }
 
         let uid = UIDUserDefaultsManager.shared.currentUserUID
-        let insertQuery = "INSERT INTO Budgets (month_date, amount, user_id) VALUES (?, ?, ?);"
+        let insertQuery = "INSERT INTO Budgets (month_date, amount, user_id, ck_modified_at) VALUES (?, ?, ?, ?);"
         var statement: OpaquePointer?
 
         guard sqlite3_prepare_v2(db, insertQuery, -1, &statement, nil) == SQLITE_OK else {
@@ -121,6 +123,7 @@ class DBHelper {
         } else {
             sqlite3_bind_null(statement, 3)
         }
+        sqlite3_bind_int64(statement, 4, Int64(Date().timeIntervalSince1970))
 
         guard sqlite3_step(statement) == SQLITE_DONE else {
             let msg = String(cString: sqlite3_errmsg(db))
@@ -390,8 +393,9 @@ class DBHelper {
               credit_card_id,
               statement_id,
               is_credit_card_statement,
-              user_id
-              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+              user_id,
+              ck_modified_at
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
       """
         
         var statement: OpaquePointer?
@@ -470,6 +474,8 @@ class DBHelper {
             sqlite3_bind_null(statement, 16)
         }
 
+        sqlite3_bind_int64(statement, 17, Int64(Date().timeIntervalSince1970))
+
         guard sqlite3_step(statement) == SQLITE_DONE else {
             let msg = String(cString: sqlite3_errmsg(db))
             throw DBError.stepFailed(message: msg)
@@ -477,7 +483,7 @@ class DBHelper {
 
         return Int(sqlite3_last_insert_rowid(db))
     }
-    
+
     func getTransactions() throws -> [Transaction] {
         guard isInitialized else {
             logWarning("Database not initialized, returning empty transaction list")
@@ -1271,8 +1277,8 @@ class DBHelper {
         let query = """
         INSERT INTO CreditCards (
           name, last_four_digits, card_brand, closing_day, due_day,
-          credit_limit, card_color, user_id, is_deleted, is_default, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?);
+          credit_limit, card_color, user_id, is_deleted, is_default, created_at, updated_at, ck_modified_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?);
         """
 
         var statement: OpaquePointer?
@@ -1299,6 +1305,7 @@ class DBHelper {
         sqlite3_bind_int(statement, 9, isDefault ? 1 : 0)
         sqlite3_bind_int64(statement, 10, now)
         sqlite3_bind_int64(statement, 11, now)
+        sqlite3_bind_int64(statement, 12, now)
 
         guard sqlite3_step(statement) == SQLITE_DONE else {
             let msg = String(cString: sqlite3_errmsg(db))
@@ -1492,8 +1499,8 @@ class DBHelper {
         guard isInitialized else { return 0 }
         let query = """
         INSERT INTO CreditCardStatements (
-          credit_card_id, closing_date, due_date, total_amount, is_paid, user_id, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, 0, ?, ?, ?);
+          credit_card_id, closing_date, due_date, total_amount, is_paid, user_id, created_at, updated_at, ck_modified_at
+        ) VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?);
         """
         var statement: OpaquePointer?
         guard sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK else {
@@ -1501,7 +1508,7 @@ class DBHelper {
             throw DBError.prepareFailed(message: msg)
         }
         defer { sqlite3_finalize(statement) }
-        
+
         let now = Int64(Date().timeIntervalSince1970)
         sqlite3_bind_int64(statement, 1, Int64(creditCardId))
         sqlite3_bind_int64(statement, 2, Int64(closingDate))
@@ -1510,6 +1517,7 @@ class DBHelper {
         sqlite3_bind_text(statement, 5, userId, -1, SQLITE_TRANSIENT)
         sqlite3_bind_int64(statement, 6, now)
         sqlite3_bind_int64(statement, 7, now)
+        sqlite3_bind_int64(statement, 8, now)
         
         guard sqlite3_step(statement) == SQLITE_DONE else {
             let msg = String(cString: sqlite3_errmsg(db))
@@ -1854,6 +1862,13 @@ class DBHelper {
         try addColumnIfNotExists(table: "Budgets", column: "ck_modified_at", definition: "INTEGER")
         try addColumnIfNotExists(table: "CreditCards", column: "ck_modified_at", definition: "INTEGER")
         try addColumnIfNotExists(table: "CreditCardStatements", column: "ck_modified_at", definition: "INTEGER")
+    }
+
+    private func migrateSyncColumnsV4() throws {
+        let tables = ["Transactions", "Budgets", "CreditCards", "CreditCardStatements", "BudgetAllocations"]
+        for table in tables {
+            try addColumnIfNotExists(table: table, column: "ck_system_fields", definition: "BLOB")
+        }
     }
 
     private func migrateSyncColumnsV3() throws {
@@ -2406,8 +2421,8 @@ class DBHelper {
         guard isInitialized else { return 0 }
         let query = """
             INSERT INTO BudgetAllocations
-                (month_date, category_key, allocated_amount, is_recurring, parent_allocation_id, user_id, shared_group_id, sync_status)
-            VALUES (?, ?, ?, ?, ?, ?, ?, 'pending');
+                (month_date, category_key, allocated_amount, is_recurring, parent_allocation_id, user_id, shared_group_id, sync_status, ck_modified_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?);
             """
         var statement: OpaquePointer?
         guard sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK else { return 0 }
@@ -2432,6 +2447,7 @@ class DBHelper {
         } else {
             sqlite3_bind_null(statement, 7)
         }
+        sqlite3_bind_int64(statement, 8, Int64(Date().timeIntervalSince1970))
 
         guard sqlite3_step(statement) == SQLITE_DONE else { return 0 }
         return Int(sqlite3_last_insert_rowid(db))
@@ -2807,6 +2823,27 @@ class DBHelper {
         logInfo("[SyncFix] Parent ID fix migration v3 completed")
     }
 
+    /// One-time migration: backfill ck_modified_at for pending records that were created
+    /// before Fix 1 (ck_modified_at at INSERT time). Without this, ConflictResolver would
+    /// see localModDate = distantPast and always let the remote win, destroying local data.
+    private func performPendingModifiedAtMigration() {
+        let key = "syncFix_pendingModifiedAt_v1_done"
+        guard !UserDefaults.standard.bool(forKey: key) else { return }
+        guard isInitialized else { return }
+
+        let now = Int(Date().timeIntervalSince1970)
+        let tables = ["Transactions", "Budgets", "CreditCards", "CreditCardStatements", "BudgetAllocations"]
+        for table in tables {
+            executeSyncUpdate(
+                "UPDATE \(table) SET ck_modified_at = ? WHERE ck_modified_at IS NULL AND ck_record_id IS NULL AND sync_status = 'pending';",
+                intBindings: [now]
+            )
+        }
+
+        UserDefaults.standard.set(true, forKey: key)
+        logInfo("[SyncFix] Backfilled ck_modified_at for pending records without CK record ID")
+    }
+
     /// Fixes orphaned parent_transaction_id references after sync.
     /// When records come from CloudKit, parent_transaction_id uses the source device's local ID.
     /// This method finds instances where parent_transaction_id doesn't point to a valid local record
@@ -2994,6 +3031,42 @@ class DBHelper {
             }
         }
         sqlite3_finalize(stmt)
+    }
+
+    // MARK: - CloudKit System Fields (recordChangeTag for ifServerRecordUnchanged)
+
+    private let syncableTables: Set<String> = [
+        "Transactions", "Budgets", "CreditCards", "CreditCardStatements", "BudgetAllocations"
+    ]
+
+    /// Returns the encoded system-fields blob for the record identified by its CK record name.
+    /// Returns nil if no blob has been stored yet (new record) or if the table is unknown.
+    func fetchSystemFields(ckRecordName: String, table: String) -> Data? {
+        guard isInitialized, syncableTables.contains(table) else { return nil }
+        let query = "SELECT ck_system_fields FROM \(table) WHERE ck_record_id = ?;"
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK else { return nil }
+        defer { sqlite3_finalize(statement) }
+        sqlite3_bind_text(statement, 1, ckRecordName, -1, SQLITE_TRANSIENT)
+        guard sqlite3_step(statement) == SQLITE_ROW,
+              sqlite3_column_type(statement, 0) != SQLITE_NULL else { return nil }
+        let length = Int(sqlite3_column_bytes(statement, 0))
+        guard let bytes = sqlite3_column_blob(statement, 0), length > 0 else { return nil }
+        return Data(bytes: bytes, count: length)
+    }
+
+    /// Persists the encoded system-fields blob for the record identified by its CK record name.
+    func saveSystemFields(_ data: Data, ckRecordName: String, table: String) {
+        guard isInitialized, syncableTables.contains(table) else { return }
+        let query = "UPDATE \(table) SET ck_system_fields = ? WHERE ck_record_id = ?;"
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK else { return }
+        defer { sqlite3_finalize(statement) }
+        data.withUnsafeBytes { ptr in
+            sqlite3_bind_blob(statement, 1, ptr.baseAddress, Int32(data.count), SQLITE_TRANSIENT)
+        }
+        sqlite3_bind_text(statement, 2, ckRecordName, -1, SQLITE_TRANSIENT)
+        sqlite3_step(statement)
     }
 
     private func addColumnIfNotExists(table: String, column: String, definition: String) throws {

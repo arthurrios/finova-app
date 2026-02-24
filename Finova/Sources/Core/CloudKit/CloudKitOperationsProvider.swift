@@ -167,7 +167,7 @@ final class RealCloudKitOperations: CloudKitOperationsProvider {
         completion: @escaping (Result<Void, Error>) -> Void
     ) {
         let operation = CKModifyRecordsOperation(recordsToSave: records, recordIDsToDelete: nil)
-        operation.savePolicy = .changedKeys
+        operation.savePolicy = .ifServerRecordUnchanged
         operation.isAtomic = false
 
         operation.perRecordSaveBlock = { recordID, result in

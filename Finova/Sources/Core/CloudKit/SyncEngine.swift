@@ -500,6 +500,46 @@ final class SyncEngine {
         UserDefaults.standard.set(true, forKey: "hasRecoveredGroupZoneMigration_v1")
     }
 
+    // MARK: - CloudKit Record Construction Helpers
+
+    /// Maps a CK record name prefix to its SQLite table name.
+    private func tableForRecordName(_ name: String) -> String? {
+        if name.hasPrefix("transaction-") { return "Transactions" }
+        if name.hasPrefix("budget-") { return "Budgets" }
+        if name.hasPrefix("creditCard-") { return "CreditCards" }
+        if name.hasPrefix("statement-") { return "CreditCardStatements" }
+        if name.hasPrefix("allocation-") { return "BudgetAllocations" }
+        return nil
+    }
+
+    /// Encodes a CKRecord's system fields and stores them in the local DB.
+    private func storeSystemFields(from record: CKRecord) {
+        guard let table = tableForRecordName(record.recordID.recordName) else { return }
+        let coder = NSKeyedArchiver(requiringSecureCoding: true)
+        record.encodeSystemFields(with: coder)
+        coder.finishEncoding()
+        DBHelper.shared.saveSystemFields(coder.encodedData, ckRecordName: record.recordID.recordName, table: table)
+    }
+
+    /// Rebuilds a push-ready CKRecord by merging the local field values (from `fresh`) onto
+    /// a system-fields-bearing CKRecord decoded from `systemFieldsData`.
+    /// This preserves `recordChangeTag`, enabling `.ifServerRecordUnchanged`.
+    /// Falls back to the fresh record when no system fields are stored yet (new records).
+    private func buildCKRecord(fresh: CKRecord, systemFieldsData: Data?) -> CKRecord {
+        guard let data = systemFieldsData,
+              let unarchiver = try? NSKeyedUnarchiver(forReadingFrom: data) else { return fresh }
+        unarchiver.requiresSecureCoding = true
+        guard let archived = CKRecord(coder: unarchiver) else { return fresh }
+        unarchiver.finishDecoding()
+        // Copy all user-defined fields from the fresh record onto the archived one.
+        // The archived record retains its recordChangeTag; the fresh record provides
+        // the current local values.
+        for key in fresh.allKeys() {
+            archived[key] = fresh[key]
+        }
+        return archived
+    }
+
     // MARK: - Push Local Changes
 
     private static let batchSize = 50
@@ -526,16 +566,19 @@ final class SyncEngine {
             let groupId = tx.id.flatMap { txRepo.fetchSharedGroupId(for: $0) }
             let zone = targetZoneID(forGroupId: groupId)
 
-            let record = tx.toCKRecord(in: zone, storedRecordName: storedName)
+            let freshRecord = tx.toCKRecord(in: zone, storedRecordName: storedName)
             // Phase 3B: Store CK record name before push
             if let txId = tx.id, storedName == nil {
-                txRepo.setCKRecordId(for: txId, ckRecordName: record.recordID.recordName)
+                txRepo.setCKRecordId(for: txId, ckRecordName: freshRecord.recordID.recordName)
             }
             // Include shared_group_id in CK record
             if let groupId = groupId {
-                record["sharedGroupId"] = groupId as CKRecordValue
+                freshRecord["sharedGroupId"] = groupId as CKRecordValue
             }
-            allRecords.append(record)
+            let systemFields = storedName.flatMap {
+                DBHelper.shared.fetchSystemFields(ckRecordName: $0, table: "Transactions")
+            }
+            allRecords.append(buildCKRecord(fresh: freshRecord, systemFieldsData: systemFields))
         }
 
         // Transaction deletes
@@ -550,8 +593,10 @@ final class SyncEngine {
         let pendingBudgets = budgetRepo.fetchPendingSync()
         for budget in pendingBudgets {
             let zone = targetZoneID(forGroupId: budget.sharedGroupId)
-            let record = budget.toCKRecord(in: zone)
-            allRecords.append(record)
+            let freshRecord = budget.toCKRecord(in: zone)
+            let budgetRecordName = freshRecord.recordID.recordName
+            let systemFields = DBHelper.shared.fetchSystemFields(ckRecordName: budgetRecordName, table: "Budgets")
+            allRecords.append(buildCKRecord(fresh: freshRecord, systemFieldsData: systemFields))
         }
 
         // Budget deletes
@@ -572,14 +617,17 @@ final class SyncEngine {
             let groupId = card.sharedGroupId
             let zone = targetZoneID(forGroupId: groupId)
 
-            let record = card.toCKRecord(in: zone, storedRecordName: storedName)
+            let freshRecord = card.toCKRecord(in: zone, storedRecordName: storedName)
             if let cardId = card.id, storedName == nil {
-                cardRepo.setCKRecordId(for: cardId, ckRecordName: record.recordID.recordName)
+                cardRepo.setCKRecordId(for: cardId, ckRecordName: freshRecord.recordID.recordName)
             }
             if let groupId = groupId {
-                record["sharedGroupId"] = groupId as CKRecordValue
+                freshRecord["sharedGroupId"] = groupId as CKRecordValue
             }
-            allRecords.append(record)
+            let systemFields = storedName.flatMap {
+                DBHelper.shared.fetchSystemFields(ckRecordName: $0, table: "CreditCards")
+            }
+            allRecords.append(buildCKRecord(fresh: freshRecord, systemFieldsData: systemFields))
         }
 
         // Credit Card deletes
@@ -598,11 +646,14 @@ final class SyncEngine {
             let parentGroupId = cardRepo.fetchSharedGroupId(for: stmt.creditCardId)
             let zone = targetZoneID(forGroupId: parentGroupId)
 
-            let record = stmt.toCKRecord(in: zone, storedRecordName: storedName)
+            let freshRecord = stmt.toCKRecord(in: zone, storedRecordName: storedName)
             if let stmtId = stmt.id, storedName == nil {
-                stmtRepo.setCKRecordId(for: stmtId, ckRecordName: record.recordID.recordName)
+                stmtRepo.setCKRecordId(for: stmtId, ckRecordName: freshRecord.recordID.recordName)
             }
-            allRecords.append(record)
+            let systemFields = storedName.flatMap {
+                DBHelper.shared.fetchSystemFields(ckRecordName: $0, table: "CreditCardStatements")
+            }
+            allRecords.append(buildCKRecord(fresh: freshRecord, systemFieldsData: systemFields))
         }
 
         // Statement deletes
@@ -623,11 +674,14 @@ final class SyncEngine {
             let storedName = alloc.id.flatMap { allocRepo.fetchCKRecordName(for: $0) }
             let zone = targetZoneID(forGroupId: alloc.sharedGroupId)
 
-            let record = alloc.toCKRecord(in: zone, storedRecordName: storedName)
+            let freshRecord = alloc.toCKRecord(in: zone, storedRecordName: storedName)
             if let allocId = alloc.id, storedName == nil {
-                allocRepo.setCKRecordId(for: allocId, ckRecordName: record.recordID.recordName)
+                allocRepo.setCKRecordId(for: allocId, ckRecordName: freshRecord.recordID.recordName)
             }
-            allRecords.append(record)
+            let systemFields = storedName.flatMap {
+                DBHelper.shared.fetchSystemFields(ckRecordName: $0, table: "BudgetAllocations")
+            }
+            allRecords.append(buildCKRecord(fresh: freshRecord, systemFieldsData: systemFields))
         }
 
         // Allocation deletes
@@ -696,8 +750,11 @@ final class SyncEngine {
         cloudKitOps.saveRecords(batch) { [weak self] recordID, result in
             let name = recordID.recordName
             switch result {
-            case .success:
+            case .success(let savedRecord):
                 batchSuccessCount += 1
+                // Store the server-returned record's system fields (includes updated recordChangeTag).
+                // This ensures the next push can use .ifServerRecordUnchanged with the correct tag.
+                self?.storeSystemFields(from: savedRecord)
                 if name.hasPrefix("transaction-") {
                     TransactionRepository().markAsSynced(ckRecordName: name)
                 } else if name.hasPrefix("budget-") {
@@ -711,12 +768,30 @@ final class SyncEngine {
                 }
             case .failure(let error):
                 batchFailureCount += 1
-                if let ckError = error as? CKError, ckError.code == .quotaExceeded {
-                    if !hitQuotaLimit {
-                        hitQuotaLimit = true
-                        let retryAfter = ckError.retryAfterSeconds ?? 300
-                        self?.pushThrottledUntil = Date().addingTimeInterval(retryAfter)
-                        logWarning("[Sync] ⚠️ CloudKit quota exceeded — throttling for \(Int(retryAfter))s. Pending records will sync on next launch.")
+                if let ckError = error as? CKError {
+                    switch ckError.code {
+                    case .serverRecordChanged:
+                        // CloudKit rejected our push because the server has a newer version of the record.
+                        // Process the server record through ConflictResolver to update local state,
+                        // then store its system fields so the next push uses the correct recordChangeTag.
+                        if let serverRecord = ckError.serverRecord {
+                            logWarning("[Sync] ⚠️ serverRecordChanged for \(name) — merging server version")
+                            self?.storeSystemFields(from: serverRecord)
+                            self?.processIncomingRecord(serverRecord)
+                        } else {
+                            logWarning("[Sync] ⚠️ serverRecordChanged for \(name) — no server record in error")
+                        }
+                        // Keep as pending; the next sync cycle will push again with the updated tag.
+                        self?.needsPostSyncPush = true
+                    case .quotaExceeded:
+                        if !hitQuotaLimit {
+                            hitQuotaLimit = true
+                            let retryAfter = ckError.retryAfterSeconds ?? 300
+                            self?.pushThrottledUntil = Date().addingTimeInterval(retryAfter)
+                            logWarning("[Sync] ⚠️ CloudKit quota exceeded — throttling for \(Int(retryAfter))s. Pending records will sync on next launch.")
+                        }
+                    default:
+                        logWarning("[Sync] ❌ Failed to push record \(name): \(error.localizedDescription)")
                     }
                 } else {
                     logWarning("[Sync] ❌ Failed to push record \(name): \(error.localizedDescription)")
