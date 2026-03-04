@@ -83,9 +83,31 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
   }
 
   func sceneDidEnterBackground(_ scene: UIScene) {
-    // Called as the scene transitions from the foreground to the background.
-    // Use this method to save data, release shared resources, and store enough scene-specific state information
-    // to restore the scene back to its current state.
+    logWarning("[AppLifecycle] Scene did enter background — flushing pending sync data")
+
+    let application = UIApplication.shared
+    var backgroundTaskID: UIBackgroundTaskIdentifier = .invalid
+
+    backgroundTaskID = application.beginBackgroundTask(withName: "com.finova.backgroundSyncFlush") {
+      logWarning("[AppLifecycle] Background sync flush task expired by system")
+      if backgroundTaskID != .invalid {
+        application.endBackgroundTask(backgroundTaskID)
+        backgroundTaskID = .invalid
+      }
+    }
+
+    guard backgroundTaskID != .invalid else {
+      logWarning("[AppLifecycle] Failed to begin background task — cannot flush")
+      return
+    }
+
+    SyncEngine.shared.flushPendingChanges { _ in
+      logWarning("[AppLifecycle] Background sync flush finished")
+      if backgroundTaskID != .invalid {
+        application.endBackgroundTask(backgroundTaskID)
+        backgroundTaskID = .invalid
+      }
+    }
   }
 
   // MARK: - App Refresh on Foreground

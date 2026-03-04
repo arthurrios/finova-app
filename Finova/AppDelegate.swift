@@ -82,11 +82,43 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
   }
 
   func applicationWillTerminate(_ application: UIApplication) {
-    // Called when the application is about to terminate.
-    // Save data if appropriate.
+    logWarning("[AppLifecycle] Application will terminate — attempting sync flush")
 
     // Mark that app is terminating gracefully
     UserDefaults.standard.set(false, forKey: "appWasTerminatedGracefully")
+
+    var backgroundTaskID: UIBackgroundTaskIdentifier = .invalid
+
+    backgroundTaskID = application.beginBackgroundTask(withName: "com.finova.terminationSyncFlush") {
+      logWarning("[AppLifecycle] Termination sync flush task expired")
+      if backgroundTaskID != .invalid {
+        application.endBackgroundTask(backgroundTaskID)
+        backgroundTaskID = .invalid
+      }
+    }
+
+    guard backgroundTaskID != .invalid else {
+      logWarning("[AppLifecycle] Failed to begin background task on termination")
+      return
+    }
+
+    // Block the main thread until push completes or times out,
+    // since the process exits when this method returns.
+    let semaphore = DispatchSemaphore(value: 0)
+
+    SyncEngine.shared.flushPendingChanges { _ in
+      semaphore.signal()
+    }
+
+    let result = semaphore.wait(timeout: .now() + 4.0)
+    if result == .timedOut {
+      logWarning("[AppLifecycle] Termination sync flush timed out after 4s")
+    }
+
+    if backgroundTaskID != .invalid {
+      application.endBackgroundTask(backgroundTaskID)
+      backgroundTaskID = .invalid
+    }
   }
 
   private func configureFirebase() {

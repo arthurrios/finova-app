@@ -51,10 +51,12 @@ class DBHelper {
             try createBudgetAllocationsTable()
             try migrateSyncColumnsV3()
             try migrateSyncColumnsV4()
+            try migrateSyncColumnsV5()
             isInitialized = true
             performSyncFixMigration()
             performParentIdFixMigration()
             performPendingModifiedAtMigration()
+            performUpdatedAtBackfill()
             //            print("✅ Database initialized successfully")
         } catch {
             //            print("⚠️ Database initialization failed: \(error)")
@@ -106,7 +108,7 @@ class DBHelper {
         }
 
         let uid = UIDUserDefaultsManager.shared.currentUserUID
-        let insertQuery = "INSERT INTO Budgets (month_date, amount, user_id, ck_modified_at) VALUES (?, ?, ?, ?);"
+        let insertQuery = "INSERT INTO Budgets (month_date, amount, user_id, ck_modified_at, updated_at) VALUES (?, ?, ?, ?, ?);"
         var statement: OpaquePointer?
 
         guard sqlite3_prepare_v2(db, insertQuery, -1, &statement, nil) == SQLITE_OK else {
@@ -123,7 +125,9 @@ class DBHelper {
         } else {
             sqlite3_bind_null(statement, 3)
         }
-        sqlite3_bind_int64(statement, 4, Int64(Date().timeIntervalSince1970))
+        let now = Int64(Date().timeIntervalSince1970)
+        sqlite3_bind_int64(statement, 4, now)
+        sqlite3_bind_int64(statement, 5, now)
 
         guard sqlite3_step(statement) == SQLITE_DONE else {
             let msg = String(cString: sqlite3_errmsg(db))
@@ -139,30 +143,36 @@ class DBHelper {
 
         let updateQuery: String
         if let uid = UIDUserDefaultsManager.shared.currentUserUID {
-            updateQuery = "UPDATE Budgets SET amount = ? WHERE month_date = ? AND user_id = ?;"
+            updateQuery = "UPDATE Budgets SET amount = ?, sync_status = 'pending', ck_modified_at = ?, updated_at = ? WHERE month_date = ? AND user_id = ?;"
             var statement: OpaquePointer?
             guard sqlite3_prepare_v2(db, updateQuery, -1, &statement, nil) == SQLITE_OK else {
                 let msg = String(cString: sqlite3_errmsg(db))
                 throw DBError.prepareFailed(message: msg)
             }
             defer { sqlite3_finalize(statement) }
+            let now = Int64(Date().timeIntervalSince1970)
             sqlite3_bind_int64(statement, 1, Int64(amount))
-            sqlite3_bind_int64(statement, 2, Int64(monthDate))
-            sqlite3_bind_text(statement, 3, uid, -1, SQLITE_TRANSIENT)
+            sqlite3_bind_int64(statement, 2, now)
+            sqlite3_bind_int64(statement, 3, now)
+            sqlite3_bind_int64(statement, 4, Int64(monthDate))
+            sqlite3_bind_text(statement, 5, uid, -1, SQLITE_TRANSIENT)
             guard sqlite3_step(statement) == SQLITE_DONE else {
                 let msg = String(cString: sqlite3_errmsg(db))
                 throw DBError.stepFailed(message: msg)
             }
         } else {
-            updateQuery = "UPDATE Budgets SET amount = ? WHERE month_date = ?;"
+            updateQuery = "UPDATE Budgets SET amount = ?, sync_status = 'pending', ck_modified_at = ?, updated_at = ? WHERE month_date = ?;"
             var statement: OpaquePointer?
             guard sqlite3_prepare_v2(db, updateQuery, -1, &statement, nil) == SQLITE_OK else {
                 let msg = String(cString: sqlite3_errmsg(db))
                 throw DBError.prepareFailed(message: msg)
             }
             defer { sqlite3_finalize(statement) }
+            let now = Int64(Date().timeIntervalSince1970)
             sqlite3_bind_int64(statement, 1, Int64(amount))
-            sqlite3_bind_int64(statement, 2, Int64(monthDate))
+            sqlite3_bind_int64(statement, 2, now)
+            sqlite3_bind_int64(statement, 3, now)
+            sqlite3_bind_int64(statement, 4, Int64(monthDate))
             guard sqlite3_step(statement) == SQLITE_DONE else {
                 let msg = String(cString: sqlite3_errmsg(db))
                 throw DBError.stepFailed(message: msg)
@@ -394,8 +404,9 @@ class DBHelper {
               statement_id,
               is_credit_card_statement,
               user_id,
-              ck_modified_at
-              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+              ck_modified_at,
+              updated_at
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
       """
         
         var statement: OpaquePointer?
@@ -474,7 +485,9 @@ class DBHelper {
             sqlite3_bind_null(statement, 16)
         }
 
-        sqlite3_bind_int64(statement, 17, Int64(Date().timeIntervalSince1970))
+        let now = Int64(Date().timeIntervalSince1970)
+        sqlite3_bind_int64(statement, 17, now)
+        sqlite3_bind_int64(statement, 18, now)
 
         guard sqlite3_step(statement) == SQLITE_DONE else {
             let msg = String(cString: sqlite3_errmsg(db))
@@ -762,7 +775,7 @@ class DBHelper {
             return
         }
         
-        let updateQuery = "UPDATE Transactions SET parent_transaction_id = ? WHERE id = ?;"
+        let updateQuery = "UPDATE Transactions SET parent_transaction_id = ?, sync_status = 'pending', ck_modified_at = ?, updated_at = ? WHERE id = ?;"
         var statement: OpaquePointer?
         
         guard sqlite3_prepare_v2(db, updateQuery, -1, &statement, nil) == SQLITE_OK else {
@@ -772,8 +785,11 @@ class DBHelper {
         
         defer { sqlite3_finalize(statement) }
         
+        let now = Int64(Date().timeIntervalSince1970)
         sqlite3_bind_int64(statement, 1, Int64(parentId))
-        sqlite3_bind_int64(statement, 2, Int64(transactionId))
+        sqlite3_bind_int64(statement, 2, now)
+        sqlite3_bind_int64(statement, 3, now)
+        sqlite3_bind_int64(statement, 4, Int64(transactionId))
         
         guard sqlite3_step(statement) == SQLITE_DONE else {
             let msg = String(cString: sqlite3_errmsg(db))
@@ -902,7 +918,8 @@ class DBHelper {
             title = ?, category = ?, type = ?, amount = ?, date = ?,
             budget_month_date = ?, is_recurring = ?, has_installments = ?,
             total_installments = ?, original_amount = ?,
-            credit_card_id = ?, statement_id = ?, is_credit_card_statement = ?
+            credit_card_id = ?, statement_id = ?, is_credit_card_statement = ?,
+            sync_status = 'pending', ck_modified_at = ?, updated_at = ?
           WHERE id = ?;
       """
 
@@ -954,7 +971,10 @@ class DBHelper {
             sqlite3_bind_null(statement, 13)
         }
 
-        sqlite3_bind_int64(statement, 14, Int64(transaction.data.id!))
+        let now = Int64(Date().timeIntervalSince1970)
+        sqlite3_bind_int64(statement, 14, now)
+        sqlite3_bind_int64(statement, 15, now)
+        sqlite3_bind_int64(statement, 16, Int64(transaction.data.id!))
         
         guard sqlite3_step(statement) == SQLITE_DONE else {
             let msg = String(cString: sqlite3_errmsg(db))
@@ -972,7 +992,8 @@ class DBHelper {
         let updateQuery = """
           UPDATE Transactions SET 
             title = ?, category = ?, type = ?, amount = ?, date = ?, 
-            budget_month_date = ?, original_amount = ?
+            budget_month_date = ?, original_amount = ?,
+            sync_status = 'pending', ck_modified_at = ?, updated_at = ?
           WHERE id = ?;
       """
         
@@ -993,7 +1014,10 @@ class DBHelper {
         sqlite3_bind_int64(statement, 6, Int64(transaction.data.budgetMonthDate))
         sqlite3_bind_int64(
             statement, 7, Int64(transaction.data.originalAmount ?? transaction.data.amount))
-        sqlite3_bind_int64(statement, 8, Int64(transaction.data.id!))
+        let now = Int64(Date().timeIntervalSince1970)
+        sqlite3_bind_int64(statement, 8, now)
+        sqlite3_bind_int64(statement, 9, now)
+        sqlite3_bind_int64(statement, 10, Int64(transaction.data.id!))
         
         guard sqlite3_step(statement) == SQLITE_DONE else {
             let msg = String(cString: sqlite3_errmsg(db))
@@ -1010,7 +1034,7 @@ class DBHelper {
             return
         }
         
-        let updateQuery = "UPDATE Transactions SET is_recurring = ? WHERE id = ?;"
+        let updateQuery = "UPDATE Transactions SET is_recurring = ?, sync_status = 'pending', ck_modified_at = ?, updated_at = ? WHERE id = ?;"
         var statement: OpaquePointer?
         
         guard sqlite3_prepare_v2(db, updateQuery, -1, &statement, nil) == SQLITE_OK else {
@@ -1020,8 +1044,11 @@ class DBHelper {
         
         defer { sqlite3_finalize(statement) }
         
+        let now = Int64(Date().timeIntervalSince1970)
         sqlite3_bind_int(statement, 1, isRecurring ? 1 : 0)
-        sqlite3_bind_int64(statement, 2, Int64(transactionId))
+        sqlite3_bind_int64(statement, 2, now)
+        sqlite3_bind_int64(statement, 3, now)
+        sqlite3_bind_int64(statement, 4, Int64(transactionId))
         
         guard sqlite3_step(statement) == SQLITE_DONE else {
             let msg = String(cString: sqlite3_errmsg(db))
@@ -1391,7 +1418,8 @@ class DBHelper {
 
         let query = """
         UPDATE CreditCards SET name = ?, last_four_digits = ?, card_brand = ?,
-        closing_day = ?, due_day = ?, credit_limit = ?, card_color = ?, is_default = ?, updated_at = ?
+        closing_day = ?, due_day = ?, credit_limit = ?, card_color = ?, is_default = ?, updated_at = ?,
+        sync_status = 'pending', ck_modified_at = ?
         WHERE id = ?;
         """
         var statement: OpaquePointer?
@@ -1410,7 +1438,8 @@ class DBHelper {
         sqlite3_bind_text(statement, 7, cardColor, -1, SQLITE_TRANSIENT)
         sqlite3_bind_int(statement, 8, isDefault ? 1 : 0)
         sqlite3_bind_int64(statement, 9, Int64(Date().timeIntervalSince1970))
-        sqlite3_bind_int64(statement, 10, Int64(id))
+        sqlite3_bind_int64(statement, 10, Int64(Date().timeIntervalSince1970))
+        sqlite3_bind_int64(statement, 11, Int64(id))
 
         guard sqlite3_step(statement) == SQLITE_DONE else {
             let msg = String(cString: sqlite3_errmsg(db))
@@ -1420,7 +1449,7 @@ class DBHelper {
     
     func softDeleteCreditCard(id: Int) throws {
         guard isInitialized else { return }
-        let query = "UPDATE CreditCards SET is_deleted = 1, updated_at = ? WHERE id = ?;"
+        let query = "UPDATE CreditCards SET is_deleted = 1, updated_at = ?, sync_status = 'pendingDelete', ck_modified_at = ? WHERE id = ?;"
         var statement: OpaquePointer?
         guard sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK else {
             let msg = String(cString: sqlite3_errmsg(db))
@@ -1428,7 +1457,8 @@ class DBHelper {
         }
         defer { sqlite3_finalize(statement) }
         sqlite3_bind_int64(statement, 1, Int64(Date().timeIntervalSince1970))
-        sqlite3_bind_int64(statement, 2, Int64(id))
+        sqlite3_bind_int64(statement, 2, Int64(Date().timeIntervalSince1970))
+        sqlite3_bind_int64(statement, 3, Int64(id))
         guard sqlite3_step(statement) == SQLITE_DONE else {
             let msg = String(cString: sqlite3_errmsg(db))
             throw DBError.stepFailed(message: msg)
@@ -1590,7 +1620,7 @@ class DBHelper {
 
     func updateStatementTotal(statementId: Int, totalAmount: Int) throws {
         guard isInitialized else { return }
-        let query = "UPDATE CreditCardStatements SET total_amount = ?, updated_at = ? WHERE id = ?;"
+        let query = "UPDATE CreditCardStatements SET total_amount = ?, updated_at = ?, sync_status = 'pending', ck_modified_at = ? WHERE id = ?;"
         var statement: OpaquePointer?
         guard sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK else {
             let msg = String(cString: sqlite3_errmsg(db))
@@ -1599,7 +1629,8 @@ class DBHelper {
         defer { sqlite3_finalize(statement) }
         sqlite3_bind_int64(statement, 1, Int64(totalAmount))
         sqlite3_bind_int64(statement, 2, Int64(Date().timeIntervalSince1970))
-        sqlite3_bind_int64(statement, 3, Int64(statementId))
+        sqlite3_bind_int64(statement, 3, Int64(Date().timeIntervalSince1970))
+        sqlite3_bind_int64(statement, 4, Int64(statementId))
         guard sqlite3_step(statement) == SQLITE_DONE else {
             let msg = String(cString: sqlite3_errmsg(db))
             throw DBError.stepFailed(message: msg)
@@ -1608,7 +1639,7 @@ class DBHelper {
     
     func markStatementAsPaid(statementId: Int, paidAmount: Int?, paidDate: Int) throws {
         guard isInitialized else { return }
-        let query = "UPDATE CreditCardStatements SET is_paid = 1, paid_amount = ?, paid_date = ?, updated_at = ? WHERE id = ?;"
+        let query = "UPDATE CreditCardStatements SET is_paid = 1, paid_amount = ?, paid_date = ?, updated_at = ?, sync_status = 'pending', ck_modified_at = ? WHERE id = ?;"
         var statement: OpaquePointer?
         guard sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK else {
             let msg = String(cString: sqlite3_errmsg(db))
@@ -1618,7 +1649,8 @@ class DBHelper {
         if let amount = paidAmount { sqlite3_bind_int64(statement, 1, Int64(amount)) } else { sqlite3_bind_null(statement, 1) }
         sqlite3_bind_int64(statement, 2, Int64(paidDate))
         sqlite3_bind_int64(statement, 3, Int64(Date().timeIntervalSince1970))
-        sqlite3_bind_int64(statement, 4, Int64(statementId))
+        sqlite3_bind_int64(statement, 4, Int64(Date().timeIntervalSince1970))
+        sqlite3_bind_int64(statement, 5, Int64(statementId))
         guard sqlite3_step(statement) == SQLITE_DONE else {
             let msg = String(cString: sqlite3_errmsg(db))
             throw DBError.stepFailed(message: msg)
@@ -1627,7 +1659,7 @@ class DBHelper {
     
     func updateStatementDates(statementId: Int, closingDate: Int, dueDate: Int, isDatesOverridden: Bool = false) throws {
         guard isInitialized else { return }
-        let query = "UPDATE CreditCardStatements SET closing_date = ?, due_date = ?, is_dates_overridden = ?, updated_at = ? WHERE id = ?;"
+        let query = "UPDATE CreditCardStatements SET closing_date = ?, due_date = ?, is_dates_overridden = ?, updated_at = ?, sync_status = 'pending', ck_modified_at = ? WHERE id = ?;"
         var statement: OpaquePointer?
         guard sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK else {
             let msg = String(cString: sqlite3_errmsg(db))
@@ -1638,7 +1670,8 @@ class DBHelper {
         sqlite3_bind_int64(statement, 2, Int64(dueDate))
         sqlite3_bind_int(statement, 3, isDatesOverridden ? 1 : 0)
         sqlite3_bind_int64(statement, 4, Int64(Date().timeIntervalSince1970))
-        sqlite3_bind_int64(statement, 5, Int64(statementId))
+        sqlite3_bind_int64(statement, 5, Int64(Date().timeIntervalSince1970))
+        sqlite3_bind_int64(statement, 6, Int64(statementId))
         guard sqlite3_step(statement) == SQLITE_DONE else {
             let msg = String(cString: sqlite3_errmsg(db))
             throw DBError.stepFailed(message: msg)
@@ -1647,17 +1680,20 @@ class DBHelper {
 
     func updateTransactionCreditCardFields(transactionId: Int, creditCardId: Int, statementId: Int, isCreditCardStatement: Bool) throws {
         guard isInitialized else { return }
-        let query = "UPDATE Transactions SET credit_card_id = ?, statement_id = ?, is_credit_card_statement = ? WHERE id = ?;"
+        let query = "UPDATE Transactions SET credit_card_id = ?, statement_id = ?, is_credit_card_statement = ?, sync_status = 'pending', ck_modified_at = ?, updated_at = ? WHERE id = ?;"
         var statement: OpaquePointer?
         guard sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK else {
             let msg = String(cString: sqlite3_errmsg(db))
             throw DBError.prepareFailed(message: msg)
         }
         defer { sqlite3_finalize(statement) }
+        let now = Int64(Date().timeIntervalSince1970)
         sqlite3_bind_int64(statement, 1, Int64(creditCardId))
         sqlite3_bind_int64(statement, 2, Int64(statementId))
         sqlite3_bind_int(statement, 3, isCreditCardStatement ? 1 : 0)
-        sqlite3_bind_int64(statement, 4, Int64(transactionId))
+        sqlite3_bind_int64(statement, 4, now)
+        sqlite3_bind_int64(statement, 5, now)
+        sqlite3_bind_int64(statement, 6, Int64(transactionId))
         guard sqlite3_step(statement) == SQLITE_DONE else {
             let msg = String(cString: sqlite3_errmsg(db))
             throw DBError.stepFailed(message: msg)
@@ -1666,14 +1702,17 @@ class DBHelper {
 
     func clearTransactionCreditCardFields(transactionId: Int) throws {
         guard isInitialized else { return }
-        let query = "UPDATE Transactions SET credit_card_id = NULL, statement_id = NULL, is_credit_card_statement = 0 WHERE id = ?;"
+        let query = "UPDATE Transactions SET credit_card_id = NULL, statement_id = NULL, is_credit_card_statement = 0, sync_status = 'pending', ck_modified_at = ?, updated_at = ? WHERE id = ?;"
         var statement: OpaquePointer?
         guard sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK else {
             let msg = String(cString: sqlite3_errmsg(db))
             throw DBError.prepareFailed(message: msg)
         }
         defer { sqlite3_finalize(statement) }
-        sqlite3_bind_int64(statement, 1, Int64(transactionId))
+        let now = Int64(Date().timeIntervalSince1970)
+        sqlite3_bind_int64(statement, 1, now)
+        sqlite3_bind_int64(statement, 2, now)
+        sqlite3_bind_int64(statement, 3, Int64(transactionId))
         guard sqlite3_step(statement) == SQLITE_DONE else {
             let msg = String(cString: sqlite3_errmsg(db))
             throw DBError.stepFailed(message: msg)
@@ -1869,6 +1908,13 @@ class DBHelper {
         for table in tables {
             try addColumnIfNotExists(table: table, column: "ck_system_fields", definition: "BLOB")
         }
+    }
+
+    private func migrateSyncColumnsV5() throws {
+        // Add updated_at to tables that don't have it yet (CreditCards and CreditCardStatements already have it)
+        try addColumnIfNotExists(table: "Transactions", column: "updated_at", definition: "INTEGER")
+        try addColumnIfNotExists(table: "Budgets", column: "updated_at", definition: "INTEGER")
+        try addColumnIfNotExists(table: "BudgetAllocations", column: "updated_at", definition: "INTEGER")
     }
 
     private func migrateSyncColumnsV3() throws {
@@ -2229,7 +2275,8 @@ class DBHelper {
         type: String,
         ckRecordName: String,
         parentCKRecordName: String? = nil,
-        sharedGroupId: String? = nil
+        sharedGroupId: String? = nil,
+        updatedAt: Date? = nil
     ) {
         guard isInitialized else { return }
         var statement: OpaquePointer?
@@ -2288,6 +2335,9 @@ class DBHelper {
             sqlite3_bind_null(statement, 20)
         }
 
+        // Bind updated_at
+        sqlite3_bind_int64(statement, 21, Int64((updatedAt ?? Date()).timeIntervalSince1970))
+
         sqlite3_step(statement)
     }
 
@@ -2297,7 +2347,8 @@ class DBHelper {
         category: String,
         type: String,
         ckRecordName: String,
-        sharedGroupId: String? = nil
+        sharedGroupId: String? = nil,
+        updatedAt: Date? = nil
     ) {
         guard isInitialized else { return }
         var statement: OpaquePointer?
@@ -2338,8 +2389,10 @@ class DBHelper {
         } else {
             sqlite3_bind_null(statement, 17)
         }
-        // ck_record_id (position 18 in the WHERE clause)
-        sqlite3_bind_text(statement, 18, ckRecordName, -1, SQLITE_TRANSIENT)
+        // updated_at (position 18)
+        sqlite3_bind_int64(statement, 18, Int64((updatedAt ?? Date()).timeIntervalSince1970))
+        // ck_record_id (position 19 in the WHERE clause)
+        sqlite3_bind_text(statement, 19, ckRecordName, -1, SQLITE_TRANSIENT)
 
         sqlite3_step(statement)
     }
@@ -2421,8 +2474,8 @@ class DBHelper {
         guard isInitialized else { return 0 }
         let query = """
             INSERT INTO BudgetAllocations
-                (month_date, category_key, allocated_amount, is_recurring, parent_allocation_id, user_id, shared_group_id, sync_status, ck_modified_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?);
+                (month_date, category_key, allocated_amount, is_recurring, parent_allocation_id, user_id, shared_group_id, sync_status, ck_modified_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?);
             """
         var statement: OpaquePointer?
         guard sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK else { return 0 }
@@ -2447,7 +2500,9 @@ class DBHelper {
         } else {
             sqlite3_bind_null(statement, 7)
         }
-        sqlite3_bind_int64(statement, 8, Int64(Date().timeIntervalSince1970))
+        let now = Int64(Date().timeIntervalSince1970)
+        sqlite3_bind_int64(statement, 8, now)
+        sqlite3_bind_int64(statement, 9, now)
 
         guard sqlite3_step(statement) == SQLITE_DONE else { return 0 }
         return Int(sqlite3_last_insert_rowid(db))
@@ -2844,6 +2899,32 @@ class DBHelper {
         logInfo("[SyncFix] Backfilled ck_modified_at for pending records without CK record ID")
     }
 
+    /// One-time migration: backfill updated_at for existing records that predate the
+    /// updated_at column. Copies from ck_modified_at where available, otherwise uses current time.
+    private func performUpdatedAtBackfill() {
+        let key = "syncFix_updatedAt_backfill_v1_done"
+        guard !UserDefaults.standard.bool(forKey: key) else { return }
+        guard isInitialized else { return }
+
+        let tables = ["Transactions", "Budgets", "BudgetAllocations"]
+        for table in tables {
+            // Copy ck_modified_at into updated_at for rows that have it
+            executeSyncUpdate(
+                "UPDATE \(table) SET updated_at = ck_modified_at WHERE updated_at IS NULL AND ck_modified_at IS NOT NULL;",
+                textBindings: []
+            )
+            // Set current time for any remaining NULL rows
+            let now = Int(Date().timeIntervalSince1970)
+            executeSyncUpdate(
+                "UPDATE \(table) SET updated_at = \(now) WHERE updated_at IS NULL;",
+                textBindings: []
+            )
+        }
+
+        UserDefaults.standard.set(true, forKey: key)
+        logInfo("[SyncFix] Backfilled updated_at for existing records")
+    }
+
     /// Fixes orphaned parent_transaction_id references after sync.
     /// When records come from CloudKit, parent_transaction_id uses the source device's local ID.
     /// This method finds instances where parent_transaction_id doesn't point to a valid local record
@@ -3056,6 +3137,62 @@ class DBHelper {
     }
 
     /// Persists the encoded system-fields blob for the record identified by its CK record name.
+    /// Returns all non-null ck_record_id values for the given table.
+    func fetchAllCKRecordNames(table: String) -> [String] {
+        guard isInitialized, syncableTables.contains(table) else { return [] }
+        let query = "SELECT ck_record_id FROM \(table) WHERE ck_record_id IS NOT NULL AND (is_deleted IS NULL OR is_deleted = 0);"
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK else { return [] }
+        defer { sqlite3_finalize(statement) }
+        var names: [String] = []
+        while sqlite3_step(statement) == SQLITE_ROW {
+            let name = String(cString: sqlite3_column_text(statement, 0))
+            names.append(name)
+        }
+        return names
+    }
+
+    /// Re-queues soft-deleted Transactions whose sync_status was corrupted (set to something
+    /// other than 'pendingDelete' while is_deleted=1). Returns the number of rows repaired.
+    /// Safe to call on every push: it only touches rows that are already is_deleted=1 AND
+    /// have a ck_record_id (i.e. were synced and need a CloudKit delete to be sent).
+    @discardableResult
+    func repairCorruptedPendingDeletes() -> Int {
+        guard isInitialized else { return 0 }
+        let query = """
+            UPDATE Transactions SET sync_status = 'pendingDelete'
+            WHERE is_deleted = 1
+              AND ck_record_id IS NOT NULL
+              AND sync_status != 'pendingDelete';
+            """
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK else { return 0 }
+        defer { sqlite3_finalize(statement) }
+        sqlite3_step(statement)
+        return Int(sqlite3_changes(db))
+    }
+
+    /// Deletes rows from the given table whose ck_record_id matches any of the provided names.
+    func deleteOrphanedRecords(table: String, ckRecordNames: [String]) {
+        guard isInitialized, syncableTables.contains(table), !ckRecordNames.isEmpty else { return }
+        for name in ckRecordNames {
+            executeSyncUpdate(
+                "DELETE FROM \(table) WHERE ck_record_id = ?;",
+                textBindings: [name]
+            )
+        }
+    }
+
+    func clearSystemFields(ckRecordName: String, table: String) {
+        guard isInitialized, syncableTables.contains(table) else { return }
+        let query = "UPDATE \(table) SET ck_system_fields = NULL, ck_record_id = NULL WHERE ck_record_id = ?;"
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK else { return }
+        defer { sqlite3_finalize(statement) }
+        sqlite3_bind_text(statement, 1, ckRecordName, -1, SQLITE_TRANSIENT)
+        sqlite3_step(statement)
+    }
+
     func saveSystemFields(_ data: Data, ckRecordName: String, table: String) {
         guard isInitialized, syncableTables.contains(table) else { return }
         let query = "UPDATE \(table) SET ck_system_fields = ? WHERE ck_record_id = ?;"

@@ -38,6 +38,7 @@ extension BudgetAllocationModel: CKRecordConvertible {
         record["parentAllocationId"] = parentAllocationId as CKRecordValue?
         record["userId"] = (UIDUserDefaultsManager.shared.currentUserUID ?? "") as CKRecordValue
         record["sharedGroupId"] = sharedGroupId as CKRecordValue?
+        record["updatedAt"] = (updatedAt ?? Date()) as CKRecordValue
         return record
     }
 
@@ -47,6 +48,8 @@ extension BudgetAllocationModel: CKRecordConvertible {
               let allocatedAmount = record["allocatedAmount"] as? Int
         else { return nil }
 
+        let updatedAt = (record["updatedAt"] as? Date) ?? record.modificationDate ?? Date()
+
         return BudgetAllocationModel(
             id: record["localId"] as? Int,
             monthDate: monthDate,
@@ -54,7 +57,8 @@ extension BudgetAllocationModel: CKRecordConvertible {
             allocatedAmount: allocatedAmount,
             isRecurring: (record["isRecurring"] as? Int) == 1,
             parentAllocationId: record["parentAllocationId"] as? Int,
-            sharedGroupId: record["sharedGroupId"] as? String
+            sharedGroupId: record["sharedGroupId"] as? String,
+            updatedAt: updatedAt
         )
     }
 }

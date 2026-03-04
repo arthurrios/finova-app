@@ -47,12 +47,26 @@ final class SyncEngine {
     private var hasSetupSubscriptions = false
     private var isProcessingCloudData = false
     private var pushThrottledUntil: Date?
-    private var needsPostSyncPush = false
+    private var syncStartedAt: Date?
+    private let syncFlagLock = NSLock()
+    private var _needsPostSyncPush = false
+    private var needsPostSyncPush: Bool {
+        get { syncFlagLock.lock(); defer { syncFlagLock.unlock() }; return _needsPostSyncPush }
+        set { syncFlagLock.lock(); defer { syncFlagLock.unlock() }; _needsPostSyncPush = newValue }
+    }
     private(set) var currentPushProgress: SyncPushProgress?
     private var isInitialPush = false
+    /// Maps CK record names to (entityType, localId) for records that need ck_record_id set after successful push.
+    /// Populated during pushLocalChanges, consumed per-record in pushBatches.
+    private var pendingCKIdAssignments: [String: (type: String, localId: Int)] = [:]
     /// Tracks whether a BalanceOffset record was received during the current pull,
     /// so post-sync fetchBalanceOffsetsFromCloud can skip re-fetching a potentially stale value.
     private(set) var didReceiveBalanceOffsetDuringPull = false
+    /// When true, the current sync is a full re-fetch (reset sync). After pull,
+    /// orphaned local records that weren't seen in the fetch will be cleaned up.
+    private var isFullRefetch = false
+    /// CK record names received during a full re-fetch, used for orphan cleanup.
+    private var pulledCKRecordNames: Set<String> = []
 
     private init() {
         self.cloudKitOps = RealCloudKitOperations()
@@ -103,29 +117,109 @@ final class SyncEngine {
 
     // MARK: - Public API
 
-    func performFullSync(forceFullFetch: Bool = false, forceRePush: Bool = false, completion: (() -> Void)? = nil) {
+    func performFullSync(forceFullFetch: Bool = false, forceRePush: Bool = false, forceAcceptCloud: Bool = false, completion: (() -> Void)? = nil) {
         syncQueue.async { [weak self] in
+            guard let self = self else {
+                completion?()
+                return
+            }
+            // When the user explicitly requests a force operation, clear any stuck sync state
+            if forceRePush || forceAcceptCloud || forceFullFetch {
+                if self.isSyncing {
+                    logWarning("[Sync] Force operation requested while isSyncing=true — resetting stuck state")
+                    self.isSyncing = false
+                    self.isProcessingCloudData = false
+                    self.syncStartedAt = nil
+                }
+            }
             if forceFullFetch {
-                self?.stateManager.resetAllTokens()
+                self.stateManager.resetAllTokens()
+            }
+            if forceAcceptCloud {
+                Self.resetLocalModificationTimestamps()
+                self.stateManager.resetAllTokens()
+                self.isFullRefetch = true
+                self.pulledCKRecordNames = []
             }
             if forceRePush {
                 Self.resetAllSyncStatuses()
             }
-            self?.executeSyncCycle(completion: completion)
+            self.executeSyncCycle(completion: completion)
+        }
+    }
+
+    /// Immediately pushes all pending local changes to CloudKit without pulling.
+    /// Designed for background/termination scenarios where the 2-second debounce
+    /// must be skipped. If a sync is already in progress, waits for it to finish
+    /// and then pushes any remaining pending records.
+    func flushPendingChanges(completion: @escaping (Bool) -> Void) {
+        syncQueue.async { [weak self] in
+            guard let self = self else {
+                completion(false)
+                return
+            }
+
+            // If a sync is already running, wait for it to finish then push leftovers
+            if self.isSyncing {
+                logWarning("[Sync] Background flush: sync in progress — waiting")
+                self.needsPostSyncPush = true
+                let deadline = Date().addingTimeInterval(25)
+                while self.isSyncing && Date() < deadline {
+                    Thread.sleep(forTimeInterval: 0.25)
+                }
+                if self.isSyncing {
+                    logWarning("[Sync] Background flush: timed out waiting for in-progress sync")
+                    completion(false)
+                    return
+                }
+            }
+
+            guard self.hasPendingRecords() else {
+                logWarning("[Sync] Background flush: no pending records — skipping")
+                completion(true)
+                return
+            }
+
+            logWarning("[Sync] Background flush: pushing pending changes immediately")
+            self.pushLocalChanges { result in
+                switch result {
+                case .success:
+                    logWarning("[Sync] Background flush: push completed successfully")
+                    completion(true)
+                case .failure(let error):
+                    logError("[Sync] Background flush: push failed — \(error.localizedDescription)")
+                    completion(false)
+                }
+            }
         }
     }
 
     /// Resets all sync_status values to 'pending' so everything gets re-pushed to CloudKit.
+    /// Also updates ck_modified_at to ensure re-pushed records win conflict resolution on other devices.
     private static func resetAllSyncStatuses() {
         logWarning("[Sync] Resetting all sync statuses to 'pending' for re-push")
+        let now = Int(Date().timeIntervalSince1970)
         let tables = ["Transactions", "Budgets", "CreditCards", "CreditCardStatements", "BudgetAllocations"]
         for table in tables {
             DBHelper.shared.executeSyncUpdate(
-                "UPDATE \(table) SET sync_status = 'pending' WHERE sync_status = 'synced' AND (is_deleted IS NULL OR is_deleted = 0);",
+                "UPDATE \(table) SET sync_status = 'pending', ck_modified_at = \(now) WHERE sync_status = 'synced' AND (is_deleted IS NULL OR is_deleted = 0);",
                 textBindings: []
             )
         }
         TransactionRepository.invalidateCache()
+    }
+
+    /// Resets all local ck_modified_at and updated_at timestamps to 0 so incoming cloud data always wins
+    /// conflict resolution. Used when the user explicitly chooses to accept cloud data.
+    private static func resetLocalModificationTimestamps() {
+        logWarning("[Sync] Resetting all local ck_modified_at and updated_at to 0 — cloud data will take priority")
+        let tables = ["Transactions", "Budgets", "CreditCards", "CreditCardStatements", "BudgetAllocations"]
+        for table in tables {
+            DBHelper.shared.executeSyncUpdate(
+                "UPDATE \(table) SET ck_modified_at = 0, updated_at = 0;",
+                textBindings: []
+            )
+        }
     }
 
     @objc private func handleRemoteNotification() {
@@ -147,19 +241,62 @@ final class SyncEngine {
         }
     }
 
+    /// Centralised cleanup: resets sync flags, sets status, drains post-sync push, and calls completion.
+    /// Every exit path from startSyncOperations must funnel through this to avoid stuck flags.
+    private func finishSync(status newStatus: SyncStatus, completion: (() -> Void)?) {
+        self.isProcessingCloudData = false
+        self.status = newStatus
+        self.isSyncing = false
+        self.syncStartedAt = nil
+        self.drainPostSyncPush()
+        completion?()
+    }
+
+    private static let maxPostSyncPushCycles = 3
+    private var postSyncPushCycleCount = 0
+
     /// If local data changed while a sync was in progress, push the pending records now.
+    /// Limited to a maximum number of cycles to prevent infinite loops from conflict storms.
     private func drainPostSyncPush() {
         guard needsPostSyncPush else { return }
         needsPostSyncPush = false
-        logWarning("[Sync] Draining post-sync push for records created during sync")
-        syncQueue.asyncAfter(deadline: .now() + 1.0) { [weak self] in
-            self?.pushLocalChanges()
+
+        postSyncPushCycleCount += 1
+        if postSyncPushCycleCount > Self.maxPostSyncPushCycles {
+            logWarning("[Sync] Post-sync push cycle limit (\(Self.maxPostSyncPushCycles)) reached — stopping. Remaining records will sync on next cycle.")
+            postSyncPushCycleCount = 0
+            return
+        }
+
+        // Only push if there are actually pending records
+        guard hasPendingRecords() else {
+            logWarning("[Sync] Post-sync push requested but no pending records — skipping")
+            postSyncPushCycleCount = 0
+            return
+        }
+
+        logWarning("[Sync] Draining post-sync push (cycle \(postSyncPushCycleCount)/\(Self.maxPostSyncPushCycles)) for records created during sync")
+        syncQueue.asyncAfter(deadline: .now() + 2.0) { [weak self] in
+            self?.pushLocalChanges { result in
+                if case .success = result {
+                    // Check if more post-sync pushes are needed
+                    self?.drainPostSyncPush()
+                }
+            }
         }
     }
 
     // MARK: - Sync Cycle
 
     private func executeSyncCycle(completion: (() -> Void)? = nil) {
+        // Safety: if isSyncing has been true for over 2 minutes, force-reset it
+        if isSyncing, let started = syncStartedAt, Date().timeIntervalSince(started) > 120 {
+            logWarning("[Sync] isSyncing stuck for over 2 minutes — force-resetting")
+            isSyncing = false
+            isProcessingCloudData = false
+            syncStartedAt = nil
+        }
+
         guard !isSyncing else {
             logWarning("[Sync] Already syncing — skipping")
             completion?()
@@ -198,6 +335,8 @@ final class SyncEngine {
         }
 
         isSyncing = true
+        syncStartedAt = Date()
+        postSyncPushCycleCount = 0
         didReceiveBalanceOffsetDuringPull = false
         status = .syncing
         cloudKitOps.ensureZoneExists { [weak self] result in
@@ -214,6 +353,20 @@ final class SyncEngine {
                     case .success:
                         // Fetch shared DB changes (group zones from other iCloud accounts)
                         self.fetchSharedDatabaseChanges {
+                            // After a full re-fetch (reset sync), clean up local records
+                            // that exist locally but were not seen in the CloudKit fetch.
+                            // Safety: only clean up if we actually received records (avoids
+                            // wiping everything if the pull returned 0 due to a network issue).
+                            if self.isFullRefetch {
+                                logWarning("[Sync] Full re-fetch complete — pulledCKRecordNames has \(self.pulledCKRecordNames.count) record(s)")
+                                if !self.pulledCKRecordNames.isEmpty {
+                                    self.cleanupOrphanedRecords()
+                                } else {
+                                    logWarning("[Sync] Full re-fetch pulled 0 records — skipping orphan cleanup to avoid data loss")
+                                }
+                                self.isFullRefetch = false
+                                self.pulledCKRecordNames = []
+                            }
                             // Mirror mode: ensure all personal data is tagged with group ID before push
                             MirrorModeManager.shared.reconcileMirrorData()
                             // One-time recovery: reset tokens if migration caused data loss
@@ -246,9 +399,6 @@ final class SyncEngine {
                                                 }
                                             }
                                             logWarning("[Sync] Sync cycle complete — status: synced")
-                                            self.status = .synced
-                                            self.isSyncing = false
-                                            self.drainPostSyncPush()
 
                                             // Post ALL data notifications once at the end of the sync cycle.
                                             // This ensures the UI only refreshes after pull + reconciliation
@@ -264,33 +414,24 @@ final class SyncEngine {
                                                 NotificationCenter.default.post(name: .budgetGroupDataChanged, object: nil)
                                             }
 
-                                            completion?()
+                                            self.finishSync(status: .synced, completion: completion)
                                         }
                                     }
                                 }
                             case .failure(let error):
                                 logError("[Sync] Push failed: \(error.localizedDescription)")
-                                self.status = .error(error)
-                                self.isSyncing = false
-                                self.drainPostSyncPush()
-                                completion?()
+                                self.finishSync(status: .error(error), completion: completion)
                             }
                         }
                         } // fetchSharedDatabaseChanges
                     case .failure(let error):
                         logError("[Sync] Fetch changes failed: \(error.localizedDescription)")
-                        self.status = .error(error)
-                        self.isSyncing = false
-                        self.drainPostSyncPush()
-                        completion?()
+                        self.finishSync(status: .error(error), completion: completion)
                     }
                 }
             case .failure(let error):
                 logError("[Sync] Zone creation failed: \(error.localizedDescription)")
-                self.status = .error(error)
-                self.isSyncing = false
-                self.drainPostSyncPush()
-                completion?()
+                self.finishSync(status: .error(error), completion: completion)
             }
         }
     }
@@ -403,6 +544,9 @@ final class SyncEngine {
             },
             recordHandler: { [weak self] record in
                 pulledRecordCount += 1
+                if self?.isFullRefetch == true {
+                    self?.pulledCKRecordNames.insert(record.recordID.recordName)
+                }
                 self?.processIncomingRecord(record)
             },
             deleteHandler: { [weak self] recordID, recordType in
@@ -512,6 +656,12 @@ final class SyncEngine {
         return nil
     }
 
+    /// Clears stored system fields for a record so the next push treats it as new.
+    private func clearSystemFields(ckRecordName name: String) {
+        guard let table = tableForRecordName(name) else { return }
+        DBHelper.shared.clearSystemFields(ckRecordName: name, table: table)
+    }
+
     /// Encodes a CKRecord's system fields and stores them in the local DB.
     private func storeSystemFields(from record: CKRecord) {
         guard let table = tableForRecordName(record.recordID.recordName) else { return }
@@ -544,16 +694,54 @@ final class SyncEngine {
 
     private static let batchSize = 50
 
+    /// Returns true if any repository has records pending sync or pending deletion.
+    private func hasPendingRecords() -> Bool {
+        let txRepo = TransactionRepository()
+        TransactionRepository.invalidateCache()
+        if !txRepo.fetchPendingSync().isEmpty { return true }
+        if !txRepo.fetchPendingDeletes().isEmpty { return true }
+
+        let budgetRepo = BudgetRepository()
+        if !budgetRepo.fetchPendingSync().isEmpty { return true }
+        if !budgetRepo.fetchPendingDeletes().isEmpty { return true }
+
+        let cardRepo = CreditCardRepository()
+        if !cardRepo.fetchPendingSync().isEmpty { return true }
+        if !cardRepo.fetchPendingDeletes().isEmpty { return true }
+
+        let stmtRepo = StatementRepository()
+        if !stmtRepo.fetchPendingSync().isEmpty { return true }
+        if !stmtRepo.fetchPendingDeletes().isEmpty { return true }
+
+        let allocRepo = BudgetAllocationRepository()
+        if !allocRepo.fetchPendingSync().isEmpty { return true }
+        if !allocRepo.fetchPendingDeletes().isEmpty { return true }
+
+        return false
+    }
+
     private func pushLocalChanges(completion: ((Result<Void, Error>) -> Void)? = nil) {
         // Respect CloudKit throttle window
         if let throttledUntil = pushThrottledUntil, Date() < throttledUntil {
             let remaining = Int(throttledUntil.timeIntervalSinceNow)
             logWarning("Push throttled — retrying in \(remaining)s")
-            completion?(.success(()))
+            let error = NSError(domain: "SyncEngine", code: -1001,
+                                userInfo: [NSLocalizedDescriptionKey: "CloudKit quota exceeded. Will retry in \(remaining)s."])
+            completion?(.failure(error))
             return
         }
         var allRecords: [CKRecord] = []
         var allDeleteIDs: [CKRecord.ID] = []
+        pendingCKIdAssignments = [:]
+
+        // Repair: any soft-deleted transaction whose sync_status was corrupted (e.g. overwritten
+        // by a previous pull before the pendingDelete could be pushed) gets re-queued here.
+        // This covers installments/recurring batches deleted before the ConflictResolver fix,
+        // without requiring a full reset sync to trigger the per-record repair path.
+        let repairedCount = DBHelper.shared.repairCorruptedPendingDeletes()
+        if repairedCount > 0 {
+            logWarning("[Sync] Repaired \(repairedCount) soft-deleted transaction(s) whose pendingDelete status was lost")
+        }
 
         // Transactions — use stored ck_record_id to avoid creating duplicate CK records
         let txRepo = TransactionRepository()
@@ -567,9 +755,9 @@ final class SyncEngine {
             let zone = targetZoneID(forGroupId: groupId)
 
             let freshRecord = tx.toCKRecord(in: zone, storedRecordName: storedName)
-            // Phase 3B: Store CK record name before push
+            // Phase 3B: Defer setCKRecordId to after push succeeds to avoid orphaned names
             if let txId = tx.id, storedName == nil {
-                txRepo.setCKRecordId(for: txId, ckRecordName: freshRecord.recordID.recordName)
+                pendingCKIdAssignments[freshRecord.recordID.recordName] = (type: "transaction", localId: txId)
             }
             // Include shared_group_id in CK record
             if let groupId = groupId {
@@ -619,7 +807,7 @@ final class SyncEngine {
 
             let freshRecord = card.toCKRecord(in: zone, storedRecordName: storedName)
             if let cardId = card.id, storedName == nil {
-                cardRepo.setCKRecordId(for: cardId, ckRecordName: freshRecord.recordID.recordName)
+                pendingCKIdAssignments[freshRecord.recordID.recordName] = (type: "creditCard", localId: cardId)
             }
             if let groupId = groupId {
                 freshRecord["sharedGroupId"] = groupId as CKRecordValue
@@ -648,7 +836,7 @@ final class SyncEngine {
 
             let freshRecord = stmt.toCKRecord(in: zone, storedRecordName: storedName)
             if let stmtId = stmt.id, storedName == nil {
-                stmtRepo.setCKRecordId(for: stmtId, ckRecordName: freshRecord.recordID.recordName)
+                pendingCKIdAssignments[freshRecord.recordID.recordName] = (type: "statement", localId: stmtId)
             }
             let systemFields = storedName.flatMap {
                 DBHelper.shared.fetchSystemFields(ckRecordName: $0, table: "CreditCardStatements")
@@ -676,7 +864,7 @@ final class SyncEngine {
 
             let freshRecord = alloc.toCKRecord(in: zone, storedRecordName: storedName)
             if let allocId = alloc.id, storedName == nil {
-                allocRepo.setCKRecordId(for: allocId, ckRecordName: freshRecord.recordID.recordName)
+                pendingCKIdAssignments[freshRecord.recordID.recordName] = (type: "allocation", localId: allocId)
             }
             let systemFields = storedName.flatMap {
                 DBHelper.shared.fetchSystemFields(ckRecordName: $0, table: "BudgetAllocations")
@@ -718,10 +906,13 @@ final class SyncEngine {
         pushBatches(batches, deleteIDs: allDeleteIDs, index: 0, completion: completion)
     }
 
+    private static let maxThrottleRetries = 5
+
     private func pushBatches(
         _ batches: [[CKRecord]],
         deleteIDs: [CKRecord.ID] = [],
         index: Int,
+        throttleRetryCount: Int = 0,
         completion: ((Result<Void, Error>) -> Void)?
     ) {
         guard index < batches.count else {
@@ -743,6 +934,7 @@ final class SyncEngine {
 
         let batch = batches[index]
         var hitQuotaLimit = false
+        var hitSchemaError = false
 
         var batchSuccessCount = 0
         var batchFailureCount = 0
@@ -755,6 +947,23 @@ final class SyncEngine {
                 // Store the server-returned record's system fields (includes updated recordChangeTag).
                 // This ensures the next push can use .ifServerRecordUnchanged with the correct tag.
                 self?.storeSystemFields(from: savedRecord)
+
+                // Phase 3B fix: set ck_record_id AFTER successful push to avoid orphaned names
+                if let assignment = self?.pendingCKIdAssignments.removeValue(forKey: name) {
+                    switch assignment.type {
+                    case "transaction":
+                        TransactionRepository().setCKRecordId(for: assignment.localId, ckRecordName: name)
+                    case "creditCard":
+                        CreditCardRepository().setCKRecordId(for: assignment.localId, ckRecordName: name)
+                    case "statement":
+                        StatementRepository().setCKRecordId(for: assignment.localId, ckRecordName: name)
+                    case "allocation":
+                        BudgetAllocationRepository().setCKRecordId(for: assignment.localId, ckRecordName: name)
+                    default:
+                        break
+                    }
+                }
+
                 if name.hasPrefix("transaction-") {
                     TransactionRepository().markAsSynced(ckRecordName: name)
                 } else if name.hasPrefix("budget-") {
@@ -790,6 +999,23 @@ final class SyncEngine {
                             self?.pushThrottledUntil = Date().addingTimeInterval(retryAfter)
                             logWarning("[Sync] ⚠️ CloudKit quota exceeded — throttling for \(Int(retryAfter))s. Pending records will sync on next launch.")
                         }
+                    case .invalidArguments:
+                        let desc = error.localizedDescription
+                        if desc.contains("Cannot create or modify field") || desc.contains("production schema") {
+                            // Schema mismatch (e.g. new field not yet deployed to production).
+                            // Non-retryable until the schema is deployed via CloudKit Dashboard.
+                            if !hitSchemaError {
+                                hitSchemaError = true
+                                logWarning("[Sync] ⚠️ CloudKit schema error — new fields not yet deployed to production. Records will sync after schema deployment.")
+                            }
+                        } else if desc.contains("record not found") {
+                            // Stale recordChangeTag — clear stored system fields so next push creates a fresh record.
+                            logWarning("[Sync] ⚠️ Record \(name) has stale changeTag — clearing system fields for re-push")
+                            self?.clearSystemFields(ckRecordName: name)
+                            self?.needsPostSyncPush = true
+                        } else {
+                            logWarning("[Sync] ❌ Failed to push record \(name) (invalidArguments): \(desc)")
+                        }
                     default:
                         logWarning("[Sync] ❌ Failed to push record \(name): \(error.localizedDescription)")
                     }
@@ -814,12 +1040,23 @@ final class SyncEngine {
                 completion?(.success(()))
                 return
             }
+            if hitSchemaError {
+                // Stop processing remaining save batches — schema needs to be deployed first.
+                // But still send deletes, since they don't involve the new field.
+                logWarning("[Sync] Stopping save batches due to schema error. Deploy schema via CloudKit Dashboard, then sync again.")
+                if !deleteIDs.isEmpty {
+                    self?.pushDeletes(deleteIDs, completion: completion)
+                } else {
+                    completion?(.success(()))
+                }
+                return
+            }
             switch result {
             case .success:
                 // Throttle between batches to avoid CloudKit rate limiting
                 let delay: TimeInterval = batches.count > 5 ? 1.5 : 0.5
                 DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + delay) {
-                    self?.pushBatches(batches, deleteIDs: deleteIDs, index: index + 1, completion: completion)
+                    self?.pushBatches(batches, deleteIDs: deleteIDs, index: index + 1, throttleRetryCount: 0, completion: completion)
                 }
             case .failure(let error):
                 if let ckError = error as? CKError {
@@ -830,18 +1067,36 @@ final class SyncEngine {
                         logWarning("[Sync] ⚠️ CloudKit quota exceeded (batch level) — throttling for \(Int(retryAfter))s")
                         completion?(.success(()))
                     case .serviceUnavailable, .requestRateLimited, .zoneBusy:
-                        let retryAfter = ckError.retryAfterSeconds ?? 3
-                        logWarning("[Sync] ⚠️ Batch \(index + 1)/\(batches.count) throttled (code \(ckError.code.rawValue)) — retrying in \(Int(retryAfter))s")
-                        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + retryAfter) {
-                            self?.pushBatches(batches, deleteIDs: deleteIDs, index: index, completion: completion)
+                        let nextRetry = throttleRetryCount + 1
+                        if nextRetry > Self.maxThrottleRetries {
+                            logWarning("[Sync] ⚠️ Batch \(index + 1)/\(batches.count) exceeded \(Self.maxThrottleRetries) throttle retries — stopping push. Records remain pending for next sync.")
+                            completion?(.success(()))
+                            return
+                        }
+                        let baseDelay = ckError.retryAfterSeconds ?? 3
+                        let backoff = baseDelay * Double(nextRetry)
+                        logWarning("[Sync] ⚠️ Batch \(index + 1)/\(batches.count) throttled (code \(ckError.code.rawValue)) — retry \(nextRetry)/\(Self.maxThrottleRetries) in \(Int(backoff))s")
+                        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + backoff) {
+                            self?.pushBatches(batches, deleteIDs: deleteIDs, index: index, throttleRetryCount: nextRetry, completion: completion)
                         }
                     default:
                         logWarning("[Sync] ❌ Batch \(index + 1)/\(batches.count) failed: \(error.localizedDescription)")
-                        completion?(.failure(error))
+                        // Saves failed but deletes are independent — still push pending deletes
+                        // so that locally deleted records are removed from CloudKit even when
+                        // a save batch encounters an unrecoverable error (e.g. serverRecordChanged).
+                        if !deleteIDs.isEmpty {
+                            self?.pushDeletes(deleteIDs, completion: { _ in completion?(.failure(error)) })
+                        } else {
+                            completion?(.failure(error))
+                        }
                     }
                 } else {
                     logWarning("[Sync] ❌ Batch \(index + 1)/\(batches.count) failed: \(error.localizedDescription)")
-                    completion?(.failure(error))
+                    if !deleteIDs.isEmpty {
+                        self?.pushDeletes(deleteIDs, completion: { _ in completion?(.failure(error)) })
+                    } else {
+                        completion?(.failure(error))
+                    }
                 }
             }
         }
@@ -962,17 +1217,40 @@ final class SyncEngine {
     private func processDeletedRecord(recordID: CKRecord.ID, recordType: String) {
         switch recordType {
         case "Transaction":
-            TransactionRepository().softDeleteByCKRecordName(recordID.recordName)
+            TransactionRepository().deleteFromCloud(ckRecordName: recordID.recordName)
         case "Budget":
-            BudgetRepository().softDeleteByCKRecordName(recordID.recordName)
+            BudgetRepository().deleteFromCloud(ckRecordName: recordID.recordName)
         case "CreditCard":
-            CreditCardRepository().softDeleteByCKRecordName(recordID.recordName)
+            CreditCardRepository().deleteFromCloud(ckRecordName: recordID.recordName)
         case "CreditCardStatement":
-            StatementRepository().softDeleteByCKRecordName(recordID.recordName)
+            StatementRepository().deleteFromCloud(ckRecordName: recordID.recordName)
         case "BudgetAllocation":
-            BudgetAllocationRepository().softDeleteByCKRecordName(recordID.recordName)
+            BudgetAllocationRepository().deleteFromCloud(ckRecordName: recordID.recordName)
         default:
             break
+        }
+    }
+
+    /// After a full re-fetch (reset sync), removes local records that have a ck_record_id
+    /// but were not seen in the CloudKit fetch — meaning they were deleted on another device.
+    private func cleanupOrphanedRecords() {
+        let tables = ["Transactions", "Budgets", "CreditCards", "CreditCardStatements", "BudgetAllocations"]
+        var totalOrphans = 0
+        for table in tables {
+            let localNames = DBHelper.shared.fetchAllCKRecordNames(table: table)
+            let orphans = localNames.filter { !pulledCKRecordNames.contains($0) }
+            logWarning("[Sync] Orphan check \(table): \(localNames.count) local record(s) with ck_record_id, \(orphans.count) orphan(s)")
+            if !orphans.isEmpty {
+                logWarning("[Sync] Cleaning up \(orphans.count) orphaned record(s) from \(table): \(orphans.prefix(10))")
+                DBHelper.shared.deleteOrphanedRecords(table: table, ckRecordNames: orphans)
+                totalOrphans += orphans.count
+            }
+        }
+        if totalOrphans > 0 {
+            logWarning("[Sync] Orphan cleanup complete — removed \(totalOrphans) record(s) not found in CloudKit")
+            TransactionRepository.invalidateCache()
+        } else {
+            logWarning("[Sync] Orphan cleanup found no orphans — all local records matched CloudKit")
         }
     }
 

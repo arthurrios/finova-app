@@ -18,6 +18,7 @@ struct BudgetAllocationModel: Codable {
     let isRecurring: Bool
     let parentAllocationId: Int?
     let sharedGroupId: String?
+    let updatedAt: Date?
 
     init(id: Int? = nil,
          monthDate: Int,
@@ -25,7 +26,8 @@ struct BudgetAllocationModel: Codable {
          allocatedAmount: Int,
          isRecurring: Bool = false,
          parentAllocationId: Int? = nil,
-         sharedGroupId: String? = nil
+         sharedGroupId: String? = nil,
+         updatedAt: Date? = nil
     ) {
         self.id = id
         self.monthDate = monthDate
@@ -34,6 +36,7 @@ struct BudgetAllocationModel: Codable {
         self.isRecurring = isRecurring
         self.parentAllocationId = parentAllocationId
         self.sharedGroupId = sharedGroupId
+        self.updatedAt = updatedAt
     }
 }
 

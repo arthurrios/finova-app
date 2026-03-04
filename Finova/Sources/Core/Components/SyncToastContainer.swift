@@ -5,6 +5,7 @@
 //  Created by Arthur Rios on 12/02/26.
 //
 
+import CloudKit
 import UIKit
 
 final class SyncToastContainer: UIView {
@@ -111,9 +112,10 @@ final class SyncToastContainer: UIView {
         case .synced:
             toastView?.updateStatus(.synced)
             scheduleDismiss(after: 3.0)
-        case .error:
-            toastView?.updateStatus(.error)
-            scheduleDismiss(after: 3.0)
+        case .error(let error):
+            let message = Self.userFacingMessage(for: error)
+            toastView?.updateStatus(.error, message: message)
+            scheduleDismiss(after: 5.0)
         case .idle:
             // CloudKit unavailable — dismiss immediately
             hideSyncToast(animated: true)
@@ -136,6 +138,22 @@ final class SyncToastContainer: UIView {
     }
 
     // MARK: - Private Helpers
+
+    private static func userFacingMessage(for error: Error) -> String? {
+        guard let ckError = error as? CKError else { return nil }
+        switch ckError.code {
+        case .quotaExceeded:
+            return "iCloud storage full"
+        case .networkUnavailable, .networkFailure:
+            return "No network connection"
+        case .notAuthenticated:
+            return "Not signed into iCloud"
+        case .serviceUnavailable, .requestRateLimited:
+            return "iCloud temporarily unavailable"
+        default:
+            return nil
+        }
+    }
 
     private func scheduleDismiss(after interval: TimeInterval) {
         dismissTimer?.invalidate()

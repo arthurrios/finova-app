@@ -210,14 +210,14 @@ final class BudgetAllocationRepository: BudgetAllocationRepositoryProtocol {
             guard let modelId = model.id else { continue }
 
             if modelId == id {
-                db.executeSyncUpdate("DELETE FROM BudgetAllocations WHERE id = ?;", intBindings: [modelId])
+                softDeleteOrHardDelete(id: modelId)
                 continue
             }
 
             let isRelated = modelId == parentId || model.parentAllocationId == parentId
             let isFutureOrCurrent = model.monthDate >= currentMonthDate
             if isRelated && isFutureOrCurrent {
-                db.executeSyncUpdate("DELETE FROM BudgetAllocations WHERE id = ?;", intBindings: [modelId])
+                softDeleteOrHardDelete(id: modelId)
             }
         }
 
@@ -244,7 +244,7 @@ final class BudgetAllocationRepository: BudgetAllocationRepositoryProtocol {
         for model in allModels {
             guard let modelId = model.id else { continue }
             if modelId == parentId || model.parentAllocationId == parentId {
-                db.executeSyncUpdate("DELETE FROM BudgetAllocations WHERE id = ?;", intBindings: [modelId])
+                softDeleteOrHardDelete(id: modelId)
             }
         }
 
@@ -336,8 +336,8 @@ final class BudgetAllocationRepository: BudgetAllocationRepositoryProtocol {
             """
             INSERT INTO BudgetAllocations
                 (month_date, category_key, allocated_amount, is_recurring,
-                 parent_allocation_id, user_id, shared_group_id, ck_record_id, sync_status, ck_modified_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'synced', ?);
+                 parent_allocation_id, user_id, shared_group_id, ck_record_id, sync_status, ck_modified_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'synced', ?, ?);
             """,
             orderedBindings: [
                 allocation.monthDate,
@@ -348,7 +348,8 @@ final class BudgetAllocationRepository: BudgetAllocationRepositoryProtocol {
                 UIDUserDefaultsManager.shared.currentUserUID,
                 allocation.sharedGroupId,
                 ckRecordName,
-                Int(Date().timeIntervalSince1970)
+                Int(Date().timeIntervalSince1970),
+                Int((allocation.updatedAt ?? Date()).timeIntervalSince1970)
             ]
         )
     }
@@ -360,7 +361,7 @@ final class BudgetAllocationRepository: BudgetAllocationRepositoryProtocol {
                 month_date = ?, category_key = ?, allocated_amount = ?,
                 is_recurring = ?, parent_allocation_id = ?,
                 shared_group_id = ?,
-                sync_status = 'synced', ck_modified_at = ?
+                sync_status = 'synced', ck_modified_at = ?, updated_at = ?
             WHERE ck_record_id = ?;
             """,
             orderedBindings: [
@@ -371,12 +372,13 @@ final class BudgetAllocationRepository: BudgetAllocationRepositoryProtocol {
                 allocation.parentAllocationId,
                 allocation.sharedGroupId,
                 Int(Date().timeIntervalSince1970),
+                Int((allocation.updatedAt ?? Date()).timeIntervalSince1970),
                 ckRecordName
             ]
         )
     }
 
-    func softDeleteByCKRecordName(_ recordName: String) {
+    func deleteFromCloud(ckRecordName recordName: String) {
         db.executeSyncUpdate(
             "DELETE FROM BudgetAllocations WHERE ck_record_id = ?;",
             textBindings: [recordName]
@@ -414,7 +416,7 @@ final class BudgetAllocationRepository: BudgetAllocationRepositoryProtocol {
     }
 
     func lastModifiedDate(for id: Int) -> Date? {
-        let query = "SELECT ck_modified_at FROM BudgetAllocations WHERE id = ?;"
+        let query = "SELECT updated_at FROM BudgetAllocations WHERE id = ?;"
         guard let timestamp = db.fetchSingleInt(query, intBinding: id), timestamp > 0 else {
             return nil
         }
@@ -438,6 +440,22 @@ final class BudgetAllocationRepository: BudgetAllocationRepositoryProtocol {
     }
 
     // MARK: - Private Helpers
+
+    /// Soft-deletes a synced allocation (marks pendingDelete) or hard-deletes an unsynced one.
+    private func softDeleteOrHardDelete(id: Int) {
+        let ckName = fetchCKRecordName(for: id)
+        if ckName != nil {
+            db.executeSyncUpdate(
+                "UPDATE BudgetAllocations SET is_deleted = 1, sync_status = 'pendingDelete' WHERE id = ?;",
+                intBindings: [id]
+            )
+        } else {
+            db.executeSyncUpdate(
+                "DELETE FROM BudgetAllocations WHERE id = ?;",
+                intBindings: [id]
+            )
+        }
+    }
 
     private func updateAllocationRow(_ model: BudgetAllocationModel) {
         guard let id = model.id else { return }

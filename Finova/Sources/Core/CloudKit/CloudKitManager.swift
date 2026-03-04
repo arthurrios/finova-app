@@ -66,14 +66,19 @@ final class CloudKitManager {
                 self.isCloudKitAvailable = true
             case .noAccount:
                 mapped = .noAccount
+                self.isCloudKitAvailable = false
             case .restricted:
                 mapped = .restricted
+                self.isCloudKitAvailable = false
             case .couldNotDetermine:
                 mapped = .couldNotDetermine
+                self.isCloudKitAvailable = false
             case .temporarilyUnavailable:
                 mapped = .temporarilyUnavailable
+                self.isCloudKitAvailable = false
             @unknown default:
                 mapped = .couldNotDetermine
+                self.isCloudKitAvailable = false
             }
 
             self.accountStatus = mapped

@@ -57,6 +57,7 @@ struct Transaction: Codable {
     var creditCardId: Int? { data.creditCardId }
     var statementId: Int? { data.statementId }
     var isCreditCardStatement: Bool? { data.isCreditCardStatement }
+    var updatedAt: Date? { data.updatedAt }
     
     init(data: UITransactionData) {
         self.data = data
@@ -68,7 +69,7 @@ struct Transaction: Codable {
         case isRecurring, hasInstallments, parentTransactionId
         case installmentNumber, totalInstallments, originalAmount
         case creditCardId, statementId, isCreditCardStatement
-        case category, type
+        case category, type, updatedAt
     }
     
     init(from decoder: Decoder) throws {
@@ -88,6 +89,7 @@ struct Transaction: Codable {
         let creditCardId = try container.decodeIfPresent(Int.self, forKey: .creditCardId)
         let statementId = try container.decodeIfPresent(Int.self, forKey: .statementId)
         let isCreditCardStatement = try container.decodeIfPresent(Bool.self, forKey: .isCreditCardStatement)
+        let updatedAt = try container.decodeIfPresent(Date.self, forKey: .updatedAt)
 
         // Decode category and type as strings, then convert to enums
         let categoryString = try container.decode(String.self, forKey: .category)
@@ -121,6 +123,7 @@ struct Transaction: Codable {
             creditCardId: creditCardId,
             statementId: statementId,
             isCreditCardStatement: isCreditCardStatement,
+            updatedAt: updatedAt,
             category: category,
             type: type
         )
@@ -145,6 +148,7 @@ struct Transaction: Codable {
         try container.encodeIfPresent(data.creditCardId, forKey: .creditCardId)
         try container.encodeIfPresent(data.statementId, forKey: .statementId)
         try container.encodeIfPresent(data.isCreditCardStatement, forKey: .isCreditCardStatement)
+        try container.encodeIfPresent(data.updatedAt, forKey: .updatedAt)
 
         // Encode category and type as strings
         try container.encode(data.category.key, forKey: .category)
@@ -173,7 +177,8 @@ struct TransactionModel {
         totalInstallments: Int? = nil,
         creditCardId: Int? = nil,
         statementId: Int? = nil,
-        isCreditCardStatement: Bool? = nil
+        isCreditCardStatement: Bool? = nil,
+        updatedAt: Date? = nil
     ) {
         self.data = DBTransactionData(
             id: id,
@@ -190,6 +195,7 @@ struct TransactionModel {
             creditCardId: creditCardId,
             statementId: statementId,
             isCreditCardStatement: isCreditCardStatement,
+            updatedAt: updatedAt,
             category: category,
             type: type
         )
@@ -253,6 +259,7 @@ extension UITransactionData {
             creditCardId: db.creditCardId,
             statementId: db.statementId,
             isCreditCardStatement: db.isCreditCardStatement,
+            updatedAt: db.updatedAt,
             category: finalCategory,
             type: finalType
         )

@@ -54,6 +54,7 @@ extension CreditCard: CKRecordConvertible {
         record["sharedGroupId"] = sharedGroupId as CKRecordValue?
         record["isDeleted"] = (isDeleted ? 1 : 0) as CKRecordValue
         record["isDefault"] = (isDefault ? 1 : 0) as CKRecordValue
+        record["updatedAt"] = updatedAt as CKRecordValue
         return record
     }
 
@@ -82,7 +83,7 @@ extension CreditCard: CKRecordConvertible {
             isDeleted: (record["isDeleted"] as? Int) == 1,
             isDefault: (record["isDefault"] as? Int) == 1,
             createdAt: record.creationDate ?? Date(),
-            updatedAt: record.modificationDate ?? Date()
+            updatedAt: (record["updatedAt"] as? Date) ?? record.modificationDate ?? Date()
         )
         card.sharedGroupId = record["sharedGroupId"] as? String
         return card

@@ -223,14 +223,14 @@ class StatementRepository {
                 stmt.paidDate.map { Int($0.timeIntervalSince1970) },
                 stmt.paidAmount,
                 stmt.isDatesOverridden ? 1 : 0,
-                Int(Date().timeIntervalSince1970),
+                Int(stmt.updatedAt.timeIntervalSince1970),
                 Int(Date().timeIntervalSince1970),
                 ckRecordName
             ]
         )
     }
 
-    func softDeleteByCKRecordName(_ recordName: String) {
+    func deleteFromCloud(ckRecordName recordName: String) {
         db.executeSyncUpdate(
             "DELETE FROM CreditCardStatements WHERE ck_record_id = ?;",
             textBindings: [recordName]
@@ -270,7 +270,7 @@ class StatementRepository {
     }
 
     func lastModifiedDate(for id: Int) -> Date? {
-        let query = "SELECT ck_modified_at FROM CreditCardStatements WHERE id = ?;"
+        let query = "SELECT updated_at FROM CreditCardStatements WHERE id = ?;"
         guard let timestamp = db.fetchSingleInt(query, intBinding: id), timestamp > 0 else {
             return nil
         }

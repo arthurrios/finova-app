@@ -151,7 +151,7 @@ final class SyncToastView: UIView {
         batchLabel.isHidden = false
     }
 
-    func updateStatus(_ status: SyncStatusIndicator.Status) {
+    func updateStatus(_ status: SyncStatusIndicator.Status, message: String? = nil) {
         stopSpinning()
         batchLabel.isHidden = true
 
@@ -170,7 +170,7 @@ final class SyncToastView: UIView {
         case .error:
             iconView.image = UIImage(systemName: "exclamationmark.icloud")
             iconView.tintColor = Colors.mainRed
-            statusLabel.text = "sync.toast.error".localized
+            statusLabel.text = message ?? "sync.toast.error".localized
             statusLabel.textColor = Colors.mainRed
         case .idle, .offline:
             iconView.image = UIImage(systemName: "cloud")

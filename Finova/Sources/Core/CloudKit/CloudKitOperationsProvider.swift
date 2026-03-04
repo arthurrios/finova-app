@@ -101,6 +101,7 @@ final class RealCloudKitOperations: CloudKitOperationsProvider {
         }
 
         operation.qualityOfService = .userInitiated
+        Self.applyTimeouts(to: operation)
         cloudKit.privateDatabase.add(operation)
     }
 
@@ -158,6 +159,7 @@ final class RealCloudKitOperations: CloudKitOperationsProvider {
 
         let db = database == .private ? cloudKit.privateDatabase : cloudKit.sharedDatabase
         operation.qualityOfService = .userInitiated
+        Self.applyTimeouts(to: operation)
         db.add(operation)
     }
 
@@ -184,6 +186,7 @@ final class RealCloudKitOperations: CloudKitOperationsProvider {
         }
 
         operation.qualityOfService = .userInitiated
+        Self.applyTimeouts(to: operation)
         cloudKit.privateDatabase.add(operation)
     }
 
@@ -209,6 +212,14 @@ final class RealCloudKitOperations: CloudKitOperationsProvider {
         }
 
         operation.qualityOfService = .userInitiated
+        Self.applyTimeouts(to: operation)
         cloudKit.privateDatabase.add(operation)
+    }
+
+    // MARK: - Timeout Configuration
+
+    private static func applyTimeouts(to operation: CKOperation) {
+        operation.configuration.timeoutIntervalForRequest = 30
+        operation.configuration.timeoutIntervalForResource = 60
     }
 }

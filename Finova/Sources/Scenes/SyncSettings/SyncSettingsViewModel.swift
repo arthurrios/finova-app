@@ -64,30 +64,41 @@ final class SyncSettingsViewModel {
   }
 
   func syncNow() {
-    guard cloudKitManager.isCloudKitAvailable else {
-      delegate?.didShowCloudKitUnavailableAlert()
-      return
+    ensureCloudKitAvailable { [weak self] in
+      guard let self = self else { return }
+      self.delegate?.didUpdateSyncState(status: .syncing, lastSyncText: self.formatLastSyncDate())
+      self.syncEngine.performFullSync()
     }
-    delegate?.didUpdateSyncState(status: .syncing, lastSyncText: formatLastSyncDate())
-    syncEngine.performFullSync()
   }
 
   func resetSync() {
-    guard cloudKitManager.isCloudKitAvailable else {
-      delegate?.didShowCloudKitUnavailableAlert()
-      return
+    ensureCloudKitAvailable { [weak self] in
+      guard let self = self else { return }
+      self.stateManager.resetAllTokens()
+      self.delegate?.didUpdateSyncState(status: .syncing, lastSyncText: self.formatLastSyncDate())
+      self.syncEngine.performFullSync(forceAcceptCloud: true)
     }
-    stateManager.resetAllTokens()
-    delegate?.didUpdateSyncState(status: .syncing, lastSyncText: formatLastSyncDate())
-    syncEngine.performFullSync()
   }
 
   func resumeUpload() {
-    guard cloudKitManager.isCloudKitAvailable else {
-      delegate?.didShowCloudKitUnavailableAlert()
-      return
+    ensureCloudKitAvailable { [weak self] in
+      guard let self = self else { return }
+      self.delegate?.didUpdateSyncState(status: .syncing, lastSyncText: self.formatLastSyncDate())
+      self.syncEngine.performFullSync(forceRePush: true)
     }
-    syncEngine.performFullSync(forceRePush: true)
+  }
+
+  /// Re-checks iCloud account status before proceeding. Calls `onAvailable` on the main queue
+  /// if the account is available; otherwise shows the unavailable alert.
+  private func ensureCloudKitAvailable(onAvailable: @escaping () -> Void) {
+    cloudKitManager.checkAccountStatus { [weak self] status in
+      guard let self = self else { return }
+      if status == .available {
+        onAvailable()
+      } else {
+        self.delegate?.didShowCloudKitUnavailableAlert()
+      }
+    }
   }
 
   // MARK: - Private Methods

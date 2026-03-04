@@ -118,8 +118,8 @@ final class BudgetRepository: BudgetRepositoryProtocol {
 
     db.executeGroupWrite(
       """
-      INSERT INTO Budgets (month_date, amount, user_id, shared_group_id, ck_record_id, sync_status, ck_modified_at)
-      VALUES (?, ?, ?, ?, ?, 'synced', ?);
+      INSERT INTO Budgets (month_date, amount, user_id, shared_group_id, ck_record_id, sync_status, ck_modified_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, 'synced', ?, ?);
       """,
       orderedBindings: [
         budget.monthDate,
@@ -127,7 +127,8 @@ final class BudgetRepository: BudgetRepositoryProtocol {
         UIDUserDefaultsManager.shared.currentUserUID,
         budget.sharedGroupId,
         ckRecordName,
-        Int(Date().timeIntervalSince1970)
+        Int(Date().timeIntervalSince1970),
+        Int((budget.updatedAt ?? Date()).timeIntervalSince1970)
       ]
     )
   }
@@ -135,19 +136,20 @@ final class BudgetRepository: BudgetRepositoryProtocol {
   func updateFromCloud(_ budget: BudgetModel, ckRecordName: String) {
     db.executeGroupWrite(
       """
-      UPDATE Budgets SET amount = ?, shared_group_id = ?, sync_status = 'synced', ck_modified_at = ?
+      UPDATE Budgets SET amount = ?, shared_group_id = ?, sync_status = 'synced', ck_modified_at = ?, updated_at = ?
       WHERE ck_record_id = ?;
       """,
       orderedBindings: [
         budget.amount,
         budget.sharedGroupId,
         Int(Date().timeIntervalSince1970),
+        Int((budget.updatedAt ?? Date()).timeIntervalSince1970),
         ckRecordName
       ]
     )
   }
 
-  func softDeleteByCKRecordName(_ recordName: String) {
+  func deleteFromCloud(ckRecordName recordName: String) {
     db.executeSyncUpdate(
       "DELETE FROM Budgets WHERE ck_record_id = ?;",
       textBindings: [recordName]
@@ -188,7 +190,7 @@ final class BudgetRepository: BudgetRepositoryProtocol {
   }
 
   func lastModifiedDate(forMonthDate monthDate: Int) -> Date? {
-    let query = "SELECT ck_modified_at FROM Budgets WHERE month_date = ?;"
+    let query = "SELECT updated_at FROM Budgets WHERE month_date = ?;"
     guard let timestamp = db.fetchSingleInt(query, intBinding: monthDate), timestamp > 0 else {
       return nil
     }

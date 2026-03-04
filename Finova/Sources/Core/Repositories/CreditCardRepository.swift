@@ -257,14 +257,14 @@ class CreditCardRepository {
                 card.isDeleted ? 1 : 0,
                 card.isDefault ? 1 : 0,
                 card.sharedGroupId,
-                Int(Date().timeIntervalSince1970),
+                Int(card.updatedAt.timeIntervalSince1970),
                 Int(Date().timeIntervalSince1970),
                 ckRecordName
             ]
         )
     }
 
-    func softDeleteByCKRecordName(_ recordName: String) {
+    func deleteFromCloud(ckRecordName recordName: String) {
         db.executeSyncUpdate(
             "DELETE FROM CreditCards WHERE ck_record_id = ?;",
             textBindings: [recordName]
@@ -299,7 +299,7 @@ class CreditCardRepository {
     }
 
     func lastModifiedDate(for id: Int) -> Date? {
-        let query = "SELECT ck_modified_at FROM CreditCards WHERE id = ?;"
+        let query = "SELECT updated_at FROM CreditCards WHERE id = ?;"
         guard let timestamp = db.fetchSingleInt(query, intBinding: id), timestamp > 0 else {
             return nil
         }

@@ -695,8 +695,8 @@ final class TransactionRepository: TransactionRepositoryProtocol {
          installment_number, total_installments, original_amount,
          credit_card_id, statement_id, is_credit_card_statement,
          ck_record_id, sync_status, user_id, ck_modified_at, ck_parent_record_name,
-         shared_group_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced', ?, ?, ?, ?);
+         shared_group_id, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced', ?, ?, ?, ?, ?);
       """
 
     db.executeCloudInsert(
@@ -706,7 +706,8 @@ final class TransactionRepository: TransactionRepositoryProtocol {
       type: type,
       ckRecordName: ckRecordName,
       parentCKRecordName: parentCKRecordName,
-      sharedGroupId: sharedGroupId
+      sharedGroupId: sharedGroupId,
+      updatedAt: transaction.updatedAt
     )
 
     // Phase 4D: Remap parent ID via CK record name
@@ -737,7 +738,8 @@ final class TransactionRepository: TransactionRepositoryProtocol {
         total_installments = ?, original_amount = ?,
         credit_card_id = ?, statement_id = ?, is_credit_card_statement = ?,
         sync_status = 'synced', ck_modified_at = ?,
-        shared_group_id = ?
+        shared_group_id = ?,
+        updated_at = ?
       WHERE ck_record_id = ?;
       """
 
@@ -747,7 +749,8 @@ final class TransactionRepository: TransactionRepositoryProtocol {
       category: category,
       type: type,
       ckRecordName: ckRecordName,
-      sharedGroupId: sharedGroupId
+      sharedGroupId: sharedGroupId,
+      updatedAt: transaction.updatedAt
     )
   }
 
@@ -759,7 +762,7 @@ final class TransactionRepository: TransactionRepositoryProtocol {
     )
   }
 
-  func softDeleteByCKRecordName(_ recordName: String) {
+  func deleteFromCloud(ckRecordName recordName: String) {
     Self.invalidateCache()
     db.executeSyncUpdate(
       "DELETE FROM Transactions WHERE ck_record_id = ?;",
@@ -855,13 +858,26 @@ final class TransactionRepository: TransactionRepositoryProtocol {
              is_recurring, has_installments, parent_transaction_id,
              installment_number, total_installments, original_amount,
              credit_card_id, statement_id, is_credit_card_statement
-      FROM Transactions WHERE ck_record_id = ?;
+      FROM Transactions WHERE ck_record_id = ? AND (is_deleted IS NULL OR is_deleted = 0);
       """
     return (try? db.executeTransactionQueryPublicText(query, textBindings: [recordName]))?.first
   }
 
+  /// If a soft-deleted record with this CK name exists (is_deleted=1), restores its sync_status
+  /// to 'pendingDelete' so the next push cycle will remove it from CloudKit.
+  /// Returns true if such a record was found (caller should skip re-insertion).
+  func restorePendingDeleteIfNeeded(ckRecordName: String) -> Bool {
+    let check = "SELECT id FROM Transactions WHERE ck_record_id = ? AND is_deleted = 1;"
+    guard db.fetchSingleInt(check, textBinding: ckRecordName) != nil else { return false }
+    db.executeSyncUpdate(
+      "UPDATE Transactions SET sync_status = 'pendingDelete' WHERE ck_record_id = ? AND is_deleted = 1;",
+      textBindings: [ckRecordName]
+    )
+    return true
+  }
+
   func lastModifiedDate(for id: Int) -> Date? {
-    let query = "SELECT ck_modified_at FROM Transactions WHERE id = ?;"
+    let query = "SELECT updated_at FROM Transactions WHERE id = ?;"
     guard let timestamp = db.fetchSingleInt(query, intBinding: id), timestamp > 0 else {
       return nil
     }

@@ -198,7 +198,7 @@ final class DeviceSimulator {
         activate()
         let deletedNames = mockCloud.fetchDeleted()
         for name in deletedNames {
-            transactionRepo.softDeleteByCKRecordName(name)
+            transactionRepo.deleteFromCloud(ckRecordName: name)
         }
         TransactionRepository.invalidateCache()
     }

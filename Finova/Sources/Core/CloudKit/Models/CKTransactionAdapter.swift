@@ -58,6 +58,8 @@ extension Transaction: CKRecordConvertible {
             record["parentCKRecordName"] = parentCKName as CKRecordValue?
         }
 
+        record["updatedAt"] = (updatedAt ?? Date()) as CKRecordValue
+
         return record
     }
 
@@ -75,6 +77,8 @@ extension Transaction: CKRecordConvertible {
         let localId = record["localId"] as? Int
         let budgetMonthDate = record["budgetMonthDate"] as? Int ?? 0
 
+        let updatedAt = (record["updatedAt"] as? Date) ?? record.modificationDate ?? Date()
+
         let uiData = UITransactionData(
             id: localId,
             title: title,
@@ -90,6 +94,7 @@ extension Transaction: CKRecordConvertible {
             creditCardId: record["creditCardId"] as? Int,
             statementId: record["statementId"] as? Int,
             isCreditCardStatement: (record["isCreditCardStatement"] as? Int) == 1,
+            updatedAt: updatedAt,
             category: category,
             type: type
         )
