@@ -1035,6 +1035,7 @@ final class AddTransactionModalViewModel {
       }
 
       invalidateLedgerCache()
+      monitorNegativeBalance()
       return .success(())
 
     } catch {
@@ -1242,6 +1243,7 @@ final class AddTransactionModalViewModel {
       do {
         try transactionRepo.updateTransaction(updatedTransaction)
         invalidateLedgerCache()
+        monitorNegativeBalance()
         return .success(())
       } catch {
         logError("Installment update error: \(error)")
@@ -1349,6 +1351,7 @@ final class AddTransactionModalViewModel {
       }
 
       invalidateLedgerCache()
+      monitorNegativeBalance()
       return .success(())
 
     } catch {
@@ -1389,6 +1392,7 @@ final class AddTransactionModalViewModel {
         date: dateObj
       )
       invalidateLedgerCache()
+      monitorNegativeBalance()
       return .success(())
 
     } catch {

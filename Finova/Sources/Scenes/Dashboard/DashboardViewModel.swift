@@ -289,6 +289,11 @@ final class DashboardViewModel {
         // Invalidate ledger cache since transactions changed
         transactionLedger.invalidateCache()
 
+        // Force re-evaluate the negative balance alert now that data has changed.
+        // forceTriggerBalanceMonitoring bypasses the 5-min throttle so the
+        // notification is updated immediately rather than waiting for the next foreground event.
+        balanceMonitor.forceTriggerBalanceMonitoring()
+
         return .success(())
       }
 
@@ -341,6 +346,7 @@ final class DashboardViewModel {
             }
             // Invalidate ledger cache since transactions changed
             self.transactionLedger.invalidateCache()
+            self.balanceMonitor.forceTriggerBalanceMonitoring()
             completion(.success(()))
           }
           return
@@ -359,6 +365,7 @@ final class DashboardViewModel {
             }
             // Invalidate ledger cache since transactions changed
             self.transactionLedger.invalidateCache()
+            self.balanceMonitor.forceTriggerBalanceMonitoring()
             completion(.success(()))
           }
           return
@@ -372,6 +379,7 @@ final class DashboardViewModel {
             self.creditCardService.recalculateStatementTotal(statementId: stmtId)
           }
           self.transactionLedger.invalidateCache()
+          self.balanceMonitor.forceTriggerBalanceMonitoring()
           DispatchQueue.main.async {
             completion(.success(()))
           }

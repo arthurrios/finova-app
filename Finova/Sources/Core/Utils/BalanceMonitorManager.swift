@@ -177,7 +177,8 @@ final class BalanceMonitorManager {
     // Usar a mesma lógica do dashboard para calcular o saldo atual
     let currentBalance = calculateCurrentBalanceLikeDashboard(allTransactions: allTransactions)
 
-    // Filtrar transações futuras do mês atual
+    // Filtrar transações futuras dentro da janela de 30 dias — sem restrição de mês,
+    // para capturar corretamente transações do mês seguinte (ex: aluguel em 1º do mês próximo).
     let today = Date()
     let todayStart = calendar.startOfDay(for: today)
 
@@ -185,7 +186,6 @@ final class BalanceMonitorManager {
       let txDate = Date(timeIntervalSince1970: TimeInterval(transaction.dateTimestamp))
       let txDateStart = calendar.startOfDay(for: txDate)
       return txDateStart > todayStart
-        && calendar.isDate(txDate, equalTo: monthInterval.start, toGranularity: .month)
     }
 
     // Calcular projeção para os próximos 30 dias
@@ -486,45 +486,55 @@ final class BalanceMonitorManager {
 
   // MARK: - Private Balance Calculation
 
-  /// Calcula o saldo atual usando a mesma lógica do dashboard (finalBalance)
+  /// Calcula o saldo atual até hoje, usando a mesma lógica de currentBalance do dashboard.
+  /// Retorna o saldo acumulado: passado completo + transações do mês atual até hoje (exclusive futuras).
   private func calculateCurrentBalanceLikeDashboard(allTransactions: [Transaction]) -> Int {
-    // Usar a mesma lógica do DashboardViewModel.loadMonthlyCards()
     let today = Date()
-
-    // Calcular o saldo acumulado (running balance) como o dashboard faz
-    // allTransactions already filtered by fetchTransactions() to match Dashboard
-    let allTxs = allTransactions
-
-    let expensesByAnchor =
-      allTxs
-      .filter { $0.type == .expense }
-      .reduce(into: [:]) { acc, tx in
-        acc[tx.budgetMonthDate, default: 0] += tx.amount
-      }
-
-    let incomesByAnchor =
-      allTxs
-      .filter { $0.type == .income }
-      .reduce(into: [:]) { acc, tx in
-        acc[tx.budgetMonthDate, default: 0] += tx.amount
-      }
-
-    // Calcular o running balance até o mês atual
-    var previousAvailable = UIDUserDefaultsManager.shared.getCurrentUserBalanceOffset()
-
-    // Pegar todos os meses até o mês atual
+    let todayStart = calendar.startOfDay(for: today)
     let currentMonth = calendar.dateInterval(of: .month, for: today)!
     let currentMonthAnchor = currentMonth.start.monthAnchor
 
-    // Calcular o saldo acumulado até o mês anterior
-    let allAnchors = allTxs.map { $0.budgetMonthDate }.sorted()
-    let anchorsUpToCurrent = allAnchors.filter { $0 <= currentMonthAnchor }
+    // Pre-build anchor → net maps for past months (all transactions)
+    let expensesByAnchor = allTransactions
+      .filter { $0.type == .expense }
+      .reduce(into: [Int: Int]()) { acc, tx in
+        acc[tx.budgetMonthDate, default: 0] += tx.amount
+      }
 
-    for anchor in anchorsUpToCurrent {
-      let expense = expensesByAnchor[anchor] ?? 0
-      let income = incomesByAnchor[anchor] ?? 0
-      let net = income - expense
-      previousAvailable += net
+    let incomesByAnchor = allTransactions
+      .filter { $0.type == .income }
+      .reduce(into: [Int: Int]()) { acc, tx in
+        acc[tx.budgetMonthDate, default: 0] += tx.amount
+      }
+
+    var previousAvailable = UIDUserDefaultsManager.shared.getCurrentUserBalanceOffset()
+
+    // FIXED: use unique anchors — previously used one entry per transaction,
+    // causing each month's net to be added once per transaction instead of once per month.
+    let uniqueAnchors = Set(allTransactions.map { $0.budgetMonthDate })
+      .filter { $0 <= currentMonthAnchor }
+      .sorted()
+
+    for anchor in uniqueAnchors {
+      if anchor < currentMonthAnchor {
+        // Past months: include all transactions (= final balance for that month)
+        let expense = expensesByAnchor[anchor] ?? 0
+        let income = incomesByAnchor[anchor] ?? 0
+        previousAvailable += (income - expense)
+      } else {
+        // Current month: only include transactions up to TODAY.
+        // Future transactions are intentionally excluded here; they will be added
+        // incrementally in the projection loop to avoid double-counting.
+        let txsUpToToday = allTransactions.filter { tx in
+          guard tx.budgetMonthDate == anchor else { return false }
+          let txDate = Date(timeIntervalSince1970: TimeInterval(tx.dateTimestamp))
+          return calendar.startOfDay(for: txDate) <= todayStart
+        }
+        let net = txsUpToToday.reduce(0) { result, tx in
+          tx.type == .income ? result + tx.amount : result - tx.amount
+        }
+        previousAvailable += net
+      }
     }
 
     return previousAvailable
