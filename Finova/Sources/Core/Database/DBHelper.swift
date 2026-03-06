@@ -52,6 +52,7 @@ class DBHelper {
             try migrateSyncColumnsV3()
             try migrateSyncColumnsV4()
             try migrateSyncColumnsV5()
+            try migrateBudgetGroupsAddZoneOwner()
             isInitialized = true
             performSyncFixMigration()
             performParentIdFixMigration()
@@ -1342,12 +1343,12 @@ class DBHelper {
         return Int(sqlite3_last_insert_rowid(db))
     }
     
-    func getCreditCards(userId: String) throws -> [(id: Int, name: String, lastFourDigits: String, cardBrand: String, closingDay: Int, dueDay: Int, creditLimit: Int?, cardColor: String, isDeleted: Bool, isDefault: Bool, createdAt: Int, updatedAt: Int)] {
+    func getCreditCards(userId: String) throws -> [(id: Int, name: String, lastFourDigits: String, cardBrand: String, closingDay: Int, dueDay: Int, creditLimit: Int?, cardColor: String, isDeleted: Bool, isDefault: Bool, createdAt: Int, updatedAt: Int, sharedGroupId: String?)] {
         guard isInitialized else { return [] }
 
         let query = """
         SELECT id, name, last_four_digits, card_brand, closing_day, due_day,
-               credit_limit, card_color, is_deleted, is_default, created_at, updated_at
+               credit_limit, card_color, is_deleted, is_default, created_at, updated_at, shared_group_id
         FROM CreditCards WHERE user_id = ? AND is_deleted = 0
         ORDER BY created_at DESC;
         """
@@ -1360,7 +1361,7 @@ class DBHelper {
         defer { sqlite3_finalize(statement) }
         sqlite3_bind_text(statement, 1, userId, -1, SQLITE_TRANSIENT)
 
-        var results: [(id: Int, name: String, lastFourDigits: String, cardBrand: String, closingDay: Int, dueDay: Int, creditLimit: Int?, cardColor: String, isDeleted: Bool, isDefault: Bool, createdAt: Int, updatedAt: Int)] = []
+        var results: [(id: Int, name: String, lastFourDigits: String, cardBrand: String, closingDay: Int, dueDay: Int, creditLimit: Int?, cardColor: String, isDeleted: Bool, isDefault: Bool, createdAt: Int, updatedAt: Int, sharedGroupId: String?)] = []
 
         while sqlite3_step(statement) == SQLITE_ROW {
             let id = Int(sqlite3_column_int64(statement, 0))
@@ -1375,8 +1376,9 @@ class DBHelper {
             let isDefault = sqlite3_column_int(statement, 9) == 1
             let createdAt = Int(sqlite3_column_int64(statement, 10))
             let updatedAt = Int(sqlite3_column_int64(statement, 11))
+            let sharedGroupId: String? = sqlite3_column_type(statement, 12) == SQLITE_NULL ? nil : String(cString: sqlite3_column_text(statement, 12))
 
-            results.append((id, name, lastFour, brand, closing, due, limit, color, deleted, isDefault, createdAt, updatedAt))
+            results.append((id, name, lastFour, brand, closing, due, limit, color, deleted, isDefault, createdAt, updatedAt, sharedGroupId))
         }
 
         return results
@@ -1558,7 +1560,7 @@ class DBHelper {
     
     func getStatements(creditCardId: Int) throws -> [(id: Int, creditCardId: Int, closingDate: Int, dueDate: Int, totalAmount: Int, isPaid: Bool, paidDate: Int?, paidAmount: Int?, userId: String, isDatesOverridden: Bool, createdAt: Int, updatedAt: Int)] {
         guard isInitialized else { return [] }
-        let query = "SELECT id, credit_card_id, closing_date, due_date, total_amount, is_paid, paid_date, paid_amount, user_id, is_dates_overridden, created_at, updated_at FROM CreditCardStatements WHERE credit_card_id = ? ORDER BY due_date DESC;"
+        let query = "SELECT id, credit_card_id, closing_date, due_date, total_amount, is_paid, paid_date, paid_amount, user_id, is_dates_overridden, created_at, updated_at FROM CreditCardStatements WHERE credit_card_id = ? AND (is_deleted IS NULL OR is_deleted = 0) ORDER BY due_date DESC;"
         var statement: OpaquePointer?
         guard sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK else {
             let msg = String(cString: sqlite3_errmsg(db))
@@ -1587,6 +1589,33 @@ class DBHelper {
         return results
     }
     
+    func getStatement(byId id: Int) throws -> (id: Int, creditCardId: Int, closingDate: Int, dueDate: Int, totalAmount: Int, isPaid: Bool, paidDate: Int?, paidAmount: Int?, userId: String, isDatesOverridden: Bool, createdAt: Int, updatedAt: Int)? {
+        guard isInitialized else { return nil }
+        let query = "SELECT id, credit_card_id, closing_date, due_date, total_amount, is_paid, paid_date, paid_amount, user_id, is_dates_overridden, created_at, updated_at FROM CreditCardStatements WHERE id = ?;"
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK else {
+            let msg = String(cString: sqlite3_errmsg(db))
+            throw DBError.prepareFailed(message: msg)
+        }
+        defer { sqlite3_finalize(statement) }
+        sqlite3_bind_int64(statement, 1, Int64(id))
+        guard sqlite3_step(statement) == SQLITE_ROW else { return nil }
+        return (
+            Int(sqlite3_column_int64(statement, 0)),
+            Int(sqlite3_column_int64(statement, 1)),
+            Int(sqlite3_column_int64(statement, 2)),
+            Int(sqlite3_column_int64(statement, 3)),
+            Int(sqlite3_column_int64(statement, 4)),
+            sqlite3_column_int(statement, 5) == 1,
+            sqlite3_column_type(statement, 6) == SQLITE_NULL ? nil : Int(sqlite3_column_int64(statement, 6)),
+            sqlite3_column_type(statement, 7) == SQLITE_NULL ? nil : Int(sqlite3_column_int64(statement, 7)),
+            String(cString: sqlite3_column_text(statement, 8)),
+            sqlite3_column_int(statement, 9) == 1,
+            Int(sqlite3_column_int64(statement, 10)),
+            Int(sqlite3_column_int64(statement, 11))
+        )
+    }
+
     func findStatement(creditCardId: Int, closingDate: Int) throws -> Int? {
         guard isInitialized else { return nil }
         let query = "SELECT id FROM CreditCardStatements WHERE credit_card_id = ? AND closing_date = ?;"
@@ -1747,7 +1776,7 @@ class DBHelper {
 
     func getTransactionSumForStatement(statementId: Int) throws -> Int {
         guard isInitialized else { return 0 }
-        let query = "SELECT COALESCE(SUM(amount), 0) FROM Transactions WHERE statement_id = ? AND is_credit_card_statement = 0;"
+        let query = "SELECT COALESCE(SUM(amount), 0) FROM Transactions WHERE statement_id = ? AND is_credit_card_statement = 0 AND (is_deleted IS NULL OR is_deleted = 0);"
         var statement: OpaquePointer?
         guard sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK else {
             let msg = String(cString: sqlite3_errmsg(db))
@@ -1915,6 +1944,10 @@ class DBHelper {
         try addColumnIfNotExists(table: "Transactions", column: "updated_at", definition: "INTEGER")
         try addColumnIfNotExists(table: "Budgets", column: "updated_at", definition: "INTEGER")
         try addColumnIfNotExists(table: "BudgetAllocations", column: "updated_at", definition: "INTEGER")
+    }
+
+    private func migrateBudgetGroupsAddZoneOwner() throws {
+        try addColumnIfNotExists(table: "BudgetGroups", column: "ck_zone_owner", definition: "TEXT")
     }
 
     private func migrateSyncColumnsV3() throws {
@@ -2397,6 +2430,18 @@ class DBHelper {
         sqlite3_step(statement)
     }
 
+    func fetchSingleInt(_ query: String, intBindings: [Int]) -> Int? {
+        guard isInitialized else { return nil }
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK else { return nil }
+        defer { sqlite3_finalize(statement) }
+        for (i, value) in intBindings.enumerated() {
+            sqlite3_bind_int64(statement, Int32(i + 1), Int64(value))
+        }
+        guard sqlite3_step(statement) == SQLITE_ROW else { return nil }
+        return Int(sqlite3_column_int64(statement, 0))
+    }
+
     func fetchSingleInt(_ query: String, textBinding: String? = nil, intBinding: Int? = nil) -> Int? {
         guard isInitialized else { return nil }
         var statement: OpaquePointer?
@@ -2446,6 +2491,22 @@ class DBHelper {
             guard let cString = sqlite3_column_text(statement, 1) else { continue }
             let ckName = String(cString: cString)
             results.append((ckRecordName: ckName, localId: localId))
+        }
+        return results
+    }
+
+    /// Returns rows as (Int, Int) pairs from a query that selects two integer columns.
+    /// Used by lazy generation to collect (parentId, budgetMonthDate) for soft-deleted instances.
+    func fetchIntIntPairs(_ query: String) -> [(Int, Int)] {
+        guard isInitialized else { return [] }
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK else { return [] }
+        defer { sqlite3_finalize(statement) }
+        var results: [(Int, Int)] = []
+        while sqlite3_step(statement) == SQLITE_ROW {
+            let a = Int(sqlite3_column_int64(statement, 0))
+            let b = Int(sqlite3_column_int64(statement, 1))
+            results.append((a, b))
         }
         return results
     }
@@ -2715,10 +2776,12 @@ class DBHelper {
                 ? nil : String(cString: sqlite3_column_text(statement, 6))
             let ckShareUrl: String? = sqlite3_column_type(statement, 7) == SQLITE_NULL
                 ? nil : String(cString: sqlite3_column_text(statement, 7))
+            let ckZoneOwner: String? = sqlite3_column_type(statement, 8) == SQLITE_NULL
+                ? nil : String(cString: sqlite3_column_text(statement, 8))
 
-            let createdAt = Date(timeIntervalSince1970: TimeInterval(sqlite3_column_int64(statement, 8)))
-            let updatedAt = Date(timeIntervalSince1970: TimeInterval(sqlite3_column_int64(statement, 9)))
-            let isDeleted = sqlite3_column_int(statement, 10) == 1
+            let createdAt = Date(timeIntervalSince1970: TimeInterval(sqlite3_column_int64(statement, 9)))
+            let updatedAt = Date(timeIntervalSince1970: TimeInterval(sqlite3_column_int64(statement, 10)))
+            let isDeleted = sqlite3_column_int(statement, 11) == 1
 
             var group = BudgetGroup(
                 id: id, name: name, ownerId: ownerId,
@@ -2729,6 +2792,7 @@ class DBHelper {
             )
             group.ckRecordId = ckRecordId
             group.ckShareUrl = ckShareUrl
+            group.ckZoneOwner = ckZoneOwner
             results.append(group)
         }
         return results

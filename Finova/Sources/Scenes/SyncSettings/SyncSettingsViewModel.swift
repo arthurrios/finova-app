@@ -76,7 +76,12 @@ final class SyncSettingsViewModel {
       guard let self = self else { return }
       self.stateManager.resetAllTokens()
       self.delegate?.didUpdateSyncState(status: .syncing, lastSyncText: self.formatLastSyncDate())
-      self.syncEngine.performFullSync(forceAcceptCloud: true)
+      // Use direct zone recovery instead of the DB-change-detection path (forceFullFetch).
+      // CKFetchDatabaseChangesOperation can return empty changedZoneIDs even with a nil token,
+      // which causes the zone fetch to be silently skipped and missing records are never restored.
+      // performPrivateZoneRecovery bypasses this by querying FinovaPrivateZone directly with a
+      // nil zone token, guaranteeing all records are fetched regardless of DB-level token state.
+      self.syncEngine.performPrivateZoneRecovery()
     }
   }
 

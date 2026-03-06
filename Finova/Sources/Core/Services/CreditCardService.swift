@@ -89,6 +89,12 @@ class CreditCardService {
     }
 
     func recalculateStatementTotal(statementId: Int) {
+        // Don't touch cloud-synced statements — they may appear empty locally because
+        // cross-device credit card ID remapping hasn't resolved yet. Deleting or
+        // recalculating them here would push a wrong totalAmount=0 to CloudKit and
+        // permanently remove the statement from the cloud.
+        guard stmtRepo.fetchCKRecordName(for: statementId) == nil else { return }
+
         stmtRepo.recalculateTotal(statementId: statementId)
 
         // Delete statement if it has no transactions
@@ -122,9 +128,14 @@ class CreditCardService {
                 let realCount = stmtTransactions.count
                 let realTotal = stmtTransactions.reduce(0) { $0 + $1.amount }
 
-                // Clean up stale statements with no transactions
+                // Clean up stale statements with no transactions.
+                // Skip cloud-synced statements — recalculateStatementTotal already guards
+                // against touching them, but also avoid calling it at all to prevent
+                // the no-op recalculate from marking them 'pending' unnecessarily.
                 if realCount == 0 {
-                    recalculateStatementTotal(statementId: stmt.id!)
+                    if stmtRepo.fetchCKRecordName(for: stmt.id!) == nil {
+                        recalculateStatementTotal(statementId: stmt.id!)
+                    }
                     continue
                 }
 
@@ -299,7 +310,9 @@ class CreditCardService {
             }
 
             if realCount == 0 {
-                recalculateStatementTotal(statementId: stmtId)
+                if stmtRepo.fetchCKRecordName(for: stmtId) == nil {
+                    recalculateStatementTotal(statementId: stmtId)
+                }
                 continue
             }
 

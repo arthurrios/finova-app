@@ -829,6 +829,17 @@ final class RecurringTransactionManager {
         }
       }
 
+      // Also include soft-deleted (is_deleted=1) instances so lazy generation never recreates
+      // an instance the user intentionally deleted, even if the active row was removed.
+      // This covers both in-session deletions (row still soft-deleted) and post-CK-delete
+      // tombstones left by hardDeleteLocal (ck_record_id cleared but is_deleted=1 remains).
+      let deletedChildAnchors = self.transactionRepo.fetchDeletedChildAnchors()
+      for (parentId, anchors) in deletedChildAnchors {
+        for anchor in anchors {
+          instancesByParentId[parentId, default: []].insert(anchor)
+        }
+      }
+
       // Build a set of existing (title, budgetMonthDate) to prevent duplicates
       // even when parent_transaction_id is wrong (cross-device ID mismatch)
       // or amounts differ slightly (rounding, edits on different devices).
@@ -987,13 +998,19 @@ final class RecurringTransactionManager {
             parentTransactionId: parentId,
             originalAmount: originalAmount,
             installmentNumber: installmentNumber,
-            totalInstallments: totalInstallments
+            totalInstallments: totalInstallments,
+            creditCardId: parent.creditCardId
           )
 
           do {
-            try self.transactionRepo.insertTransaction(installmentModel)
+            let insertedId = try self.transactionRepo.insertTransactionAndGetId(installmentModel)
             newInstancesCreated += 1
             existingTitleAnchors.insert(instKey)
+            // Link to credit card statement if the parent is a credit card transaction
+            if let cardId = parent.creditCardId,
+               let uid = AuthenticationManager.shared.currentUser?.uid {
+              self.assignToStatement(transactionId: insertedId, creditCardId: cardId, transactionDate: installmentDate, userId: uid)
+            }
           } catch {
             logError("Error creating installment instance: \(error)")
           }

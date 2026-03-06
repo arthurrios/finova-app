@@ -16,6 +16,8 @@
 	<array>
 		<string>CloudKit</string>
 	</array>
+	<key>aps-environment</key>
+	<string>production</string>
 	<key>com.apple.developer.ubiquity-kvstore-identifier</key>
 	<string>$(TeamIdentifierPrefix)$(CFBundleIdentifier)</string>
 </dict>

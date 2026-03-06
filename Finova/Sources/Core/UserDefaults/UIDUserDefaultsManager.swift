@@ -141,6 +141,8 @@ class UIDUserDefaultsManager {
     UserDefaults.standard.set(offset, forKey: "balanceOffset_group_\(groupId)")
     if let uid = currentUserUID {
       pushBalanceOffsetToCloud(offset, key: "group-\(groupId)", uid: uid)
+      // Also push to the group zone so members can see the offset
+      pushBalanceOffsetToGroupZone(offset, groupId: groupId, uid: uid)
     }
   }
 
@@ -165,6 +167,31 @@ class UIDUserDefaultsManager {
         logInfo("Balance offset synced to CloudKit: \(key) = \(offset)")
       case .failure(let error):
         logError("Failed to sync balance offset to CloudKit: \(error)")
+      }
+    }
+    CloudKitManager.shared.privateDatabase.add(operation)
+  }
+
+  private func pushBalanceOffsetToGroupZone(_ offset: Int, groupId: String, uid: String) {
+    let group = BudgetGroupService.shared.fetchGroup(byId: groupId)
+    guard let group = group, group.isOwner else { return }
+
+    let zoneID = CKRecordZone.ID(zoneName: "Group-\(groupId)", ownerName: CKCurrentUserDefaultName)
+    let recordID = CKRecord.ID(recordName: "balanceOffset-group-\(groupId)", zoneID: zoneID)
+    let record = CKRecord(recordType: "BalanceOffset", recordID: recordID)
+    record["offset"] = offset as CKRecordValue
+    record["key"] = "group-\(groupId)" as CKRecordValue
+    record["updatedAt"] = Date() as CKRecordValue
+
+    let operation = CKModifyRecordsOperation(recordsToSave: [record], recordIDsToDelete: nil)
+    operation.savePolicy = .allKeys
+    operation.qualityOfService = .utility
+    operation.modifyRecordsResultBlock = { result in
+      switch result {
+      case .success:
+        logInfo("Balance offset synced to group zone: group-\(groupId) = \(offset)")
+      case .failure(let error):
+        logError("Failed to sync balance offset to group zone: \(error)")
       }
     }
     CloudKitManager.shared.privateDatabase.add(operation)
@@ -251,7 +278,13 @@ class UIDUserDefaultsManager {
             logInfo("Balance offset updated from CloudKit: group-\(group.id) = \(offset)")
             didUpdate = true
           }
-        } else if let error = error, (error as? CKError)?.code != .unknownItem {
+        } else if let ckError = error as? CKError, ckError.code == .unknownItem {
+          // No group offset in CloudKit yet — push local if non-zero
+          let localOffset = UserDefaults.standard.integer(forKey: "balanceOffset_group_\(group.id)")
+          if localOffset != 0 {
+            UIDUserDefaultsManager.shared.setGroupBalanceOffset(localOffset, groupId: group.id)
+          }
+        } else if let error = error {
           logError("Failed to fetch group balance offset from CloudKit: \(error)")
         }
 
@@ -334,8 +367,8 @@ class UIDUserDefaultsManager {
     guard let value = UserDefaults.standard.string(forKey: key), value != "personal" else {
       return .personal
     }
-    // value is a group ID — look it up
-    if let group = BudgetGroupService.shared.fetchGroup(byId: value) {
+    // value is a group ID — look it up (skip soft-deleted groups)
+    if let group = BudgetGroupService.shared.fetchGroup(byId: value), !group.isDeleted {
       return .group(group)
     }
     return .personal

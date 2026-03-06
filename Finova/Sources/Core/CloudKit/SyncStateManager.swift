@@ -42,6 +42,13 @@ final class SyncStateManager {
         defaults.set(Date().timeIntervalSince1970, forKey: key)
     }
 
+    func resetSharedDBTokens() {
+        let allKeys = defaults.dictionaryRepresentation().keys
+        for key in allKeys where key.hasPrefix(tokenKeyPrefix + "shared_") {
+            defaults.removeObject(forKey: key)
+        }
+    }
+
     func resetAllTokens() {
         let allKeys = defaults.dictionaryRepresentation().keys
         for key in allKeys where key.hasPrefix(tokenKeyPrefix) || key.hasPrefix(lastSyncKeyPrefix) {

@@ -33,6 +33,21 @@ final class ConflictResolver {
 
         // Step 1: Match by CK record name (most reliable)
         if let existing = repo.fetchTransaction(byCKRecordName: recordName) {
+            // Repair stale cross-device creditCardId from a previous failed recovery.
+            // If the existing transaction has a creditCardId that references a card with
+            // no ck_record_id AND the remote has a different (correctly remapped) ID,
+            // always accept the remote to restore correct card linkage.
+            let existingCCId = existing.creditCardId
+            let needsCardIdRepair = existingCCId != nil &&
+                existingCCId != remote.creditCardId &&
+                remote.creditCardId != nil &&
+                CreditCardRepository().fetchCKRecordName(for: existingCCId!) == nil
+            if needsCardIdRepair {
+                repo.updateFromCloud(remote, ckRecordName: recordName, sharedGroupId: sharedGroupId)
+                storeSystemFields(from: ckRecord, table: "Transactions")
+                return
+            }
+
             let remoteUpdatedAt = remote.updatedAt ?? ckRecord.modificationDate ?? Date.distantPast
             if let localModDate = repo.lastModifiedDate(for: existing.id ?? 0) {
                 if remoteUpdatedAt > localModDate {
@@ -89,6 +104,19 @@ final class ConflictResolver {
                     if existingCKName != recordName {
                         return
                     }
+                }
+            }
+
+            // Step 2b: Check for a soft-deleted tombstone (is_deleted=1, ck_record_id=NULL) matching
+            // this parent+month. hardDeleteLocal clears ck_record_id on tombstones, making them
+            // invisible to step 1 and step 2 (both filter is_deleted=0/ck_record_id match).
+            // Without this, CloudKit re-delivers the record on the next pull and insertFromCloud
+            // creates a duplicate — resurrecting the deleted instance every sync cycle.
+            // Re-linking re-queues it as pendingDelete so it gets deleted from CloudKit again.
+            for parentId in parentIdsToCheck {
+                if repo.restoreTombstoneForInstance(parentId: parentId, budgetMonthDate: remote.budgetMonthDate, ckRecordName: recordName) {
+                    storeSystemFields(from: ckRecord, table: "Transactions")
+                    return
                 }
             }
         }
@@ -220,6 +248,11 @@ final class ConflictResolver {
             return
         }
 
+        // Guard: if a soft-deleted budget with this CK name exists (is_deleted=1),
+        // restore its pendingDelete status so it gets removed from CloudKit on the next
+        // push, rather than re-inserting and immediately re-deleting it every sync cycle.
+        if repo.restorePendingDeleteIfNeeded(ckRecordName: recordName) { return }
+
         repo.insertFromCloud(remote, ckRecordName: recordName)
         storeSystemFields(from: ckRecord, table: "Budgets")
     }
@@ -259,6 +292,19 @@ final class ConflictResolver {
         let recordName = ckRecord.recordID.recordName
 
         if let existing = repo.fetchStatement(byCKRecordName: recordName) {
+            // Repair stale cross-device creditCardId from a previous failed recovery.
+            // If the existing statement references a card with no ck_record_id AND the
+            // remote (via remapCrossDeviceIDs) has a different creditCardId, the existing
+            // row used the wrong source-device local ID — always accept the remote data
+            // to fix the reference and restore correct card linkage.
+            let needsCardIdRepair = existing.creditCardId != remote.creditCardId &&
+                CreditCardRepository().fetchCKRecordName(for: existing.creditCardId) == nil
+            if needsCardIdRepair {
+                repo.updateFromCloud(remote, ckRecordName: recordName)
+                storeSystemFields(from: ckRecord, table: "CreditCardStatements")
+                return
+            }
+
             let remoteUpdatedAt = remote.updatedAt
             if let localModDate = repo.lastModifiedDate(for: existing.id ?? 0) {
                 if remoteUpdatedAt > localModDate {
@@ -275,6 +321,11 @@ final class ConflictResolver {
 
         // Phase 3E: Removed local-ID matching step — with UUID-based CK record names,
         // matching by local auto-increment ID is dangerous (cross-device ID collisions).
+
+        // Guard: if a soft-deleted statement with this CK name exists (is_deleted=1),
+        // restore its pendingDelete status so it gets removed from CloudKit on the next
+        // push, rather than re-inserting and immediately re-deleting it every sync cycle.
+        if repo.restorePendingDeleteIfNeeded(ckRecordName: recordName) { return }
 
         repo.insertFromCloud(remote, ckRecordName: recordName)
         storeSystemFields(from: ckRecord, table: "CreditCardStatements")
@@ -303,6 +354,11 @@ final class ConflictResolver {
 
         // Phase 3E: Removed local-ID matching step — with UUID-based CK record names,
         // matching by local auto-increment ID is dangerous (cross-device ID collisions).
+
+        // Guard: if a soft-deleted allocation with this CK name exists (is_deleted=1),
+        // restore its pendingDelete status so it gets removed from CloudKit on the next
+        // push, rather than re-inserting and immediately re-deleting it every sync cycle.
+        if repo.restorePendingDeleteIfNeeded(ckRecordName: recordName) { return }
 
         repo.insertFromCloud(remote, ckRecordName: recordName)
         storeSystemFields(from: ckRecord, table: "BudgetAllocations")

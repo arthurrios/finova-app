@@ -125,6 +125,7 @@ final class MockCloudKitOperations: CloudKitOperationsProvider {
 
     func saveRecords(
         _ records: [CKRecord],
+        database: CKDatabase.Scope,
         perRecordHandler: @escaping (CKRecord.ID, Result<CKRecord, Error>) -> Void,
         completion: @escaping (Result<Void, Error>) -> Void
     ) {
@@ -150,6 +151,7 @@ final class MockCloudKitOperations: CloudKitOperationsProvider {
 
     func deleteRecords(
         _ recordIDs: [CKRecord.ID],
+        database: CKDatabase.Scope,
         perRecordHandler: @escaping (CKRecord.ID, Result<Void, Error>) -> Void,
         completion: @escaping (Result<Void, Error>) -> Void
     ) {

@@ -15,7 +15,7 @@ enum GroupRole: String, Codable {
 struct GroupMember: Codable, Equatable {
     let id: String
     let groupId: String
-    let userId: String
+    var userId: String
     var name: String
     var email: String
     var role: GroupRole

@@ -158,7 +158,13 @@ final class MirrorModeManager {
             textBindings: [groupId, uid]
         )
 
-        // 4. Allocations: use existing migration method
+        // 4. Credit Card Statements: mark pending for group-tagged cards
+        db.executeSyncUpdate(
+            "UPDATE CreditCardStatements SET sync_status = 'pending' WHERE sync_status = 'synced' AND credit_card_id IN (SELECT id FROM CreditCards WHERE user_id = ? AND shared_group_id IS NOT NULL AND shared_group_id != '');",
+            textBindings: [uid]
+        )
+
+        // 5. Allocations: use existing migration method
         let allocationRepo = BudgetAllocationRepository()
         _ = allocationRepo.migrateAllocationsToGroup(groupId: groupId)
 
@@ -189,29 +195,46 @@ final class MirrorModeManager {
               let uid = UIDUserDefaultsManager.shared.currentUserUID
         else { return }
 
-        // Tag any un-tagged transactions belonging to this user
+        // Tag transactions: fix untagged OR wrong group ID (stale from recovery/previous sync)
         db.executeSyncUpdate(
-            "UPDATE Transactions SET shared_group_id = ?, sync_status = 'pending' WHERE user_id = ? AND (shared_group_id IS NULL OR shared_group_id = '') AND (is_deleted IS NULL OR is_deleted = 0);",
-            textBindings: [groupId, uid]
+            "UPDATE Transactions SET shared_group_id = ?, sync_status = 'pending' WHERE user_id = ? AND (shared_group_id IS NULL OR shared_group_id = '' OR shared_group_id != ?) AND (is_deleted IS NULL OR is_deleted = 0);",
+            textBindings: [groupId, uid, groupId]
         )
 
-        // Tag any un-tagged budgets
+        // Tag budgets: fix untagged OR wrong group ID
         db.executeSyncUpdate(
-            "UPDATE Budgets SET shared_group_id = ?, sync_status = 'pending' WHERE user_id = ? AND (shared_group_id IS NULL OR shared_group_id = '');",
-            textBindings: [groupId, uid]
+            "UPDATE Budgets SET shared_group_id = ?, sync_status = 'pending' WHERE user_id = ? AND (shared_group_id IS NULL OR shared_group_id = '' OR shared_group_id != ?);",
+            textBindings: [groupId, uid, groupId]
         )
 
-        // Tag any un-tagged credit cards
+        // Tag credit cards: fix untagged OR wrong group ID
         db.executeSyncUpdate(
-            "UPDATE CreditCards SET shared_group_id = ?, sync_status = 'pending' WHERE user_id = ? AND (shared_group_id IS NULL OR shared_group_id = '') AND is_deleted = 0;",
-            textBindings: [groupId, uid]
+            "UPDATE CreditCards SET shared_group_id = ?, sync_status = 'pending' WHERE user_id = ? AND (shared_group_id IS NULL OR shared_group_id = '' OR shared_group_id != ?) AND is_deleted = 0;",
+            textBindings: [groupId, uid, groupId]
         )
 
-        // Tag any un-tagged allocations
+        // Tag allocations: fix untagged OR wrong group ID
         db.executeSyncUpdate(
-            "UPDATE BudgetAllocations SET shared_group_id = ?, sync_status = 'pending' WHERE user_id = ? AND (shared_group_id IS NULL OR shared_group_id = '');",
-            textBindings: [groupId, uid]
+            "UPDATE BudgetAllocations SET shared_group_id = ?, sync_status = 'pending' WHERE user_id = ? AND (shared_group_id IS NULL OR shared_group_id = '' OR shared_group_id != ?);",
+            textBindings: [groupId, uid, groupId]
         )
+
+        // Mark credit card statements pending ONLY when their parent card was just re-tagged
+        // (card sync_status is still 'pending' from the UPDATE above — means it was changed this pass)
+        db.executeSyncUpdate(
+            "UPDATE CreditCardStatements SET sync_status = 'pending' WHERE sync_status = 'synced' AND credit_card_id IN (SELECT id FROM CreditCards WHERE user_id = ? AND sync_status = 'pending' AND shared_group_id IS NOT NULL AND shared_group_id != '');",
+            textBindings: [uid]
+        )
+
+        // Ensure balance offset stays in sync: personal → group
+        // Always call setGroupBalanceOffset to ensure the offset is pushed to the group zone
+        // (members need this record to see the correct balance)
+        let personalOffset = UIDUserDefaultsManager.shared.getCurrentUserBalanceOffset()
+        let groupOffset = UIDUserDefaultsManager.shared.getGroupBalanceOffset(groupId: groupId)
+        if personalOffset != groupOffset {
+            logInfo("MirrorReconcile: fixed group balance offset \(groupOffset) → \(personalOffset)")
+        }
+        UIDUserDefaultsManager.shared.setGroupBalanceOffset(personalOffset, groupId: groupId)
 
         TransactionRepository.invalidateCache()
         logInfo("MirrorReconcile: reconciliation completed for group \(groupId)")

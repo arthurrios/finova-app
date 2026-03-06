@@ -33,6 +33,64 @@ final class DashboardViewController: UIViewController {
         let statementTxs = viewModel.getStatementTransactions()
         return transactions + statementTxs
     }
+
+    private func logMirrorDiff(groupId: String, context: String) {
+        TransactionRepository.invalidateCache()
+        let repo = viewModel.transactionRepo
+
+        // Personal: all user transactions (display-filtered)
+        let personal = repo.fetchTransactions()
+        // Group: all group-tagged transactions (display-filtered)
+        let group = repo.fetchDisplayTransactionsForGroup(groupId: groupId)
+        // Raw counts (before display filter)
+        let personalRaw = repo.fetchAllTransactions()
+        let groupRaw = repo.fetchTransactionsForGroup(groupId: groupId)
+
+        logWarning("[MirrorDiff] === \(context) ===")
+        logWarning("[MirrorDiff] Personal: \(personal.count) display, \(personalRaw.count) raw")
+        logWarning("[MirrorDiff] Group:    \(group.count) display, \(groupRaw.count) raw")
+
+        // Find IDs in personal but not in group
+        let personalIds = Set(personal.compactMap { $0.id })
+        let groupIds = Set(group.compactMap { $0.id })
+        let missingFromGroup = personalIds.subtracting(groupIds)
+        let extraInGroup = groupIds.subtracting(personalIds)
+
+        if !missingFromGroup.isEmpty {
+            logWarning("[MirrorDiff] \(missingFromGroup.count) tx(s) in personal but NOT in group")
+            // Log details for first 20 missing
+            let missing = personal.filter { missingFromGroup.contains($0.id ?? -1) }
+            for tx in missing.prefix(20) {
+                let hasGroupTag = groupRaw.contains(where: { $0.id == tx.id })
+                logWarning("[MirrorDiff]   MISSING id=\(tx.id ?? -1) '\(tx.title)' amt=\(tx.amount) recurring=\(tx.isRecurring ?? false) hasInstall=\(tx.hasInstallments ?? false) parentId=\(tx.parentTransactionId ?? -1) ccId=\(tx.creditCardId ?? -1) stmtId=\(tx.statementId ?? -1) inGroupRaw=\(hasGroupTag)")
+            }
+            if missingFromGroup.count > 20 {
+                logWarning("[MirrorDiff]   ... and \(missingFromGroup.count - 20) more")
+            }
+        }
+
+        if !extraInGroup.isEmpty {
+            logWarning("[MirrorDiff] \(extraInGroup.count) tx(s) in group but NOT in personal")
+        }
+
+        // Check DB directly for untagged transactions
+        let db = DBHelper.shared
+        if let uid = UIDUserDefaultsManager.shared.currentUserUID {
+            let untagged = db.fetchSingleInt(
+                "SELECT COUNT(*) FROM Transactions WHERE user_id = ? AND (shared_group_id IS NULL OR shared_group_id = '') AND (is_deleted IS NULL OR is_deleted = 0);",
+                textBinding: uid
+            ) ?? -1
+            let totalForUser = db.fetchSingleInt(
+                "SELECT COUNT(*) FROM Transactions WHERE user_id = ? AND (is_deleted IS NULL OR is_deleted = 0);",
+                textBinding: uid
+            ) ?? -1
+            let totalForGroup = db.fetchSingleInt(
+                "SELECT COUNT(*) FROM Transactions WHERE shared_group_id = ? AND (is_deleted IS NULL OR is_deleted = 0);",
+                textBinding: groupId
+            ) ?? -1
+            logWarning("[MirrorDiff] DB: totalForUser=\(totalForUser), totalForGroup=\(totalForGroup), untagged=\(untagged)")
+        }
+    }
     
     // MARK: - Shimmer State Tracking
     private var cardsWithActiveShimmer: Set<Int> = []
@@ -188,7 +246,8 @@ final class DashboardViewController: UIViewController {
         case .personal:
             transactions = viewModel.transactionRepo.fetchTransactions()
         case .group(let group):
-            transactions = viewModel.transactionRepo.fetchTransactionsForGroup(groupId: group.id)
+            transactions = viewModel.transactionRepo.fetchDisplayTransactionsForGroup(groupId: group.id)
+            logMirrorDiff(groupId: group.id, context: "performDashboardRefresh")
         }
 
         // Update the view models with fresh data
@@ -689,7 +748,18 @@ final class DashboardViewController: UIViewController {
 
     @objc private func handleGroupDataChanged() {
         DispatchQueue.main.async { [weak self] in
-            self?.updateContextChip()
+            guard let self = self else { return }
+
+            // If current context is a group that was deleted/left, switch to personal
+            if case .group(let currentGroup) = self.viewModel.currentContext {
+                let availableGroups = self.viewModel.getAvailableGroups()
+                if !availableGroups.contains(where: { $0.id == currentGroup.id }) {
+                    self.switchToContext(.personal)
+                    return
+                }
+            }
+
+            self.updateContextChip()
         }
     }
     
@@ -1201,7 +1271,8 @@ final class DashboardViewController: UIViewController {
         case .personal:
             transactions = viewModel.transactionRepo.fetchTransactions()
         case .group(let group):
-            transactions = viewModel.transactionRepo.fetchTransactionsForGroup(groupId: group.id)
+            transactions = viewModel.transactionRepo.fetchDisplayTransactionsForGroup(groupId: group.id)
+            logMirrorDiff(groupId: group.id, context: "initialLoad")
         }
 
         // Safely load monthly cards data
@@ -1430,6 +1501,7 @@ extension DashboardViewController: UICollectionViewDataSource {
             cell.setMonthAnchor(monthAnchor)
 
             cell.monthCard.ledgerService = viewModel.transactionLedger
+            cell.monthCard.dataContext = viewModel.currentContext
             cell.monthCard.refresh(with: model)
 
             cell.setFiltersWithoutApplying(globalFilters)

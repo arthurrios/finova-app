@@ -52,6 +52,14 @@ extension Transaction: CKRecordConvertible {
         record["statementId"] = statementId as CKRecordValue?
         record["isCreditCardStatement"] = ((isCreditCardStatement ?? false) ? 1 : 0) as CKRecordValue
 
+        // Store CK record names for cross-device ID remapping
+        if let ccId = creditCardId {
+            record["creditCardCKRecordName"] = CreditCardRepository().fetchCKRecordName(for: ccId) as CKRecordValue?
+        }
+        if let stmtId = statementId {
+            record["statementCKRecordName"] = StatementRepository().fetchCKRecordName(for: stmtId) as CKRecordValue?
+        }
+
         // Phase 4A: Store parent's CK record name for cross-device parent resolution
         if let parentId = parentTransactionId {
             let parentCKName = TransactionRepository().fetchCKRecordName(for: parentId)

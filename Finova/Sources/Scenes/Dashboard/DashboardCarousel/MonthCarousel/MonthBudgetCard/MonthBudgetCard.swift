@@ -19,6 +19,7 @@ class MonthBudgetCard: UIView {
     weak var delegate: MonthBudgetCardDelegate?
     weak var flipDelegate: MonthCardFlipDelegate?
     var ledgerService: TransactionLedgerService?
+    var dataContext: DataContext = .personal
     private var budgetDate: Date?
     
     private var displayMode: BalanceDisplayMode = .final
@@ -1284,19 +1285,37 @@ class MonthBudgetCard: UIView {
         // For other days (user moved the day slider), calculate from the ledger service
         let ledgerService = self.ledgerService ?? TransactionLedgerService()
 
-        if isCurrentMonth() {
-            return ledgerService.calculateCurrentMonthBalanceForDay(day: day)
-        } else {
-            let monthAnchor = data.date.monthAnchor
-            guard let previousMonthDate = calendar.date(byAdding: .month, value: -1, to: data.date) else {
-                return 0
-            }
-            let previousMonthAnchor = previousMonthDate.monthAnchor
-            let previousMonthData = ledgerService.getMonthlyData(for: previousMonthAnchor)
-            let previousBalance = previousMonthData?.finalBalance ?? 0
+        switch dataContext {
+        case .personal:
+            if isCurrentMonth() {
+                return ledgerService.calculateCurrentMonthBalanceForDay(day: day)
+            } else {
+                let monthAnchor = data.date.monthAnchor
+                guard let previousMonthDate = calendar.date(byAdding: .month, value: -1, to: data.date) else {
+                    return 0
+                }
+                let previousMonthAnchor = previousMonthDate.monthAnchor
+                let previousMonthData = ledgerService.getMonthlyData(for: previousMonthAnchor)
+                let previousBalance = previousMonthData?.finalBalance ?? 0
 
-            return ledgerService.calculateBalanceForDay(
-                day: day, monthAnchor: monthAnchor, previousMonthBalance: previousBalance)
+                return ledgerService.calculateBalanceForDay(
+                    day: day, monthAnchor: monthAnchor, previousMonthBalance: previousBalance)
+            }
+
+        case .group(let group):
+            if isCurrentMonth() {
+                return ledgerService.calculateCurrentMonthBalanceForDayForGroup(day: day, groupId: group.id)
+            } else {
+                let monthAnchor = data.date.monthAnchor
+                let previousMonthData = ledgerService.calculateMonthlyDataForGroup(
+                    groupId: group.id, for: -1...(-1),
+                    referenceDate: data.date)
+                let previousBalance = previousMonthData.first?.finalBalance ?? 0
+
+                return ledgerService.calculateBalanceForDayForGroup(
+                    day: day, monthAnchor: monthAnchor, previousMonthBalance: previousBalance,
+                    groupId: group.id)
+            }
         }
     }
     

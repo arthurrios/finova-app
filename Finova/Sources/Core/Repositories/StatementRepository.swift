@@ -211,7 +211,8 @@ class StatementRepository {
                 credit_card_id = ?, closing_date = ?, due_date = ?,
                 total_amount = ?, is_paid = ?, paid_date = ?,
                 paid_amount = ?, is_dates_overridden = ?,
-                updated_at = ?, sync_status = 'synced', ck_modified_at = ?
+                updated_at = ?, sync_status = 'synced', ck_modified_at = ?,
+                is_deleted = 0
             WHERE ck_record_id = ?;
             """,
             orderedBindings: [
@@ -256,17 +257,47 @@ class StatementRepository {
         )
     }
 
+    /// Re-marks all synced, already-pushed statements for a card as pending.
+    /// Called after a credit card gets its ck_record_id assigned (first push), so that
+    /// statements pushed in the same batch are re-pushed on the next sync cycle with
+    /// creditCardCKRecordName now correctly populated for cross-device ID remapping.
+    func markStatementsPending(forCardId cardId: Int) {
+        let now = Int(Date().timeIntervalSince1970)
+        db.executeSyncUpdate(
+            """
+            UPDATE CreditCardStatements
+            SET sync_status = 'pending', ck_modified_at = ?
+            WHERE credit_card_id = ? AND sync_status = 'synced' AND ck_record_id IS NOT NULL
+              AND (is_deleted IS NULL OR is_deleted = 0) AND ck_system_fields IS NULL;
+            """,
+            intBindings: [now, cardId]
+        )
+    }
+
     func fetchStatement(byCKRecordName recordName: String) -> CreditCardStatement? {
+        // No is_deleted filter: soft-deleted rows are still returned so that
+        // updateFromCloud (cloud wins) can resurrect them via is_deleted = 0.
+        // Wrong-creditCardId rows are handled correctly because we bypass the
+        // fetchStatements(forCardId:) chain and query by id directly.
         guard let id = db.fetchSingleInt(
             "SELECT id FROM CreditCardStatements WHERE ck_record_id = ?;",
             textBinding: recordName
         ) else { return nil }
-        guard let creditCardId = db.fetchSingleInt(
-            "SELECT credit_card_id FROM CreditCardStatements WHERE id = ?;",
-            intBinding: id
-        ) else { return nil }
-        let statements = fetchStatements(forCardId: creditCardId)
-        return statements.first { $0.id == id }
+        guard let row = try? db.getStatement(byId: id) else { return nil }
+        return CreditCardStatement(
+            id: row.id,
+            creditCardId: row.creditCardId,
+            closingDate: Date(timeIntervalSince1970: TimeInterval(row.closingDate)),
+            dueDate: Date(timeIntervalSince1970: TimeInterval(row.dueDate)),
+            totalAmount: row.totalAmount,
+            isPaid: row.isPaid,
+            paidDate: row.paidDate.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+            paidAmount: row.paidAmount,
+            isDatesOverridden: row.isDatesOverridden,
+            userId: row.userId,
+            createdAt: Date(timeIntervalSince1970: TimeInterval(row.createdAt)),
+            updatedAt: Date(timeIntervalSince1970: TimeInterval(row.updatedAt))
+        )
     }
 
     func lastModifiedDate(for id: Int) -> Date? {
@@ -291,5 +322,18 @@ class StatementRepository {
             textBindings: [ckRecordName],
             intBindings: [id]
         )
+    }
+
+    /// If a soft-deleted statement with this CK record name exists (is_deleted=1),
+    /// restores its sync_status to 'pendingDelete' so the next push will remove it from
+    /// CloudKit. Returns true if such a record was found (caller should skip re-insertion).
+    func restorePendingDeleteIfNeeded(ckRecordName: String) -> Bool {
+        let check = "SELECT id FROM CreditCardStatements WHERE ck_record_id = ? AND is_deleted = 1;"
+        guard db.fetchSingleInt(check, textBinding: ckRecordName) != nil else { return false }
+        db.executeSyncUpdate(
+            "UPDATE CreditCardStatements SET sync_status = 'pendingDelete' WHERE ck_record_id = ? AND is_deleted = 1;",
+            textBindings: [ckRecordName]
+        )
+        return true
     }
 }

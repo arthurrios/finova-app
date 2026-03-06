@@ -21,6 +21,7 @@ protocol BudgetAllocationRepositoryProtocol {
     func deleteAllRecurringAllocations(id: Int) throws
     func updateIsRecurring(allocationId: Int, isRecurring: Bool) throws
     func fetchPersonalAllocationsCount() -> Int
+    func fetchImportableAllocationsCount() -> Int
     func migrateAllocationsToGroup(groupId: String) -> Int
 }
 
@@ -289,12 +290,22 @@ final class BudgetAllocationRepository: BudgetAllocationRepositoryProtocol {
         return models.filter { $0.sharedGroupId == nil }.count
     }
 
+    func fetchImportableAllocationsCount() -> Int {
+        let models = db.fetchAllBudgetAllocations(userId: UIDUserDefaultsManager.shared.currentUserUID)
+        let activeGroupIds = Set(BudgetGroupRepository().fetchAllGroups().map { $0.id })
+        return models.filter { model in
+            model.sharedGroupId == nil || !activeGroupIds.contains(model.sharedGroupId ?? "")
+        }.count
+    }
+
     func migrateAllocationsToGroup(groupId: String) -> Int {
         let models = db.fetchAllBudgetAllocations(userId: UIDUserDefaultsManager.shared.currentUserUID)
+        let activeGroupIds = Set(BudgetGroupRepository().fetchAllGroups().map { $0.id })
         var migratedCount = 0
 
         for model in models {
-            guard model.sharedGroupId == nil, let id = model.id else { continue }
+            let isImportable = model.sharedGroupId == nil || !activeGroupIds.contains(model.sharedGroupId ?? "")
+            guard isImportable, let id = model.id else { continue }
             db.executeSyncUpdate(
                 "UPDATE BudgetAllocations SET shared_group_id = ?, sync_status = 'pending' WHERE id = ?;",
                 textBindings: [groupId],
@@ -361,7 +372,8 @@ final class BudgetAllocationRepository: BudgetAllocationRepositoryProtocol {
                 month_date = ?, category_key = ?, allocated_amount = ?,
                 is_recurring = ?, parent_allocation_id = ?,
                 shared_group_id = ?,
-                sync_status = 'synced', ck_modified_at = ?, updated_at = ?
+                sync_status = 'synced', ck_modified_at = ?, updated_at = ?,
+                is_deleted = 0
             WHERE ck_record_id = ?;
             """,
             orderedBindings: [
@@ -405,14 +417,25 @@ final class BudgetAllocationRepository: BudgetAllocationRepositoryProtocol {
     }
 
     func fetchAllocation(byCKRecordName recordName: String) -> BudgetAllocationModel? {
-        let allModels = db.fetchAllBudgetAllocations(userId: nil)
-        // We need to check ck_record_id which isn't in the standard fetch - use fetchSingleInt
         let id = db.fetchSingleInt(
-            "SELECT id FROM BudgetAllocations WHERE ck_record_id = ?;",
+            "SELECT id FROM BudgetAllocations WHERE ck_record_id = ? AND (is_deleted IS NULL OR is_deleted = 0);",
             textBinding: recordName
         )
         guard let id = id else { return nil }
         return db.fetchBudgetAllocation(byId: id)
+    }
+
+    /// If a soft-deleted allocation with this CK record name exists (is_deleted=1),
+    /// restores its sync_status to 'pendingDelete' so the next push will remove it from
+    /// CloudKit. Returns true if such a record was found (caller should skip re-insertion).
+    func restorePendingDeleteIfNeeded(ckRecordName: String) -> Bool {
+        let check = "SELECT id FROM BudgetAllocations WHERE ck_record_id = ? AND is_deleted = 1;"
+        guard db.fetchSingleInt(check, textBinding: ckRecordName) != nil else { return false }
+        db.executeSyncUpdate(
+            "UPDATE BudgetAllocations SET sync_status = 'pendingDelete' WHERE ck_record_id = ? AND is_deleted = 1;",
+            textBindings: [ckRecordName]
+        )
+        return true
     }
 
     func lastModifiedDate(for id: Int) -> Date? {

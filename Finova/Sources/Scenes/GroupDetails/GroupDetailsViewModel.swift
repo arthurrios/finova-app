@@ -34,6 +34,8 @@ final class GroupDetailsViewModel {
 
     func loadGroupDetails() {
         guard var updated = repository.fetchGroup(byId: group.id) else { return }
+        // Clean up any accumulated duplicate members before display
+        repository.deduplicateMembers(forGroupId: updated.id)
         updated.members = repository.fetchMembers(forGroupId: updated.id)
 
         // Refresh owner name from local user data if current user is the owner
@@ -81,6 +83,16 @@ final class GroupDetailsViewModel {
         if let member = members.first(where: { $0.userId == userId }) {
             repository.removeMember(id: member.id)
         }
+        // Soft-delete the group locally so it disappears from this device
+        repository.softDeleteGroup(id: group.id)
+
+        // Disable mirror mode if linked to this group
+        if MirrorModeManager.shared.isEnabled,
+           MirrorModeManager.shared.linkedGroupId == group.id {
+            MirrorModeManager.shared.disableMirrorMode()
+        }
+
+        NotificationCenter.default.post(name: .budgetGroupDataChanged, object: nil)
     }
 
     func deleteGroup() {
@@ -89,28 +101,49 @@ final class GroupDetailsViewModel {
             return
         }
         repository.softDeleteGroup(id: group.id)
+
+        // Disable mirror mode if linked to this group
+        if MirrorModeManager.shared.isEnabled,
+           MirrorModeManager.shared.linkedGroupId == group.id {
+            MirrorModeManager.shared.disableMirrorMode()
+        }
+
+        NotificationCenter.default.post(name: .budgetGroupDataChanged, object: nil)
     }
 
     // MARK: - Migration
+
+    /// SQL condition that matches records with no group or tagged with a deleted/non-existent group.
+    /// These are considered "personal" and available for import into an active group.
+    private static let personalDataCondition = """
+        (shared_group_id IS NULL \
+        OR NOT EXISTS (SELECT 1 FROM BudgetGroups WHERE id = %@.shared_group_id AND is_deleted = 0))
+        """
 
     func fetchMigrationCounts() -> MigrationCounts {
         guard let uid = UIDUserDefaultsManager.shared.currentUserUID else {
             return MigrationCounts(transactions: 0, budgets: 0, creditCards: 0, allocations: 0)
         }
 
+        let txCond = Self.personalDataCondition.replacingOccurrences(of: "%@", with: "Transactions")
         let transactions = db.fetchSingleInt(
-            "SELECT COUNT(*) FROM Transactions WHERE shared_group_id IS NULL AND user_id = ?",
+            "SELECT COUNT(*) FROM Transactions WHERE \(txCond) AND user_id = ?",
             textBinding: uid
         ) ?? 0
+
+        let budgetCond = Self.personalDataCondition.replacingOccurrences(of: "%@", with: "Budgets")
         let budgets = db.fetchSingleInt(
-            "SELECT COUNT(*) FROM Budgets WHERE shared_group_id IS NULL AND user_id = ?",
+            "SELECT COUNT(*) FROM Budgets WHERE \(budgetCond) AND user_id = ?",
             textBinding: uid
         ) ?? 0
+
+        let cardCond = Self.personalDataCondition.replacingOccurrences(of: "%@", with: "CreditCards")
         let creditCards = db.fetchSingleInt(
-            "SELECT COUNT(*) FROM CreditCards WHERE shared_group_id IS NULL AND user_id = ? AND is_deleted = 0",
+            "SELECT COUNT(*) FROM CreditCards WHERE \(cardCond) AND user_id = ? AND is_deleted = 0",
             textBinding: uid
         ) ?? 0
-        let allocations = allocationRepository.fetchPersonalAllocationsCount()
+
+        let allocations = allocationRepository.fetchImportableAllocationsCount()
 
         return MigrationCounts(
             transactions: transactions,
@@ -130,20 +163,29 @@ final class GroupDetailsViewModel {
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self = self else { return }
 
+            let txCond = Self.personalDataCondition.replacingOccurrences(of: "%@", with: "Transactions")
             self.db.executeSyncUpdate(
-                "UPDATE Transactions SET shared_group_id = ?, sync_status = 'pending' WHERE shared_group_id IS NULL AND user_id = ?",
+                "UPDATE Transactions SET shared_group_id = ?, sync_status = 'pending' WHERE \(txCond) AND user_id = ?",
                 textBindings: [groupId, uid]
             )
+
+            let budgetCond = Self.personalDataCondition.replacingOccurrences(of: "%@", with: "Budgets")
             self.db.executeSyncUpdate(
-                "UPDATE Budgets SET shared_group_id = ?, sync_status = 'pending' WHERE shared_group_id IS NULL AND user_id = ?",
+                "UPDATE Budgets SET shared_group_id = ?, sync_status = 'pending' WHERE \(budgetCond) AND user_id = ?",
                 textBindings: [groupId, uid]
             )
+
+            let cardCond = Self.personalDataCondition.replacingOccurrences(of: "%@", with: "CreditCards")
             self.db.executeSyncUpdate(
-                "UPDATE CreditCards SET shared_group_id = ?, sync_status = 'pending' WHERE shared_group_id IS NULL AND user_id = ? AND is_deleted = 0",
+                "UPDATE CreditCards SET shared_group_id = ?, sync_status = 'pending' WHERE \(cardCond) AND user_id = ? AND is_deleted = 0",
                 textBindings: [groupId, uid]
             )
 
             _ = self.allocationRepository.migrateAllocationsToGroup(groupId: groupId)
+
+            // Copy personal balance offset to the group
+            let personalOffset = UIDUserDefaultsManager.shared.getCurrentUserBalanceOffset()
+            UIDUserDefaultsManager.shared.setGroupBalanceOffset(personalOffset, groupId: groupId)
 
             TransactionRepository.invalidateCache()
 

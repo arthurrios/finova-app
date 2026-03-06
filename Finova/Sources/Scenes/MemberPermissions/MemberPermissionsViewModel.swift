@@ -41,6 +41,17 @@ final class MemberPermissionsViewModel {
 
     func removeMember() {
         repository.removeMember(id: member.id)
+
+        // Push removal to CloudKit so the member's device discovers it
+        BudgetGroupService.shared.pushGroupMemberRemoval(
+            member: member,
+            groupId: group.id
+        ) { result in
+            if case .failure(let error) = result {
+                logError("Failed to push member removal to CloudKit: \(error.localizedDescription)")
+            }
+        }
+
         SyncEngine.shared.performFullSync()
     }
 }

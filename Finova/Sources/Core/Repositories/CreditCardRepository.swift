@@ -53,7 +53,8 @@ class CreditCardRepository {
                     isDeleted: row.isDeleted,
                     isDefault: row.isDefault,
                     createdAt: Date(timeIntervalSince1970: TimeInterval(row.createdAt)),
-                    updatedAt: Date(timeIntervalSince1970: TimeInterval(row.updatedAt))
+                    updatedAt: Date(timeIntervalSince1970: TimeInterval(row.updatedAt)),
+                    sharedGroupId: row.sharedGroupId
                 )
             }
         } catch {

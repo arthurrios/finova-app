@@ -136,7 +136,8 @@ final class BudgetRepository: BudgetRepositoryProtocol {
   func updateFromCloud(_ budget: BudgetModel, ckRecordName: String) {
     db.executeGroupWrite(
       """
-      UPDATE Budgets SET amount = ?, shared_group_id = ?, sync_status = 'synced', ck_modified_at = ?, updated_at = ?
+      UPDATE Budgets SET amount = ?, shared_group_id = ?, sync_status = 'synced', ck_modified_at = ?, updated_at = ?,
+          is_deleted = 0
       WHERE ck_record_id = ?;
       """,
       orderedBindings: [
@@ -171,11 +172,11 @@ final class BudgetRepository: BudgetRepositoryProtocol {
 
   func fetchBudget(byCKRecordName recordName: String) -> BudgetModel? {
     guard let monthDate = db.fetchSingleInt(
-      "SELECT month_date FROM Budgets WHERE ck_record_id = ?;",
+      "SELECT month_date FROM Budgets WHERE ck_record_id = ? AND (is_deleted IS NULL OR is_deleted = 0);",
       textBinding: recordName
     ) else { return nil }
     guard let amount = db.fetchSingleInt(
-      "SELECT amount FROM Budgets WHERE month_date = ?;",
+      "SELECT amount FROM Budgets WHERE month_date = ? AND (is_deleted IS NULL OR is_deleted = 0);",
       intBinding: monthDate
     ) else { return nil }
     return BudgetModel(monthDate: monthDate, amount: amount)
@@ -183,10 +184,23 @@ final class BudgetRepository: BudgetRepositoryProtocol {
 
   func fetchBudget(byMonthDate monthDate: Int) -> BudgetModel? {
     guard let amount = db.fetchSingleInt(
-      "SELECT amount FROM Budgets WHERE month_date = ?;",
+      "SELECT amount FROM Budgets WHERE month_date = ? AND (is_deleted IS NULL OR is_deleted = 0);",
       intBinding: monthDate
     ) else { return nil }
     return BudgetModel(monthDate: monthDate, amount: amount)
+  }
+
+  /// If a soft-deleted budget with this CK record name exists (is_deleted=1),
+  /// restores its sync_status to 'pendingDelete' so the next push will remove it from
+  /// CloudKit. Returns true if such a record was found (caller should skip re-insertion).
+  func restorePendingDeleteIfNeeded(ckRecordName: String) -> Bool {
+    let check = "SELECT month_date FROM Budgets WHERE ck_record_id = ? AND is_deleted = 1;"
+    guard db.fetchSingleInt(check, textBinding: ckRecordName) != nil else { return false }
+    db.executeSyncUpdate(
+      "UPDATE Budgets SET sync_status = 'pendingDelete' WHERE ck_record_id = ? AND is_deleted = 1;",
+      textBindings: [ckRecordName]
+    )
+    return true
   }
 
   func lastModifiedDate(forMonthDate monthDate: Int) -> Date? {

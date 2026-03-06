@@ -85,6 +85,10 @@ final class DashboardViewModel {
       return monthlyData
 
     case .group(let group):
+      // Lazy-generate recurring instances for group context too,
+      // so future months show the same instances as personal view.
+      triggerLazyGenerationInBackground()
+
       return transactionLedger.calculateMonthlyDataForGroup(
         groupId: group.id, for: monthRange
       )
@@ -96,6 +100,17 @@ final class DashboardViewModel {
     UIDUserDefaultsManager.shared.saveLastContext(context)
     transactionLedger.invalidateCache()
     onDataNeedsRefresh?()
+
+    // When switching to a group context, trigger a direct shared zone fetch
+    // to ensure the latest group data is loaded (bypasses CKShare propagation issues)
+    if case .group(let group) = context, !group.isOwner, let zoneOwner = group.ckZoneOwner {
+      SyncEngine.shared.fetchSharedGroupZone(groupId: group.id, zoneOwner: zoneOwner) { [weak self] count in
+        if count > 0 {
+          self?.transactionLedger.invalidateCache()
+          self?.onDataNeedsRefresh?()
+        }
+      }
+    }
   }
 
   func getAvailableGroups() -> [BudgetGroup] {

@@ -32,12 +32,14 @@ protocol CloudKitOperationsProvider {
 
     func saveRecords(
         _ records: [CKRecord],
+        database: CKDatabase.Scope,
         perRecordHandler: @escaping (CKRecord.ID, Result<CKRecord, Error>) -> Void,
         completion: @escaping (Result<Void, Error>) -> Void
     )
 
     func deleteRecords(
         _ recordIDs: [CKRecord.ID],
+        database: CKDatabase.Scope,
         perRecordHandler: @escaping (CKRecord.ID, Result<Void, Error>) -> Void,
         completion: @escaping (Result<Void, Error>) -> Void
     )
@@ -165,6 +167,7 @@ final class RealCloudKitOperations: CloudKitOperationsProvider {
 
     func saveRecords(
         _ records: [CKRecord],
+        database: CKDatabase.Scope,
         perRecordHandler: @escaping (CKRecord.ID, Result<CKRecord, Error>) -> Void,
         completion: @escaping (Result<Void, Error>) -> Void
     ) {
@@ -185,13 +188,15 @@ final class RealCloudKitOperations: CloudKitOperationsProvider {
             }
         }
 
+        let db = database == .private ? cloudKit.privateDatabase : cloudKit.sharedDatabase
         operation.qualityOfService = .userInitiated
         Self.applyTimeouts(to: operation)
-        cloudKit.privateDatabase.add(operation)
+        db.add(operation)
     }
 
     func deleteRecords(
         _ recordIDs: [CKRecord.ID],
+        database: CKDatabase.Scope,
         perRecordHandler: @escaping (CKRecord.ID, Result<Void, Error>) -> Void,
         completion: @escaping (Result<Void, Error>) -> Void
     ) {
@@ -211,9 +216,10 @@ final class RealCloudKitOperations: CloudKitOperationsProvider {
             }
         }
 
+        let db = database == .private ? cloudKit.privateDatabase : cloudKit.sharedDatabase
         operation.qualityOfService = .userInitiated
         Self.applyTimeouts(to: operation)
-        cloudKit.privateDatabase.add(operation)
+        db.add(operation)
     }
 
     // MARK: - Timeout Configuration

@@ -619,6 +619,85 @@ final class TransactionLedgerService {
       day: day, monthAnchor: currentMonthAnchor, previousMonthBalance: previousBalance)
   }
 
+  /// Calculate balance for a specific day in the current month — group context
+  func calculateCurrentMonthBalanceForDayForGroup(day: Int, groupId: String) -> Int {
+    let today = Date()
+    let currentMonthAnchor = today.monthAnchor
+
+    let previousMonthData = calculateMonthlyDataForGroup(groupId: groupId, for: -1...(-1))
+    let previousBalance = previousMonthData.first?.finalBalance ?? 0
+
+    let transactions = fetchGroupTransactionsIncludingStatements(groupId: groupId)
+    return calculateBalanceForDayForGroup(
+      day: day, monthAnchor: currentMonthAnchor, previousMonthBalance: previousBalance,
+      transactions: transactions, groupId: groupId)
+  }
+
+  /// Calculate balance for a specific day within a month — group context
+  func calculateBalanceForDayForGroup(day: Int, monthAnchor: Int, previousMonthBalance: Int, transactions: [Transaction]? = nil, groupId: String) -> Int {
+    let allTransactions = transactions ?? fetchGroupTransactionsIncludingStatements(groupId: groupId)
+
+    let monthDate = Date(timeIntervalSince1970: TimeInterval(monthAnchor))
+
+    var calendar = Calendar.current
+    calendar.timeZone = TimeZone.current
+
+    guard let targetDate = calendar.date(bySetting: .day, value: day, of: monthDate) else {
+      return previousMonthBalance
+    }
+
+    let targetDateComponents = calendar.dateComponents([.year, .month, .day], from: targetDate)
+    let targetDateOnly = calendar.date(from: targetDateComponents) ?? targetDate
+
+    let transactionsUpToTargetDate = allTransactions.filter { transaction in
+      let transactionDate = Date(timeIntervalSince1970: TimeInterval(transaction.dateTimestamp))
+      let transactionComponents = calendar.dateComponents(
+        [.year, .month, .day], from: transactionDate)
+      let transactionDateOnly = calendar.date(from: transactionComponents) ?? transactionDate
+      return transactionDateOnly <= targetDateOnly
+        && (transaction.creditCardId == nil || transaction.isCreditCardStatement == true)
+    }
+
+    var runningBalance = UIDUserDefaultsManager.shared.getGroupBalanceOffset(groupId: groupId)
+    var lastProcessedMonthAnchor = -1
+
+    let transactionsByMonth = Dictionary(grouping: transactionsUpToTargetDate) { transaction in
+      let transactionDate = Date(timeIntervalSince1970: TimeInterval(transaction.dateTimestamp))
+      return transactionDate.monthAnchor
+    }
+
+    let sortedMonthAnchors = transactionsByMonth.keys.sorted()
+
+    for monthAnchor in sortedMonthAnchors {
+      let transactionsInMonth = transactionsByMonth[monthAnchor] ?? []
+
+      let monthDate = Date(timeIntervalSince1970: TimeInterval(monthAnchor))
+      let isTargetMonth = calendar.isDate(monthDate, equalTo: targetDate, toGranularity: .month)
+
+      let relevantTransactions: [Transaction]
+      if isTargetMonth {
+        relevantTransactions = transactionsInMonth.filter { transaction in
+          let transactionDate = Date(timeIntervalSince1970: TimeInterval(transaction.dateTimestamp))
+          let transactionComponents = calendar.dateComponents(
+            [.year, .month, .day], from: transactionDate)
+          let transactionDateOnly = calendar.date(from: transactionComponents) ?? transactionDate
+          return transactionDateOnly <= targetDateOnly
+        }
+      } else {
+        relevantTransactions = transactionsInMonth
+      }
+
+      let netChange = relevantTransactions.reduce(0) { result, transaction in
+        transaction.type == .income ? result + transaction.amount : result - transaction.amount
+      }
+
+      runningBalance += netChange
+      lastProcessedMonthAnchor = monthAnchor
+    }
+
+    return runningBalance
+  }
+
 
   // MARK: - Cache Management
 

@@ -60,7 +60,15 @@ final class BudgetGroupService {
     }
 
     func fetchAllGroups() -> [BudgetGroup] {
-        let groups = repository.fetchAllGroups()
+        var groups = repository.fetchAllGroups()
+        // Repair: if ownerId was stored as email (invitation acceptance bug), replace with Firebase UID
+        if let currentUser = AuthenticationManager.shared.currentUser {
+            for i in groups.indices where groups[i].ownerId == currentUser.email && groups[i].ownerId != currentUser.uid {
+                groups[i].ownerId = currentUser.uid
+                repository.updateGroup(groups[i])
+                logInfo("Repaired ownerId for group '\(groups[i].name)': email → UID")
+            }
+        }
         // Fix existing shares that have restrictive permissions
         upgradeExistingSharePermissions(groups: groups)
         return groups
@@ -76,6 +84,50 @@ final class BudgetGroupService {
 
     func deleteGroup(id: String) {
         repository.softDeleteGroup(id: id)
+    }
+
+    /// Public entry point for propagating a share URL to invitation records in public DB.
+    /// Called by SyncEngine to ensure invitations have the share URL.
+    func propagateShareUrl(groupId: String, newUrl: String) {
+        // Query public DB by groupId (now queryable) and update any records missing the share URL
+        let predicate = NSPredicate(format: "groupId == %@", groupId)
+        let query = CKQuery(recordType: "GroupInvitation", predicate: predicate)
+
+        cloudKit.publicDatabase.fetch(withQuery: query) { [weak self] result in
+            guard let self = self else { return }
+            switch result {
+            case .success(let (matchResults, _)):
+                var recordsToSave: [CKRecord] = []
+                for (_, recordResult) in matchResults {
+                    if case .success(let record) = recordResult {
+                        let existingUrl = record["ckShareUrl"] as? String ?? ""
+                        if existingUrl.isEmpty || existingUrl != newUrl {
+                            record["ckShareUrl"] = newUrl
+                            recordsToSave.append(record)
+                        }
+                    }
+                }
+                guard !recordsToSave.isEmpty else {
+                    logInfo("All invitation records for group \(groupId) already have correct share URL")
+                    return
+                }
+
+                let updateOp = CKModifyRecordsOperation(recordsToSave: recordsToSave, recordIDsToDelete: nil)
+                updateOp.modifyRecordsResultBlock = { result in
+                    switch result {
+                    case .success:
+                        logInfo("Updated \(recordsToSave.count) invitation(s) with share URL for group \(groupId)")
+                    case .failure(let error):
+                        logError("Failed to update invitation share URLs: \(error)")
+                    }
+                }
+                updateOp.qualityOfService = .utility
+                self.cloudKit.publicDatabase.add(updateOp)
+
+            case .failure(let error):
+                logError("Failed to query invitations for share URL propagation: \(error)")
+            }
+        }
     }
 
     func inviteMember(
@@ -94,27 +146,54 @@ final class BudgetGroupService {
         let userName = UserDefaultsManager.getUser()?.name ?? user.displayName ?? "User"
         let userEmail = user.email ?? ""
 
-        // Create invitation record with share URL
-        var invitation = GroupInvitation(
-            groupId: group.id,
-            groupName: group.name,
-            inviterName: userName,
-            inviterEmail: userEmail,
-            inviteeEmail: email
-        )
-        invitation.ckShareUrl = group.ckShareUrl
-        repository.insertInvitation(invitation)
+        // Re-fetch group from DB to get the latest ckShareUrl (may have been updated since caller got the object)
+        let latestGroup = repository.fetchGroup(byId: group.id) ?? group
+        let shareUrl = latestGroup.ckShareUrl
 
-        // Push invitation via CloudKit (add participant to share), then save to public DB
-        // CKShare participant addition is best-effort; public DB save is the critical path
-        pushInvitationToCloud(invitation, group: group) { [weak self] _ in
-            self?.saveInvitationToPublicDB(invitation) { saveResult in
-                switch saveResult {
-                case .success:
-                    completion(.success(()))
-                case .failure(let error):
-                    logError("Failed to save invitation to public DB: \(error)")
-                    completion(.failure(error))
+        let sendInvitation: (String?) -> Void = { [weak self] finalShareUrl in
+            guard let self = self else { return }
+
+            var invitation = GroupInvitation(
+                groupId: group.id,
+                groupName: group.name,
+                inviterName: userName,
+                inviterEmail: userEmail,
+                inviteeEmail: email
+            )
+            invitation.ckShareUrl = finalShareUrl
+            if finalShareUrl == nil {
+                logWarning("Sending invitation without share URL — group '\(group.name)' has no CKShare")
+            } else {
+                logInfo("Sending invitation with share URL: \(finalShareUrl!)")
+            }
+            self.repository.insertInvitation(invitation)
+
+            let groupForPush = finalShareUrl != nil ? latestGroup : group
+            self.pushInvitationToCloud(invitation, group: groupForPush) { [weak self] _ in
+                self?.saveInvitationToPublicDB(invitation) { saveResult in
+                    switch saveResult {
+                    case .success:
+                        completion(.success(()))
+                    case .failure(let error):
+                        logError("Failed to save invitation to public DB: \(error)")
+                        completion(.failure(error))
+                    }
+                }
+            }
+        }
+
+        if shareUrl != nil {
+            sendInvitation(shareUrl)
+        } else {
+            // No share URL yet — create the CK zone + share first, then send invitation with fresh URL
+            logInfo("Creating CKShare before sending invitation for group '\(group.name)'")
+            createCloudKitShare(for: latestGroup) { result in
+                switch result {
+                case .success(let updatedGroup):
+                    sendInvitation(updatedGroup.ckShareUrl)
+                case .failure:
+                    // Still send invitation — invitee can use fallback URL fetch
+                    sendInvitation(nil)
                 }
             }
         }
@@ -141,15 +220,94 @@ final class BudgetGroupService {
         repository.updateInvitationStatus(id: id, status: accept ? "accepted" : "declined")
     }
 
+    // MARK: - Push GroupMember CKRecord
+
+    /// Pushes a GroupMember CKRecord to the group zone so the owner can discover new members.
+    func pushGroupMemberRecord(
+        member: GroupMember,
+        groupId: String,
+        zoneOwner: String,
+        completion: @escaping (Result<Void, Error>) -> Void
+    ) {
+        let zoneID = CKRecordZone.ID(zoneName: "Group-\(groupId)", ownerName: zoneOwner)
+        let recordID = CKRecord.ID(recordName: "groupMember-\(member.id)", zoneID: zoneID)
+        let record = CKRecord(recordType: "GroupMember", recordID: recordID)
+
+        record["groupId"] = member.groupId as CKRecordValue
+        record["userId"] = member.userId as CKRecordValue
+        record["name"] = member.name as CKRecordValue
+        record["email"] = member.email as CKRecordValue
+        record["role"] = member.role.rawValue as CKRecordValue
+        record["joinedAt"] = member.joinedAt as NSDate
+
+        let operation = CKModifyRecordsOperation(recordsToSave: [record], recordIDsToDelete: nil)
+        operation.modifyRecordsResultBlock = { result in
+            switch result {
+            case .success:
+                logInfo("GroupMember record pushed to group zone for \(member.name)")
+                completion(.success(()))
+            case .failure(let error):
+                logError("Failed to push GroupMember record: \(error.localizedDescription)")
+                completion(.failure(error))
+            }
+        }
+        operation.qualityOfService = .userInitiated
+        cloudKit.sharedDatabase.add(operation)
+    }
+
+    // MARK: - Push Member Removal
+
+    /// Pushes a GroupMember CKRecord with isRemoved=1 to the group zone so the member discovers their removal.
+    func pushGroupMemberRemoval(
+        member: GroupMember,
+        groupId: String,
+        completion: @escaping (Result<Void, Error>) -> Void
+    ) {
+        let zoneID = CKRecordZone.ID(zoneName: "Group-\(groupId)", ownerName: CKCurrentUserDefaultName)
+        let recordID = CKRecord.ID(recordName: "groupMember-\(member.id)", zoneID: zoneID)
+        let record = CKRecord(recordType: "GroupMember", recordID: recordID)
+
+        record["groupId"] = member.groupId as CKRecordValue
+        record["userId"] = member.userId as CKRecordValue
+        record["name"] = member.name as CKRecordValue
+        record["email"] = member.email as CKRecordValue
+        record["role"] = member.role.rawValue as CKRecordValue
+        record["joinedAt"] = member.joinedAt as NSDate
+        record["isRemoved"] = 1 as CKRecordValue
+
+        let operation = CKModifyRecordsOperation(recordsToSave: [record], recordIDsToDelete: nil)
+        operation.modifyRecordsResultBlock = { result in
+            switch result {
+            case .success:
+                logInfo("GroupMember removal pushed to group zone for \(member.name)")
+                completion(.success(()))
+            case .failure(let error):
+                logError("Failed to push GroupMember removal: \(error.localizedDescription)")
+                completion(.failure(error))
+            }
+        }
+        operation.qualityOfService = .userInitiated
+        cloudKit.privateDatabase.add(operation)
+    }
+
     // MARK: - Share Permission Migration
 
     /// Upgrades existing CKShares from .none to .readWrite so invitees can accept via URL.
-    /// Only runs for groups owned by the current user that have a share URL.
+    /// Also performs one-time migration from hierarchical to zone-based shares.
     private func upgradeExistingSharePermissions(groups: [BudgetGroup]) {
         let ownedGroups = groups.filter { $0.isOwner && $0.ckShareUrl != nil }
         guard !ownedGroups.isEmpty else { return }
 
+        // v2 key forces re-run since v1 was set prematurely before async completion
+        let needsZoneShareMigration = !UserDefaults.standard.bool(forKey: "hasCompletedZoneShareMigration_v2")
+
         for group in ownedGroups {
+            if needsZoneShareMigration {
+                migrateToZoneShare(group: group)
+                // Skip permission upgrade — migration handles it
+                continue
+            }
+
             guard let urlString = group.ckShareUrl, let shareURL = URL(string: urlString) else { continue }
 
             let fetchOp = CKFetchShareMetadataOperation(shareURLs: [shareURL])
@@ -185,6 +343,172 @@ final class BudgetGroupService {
         }
     }
 
+    /// Replaces the existing CKShare for a group with a zone-based CKShare
+    /// that shares ALL records in the zone, then propagates the new URL
+    /// to pending invitations in public DB.
+    private func migrateToZoneShare(group: BudgetGroup) {
+        let zoneID = CKRecordZone.ID(zoneName: "Group-\(group.id)", ownerName: CKCurrentUserDefaultName)
+
+        logWarning("Migrating group '\(group.name)' to zone-based share")
+
+        // Use the known share URL to find the old share record
+        guard let urlString = group.ckShareUrl, let shareURL = URL(string: urlString) else {
+            logError("No share URL for group '\(group.name)' — creating fresh zone share")
+            createZoneShareAndPropagate(group: group, zoneID: zoneID, oldShareID: nil)
+            return
+        }
+
+        let fetchMeta = CKFetchShareMetadataOperation(shareURLs: [shareURL])
+        fetchMeta.shouldFetchRootRecord = false
+
+        var oldShareRecordID: CKRecord.ID?
+
+        fetchMeta.perShareMetadataResultBlock = { _, result in
+            if case .success(let metadata) = result {
+                oldShareRecordID = metadata.share.recordID
+            }
+        }
+
+        fetchMeta.fetchShareMetadataResultBlock = { [weak self] _ in
+            guard let self = self else { return }
+
+            if oldShareRecordID == nil {
+                logWarning("Old share not found via URL for '\(group.name)' — creating fresh zone share")
+            }
+
+            self.createZoneShareAndPropagate(group: group, zoneID: zoneID, oldShareID: oldShareRecordID)
+        }
+
+        fetchMeta.qualityOfService = .userInitiated
+        cloudKit.container.add(fetchMeta)
+    }
+
+    /// Deletes the old share (if any), creates a zone-based share, updates local DB,
+    /// and propagates the new share URL to pending invitations in public DB.
+    private func createZoneShareAndPropagate(
+        group: BudgetGroup,
+        zoneID: CKRecordZone.ID,
+        oldShareID: CKRecord.ID?
+    ) {
+        let doCreate = { [weak self] in
+            guard let self = self else { return }
+
+            let newShare = CKShare(recordZoneID: zoneID)
+            newShare[CKShare.SystemFieldKey.title] = group.name as CKRecordValue
+            newShare.publicPermission = .readWrite
+
+            let saveOp = CKModifyRecordsOperation(recordsToSave: [newShare], recordIDsToDelete: nil)
+            saveOp.modifyRecordsResultBlock = { [weak self] result in
+                switch result {
+                case .success:
+                    guard let newURL = newShare.url?.absoluteString else {
+                        logError("Zone share created but URL is nil for '\(group.name)'")
+                        return
+                    }
+                    logInfo("Created zone-based share for '\(group.name)' — URL: \(newURL)")
+
+                    // Update local group record
+                    var updated = group
+                    updated.ckShareUrl = newURL
+                    self?.repository.updateGroup(updated)
+
+                    // Propagate new URL to pending invitations in public DB
+                    self?.updatePendingInvitationShareUrls(groupId: group.id, newUrl: newURL)
+
+                    // Mark migration complete only after success
+                    UserDefaults.standard.set(true, forKey: "hasCompletedZoneShareMigration_v2")
+                    logInfo("Zone share migration complete for '\(group.name)'")
+
+                case .failure(let error):
+                    logError("Failed to create zone share for '\(group.name)': \(error)")
+                    // Do NOT set the flag — migration will retry next time
+                }
+            }
+            saveOp.qualityOfService = .userInitiated
+            self.cloudKit.privateDatabase.add(saveOp)
+        }
+
+        if let oldID = oldShareID {
+            let deleteOp = CKModifyRecordsOperation(recordsToSave: nil, recordIDsToDelete: [oldID])
+            deleteOp.modifyRecordsResultBlock = { result in
+                if case .failure(let error) = result {
+                    logError("Failed to delete old share for '\(group.name)': \(error) — creating new anyway")
+                } else {
+                    logInfo("Deleted old hierarchical share for '\(group.name)'")
+                }
+                doCreate()
+            }
+            deleteOp.qualityOfService = .userInitiated
+            cloudKit.privateDatabase.add(deleteOp)
+        } else {
+            doCreate()
+        }
+    }
+
+    /// Updates all pending invitation records in public DB with a new share URL.
+    /// Fetches by known record IDs from local DB to avoid needing queryable `groupId` field.
+    private func updatePendingInvitationShareUrls(groupId: String, newUrl: String) {
+        // Get all locally known invitations and filter for this group's pending ones
+        guard let email = AuthenticationManager.shared.currentUser?.email else { return }
+        let localInvitations = repository.fetchPendingInvitations(forEmail: email)
+            + getAllLocalPendingInvitations(forGroupId: groupId)
+
+        let recordIDs = localInvitations
+            .filter { $0.groupId == groupId }
+            .map { CKRecord.ID(recordName: "invitation-\($0.id)") }
+
+        guard !recordIDs.isEmpty else {
+            logInfo("No local pending invitations found for group \(groupId) to update share URL")
+            return
+        }
+
+        // Fetch each record by ID (no queryable fields needed), update the URL, and save
+        let fetchOp = CKFetchRecordsOperation(recordIDs: recordIDs)
+
+        var recordsToSave: [CKRecord] = []
+        let lock = NSLock()
+
+        fetchOp.perRecordResultBlock = { _, result in
+            if case .success(let record) = result {
+                record["ckShareUrl"] = newUrl
+                lock.lock()
+                recordsToSave.append(record)
+                lock.unlock()
+            }
+        }
+
+        fetchOp.fetchRecordsResultBlock = { [weak self] result in
+            if case .failure(let error) = result {
+                logError("Failed to fetch invitation records for URL update: \(error)")
+            }
+            guard let self = self, !recordsToSave.isEmpty else { return }
+
+            let updateOp = CKModifyRecordsOperation(recordsToSave: recordsToSave, recordIDsToDelete: nil)
+            updateOp.modifyRecordsResultBlock = { result in
+                switch result {
+                case .success:
+                    logInfo("Updated \(recordsToSave.count) pending invitation(s) with new share URL")
+                case .failure(let error):
+                    logError("Failed to update invitation share URLs: \(error)")
+                }
+            }
+            updateOp.qualityOfService = .utility
+            self.cloudKit.publicDatabase.add(updateOp)
+        }
+
+        fetchOp.qualityOfService = .utility
+        cloudKit.publicDatabase.add(fetchOp)
+    }
+
+    /// Fetches all locally stored pending invitations for a specific group (invitations the owner sent).
+    private func getAllLocalPendingInvitations(forGroupId groupId: String) -> [GroupInvitation] {
+        let query = """
+            SELECT id, group_id, group_name, inviter_name, inviter_email, invitee_email, status, ck_share_url, created_at, responded_at
+            FROM GroupInvitations WHERE group_id = ? AND status = 'pending'
+            """
+        return DBHelper.shared.fetchGroupInvitationRows(query, textBindings: [groupId])
+    }
+
     // MARK: - CloudKit Share
 
     private func createCloudKitShare(
@@ -213,17 +537,20 @@ final class BudgetGroupService {
         in zoneID: CKRecordZone.ID,
         completion: @escaping (Result<BudgetGroup, Error>) -> Void
     ) {
-        // Create the root record for the group
+        // Create the group metadata record
         let recordID = CKRecord.ID(recordName: "budgetGroup-\(group.id)", zoneID: zoneID)
         let record = CKRecord(recordType: "BudgetGroup", recordID: recordID)
         record["name"] = group.name as CKRecordValue
         record["ownerId"] = group.ownerId as CKRecordValue
         record["ownerName"] = group.ownerName as CKRecordValue
+        record["ownerEmail"] = group.ownerEmail as CKRecordValue
 
-        // Create a CKShare rooted on this record
-        let share = CKShare(rootRecord: record)
+        // Zone-based share: shares ALL records in the zone (transactions, budgets, etc.)
+        // Unlike CKShare(rootRecord:) which only shares the root + its CKReference children,
+        // CKShare(recordZoneID:) makes every record in the zone visible to participants.
+        let share = CKShare(recordZoneID: zoneID)
         share[CKShare.SystemFieldKey.title] = group.name as CKRecordValue
-        share.publicPermission = .readWrite // Anyone with the share URL can accept
+        share.publicPermission = .readWrite
 
         let operation = CKModifyRecordsOperation(recordsToSave: [record, share], recordIDsToDelete: nil)
         operation.modifyRecordsResultBlock = { [weak self] result in

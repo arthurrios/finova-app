@@ -42,6 +42,10 @@ extension CreditCardStatement: CKRecordConvertible {
         let record = CKRecord(recordType: Self.recordType, recordID: recordID)
         record["localId"] = (id ?? 0) as CKRecordValue
         record["creditCardId"] = creditCardId as CKRecordValue
+        // Store credit card's CK record name for cross-device ID remapping
+        if let cardCKName = CreditCardRepository().fetchCKRecordName(for: creditCardId) {
+            record["creditCardCKRecordName"] = cardCKName as CKRecordValue
+        }
         record["closingDate"] = closingDate as CKRecordValue
         record["dueDate"] = dueDate as CKRecordValue
         record["totalAmount"] = totalAmount as CKRecordValue

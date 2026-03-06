@@ -74,6 +74,17 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         logError("Failed to accept CloudKit share: \(error!)")
         return
       }
+
+      // Store zone owner name so the member can route writes to the shared DB
+      if let share = share {
+        let ownerName = share.recordID.zoneID.ownerName
+        let zoneName = share.recordID.zoneID.zoneName
+        if zoneName.hasPrefix("Group-") {
+          let groupId = String(zoneName.dropFirst("Group-".count))
+          BudgetGroupRepository().updateZoneOwner(groupId: groupId, zoneOwner: ownerName)
+        }
+      }
+
       SyncEngine.shared.performFullSync()
 
       DispatchQueue.main.async {
@@ -189,6 +200,12 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
       name: .syncStatusDidChange,
       object: nil
     )
+    NotificationCenter.default.addObserver(
+      self,
+      selector: #selector(handleSyncPhaseProgress(_:)),
+      name: .syncPhaseProgressDidChange,
+      object: nil
+    )
   }
 
   @objc private func handleSyncStatusForToast(_ notification: Notification) {
@@ -199,15 +216,74 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
       // Don't show toast if user is on the SyncSettings screen
       guard !isOnSyncSettingsScreen() else { return }
       showSyncToastOnCurrentWindow()
-    default:
-      // SyncToastContainer handles .synced / .error / .idle internally
-      break
+    case .synced, .error, .idle:
+      // Also dismiss overlay if showing
+      dismissSyncProgressOverlay()
+    }
+  }
+
+  @objc private func handleSyncPhaseProgress(_ notification: Notification) {
+    guard let phaseProgress = notification.object as? SyncPhaseProgress else { return }
+    guard !isOnSyncSettingsScreen() else { return }
+
+    // Once we enter push phases, dismiss the overlay and let the toast handle the rest.
+    // The overlay is only for large pulls (many records downloading); push is always toast-only.
+    let pushPhaseKeys: Set<String> = [
+      "sync.phase.preparingUpload", "sync.phase.uploading",
+      "sync.phase.finalizing", "sync.phase.complete",
+    ]
+    if pushPhaseKeys.contains(phaseProgress.phaseKey) {
+      dismissSyncProgressOverlay()
+      showSyncToastOnCurrentWindow()
+      return
+    }
+
+    if phaseProgress.isLargeSync {
+      if let overlay = window?.viewWithTag(SyncProgressOverlayTag) as? SyncProgressOverlay {
+        // Update existing overlay
+        overlay.updateProgress(phaseProgress)
+      } else {
+        // Hide toast if present, show overlay
+        if let toast = window?.viewWithTag(SyncToastWindowTag) as? SyncToastContainer {
+          toast.hideSyncToast(animated: true)
+        }
+        showSyncProgressOverlay(with: phaseProgress)
+      }
     }
   }
 
   private func isOnSyncSettingsScreen() -> Bool {
     guard let nav = window?.rootViewController as? UINavigationController else { return false }
     return nav.topViewController is SyncSettingsViewController
+  }
+
+  // MARK: - Sync Progress Overlay
+
+  private func showSyncProgressOverlay(with phaseProgress: SyncPhaseProgress) {
+    guard let window = window else { return }
+
+    // Don't show duplicate
+    if window.viewWithTag(SyncProgressOverlayTag) != nil { return }
+
+    let overlay = SyncProgressOverlay()
+    overlay.tag = SyncProgressOverlayTag
+    overlay.translatesAutoresizingMaskIntoConstraints = false
+
+    window.addSubview(overlay)
+    NSLayoutConstraint.activate([
+      overlay.topAnchor.constraint(equalTo: window.topAnchor),
+      overlay.leadingAnchor.constraint(equalTo: window.leadingAnchor),
+      overlay.trailingAnchor.constraint(equalTo: window.trailingAnchor),
+      overlay.bottomAnchor.constraint(equalTo: window.bottomAnchor),
+    ])
+
+    overlay.updateProgress(phaseProgress)
+    overlay.show(animated: true)
+  }
+
+  private func dismissSyncProgressOverlay() {
+    guard let overlay = window?.viewWithTag(SyncProgressOverlayTag) as? SyncProgressOverlay else { return }
+    overlay.dismiss(animated: true)
   }
 
   /// Shows the sync toast on the current window
@@ -273,6 +349,7 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
 
 // MARK: - Constants
 
+private let SyncProgressOverlayTag = 99997
 private let SyncToastWindowTag = 99998
 private let UpdateToastWindowTag = 99999
 

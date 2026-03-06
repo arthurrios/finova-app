@@ -863,6 +863,20 @@ final class TransactionRepository: TransactionRepositoryProtocol {
     return (try? db.executeTransactionQueryPublicText(query, textBindings: [recordName]))?.first
   }
 
+  /// Returns a mapping of parentTransactionId → Set<budgetMonthDate> for all soft-deleted
+  /// (is_deleted=1) installment and recurring instances.
+  /// Used by lazy generation to prevent recreating instances the user intentionally deleted.
+  func fetchDeletedChildAnchors() -> [Int: Set<Int>] {
+    let pairs = db.fetchIntIntPairs(
+      "SELECT parent_transaction_id, budget_month_date FROM Transactions WHERE is_deleted = 1 AND parent_transaction_id IS NOT NULL;"
+    )
+    var result: [Int: Set<Int>] = [:]
+    for (parentId, anchor) in pairs {
+      result[parentId, default: []].insert(anchor)
+    }
+    return result
+  }
+
   /// If a soft-deleted record with this CK name exists (is_deleted=1), restores its sync_status
   /// to 'pendingDelete' so the next push cycle will remove it from CloudKit.
   /// Returns true if such a record was found (caller should skip re-insertion).
@@ -873,6 +887,28 @@ final class TransactionRepository: TransactionRepositoryProtocol {
       "UPDATE Transactions SET sync_status = 'pendingDelete' WHERE ck_record_id = ? AND is_deleted = 1;",
       textBindings: [ckRecordName]
     )
+    return true
+  }
+
+  /// If a tombstone (is_deleted=1, ck_record_id=NULL) exists for this parent+month,
+  /// re-links it to the incoming CK record name and re-queues it as pendingDelete.
+  /// Called by ConflictResolver when CloudKit re-sends a record whose local row was
+  /// tombstoned by hardDeleteLocal (ck_record_id cleared), preventing re-insertion.
+  func restoreTombstoneForInstance(parentId: Int, budgetMonthDate: Int, ckRecordName: String) -> Bool {
+    let check = """
+      SELECT id FROM Transactions
+      WHERE parent_transaction_id = ? AND budget_month_date = ? AND is_deleted = 1
+      LIMIT 1;
+      """
+    guard db.fetchSingleInt(check, intBindings: [parentId, budgetMonthDate]) != nil else { return false }
+    // Do NOT re-link the tombstone (i.e. don't assign ck_record_id or mark pendingDelete).
+    // Re-linking caused an infinite delete loop: after a successful CK delete hardDeleteLocal
+    // clears ck_record_id, a stale-token pull re-delivers the live record, this function
+    // re-queues it as pendingDelete, the next push deletes it again, and so on forever.
+    // Returning true is enough: it prevents insertFromCloud from resurrecting the instance.
+    // The tombstone remains (is_deleted=1, ck_record_id=NULL) to block lazy regeneration.
+    // When CK's change token advances past our delete, the next pull will deliver it as a
+    // deletion and processDeletedRecord will confirm the tombstone state.
     return true
   }
 
@@ -893,6 +929,16 @@ final class TransactionRepository: TransactionRepositoryProtocol {
       FROM Transactions WHERE shared_group_id = ? AND (is_deleted IS NULL OR is_deleted = 0);
       """
     return (try? db.executeTransactionQueryPublicText(query, textBindings: [groupId])) ?? []
+  }
+
+  /// Fetches group transactions filtered for display — hides parent recurring/installment templates.
+  /// Matches the same filtering as fetchTransactions() for personal view.
+  func fetchDisplayTransactionsForGroup(groupId: String) -> [Transaction] {
+    return fetchTransactionsForGroup(groupId: groupId).filter { tx in
+      if tx.isRecurring == true && tx.parentTransactionId == nil { return false }
+      if tx.hasInstallments == true && tx.parentTransactionId == nil { return false }
+      return true
+    }
   }
 
   func removeCloudInsertedRecords() {

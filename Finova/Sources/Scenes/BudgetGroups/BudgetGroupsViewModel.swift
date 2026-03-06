@@ -67,7 +67,15 @@ final class BudgetGroupsViewModel {
             return
         }
         repository.softDeleteGroup(id: group.id)
+
+        // Disable mirror mode if linked to this group
+        if MirrorModeManager.shared.isEnabled,
+           MirrorModeManager.shared.linkedGroupId == group.id {
+            MirrorModeManager.shared.disableMirrorMode()
+        }
+
         loadGroups()
+        NotificationCenter.default.post(name: .budgetGroupDataChanged, object: nil)
     }
 
     func leaveGroup(at index: Int) {
@@ -80,6 +88,14 @@ final class BudgetGroupsViewModel {
         }
         // Soft-delete the group locally so it disappears from this device
         repository.softDeleteGroup(id: group.id)
+
+        // Disable mirror mode if linked to this group
+        if MirrorModeManager.shared.isEnabled,
+           MirrorModeManager.shared.linkedGroupId == group.id {
+            MirrorModeManager.shared.disableMirrorMode()
+        }
+
         loadGroups()
+        NotificationCenter.default.post(name: .budgetGroupDataChanged, object: nil)
     }
 }

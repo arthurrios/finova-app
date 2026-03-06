@@ -22,4 +22,5 @@ extension Notification.Name {
   static let budgetDataChanged = Notification.Name("budgetDataChanged")
   static let creditCardDataChanged = Notification.Name("creditCardDataChanged")
   static let syncPushProgressDidChange = Notification.Name("syncPushProgressDidChange")
+  static let syncPhaseProgressDidChange = Notification.Name("syncPhaseProgressDidChange")
 }

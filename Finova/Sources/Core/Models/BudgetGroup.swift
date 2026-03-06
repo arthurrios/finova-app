@@ -10,12 +10,13 @@ import Foundation
 struct BudgetGroup: Codable, Equatable {
     let id: String
     var name: String
-    let ownerId: String
+    var ownerId: String
     var ownerName: String
     var ownerEmail: String
     var currency: String       // ISO 4217 code — enforced group-wide
     var ckRecordId: String?
     var ckShareUrl: String?
+    var ckZoneOwner: String?
     let createdAt: Date
     var updatedAt: Date
     var isDeleted: Bool
@@ -29,6 +30,7 @@ struct BudgetGroup: Codable, Equatable {
         lhs.ownerId == rhs.ownerId &&
         lhs.currency == rhs.currency &&
         lhs.ckRecordId == rhs.ckRecordId &&
+        lhs.ckZoneOwner == rhs.ckZoneOwner &&
         lhs.isDeleted == rhs.isDeleted
     }
 
@@ -56,6 +58,8 @@ struct BudgetGroup: Codable, Equatable {
 
     var isOwner: Bool {
         guard let currentUser = AuthenticationManager.shared.currentUser else { return false }
-        return ownerId == currentUser.uid
+        // Also match by email to handle the case where ownerId was stored as email
+        // (placeholder from invitation acceptance, corrected by sync)
+        return ownerId == currentUser.uid || ownerId == currentUser.email
     }
 }
