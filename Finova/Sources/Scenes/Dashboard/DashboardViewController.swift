@@ -235,6 +235,13 @@ final class DashboardViewController: UIViewController {
     }
 
     private func performDashboardRefresh() {
+        // Skip refresh while sync is active — data is changing mid-cycle and would
+        // show inconsistent state. The final refresh comes from the post-sync
+        // .transactionDataChanged notification after all data is settled.
+        if SyncEngine.shared.isSyncInProgress {
+            return
+        }
+
         // Invalidate caches so we get fresh data
         viewModel.transactionLedger.invalidateCache()
         TransactionRepository.invalidateCache()

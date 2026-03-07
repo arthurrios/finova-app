@@ -39,6 +39,12 @@ final class SyncSettingsViewController: UIViewController {
     viewModel.loadState()
   }
 
+  override func viewWillAppear(_ animated: Bool) {
+    super.viewWillAppear(animated)
+    // Refresh state when returning to this screen (sync may have progressed while away)
+    viewModel.loadState()
+  }
+
   private func setup() {
     view.addSubview(contentView)
     buildHierarchy()

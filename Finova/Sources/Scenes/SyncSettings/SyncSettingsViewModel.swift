@@ -89,7 +89,9 @@ final class SyncSettingsViewModel {
     ensureCloudKitAvailable { [weak self] in
       guard let self = self else { return }
       self.delegate?.didUpdateSyncState(status: .syncing, lastSyncText: self.formatLastSyncDate())
-      self.syncEngine.performFullSync(forceRePush: true)
+      // Just trigger a normal sync — pending records will be pushed without resetting
+      // already-synced records back to pending (which causes an upload loop).
+      self.syncEngine.performFullSync()
     }
   }
 

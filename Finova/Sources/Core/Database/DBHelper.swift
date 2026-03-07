@@ -2301,6 +2301,28 @@ class DBHelper {
         sqlite3_step(statement)
     }
 
+    /// Same as `executeSyncUpdate` but returns the number of rows affected.
+    @discardableResult
+    func executeSyncUpdateCount(_ query: String, textBindings: [String] = [], intBindings: [Int] = []) -> Int {
+        guard isInitialized else { return 0 }
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK else { return 0 }
+        defer { sqlite3_finalize(statement) }
+
+        var bindIndex: Int32 = 1
+        for value in textBindings {
+            sqlite3_bind_text(statement, bindIndex, value, -1, SQLITE_TRANSIENT)
+            bindIndex += 1
+        }
+        for value in intBindings {
+            sqlite3_bind_int64(statement, bindIndex, Int64(value))
+            bindIndex += 1
+        }
+
+        sqlite3_step(statement)
+        return Int(sqlite3_changes(db))
+    }
+
     func executeCloudInsert(
         _ query: String,
         transaction: Transaction,

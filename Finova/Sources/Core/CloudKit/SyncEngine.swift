@@ -53,6 +53,8 @@ final class SyncEngine {
     private let postSyncActions: PostSyncActions
     private let syncQueue = DispatchQueue(label: "com.finova.syncengine", qos: .utility)
     private var isSyncing = false
+    /// Public read-only accessor for UI to check if sync is in progress.
+    var isSyncInProgress: Bool { isSyncing || isProcessingCloudData }
     private var hasSetupSubscriptions = false
     private var isProcessingCloudData = false
     private var pushThrottledUntil: Date?
@@ -590,12 +592,14 @@ final class SyncEngine {
             }
             if forceFullFetch {
                 self.stateManager.resetAllTokens()
+                UserDefaults.standard.removeObject(forKey: Self.fullPullVerifiedKey)
             }
             if forceAcceptCloud {
                 Self.resetLocalModificationTimestamps()
                 self.stateManager.resetAllTokens()
                 self.isFullRefetch = true
                 self.pulledCKRecordNames = []
+                UserDefaults.standard.removeObject(forKey: Self.fullPullVerifiedKey)
             }
             if forceRePush {
                 Self.resetAllSyncStatuses()
@@ -699,6 +703,14 @@ final class SyncEngine {
             needsPostSyncPush = true
             return
         }
+        // Skip standalone push if a sync just completed — the drain mechanism
+        // handles any remaining pending records. Without this, data change
+        // notifications posted at end of sync trigger concurrent pushes.
+        if let lastCompleted = lastSyncCompletedAt,
+           Date().timeIntervalSince(lastCompleted) < 5.0 {
+            logWarning("[SyncLife] handleLocalDataChange — skipped (sync just completed \(Int(Date().timeIntervalSince(lastCompleted)))s ago)")
+            return
+        }
         logWarning("[SyncLife] handleLocalDataChange — scheduling push in 2s")
         syncQueue.asyncAfter(deadline: .now() + 2.0) { [weak self] in
             guard let self = self, !self.isSyncing else { return }
@@ -748,6 +760,32 @@ final class SyncEngine {
         }
         logWarning("[SyncLife] finishSync done — isSyncing=\(isSyncing)")
         completion?()
+    }
+
+    private static let fullPullVerifiedKey = "syncFullPullVerified_v2"
+
+    /// Ensures this device has completed at least one full pull from CloudKit.
+    /// If we have a stale DB change token from a partial sync, CloudKit will report
+    /// "no changed zones" and skip the pull entirely, leaving the device with
+    /// incomplete data. This resets tokens to force a complete pull.
+    private func checkAndRepairIncompleteSync() {
+        guard !UserDefaults.standard.bool(forKey: Self.fullPullVerifiedKey) else { return }
+
+        let hasToken = stateManager.changeToken(for: "privateDB", database: "private") != nil
+        guard hasToken else { return } // No token = first sync, will do full pull naturally
+
+        logWarning("[SyncLife] Device has not completed a verified full pull — resetting tokens for complete pull")
+        stateManager.resetAllTokens()
+        isLargeSyncCycle = true
+    }
+
+    /// Called after a successful sync that pulled records, marking this device as having
+    /// a complete dataset. Future syncs will use incremental tokens normally.
+    private func markFullPullVerified() {
+        if !UserDefaults.standard.bool(forKey: Self.fullPullVerifiedKey) {
+            UserDefaults.standard.set(true, forKey: Self.fullPullVerifiedKey)
+            logWarning("[SyncLife] Full pull verified — future syncs will be incremental")
+        }
     }
 
     /// Posts a `syncPhaseProgressDidChange` notification with the current phase progress.
@@ -866,6 +904,12 @@ final class SyncEngine {
         }
 
         logWarning("[SyncLife] === SYNC CYCLE START ===")
+
+        // One-time integrity check: if this device has a balance offset (mature account)
+        // but very few transactions, the DB change token is stale. Reset tokens to force
+        // a full pull so we don't permanently miss records.
+        checkAndRepairIncompleteSync()
+
         isSyncing = true
         syncStartedAt = Date()
         postSyncPushCycleCount = 0
@@ -917,8 +961,11 @@ final class SyncEngine {
                                 self.discoverGroupsFromAllZones {
                                     // Re-run reconciliation to tag any transactions pulled during zone discovery
                                     if MirrorModeManager.shared.isEnabled {
-                                        MirrorModeManager.shared.reconcileMirrorData()
-                                        self.needsPostSyncPush = true
+                                        let changed = MirrorModeManager.shared.reconcileMirrorData()
+                                        if changed > 0 {
+                                            logWarning("[SyncLife] Post-push reconcile tagged \(changed) records — scheduling drain push")
+                                            self.needsPostSyncPush = true
+                                        }
                                     }
                                     logWarning("[SyncLife] Starting postSyncActions.performPostSyncFetches")
                                     self.postSyncActions.performPostSyncFetches {
@@ -952,6 +999,7 @@ final class SyncEngine {
                                                 NotificationCenter.default.post(name: .budgetGroupDataChanged, object: nil)
                                             }
 
+                                            self.markFullPullVerified()
                                             self.finishSync(status: .synced, completion: completion)
                                         }
                                     }
@@ -1101,6 +1149,15 @@ final class SyncEngine {
                     self?.pulledCKRecordNames.insert(record.recordID.recordName)
                 }
                 self?.processIncomingRecord(record)
+
+                // Detect large sync early — as soon as threshold is crossed during pull
+                if pulledRecordCount == Self.largeSyncThreshold + 1,
+                   self?.isLargeSyncCycle == false {
+                    self?.isLargeSyncCycle = true
+                    logWarning("[SyncLife] Large sync detected during pull (\(pulledRecordCount) records so far)")
+                    self?.postPhaseProgress(progress: pullBaseProgress + 0.05, phaseKey: pullPhaseKey)
+                }
+
                 // Incremental pull progress every 25 records (capped at next phase boundary)
                 if pulledRecordCount % 25 == 0 {
                     let increment = Float(pulledRecordCount) * 0.001
@@ -1121,11 +1178,7 @@ final class SyncEngine {
                 self?.isProcessingCloudData = false
                 switch result {
                 case .success:
-                    logWarning("[Sync] Pull complete — \(pulledRecordCount) record(s), \(pulledDeleteCount) delete(s)")
-                    // Detect large sync from pull volume
-                    if pulledRecordCount > Self.largeSyncThreshold {
-                        self?.isLargeSyncCycle = true
-                    }
+                    logWarning("[Sync] Pull complete — \(pulledRecordCount) record(s), \(pulledDeleteCount) delete(s), largeSync=\(self?.isLargeSyncCycle ?? false)")
                     TransactionRepository.invalidateCache()
                     let localCount = TransactionRepository().fetchAllTransactions().count
                     logWarning("[Sync] Local DB has \(localCount) transaction(s) after pull")
@@ -1384,8 +1437,25 @@ final class SyncEngine {
             // Guard: skip credit card transactions whose card has no ck_record_name yet.
             // The card must be pushed first so other devices can remap IDs correctly.
             if let ccId = tx.creditCardId, cardRepo.fetchCKRecordName(for: ccId) == nil {
-                logWarning("[Sync] Skipping transaction \(tx.id ?? -1): credit card \(ccId) has no ck_record_name yet")
-                continue
+                // Check if the card even exists — if not, detach the transaction from
+                // the non-existent card so it can be pushed as a regular transaction.
+                if let uid = UIDUserDefaultsManager.shared.currentUserUID {
+                    let cardExists = cardRepo.fetchAllCards(userId: uid).contains { $0.id == ccId }
+                    if !cardExists, let txId = tx.id {
+                        logWarning("[Sync] Detaching transaction \(txId) from non-existent credit card \(ccId)")
+                        DBHelper.shared.executeSyncUpdate(
+                            "UPDATE Transactions SET credit_card_id = NULL, statement_id = NULL WHERE id = ?;",
+                            intBindings: [txId]
+                        )
+                        // Continue processing — the transaction will be pushed without a credit card reference
+                    } else {
+                        logWarning("[Sync] Skipping transaction \(tx.id ?? -1): credit card \(ccId) has no ck_record_name yet")
+                        continue
+                    }
+                } else {
+                    logWarning("[Sync] Skipping transaction \(tx.id ?? -1): credit card \(ccId) has no ck_record_name yet")
+                    continue
+                }
             }
             let storedName = tx.id.flatMap { txRepo.fetchCKRecordName(for: $0) }
             let groupId = tx.id.flatMap { txRepo.fetchSharedGroupId(for: $0) }
@@ -1580,15 +1650,18 @@ final class SyncEngine {
             Array(sharedRecords[$0..<min($0 + Self.batchSize, sharedRecords.count)])
         }
 
-        // Detect initial push: many records and never completed before
+        // Track push progress for any multi-batch push
         let allBatchCount = privateBatches.count + sharedBatches.count
-        if totalRecords > Self.batchSize && !UserDefaults.standard.bool(forKey: "hasCompletedInitialCloudPush_v1") {
-            isInitialPush = true
+        if allBatchCount > 0 {
             let progress = SyncPushProgress(currentBatch: 0, totalBatches: allBatchCount, totalRecords: totalRecords)
             currentPushProgress = progress
             DispatchQueue.main.async {
                 NotificationCenter.default.post(name: .syncPushProgressDidChange, object: progress)
             }
+        }
+        // Detect initial push for one-time flag
+        if totalRecords > Self.batchSize && !UserDefaults.standard.bool(forKey: "hasCompletedInitialCloudPush_v1") {
+            isInitialPush = true
         }
 
         // Push private DB records first, then shared DB records
@@ -1618,11 +1691,11 @@ final class SyncEngine {
         completion: ((Result<Void, Error>) -> Void)?
     ) {
         guard index < batches.count else {
-            // All batches complete — mark initial push as done
+            // All batches complete — clear progress
+            currentPushProgress = nil
             if isInitialPush {
                 UserDefaults.standard.set(true, forKey: "hasCompletedInitialCloudPush_v1")
                 isInitialPush = false
-                currentPushProgress = nil
             }
 
             // After all save batches, send deletes if any
@@ -1735,7 +1808,7 @@ final class SyncEngine {
         } completion: { [weak self] result in
             logWarning("[Sync] Batch \(index + 1)/\(batches.count) result: \(batchSuccessCount) succeeded, \(batchFailureCount) failed")
 
-            if let self = self, self.isInitialPush {
+            if let self = self {
                 let progress = SyncPushProgress(currentBatch: index + 1, totalBatches: batches.count, totalRecords: batches.reduce(0) { $0 + $1.count })
                 self.currentPushProgress = progress
                 DispatchQueue.main.async {
@@ -2049,6 +2122,9 @@ final class SyncEngine {
                 }
                 record["creditCardId"] = localCardId as CKRecordValue
             }
+            // If creditCardCKRecordName is nil, the remote creditCardId stays as-is.
+            // CCRepair will detect it as orphaned (no matching local card) and reassign it.
+
             if let stmtCKName = record["statementCKRecordName"] as? String,
                let localStmt = stmtRepo.fetchStatement(byCKRecordName: stmtCKName),
                let localStmtId = localStmt.id {

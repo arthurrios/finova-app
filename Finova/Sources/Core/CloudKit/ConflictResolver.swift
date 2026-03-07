@@ -50,7 +50,7 @@ final class ConflictResolver {
 
             let remoteUpdatedAt = remote.updatedAt ?? ckRecord.modificationDate ?? Date.distantPast
             if let localModDate = repo.lastModifiedDate(for: existing.id ?? 0) {
-                if remoteUpdatedAt > localModDate {
+                if remoteUpdatedAt >= localModDate {
                     repo.updateFromCloud(remote, ckRecordName: recordName, sharedGroupId: sharedGroupId)
                 } else {
                     repo.markSyncPending(for: existing.id ?? 0)
@@ -89,7 +89,7 @@ final class ConflictResolver {
 
                         let remoteUpdatedAt = remote.updatedAt ?? ckRecord.modificationDate ?? Date.distantPast
                         if let localModDate = repo.lastModifiedDate(for: localId) {
-                            if remoteUpdatedAt > localModDate {
+                            if remoteUpdatedAt >= localModDate {
                                 repo.updateFromCloud(remote, ckRecordName: recordName, sharedGroupId: sharedGroupId)
                             } else {
                                 repo.markSyncPending(for: localId)
@@ -153,7 +153,7 @@ final class ConflictResolver {
 
                     let remoteUpdatedAt = remote.updatedAt ?? ckRecord.modificationDate ?? Date.distantPast
                     if let localModDate = repo.lastModifiedDate(for: localId) {
-                        if remoteUpdatedAt > localModDate {
+                        if remoteUpdatedAt >= localModDate {
                             repo.updateFromCloud(remote, ckRecordName: recordName, sharedGroupId: sharedGroupId)
                         } else {
                             repo.markSyncPending(for: localId)
@@ -183,7 +183,7 @@ final class ConflictResolver {
 
                 let remoteUpdatedAt = remote.updatedAt ?? ckRecord.modificationDate ?? Date.distantPast
                 if let localModDate = repo.lastModifiedDate(for: localId) {
-                    if remoteUpdatedAt > localModDate {
+                    if remoteUpdatedAt >= localModDate {
                         repo.updateFromCloud(remote, ckRecordName: recordName, sharedGroupId: sharedGroupId)
                     } else {
                         repo.markSyncPending(for: localId)
@@ -219,7 +219,7 @@ final class ConflictResolver {
         if let existing = repo.fetchBudget(byCKRecordName: recordName) {
             let remoteUpdatedAt = remote.updatedAt ?? ckRecord.modificationDate ?? Date.distantPast
             if let localModDate = repo.lastModifiedDate(forMonthDate: existing.monthDate) {
-                if remoteUpdatedAt > localModDate {
+                if remoteUpdatedAt >= localModDate {
                     repo.updateFromCloud(remote, ckRecordName: recordName)
                 } else {
                     repo.markSyncPending(forMonthDate: existing.monthDate)
@@ -236,7 +236,7 @@ final class ConflictResolver {
 
             let remoteUpdatedAt = remote.updatedAt ?? ckRecord.modificationDate ?? Date.distantPast
             if let localModDate = repo.lastModifiedDate(forMonthDate: local.monthDate) {
-                if remoteUpdatedAt > localModDate {
+                if remoteUpdatedAt >= localModDate {
                     repo.updateFromCloud(remote, ckRecordName: recordName)
                 } else {
                     repo.markSyncPending(forMonthDate: local.monthDate)
@@ -266,7 +266,7 @@ final class ConflictResolver {
         if let existing = repo.fetchCard(byCKRecordName: recordName) {
             let remoteUpdatedAt = remote.updatedAt
             if let localModDate = repo.lastModifiedDate(for: existing.id ?? 0) {
-                if remoteUpdatedAt > localModDate {
+                if remoteUpdatedAt >= localModDate {
                     repo.updateFromCloud(remote, ckRecordName: recordName)
                 } else {
                     repo.markSyncPending(for: existing.id ?? 0)
@@ -307,7 +307,7 @@ final class ConflictResolver {
 
             let remoteUpdatedAt = remote.updatedAt
             if let localModDate = repo.lastModifiedDate(for: existing.id ?? 0) {
-                if remoteUpdatedAt > localModDate {
+                if remoteUpdatedAt >= localModDate {
                     repo.updateFromCloud(remote, ckRecordName: recordName)
                 } else {
                     repo.markSyncPending(for: existing.id ?? 0)
@@ -340,7 +340,7 @@ final class ConflictResolver {
         if let existing = repo.fetchAllocation(byCKRecordName: recordName) {
             let remoteUpdatedAt = remote.updatedAt ?? ckRecord.modificationDate ?? Date.distantPast
             if let localModDate = repo.lastModifiedDate(for: existing.id ?? 0) {
-                if remoteUpdatedAt > localModDate {
+                if remoteUpdatedAt >= localModDate {
                     repo.updateFromCloud(remote, ckRecordName: recordName)
                 } else {
                     repo.markSyncPending(for: existing.id ?? 0)

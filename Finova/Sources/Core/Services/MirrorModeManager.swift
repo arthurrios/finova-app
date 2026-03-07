@@ -189,39 +189,43 @@ final class MirrorModeManager {
 
     /// Ensures all personal data is tagged with the linked group ID.
     /// Call this after sync pull, lazy generation, or any data mutation to keep mirror mode consistent.
-    func reconcileMirrorData() {
+    /// Returns the total number of rows that were actually changed (0 = nothing needed fixing).
+    @discardableResult
+    func reconcileMirrorData() -> Int {
         guard isEnabled,
               let groupId = linkedGroupId,
               let uid = UIDUserDefaultsManager.shared.currentUserUID
-        else { return }
+        else { return 0 }
+
+        var totalChanged = 0
 
         // Tag transactions: fix untagged OR wrong group ID (stale from recovery/previous sync)
-        db.executeSyncUpdate(
+        totalChanged += db.executeSyncUpdateCount(
             "UPDATE Transactions SET shared_group_id = ?, sync_status = 'pending' WHERE user_id = ? AND (shared_group_id IS NULL OR shared_group_id = '' OR shared_group_id != ?) AND (is_deleted IS NULL OR is_deleted = 0);",
             textBindings: [groupId, uid, groupId]
         )
 
         // Tag budgets: fix untagged OR wrong group ID
-        db.executeSyncUpdate(
+        totalChanged += db.executeSyncUpdateCount(
             "UPDATE Budgets SET shared_group_id = ?, sync_status = 'pending' WHERE user_id = ? AND (shared_group_id IS NULL OR shared_group_id = '' OR shared_group_id != ?);",
             textBindings: [groupId, uid, groupId]
         )
 
         // Tag credit cards: fix untagged OR wrong group ID
-        db.executeSyncUpdate(
+        totalChanged += db.executeSyncUpdateCount(
             "UPDATE CreditCards SET shared_group_id = ?, sync_status = 'pending' WHERE user_id = ? AND (shared_group_id IS NULL OR shared_group_id = '' OR shared_group_id != ?) AND is_deleted = 0;",
             textBindings: [groupId, uid, groupId]
         )
 
         // Tag allocations: fix untagged OR wrong group ID
-        db.executeSyncUpdate(
+        totalChanged += db.executeSyncUpdateCount(
             "UPDATE BudgetAllocations SET shared_group_id = ?, sync_status = 'pending' WHERE user_id = ? AND (shared_group_id IS NULL OR shared_group_id = '' OR shared_group_id != ?);",
             textBindings: [groupId, uid, groupId]
         )
 
         // Mark credit card statements pending ONLY when their parent card was just re-tagged
         // (card sync_status is still 'pending' from the UPDATE above — means it was changed this pass)
-        db.executeSyncUpdate(
+        totalChanged += db.executeSyncUpdateCount(
             "UPDATE CreditCardStatements SET sync_status = 'pending' WHERE sync_status = 'synced' AND credit_card_id IN (SELECT id FROM CreditCards WHERE user_id = ? AND sync_status = 'pending' AND shared_group_id IS NOT NULL AND shared_group_id != '');",
             textBindings: [uid]
         )
@@ -236,8 +240,11 @@ final class MirrorModeManager {
         }
         UIDUserDefaultsManager.shared.setGroupBalanceOffset(personalOffset, groupId: groupId)
 
-        TransactionRepository.invalidateCache()
-        logInfo("MirrorReconcile: reconciliation completed for group \(groupId)")
+        if totalChanged > 0 {
+            TransactionRepository.invalidateCache()
+        }
+        logInfo("MirrorReconcile: reconciliation completed for group \(groupId) — \(totalChanged) rows changed")
+        return totalChanged
     }
 
     // MARK: - Remove Mirror
