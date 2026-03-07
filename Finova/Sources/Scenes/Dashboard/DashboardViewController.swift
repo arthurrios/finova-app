@@ -742,6 +742,43 @@ final class DashboardViewController: UIViewController {
             object: nil
         )
 
+        // Listen for sync status changes to show shimmer overlay during cloud download
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleSyncStatusChanged(_:)),
+            name: .syncStatusDidChange,
+            object: nil
+        )
+
+    }
+
+    @objc private func handleSyncStatusChanged(_ notification: Notification) {
+        guard let status = notification.object as? SyncStatus else { return }
+        switch status {
+        case .syncing:
+            DispatchQueue.main.async { [weak self] in
+                self?.showSyncDownloadShimmer()
+            }
+        case .synced, .error, .idle:
+            break  // hideShimmerOnAllCards() is already called in performDashboardRefresh()
+        }
+    }
+
+    private func showSyncDownloadShimmer() {
+        guard viewIfLoaded?.window != nil else { return }
+        guard let currentCell = currentCell else { return }
+
+        let visibleIndexPaths = contentView.monthCarousel.indexPathsForVisibleItems
+        if let currentIndexPath = visibleIndexPaths.first {
+            showShimmerLoadingOnCard(currentCell.monthCard)
+            showShimmerLoadingOnTable(currentCell.transactionTableView)
+            cardsWithActiveShimmer.insert(currentIndexPath.item)
+        }
+
+        // Safety timeout: syncs can take longer than local operations
+        DispatchQueue.main.asyncAfter(deadline: .now() + 10.0) { [weak self] in
+            self?.hideShimmerOnAllCards()
+        }
     }
 
     @objc private func handleCurrencyDidChange() {
@@ -2119,7 +2156,7 @@ extension DashboardViewController {
         guard let shimmerView = card.viewWithTag(998) as? ShimmerView else {
             return
         }
-        
+
         // Ensure we're on the main queue
         DispatchQueue.main.async {
             UIView.animate(
@@ -2133,7 +2170,61 @@ extension DashboardViewController {
             }
         }
     }
-    
+
+    private func showShimmerLoadingOnTable(_ tableView: UITableView) {
+        if tableView.viewWithTag(997) != nil {
+            return
+        }
+
+        let shimmerView = ShimmerView()
+        shimmerView.style = ShimmerViewStyle(
+            baseColor: Colors.gray100.withAlphaComponent(0.4),
+            highlightColor: UIColor.white.withAlphaComponent(0.6),
+            duration: 1.0,
+            interval: 0.3,
+            effectSpan: .points(120),
+            effectAngle: 0 * CGFloat.pi
+        )
+
+        shimmerView.layer.cornerRadius = CornerRadius.extraLarge
+        shimmerView.clipsToBounds = true
+        shimmerView.tag = 997
+        shimmerView.translatesAutoresizingMaskIntoConstraints = false
+
+        tableView.addSubview(shimmerView)
+        NSLayoutConstraint.activate([
+            shimmerView.topAnchor.constraint(equalTo: tableView.topAnchor),
+            shimmerView.leadingAnchor.constraint(equalTo: tableView.leadingAnchor),
+            shimmerView.trailingAnchor.constraint(equalTo: tableView.trailingAnchor),
+            shimmerView.bottomAnchor.constraint(equalTo: tableView.bottomAnchor),
+        ])
+
+        shimmerView.startAnimating()
+
+        shimmerView.alpha = 0
+        UIView.animate(withDuration: 0.2) {
+            shimmerView.alpha = 1
+        }
+    }
+
+    private func hideShimmerLoadingOnTable(_ tableView: UITableView) {
+        guard let shimmerView = tableView.viewWithTag(997) as? ShimmerView else {
+            return
+        }
+
+        DispatchQueue.main.async {
+            UIView.animate(
+                withDuration: 0.3,
+                animations: {
+                    shimmerView.alpha = 0
+                }
+            ) { _ in
+                shimmerView.stopAnimating()
+                shimmerView.removeFromSuperview()
+            }
+        }
+    }
+
     // MARK: - Multi-Card Shimmer Management
     
     private func showShimmerOnCurrentCard() {
@@ -2171,13 +2262,14 @@ extension DashboardViewController {
     
     private func hideShimmerOnAllVisibleCards() {
         let visibleIndexPaths = contentView.monthCarousel.indexPathsForVisibleItems
-        
+
         for indexPath in visibleIndexPaths {
             // Only try to hide shimmer on cards that we know have shimmer
             if cardsWithActiveShimmer.contains(indexPath.item),
                let cell = contentView.monthCarousel.cellForItem(at: indexPath) as? MonthCarouselCell
             {
                 hideShimmerLoadingOnCard(cell.monthCard)
+                hideShimmerLoadingOnTable(cell.transactionTableView)
                 cardsWithActiveShimmer.remove(indexPath.item)
             }
         }
@@ -2197,6 +2289,7 @@ extension DashboardViewController {
                 let indexPath = IndexPath(item: cardIndex, section: 0)
                 if let cell = contentView.monthCarousel.cellForItem(at: indexPath) as? MonthCarouselCell {
                     hideShimmerLoadingOnCard(cell.monthCard)
+                    hideShimmerLoadingOnTable(cell.transactionTableView)
                 }
             }
         }
@@ -2216,6 +2309,9 @@ extension DashboardViewController {
         // Check all currently loaded cells for shimmer views
         for case let cell as MonthCarouselCell in contentView.monthCarousel.visibleCells {
             if let shimmerView = cell.monthCard.viewWithTag(998) {
+                shimmerView.removeFromSuperview()
+            }
+            if let shimmerView = cell.transactionTableView.viewWithTag(997) {
                 shimmerView.removeFromSuperview()
             }
         }
