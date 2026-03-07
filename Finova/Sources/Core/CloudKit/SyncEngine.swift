@@ -1048,6 +1048,19 @@ final class SyncEngine {
                     logWarning("[Sync] Database changes fetched — \(changedZoneIDs.count) changed zone(s): \(zoneNames)")
                     self?.stateManager.saveChangeToken(newToken, for: "privateDB", database: "private")
 
+                    // Always include owned group zones — CKShare-based writes from
+                    // members may not be reported by fetchDatabaseChanges on the
+                    // owner's private DB. Zone-level tokens keep this cheap when
+                    // no new records exist.
+                    let ownedGroups = BudgetGroupRepository().fetchAllGroups().filter { $0.isOwner && !$0.isDeleted }
+                    let existingZoneNames = Set(changedZoneIDs.map { $0.zoneName })
+                    for group in ownedGroups {
+                        let zoneID = CKRecordZone.ID(zoneName: "Group-\(group.id)", ownerName: CKCurrentUserDefaultName)
+                        if !existingZoneNames.contains(zoneID.zoneName) {
+                            changedZoneIDs.append(zoneID)
+                        }
+                    }
+
                     if changedZoneIDs.isEmpty {
                         // When the token was nil (forceFullFetch/reset), an empty changedZoneIDs
                         // is unexpected — it likely means the DB-level fetch returned before the
@@ -1096,6 +1109,20 @@ final class SyncEngine {
                 let zoneNames = changedZoneIDs.map { $0.zoneName }
                 logWarning("[Sync] Shared DB changes fetched — \(changedZoneIDs.count) changed zone(s): \(zoneNames)")
                 self?.stateManager.saveChangeToken(newToken, for: "sharedDB", database: "shared")
+
+                // Always include member group zones — owner-side writes may
+                // not be reported by fetchDatabaseChanges on the member's
+                // shared DB. Zone-level tokens keep this cheap.
+                let memberGroups = BudgetGroupRepository().fetchAllGroups().filter { !$0.isOwner && !$0.isDeleted }
+                let existingSharedZoneNames = Set(changedZoneIDs.map { $0.zoneName })
+                for group in memberGroups {
+                    if let zoneOwner = group.ckZoneOwner {
+                        let zoneID = CKRecordZone.ID(zoneName: "Group-\(group.id)", ownerName: zoneOwner)
+                        if !existingSharedZoneNames.contains(zoneID.zoneName) {
+                            changedZoneIDs.append(zoneID)
+                        }
+                    }
+                }
 
                 if changedZoneIDs.isEmpty {
                     logWarning("[Sync] No changed shared zones — skipping")

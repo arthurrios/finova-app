@@ -259,6 +259,7 @@ class UIDUserDefaultsManager {
     // Fetch group balance offsets for all known groups
     let groups = BudgetGroupService.shared.fetchAllGroups()
     for group in groups {
+      // Fetch from own private zone (owner's copy or member's locally-pushed copy)
       let groupRecordID = CKRecord.ID(
         recordName: "balanceOffset-\(uid)-group-\(group.id)",
         zoneID: CloudKitManager.privateZoneID
@@ -289,6 +290,48 @@ class UIDUserDefaultsManager {
         }
 
         dispatchGroup.leave()
+      }
+
+      // For member groups, also fetch the offset from the shared group zone
+      // where the owner pushes the canonical group offset
+      if !group.isOwner, let zoneOwner = group.ckZoneOwner {
+        let sharedZoneID = CKRecordZone.ID(zoneName: "Group-\(group.id)", ownerName: zoneOwner)
+        let sharedRecordID = CKRecord.ID(
+          recordName: "balanceOffset-group-\(group.id)",
+          zoneID: sharedZoneID
+        )
+
+        dispatchGroup.enter()
+        CloudKitManager.shared.sharedDatabase.fetch(withRecordID: sharedRecordID) { record, error in
+          if let record = record,
+             let offset = record["offset"] as? Int {
+            let updatedAt = record["updatedAt"] as? Date ?? .distantPast
+            groupOffsetsQueue.sync {
+              // Only use if newer than what we already fetched
+              if let existing = fetchedGroupOffsets.first(where: { $0.groupId == group.id }) {
+                if updatedAt > existing.updatedAt {
+                  fetchedGroupOffsets.removeAll { $0.groupId == group.id }
+                  fetchedGroupOffsets.append((groupId: group.id, offset: offset, updatedAt: updatedAt))
+                  UserDefaults.standard.set(offset, forKey: "balanceOffset_group_\(group.id)")
+                  logInfo("Balance offset updated from group zone: group-\(group.id) = \(offset)")
+                  didUpdate = true
+                }
+              } else {
+                fetchedGroupOffsets.append((groupId: group.id, offset: offset, updatedAt: updatedAt))
+                let currentLocal = UserDefaults.standard.integer(forKey: "balanceOffset_group_\(group.id)")
+                if currentLocal != offset {
+                  UserDefaults.standard.set(offset, forKey: "balanceOffset_group_\(group.id)")
+                  logInfo("Balance offset updated from group zone: group-\(group.id) = \(offset)")
+                  didUpdate = true
+                }
+              }
+            }
+          } else if let error = error {
+            logError("Failed to fetch group balance offset from group zone: \(error)")
+          }
+
+          dispatchGroup.leave()
+        }
       }
     }
 
