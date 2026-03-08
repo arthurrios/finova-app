@@ -581,13 +581,17 @@ extension SplashViewController {
       logWarning("[SyncRePush] Pushing personal balance offset to CloudKit: \(personalOffset)")
       UIDUserDefaultsManager.shared.setCurrentUserBalanceOffset(personalOffset)
     }
-    // Also push group offsets if mirror mode is active
+    // Also push group offsets if mirror mode is active (owner only — members
+    // receive the group offset from the owner's shared zone, not their own)
     if MirrorModeManager.shared.isEnabled,
        let groupId = MirrorModeManager.shared.linkedGroupId {
-      let groupOffset = UserDefaults.standard.integer(forKey: "balanceOffset_group_\(groupId)")
-      if groupOffset != 0 {
-        logWarning("[SyncRePush] Pushing group balance offset to CloudKit: \(groupOffset)")
-        UIDUserDefaultsManager.shared.setGroupBalanceOffset(groupOffset, groupId: groupId)
+      let group = BudgetGroupRepository().fetchGroup(byId: groupId)
+      if group?.isOwner != false {
+        let groupOffset = UserDefaults.standard.integer(forKey: "balanceOffset_group_\(groupId)")
+        if groupOffset != 0 {
+          logWarning("[SyncRePush] Pushing group balance offset to CloudKit: \(groupOffset)")
+          UIDUserDefaultsManager.shared.setGroupBalanceOffset(groupOffset, groupId: groupId)
+        }
       }
     }
   }

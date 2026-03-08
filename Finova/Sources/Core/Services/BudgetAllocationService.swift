@@ -83,6 +83,11 @@ final class BudgetAllocationService {
         )
 
         try allocationRepo.updateAllocation(updated)
+
+        if let groupId = updated.sharedGroupId {
+            GroupNotificationService.shared.logActivity(
+                action: .allocationEdited, groupId: groupId, detail: updated.categoryKey)
+        }
     }
 
     /// Updates a recurring allocation with the specified option.
@@ -100,6 +105,8 @@ final class BudgetAllocationService {
         }
         logDebug("BudgetAllocationService: Edit option: \(option), newAmount: \(newAmount)")
 
+        let allocation = allAllocations.first(where: { $0.dbId == id })
+
         switch option {
         case .currentOnly:
             // Update only this specific allocation
@@ -109,10 +116,18 @@ final class BudgetAllocationService {
             // Update this and all future recurring allocations
             logDebug("BudgetAllocationService: Calling updateRecurringAllocationAndFuture for id \(id)")
             try allocationRepo.updateRecurringAllocationAndFuture(id: id, newAmount: newAmount)
+            if let groupId = allocation?.sharedGroupId {
+                GroupNotificationService.shared.logActivity(
+                    action: .allocationEdited, groupId: groupId, detail: allocation?.category.key ?? "")
+            }
         case .all:
             // Update all allocations in this recurring series (past, present, future)
             logDebug("BudgetAllocationService: Calling updateAllRecurringAllocations for id \(id)")
             try allocationRepo.updateAllRecurringAllocations(id: id, newAmount: newAmount)
+            if let groupId = allocation?.sharedGroupId {
+                GroupNotificationService.shared.logActivity(
+                    action: .allocationEdited, groupId: groupId, detail: allocation?.category.key ?? "")
+            }
         }
     }
 

@@ -96,7 +96,7 @@ final class SettingsViewModel {
   }
 
   var availableGroups: [BudgetGroup] {
-    return BudgetGroupService.shared.fetchAllGroups()
+    return BudgetGroupService.shared.fetchAllGroups().filter { $0.isOwner }
   }
 
   // MARK: - Initialization

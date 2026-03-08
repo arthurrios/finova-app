@@ -157,6 +157,16 @@ final class GroupInvitationViewModel {
                             zoneOwner: ownerName
                         )
                     }
+
+                    let currentUserName = UserDefaultsManager.getUser()?.name
+                        ?? AuthenticationManager.shared.currentUser?.displayName
+                        ?? "User"
+                    GroupNotificationService.shared.logActivity(
+                        action: .memberJoined,
+                        groupId: self.invitation.groupId,
+                        detail: currentUserName
+                    )
+
                     SyncEngine.shared.performFullSync()
                     completion(true)
                 }

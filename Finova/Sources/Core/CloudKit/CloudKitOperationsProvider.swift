@@ -33,6 +33,7 @@ protocol CloudKitOperationsProvider {
     func saveRecords(
         _ records: [CKRecord],
         database: CKDatabase.Scope,
+        savePolicy: CKModifyRecordsOperation.RecordSavePolicy,
         perRecordHandler: @escaping (CKRecord.ID, Result<CKRecord, Error>) -> Void,
         completion: @escaping (Result<Void, Error>) -> Void
     )
@@ -80,6 +81,7 @@ final class RealCloudKitOperations: CloudKitOperationsProvider {
                 }
             }
         }
+        cloudKit.setupGroupActivitySubscriptions()
     }
 
     func fetchDatabaseChanges(
@@ -168,11 +170,12 @@ final class RealCloudKitOperations: CloudKitOperationsProvider {
     func saveRecords(
         _ records: [CKRecord],
         database: CKDatabase.Scope,
+        savePolicy: CKModifyRecordsOperation.RecordSavePolicy = .ifServerRecordUnchanged,
         perRecordHandler: @escaping (CKRecord.ID, Result<CKRecord, Error>) -> Void,
         completion: @escaping (Result<Void, Error>) -> Void
     ) {
         let operation = CKModifyRecordsOperation(recordsToSave: records, recordIDsToDelete: nil)
-        operation.savePolicy = .ifServerRecordUnchanged
+        operation.savePolicy = savePolicy
         operation.isAtomic = false
 
         operation.perRecordSaveBlock = { recordID, result in

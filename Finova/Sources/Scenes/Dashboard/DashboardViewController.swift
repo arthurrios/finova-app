@@ -1881,6 +1881,9 @@ extension DashboardViewController: MonthBudgetCardDelegate {
     }
 
     func didLongPressBalance() {
+        if case .group(let group) = viewModel.currentContext, !group.isOwner {
+            return
+        }
         let selectedIndex = syncedViewModel.selectedIndex
         guard selectedIndex < syncedViewModel.monthData.count else { return }
         let monthData = syncedViewModel.monthData[selectedIndex]

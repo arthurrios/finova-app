@@ -100,8 +100,16 @@ final class ConflictResolver {
                         storeSystemFields(from: ckRecord, table: "Transactions")
                         return
                     }
-                    // Already linked to a different CK record — skip to avoid duplicate
+                    // Already linked to a different CK record
                     if existingCKName != recordName {
+                        // Group record: re-link local to group-zone CK name and update
+                        if sharedGroupId != nil {
+                            repo.deleteSoftDeletedByCKRecordName(recordName)
+                            repo.overwriteCKRecordId(for: localId, ckRecordName: recordName)
+                            repo.updateFromCloud(remote, ckRecordName: recordName, sharedGroupId: sharedGroupId)
+                            storeSystemFields(from: ckRecord, table: "Transactions")
+                            return
+                        }
                         return
                     }
                 }
@@ -130,7 +138,12 @@ final class ConflictResolver {
         // as two separate CloudKit records — a visible duplicate is better than silent loss.)
         // Note: if lastSyncDate is nil (never synced), skip this guard so first-sync
         // deduplication still runs normally.
-        if let creationDate = ckRecord.creationDate,
+        // Exception: group records (sharedGroupId != nil) bypass this guard because they
+        // are expected to have a valid local counterpart synced from the private zone —
+        // the group-zone creation date is always recent (when pushed to the group zone)
+        // and would incorrectly skip the fuzzy-match that finds the existing local record.
+        if sharedGroupId == nil,
+           let creationDate = ckRecord.creationDate,
            let lastSync = SyncStateManager.shared.lastSyncDate(for: "privateDB"),
            creationDate > lastSync {
             repo.insertFromCloud(remote, ckRecordName: recordName, parentCKRecordName: parentCKRecordName, sharedGroupId: sharedGroupId)
@@ -165,6 +178,14 @@ final class ConflictResolver {
                     return
                 }
                 if existingCKName != recordName {
+                    // Group record: re-link local to group-zone CK name and update
+                    if sharedGroupId != nil {
+                        repo.deleteSoftDeletedByCKRecordName(recordName)
+                        repo.overwriteCKRecordId(for: localId, ckRecordName: recordName)
+                        repo.updateFromCloud(remote, ckRecordName: recordName, sharedGroupId: sharedGroupId)
+                        storeSystemFields(from: ckRecord, table: "Transactions")
+                        return
+                    }
                     return
                 }
             }
@@ -194,8 +215,16 @@ final class ConflictResolver {
                 storeSystemFields(from: ckRecord, table: "Transactions")
                 return
             }
-            // Already linked to a different CK record — skip to avoid duplicate
+            // Already linked to a different CK record
             if existingCKName != recordName {
+                // Group record: re-link local to group-zone CK name and update
+                if sharedGroupId != nil {
+                    repo.deleteSoftDeletedByCKRecordName(recordName)
+                    repo.overwriteCKRecordId(for: localId, ckRecordName: recordName)
+                    repo.updateFromCloud(remote, ckRecordName: recordName, sharedGroupId: sharedGroupId)
+                    storeSystemFields(from: ckRecord, table: "Transactions")
+                    return
+                }
                 return
             }
         }
@@ -203,7 +232,13 @@ final class ConflictResolver {
         // Guard: if a soft-deleted record exists with this CK name, restore its pendingDelete
         // status instead of re-inserting. This prevents resurrection of records the user
         // deleted locally before the CK delete was pushed (e.g. during a reset sync).
-        if repo.restorePendingDeleteIfNeeded(ckRecordName: recordName) { return }
+        // Exception: group records — a soft-deleted row with the group CK name is a stale
+        // duplicate from a previous sync. Hard-delete it and fall through to fresh insert.
+        if sharedGroupId != nil {
+            repo.deleteSoftDeletedByCKRecordName(recordName)
+        } else {
+            if repo.restorePendingDeleteIfNeeded(ckRecordName: recordName) { return }
+        }
 
         // Phase 4C: Pass parentCKRecordName so insertFromCloud can remap parent ID
         repo.insertFromCloud(remote, ckRecordName: recordName, parentCKRecordName: parentCKRecordName, sharedGroupId: sharedGroupId)
@@ -319,8 +354,33 @@ final class ConflictResolver {
             return
         }
 
-        // Phase 3E: Removed local-ID matching step — with UUID-based CK record names,
-        // matching by local auto-increment ID is dangerous (cross-device ID collisions).
+        // Step 2: Match by creditCardId + closingDate (prevents cross-device duplicates)
+        if let existingId = repo.findStatement(
+            creditCardId: remote.creditCardId, closingDate: remote.closingDate
+        ) {
+            let existingCKName = repo.fetchCKRecordName(for: existingId)
+            if existingCKName == nil {
+                // Unsynced local statement — link to this CK record and update
+                repo.setCKRecordId(for: existingId, ckRecordName: recordName)
+                let remoteUpdatedAt = remote.updatedAt
+                if let localModDate = repo.lastModifiedDate(for: existingId) {
+                    if remoteUpdatedAt >= localModDate {
+                        repo.updateFromCloud(remote, ckRecordName: recordName)
+                    } else {
+                        repo.markSyncPending(for: existingId)
+                    }
+                } else {
+                    repo.updateFromCloud(remote, ckRecordName: recordName)
+                }
+                storeSystemFields(from: ckRecord, table: "CreditCardStatements")
+                return
+            }
+            // Already linked to a different CK record — same card+period exists, skip duplicate
+            if existingCKName != recordName {
+                storeSystemFields(from: ckRecord, table: "CreditCardStatements")
+                return
+            }
+        }
 
         // Guard: if a soft-deleted statement with this CK name exists (is_deleted=1),
         // restore its pendingDelete status so it gets removed from CloudKit on the next

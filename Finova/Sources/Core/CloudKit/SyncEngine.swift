@@ -910,6 +910,28 @@ final class SyncEngine {
         // a full pull so we don't permanently miss records.
         checkAndRepairIncompleteSync()
 
+        // One-time: reset shared zone tokens to re-fetch group records.
+        // Previous code silently dropped group-zone records that matched existing local
+        // records with different CK names. The fix in ConflictResolver now correctly
+        // re-links them, but records already fetched won't be re-delivered without
+        // clearing the zone change tokens.
+        let groupTokenResetKey = "hasResetGroupZoneTokens_groupSyncFix_v1"
+        if !UserDefaults.standard.bool(forKey: groupTokenResetKey) {
+            stateManager.resetSharedDBTokens()
+            logWarning("[Sync] One-time reset of shared DB tokens to re-fetch group records")
+            UserDefaults.standard.set(true, forKey: groupTokenResetKey)
+        }
+
+        // One-time: re-fetch shared records so processIncomingBudgetGroup can set ckZoneOwner
+        // for groups that were already synced before the fix was in place.
+        // v2: also re-fetches BalanceOffset + ensures GroupMember push uses .allKeys path.
+        let zoneOwnerRepairKey = "hasResetSharedTokens_zoneOwnerFix_v2"
+        if !UserDefaults.standard.bool(forKey: zoneOwnerRepairKey) {
+            stateManager.resetSharedDBTokens()
+            logWarning("[Sync] One-time reset of shared DB tokens to repair ckZoneOwner and re-fetch group data")
+            UserDefaults.standard.set(true, forKey: zoneOwnerRepairKey)
+        }
+
         isSyncing = true
         syncStartedAt = Date()
         postSyncPushCycleCount = 0
@@ -959,6 +981,9 @@ final class SyncEngine {
                                 self.stateManager.updateLastSyncDate(for: "privateDB")
                                 // Discover groups from ALL zones (fallback for missed zone changes)
                                 self.discoverGroupsFromAllZones {
+                                    // Re-register group activity subscriptions for any newly discovered groups
+                                    CloudKitManager.shared.setupGroupActivitySubscriptions()
+
                                     // Re-run reconciliation to tag any transactions pulled during zone discovery
                                     if MirrorModeManager.shared.isEnabled {
                                         let changed = MirrorModeManager.shared.reconcileMirrorData()
@@ -1657,11 +1682,41 @@ final class SyncEngine {
             }
         }
 
-        let totalRecords = privateRecords.count + sharedRecords.count
+        // Re-push current user's GroupMember record for each group they belong to.
+        // This is idempotent (same record name) and self-heals if the initial push
+        // during invitation acceptance failed silently.
+        // IMPORTANT: GroupMember records are pushed SEPARATELY from the main shared batch
+        // using .allKeys save policy. The shared database enforces zone-level atomicity,
+        // so a GroupMember serverRecordChanged error (no stored system fields) would
+        // cascade and fail ALL other shared records in the same batch.
+        var groupMemberRecords: [CKRecord] = []
+        let groupRepo = BudgetGroupRepository()
+        let allGroups = groupRepo.fetchAllGroups()
+        if let currentUser = AuthenticationManager.shared.currentUser {
+            let currentUid = currentUser.uid
+            for group in allGroups where !group.isOwner && !group.isDeleted {
+                guard let zoneOwner = group.ckZoneOwner else { continue }
+                let members = groupRepo.fetchMembers(forGroupId: group.id)
+                guard let selfMember = members.first(where: { $0.userId == currentUid }) else { continue }
+
+                let zoneID = CKRecordZone.ID(zoneName: "Group-\(group.id)", ownerName: zoneOwner)
+                let recordID = CKRecord.ID(recordName: "groupMember-\(selfMember.id)", zoneID: zoneID)
+                let record = CKRecord(recordType: "GroupMember", recordID: recordID)
+                record["groupId"] = selfMember.groupId as CKRecordValue
+                record["userId"] = selfMember.userId as CKRecordValue
+                record["name"] = selfMember.name as CKRecordValue
+                record["email"] = selfMember.email as CKRecordValue
+                record["role"] = selfMember.role.rawValue as CKRecordValue
+                record["joinedAt"] = selfMember.joinedAt as NSDate
+                groupMemberRecords.append(record)
+            }
+        }
+
+        let totalRecords = privateRecords.count + sharedRecords.count + groupMemberRecords.count
         let totalDeletes = privateDeleteIDs.count + sharedDeleteIDs.count
         let groupZoneRecords = privateRecords.filter { $0.recordID.zoneID.zoneName.hasPrefix("Group-") }
         let defaultZoneRecords = privateRecords.filter { !$0.recordID.zoneID.zoneName.hasPrefix("Group-") }
-        logWarning("[Sync] Push: \(totalRecords) record(s) to save (\(defaultZoneRecords.count) private-default, \(groupZoneRecords.count) private-group, \(sharedRecords.count) shared), \(totalDeletes) to delete")
+        logWarning("[Sync] Push: \(totalRecords) record(s) to save (\(defaultZoneRecords.count) private-default, \(groupZoneRecords.count) private-group, \(sharedRecords.count) shared, \(groupMemberRecords.count) groupMember), \(totalDeletes) to delete")
 
         postPhaseProgress(progress: 0.55, phaseKey: "sync.phase.preparingUpload", totalRecords: totalRecords)
 
@@ -1691,18 +1746,47 @@ final class SyncEngine {
             isInitialPush = true
         }
 
-        // Push private DB records first, then shared DB records
-        pushBatches(privateBatches, deleteIDs: privateDeleteIDs, database: .private, index: 0, orphanNames: orphanDeleteNames) { [weak self] result in
+        // Push GroupMember records FIRST (separately with .allKeys save policy).
+        // GroupMember has no stored system fields, so .ifServerRecordUnchanged
+        // fails when the record already exists on the server. Shared DB also
+        // enforces zone-level atomicity, so that failure would cascade to ALL
+        // other records in the same batch.
+        // Pushed BEFORE the main shared batch so that when the transaction push
+        // triggers a notification on the owner's device, the GroupMember record
+        // is already in the zone for the owner to fetch.
+        let pushAfterGroupMember = { [weak self] in
+            // Push private DB records first, then shared DB records
+            self?.pushBatches(privateBatches, deleteIDs: privateDeleteIDs, database: .private, index: 0, orphanNames: orphanDeleteNames) { [weak self] result in
+                switch result {
+                case .success:
+                    guard !sharedBatches.isEmpty || !sharedDeleteIDs.isEmpty else {
+                        completion?(.success(()))
+                        return
+                    }
+                    self?.pushBatches(sharedBatches, deleteIDs: sharedDeleteIDs, database: .shared, index: 0, completion: completion)
+                case .failure(let error):
+                    completion?(.failure(error))
+                }
+            }
+        }
+
+        guard !groupMemberRecords.isEmpty else {
+            pushAfterGroupMember()
+            return
+        }
+        cloudKitOps.saveRecords(groupMemberRecords, database: .shared, savePolicy: .allKeys) { recordID, result in
             switch result {
             case .success:
-                guard !sharedBatches.isEmpty || !sharedDeleteIDs.isEmpty else {
-                    completion?(.success(()))
-                    return
-                }
-                self?.pushBatches(sharedBatches, deleteIDs: sharedDeleteIDs, database: .shared, index: 0, completion: completion)
+                logInfo("[Sync] ✅ Pushed GroupMember \(recordID.recordName)")
             case .failure(let error):
-                completion?(.failure(error))
+                logWarning("[Sync] ⚠️ Failed to push GroupMember \(recordID.recordName): \(error.localizedDescription)")
             }
+        } completion: { result in
+            if case .failure(let error) = result {
+                logWarning("[Sync] ⚠️ GroupMember batch failed: \(error.localizedDescription)")
+            }
+            // GroupMember failures are non-fatal — continue with main push
+            pushAfterGroupMember()
         }
     }
 
@@ -1741,7 +1825,7 @@ final class SyncEngine {
         var batchSuccessCount = 0
         var batchFailureCount = 0
 
-        cloudKitOps.saveRecords(batch, database: database) { [weak self] recordID, result in
+        cloudKitOps.saveRecords(batch, database: database, savePolicy: .ifServerRecordUnchanged) { [weak self] recordID, result in
             let name = recordID.recordName
             switch result {
             case .success(let savedRecord):
@@ -2333,10 +2417,15 @@ final class SyncEngine {
                     logInfo("Balance offset updated from sync: personal = \(offset)")
                     didUpdate = true
                 }
-                // Mirror mode: keep linked group offset in sync locally
+                // Mirror mode: keep linked group offset in sync locally —
+                // but only for owners. Members receive the group offset from the
+                // owner's shared zone; their personal offset must not overwrite it.
                 if MirrorModeManager.shared.isEnabled,
                    let groupId = MirrorModeManager.shared.linkedGroupId {
-                    UserDefaults.standard.set(offset, forKey: "balanceOffset_group_\(groupId)")
+                    let group = BudgetGroupRepository().fetchGroup(byId: groupId)
+                    if group?.isOwner != false {
+                        UserDefaults.standard.set(offset, forKey: "balanceOffset_group_\(groupId)")
+                    }
                 }
             } else if key.hasPrefix("group-") {
                 let groupId = String(key.dropFirst("group-".count))
@@ -3007,6 +3096,13 @@ final class SyncEngine {
 
             repo.insertGroup(group)
             logInfo("[Sync] Inserted new BudgetGroup from CloudKit: \(name) (\(groupId))")
+        }
+
+        // Set ckZoneOwner immediately so push/subscriptions work on first sync cycle
+        let zoneOwner = record.recordID.zoneID.ownerName
+        if zoneOwner != CKCurrentUserDefaultName && !zoneOwner.isEmpty {
+            repo.updateZoneOwner(groupId: groupId, zoneOwner: zoneOwner)
+            logInfo("[Sync] Set ckZoneOwner for group \(groupId): \(zoneOwner)")
         }
 
         // Ensure group members exist locally (include removed to prevent duplicates on re-join)

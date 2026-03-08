@@ -45,7 +45,7 @@ final class GroupNotificationManager {
         ])
     }
 
-    private func notificationBody(for action: String, detail: String) -> String {
+    func notificationBody(for action: String, detail: String) -> String {
         switch GroupNotificationService.GroupAction(rawValue: action) {
         case .transactionCreated:
             return String(format: "notification.group.transactionCreated".localized, detail)
@@ -55,6 +55,8 @@ final class GroupNotificationManager {
             return String(format: "notification.group.transactionDeleted".localized, detail)
         case .budgetEdited:
             return String(format: "notification.group.budgetEdited".localized, detail)
+        case .allocationEdited:
+            return String(format: "notification.group.allocationEdited".localized, detail)
         case .memberJoined:
             return String(format: "notification.group.memberJoined".localized, detail)
         case .memberLeft:

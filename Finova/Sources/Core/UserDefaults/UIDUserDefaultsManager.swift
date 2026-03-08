@@ -127,9 +127,15 @@ class UIDUserDefaultsManager {
     guard let uid = currentUserUID else { return }
     UserDefaults.standard.set(offset, forKey: "balanceOffset_\(uid)")
     pushBalanceOffsetToCloud(offset, key: "personal", uid: uid)
+    // Mirror mode: propagate personal → group only for owners.
+    // Members receive the group offset from the owner's shared zone;
+    // their personal offset must not overwrite the authoritative group value.
     if MirrorModeManager.shared.isEnabled,
        let groupId = MirrorModeManager.shared.linkedGroupId {
-      setGroupBalanceOffset(offset, groupId: groupId)
+      let group = BudgetGroupRepository().fetchGroup(byId: groupId)
+      if group?.isOwner != false {
+        setGroupBalanceOffset(offset, groupId: groupId)
+      }
     }
   }
 
@@ -259,41 +265,44 @@ class UIDUserDefaultsManager {
     // Fetch group balance offsets for all known groups
     let groups = BudgetGroupService.shared.fetchAllGroups()
     for group in groups {
-      // Fetch from own private zone (owner's copy or member's locally-pushed copy)
-      let groupRecordID = CKRecord.ID(
-        recordName: "balanceOffset-\(uid)-group-\(group.id)",
-        zoneID: CloudKitManager.privateZoneID
-      )
+      // For owner groups, fetch from own private zone.
+      // For member groups, skip — the shared zone (owner's copy) is the only source of truth.
+      if group.isOwner {
+        let groupRecordID = CKRecord.ID(
+          recordName: "balanceOffset-\(uid)-group-\(group.id)",
+          zoneID: CloudKitManager.privateZoneID
+        )
 
-      dispatchGroup.enter()
-      CloudKitManager.shared.privateDatabase.fetch(withRecordID: groupRecordID) { record, error in
-        if let record = record,
-           let offset = record["offset"] as? Int {
-          let updatedAt = record["updatedAt"] as? Date ?? .distantPast
-          groupOffsetsQueue.sync {
-            fetchedGroupOffsets.append((groupId: group.id, offset: offset, updatedAt: updatedAt))
+        dispatchGroup.enter()
+        CloudKitManager.shared.privateDatabase.fetch(withRecordID: groupRecordID) { record, error in
+          if let record = record,
+             let offset = record["offset"] as? Int {
+            let updatedAt = record["updatedAt"] as? Date ?? .distantPast
+            groupOffsetsQueue.sync {
+              fetchedGroupOffsets.append((groupId: group.id, offset: offset, updatedAt: updatedAt))
+            }
+            let currentLocal = UserDefaults.standard.integer(forKey: "balanceOffset_group_\(group.id)")
+            if currentLocal != offset {
+              UserDefaults.standard.set(offset, forKey: "balanceOffset_group_\(group.id)")
+              logInfo("Balance offset updated from CloudKit: group-\(group.id) = \(offset)")
+              didUpdate = true
+            }
+          } else if let ckError = error as? CKError, ckError.code == .unknownItem {
+            // No group offset in CloudKit yet — push local if non-zero
+            let localOffset = UserDefaults.standard.integer(forKey: "balanceOffset_group_\(group.id)")
+            if localOffset != 0 {
+              UIDUserDefaultsManager.shared.setGroupBalanceOffset(localOffset, groupId: group.id)
+            }
+          } else if let error = error {
+            logError("Failed to fetch group balance offset from CloudKit: \(error)")
           }
-          let currentLocal = UserDefaults.standard.integer(forKey: "balanceOffset_group_\(group.id)")
-          if currentLocal != offset {
-            UserDefaults.standard.set(offset, forKey: "balanceOffset_group_\(group.id)")
-            logInfo("Balance offset updated from CloudKit: group-\(group.id) = \(offset)")
-            didUpdate = true
-          }
-        } else if let ckError = error as? CKError, ckError.code == .unknownItem {
-          // No group offset in CloudKit yet — push local if non-zero
-          let localOffset = UserDefaults.standard.integer(forKey: "balanceOffset_group_\(group.id)")
-          if localOffset != 0 {
-            UIDUserDefaultsManager.shared.setGroupBalanceOffset(localOffset, groupId: group.id)
-          }
-        } else if let error = error {
-          logError("Failed to fetch group balance offset from CloudKit: \(error)")
+
+          dispatchGroup.leave()
         }
-
-        dispatchGroup.leave()
       }
 
-      // For member groups, also fetch the offset from the shared group zone
-      // where the owner pushes the canonical group offset
+      // For member groups, fetch the offset from the shared group zone
+      // where the owner pushes the canonical group offset (sole source of truth for members)
       if !group.isOwner, let zoneOwner = group.ckZoneOwner {
         let sharedZoneID = CKRecordZone.ID(zoneName: "Group-\(group.id)", ownerName: zoneOwner)
         let sharedRecordID = CKRecord.ID(
@@ -348,15 +357,28 @@ class UIDUserDefaultsManager {
         let groupDate = groupEntry?.updatedAt ?? .distantPast
 
         if personalOffset != groupOffset {
-          // Use the most recently updated value as source of truth
-          let sourceOffset = personalDate >= groupDate ? personalOffset : groupOffset
-          logInfo("Mirror reconciliation: personal=\(personalOffset) group=\(groupOffset), using \(personalDate >= groupDate ? "personal" : "group") = \(sourceOffset)")
+          // For members, the group offset from the owner is always authoritative.
+          // Members must not overwrite the group offset with their personal offset.
+          let linkedGroup = BudgetGroupRepository().fetchGroup(byId: mirrorGroupId)
+          let sourceOffset: Int
+          if linkedGroup?.isOwner == false {
+            sourceOffset = groupOffset
+            logInfo("Mirror reconciliation (member): personal=\(personalOffset) group=\(groupOffset), using group = \(sourceOffset)")
+          } else {
+            // Owner: use the most recently updated value as source of truth
+            sourceOffset = personalDate >= groupDate ? personalOffset : groupOffset
+            logInfo("Mirror reconciliation: personal=\(personalOffset) group=\(groupOffset), using \(personalDate >= groupDate ? "personal" : "group") = \(sourceOffset)")
+          }
 
           UserDefaults.standard.set(sourceOffset, forKey: "balanceOffset_\(uid)")
           UserDefaults.standard.set(sourceOffset, forKey: "balanceOffset_group_\(mirrorGroupId)")
 
-          // Push corrected value to the stale side
-          if personalDate >= groupDate {
+          // Push corrected value to the stale side.
+          // For members, always push to "personal" so the stale CloudKit personal
+          // record is updated — otherwise the next fetch re-reads the old value.
+          if linkedGroup?.isOwner == false {
+            self.pushBalanceOffsetToCloud(sourceOffset, key: "personal", uid: uid)
+          } else if personalDate >= groupDate {
             self.pushBalanceOffsetToCloud(sourceOffset, key: "group-\(mirrorGroupId)", uid: uid)
           } else {
             self.pushBalanceOffsetToCloud(sourceOffset, key: "personal", uid: uid)

@@ -30,14 +30,33 @@ final class GroupNotificationService {
         detail: String,
         completion: ((Result<Void, Error>) -> Void)? = nil
     ) {
-        let zoneID = CKRecordZone.ID(zoneName: "Group-\(groupId)", ownerName: CKCurrentUserDefaultName)
+        let repository = BudgetGroupRepository()
+        let group = repository.fetchGroup(byId: groupId)
+
+        let zoneOwnerName: String
+        let database: CKDatabase
+
+        if let group = group, group.isOwner {
+            zoneOwnerName = CKCurrentUserDefaultName
+            database = CloudKitManager.shared.privateDatabase
+        } else if let group = group, let storedOwner = group.ckZoneOwner {
+            zoneOwnerName = storedOwner
+            database = CloudKitManager.shared.sharedDatabase
+        } else {
+            zoneOwnerName = CKCurrentUserDefaultName
+            database = CloudKitManager.shared.privateDatabase
+        }
+
+        let zoneID = CKRecordZone.ID(zoneName: "Group-\(groupId)", ownerName: zoneOwnerName)
         let recordID = CKRecord.ID(recordName: "activity-\(UUID().uuidString)", zoneID: zoneID)
         let record = CKRecord(recordType: "GroupActivity", recordID: recordID)
 
         guard let user = AuthenticationManager.shared.currentUser else { return }
 
+        let actorName = UserDefaultsManager.getUser()?.name ?? user.displayName ?? "User"
+
         record["action"] = action.rawValue as CKRecordValue
-        record["actorName"] = (user.displayName ?? "User") as CKRecordValue
+        record["actorName"] = actorName as CKRecordValue
         record["actorId"] = user.uid as CKRecordValue
         record["detail"] = detail as CKRecordValue
         record["timestamp"] = Date() as CKRecordValue
@@ -52,6 +71,6 @@ final class GroupNotificationService {
             }
         }
         operation.qualityOfService = .utility
-        CloudKitManager.shared.privateDatabase.add(operation)
+        database.add(operation)
     }
 }

@@ -30,10 +30,25 @@ final class GroupDetailsViewController: UIViewController {
         setupTableView()
         bindViewModel()
         viewModel.loadGroupDetails()
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleGroupDataChanged),
+            name: .budgetGroupDataChanged,
+            object: nil
+        )
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
     }
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
+        viewModel.loadGroupDetails()
+    }
+
+    @objc private func handleGroupDataChanged() {
         viewModel.loadGroupDetails()
     }
 

@@ -252,6 +252,9 @@ final class RealPostSyncActions: PostSyncActions {
         // === Step 1b: One-time consolidation of CC transactions to correct card ===
         consolidateCreditCardTransactions(cards: cards, txRepo: txRepo, db: db)
 
+        // === Step 1c: Merge duplicate statements with same creditCardId + closingDate ===
+        mergeDuplicateStatements(cards: cards, stmtRepo: stmtRepo, db: db)
+
         // === Step 2: Repair orphaned CC transactions (only if orphans exist) ===
         // Only run if there are CC transactions without a statementId — these are genuinely orphaned.
         // Do NOT run reassignMisplacedTransactions every sync — it's an expensive operation
@@ -365,6 +368,74 @@ final class RealPostSyncActions: PostSyncActions {
         TransactionRepository.invalidateCache()
         logWarning("[CCRepair] Consolidation complete — all CC transactions now on '\(primary.card.name)'")
         UserDefaults.standard.set(true, forKey: consolidateKey)
+    }
+
+    /// Merges duplicate statements that share the same creditCardId + closingDate.
+    /// Picks the one with a CK record name as the "winner" (or the oldest by id).
+    /// Reassigns all transactions from losers to the winner and deletes the losers.
+    private static func mergeDuplicateStatements(cards: [CreditCard], stmtRepo: StatementRepository, db: DBHelper) {
+        var totalMerged = 0
+
+        for card in cards {
+            guard let cardId = card.id else { continue }
+            let statements = stmtRepo.fetchStatements(forCardId: cardId)
+            guard statements.count > 1 else { continue }
+
+            // Group by closingDate timestamp
+            var byClosingDate: [Int: [CreditCardStatement]] = [:]
+            for stmt in statements {
+                let key = Int(stmt.closingDate.timeIntervalSince1970)
+                byClosingDate[key, default: []].append(stmt)
+            }
+
+            for (_, group) in byClosingDate where group.count > 1 {
+                // Pick winner: prefer the one with a CK record name, then lowest id
+                let sorted = group.sorted { a, b in
+                    let aHasCK = stmtRepo.fetchCKRecordName(for: a.id ?? 0) != nil
+                    let bHasCK = stmtRepo.fetchCKRecordName(for: b.id ?? 0) != nil
+                    if aHasCK != bHasCK { return aHasCK }
+                    return (a.id ?? 0) < (b.id ?? 0)
+                }
+
+                guard let winner = sorted.first, let winnerId = winner.id else { continue }
+                let losers = sorted.dropFirst()
+
+                for loser in losers {
+                    guard let loserId = loser.id else { continue }
+                    logWarning("[CCRepair] Merging duplicate statement \(loserId) into \(winnerId) (card=\(cardId))")
+
+                    // Reassign transactions from loser to winner
+                    db.executeSyncUpdate(
+                        "UPDATE Transactions SET statement_id = ?, sync_status = 'pending' WHERE statement_id = ? AND (is_deleted IS NULL OR is_deleted = 0);",
+                        intBindings: [winnerId, loserId]
+                    )
+
+                    // Delete the loser statement
+                    let loserCKName = stmtRepo.fetchCKRecordName(for: loserId)
+                    if loserCKName != nil {
+                        db.executeSyncUpdate(
+                            "UPDATE CreditCardStatements SET is_deleted = 1, sync_status = 'pendingDelete' WHERE id = ?;",
+                            intBindings: [loserId]
+                        )
+                    } else {
+                        db.executeSyncUpdate(
+                            "DELETE FROM CreditCardStatements WHERE id = ?;",
+                            intBindings: [loserId]
+                        )
+                    }
+
+                    totalMerged += 1
+                }
+
+                // Recalculate the winner's total
+                stmtRepo.recalculateTotal(statementId: winnerId)
+            }
+        }
+
+        if totalMerged > 0 {
+            TransactionRepository.invalidateCache()
+            logWarning("[CCRepair] Merged \(totalMerged) duplicate statement(s)")
+        }
     }
 
     private static func logBalanceDiagnostics(userId: String, txRepo: TransactionRepository, db: DBHelper) {

@@ -230,6 +230,70 @@ final class CloudKitManager {
         sharedDatabase.add(operation)
     }
 
+    // MARK: - Group Activity Subscriptions
+
+    /// Creates CKQuerySubscription for GroupActivity records in each group zone.
+    /// Uses visible alerts so iOS delivers push notifications immediately in background.
+    func setupGroupActivitySubscriptions() {
+        let repo = BudgetGroupRepository()
+        let groups = repo.fetchAllGroups().filter { !$0.isDeleted }
+        guard !groups.isEmpty else { return }
+
+        for group in groups {
+            let subscriptionID = "finova-group-activity-\(group.id)"
+
+            let zoneID: CKRecordZone.ID
+            let database: CKDatabase
+
+            if group.isOwner {
+                zoneID = CKRecordZone.ID(zoneName: "Group-\(group.id)", ownerName: CKCurrentUserDefaultName)
+                database = privateDatabase
+            } else if let zoneOwner = group.ckZoneOwner {
+                zoneID = CKRecordZone.ID(zoneName: "Group-\(group.id)", ownerName: zoneOwner)
+                database = sharedDatabase
+            } else {
+                continue
+            }
+
+            let predicate = NSPredicate(value: true)
+            let subscription = CKQuerySubscription(
+                recordType: "GroupActivity",
+                predicate: predicate,
+                subscriptionID: subscriptionID,
+                options: [.firesOnRecordCreation]
+            )
+            subscription.zoneID = zoneID
+
+            let notificationInfo = CKSubscription.NotificationInfo()
+            notificationInfo.shouldSendContentAvailable = true
+            notificationInfo.titleLocalizationKey = "GROUP_ACTIVITY_TITLE"
+            notificationInfo.alertLocalizationKey = "GROUP_ACTIVITY_BODY"
+            notificationInfo.alertLocalizationArgs = ["actorName", "action"]
+            notificationInfo.soundName = "default"
+            notificationInfo.desiredKeys = ["actorName", "action", "detail", "actorId"]
+            subscription.notificationInfo = notificationInfo
+
+            let operation = CKModifySubscriptionsOperation(
+                subscriptionsToSave: [subscription],
+                subscriptionIDsToDelete: nil
+            )
+            operation.modifySubscriptionsResultBlock = { result in
+                switch result {
+                case .success:
+                    logInfo("GroupActivity subscription set up for group \(group.id)")
+                case .failure(let error):
+                    if let ckError = error as? CKError, ckError.code == .serverRejectedRequest {
+                        // Subscription already exists — fine
+                    } else {
+                        logError("GroupActivity subscription failed for group \(group.id): \(error.localizedDescription)")
+                    }
+                }
+            }
+            operation.qualityOfService = .utility
+            database.add(operation)
+        }
+    }
+
     // MARK: - Remote Notification Handling
 
     func handleRemoteNotification(

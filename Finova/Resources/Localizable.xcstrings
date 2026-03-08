@@ -10715,6 +10715,23 @@
         }
       }
     },
+    "notification.group.allocationEdited": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Updated an allocation: %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atualizou uma alocação: %@"
+          }
+        }
+      }
+    },
     "notification.group.memberJoined": {
       "extractionState": "manual",
       "localizations": {
@@ -10728,6 +10745,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ entrou no grupo"
+          }
+        }
+      }
+    },
+    "GROUP_ACTIVITY_TITLE": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@"
+          }
+        }
+      }
+    },
+    "GROUP_ACTIVITY_BODY": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Made changes in the group"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fez alterações no grupo"
           }
         }
       }

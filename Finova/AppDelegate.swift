@@ -5,6 +5,7 @@
 //  Created by Arthur Rios on 07/05/25.
 //
 
+import CloudKit
 import Firebase
 import FirebaseMessaging
 import GoogleSignIn
@@ -217,6 +218,26 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     didReceiveRemoteNotification userInfo: [AnyHashable: Any],
     fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void
   ) {
+    // Handle group activity notifications directly from push payload
+    // before the system suspends the app (mirrors the invitation pattern).
+    if let notification = CKNotification(fromRemoteNotificationDictionary: userInfo) as? CKQueryNotification,
+       notification.queryNotificationReason == .recordCreated,
+       let fields = notification.recordFields,
+       let actorName = fields["actorName"] as? String,
+       let action = fields["action"] as? String,
+       let detail = fields["detail"] as? String,
+       let actorId = fields["actorId"] as? String,
+       actorId != AuthenticationManager.shared.currentUser?.uid {
+      let content = UNMutableNotificationContent()
+      content.title = actorName
+      content.body = GroupNotificationManager.shared.notificationBody(for: action, detail: detail)
+      content.sound = .default
+      content.categoryIdentifier = "GROUP_ACTIVITY"
+      let requestId = notification.recordID?.recordName ?? UUID().uuidString
+      let request = UNNotificationRequest(identifier: requestId, content: content, trigger: nil)
+      UNUserNotificationCenter.current().add(request)
+    }
+
     // Fetch group invitations directly before completionHandler is called.
     // This ensures the local notification is scheduled before the system
     // suspends the app — relying on SyncEngine (lazy singleton) + internal

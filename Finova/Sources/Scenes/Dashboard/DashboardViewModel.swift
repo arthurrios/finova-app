@@ -284,6 +284,9 @@ final class DashboardViewModel {
         return .failure(TransactionError.transactionNotFound)
       }
 
+      // Capture group ID before deletion (needed for activity log)
+      let groupId = transactionRepo.fetchSharedGroupId(for: id)
+
       // Handle simple transactions directly
       if transaction.isRecurring != true && transaction.parentTransactionId == nil
         && transaction.hasInstallments != true
@@ -308,6 +311,12 @@ final class DashboardViewModel {
         // forceTriggerBalanceMonitoring bypasses the 5-min throttle so the
         // notification is updated immediately rather than waiting for the next foreground event.
         balanceMonitor.forceTriggerBalanceMonitoring()
+
+        // Log group activity if transaction belonged to a group
+        if let groupId = groupId {
+          GroupNotificationService.shared.logActivity(
+            action: .transactionDeleted, groupId: groupId, detail: transaction.title)
+        }
 
         return .success(())
       }
@@ -344,6 +353,9 @@ final class DashboardViewModel {
           return
         }
 
+        // Capture group ID before deletion (needed for activity log)
+        let groupId = self.transactionRepo.fetchSharedGroupId(for: transactionId)
+
         // Use mode property to correctly identify transaction type
         // This is more reliable than looking up parent transactions
         switch transaction.mode {
@@ -362,6 +374,10 @@ final class DashboardViewModel {
             // Invalidate ledger cache since transactions changed
             self.transactionLedger.invalidateCache()
             self.balanceMonitor.forceTriggerBalanceMonitoring()
+            if let groupId = groupId {
+              GroupNotificationService.shared.logActivity(
+                action: .transactionDeleted, groupId: groupId, detail: transaction.title)
+            }
             completion(.success(()))
           }
           return
@@ -381,6 +397,10 @@ final class DashboardViewModel {
             // Invalidate ledger cache since transactions changed
             self.transactionLedger.invalidateCache()
             self.balanceMonitor.forceTriggerBalanceMonitoring()
+            if let groupId = groupId {
+              GroupNotificationService.shared.logActivity(
+                action: .transactionDeleted, groupId: groupId, detail: transaction.title)
+            }
             completion(.success(()))
           }
           return
@@ -395,6 +415,10 @@ final class DashboardViewModel {
           }
           self.transactionLedger.invalidateCache()
           self.balanceMonitor.forceTriggerBalanceMonitoring()
+          if let groupId = groupId {
+            GroupNotificationService.shared.logActivity(
+              action: .transactionDeleted, groupId: groupId, detail: transaction.title)
+          }
           DispatchQueue.main.async {
             completion(.success(()))
           }

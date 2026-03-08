@@ -1024,6 +1024,12 @@ final class AddTransactionModalViewModel {
 
       try transactionRepo.updateTransaction(updatedTransaction)
 
+      // Log group activity if transaction belongs to a group
+      if let groupId = transactionRepo.fetchSharedGroupId(for: id) {
+        GroupNotificationService.shared.logActivity(
+          action: .transactionEdited, groupId: groupId, detail: title)
+      }
+
       // Recalculate old statement if transaction moved away from it
       if let oldStmtId = originalStatementId, oldStmtId != newStatementId {
         creditCardService.recalculateStatementTotal(statementId: oldStmtId)

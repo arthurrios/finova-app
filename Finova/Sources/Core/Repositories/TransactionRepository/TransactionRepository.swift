@@ -677,6 +677,25 @@ final class TransactionRepository: TransactionRepositoryProtocol {
     )
   }
 
+  func overwriteCKRecordId(for localId: Int, ckRecordName: String) {
+    db.executeSyncUpdate(
+      "UPDATE Transactions SET ck_record_id = ? WHERE id = ?;",
+      textBindings: [ckRecordName],
+      intBindings: [localId]
+    )
+  }
+
+  /// Deletes only soft-deleted rows (is_deleted=1) with the given CK record name.
+  /// Used before re-linking a live record to a group-zone CK name, to avoid
+  /// two rows sharing the same ck_record_id (stale duplicate + live re-linked).
+  func deleteSoftDeletedByCKRecordName(_ recordName: String) {
+    Self.invalidateCache()
+    db.executeSyncUpdate(
+      "DELETE FROM Transactions WHERE ck_record_id = ? AND is_deleted = 1;",
+      textBindings: [recordName]
+    )
+  }
+
   func insertFromCloud(_ transaction: Transaction, ckRecordName: String, parentCKRecordName: String? = nil, sharedGroupId: String? = nil) {
     Self.invalidateCache()
     let category = transaction.category.key
