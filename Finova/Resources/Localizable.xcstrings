@@ -8607,6 +8607,23 @@
         }
       }
     },
+    "syncSettings.syncEnabled.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Sync"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sincronização"
+          }
+        }
+      }
+    },
     "syncSettings.section.status": {
       "extractionState": "manual",
       "localizations": {
@@ -10324,19 +10341,53 @@
         }
       }
     },
+    "permission.editOwnTransactions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Edit Own Transactions"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Editar Próprias Transações"
+          }
+        }
+      }
+    },
+    "permission.deleteOwnTransactions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete Own Transactions"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Excluir Próprias Transações"
+          }
+        }
+      }
+    },
     "permission.editTransactions": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Edit Transactions"
+            "value": "Edit All Transactions"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Editar Transações"
+            "value": "Editar Todas Transações"
           }
         }
       }
@@ -10347,13 +10398,47 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Delete Transactions"
+            "value": "Delete All Transactions"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Excluir Transações"
+            "value": "Excluir Todas Transações"
+          }
+        }
+      }
+    },
+    "permission.editOwnBudgets": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Edit Own Budgets"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Editar Próprios Orçamentos"
+          }
+        }
+      }
+    },
+    "permission.editOwnAllocations": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Edit Own Allocations"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Editar Próprias Alocações"
           }
         }
       }
@@ -10364,13 +10449,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Edit Budgets"
+            "value": "Edit All Budgets"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Editar Orçamentos"
+            "value": "Editar Todos Orçamentos"
           }
         }
       }
@@ -10381,13 +10466,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Edit Allocations"
+            "value": "Edit All Allocations"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Editar Alocações"
+            "value": "Editar Todas Alocações"
           }
         }
       }
@@ -10796,6 +10881,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ saiu do grupo"
+          }
+        }
+      }
+    },
+    "notification.group.memberRemoved": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ was removed from the group"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ foi removido(a) do grupo"
+          }
+        }
+      }
+    },
+    "notification.group.permissionsChanged": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permissions updated for %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permissões atualizadas para %@"
+          }
+        }
+      }
+    },
+    "notification.group.groupRenamed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Group renamed to %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grupo renomeado para %@"
           }
         }
       }

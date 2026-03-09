@@ -83,6 +83,9 @@ final class GroupDetailsViewModel {
         if let member = members.first(where: { $0.userId == userId }) {
             repository.removeMember(id: member.id)
         }
+        // Clear the GroupMember push flag so it re-pushes if the user rejoins
+        UserDefaults.standard.removeObject(forKey: "groupMemberPushed_\(group.id)")
+
         // Soft-delete the group locally so it disappears from this device
         repository.softDeleteGroup(id: group.id)
 

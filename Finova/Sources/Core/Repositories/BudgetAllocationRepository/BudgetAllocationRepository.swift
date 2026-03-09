@@ -12,6 +12,7 @@ import Foundation
 protocol BudgetAllocationRepositoryProtocol {
     func fetchAllocations(for monthDate: Int) -> [BudgetAllocation]
     func fetchAllAllocations() -> [BudgetAllocation]
+    func fetchAllocationsForGroup(groupId: String) -> [BudgetAllocation]
     func insertAllocation(_ model: BudgetAllocationModel) throws -> Int
     func updateAllocation(_ model: BudgetAllocationModel) throws
     func updateRecurringAllocationAndFuture(id: Int, newAmount: Int) throws
@@ -66,6 +67,12 @@ final class BudgetAllocationRepository: BudgetAllocationRepositoryProtocol {
     func fetchAllAllocations() -> [BudgetAllocation] {
         let uid = UIDUserDefaultsManager.shared.currentUserUID
         let models = db.fetchAllBudgetAllocations(userId: uid)
+        return models.map { BudgetAllocation(from: $0) }
+    }
+
+    /// Fix 5a: Fetches only allocations tagged with the given group ID.
+    func fetchAllocationsForGroup(groupId: String) -> [BudgetAllocation] {
+        let models = db.fetchBudgetAllocationsForGroup(groupId: groupId)
         return models.map { BudgetAllocation(from: $0) }
     }
 
@@ -347,8 +354,8 @@ final class BudgetAllocationRepository: BudgetAllocationRepositoryProtocol {
             """
             INSERT INTO BudgetAllocations
                 (month_date, category_key, allocated_amount, is_recurring,
-                 parent_allocation_id, user_id, shared_group_id, ck_record_id, sync_status, ck_modified_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'synced', ?, ?);
+                 parent_allocation_id, user_id, shared_group_id, ck_record_id, sync_status, ck_modified_at, updated_at, created_by_uid)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'synced', ?, ?, ?);
             """,
             orderedBindings: [
                 allocation.monthDate,
@@ -360,7 +367,8 @@ final class BudgetAllocationRepository: BudgetAllocationRepositoryProtocol {
                 allocation.sharedGroupId,
                 ckRecordName,
                 Int(Date().timeIntervalSince1970),
-                Int((allocation.updatedAt ?? Date()).timeIntervalSince1970)
+                Int((allocation.updatedAt ?? Date()).timeIntervalSince1970),
+                allocation.createdByUid
             ]
         )
     }
@@ -373,7 +381,7 @@ final class BudgetAllocationRepository: BudgetAllocationRepositoryProtocol {
                 is_recurring = ?, parent_allocation_id = ?,
                 shared_group_id = ?,
                 sync_status = 'synced', ck_modified_at = ?, updated_at = ?,
-                is_deleted = 0
+                created_by_uid = ?, is_deleted = 0
             WHERE ck_record_id = ?;
             """,
             orderedBindings: [
@@ -385,6 +393,7 @@ final class BudgetAllocationRepository: BudgetAllocationRepositoryProtocol {
                 allocation.sharedGroupId,
                 Int(Date().timeIntervalSince1970),
                 Int((allocation.updatedAt ?? Date()).timeIntervalSince1970),
+                allocation.createdByUid,
                 ckRecordName
             ]
         )

@@ -88,7 +88,10 @@ final class BudgetGroupService {
 
     /// Public entry point for propagating a share URL to invitation records in public DB.
     /// Called by SyncEngine to ensure invitations have the share URL.
-    func propagateShareUrl(groupId: String, newUrl: String) {
+    /// Fix 1d: Includes retry logic for network failures.
+    func propagateShareUrl(groupId: String, newUrl: String, retryCount: Int = 0) {
+        let maxRetries = 2
+
         // Query public DB by groupId (now queryable) and update any records missing the share URL
         let predicate = NSPredicate(format: "groupId == %@", groupId)
         let query = CKQuery(recordType: "GroupInvitation", predicate: predicate)
@@ -113,12 +116,19 @@ final class BudgetGroupService {
                 }
 
                 let updateOp = CKModifyRecordsOperation(recordsToSave: recordsToSave, recordIDsToDelete: nil)
-                updateOp.modifyRecordsResultBlock = { result in
+                updateOp.modifyRecordsResultBlock = { [weak self] result in
                     switch result {
                     case .success:
                         logInfo("Updated \(recordsToSave.count) invitation(s) with share URL for group \(groupId)")
                     case .failure(let error):
                         logError("Failed to update invitation share URLs: \(error)")
+                        if retryCount < maxRetries {
+                            let delay = Double(retryCount + 1) * 2.0
+                            logWarning("Retrying share URL propagation in \(delay)s (attempt \(retryCount + 1)/\(maxRetries))")
+                            DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + delay) {
+                                self?.propagateShareUrl(groupId: groupId, newUrl: newUrl, retryCount: retryCount + 1)
+                            }
+                        }
                     }
                 }
                 updateOp.qualityOfService = .utility
@@ -126,6 +136,13 @@ final class BudgetGroupService {
 
             case .failure(let error):
                 logError("Failed to query invitations for share URL propagation: \(error)")
+                if retryCount < maxRetries {
+                    let delay = Double(retryCount + 1) * 2.0
+                    logWarning("Retrying share URL propagation query in \(delay)s (attempt \(retryCount + 1)/\(maxRetries))")
+                    DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + delay) { [weak self] in
+                        self?.propagateShareUrl(groupId: groupId, newUrl: newUrl, retryCount: retryCount + 1)
+                    }
+                }
             }
         }
     }
@@ -211,6 +228,31 @@ final class BudgetGroupService {
         return member.permissions[keyPath: permission]
     }
 
+    func currentUserCan(
+        _ allPermission: WritableKeyPath<GroupPermissions, Bool>,
+        own ownPermission: WritableKeyPath<GroupPermissions, Bool>,
+        createdByUid: String?,
+        in group: BudgetGroup
+    ) -> Bool {
+        guard let user = AuthenticationManager.shared.currentUser else { return false }
+
+        let userId = user.uid
+
+        // Owner always gets full access
+        if group.ownerId == userId { return true }
+
+        let members = repository.fetchMembers(forGroupId: group.id)
+        guard let member = members.first(where: { $0.userId == userId }) else { return false }
+
+        // If record was created by current user, check own permission
+        if createdByUid == userId {
+            return member.permissions[keyPath: ownPermission]
+        }
+
+        // Otherwise check all-data permission
+        return member.permissions[keyPath: allPermission]
+    }
+
     func fetchPendingInvitations() -> [GroupInvitation] {
         guard let email = AuthenticationManager.shared.currentUser?.email else { return [] }
         return repository.fetchPendingInvitations(forEmail: email)
@@ -239,6 +281,15 @@ final class BudgetGroupService {
         record["email"] = member.email as CKRecordValue
         record["role"] = member.role.rawValue as CKRecordValue
         record["joinedAt"] = member.joinedAt as NSDate
+        record["permissions"] = member.permissions.asJSON as CKRecordValue
+
+        // Owner writes to private DB (they own the zone), member writes to shared DB
+        let database: CKDatabase
+        if zoneOwner == CKCurrentUserDefaultName {
+            database = cloudKit.privateDatabase
+        } else {
+            database = cloudKit.sharedDatabase
+        }
 
         let operation = CKModifyRecordsOperation(recordsToSave: [record], recordIDsToDelete: nil)
         operation.modifyRecordsResultBlock = { result in
@@ -252,7 +303,7 @@ final class BudgetGroupService {
             }
         }
         operation.qualityOfService = .userInitiated
-        cloudKit.sharedDatabase.add(operation)
+        database.add(operation)
     }
 
     // MARK: - Push Member Removal
@@ -560,6 +611,12 @@ final class BudgetGroupService {
                 updatedGroup.ckRecordId = recordID.recordName
                 updatedGroup.ckShareUrl = share.url?.absoluteString
                 self?.repository.updateGroup(updatedGroup)
+
+                // Fix 1d: Propagate share URL to pending invitations in public DB
+                if let newUrl = share.url?.absoluteString {
+                    self?.propagateShareUrl(groupId: group.id, newUrl: newUrl)
+                }
+
                 completion(.success(updatedGroup))
             case .failure(let error):
                 completion(.failure(error))

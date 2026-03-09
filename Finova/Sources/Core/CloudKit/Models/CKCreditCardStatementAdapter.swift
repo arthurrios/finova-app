@@ -55,6 +55,7 @@ extension CreditCardStatement: CKRecordConvertible {
         record["userId"] = userId as CKRecordValue
         record["isDatesOverridden"] = (isDatesOverridden ? 1 : 0) as CKRecordValue
         record["updatedAt"] = updatedAt as CKRecordValue
+        record["createdByUid"] = createdByUid as CKRecordValue?
         return record
     }
 
@@ -78,7 +79,8 @@ extension CreditCardStatement: CKRecordConvertible {
             isDatesOverridden: (record["isDatesOverridden"] as? Int) == 1,
             userId: userId,
             createdAt: record.creationDate ?? Date(),
-            updatedAt: (record["updatedAt"] as? Date) ?? record.modificationDate ?? Date()
+            updatedAt: (record["updatedAt"] as? Date) ?? record.modificationDate ?? Date(),
+            createdByUid: record["createdByUid"] as? String
         )
     }
 }

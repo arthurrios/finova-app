@@ -86,6 +86,10 @@ extension SyncSettingsViewController: SyncSettingsViewDelegate {
   func didTapResumeUpload() {
     viewModel.resumeUpload()
   }
+
+  func didToggleSyncEnabled(_ isEnabled: Bool) {
+    viewModel.toggleSyncEnabled(isEnabled)
+  }
 }
 
 // MARK: - SyncSettingsViewModelDelegate
@@ -115,6 +119,12 @@ extension SyncSettingsViewController: SyncSettingsViewModelDelegate {
   func didUpdateDownloadStatus(_ status: SyncStatusIndicator.Status) {
     DispatchQueue.main.async { [weak self] in
       self?.contentView.updateDownloadStatus(status)
+    }
+  }
+
+  func didUpdateSyncEnabled(_ isEnabled: Bool) {
+    DispatchQueue.main.async { [weak self] in
+      self?.contentView.updateSyncEnabled(isEnabled)
     }
   }
 }

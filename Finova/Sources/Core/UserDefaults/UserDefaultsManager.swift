@@ -14,6 +14,7 @@ class UserDefaultsManager {
   private static let biometricEnabledKey = "biometricEnabled"
   private static let hideValuesKey = "hideValues"
   private static let currencyCodeKey = "currencyCode"
+  private static let syncEnabledKey = "syncEnabled"
 
   /// Special value indicating the app should use device locale currency
   static let currencyAutoValue = "auto"
@@ -80,6 +81,19 @@ class UserDefaultsManager {
 
   static func getHideValues() -> Bool {
     return UserDefaults.standard.bool(forKey: hideValuesKey)
+  }
+
+  // MARK: - Sync Settings
+
+  static func setSyncEnabled(_ isEnabled: Bool) {
+    UserDefaults.standard.set(isEnabled, forKey: syncEnabledKey)
+  }
+
+  static func getSyncEnabled() -> Bool {
+    if UserDefaults.standard.object(forKey: syncEnabledKey) == nil {
+      return true
+    }
+    return UserDefaults.standard.bool(forKey: syncEnabledKey)
   }
 
   // MARK: - Currency Settings

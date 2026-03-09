@@ -53,6 +53,7 @@ class DBHelper {
             try migrateSyncColumnsV4()
             try migrateSyncColumnsV5()
             try migrateBudgetGroupsAddZoneOwner()
+            try migrateCreatedByUidColumns()
             isInitialized = true
             performSyncFixMigration()
             performParentIdFixMigration()
@@ -109,7 +110,7 @@ class DBHelper {
         }
 
         let uid = UIDUserDefaultsManager.shared.currentUserUID
-        let insertQuery = "INSERT INTO Budgets (month_date, amount, user_id, ck_modified_at, updated_at) VALUES (?, ?, ?, ?, ?);"
+        let insertQuery = "INSERT INTO Budgets (month_date, amount, user_id, ck_modified_at, updated_at, created_by_uid) VALUES (?, ?, ?, ?, ?, ?);"
         var statement: OpaquePointer?
 
         guard sqlite3_prepare_v2(db, insertQuery, -1, &statement, nil) == SQLITE_OK else {
@@ -129,13 +130,18 @@ class DBHelper {
         let now = Int64(Date().timeIntervalSince1970)
         sqlite3_bind_int64(statement, 4, now)
         sqlite3_bind_int64(statement, 5, now)
+        if let uid = uid {
+            sqlite3_bind_text(statement, 6, uid, -1, SQLITE_TRANSIENT)
+        } else {
+            sqlite3_bind_null(statement, 6)
+        }
 
         guard sqlite3_step(statement) == SQLITE_DONE else {
             let msg = String(cString: sqlite3_errmsg(db))
             throw DBError.stepFailed(message: msg)
         }
     }
-    
+
     func updateBudget(monthDate: Int, amount: Int) throws {
         guard isInitialized else {
             logWarning("Database not initialized, skipping budget update")
@@ -406,8 +412,9 @@ class DBHelper {
               is_credit_card_statement,
               user_id,
               ck_modified_at,
-              updated_at
-              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+              updated_at,
+              created_by_uid
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
       """
         
         var statement: OpaquePointer?
@@ -490,6 +497,12 @@ class DBHelper {
         sqlite3_bind_int64(statement, 17, now)
         sqlite3_bind_int64(statement, 18, now)
 
+        if let uid = UIDUserDefaultsManager.shared.currentUserUID {
+            sqlite3_bind_text(statement, 19, uid, -1, SQLITE_TRANSIENT)
+        } else {
+            sqlite3_bind_null(statement, 19)
+        }
+
         guard sqlite3_step(statement) == SQLITE_DONE else {
             let msg = String(cString: sqlite3_errmsg(db))
             throw DBError.stepFailed(message: msg)
@@ -521,7 +534,8 @@ class DBHelper {
         original_amount,
         credit_card_id,
         statement_id,
-        is_credit_card_statement
+        is_credit_card_statement,
+        created_by_uid
       FROM Transactions
       WHERE (is_deleted IS NULL OR is_deleted = 0);
       """
@@ -594,6 +608,9 @@ class DBHelper {
             let isCreditCardStatement: Bool? = sqlite3_column_type(statement, 15) == SQLITE_NULL
                 ? nil : (sqlite3_column_int(statement, 15) == 1)
 
+            let createdByUid: String? = sqlite3_column_type(statement, 16) == SQLITE_NULL
+                ? nil : String(cString: sqlite3_column_text(statement, 16))
+
             // Default empty type to "expense" to handle corrupt data
             let sanitizedTypeKey = typeKey.isEmpty ? "expense" : typeKey
 
@@ -612,10 +629,11 @@ class DBHelper {
                 creditCardId: creditCardId,
                 statementId: statementId,
                 isCreditCardStatement: isCreditCardStatement,
+                createdByUid: createdByUid,
                 category: catKey,
                 type: sanitizedTypeKey
             )
-            
+
             do {
                 let uiData = try UITransactionData(from: dbData)
                 let tx = Transaction(data: uiData)
@@ -697,20 +715,21 @@ class DBHelper {
     -> [Transaction]
     {
         var statement: OpaquePointer?
-        
+
         guard sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK else {
             let msg = String(cString: sqlite3_errmsg(db))
             throw DBError.prepareFailed(message: msg)
         }
-        
+
         defer { sqlite3_finalize(statement) }
-        
+
         for (index, value) in bindValues.enumerated() {
             sqlite3_bind_int64(statement, Int32(index + 1), Int64(value))
         }
-        
+
+        let columnCount = sqlite3_column_count(statement)
         var results: [Transaction] = []
-        
+
         while sqlite3_step(statement) == SQLITE_ROW {
             let id = Int(sqlite3_column_int64(statement, 0))
             let title = String(cString: sqlite3_column_text(statement, 1))
@@ -719,7 +738,7 @@ class DBHelper {
             let amount = Int(sqlite3_column_int64(statement, 4))
             let ts = Int(sqlite3_column_int64(statement, 5))
             let monthAnchor = Int(sqlite3_column_int64(statement, 6))
-            
+
             let isRecurring: Bool? =
             sqlite3_column_type(statement, 7) == SQLITE_NULL
             ? nil : (sqlite3_column_int(statement, 7) == 1)
@@ -748,6 +767,9 @@ class DBHelper {
             sqlite3_column_type(statement, 15) == SQLITE_NULL
             ? nil : (sqlite3_column_int(statement, 15) == 1)
 
+            let createdByUid: String? = columnCount > 16 && sqlite3_column_type(statement, 16) != SQLITE_NULL
+            ? String(cString: sqlite3_column_text(statement, 16)) : nil
+
             let dbData = DBTransactionData(
                 id: id, title: title, amount: amount, dateTimestamp: ts, budgetMonthDate: monthAnchor,
                 isRecurring: isRecurring, hasInstallments: hasInstallments,
@@ -756,9 +778,10 @@ class DBHelper {
                 originalAmount: originalAmount,
                 creditCardId: creditCardId, statementId: statementId,
                 isCreditCardStatement: isCreditCardStatement,
+                createdByUid: createdByUid,
                 category: catKey, type: typeKey
             )
-            
+
             do {
                 let uiData = try UITransactionData(from: dbData)
                 results.append(Transaction(data: uiData))
@@ -766,7 +789,7 @@ class DBHelper {
                 logWarning("Failed to convert transaction data: \(error)")
             }
         }
-        
+
         return results
     }
     
@@ -1305,8 +1328,8 @@ class DBHelper {
         let query = """
         INSERT INTO CreditCards (
           name, last_four_digits, card_brand, closing_day, due_day,
-          credit_limit, card_color, user_id, is_deleted, is_default, created_at, updated_at, ck_modified_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?);
+          credit_limit, card_color, user_id, is_deleted, is_default, created_at, updated_at, ck_modified_at, created_by_uid
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?);
         """
 
         var statement: OpaquePointer?
@@ -1334,6 +1357,7 @@ class DBHelper {
         sqlite3_bind_int64(statement, 10, now)
         sqlite3_bind_int64(statement, 11, now)
         sqlite3_bind_int64(statement, 12, now)
+        sqlite3_bind_text(statement, 13, userId, -1, SQLITE_TRANSIENT)
 
         guard sqlite3_step(statement) == SQLITE_DONE else {
             let msg = String(cString: sqlite3_errmsg(db))
@@ -1342,7 +1366,7 @@ class DBHelper {
 
         return Int(sqlite3_last_insert_rowid(db))
     }
-    
+
     func getCreditCards(userId: String) throws -> [(id: Int, name: String, lastFourDigits: String, cardBrand: String, closingDay: Int, dueDay: Int, creditLimit: Int?, cardColor: String, isDeleted: Bool, isDefault: Bool, createdAt: Int, updatedAt: Int, sharedGroupId: String?)] {
         guard isInitialized else { return [] }
 
@@ -1531,8 +1555,8 @@ class DBHelper {
         guard isInitialized else { return 0 }
         let query = """
         INSERT INTO CreditCardStatements (
-          credit_card_id, closing_date, due_date, total_amount, is_paid, user_id, created_at, updated_at, ck_modified_at
-        ) VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?);
+          credit_card_id, closing_date, due_date, total_amount, is_paid, user_id, created_at, updated_at, ck_modified_at, created_by_uid
+        ) VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?, ?);
         """
         var statement: OpaquePointer?
         guard sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK else {
@@ -1550,14 +1574,15 @@ class DBHelper {
         sqlite3_bind_int64(statement, 6, now)
         sqlite3_bind_int64(statement, 7, now)
         sqlite3_bind_int64(statement, 8, now)
-        
+        sqlite3_bind_text(statement, 9, userId, -1, SQLITE_TRANSIENT)
+
         guard sqlite3_step(statement) == SQLITE_DONE else {
             let msg = String(cString: sqlite3_errmsg(db))
             throw DBError.stepFailed(message: msg)
         }
         return Int(sqlite3_last_insert_rowid(db))
     }
-    
+
     func getStatements(creditCardId: Int) throws -> [(id: Int, creditCardId: Int, closingDate: Int, dueDate: Int, totalAmount: Int, isPaid: Bool, paidDate: Int?, paidAmount: Int?, userId: String, isDatesOverridden: Bool, createdAt: Int, updatedAt: Int)] {
         guard isInitialized else { return [] }
         let query = "SELECT id, credit_card_id, closing_date, due_date, total_amount, is_paid, paid_date, paid_amount, user_id, is_dates_overridden, created_at, updated_at FROM CreditCardStatements WHERE credit_card_id = ? AND (is_deleted IS NULL OR is_deleted = 0) ORDER BY due_date DESC;"
@@ -1950,6 +1975,22 @@ class DBHelper {
         try addColumnIfNotExists(table: "BudgetGroups", column: "ck_zone_owner", definition: "TEXT")
     }
 
+    private func migrateCreatedByUidColumns() throws {
+        let tables = ["Transactions", "Budgets", "BudgetAllocations", "CreditCards", "CreditCardStatements"]
+        for table in tables {
+            try addColumnIfNotExists(table: table, column: "created_by_uid", definition: "TEXT")
+        }
+        // Backfill existing records with current user's UID
+        if let uid = UIDUserDefaultsManager.shared.currentUserUID {
+            for table in tables {
+                executeSyncUpdate(
+                    "UPDATE \(table) SET created_by_uid = ? WHERE created_by_uid IS NULL;",
+                    textBindings: [uid]
+                )
+            }
+        }
+    }
+
     private func migrateSyncColumnsV3() throws {
         // Phase 0A: Add is_deleted column to tables that don't have it yet
         try addColumnIfNotExists(table: "Transactions", column: "is_deleted", definition: "INTEGER NOT NULL DEFAULT 0")
@@ -2078,7 +2119,7 @@ class DBHelper {
           SELECT id, title, category, type, amount, date, budget_month_date,
                  is_recurring, has_installments, parent_transaction_id,
                  installment_number, total_installments, original_amount,
-                 credit_card_id, statement_id, is_credit_card_statement
+                 credit_card_id, statement_id, is_credit_card_statement, created_by_uid
           FROM Transactions WHERE user_id = ? AND (is_deleted IS NULL OR is_deleted = 0);
           """
 
@@ -2136,6 +2177,7 @@ class DBHelper {
             sqlite3_bind_text(statement, Int32(index + 1), value, -1, SQLITE_TRANSIENT)
         }
 
+        let columnCount = sqlite3_column_count(statement)
         var results: [Transaction] = []
 
         while sqlite3_step(statement) == SQLITE_ROW {
@@ -2175,6 +2217,9 @@ class DBHelper {
             sqlite3_column_type(statement, 15) == SQLITE_NULL
             ? nil : (sqlite3_column_int(statement, 15) == 1)
 
+            let createdByUid: String? = columnCount > 16 && sqlite3_column_type(statement, 16) != SQLITE_NULL
+            ? String(cString: sqlite3_column_text(statement, 16)) : nil
+
             let dbData = DBTransactionData(
                 id: id, title: title, amount: amount, dateTimestamp: ts, budgetMonthDate: monthAnchor,
                 isRecurring: isRecurring, hasInstallments: hasInstallments,
@@ -2183,6 +2228,7 @@ class DBHelper {
                 originalAmount: originalAmount,
                 creditCardId: creditCardId, statementId: statementId,
                 isCreditCardStatement: isCreditCardStatement,
+                createdByUid: createdByUid,
                 category: catKey, type: typeKey
             )
 
@@ -2221,6 +2267,7 @@ class DBHelper {
             bindIndex += 1
         }
 
+        let columnCount = sqlite3_column_count(statement)
         var results: [Transaction] = []
 
         while sqlite3_step(statement) == SQLITE_ROW {
@@ -2260,6 +2307,9 @@ class DBHelper {
             sqlite3_column_type(statement, 15) == SQLITE_NULL
             ? nil : (sqlite3_column_int(statement, 15) == 1)
 
+            let createdByUid: String? = columnCount > 16 && sqlite3_column_type(statement, 16) != SQLITE_NULL
+            ? String(cString: sqlite3_column_text(statement, 16)) : nil
+
             let dbData = DBTransactionData(
                 id: id, title: title, amount: amount, dateTimestamp: ts, budgetMonthDate: monthAnchor,
                 isRecurring: isRecurring, hasInstallments: hasInstallments,
@@ -2268,6 +2318,7 @@ class DBHelper {
                 originalAmount: originalAmount,
                 creditCardId: creditCardId, statementId: statementId,
                 isCreditCardStatement: isCreditCardStatement,
+                createdByUid: createdByUid,
                 category: catKey, type: typeKey
             )
 
@@ -2331,7 +2382,8 @@ class DBHelper {
         ckRecordName: String,
         parentCKRecordName: String? = nil,
         sharedGroupId: String? = nil,
-        updatedAt: Date? = nil
+        updatedAt: Date? = nil,
+        createdByUid: String? = nil
     ) {
         guard isInitialized else { return }
         var statement: OpaquePointer?
@@ -2393,6 +2445,13 @@ class DBHelper {
         // Bind updated_at
         sqlite3_bind_int64(statement, 21, Int64((updatedAt ?? Date()).timeIntervalSince1970))
 
+        // Bind created_by_uid
+        if let uid = createdByUid {
+            sqlite3_bind_text(statement, 22, uid, -1, SQLITE_TRANSIENT)
+        } else {
+            sqlite3_bind_null(statement, 22)
+        }
+
         sqlite3_step(statement)
     }
 
@@ -2403,7 +2462,8 @@ class DBHelper {
         type: String,
         ckRecordName: String,
         sharedGroupId: String? = nil,
-        updatedAt: Date? = nil
+        updatedAt: Date? = nil,
+        createdByUid: String? = nil
     ) {
         guard isInitialized else { return }
         var statement: OpaquePointer?
@@ -2446,8 +2506,14 @@ class DBHelper {
         }
         // updated_at (position 18)
         sqlite3_bind_int64(statement, 18, Int64((updatedAt ?? Date()).timeIntervalSince1970))
-        // ck_record_id (position 19 in the WHERE clause)
-        sqlite3_bind_text(statement, 19, ckRecordName, -1, SQLITE_TRANSIENT)
+        // created_by_uid (position 19)
+        if let uid = createdByUid {
+            sqlite3_bind_text(statement, 19, uid, -1, SQLITE_TRANSIENT)
+        } else {
+            sqlite3_bind_null(statement, 19)
+        }
+        // ck_record_id (position 20 in the WHERE clause)
+        sqlite3_bind_text(statement, 20, ckRecordName, -1, SQLITE_TRANSIENT)
 
         sqlite3_step(statement)
     }
@@ -2557,8 +2623,8 @@ class DBHelper {
         guard isInitialized else { return 0 }
         let query = """
             INSERT INTO BudgetAllocations
-                (month_date, category_key, allocated_amount, is_recurring, parent_allocation_id, user_id, shared_group_id, sync_status, ck_modified_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?);
+                (month_date, category_key, allocated_amount, is_recurring, parent_allocation_id, user_id, shared_group_id, sync_status, ck_modified_at, updated_at, created_by_uid)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?);
             """
         var statement: OpaquePointer?
         guard sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK else { return 0 }
@@ -2586,6 +2652,11 @@ class DBHelper {
         let now = Int64(Date().timeIntervalSince1970)
         sqlite3_bind_int64(statement, 8, now)
         sqlite3_bind_int64(statement, 9, now)
+        if let uid = UIDUserDefaultsManager.shared.currentUserUID {
+            sqlite3_bind_text(statement, 10, uid, -1, SQLITE_TRANSIENT)
+        } else {
+            sqlite3_bind_null(statement, 10)
+        }
 
         guard sqlite3_step(statement) == SQLITE_DONE else { return 0 }
         return Int(sqlite3_last_insert_rowid(db))
@@ -2614,6 +2685,46 @@ class DBHelper {
         if let uid = userId {
             sqlite3_bind_text(statement, 1, uid, -1, SQLITE_TRANSIENT)
         }
+
+        var results: [BudgetAllocationModel] = []
+        while sqlite3_step(statement) == SQLITE_ROW {
+            let id = Int(sqlite3_column_int64(statement, 0))
+            let monthDate = Int(sqlite3_column_int64(statement, 1))
+            let categoryKey = String(cString: sqlite3_column_text(statement, 2))
+            let allocatedAmount = Int(sqlite3_column_int64(statement, 3))
+            let isRecurring = sqlite3_column_int(statement, 4) == 1
+            let parentAllocationId: Int? = sqlite3_column_type(statement, 5) == SQLITE_NULL
+                ? nil : Int(sqlite3_column_int64(statement, 5))
+            let sharedGroupId: String? = sqlite3_column_type(statement, 6) == SQLITE_NULL
+                ? nil : String(cString: sqlite3_column_text(statement, 6))
+
+            results.append(BudgetAllocationModel(
+                id: id,
+                monthDate: monthDate,
+                categoryKey: categoryKey,
+                allocatedAmount: allocatedAmount,
+                isRecurring: isRecurring,
+                parentAllocationId: parentAllocationId,
+                sharedGroupId: sharedGroupId
+            ))
+        }
+        return results
+    }
+
+    /// Fix 5a: Fetches allocations filtered by shared_group_id.
+    func fetchBudgetAllocationsForGroup(groupId: String) -> [BudgetAllocationModel] {
+        guard isInitialized else { return [] }
+        let query = """
+            SELECT id, month_date, category_key, allocated_amount, is_recurring,
+                   parent_allocation_id, shared_group_id
+            FROM BudgetAllocations
+            WHERE shared_group_id = ? AND (is_deleted IS NULL OR is_deleted = 0);
+            """
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK else { return [] }
+        defer { sqlite3_finalize(statement) }
+
+        sqlite3_bind_text(statement, 1, groupId, -1, SQLITE_TRANSIENT)
 
         var results: [BudgetAllocationModel] = []
         while sqlite3_step(statement) == SQLITE_ROW {

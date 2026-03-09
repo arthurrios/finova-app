@@ -18,6 +18,7 @@ protocol SyncSettingsViewModelDelegate: AnyObject {
   func didShowCloudKitUnavailableAlert()
   func didUpdateUploadProgress(currentRecords: Int, totalRecords: Int, status: UploadStatus)
   func didUpdateDownloadStatus(_ status: SyncStatusIndicator.Status)
+  func didUpdateSyncEnabled(_ isEnabled: Bool)
 }
 
 final class SyncSettingsViewModel {
@@ -46,9 +47,15 @@ final class SyncSettingsViewModel {
     NotificationCenter.default.removeObserver(self)
   }
 
+  var isSyncEnabled: Bool {
+    UserDefaultsManager.getSyncEnabled()
+  }
+
   // MARK: - Public Methods
 
   func loadState() {
+    delegate?.didUpdateSyncEnabled(isSyncEnabled)
+
     cloudKitManager.checkAccountStatus { [weak self] _ in
       guard let self = self else { return }
       let status = self.mapStatus(self.syncEngine.status)
@@ -60,6 +67,14 @@ final class SyncSettingsViewModel {
 
       // Upload status — always visible
       self.refreshUploadStatus()
+    }
+  }
+
+  func toggleSyncEnabled(_ isEnabled: Bool) {
+    UserDefaultsManager.setSyncEnabled(isEnabled)
+    delegate?.didUpdateSyncEnabled(isEnabled)
+    if isEnabled {
+      syncNow()
     }
   }
 

@@ -31,11 +31,15 @@ final class GroupNotificationService {
         targetRecordName: String? = nil,
         completion: ((Result<Void, Error>) -> Void)? = nil
     ) {
-        let repository = BudgetGroupRepository()
-        let group = repository.fetchGroup(byId: groupId)
+        // Use BudgetGroupService (not raw repository) to apply ownerId repair (email → UID)
+        let allGroups = BudgetGroupService.shared.fetchAllGroups()
+        let group = allGroups.first(where: { $0.id == groupId })
 
         let zoneOwnerName: String
         let database: CKDatabase
+
+        let currentUID = AuthenticationManager.shared.currentUser?.uid ?? "nil"
+        logWarning("GroupNotificationService: logActivity — groupId=\(groupId), ownerId=\(group?.ownerId ?? "nil"), isOwner=\(group?.isOwner ?? false), ckZoneOwner=\(group?.ckZoneOwner ?? "nil"), currentUID=\(currentUID)")
 
         if let group = group, group.isOwner {
             zoneOwnerName = CKCurrentUserDefaultName
@@ -44,6 +48,7 @@ final class GroupNotificationService {
             zoneOwnerName = storedOwner
             database = CloudKitManager.shared.sharedDatabase
         } else {
+            logWarning("GroupNotificationService: ⚠️ FALLBACK — writing to own privateDB because ckZoneOwner is nil! This record will NOT be visible to the group owner.")
             zoneOwnerName = CKCurrentUserDefaultName
             database = CloudKitManager.shared.privateDatabase
         }

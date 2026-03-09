@@ -33,6 +33,25 @@ final class RealPostSyncActions: PostSyncActions {
 
         group.notify(queue: DispatchQueue(label: "com.finova.postsync")) {
             Self.repairCreditCardDataIntegrity()
+
+            // Fix 2b: Ensure owner pushes personal offset to group zone after sync.
+            // Covers the case where offset was set before the group existed.
+            if MirrorModeManager.shared.isEnabled,
+               let groupId = MirrorModeManager.shared.linkedGroupId {
+                let offsetManager = UIDUserDefaultsManager.shared
+                let offset = offsetManager.getCurrentUserBalanceOffset()
+                if offset != 0 {
+                    let groupRepo = BudgetGroupRepository()
+                    if let linkedGroup = groupRepo.fetchGroup(byId: groupId), linkedGroup.isOwner {
+                        let groupOffset = offsetManager.getGroupBalanceOffset(groupId: groupId)
+                        if groupOffset != offset {
+                            logWarning("[PostSync] Owner offset mismatch — pushing personal (\(offset)) to group zone (was \(groupOffset))")
+                            offsetManager.setGroupBalanceOffset(offset, groupId: groupId)
+                        }
+                    }
+                }
+            }
+
             completion()
         }
     }

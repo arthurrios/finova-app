@@ -12,6 +12,7 @@ protocol SyncSettingsViewDelegate: AnyObject {
   func didTapSyncNow()
   func didTapResetSync()
   func didTapResumeUpload()
+  func didToggleSyncEnabled(_ isEnabled: Bool)
 }
 
 final class SyncSettingsView: UIView {
@@ -79,6 +80,18 @@ final class SyncSettingsView: UIView {
     label.textAlignment = .left
     label.translatesAutoresizingMaskIntoConstraints = false
     return label
+  }()
+
+  // Sync Enabled Section
+  private let syncEnabledHeaderView = createSectionHeader(title: "syncSettings.syncEnabled.title".localized)
+  private let syncEnabledContainer = createSettingContainer()
+  private let syncEnabledIconView = createIconView(imageName: "icloud")
+  private let syncEnabledLabel = createSettingLabel(text: "syncSettings.syncEnabled.title".localized)
+  private let syncEnabledSwitch: UISwitch = {
+    let toggle = UISwitch()
+    toggle.onTintColor = Colors.mainMagenta
+    toggle.translatesAutoresizingMaskIntoConstraints = false
+    return toggle
   }()
 
   // Status Section
@@ -218,6 +231,7 @@ final class SyncSettingsView: UIView {
     syncNowButton.addTarget(self, action: #selector(didTapSyncNow), for: .touchUpInside)
     resetButton.addTarget(self, action: #selector(didTapResetSync), for: .touchUpInside)
     uploadResumeButton.addTarget(self, action: #selector(didTapResumeUpload), for: .touchUpInside)
+    syncEnabledSwitch.addTarget(self, action: #selector(syncEnabledToggled), for: .valueChanged)
 
     addSubview(scrollView)
     scrollView.addSubview(headerContainerView)
@@ -233,6 +247,11 @@ final class SyncSettingsView: UIView {
   }
 
   private func setupSections() {
+    // Sync enabled toggle
+    contentStackView.addArrangedSubview(syncEnabledHeaderView)
+    setupSyncEnabledContainer()
+    contentStackView.addArrangedSubview(syncEnabledContainer)
+
     // Status section
     contentStackView.addArrangedSubview(statusHeaderView)
     setupStatusContainer()
@@ -252,6 +271,23 @@ final class SyncSettingsView: UIView {
     contentStackView.addArrangedSubview(syncNowContainer)
     setupResetContainer()
     contentStackView.addArrangedSubview(resetContainer)
+  }
+
+  private func setupSyncEnabledContainer() {
+    syncEnabledContainer.addSubview(syncEnabledIconView)
+    syncEnabledContainer.addSubview(syncEnabledLabel)
+    syncEnabledContainer.addSubview(syncEnabledSwitch)
+
+    NSLayoutConstraint.activate([
+      syncEnabledIconView.leadingAnchor.constraint(equalTo: syncEnabledContainer.leadingAnchor, constant: Metrics.spacing4),
+      syncEnabledIconView.centerYAnchor.constraint(equalTo: syncEnabledContainer.centerYAnchor),
+
+      syncEnabledLabel.leadingAnchor.constraint(equalTo: syncEnabledIconView.trailingAnchor, constant: Metrics.spacing3),
+      syncEnabledLabel.centerYAnchor.constraint(equalTo: syncEnabledContainer.centerYAnchor),
+
+      syncEnabledSwitch.trailingAnchor.constraint(equalTo: syncEnabledContainer.trailingAnchor, constant: -Metrics.spacing4),
+      syncEnabledSwitch.centerYAnchor.constraint(equalTo: syncEnabledContainer.centerYAnchor),
+    ])
   }
 
   private func setupStatusContainer() {
@@ -437,6 +473,11 @@ final class SyncSettingsView: UIView {
 
   // MARK: - Public Methods
 
+  func updateSyncEnabled(_ isEnabled: Bool) {
+    syncEnabledSwitch.isOn = isEnabled
+    setSyncSectionsEnabled(isEnabled)
+  }
+
   func updateUI(status: SyncStatusIndicator.Status, lastSyncText: String) {
     syncStatusIndicator.updateStatus(status)
     lastSyncDetailLabel.text = lastSyncText
@@ -492,6 +533,27 @@ final class SyncSettingsView: UIView {
     }
   }
 
+  // MARK: - Private Methods
+
+  private func setSyncSectionsEnabled(_ isEnabled: Bool) {
+    let alpha: CGFloat = isEnabled ? 1.0 : 0.4
+
+    statusHeaderView.alpha = alpha
+    statusContainer.alpha = alpha
+    lastSyncContainer.alpha = alpha
+    dataSyncSectionStack.alpha = alpha
+    actionsHeaderView.alpha = alpha
+    syncNowContainer.alpha = alpha
+    resetContainer.alpha = alpha
+
+    statusContainer.isUserInteractionEnabled = isEnabled
+    lastSyncContainer.isUserInteractionEnabled = isEnabled
+    dataSyncSectionStack.isUserInteractionEnabled = isEnabled
+    syncNowButton.isEnabled = isEnabled
+    resetButton.isEnabled = isEnabled
+    uploadResumeButton.isEnabled = isEnabled
+  }
+
   // MARK: - Actions
 
   @objc
@@ -512,6 +574,13 @@ final class SyncSettingsView: UIView {
   @objc
   private func didTapResumeUpload() {
     delegate?.didTapResumeUpload()
+  }
+
+  @objc
+  private func syncEnabledToggled() {
+    let isEnabled = syncEnabledSwitch.isOn
+    setSyncSectionsEnabled(isEnabled)
+    delegate?.didToggleSyncEnabled(isEnabled)
   }
 }
 

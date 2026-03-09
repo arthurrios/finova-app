@@ -17,6 +17,7 @@ struct BudgetModel: Codable {
     let amount: Int
     var sharedGroupId: String? = nil
     var updatedAt: Date? = nil
+    var createdByUid: String? = nil
 }
 
 struct DisplayBudgetModel: Codable {

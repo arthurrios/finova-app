@@ -21,7 +21,8 @@ struct CreditCardStatement: Codable {
     var userId: String
     var createdAt: Date
     var updatedAt: Date
-    
+    var createdByUid: String?
+
     var status: StatementStatus {
         if isPaid { return .paid }
         if Date() > dueDate { return .overdue }

@@ -5,6 +5,7 @@
 //  Created by Arthur Rios on 12/02/26.
 //
 
+import CloudKit
 import Foundation
 
 final class MemberPermissionsViewModel {
@@ -30,12 +31,34 @@ final class MemberPermissionsViewModel {
         case "canViewCreditCards": member.permissions.canViewCreditCards = value
         case "canManageCreditCards": member.permissions.canManageCreditCards = value
         case "canInviteMembers": member.permissions.canInviteMembers = value
+        case "canEditOwnTransactions": member.permissions.canEditOwnTransactions = value
+        case "canDeleteOwnTransactions": member.permissions.canDeleteOwnTransactions = value
+        case "canEditOwnBudgets": member.permissions.canEditOwnBudgets = value
+        case "canEditOwnAllocations": member.permissions.canEditOwnAllocations = value
         default: break
         }
     }
 
     func savePermissions() {
         repository.updateMember(member)
+
+        // Push updated permissions to CloudKit so the member's device picks them up
+        BudgetGroupService.shared.pushGroupMemberRecord(
+            member: member,
+            groupId: group.id,
+            zoneOwner: CKCurrentUserDefaultName
+        ) { result in
+            if case .failure(let error) = result {
+                logError("Failed to push permission update to CloudKit: \(error.localizedDescription)")
+            }
+        }
+
+        GroupNotificationService.shared.logActivity(
+            action: .permissionsChanged,
+            groupId: group.id,
+            detail: member.name
+        )
+
         SyncEngine.shared.performFullSync()
     }
 

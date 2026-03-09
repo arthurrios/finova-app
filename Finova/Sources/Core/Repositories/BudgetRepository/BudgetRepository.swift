@@ -128,8 +128,8 @@ final class BudgetRepository: BudgetRepositoryProtocol {
 
     db.executeGroupWrite(
       """
-      INSERT INTO Budgets (month_date, amount, user_id, shared_group_id, ck_record_id, sync_status, ck_modified_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, 'synced', ?, ?);
+      INSERT INTO Budgets (month_date, amount, user_id, shared_group_id, ck_record_id, sync_status, ck_modified_at, updated_at, created_by_uid)
+      VALUES (?, ?, ?, ?, ?, 'synced', ?, ?, ?);
       """,
       orderedBindings: [
         budget.monthDate,
@@ -138,7 +138,8 @@ final class BudgetRepository: BudgetRepositoryProtocol {
         budget.sharedGroupId,
         ckRecordName,
         Int(Date().timeIntervalSince1970),
-        Int((budget.updatedAt ?? Date()).timeIntervalSince1970)
+        Int((budget.updatedAt ?? Date()).timeIntervalSince1970),
+        budget.createdByUid
       ]
     )
   }
@@ -147,7 +148,7 @@ final class BudgetRepository: BudgetRepositoryProtocol {
     db.executeGroupWrite(
       """
       UPDATE Budgets SET amount = ?, shared_group_id = ?, sync_status = 'synced', ck_modified_at = ?, updated_at = ?,
-          is_deleted = 0
+          created_by_uid = ?, is_deleted = 0
       WHERE ck_record_id = ?;
       """,
       orderedBindings: [
@@ -155,6 +156,7 @@ final class BudgetRepository: BudgetRepositoryProtocol {
         budget.sharedGroupId,
         Int(Date().timeIntervalSince1970),
         Int((budget.updatedAt ?? Date()).timeIntervalSince1970),
+        budget.createdByUid,
         ckRecordName
       ]
     )

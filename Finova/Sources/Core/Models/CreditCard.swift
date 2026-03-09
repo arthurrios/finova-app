@@ -23,6 +23,7 @@ struct CreditCard: Codable {
     var createdAt: Date
     var updatedAt: Date
     var sharedGroupId: String?
+    var createdByUid: String?
 }
 
 enum CardBrand: String, Codable, CaseIterable {

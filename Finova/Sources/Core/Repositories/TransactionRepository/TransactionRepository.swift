@@ -645,7 +645,7 @@ final class TransactionRepository: TransactionRepositoryProtocol {
         SELECT id, title, category, type, amount, date, budget_month_date,
                is_recurring, has_installments, parent_transaction_id,
                installment_number, total_installments, original_amount,
-               credit_card_id, statement_id, is_credit_card_statement
+               credit_card_id, statement_id, is_credit_card_statement, created_by_uid
         FROM Transactions WHERE sync_status = 'pending' AND user_id = ? AND (is_deleted IS NULL OR is_deleted = 0);
         """
       return (try? db.executeTransactionQueryPublicText(query, textBindings: [uid])) ?? []
@@ -654,7 +654,7 @@ final class TransactionRepository: TransactionRepositoryProtocol {
       SELECT id, title, category, type, amount, date, budget_month_date,
              is_recurring, has_installments, parent_transaction_id,
              installment_number, total_installments, original_amount,
-             credit_card_id, statement_id, is_credit_card_statement
+             credit_card_id, statement_id, is_credit_card_statement, created_by_uid
       FROM Transactions WHERE sync_status = 'pending' AND (is_deleted IS NULL OR is_deleted = 0);
       """
     return (try? db.executeTransactionQueryPublic(query)) ?? []
@@ -714,8 +714,8 @@ final class TransactionRepository: TransactionRepositoryProtocol {
          installment_number, total_installments, original_amount,
          credit_card_id, statement_id, is_credit_card_statement,
          ck_record_id, sync_status, user_id, ck_modified_at, ck_parent_record_name,
-         shared_group_id, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced', ?, ?, ?, ?, ?);
+         shared_group_id, updated_at, created_by_uid)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced', ?, ?, ?, ?, ?, ?);
       """
 
     db.executeCloudInsert(
@@ -726,7 +726,8 @@ final class TransactionRepository: TransactionRepositoryProtocol {
       ckRecordName: ckRecordName,
       parentCKRecordName: parentCKRecordName,
       sharedGroupId: sharedGroupId,
-      updatedAt: transaction.updatedAt
+      updatedAt: transaction.updatedAt,
+      createdByUid: transaction.createdByUid
     )
 
     // Phase 4D: Remap parent ID via CK record name
@@ -758,7 +759,8 @@ final class TransactionRepository: TransactionRepositoryProtocol {
         credit_card_id = ?, statement_id = ?, is_credit_card_statement = ?,
         sync_status = 'synced', ck_modified_at = ?,
         shared_group_id = ?,
-        updated_at = ?
+        updated_at = ?,
+        created_by_uid = ?
       WHERE ck_record_id = ?;
       """
 
@@ -769,7 +771,8 @@ final class TransactionRepository: TransactionRepositoryProtocol {
       type: type,
       ckRecordName: ckRecordName,
       sharedGroupId: sharedGroupId,
-      updatedAt: transaction.updatedAt
+      updatedAt: transaction.updatedAt,
+      createdByUid: transaction.createdByUid
     )
   }
 
@@ -811,7 +814,7 @@ final class TransactionRepository: TransactionRepositoryProtocol {
       SELECT id, title, category, type, amount, date, budget_month_date,
              is_recurring, has_installments, parent_transaction_id,
              installment_number, total_installments, original_amount,
-             credit_card_id, statement_id, is_credit_card_statement
+             credit_card_id, statement_id, is_credit_card_statement, created_by_uid
       FROM Transactions WHERE id = ?;
       """
     return (try? db.executeTransactionQueryPublic(query, bindValues: [id]))?.first
@@ -829,7 +832,7 @@ final class TransactionRepository: TransactionRepositoryProtocol {
       SELECT id, title, category, type, amount, date, budget_month_date,
              is_recurring, has_installments, parent_transaction_id,
              installment_number, total_installments, original_amount,
-             credit_card_id, statement_id, is_credit_card_statement
+             credit_card_id, statement_id, is_credit_card_statement, created_by_uid
       FROM Transactions
       WHERE title = ? AND amount = ? AND budget_month_date = ?
         AND parent_transaction_id IS NOT NULL AND is_deleted = 0
@@ -847,7 +850,7 @@ final class TransactionRepository: TransactionRepositoryProtocol {
       SELECT id, title, category, type, amount, date, budget_month_date,
              is_recurring, has_installments, parent_transaction_id,
              installment_number, total_installments, original_amount,
-             credit_card_id, statement_id, is_credit_card_statement
+             credit_card_id, statement_id, is_credit_card_statement, created_by_uid
       FROM Transactions
       WHERE title = ? AND amount = ? AND budget_month_date = ?
         AND (is_deleted IS NULL OR is_deleted = 0)
@@ -863,7 +866,7 @@ final class TransactionRepository: TransactionRepositoryProtocol {
       SELECT id, title, category, type, amount, date, budget_month_date,
              is_recurring, has_installments, parent_transaction_id,
              installment_number, total_installments, original_amount,
-             credit_card_id, statement_id, is_credit_card_statement
+             credit_card_id, statement_id, is_credit_card_statement, created_by_uid
       FROM Transactions
       WHERE parent_transaction_id = ? AND budget_month_date = ? AND is_deleted = 0
       LIMIT 1;
@@ -876,7 +879,7 @@ final class TransactionRepository: TransactionRepositoryProtocol {
       SELECT id, title, category, type, amount, date, budget_month_date,
              is_recurring, has_installments, parent_transaction_id,
              installment_number, total_installments, original_amount,
-             credit_card_id, statement_id, is_credit_card_statement
+             credit_card_id, statement_id, is_credit_card_statement, created_by_uid
       FROM Transactions WHERE ck_record_id = ? AND (is_deleted IS NULL OR is_deleted = 0);
       """
     return (try? db.executeTransactionQueryPublicText(query, textBindings: [recordName]))?.first
@@ -944,7 +947,7 @@ final class TransactionRepository: TransactionRepositoryProtocol {
       SELECT id, title, category, type, amount, date, budget_month_date,
              is_recurring, has_installments, parent_transaction_id,
              installment_number, total_installments, original_amount,
-             credit_card_id, statement_id, is_credit_card_statement
+             credit_card_id, statement_id, is_credit_card_statement, created_by_uid
       FROM Transactions WHERE shared_group_id = ? AND (is_deleted IS NULL OR is_deleted = 0);
       """
     return (try? db.executeTransactionQueryPublicText(query, textBindings: [groupId])) ?? []

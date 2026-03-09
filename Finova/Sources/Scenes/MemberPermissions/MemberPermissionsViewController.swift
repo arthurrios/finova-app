@@ -42,11 +42,23 @@ final class MemberPermissionsViewController: UIViewController {
         contentView.canCreateToggle.onToggleChanged = { [weak self] isOn in
             self?.viewModel.updatePermission(key: "canCreateTransactions", value: isOn)
         }
+        contentView.canEditOwnToggle.onToggleChanged = { [weak self] isOn in
+            self?.viewModel.updatePermission(key: "canEditOwnTransactions", value: isOn)
+        }
+        contentView.canDeleteOwnToggle.onToggleChanged = { [weak self] isOn in
+            self?.viewModel.updatePermission(key: "canDeleteOwnTransactions", value: isOn)
+        }
         contentView.canEditToggle.onToggleChanged = { [weak self] isOn in
             self?.viewModel.updatePermission(key: "canEditTransactions", value: isOn)
         }
         contentView.canDeleteToggle.onToggleChanged = { [weak self] isOn in
             self?.viewModel.updatePermission(key: "canDeleteTransactions", value: isOn)
+        }
+        contentView.canEditOwnBudgetsToggle.onToggleChanged = { [weak self] isOn in
+            self?.viewModel.updatePermission(key: "canEditOwnBudgets", value: isOn)
+        }
+        contentView.canEditOwnAllocationsToggle.onToggleChanged = { [weak self] isOn in
+            self?.viewModel.updatePermission(key: "canEditOwnAllocations", value: isOn)
         }
         contentView.canEditBudgetsToggle.onToggleChanged = { [weak self] isOn in
             self?.viewModel.updatePermission(key: "canEditBudgets", value: isOn)

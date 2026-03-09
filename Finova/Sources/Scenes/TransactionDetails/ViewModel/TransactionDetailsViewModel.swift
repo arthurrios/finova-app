@@ -186,12 +186,22 @@ final class TransactionDetailsViewModel {
 
   func canEditTransaction(in group: BudgetGroup?) -> Bool {
     guard let group = group else { return true }
-    return BudgetGroupService.shared.currentUserCan(\.canEditTransactions, in: group)
+    return BudgetGroupService.shared.currentUserCan(
+      \.canEditTransactions,
+      own: \.canEditOwnTransactions,
+      createdByUid: transaction.createdByUid,
+      in: group
+    )
   }
 
   func canDeleteTransaction(in group: BudgetGroup?) -> Bool {
     guard let group = group else { return true }
-    return BudgetGroupService.shared.currentUserCan(\.canDeleteTransactions, in: group)
+    return BudgetGroupService.shared.currentUserCan(
+      \.canDeleteTransactions,
+      own: \.canDeleteOwnTransactions,
+      createdByUid: transaction.createdByUid,
+      in: group
+    )
   }
 
   /// Returns the BudgetGroup this transaction belongs to, if any.

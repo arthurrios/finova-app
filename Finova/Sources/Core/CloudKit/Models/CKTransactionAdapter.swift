@@ -67,6 +67,7 @@ extension Transaction: CKRecordConvertible {
         }
 
         record["updatedAt"] = (updatedAt ?? Date()) as CKRecordValue
+        record["createdByUid"] = createdByUid as CKRecordValue?
 
         return record
     }
@@ -103,6 +104,7 @@ extension Transaction: CKRecordConvertible {
             statementId: record["statementId"] as? Int,
             isCreditCardStatement: (record["isCreditCardStatement"] as? Int) == 1,
             updatedAt: updatedAt,
+            createdByUid: record["createdByUid"] as? String,
             category: category,
             type: type
         )

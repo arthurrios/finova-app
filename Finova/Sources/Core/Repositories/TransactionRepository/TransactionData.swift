@@ -24,7 +24,8 @@ struct TransactionData<C, T>: Codable where C: Codable, T: Codable {
     var statementId: Int? = nil
     var isCreditCardStatement: Bool? = nil
     var updatedAt: Date? = nil
-    
+    var createdByUid: String? = nil
+
     let category: C
     let type: T
 }

@@ -746,12 +746,27 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
       )
       NotificationHistoryManager.shared.markAsRead(id: historyId)
 
-      DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-        NotificationCenter.default.post(
-          name: .navigateToGroupInvitation,
-          object: nil,
-          userInfo: ["invitationId": invitationId]
-        )
+      // Fix 7a: If the invitation doesn't exist locally (app was killed),
+      // fetch from the public DB first so the navigation handler finds it.
+      let repo = BudgetGroupRepository()
+      if repo.fetchInvitation(byId: invitationId) == nil {
+        BudgetGroupService.shared.fetchRemoteInvitations {
+          DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            NotificationCenter.default.post(
+              name: .navigateToGroupInvitation,
+              object: nil,
+              userInfo: ["invitationId": invitationId]
+            )
+          }
+        }
+      } else {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+          NotificationCenter.default.post(
+            name: .navigateToGroupInvitation,
+            object: nil,
+            userInfo: ["invitationId": invitationId]
+          )
+        }
       }
       completionHandler()
       return

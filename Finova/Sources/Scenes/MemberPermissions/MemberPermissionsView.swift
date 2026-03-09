@@ -121,11 +121,15 @@ final class MemberPermissionsView: UIView {
     // Transactions
     private let transactionsSectionHeader = createSectionHeader(title: "permissions.section.transactions".localized)
     let canCreateToggle = PermissionToggleRow()
+    let canEditOwnToggle = PermissionToggleRow()
+    let canDeleteOwnToggle = PermissionToggleRow()
     let canEditToggle = PermissionToggleRow()
     let canDeleteToggle = PermissionToggleRow()
 
     // Budgets
     private let budgetsSectionHeader = createSectionHeader(title: "permissions.section.budgets".localized)
+    let canEditOwnBudgetsToggle = PermissionToggleRow()
+    let canEditOwnAllocationsToggle = PermissionToggleRow()
     let canEditBudgetsToggle = PermissionToggleRow()
     let canEditAllocationsToggle = PermissionToggleRow()
 
@@ -204,17 +208,21 @@ final class MemberPermissionsView: UIView {
 
         // Transactions
         canCreateToggle.configure(title: "permission.createTransactions".localized, description: "", isOn: true)
+        canEditOwnToggle.configure(title: "permission.editOwnTransactions".localized, description: "", isOn: true)
+        canDeleteOwnToggle.configure(title: "permission.deleteOwnTransactions".localized, description: "", isOn: true)
         canEditToggle.configure(title: "permission.editTransactions".localized, description: "", isOn: false)
         canDeleteToggle.configure(title: "permission.deleteTransactions".localized, description: "", isOn: false)
-        let transactionsCard = createSectionCard(toggles: [canCreateToggle, canEditToggle, canDeleteToggle])
+        let transactionsCard = createSectionCard(toggles: [canCreateToggle, canEditOwnToggle, canDeleteOwnToggle, canEditToggle, canDeleteToggle])
         contentStackView.addArrangedSubview(transactionsSectionHeader)
         contentStackView.addArrangedSubview(transactionsCard)
         contentStackView.setCustomSpacing(Metrics.spacing2, after: transactionsSectionHeader)
 
         // Budgets
+        canEditOwnBudgetsToggle.configure(title: "permission.editOwnBudgets".localized, description: "", isOn: true)
+        canEditOwnAllocationsToggle.configure(title: "permission.editOwnAllocations".localized, description: "", isOn: true)
         canEditBudgetsToggle.configure(title: "permission.editBudgets".localized, description: "", isOn: false)
         canEditAllocationsToggle.configure(title: "permission.editAllocations".localized, description: "", isOn: false)
-        let budgetsCard = createSectionCard(toggles: [canEditBudgetsToggle, canEditAllocationsToggle])
+        let budgetsCard = createSectionCard(toggles: [canEditOwnBudgetsToggle, canEditOwnAllocationsToggle, canEditBudgetsToggle, canEditAllocationsToggle])
         contentStackView.addArrangedSubview(budgetsSectionHeader)
         contentStackView.addArrangedSubview(budgetsCard)
         contentStackView.setCustomSpacing(Metrics.spacing2, after: budgetsSectionHeader)
@@ -380,8 +388,12 @@ final class MemberPermissionsView: UIView {
 
         let perms = member.permissions
         canCreateToggle.configure(title: "permission.createTransactions".localized, description: "", isOn: perms.canCreateTransactions)
+        canEditOwnToggle.configure(title: "permission.editOwnTransactions".localized, description: "", isOn: perms.canEditOwnTransactions)
+        canDeleteOwnToggle.configure(title: "permission.deleteOwnTransactions".localized, description: "", isOn: perms.canDeleteOwnTransactions)
         canEditToggle.configure(title: "permission.editTransactions".localized, description: "", isOn: perms.canEditTransactions)
         canDeleteToggle.configure(title: "permission.deleteTransactions".localized, description: "", isOn: perms.canDeleteTransactions)
+        canEditOwnBudgetsToggle.configure(title: "permission.editOwnBudgets".localized, description: "", isOn: perms.canEditOwnBudgets)
+        canEditOwnAllocationsToggle.configure(title: "permission.editOwnAllocations".localized, description: "", isOn: perms.canEditOwnAllocations)
         canEditBudgetsToggle.configure(title: "permission.editBudgets".localized, description: "", isOn: perms.canEditBudgets)
         canEditAllocationsToggle.configure(title: "permission.editAllocations".localized, description: "", isOn: perms.canEditAllocations)
         canViewCardsToggle.configure(title: "permission.viewCreditCards".localized, description: "", isOn: perms.canViewCreditCards)

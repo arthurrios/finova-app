@@ -41,8 +41,13 @@ final class GroupNotificationManager {
 
     func startPolling() {
         stopPolling()
-        pollTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
-            self?.performFetch(completion: {})
+        // Trigger a sync every 30 seconds as a backup for when CK push notifications
+        // are delayed or throttled. The SyncEngine's pull path handles GroupActivity
+        // records via processGroupActivity → handleIncomingActivity, which is proven
+        // to work reliably for member-written records.
+        pollTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { _ in
+            logWarning("GroupNotificationManager: poll timer — triggering sync")
+            SyncEngine.shared.performFullSync()
         }
     }
 
@@ -71,9 +76,8 @@ final class GroupNotificationManager {
     func handleIncomingActivity(_ record: CKRecord) {
         let recordName = record.recordID.recordName
 
-        // Skip if already processed (deduplication for fetchAndNotifyRecentActivities)
+        // Skip if already processed (deduplication)
         guard !isAlreadyProcessed(recordName) else {
-            logWarning("GroupNotificationManager: SKIPPED (already processed) record=\(recordName)")
             return
         }
         markAsProcessed(recordName)
@@ -121,84 +125,14 @@ final class GroupNotificationManager {
         ])
     }
 
-    /// Directly fetches recent GroupActivity records from all group zones.
-    /// For member groups: queries the shared database (bypasses unreliable CKQuerySubscription).
-    /// For owned groups: queries the private database (catches member-written activities).
-    /// Also ensures periodic polling is active to catch records still propagating.
+    /// Triggers a sync and ensures polling is active.
+    /// GroupActivity records are processed by SyncEngine.processGroupActivity → handleIncomingActivity.
     func fetchAndNotifyRecentActivities(completion: @escaping () -> Void) {
-        performFetch(completion: completion)
-        // Ensure polling is active (covers first-launch case where
-        // didBecomeActiveNotification fires before shared singleton is initialized)
+        SyncEngine.shared.performFullSync()
         if pollTimer == nil {
             startPolling()
         }
-    }
-
-    private func performFetch(completion: @escaping () -> Void) {
-        let repo = BudgetGroupRepository()
-        let allGroups = repo.fetchAllGroups().filter { !$0.isDeleted }
-
-        guard !allGroups.isEmpty else {
-            logWarning("GroupNotificationManager: performFetch — no groups, skipping")
-            completion()
-            return
-        }
-
-        logWarning("GroupNotificationManager: performFetch — checking \(allGroups.count) group(s)")
-
-        let dispatchGroup = DispatchGroup()
-        let cutoff = Date().addingTimeInterval(-300) // last 5 minutes
-        let predicate = NSPredicate(format: "timestamp > %@", cutoff as NSDate)
-
-        for group in allGroups {
-            let zoneID: CKRecordZone.ID
-            let database: CKDatabase
-
-            if group.isOwner {
-                zoneID = CKRecordZone.ID(zoneName: "Group-\(group.id)", ownerName: CKCurrentUserDefaultName)
-                database = CloudKitManager.shared.privateDatabase
-                logWarning("GroupNotificationManager: querying OWNED group '\(group.name)' in privateDB zone=Group-\(group.id)")
-            } else if let zoneOwner = group.ckZoneOwner {
-                zoneID = CKRecordZone.ID(zoneName: "Group-\(group.id)", ownerName: zoneOwner)
-                database = CloudKitManager.shared.sharedDatabase
-                logWarning("GroupNotificationManager: querying MEMBER group '\(group.name)' in sharedDB zone=Group-\(group.id) owner=\(zoneOwner)")
-            } else {
-                let currentUID = AuthenticationManager.shared.currentUser?.uid ?? "nil"
-                logWarning("GroupNotificationManager: SKIPPING group '\(group.name)' — ckZoneOwner is nil, isOwner=\(group.isOwner), ownerId=\(group.ownerId), currentUID=\(currentUID)")
-                continue
-            }
-
-            dispatchGroup.enter()
-
-            let query = CKQuery(recordType: "GroupActivity", predicate: predicate)
-            query.sortDescriptors = [NSSortDescriptor(key: "timestamp", ascending: false)]
-
-            let operation = CKQueryOperation(query: query)
-            operation.zoneID = zoneID
-            let groupName = group.name
-            operation.recordMatchedBlock = { _, result in
-                switch result {
-                case .success(let record):
-                    let action = record["action"] as? String ?? "unknown"
-                    logWarning("GroupNotificationManager: RECORD FOUND in '\(groupName)' — action=\(action) record=\(record.recordID.recordName)")
-                    self.handleIncomingActivity(record)
-                case .failure(let error):
-                    logWarning("GroupNotificationManager: record match error in '\(groupName)': \(error.localizedDescription)")
-                }
-            }
-            operation.queryResultBlock = { result in
-                if case .failure(let error) = result {
-                    logWarning("GroupNotificationManager: query FAILED for '\(groupName)': \(error.localizedDescription)")
-                }
-                dispatchGroup.leave()
-            }
-            operation.qualityOfService = .userInitiated
-            database.add(operation)
-        }
-
-        dispatchGroup.notify(queue: .main) {
-            completion()
-        }
+        completion()
     }
 
     func notificationBody(for action: String, detail: String) -> String {
@@ -217,6 +151,12 @@ final class GroupNotificationManager {
             return String(format: "notification.group.memberJoined".localized, detail)
         case .memberLeft:
             return String(format: "notification.group.memberLeft".localized, detail)
+        case .memberRemoved:
+            return String(format: "notification.group.memberRemoved".localized, detail)
+        case .permissionsChanged:
+            return String(format: "notification.group.permissionsChanged".localized, detail)
+        case .groupRenamed:
+            return String(format: "notification.group.groupRenamed".localized, detail)
         default:
             return detail
         }

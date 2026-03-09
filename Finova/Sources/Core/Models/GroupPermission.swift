@@ -7,7 +7,7 @@
 
 import Foundation
 
-struct GroupPermissions: Codable, Equatable {
+struct GroupPermissions: Equatable, Encodable {
     var canCreateTransactions: Bool
     var canEditTransactions: Bool
     var canDeleteTransactions: Bool
@@ -16,6 +16,10 @@ struct GroupPermissions: Codable, Equatable {
     var canViewCreditCards: Bool
     var canManageCreditCards: Bool
     var canInviteMembers: Bool
+    var canEditOwnTransactions: Bool
+    var canDeleteOwnTransactions: Bool
+    var canEditOwnBudgets: Bool
+    var canEditOwnAllocations: Bool
 
     static let memberDefault = GroupPermissions(
         canCreateTransactions: true,
@@ -25,7 +29,11 @@ struct GroupPermissions: Codable, Equatable {
         canEditAllocations: false,
         canViewCreditCards: false,
         canManageCreditCards: false,
-        canInviteMembers: false
+        canInviteMembers: false,
+        canEditOwnTransactions: true,
+        canDeleteOwnTransactions: true,
+        canEditOwnBudgets: true,
+        canEditOwnAllocations: true
     )
 
     static let viewOnly = GroupPermissions(
@@ -36,7 +44,11 @@ struct GroupPermissions: Codable, Equatable {
         canEditAllocations: false,
         canViewCreditCards: false,
         canManageCreditCards: false,
-        canInviteMembers: false
+        canInviteMembers: false,
+        canEditOwnTransactions: false,
+        canDeleteOwnTransactions: false,
+        canEditOwnBudgets: false,
+        canEditOwnAllocations: false
     )
 
     static let canAdd = GroupPermissions(
@@ -47,7 +59,11 @@ struct GroupPermissions: Codable, Equatable {
         canEditAllocations: false,
         canViewCreditCards: true,
         canManageCreditCards: false,
-        canInviteMembers: false
+        canInviteMembers: false,
+        canEditOwnTransactions: true,
+        canDeleteOwnTransactions: true,
+        canEditOwnBudgets: true,
+        canEditOwnAllocations: true
     )
 
     static let fullAccess = GroupPermissions(
@@ -58,7 +74,11 @@ struct GroupPermissions: Codable, Equatable {
         canEditAllocations: true,
         canViewCreditCards: true,
         canManageCreditCards: true,
-        canInviteMembers: true
+        canInviteMembers: true,
+        canEditOwnTransactions: true,
+        canDeleteOwnTransactions: true,
+        canEditOwnBudgets: true,
+        canEditOwnAllocations: true
     )
 
     var asJSON: String {
@@ -77,8 +97,12 @@ struct GroupPermissions: Codable, Equatable {
     var allPermissions: [(key: String, label: String, isEnabled: Bool)] {
         return [
             ("canCreateTransactions", "permission.createTransactions".localized, canCreateTransactions),
+            ("canEditOwnTransactions", "permission.editOwnTransactions".localized, canEditOwnTransactions),
+            ("canDeleteOwnTransactions", "permission.deleteOwnTransactions".localized, canDeleteOwnTransactions),
             ("canEditTransactions", "permission.editTransactions".localized, canEditTransactions),
             ("canDeleteTransactions", "permission.deleteTransactions".localized, canDeleteTransactions),
+            ("canEditOwnBudgets", "permission.editOwnBudgets".localized, canEditOwnBudgets),
+            ("canEditOwnAllocations", "permission.editOwnAllocations".localized, canEditOwnAllocations),
             ("canEditBudgets", "permission.editBudgets".localized, canEditBudgets),
             ("canEditAllocations", "permission.editAllocations".localized, canEditAllocations),
             ("canViewCreditCards", "permission.viewCreditCards".localized, canViewCreditCards),
@@ -97,7 +121,40 @@ struct GroupPermissions: Codable, Equatable {
         case "canViewCreditCards": canViewCreditCards = value
         case "canManageCreditCards": canManageCreditCards = value
         case "canInviteMembers": canInviteMembers = value
+        case "canEditOwnTransactions": canEditOwnTransactions = value
+        case "canDeleteOwnTransactions": canDeleteOwnTransactions = value
+        case "canEditOwnBudgets": canEditOwnBudgets = value
+        case "canEditOwnAllocations": canEditOwnAllocations = value
         default: break
         }
+    }
+}
+
+// MARK: - Backward-compatible Codable
+
+extension GroupPermissions: Decodable {
+    enum CodingKeys: String, CodingKey {
+        case canCreateTransactions, canEditTransactions, canDeleteTransactions
+        case canEditBudgets, canEditAllocations
+        case canViewCreditCards, canManageCreditCards, canInviteMembers
+        case canEditOwnTransactions, canDeleteOwnTransactions
+        case canEditOwnBudgets, canEditOwnAllocations
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        canCreateTransactions = try container.decode(Bool.self, forKey: .canCreateTransactions)
+        canEditTransactions = try container.decode(Bool.self, forKey: .canEditTransactions)
+        canDeleteTransactions = try container.decode(Bool.self, forKey: .canDeleteTransactions)
+        canEditBudgets = try container.decode(Bool.self, forKey: .canEditBudgets)
+        canEditAllocations = try container.decode(Bool.self, forKey: .canEditAllocations)
+        canViewCreditCards = try container.decode(Bool.self, forKey: .canViewCreditCards)
+        canManageCreditCards = try container.decode(Bool.self, forKey: .canManageCreditCards)
+        canInviteMembers = try container.decode(Bool.self, forKey: .canInviteMembers)
+        // New keys default to true for backward compatibility with old JSON
+        canEditOwnTransactions = try container.decodeIfPresent(Bool.self, forKey: .canEditOwnTransactions) ?? true
+        canDeleteOwnTransactions = try container.decodeIfPresent(Bool.self, forKey: .canDeleteOwnTransactions) ?? true
+        canEditOwnBudgets = try container.decodeIfPresent(Bool.self, forKey: .canEditOwnBudgets) ?? true
+        canEditOwnAllocations = try container.decodeIfPresent(Bool.self, forKey: .canEditOwnAllocations) ?? true
     }
 }

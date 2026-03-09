@@ -70,10 +70,16 @@ final class SyncEngine {
     private var isInitialPush = false
     private var isLargeSyncCycle = false
     private var isRecoverySync = false
+    /// Fix 4a: When true, forces full shared DB zone enumeration to discover member groups on new devices.
+    private var needsFullSharedDBDiscovery = false
     /// Cooldown: prevents notification-triggered sync loops where our own push
     /// triggers a CK notification → another sync → another push → repeat.
     private var lastSyncCompletedAt: Date?
     private static let syncCooldownInterval: TimeInterval = 10
+
+    private var isSyncDisabledByUser: Bool {
+        !UserDefaultsManager.getSyncEnabled()
+    }
     private static let largeSyncThreshold = 100
     /// Maps CK record names to (entityType, localId) for records that need ck_record_id set after successful push.
     /// Populated during pushLocalChanges, consumed per-record in pushBatches.
@@ -577,6 +583,12 @@ final class SyncEngine {
     }
 
     func performFullSync(forceFullFetch: Bool = false, forceRePush: Bool = false, forceAcceptCloud: Bool = false, completion: (() -> Void)? = nil) {
+        if isSyncDisabledByUser {
+            logWarning("[Sync] performFullSync — skipped (sync disabled by user)")
+            status = .idle
+            completion?()
+            return
+        }
         syncQueue.async { [weak self] in
             guard let self = self else {
                 completion?()
@@ -614,6 +626,11 @@ final class SyncEngine {
     /// must be skipped. If a sync is already in progress, waits for it to finish
     /// and then pushes any remaining pending records.
     func flushPendingChanges(completion: @escaping (Bool) -> Void) {
+        if isSyncDisabledByUser {
+            logWarning("[Sync] flushPendingChanges — skipped (sync disabled by user)")
+            completion(true)
+            return
+        }
         syncQueue.async { [weak self] in
             guard let self = self else {
                 completion(false)
@@ -684,6 +701,10 @@ final class SyncEngine {
     }
 
     @objc private func handleRemoteNotification() {
+        if isSyncDisabledByUser {
+            logWarning("[Sync] handleRemoteNotification — skipped (sync disabled by user)")
+            return
+        }
         // Cooldown: skip sync if we just finished one (our own push triggers CK notifications)
         if let lastCompleted = lastSyncCompletedAt,
            Date().timeIntervalSince(lastCompleted) < Self.syncCooldownInterval {
@@ -700,6 +721,10 @@ final class SyncEngine {
     /// Uses a background task to ensure the push completes even if the app is backgrounded.
     /// Call this after group transaction create/edit to ensure timely notification delivery.
     func pushPendingChangesNow() {
+        if isSyncDisabledByUser {
+            logWarning("[SyncEngine] pushPendingChangesNow — skipped (sync disabled by user)")
+            return
+        }
         logWarning("[SyncEngine] pushPendingChangesNow — called")
         var bgTaskID = UIBackgroundTaskIdentifier.invalid
         bgTaskID = UIApplication.shared.beginBackgroundTask {
@@ -732,6 +757,10 @@ final class SyncEngine {
     }
 
     @objc private func handleLocalDataChange() {
+        if isSyncDisabledByUser {
+            logWarning("[SyncLife] handleLocalDataChange — skipped (sync disabled by user)")
+            return
+        }
         guard !isProcessingCloudData && !isSyncing else {
             // A sync is in progress — flag that we need a follow-up push
             // (e.g., lazy-generated recurring instances created during sync)
@@ -808,11 +837,18 @@ final class SyncEngine {
         guard !UserDefaults.standard.bool(forKey: Self.fullPullVerifiedKey) else { return }
 
         let hasToken = stateManager.changeToken(for: "privateDB", database: "private") != nil
-        guard hasToken else { return } // No token = first sync, will do full pull naturally
+        guard hasToken else {
+            // Fix 4a: No token = first sync. Flag full shared DB discovery so member
+            // groups are discovered even if CKFetchDatabaseChanges returns 0 zones.
+            needsFullSharedDBDiscovery = true
+            return
+        }
 
         logWarning("[SyncLife] Device has not completed a verified full pull — resetting tokens for complete pull")
         stateManager.resetAllTokens()
         isLargeSyncCycle = true
+        // Fix 4a: Also force full shared DB zone enumeration
+        needsFullSharedDBDiscovery = true
     }
 
     /// Called after a successful sync that pulled records, marking this device as having
@@ -821,7 +857,33 @@ final class SyncEngine {
         if !UserDefaults.standard.bool(forKey: Self.fullPullVerifiedKey) {
             UserDefaults.standard.set(true, forKey: Self.fullPullVerifiedKey)
             logWarning("[SyncLife] Full pull verified — future syncs will be incremental")
+
+            // Fix 4c: Post-sync data integrity check after first verified pull
+            performPostSyncIntegrityCheck()
         }
+    }
+
+    /// Lightweight integrity check after the first verified full pull.
+    /// Logs warnings for missing data that should have arrived.
+    private func performPostSyncIntegrityCheck() {
+        let repo = BudgetGroupRepository()
+        let groups = repo.fetchAllGroups().filter { !$0.isDeleted }
+
+        // Verify all member groups have ckZoneOwner set
+        let memberGroupsMissingOwner = groups.filter { !$0.isOwner && $0.ckZoneOwner == nil }
+        if !memberGroupsMissingOwner.isEmpty {
+            logWarning("[IntegrityCheck] \(memberGroupsMissingOwner.count) member group(s) missing ckZoneOwner: \(memberGroupsMissingOwner.map { $0.id })")
+            // Flag for full shared DB discovery on next sync to repair
+            needsFullSharedDBDiscovery = true
+        }
+
+        // Log record counts for diagnostics
+        let db = DBHelper.shared
+        let txCount = db.fetchSingleInt("SELECT COUNT(*) FROM Transactions WHERE (is_deleted IS NULL OR is_deleted = 0);") ?? 0
+        let budgetCount = db.fetchSingleInt("SELECT COUNT(*) FROM Budgets WHERE (is_deleted IS NULL OR is_deleted = 0);") ?? 0
+        let cardCount = db.fetchSingleInt("SELECT COUNT(*) FROM CreditCards WHERE (is_deleted IS NULL OR is_deleted = 0);") ?? 0
+        let allocCount = db.fetchSingleInt("SELECT COUNT(*) FROM BudgetAllocations WHERE (is_deleted IS NULL OR is_deleted = 0);") ?? 0
+        logWarning("[IntegrityCheck] Post-pull counts: transactions=\(txCount), budgets=\(budgetCount), cards=\(cardCount), allocations=\(allocCount), groups=\(groups.count)")
     }
 
     /// Posts a `syncPhaseProgressDidChange` notification with the current phase progress.
@@ -1119,6 +1181,9 @@ final class SyncEngine {
                         let zoneID = CKRecordZone.ID(zoneName: "Group-\(group.id)", ownerName: CKCurrentUserDefaultName)
                         if !existingZoneNames.contains(zoneID.zoneName) {
                             changedZoneIDs.append(zoneID)
+                            logWarning("[Sync] Force-included owned group zone: \(zoneID.zoneName)")
+                        } else {
+                            logWarning("[Sync] Owned group zone already in changed list: \(zoneID.zoneName)")
                         }
                     }
 
@@ -1185,7 +1250,40 @@ final class SyncEngine {
                     }
                 }
 
+                // Fix 1a + 4a: When shared DB reports 0 changed zones, enumerate ALL
+                // shared zones directly in these cases:
+                // - Member groups exist locally but none have ckZoneOwner (Fix 1a)
+                // - First sync / incomplete sync flagged for full discovery (Fix 4a)
+                // This breaks the chicken-and-egg dependency on new devices.
                 if changedZoneIDs.isEmpty {
+                    let hasAnyMemberZoneOwner = memberGroups.contains { $0.ckZoneOwner != nil }
+                    let shouldEnumerateAll = (self?.needsFullSharedDBDiscovery == true)
+                        || (!hasAnyMemberZoneOwner && !memberGroups.isEmpty)
+                    if shouldEnumerateAll {
+                        self?.needsFullSharedDBDiscovery = false
+                        logWarning("[Sync] No changed shared zones — enumerating all shared zones as fallback")
+                        let fallbackOp = CKFetchRecordZonesOperation.fetchAllRecordZonesOperation()
+                        fallbackOp.perRecordZoneResultBlock = { zoneID, result in
+                            if case .success = result, zoneID.zoneName.hasPrefix("Group-") {
+                                changedZoneIDs.append(zoneID)
+                                BudgetGroupRepository().updateZoneOwner(groupId: String(zoneID.zoneName.dropFirst("Group-".count)), zoneOwner: zoneID.ownerName)
+                                logWarning("[Sync] Fallback discovered shared zone: \(zoneID.zoneName) (owner: \(zoneID.ownerName))")
+                            }
+                        }
+                        fallbackOp.fetchRecordZonesResultBlock = { [weak self] _ in
+                            if changedZoneIDs.isEmpty {
+                                logWarning("[Sync] Fallback shared zone enumeration found 0 zones")
+                                completion()
+                            } else {
+                                self?.fetchZoneChanges(zoneIDs: changedZoneIDs, database: .shared) { _ in
+                                    completion()
+                                }
+                            }
+                        }
+                        fallbackOp.qualityOfService = .userInitiated
+                        CloudKitManager.shared.sharedDatabase.add(fallbackOp)
+                        return
+                    }
                     logWarning("[Sync] No changed shared zones — skipping")
                     completion()
                 } else {
@@ -1718,20 +1816,29 @@ final class SyncEngine {
             }
         }
 
-        // Re-push current user's GroupMember record for each group they belong to.
-        // This is idempotent (same record name) and self-heals if the initial push
-        // during invitation acceptance failed silently.
+        // Push current user's GroupMember record only when it hasn't been confirmed
+        // on the server yet. Once the push succeeds we set a per-group flag so
+        // subsequent sync cycles skip the push entirely. This prevents an infinite
+        // sync loop: .allKeys overwrites the server record even when nothing changed,
+        // which updates the zone's modification date and triggers a CK notification
+        // on the owner → owner syncs → notifies member → member syncs → repeat.
         // IMPORTANT: GroupMember records are pushed SEPARATELY from the main shared batch
         // using .allKeys save policy. The shared database enforces zone-level atomicity,
         // so a GroupMember serverRecordChanged error (no stored system fields) would
         // cascade and fail ALL other shared records in the same batch.
         var groupMemberRecords: [CKRecord] = []
+        var groupMemberGroupIds: [String] = [] // Track which group IDs correspond to each record
         let groupRepo = BudgetGroupRepository()
         let allGroups = groupRepo.fetchAllGroups()
         if let currentUser = AuthenticationManager.shared.currentUser {
             let currentUid = currentUser.uid
             for group in allGroups where !group.isOwner && !group.isDeleted {
                 guard let zoneOwner = group.ckZoneOwner else { continue }
+
+                // Skip if we've already confirmed a successful push for this group
+                let flagKey = "groupMemberPushed_\(group.id)"
+                if UserDefaults.standard.bool(forKey: flagKey) { continue }
+
                 let members = groupRepo.fetchMembers(forGroupId: group.id)
                 guard let selfMember = members.first(where: { $0.userId == currentUid }) else { continue }
 
@@ -1744,7 +1851,9 @@ final class SyncEngine {
                 record["email"] = selfMember.email as CKRecordValue
                 record["role"] = selfMember.role.rawValue as CKRecordValue
                 record["joinedAt"] = selfMember.joinedAt as NSDate
+                record["permissions"] = selfMember.permissions.asJSON as CKRecordValue
                 groupMemberRecords.append(record)
+                groupMemberGroupIds.append(group.id)
             }
         }
 
@@ -1814,6 +1923,13 @@ final class SyncEngine {
             switch result {
             case .success:
                 logInfo("[Sync] ✅ Pushed GroupMember \(recordID.recordName)")
+                // Extract groupId from the record name (format: "groupMember-<memberId>")
+                // and mark as pushed using the tracked group IDs
+                if let idx = groupMemberRecords.firstIndex(where: { $0.recordID == recordID }),
+                   idx < groupMemberGroupIds.count {
+                    let gid = groupMemberGroupIds[idx]
+                    UserDefaults.standard.set(true, forKey: "groupMemberPushed_\(gid)")
+                }
             case .failure(let error):
                 logWarning("[Sync] ⚠️ Failed to push GroupMember \(recordID.recordName): \(error.localizedDescription)")
             }
@@ -2362,6 +2478,12 @@ final class SyncEngine {
         let roleStr = record["role"] as? String ?? "member"
         let role = GroupRole(rawValue: roleStr) ?? .member
         let joinedAt = record["joinedAt"] as? Date ?? record.creationDate ?? Date()
+        let permissions: GroupPermissions
+        if let permJSON = record["permissions"] as? String {
+            permissions = GroupPermissions.fromJSON(permJSON)
+        } else {
+            permissions = role == .owner ? .fullAccess : .memberDefault
+        }
 
         let repo = BudgetGroupRepository()
 
@@ -2405,10 +2527,11 @@ final class SyncEngine {
             updated.userId = userId
             updated.name = name
             updated.email = email
+            updated.permissions = permissions
             updated.isRemoved = false
-            if existing.userId != userId || existing.name != name || existing.isRemoved {
+            if existing.userId != userId || existing.name != name || existing.isRemoved || existing.permissions != permissions {
                 repo.updateMember(updated)
-                logInfo("[Sync] Updated/reactivated GroupMember \(name) in group \(groupId)")
+                logInfo("[Sync] Updated/reactivated GroupMember \(name) in group \(groupId) (permissions updated)")
             } else {
                 logInfo("[Sync] GroupMember \(name) already exists in group \(groupId) — skipping")
             }
@@ -2421,11 +2544,14 @@ final class SyncEngine {
             name: name,
             email: email,
             role: role,
-            permissions: role == .owner ? .fullAccess : .memberDefault,
+            permissions: permissions,
             joinedAt: joinedAt
         )
         repo.insertMember(member)
         logInfo("[Sync] Inserted GroupMember \(name) into group \(groupId) from CloudKit")
+
+        // Clear the one-time repair flag so Fix 6a can re-attempt if another member joins later
+        UserDefaults.standard.removeObject(forKey: "memberRepairAttempted-\(groupId)")
 
         DispatchQueue.main.async {
             NotificationCenter.default.post(name: .budgetGroupDataChanged, object: nil)
@@ -2433,6 +2559,9 @@ final class SyncEngine {
     }
 
     private func processGroupActivity(_ record: CKRecord) {
+        let action = record["action"] as? String ?? "unknown"
+        let actorName = record["actorName"] as? String ?? "unknown"
+        logWarning("[Sync] processGroupActivity: action=\(action) actor=\(actorName) record=\(record.recordID.recordName)")
         GroupNotificationManager.shared.handleIncomingActivity(record)
     }
 
@@ -2549,6 +2678,27 @@ final class SyncEngine {
                 }
                 if !orphanedGroups.isEmpty {
                     logWarning("[Sync] Found \(orphanedGroups.count) local group(s) with missing CloudKit zones — repairing")
+                }
+
+                // Fix 6a: Reset zone tokens for owned groups with incomplete member lists.
+                // When a member writes a GroupMember record to the shared DB, CloudKit
+                // propagates it to the owner's private zone — but if the zone token has
+                // already advanced past that point, the record is never re-fetched.
+                // Only attempt this once per group to avoid re-fetching 100+ records every sync.
+                for group in existingGroups where group.isOwner && !group.isDeleted && foundGroupZoneIds.contains(group.id) {
+                    let localMemberCount = repo.fetchMembers(forGroupId: group.id).count
+                    let repairKey = "memberRepairAttempted-\(group.id)"
+                    let alreadyAttempted = UserDefaults.standard.bool(forKey: repairKey)
+                    if localMemberCount <= 1 && !alreadyAttempted {
+                        UserDefaults.standard.set(true, forKey: repairKey)
+                        let zoneKey = "Group-\(group.id)"
+                        self?.stateManager.saveChangeToken(nil, for: zoneKey, database: "private")
+                        let zoneID = CKRecordZone.ID(zoneName: zoneKey, ownerName: CKCurrentUserDefaultName)
+                        if !unfetchedZoneIDs.contains(where: { $0.zoneName == zoneKey }) {
+                            unfetchedZoneIDs.append(zoneID)
+                        }
+                        logWarning("[Sync] Reset zone token for \(zoneKey) — only \(localMemberCount) member(s), forcing re-fetch (one-time repair)")
+                    }
                 }
 
                 // For owned groups, ensure pending invitations in the public DB have the share URL
@@ -2677,9 +2827,14 @@ final class SyncEngine {
                 logWarning("[Sync] Shared DB zone enumeration complete — \(sharedGroupZoneIDs.count) new, \(sharedUnfetchedZoneIDs.count) unfetched group zone(s)")
 
                 let finishDiscovery = {
-                    // After all zone fetching, check for member groups that need CKShare repair
-                    self?.repairMissingShareAcceptance(sharedZoneGroupIds: foundSharedGroupIds) {
-                        completion()
+                    // Fix 6c: For owned groups, query the shared DB directly for GroupMember
+                    // records. This catches member writes that haven't propagated to the
+                    // owner's private DB zone yet (CloudKit shared→private propagation delay).
+                    self?.discoverMembersFromSharedDB {
+                        // After all zone fetching, check for member groups that need CKShare repair
+                        self?.repairMissingShareAcceptance(sharedZoneGroupIds: foundSharedGroupIds) {
+                            completion()
+                        }
                     }
                 }
 
@@ -2712,6 +2867,50 @@ final class SyncEngine {
 
         operation.qualityOfService = .userInitiated
         CloudKitManager.shared.sharedDatabase.add(operation)
+    }
+
+    /// Queries the shared database directly for GroupMember records in owned group zones.
+    /// Catches member writes that haven't propagated from shared → private DB yet.
+    private func discoverMembersFromSharedDB(completion: @escaping () -> Void) {
+        let repo = BudgetGroupRepository()
+        let ownedGroups = repo.fetchAllGroups().filter { $0.isOwner && !$0.isDeleted }
+
+        guard !ownedGroups.isEmpty else {
+            completion()
+            return
+        }
+
+        let dispatchGroup = DispatchGroup()
+
+        for group in ownedGroups {
+            dispatchGroup.enter()
+
+            let zoneID = CKRecordZone.ID(zoneName: "Group-\(group.id)", ownerName: CKCurrentUserDefaultName)
+            let predicate = NSPredicate(value: true)
+            let query = CKQuery(recordType: "GroupMember", predicate: predicate)
+            let operation = CKQueryOperation(query: query)
+            operation.zoneID = zoneID
+
+            operation.recordMatchedBlock = { [weak self] _, result in
+                if case .success(let record) = result {
+                    self?.processIncomingGroupMember(record)
+                }
+            }
+
+            operation.queryResultBlock = { result in
+                if case .failure(let error) = result {
+                    logWarning("[Sync] Shared DB member query failed for group \(group.id): \(error.localizedDescription)")
+                }
+                dispatchGroup.leave()
+            }
+
+            operation.qualityOfService = .utility
+            CloudKitManager.shared.sharedDatabase.add(operation)
+        }
+
+        dispatchGroup.notify(queue: .global(qos: .utility)) {
+            completion()
+        }
     }
 
     /// Re-creates CloudKit zones and BudgetGroup records for local groups whose zones
@@ -2867,12 +3066,15 @@ final class SyncEngine {
     }
 
     private func fetchShareUrlFromPublicDB(forGroupId groupId: String, completion: @escaping (String?) -> Void) {
-        guard let email = AuthenticationManager.shared.currentUser?.email else {
+        guard let currentUser = AuthenticationManager.shared.currentUser,
+              let email = currentUser.email else {
             completion(nil)
             return
         }
 
-        let predicate = NSPredicate(format: "inviteeEmail == %@", email)
+        // Fix 1c: Also query by Firebase UID to handle invitations stored with UID-based matching
+        let uid = currentUser.uid
+        let predicate = NSPredicate(format: "inviteeEmail == %@ OR inviteeId == %@", email, uid)
         let query = CKQuery(recordType: "GroupInvitation", predicate: predicate)
 
         CloudKitManager.shared.publicDatabase.fetch(withQuery: query, desiredKeys: ["ckShareUrl", "groupId"]) { result in

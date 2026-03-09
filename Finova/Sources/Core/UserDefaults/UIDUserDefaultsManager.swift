@@ -209,13 +209,9 @@ class UIDUserDefaultsManager {
       return
     }
 
-    // If the pull phase already delivered a fresh BalanceOffset record,
-    // skip re-fetching to avoid overwriting with a potentially stale value.
-    if SyncEngine.shared.didReceiveBalanceOffsetDuringPull {
-      logInfo("Skipping fetchBalanceOffsetsFromCloud — offset already updated during pull")
-      completion()
-      return
-    }
+    // Fix 2a: Always fetch balance offsets — the incremental pull may not include
+    // BalanceOffset records (they use a separate record type), so skipping leaves
+    // new devices with offset=0 until one is explicitly pushed.
 
     let dispatchGroup = DispatchGroup()
     var didUpdate = false

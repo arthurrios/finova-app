@@ -213,8 +213,8 @@ class CreditCardRepository {
             INSERT INTO CreditCards
                 (name, last_four_digits, card_brand, closing_day, due_day,
                  credit_limit, card_color, user_id, is_deleted, is_default,
-                 created_at, updated_at, shared_group_id, ck_record_id, sync_status, ck_modified_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced', ?);
+                 created_at, updated_at, shared_group_id, ck_record_id, sync_status, ck_modified_at, created_by_uid)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced', ?, ?);
             """,
             orderedBindings: [
                 card.name,
@@ -231,7 +231,8 @@ class CreditCardRepository {
                 Int(card.updatedAt.timeIntervalSince1970),
                 card.sharedGroupId,
                 ckRecordName,
-                Int(Date().timeIntervalSince1970)
+                Int(Date().timeIntervalSince1970),
+                card.createdByUid
             ]
         )
     }
@@ -244,7 +245,8 @@ class CreditCardRepository {
                 closing_day = ?, due_day = ?, credit_limit = ?,
                 card_color = ?, is_deleted = ?, is_default = ?,
                 shared_group_id = ?,
-                updated_at = ?, sync_status = 'synced', ck_modified_at = ?
+                updated_at = ?, sync_status = 'synced', ck_modified_at = ?,
+                created_by_uid = ?
             WHERE ck_record_id = ?;
             """,
             orderedBindings: [
@@ -260,6 +262,7 @@ class CreditCardRepository {
                 card.sharedGroupId,
                 Int(card.updatedAt.timeIntervalSince1970),
                 Int(Date().timeIntervalSince1970),
+                card.createdByUid,
                 ckRecordName
             ]
         )

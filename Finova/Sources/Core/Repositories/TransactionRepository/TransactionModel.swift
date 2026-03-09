@@ -58,18 +58,19 @@ struct Transaction: Codable {
     var statementId: Int? { data.statementId }
     var isCreditCardStatement: Bool? { data.isCreditCardStatement }
     var updatedAt: Date? { data.updatedAt }
-    
+    var createdByUid: String? { data.createdByUid }
+
     init(data: UITransactionData) {
         self.data = data
     }
-    
+
     // Custom Codable implementation to serialize/deserialize correctly
     enum CodingKeys: String, CodingKey {
         case id, title, amount, dateTimestamp, budgetMonthDate
         case isRecurring, hasInstallments, parentTransactionId
         case installmentNumber, totalInstallments, originalAmount
         case creditCardId, statementId, isCreditCardStatement
-        case category, type, updatedAt
+        case category, type, updatedAt, createdByUid
     }
     
     init(from decoder: Decoder) throws {
@@ -90,6 +91,7 @@ struct Transaction: Codable {
         let statementId = try container.decodeIfPresent(Int.self, forKey: .statementId)
         let isCreditCardStatement = try container.decodeIfPresent(Bool.self, forKey: .isCreditCardStatement)
         let updatedAt = try container.decodeIfPresent(Date.self, forKey: .updatedAt)
+        let createdByUid = try container.decodeIfPresent(String.self, forKey: .createdByUid)
 
         // Decode category and type as strings, then convert to enums
         let categoryString = try container.decode(String.self, forKey: .category)
@@ -124,10 +126,11 @@ struct Transaction: Codable {
             statementId: statementId,
             isCreditCardStatement: isCreditCardStatement,
             updatedAt: updatedAt,
+            createdByUid: createdByUid,
             category: category,
             type: type
         )
-        
+
         self.data = uiData
     }
     
@@ -149,6 +152,7 @@ struct Transaction: Codable {
         try container.encodeIfPresent(data.statementId, forKey: .statementId)
         try container.encodeIfPresent(data.isCreditCardStatement, forKey: .isCreditCardStatement)
         try container.encodeIfPresent(data.updatedAt, forKey: .updatedAt)
+        try container.encodeIfPresent(data.createdByUid, forKey: .createdByUid)
 
         // Encode category and type as strings
         try container.encode(data.category.key, forKey: .category)
@@ -260,6 +264,7 @@ extension UITransactionData {
             statementId: db.statementId,
             isCreditCardStatement: db.isCreditCardStatement,
             updatedAt: db.updatedAt,
+            createdByUid: db.createdByUid,
             category: finalCategory,
             type: finalType
         )

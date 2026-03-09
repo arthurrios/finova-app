@@ -26,6 +26,7 @@ extension BudgetModel: CKRecordConvertible {
         record["userId"] = (UIDUserDefaultsManager.shared.currentUserUID ?? "") as CKRecordValue
         record["sharedGroupId"] = sharedGroupId as CKRecordValue?
         record["updatedAt"] = (updatedAt ?? Date()) as CKRecordValue
+        record["createdByUid"] = createdByUid as CKRecordValue?
         return record
     }
 
@@ -40,7 +41,8 @@ extension BudgetModel: CKRecordConvertible {
             monthDate: monthDate,
             amount: amount,
             sharedGroupId: record["sharedGroupId"] as? String,
-            updatedAt: updatedAt
+            updatedAt: updatedAt,
+            createdByUid: record["createdByUid"] as? String
         )
     }
 }

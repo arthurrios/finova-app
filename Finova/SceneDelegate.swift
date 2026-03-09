@@ -75,13 +75,29 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         return
       }
 
-      // Store zone owner name so the member can route writes to the shared DB
+      // Store zone owner name so the member can route writes to the shared DB.
+      // Fix 1b: If no local group row exists yet (new device), insert a placeholder
+      // so that updateZoneOwner has a row to update and subsequent sync can discover data.
       if let share = share {
         let ownerName = share.recordID.zoneID.ownerName
         let zoneName = share.recordID.zoneID.zoneName
         if zoneName.hasPrefix("Group-") {
           let groupId = String(zoneName.dropFirst("Group-".count))
-          BudgetGroupRepository().updateZoneOwner(groupId: groupId, zoneOwner: ownerName)
+          let repo = BudgetGroupRepository()
+          if repo.fetchGroup(byId: groupId) == nil {
+            logWarning("[SceneDelegate] Group \(groupId) not found locally — inserting placeholder for share acceptance")
+            var placeholder = BudgetGroup(
+              id: groupId,
+              name: "Shared Group",
+              ownerId: "",
+              ownerName: "",
+              ownerEmail: ""
+            )
+            placeholder.ckZoneOwner = ownerName
+            repo.insertGroup(placeholder)
+          } else {
+            repo.updateZoneOwner(groupId: groupId, zoneOwner: ownerName)
+          }
         }
       }
 
