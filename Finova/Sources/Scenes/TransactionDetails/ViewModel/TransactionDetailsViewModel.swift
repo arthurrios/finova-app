@@ -25,8 +25,19 @@ final class TransactionDetailsViewModel {
           userInfo: [NSLocalizedDescriptionKey: "Invalid transaction ID"]))
     }
 
+    // Capture group ID before deletion (needed for activity log)
+    let groupId = getSharedGroupId()
+      ?? (MirrorModeManager.shared.isEnabled ? MirrorModeManager.shared.linkedGroupId : nil)
+
     do {
       try transactionRepository.deleteTransactionAndRelated(id: transactionId)
+
+      if let groupId = groupId {
+        GroupNotificationService.shared.logActivity(
+          action: .transactionDeleted, groupId: groupId, detail: transaction.title)
+        SyncEngine.shared.pushPendingChangesNow()
+      }
+
       return .success(())
     } catch {
       return .failure(error)
@@ -43,16 +54,26 @@ final class TransactionDetailsViewModel {
         return .failure(TransactionError.transactionNotFound)
       }
 
+      // Capture group ID before deletion (needed for activity log)
+      let groupId = getSharedGroupId()
+        ?? (MirrorModeManager.shared.isEnabled ? MirrorModeManager.shared.linkedGroupId : nil)
+
       // Handle simple transactions directly
       if transaction.isRecurring != true && transaction.parentTransactionId == nil
         && transaction.hasInstallments != true
       {
         try transactionRepository.delete(id: transactionId)
-        return .success(())
+      } else {
+        // For complex transactions, use the repository method that handles cleanup properly
+        try transactionRepository.deleteTransactionWithOption(id: transactionId, option: option)
       }
 
-      // For complex transactions, use the repository method that handles cleanup properly
-      try transactionRepository.deleteTransactionWithOption(id: transactionId, option: option)
+      if let groupId = groupId {
+        GroupNotificationService.shared.logActivity(
+          action: .transactionDeleted, groupId: groupId, detail: transaction.title)
+        SyncEngine.shared.pushPendingChangesNow()
+      }
+
       return .success(())
     } catch {
       return .failure(error)

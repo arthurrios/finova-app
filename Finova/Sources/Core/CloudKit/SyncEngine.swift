@@ -1175,7 +1175,7 @@ final class SyncEngine {
                     // members may not be reported by fetchDatabaseChanges on the
                     // owner's private DB. Zone-level tokens keep this cheap when
                     // no new records exist.
-                    let ownedGroups = BudgetGroupRepository().fetchAllGroups().filter { $0.isOwner && !$0.isDeleted }
+                    let ownedGroups = BudgetGroupService.shared.fetchAllGroups().filter { $0.isOwner && !$0.isDeleted }
                     let existingZoneNames = Set(changedZoneIDs.map { $0.zoneName })
                     for group in ownedGroups {
                         let zoneID = CKRecordZone.ID(zoneName: "Group-\(group.id)", ownerName: CKCurrentUserDefaultName)

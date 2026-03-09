@@ -386,6 +386,7 @@ extension AppFlowController: DashboardFlowDelegate, SettingsFlowDelegate, Profil
     }
     
     func openAddTransactionModal(context: DataContext) {
+        logWarning("openAddTransactionModal: context=\(context), groupId=\(context.groupId ?? "nil")")
         let viewController = viewControllersFactory.makeAddTransactionModalViewController(
             flowDelegate: self)
         viewController.viewModel.activeContext = context

@@ -73,6 +73,12 @@ final class GroupNotificationManager {
         UserDefaults.standard.set(processed, forKey: Self.processedRecordNamesKey)
     }
 
+    /// Builds a content-based deduplication key so the same logical notification
+    /// is not shown twice (once from the public DB fetch, once from the zone sync).
+    static func logicalDeduplicationKey(action: String, actorId: String, detail: String) -> String {
+        return "logical-\(action)-\(actorId)-\(detail)"
+    }
+
     func handleIncomingActivity(_ record: CKRecord) {
         let recordName = record.recordID.recordName
 
@@ -95,6 +101,14 @@ final class GroupNotificationManager {
             logWarning("GroupNotificationManager: SKIPPED (own action) record=\(recordName) action=\(action)")
             return
         }
+
+        // Cross-mechanism dedup: skip if the public DB fetch already showed this
+        let logicalKey = Self.logicalDeduplicationKey(action: action, actorId: actorId, detail: detail)
+        guard !isAlreadyProcessed(logicalKey) else {
+            logWarning("GroupNotificationManager: SKIPPED (already shown via public DB) record=\(recordName)")
+            return
+        }
+        markAsProcessed(logicalKey)
 
         logWarning("GroupNotificationManager: DELIVERING notification — action=\(action) actor=\(actorName) detail=\(detail)")
 

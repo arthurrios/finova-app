@@ -235,49 +235,80 @@ final class CloudKitManager {
     /// Creates CKQuerySubscription for GroupActivity records in each group zone.
     /// Uses visible alerts so iOS delivers push notifications immediately in background.
     func setupGroupActivitySubscriptions() {
-        // Use BudgetGroupService (not raw repository) to apply ownerId repair (email → UID)
-        // so isOwner is correctly determined for routing subscriptions to the right database.
         let groups = BudgetGroupService.shared.fetchAllGroups().filter { !$0.isDeleted }
         guard !groups.isEmpty else { return }
+        guard let currentUser = AuthenticationManager.shared.currentUser else { return }
 
-        // v2: versioned subscription IDs to force re-creation after DB routing fix.
-        // Old subscriptions (without _v2) may have been created in the wrong database.
+        let currentUID = currentUser.uid
+        logWarning("setupGroupActivitySubscriptions: currentUID=\(currentUID)")
+
+        // Clean up old private/shared DB subscriptions (v1 and v2) — replaced by public DB approach.
         let staleIDs = groups.flatMap { group -> [String] in
-            ["finova-group-activity-\(group.id)", "finova-group-activity-shared-\(group.id)"]
+            [
+                "finova-group-activity-\(group.id)",
+                "finova-group-activity-shared-\(group.id)",
+                "finova-group-activity-v2-\(group.id)"
+            ]
         }
         cleanupStaleSubscriptions(ids: staleIDs)
 
-        let currentUID = AuthenticationManager.shared.currentUser?.uid ?? "nil"
-        let currentEmail = AuthenticationManager.shared.currentUser?.email ?? "nil"
-        logWarning("setupGroupActivitySubscriptions: currentUID=\(currentUID), currentEmail=\(currentEmail)")
+        // Subscribe to GroupActivityNotification on the PUBLIC database (one per group).
+        // Public DB CKQuerySubscriptions reliably fire for all matching records,
+        // unlike private/shared DB subscriptions which may miss shared-participant writes.
+        // This mirrors the proven invitation notification pattern.
+        // Clean up v3 subscriptions (had actorId != predicate which may not work on public DB)
+        let staleV3IDs = groups.map { "finova-group-activity-v3-\($0.id)" }
+        let cleanupOp = CKModifySubscriptionsOperation(subscriptionsToSave: nil, subscriptionIDsToDelete: staleV3IDs)
+        cleanupOp.modifySubscriptionsResultBlock = { _ in }
+        cleanupOp.qualityOfService = .utility
+        publicDatabase.add(cleanupOp)
 
         for group in groups {
-            logWarning("setupGroupActivitySubscriptions: group '\(group.name)' — ownerId=\(group.ownerId), isOwner=\(group.isOwner), ckZoneOwner=\(group.ckZoneOwner ?? "nil")")
-            if group.isOwner {
-                // Owner subscribes to privateDB only — member writes to the shared zone
-                // are stored in the owner's private DB, so the subscription catches all changes.
-                let zoneID = CKRecordZone.ID(zoneName: "Group-\(group.id)", ownerName: CKCurrentUserDefaultName)
-                saveGroupActivitySubscription(
-                    subscriptionID: "finova-group-activity-v2-\(group.id)",
-                    zoneID: zoneID,
-                    database: privateDatabase,
-                    groupId: group.id
-                )
-            } else if let zoneOwner = group.ckZoneOwner {
-                let zoneID = CKRecordZone.ID(zoneName: "Group-\(group.id)", ownerName: zoneOwner)
-                saveGroupActivitySubscription(
-                    subscriptionID: "finova-group-activity-v2-\(group.id)",
-                    zoneID: zoneID,
-                    database: sharedDatabase,
-                    groupId: group.id
-                )
+            // v4: simple groupId-only predicate (mirrors invitation pattern).
+            // Own-action filtering happens in AppDelegate.didReceiveRemoteNotification.
+            // CKQuerySubscription predicates on public DB may not support != operator.
+            let subscriptionID = "finova-group-activity-v4-\(group.id)"
+            let predicate = NSPredicate(format: "groupId == %@", group.id)
+            let subscription = CKQuerySubscription(
+                recordType: "GroupActivityNotification",
+                predicate: predicate,
+                subscriptionID: subscriptionID,
+                options: [.firesOnRecordCreation]
+            )
+
+            let notificationInfo = CKSubscription.NotificationInfo()
+            notificationInfo.shouldSendContentAvailable = true
+            notificationInfo.titleLocalizationKey = "GROUP_ACTIVITY_TITLE"
+            notificationInfo.alertLocalizationKey = "GROUP_ACTIVITY_BODY"
+            notificationInfo.alertLocalizationArgs = ["actorName", "action"]
+            notificationInfo.soundName = "default"
+            notificationInfo.desiredKeys = ["actorName", "action", "detail", "actorId", "targetRecordName", "groupId"]
+            subscription.notificationInfo = notificationInfo
+
+            let operation = CKModifySubscriptionsOperation(
+                subscriptionsToSave: [subscription],
+                subscriptionIDsToDelete: nil
+            )
+            operation.modifySubscriptionsResultBlock = { result in
+                switch result {
+                case .success:
+                    logWarning("GroupActivity subscription CREATED for group \(group.id) in publicDB (id: \(subscriptionID))")
+                case .failure(let error):
+                    if let ckError = error as? CKError, ckError.code == .serverRejectedRequest {
+                        logWarning("GroupActivity subscription already exists for group \(group.id) in publicDB")
+                    } else {
+                        logError("GroupActivity subscription FAILED for group \(group.id) in publicDB: \(error.localizedDescription)")
+                    }
+                }
             }
+            operation.qualityOfService = .utility
+            publicDatabase.add(operation)
         }
     }
 
     private func cleanupStaleSubscriptions(ids: [String]) {
-        // Remove old subscriptions from both databases to clean up stale routing
-        for database in [privateDatabase, sharedDatabase] {
+        // Remove old subscriptions from private, shared, and public databases
+        for database in [privateDatabase, sharedDatabase, publicDatabase] {
             let operation = CKModifySubscriptionsOperation(
                 subscriptionsToSave: nil,
                 subscriptionIDsToDelete: ids
@@ -286,51 +317,6 @@ final class CloudKitManager {
             operation.qualityOfService = .utility
             database.add(operation)
         }
-    }
-
-    private func saveGroupActivitySubscription(
-        subscriptionID: String,
-        zoneID: CKRecordZone.ID,
-        database: CKDatabase,
-        groupId: String
-    ) {
-        let predicate = NSPredicate(value: true)
-        let subscription = CKQuerySubscription(
-            recordType: "GroupActivity",
-            predicate: predicate,
-            subscriptionID: subscriptionID,
-            options: [.firesOnRecordCreation]
-        )
-        subscription.zoneID = zoneID
-
-        let notificationInfo = CKSubscription.NotificationInfo()
-        notificationInfo.shouldSendContentAvailable = true
-        notificationInfo.titleLocalizationKey = "GROUP_ACTIVITY_TITLE"
-        notificationInfo.alertLocalizationKey = "GROUP_ACTIVITY_BODY"
-        notificationInfo.alertLocalizationArgs = ["actorName", "action"]
-        notificationInfo.soundName = "default"
-        notificationInfo.desiredKeys = ["actorName", "action", "detail", "actorId", "targetRecordName"]
-        subscription.notificationInfo = notificationInfo
-
-        let operation = CKModifySubscriptionsOperation(
-            subscriptionsToSave: [subscription],
-            subscriptionIDsToDelete: nil
-        )
-        let dbLabel = (database === self.privateDatabase) ? "privateDB" : "sharedDB"
-        operation.modifySubscriptionsResultBlock = { result in
-            switch result {
-            case .success:
-                logWarning("GroupActivity subscription CREATED for group \(groupId) in \(dbLabel) (id: \(subscriptionID))")
-            case .failure(let error):
-                if let ckError = error as? CKError, ckError.code == .serverRejectedRequest {
-                    logWarning("GroupActivity subscription already exists for group \(groupId) in \(dbLabel) (id: \(subscriptionID))")
-                } else {
-                    logError("GroupActivity subscription FAILED for group \(groupId) in \(dbLabel): \(error.localizedDescription)")
-                }
-            }
-        }
-        operation.qualityOfService = .utility
-        database.add(operation)
     }
 
     // MARK: - Remote Notification Handling

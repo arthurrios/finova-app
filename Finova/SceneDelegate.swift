@@ -50,6 +50,11 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     // Sync delivered notifications from notification center to history
     // This captures notifications that arrived while app was in background
     NotificationHistoryManager.shared.syncDeliveredNotifications()
+
+    // Ensure GroupNotificationManager singleton is alive so its poll timer runs.
+    // With SceneDelegate, AppDelegate.applicationDidBecomeActive is not called,
+    // so we must touch the singleton here to register its lifecycle observers.
+    GroupNotificationManager.shared.startPolling()
   }
 
   func sceneWillResignActive(_ scene: UIScene) {

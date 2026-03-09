@@ -86,5 +86,52 @@ final class GroupNotificationService {
         }
         operation.qualityOfService = .utility
         database.add(operation)
+
+        // Also write a lightweight notification record to the PUBLIC database.
+        // CKQuerySubscriptions on private/shared DB don't reliably fire for
+        // records written by shared zone participants, so the public DB record
+        // is what triggers the visible push notification (same pattern as invitations).
+        writePublicActivityNotification(
+            action: action,
+            groupId: groupId,
+            actorName: actorName,
+            actorId: user.uid,
+            detail: detail,
+            targetRecordName: targetRecordName
+        )
+    }
+
+    private func writePublicActivityNotification(
+        action: GroupAction,
+        groupId: String,
+        actorName: String,
+        actorId: String,
+        detail: String,
+        targetRecordName: String?
+    ) {
+        let recordID = CKRecord.ID(recordName: "activityNotif-\(UUID().uuidString)")
+        let record = CKRecord(recordType: "GroupActivityNotification", recordID: recordID)
+
+        record["action"] = action.rawValue as CKRecordValue
+        record["groupId"] = groupId as CKRecordValue
+        record["actorName"] = actorName as CKRecordValue
+        record["actorId"] = actorId as CKRecordValue
+        record["detail"] = detail as CKRecordValue
+        record["timestamp"] = Date() as CKRecordValue
+        if let targetRecordName = targetRecordName {
+            record["targetRecordName"] = targetRecordName as CKRecordValue
+        }
+
+        let operation = CKModifyRecordsOperation(recordsToSave: [record], recordIDsToDelete: nil)
+        operation.modifyRecordsResultBlock = { result in
+            switch result {
+            case .success:
+                logWarning("GroupNotificationService: public notification SAVED — \(action.rawValue) in group \(groupId)")
+            case .failure(let error):
+                logWarning("GroupNotificationService: public notification FAILED — \(error.localizedDescription)")
+            }
+        }
+        operation.qualityOfService = .utility
+        CloudKitManager.shared.publicDatabase.add(operation)
     }
 }

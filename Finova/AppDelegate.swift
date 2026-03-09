@@ -223,17 +223,40 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
   ) {
     logWarning("AppDelegate: didReceiveRemoteNotification called")
 
+    // Log raw payload structure for diagnosis
+    if let ck = userInfo["ck"] as? [String: Any] {
+      let hasQry = ck["qry"] != nil
+      let hasDbs = ck["dbs"] != nil
+      logWarning("AppDelegate: ck payload — hasQry=\(hasQry) hasDbs=\(hasDbs)")
+      if let qry = ck["qry"] as? [String: Any] {
+        logWarning("AppDelegate: qry keys=\(qry.keys.sorted()) sid=\(qry["sid"] ?? "nil")")
+        if let af = qry["af"] as? [String: Any] {
+          logWarning("AppDelegate: qry fields (af)=\(af)")
+        }
+      }
+    }
+
     // Handle group activity notifications directly from push payload
     // before the system suspends the app (mirrors the invitation pattern).
-    if let notification = CKNotification(fromRemoteNotificationDictionary: userInfo) as? CKQueryNotification {
-      logWarning("AppDelegate: CKQueryNotification — reason=\(notification.queryNotificationReason.rawValue) recordType=\(notification.recordFields?["action"] as? String ?? "nil")")
+    let ckNotification = CKNotification(fromRemoteNotificationDictionary: userInfo)
+    logWarning("AppDelegate: CKNotification type=\(ckNotification.map { "\(type(of: $0))" } ?? "nil") subID=\(ckNotification?.subscriptionID ?? "nil")")
+
+    if let notification = ckNotification as? CKQueryNotification {
+      logWarning("AppDelegate: CKQueryNotification — reason=\(notification.queryNotificationReason.rawValue) fields=\(notification.recordFields ?? [:]) recordID=\(notification.recordID?.recordName ?? "nil")")
+      let fields = notification.recordFields
+      let actorName = fields?["actorName"] as? String
+      let action = fields?["action"] as? String
+      let detail = fields?["detail"] as? String
+      let actorId = fields?["actorId"] as? String
+      let currentUID = AuthenticationManager.shared.currentUser?.uid
+      logWarning("AppDelegate: field extraction — actorName=\(actorName ?? "nil") action=\(action ?? "nil") detail=\(detail ?? "nil") actorId=\(actorId ?? "nil") currentUID=\(currentUID ?? "nil") isOwnAction=\(actorId == currentUID)")
+
       if notification.queryNotificationReason == .recordCreated,
-         let fields = notification.recordFields,
-         let actorName = fields["actorName"] as? String,
-         let action = fields["action"] as? String,
-         let detail = fields["detail"] as? String,
-         let actorId = fields["actorId"] as? String,
-         actorId != AuthenticationManager.shared.currentUser?.uid {
+         let actorName = actorName,
+         let action = action,
+         let detail = detail,
+         let actorId = actorId,
+         actorId != currentUID {
         let requestId = notification.recordID?.recordName ?? UUID().uuidString
         logWarning("AppDelegate: GroupActivity PUSH — action=\(action) actor=\(actorName) detail=\(detail) requestId=\(requestId)")
 
@@ -242,6 +265,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
         var processed = UserDefaults.standard.stringArray(forKey: processedKey) ?? []
         if !processed.contains(requestId) {
           processed.append(requestId)
+          // Also mark a logical key so other paths won't duplicate
+          let logicalKey = GroupNotificationManager.logicalDeduplicationKey(action: action, actorId: actorId, detail: detail)
+          if !processed.contains(logicalKey) { processed.append(logicalKey) }
           if processed.count > 200 { processed = Array(processed.suffix(200)) }
           UserDefaults.standard.set(processed, forKey: processedKey)
 
@@ -251,35 +277,40 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
           content.sound = .default
           content.categoryIdentifier = "GROUP_ACTIVITY"
           var notifUserInfo: [String: Any] = ["action": action]
-          if let targetRecordName = fields["targetRecordName"] as? String {
+          if let targetRecordName = fields?["targetRecordName"] as? String {
             notifUserInfo["targetRecordName"] = targetRecordName
           }
           content.userInfo = notifUserInfo
           let request = UNNotificationRequest(identifier: requestId, content: content, trigger: nil)
-          UNUserNotificationCenter.current().add(request)
+          UNUserNotificationCenter.current().add(request) { error in
+            if let error = error {
+              logWarning("AppDelegate: UNNotification add FAILED — \(error.localizedDescription)")
+            } else {
+              logWarning("AppDelegate: UNNotification add SUCCEEDED — id=\(requestId)")
+            }
+          }
         } else {
           logWarning("AppDelegate: GroupActivity PUSH — already processed, skipping")
         }
+      } else {
+        logWarning("AppDelegate: CKQueryNotification SKIPPED — reason=\(notification.queryNotificationReason.rawValue) fieldsNil=\(fields == nil) isOwnAction=\(actorId == currentUID)")
       }
     } else {
-      logWarning("AppDelegate: Non-CKQueryNotification (likely CKDatabaseNotification)")
+      logWarning("AppDelegate: NOT CKQueryNotification — actual type: \(ckNotification.map { "\(type(of: $0))" } ?? "nil")")
     }
 
+    // Always query public DB for recent GroupActivityNotification records.
+    // CKQuerySubscription pushes are often coalesced/throttled by iOS when
+    // a CKDatabaseNotification push arrives first, so we fetch directly.
+    fetchPublicGroupActivityNotifications()
+
     // Directly fetch recent GroupActivity records from shared DB.
-    // CKQuerySubscription in the shared DB doesn't reliably fire for records
-    // written by the zone owner to their private DB, so we proactively fetch
-    // on every push to ensure member notifications are delivered.
     GroupNotificationManager.shared.fetchAndNotifyRecentActivities {
-      // Fetch group invitations directly before completionHandler is called.
-      // This ensures the local notification is scheduled before the system
-      // suspends the app — relying on SyncEngine (lazy singleton) + internal
-      // NotificationCenter is unreliable when the app is woken in background.
       BudgetGroupService.shared.fetchRemoteInvitations {
         CloudKitManager.shared.handleRemoteNotification(userInfo: userInfo) {
-          // Retry after delay to catch GroupActivity records still propagating
-          // from private DB to shared DB (CloudKit cross-DB propagation can take seconds).
-          // This keeps the app alive for a few more seconds before iOS suspends it.
           DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
+            logWarning("AppDelegate: 5s retry — fetching public DB again")
+            self.fetchPublicGroupActivityNotifications()
             GroupNotificationManager.shared.fetchAndNotifyRecentActivities {
               completionHandler(.newData)
             }
@@ -865,6 +896,95 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
       return nil
     }
     return recordName.replacingOccurrences(of: "invitation-", with: "")
+  }
+
+  /// Directly queries the public DB for recent GroupActivityNotification records
+  /// and shows local notifications for any that haven't been processed yet.
+  /// This is the reliable fallback when CKQuerySubscription pushes are coalesced by iOS.
+  private func fetchPublicGroupActivityNotifications() {
+    guard let currentUID = AuthenticationManager.shared.currentUser?.uid else {
+      logWarning("AppDelegate: fetchPublicGroupActivity — no current user")
+      return
+    }
+
+    let groups = BudgetGroupService.shared.fetchAllGroups().filter { !$0.isDeleted }
+    guard !groups.isEmpty else {
+      logWarning("AppDelegate: fetchPublicGroupActivity — no groups")
+      return
+    }
+
+    let groupIds = groups.map { $0.id }
+    // Only fetch records from the last 5 minutes to avoid showing stale notifications
+    let fiveMinutesAgo = Date().addingTimeInterval(-300) as NSDate
+    let predicate = NSPredicate(format: "timestamp > %@", fiveMinutesAgo)
+    let query = CKQuery(recordType: "GroupActivityNotification", predicate: predicate)
+
+    let operation = CKQueryOperation(query: query)
+    operation.resultsLimit = 20
+    operation.desiredKeys = ["actorName", "action", "detail", "actorId", "targetRecordName", "groupId"]
+
+    var fetchedRecords: [CKRecord] = []
+    operation.recordMatchedBlock = { _, result in
+      if case .success(let record) = result {
+        fetchedRecords.append(record)
+      }
+    }
+    operation.queryResultBlock = { result in
+      DispatchQueue.main.async {
+        logWarning("AppDelegate: fetchPublicGroupActivity — fetched \(fetchedRecords.count) records (result=\(result))")
+        let processedKey = "GroupNotification_ProcessedRecordNames"
+        var processed = UserDefaults.standard.stringArray(forKey: processedKey) ?? []
+
+        for record in fetchedRecords {
+          let recordName = record.recordID.recordName
+
+          // Skip already-processed
+          guard !processed.contains(recordName) else { continue }
+
+          // Filter locally: only our groups, not our own actions
+          guard let groupId = record["groupId"] as? String,
+                groupIds.contains(groupId),
+                let actorId = record["actorId"] as? String,
+                actorId != currentUID,
+                let actorName = record["actorName"] as? String,
+                let action = record["action"] as? String,
+                let detail = record["detail"] as? String else {
+            continue
+          }
+
+          processed.append(recordName)
+          // Also mark a logical key so handleIncomingActivity (zone sync) won't duplicate
+          let logicalKey = GroupNotificationManager.logicalDeduplicationKey(action: action, actorId: actorId, detail: detail)
+          if !processed.contains(logicalKey) { processed.append(logicalKey) }
+          logWarning("AppDelegate: fetchPublicGroupActivity — DELIVERING \(action) from \(actorName)")
+
+          let content = UNMutableNotificationContent()
+          content.title = actorName
+          content.body = GroupNotificationManager.shared.notificationBody(for: action, detail: detail)
+          content.sound = .default
+          content.categoryIdentifier = "GROUP_ACTIVITY"
+          var notifUserInfo: [String: Any] = ["action": action]
+          if let targetRecordName = record["targetRecordName"] as? String {
+            notifUserInfo["targetRecordName"] = targetRecordName
+          }
+          content.userInfo = notifUserInfo
+
+          let request = UNNotificationRequest(identifier: recordName, content: content, trigger: nil)
+          UNUserNotificationCenter.current().add(request) { error in
+            if let error = error {
+              logWarning("AppDelegate: fetchPublicGroupActivity — notification FAILED: \(error)")
+            } else {
+              logWarning("AppDelegate: fetchPublicGroupActivity — notification SUCCEEDED: \(recordName)")
+            }
+          }
+        }
+
+        if processed.count > 200 { processed = Array(processed.suffix(200)) }
+        UserDefaults.standard.set(processed, forKey: processedKey)
+      }
+    }
+    operation.qualityOfService = .userInitiated
+    CloudKitManager.shared.publicDatabase.add(operation)
   }
 
   // MARK: - Balance Monitoring
