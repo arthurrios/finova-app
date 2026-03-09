@@ -87,14 +87,25 @@ final class AddTransactionModalViewModel {
       do {
         let insertedId = try transactionRepo.insertTransactionAndGetId(model)
 
+        // Pre-generate CK record name so the notification includes it
+        let ckRecordName = "transaction-\(UUID().uuidString)"
+        transactionRepo.setCKRecordId(for: insertedId, ckRecordName: ckRecordName)
+
         // Assign to group if in group context
+        logWarning("CREATE (recurring): activeContext=\(activeContext), groupId=\(activeContext.groupId ?? "nil")")
         if let groupId = activeContext.groupId {
           transactionRepo.updateSharedGroupId(transactionId: insertedId, groupId: groupId)
           GroupNotificationService.shared.logActivity(
-            action: .transactionCreated, groupId: groupId, detail: title)
+            action: .transactionCreated, groupId: groupId, detail: title,
+            targetRecordName: ckRecordName)
+          SyncEngine.shared.pushPendingChangesNow()
         } else if MirrorModeManager.shared.isEnabled,
                   let groupId = MirrorModeManager.shared.linkedGroupId {
           transactionRepo.updateSharedGroupId(transactionId: insertedId, groupId: groupId)
+          GroupNotificationService.shared.logActivity(
+            action: .transactionCreated, groupId: groupId, detail: title,
+            targetRecordName: ckRecordName)
+          SyncEngine.shared.pushPendingChangesNow()
         }
 
         // Check for similar existing recurring transactions
@@ -159,14 +170,25 @@ final class AddTransactionModalViewModel {
       do {
         let insertedId = try transactionRepo.insertTransactionAndGetId(model)
 
+        // Pre-generate CK record name so the notification includes it
+        let ckRecordName = "transaction-\(UUID().uuidString)"
+        transactionRepo.setCKRecordId(for: insertedId, ckRecordName: ckRecordName)
+
         // Assign to group if in group context
+        logWarning("CREATE: activeContext=\(activeContext), groupId=\(activeContext.groupId ?? "nil")")
         if let groupId = activeContext.groupId {
           transactionRepo.updateSharedGroupId(transactionId: insertedId, groupId: groupId)
           GroupNotificationService.shared.logActivity(
-            action: .transactionCreated, groupId: groupId, detail: title)
+            action: .transactionCreated, groupId: groupId, detail: title,
+            targetRecordName: ckRecordName)
+          SyncEngine.shared.pushPendingChangesNow()
         } else if MirrorModeManager.shared.isEnabled,
                   let groupId = MirrorModeManager.shared.linkedGroupId {
           transactionRepo.updateSharedGroupId(transactionId: insertedId, groupId: groupId)
+          GroupNotificationService.shared.logActivity(
+            action: .transactionCreated, groupId: groupId, detail: title,
+            targetRecordName: ckRecordName)
+          SyncEngine.shared.pushPendingChangesNow()
         }
 
         // Handle credit card statement assignment
@@ -249,12 +271,25 @@ final class AddTransactionModalViewModel {
     do {
       let insertedId = try transactionRepo.insertTransactionAndGetId(model)
 
+      // Pre-generate CK record name so the notification includes it
+      let ckRecordName = "transaction-\(UUID().uuidString)"
+      transactionRepo.setCKRecordId(for: insertedId, ckRecordName: ckRecordName)
+
       // Assign to group if in group context or mirror mode
+      logWarning("CREATE (recurringAsync): activeContext=\(self.activeContext), groupId=\(self.activeContext.groupId ?? "nil")")
       if let groupId = self.activeContext.groupId {
         self.transactionRepo.updateSharedGroupId(transactionId: insertedId, groupId: groupId)
+        GroupNotificationService.shared.logActivity(
+          action: .transactionCreated, groupId: groupId, detail: title,
+          targetRecordName: ckRecordName)
+        SyncEngine.shared.pushPendingChangesNow()
       } else if MirrorModeManager.shared.isEnabled,
                 let groupId = MirrorModeManager.shared.linkedGroupId {
         self.transactionRepo.updateSharedGroupId(transactionId: insertedId, groupId: groupId)
+        GroupNotificationService.shared.logActivity(
+          action: .transactionCreated, groupId: groupId, detail: title,
+          targetRecordName: ckRecordName)
+        SyncEngine.shared.pushPendingChangesNow()
       }
 
       // Check for similar existing recurring transactions
@@ -370,11 +405,19 @@ final class AddTransactionModalViewModel {
 
       let parentId = try transactionRepo.insertTransactionAndGetId(parentModel)
 
+      // Pre-generate CK record name so the notification includes it
+      let ckRecordName = "transaction-\(UUID().uuidString)"
+      transactionRepo.setCKRecordId(for: parentId, ckRecordName: ckRecordName)
+
       // Assign parent to group if in group context or mirror mode
       let groupId: String? = activeContext.groupId
         ?? (MirrorModeManager.shared.isEnabled ? MirrorModeManager.shared.linkedGroupId : nil)
       if let groupId = groupId {
         transactionRepo.updateSharedGroupId(transactionId: parentId, groupId: groupId)
+        GroupNotificationService.shared.logActivity(
+          action: .transactionCreated, groupId: groupId, detail: data.title,
+          targetRecordName: ckRecordName)
+        SyncEngine.shared.pushPendingChangesNow()
       }
 
       // LAZY GENERATION: Only create immediate installments (first 3 months)
@@ -495,11 +538,18 @@ final class AddTransactionModalViewModel {
 
         let parentId = try self.transactionRepo.insertTransactionAndGetId(parentModel)
 
+        // Pre-generate CK record name so the notification includes it
+        let ckRecordName = "transaction-\(UUID().uuidString)"
+        self.transactionRepo.setCKRecordId(for: parentId, ckRecordName: ckRecordName)
+
         // Assign parent to group if in group context or mirror mode
         let groupId: String? = self.activeContext.groupId
           ?? (MirrorModeManager.shared.isEnabled ? MirrorModeManager.shared.linkedGroupId : nil)
         if let groupId = groupId {
           self.transactionRepo.updateSharedGroupId(transactionId: parentId, groupId: groupId)
+          GroupNotificationService.shared.logActivity(
+            action: .transactionCreated, groupId: groupId, detail: data.title,
+            targetRecordName: ckRecordName)
         }
 
         // Create immediate installments (first 3 months)
@@ -1024,10 +1074,17 @@ final class AddTransactionModalViewModel {
 
       try transactionRepo.updateTransaction(updatedTransaction)
 
-      // Log group activity if transaction belongs to a group
-      if let groupId = transactionRepo.fetchSharedGroupId(for: id) {
+      // Log group activity if transaction belongs to a group (or mirror mode)
+      let fetchedGroupId = transactionRepo.fetchSharedGroupId(for: id)
+      logWarning("EDIT: fetchSharedGroupId=\(fetchedGroupId ?? "nil"), activeContext=\(activeContext)")
+      let editGroupId = fetchedGroupId
+        ?? (MirrorModeManager.shared.isEnabled ? MirrorModeManager.shared.linkedGroupId : nil)
+      if let groupId = editGroupId {
+        let ckRecordName = transactionRepo.fetchCKRecordName(for: id)
         GroupNotificationService.shared.logActivity(
-          action: .transactionEdited, groupId: groupId, detail: title)
+          action: .transactionEdited, groupId: groupId, detail: title,
+          targetRecordName: ckRecordName)
+        SyncEngine.shared.pushPendingChangesNow()
       }
 
       // Recalculate old statement if transaction moved away from it
@@ -1248,6 +1305,18 @@ final class AddTransactionModalViewModel {
 
       do {
         try transactionRepo.updateTransaction(updatedTransaction)
+
+        // Log group activity if transaction belongs to a group (or mirror mode)
+        let txId = mainInstallmentTransaction.id ?? id
+        let installEditGroupId = transactionRepo.fetchSharedGroupId(for: txId)
+          ?? (MirrorModeManager.shared.isEnabled ? MirrorModeManager.shared.linkedGroupId : nil)
+        if let groupId = installEditGroupId {
+          let ckRecordName = transactionRepo.fetchCKRecordName(for: txId)
+          GroupNotificationService.shared.logActivity(
+            action: .transactionEdited, groupId: groupId, detail: data.title,
+            targetRecordName: ckRecordName)
+        }
+
         invalidateLedgerCache()
         monitorNegativeBalance()
         return .success(())
@@ -1356,6 +1425,16 @@ final class AddTransactionModalViewModel {
         creditCardService.recalculateStatementTotal(statementId: newStmtId)
       }
 
+      // Log group activity if transaction belongs to a group (or mirror mode)
+      let singleEditGroupId = transactionRepo.fetchSharedGroupId(for: id)
+        ?? (MirrorModeManager.shared.isEnabled ? MirrorModeManager.shared.linkedGroupId : nil)
+      if let groupId = singleEditGroupId {
+        let ckRecordName = transactionRepo.fetchCKRecordName(for: id)
+        GroupNotificationService.shared.logActivity(
+          action: .transactionEdited, groupId: groupId, detail: title,
+          targetRecordName: ckRecordName)
+      }
+
       invalidateLedgerCache()
       monitorNegativeBalance()
       return .success(())
@@ -1397,6 +1476,17 @@ final class AddTransactionModalViewModel {
         amount: data.totalAmount,
         date: dateObj
       )
+
+      // Log group activity if transaction belongs to a group (or mirror mode)
+      let singleInstallEditGroupId = transactionRepo.fetchSharedGroupId(for: id)
+        ?? (MirrorModeManager.shared.isEnabled ? MirrorModeManager.shared.linkedGroupId : nil)
+      if let groupId = singleInstallEditGroupId {
+        let ckRecordName = transactionRepo.fetchCKRecordName(for: id)
+        GroupNotificationService.shared.logActivity(
+          action: .transactionEdited, groupId: groupId, detail: data.title,
+          targetRecordName: ckRecordName)
+      }
+
       invalidateLedgerCache()
       monitorNegativeBalance()
       return .success(())
@@ -1490,6 +1580,16 @@ final class AddTransactionModalViewModel {
         editOption: editOption,
         newData: newTransactionData
       )
+
+      // Log group activity if transaction belongs to a group (or mirror mode)
+      let recurEditGroupId = transactionRepo.fetchSharedGroupId(for: id)
+        ?? (MirrorModeManager.shared.isEnabled ? MirrorModeManager.shared.linkedGroupId : nil)
+      if let groupId = recurEditGroupId {
+        let ckRecordName = transactionRepo.fetchCKRecordName(for: id)
+        GroupNotificationService.shared.logActivity(
+          action: .transactionEdited, groupId: groupId, detail: title,
+          targetRecordName: ckRecordName)
+      }
 
       invalidateLedgerCache()
       return .success(())
@@ -1596,6 +1696,15 @@ final class AddTransactionModalViewModel {
         newData: newTransactionData
       ) { [weak self] result in
         if case .success = result {
+          // Log group activity if transaction belongs to a group (or mirror mode)
+          let asyncRecurEditGroupId = self?.transactionRepo.fetchSharedGroupId(for: id)
+            ?? (MirrorModeManager.shared.isEnabled ? MirrorModeManager.shared.linkedGroupId : nil)
+          if let groupId = asyncRecurEditGroupId {
+            let ckRecordName = self?.transactionRepo.fetchCKRecordName(for: id)
+            GroupNotificationService.shared.logActivity(
+              action: .transactionEdited, groupId: groupId, detail: title,
+              targetRecordName: ckRecordName)
+          }
           self?.invalidateLedgerCache()
         }
         completion(result)

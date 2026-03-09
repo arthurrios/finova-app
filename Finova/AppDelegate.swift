@@ -58,6 +58,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     // Monitorar saldo negativo quando o app voltar ao foreground
     monitorNegativeBalance()
 
+    // Fetch any missed group activity notifications
+    GroupNotificationManager.shared.fetchAndNotifyRecentActivities {}
+
     // Note: SceneDelegate will handle the appDidEnterForeground notification posting
     // to avoid duplicate notifications and ensure proper timing
   }
@@ -218,33 +221,70 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     didReceiveRemoteNotification userInfo: [AnyHashable: Any],
     fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void
   ) {
+    logWarning("AppDelegate: didReceiveRemoteNotification called")
+
     // Handle group activity notifications directly from push payload
     // before the system suspends the app (mirrors the invitation pattern).
-    if let notification = CKNotification(fromRemoteNotificationDictionary: userInfo) as? CKQueryNotification,
-       notification.queryNotificationReason == .recordCreated,
-       let fields = notification.recordFields,
-       let actorName = fields["actorName"] as? String,
-       let action = fields["action"] as? String,
-       let detail = fields["detail"] as? String,
-       let actorId = fields["actorId"] as? String,
-       actorId != AuthenticationManager.shared.currentUser?.uid {
-      let content = UNMutableNotificationContent()
-      content.title = actorName
-      content.body = GroupNotificationManager.shared.notificationBody(for: action, detail: detail)
-      content.sound = .default
-      content.categoryIdentifier = "GROUP_ACTIVITY"
-      let requestId = notification.recordID?.recordName ?? UUID().uuidString
-      let request = UNNotificationRequest(identifier: requestId, content: content, trigger: nil)
-      UNUserNotificationCenter.current().add(request)
+    if let notification = CKNotification(fromRemoteNotificationDictionary: userInfo) as? CKQueryNotification {
+      logWarning("AppDelegate: CKQueryNotification — reason=\(notification.queryNotificationReason.rawValue) recordType=\(notification.recordFields?["action"] as? String ?? "nil")")
+      if notification.queryNotificationReason == .recordCreated,
+         let fields = notification.recordFields,
+         let actorName = fields["actorName"] as? String,
+         let action = fields["action"] as? String,
+         let detail = fields["detail"] as? String,
+         let actorId = fields["actorId"] as? String,
+         actorId != AuthenticationManager.shared.currentUser?.uid {
+        let requestId = notification.recordID?.recordName ?? UUID().uuidString
+        logWarning("AppDelegate: GroupActivity PUSH — action=\(action) actor=\(actorName) detail=\(detail) requestId=\(requestId)")
+
+        // Mark as processed so fetchAndNotifyRecentActivities doesn't re-show it
+        let processedKey = "GroupNotification_ProcessedRecordNames"
+        var processed = UserDefaults.standard.stringArray(forKey: processedKey) ?? []
+        if !processed.contains(requestId) {
+          processed.append(requestId)
+          if processed.count > 200 { processed = Array(processed.suffix(200)) }
+          UserDefaults.standard.set(processed, forKey: processedKey)
+
+          let content = UNMutableNotificationContent()
+          content.title = actorName
+          content.body = GroupNotificationManager.shared.notificationBody(for: action, detail: detail)
+          content.sound = .default
+          content.categoryIdentifier = "GROUP_ACTIVITY"
+          var notifUserInfo: [String: Any] = ["action": action]
+          if let targetRecordName = fields["targetRecordName"] as? String {
+            notifUserInfo["targetRecordName"] = targetRecordName
+          }
+          content.userInfo = notifUserInfo
+          let request = UNNotificationRequest(identifier: requestId, content: content, trigger: nil)
+          UNUserNotificationCenter.current().add(request)
+        } else {
+          logWarning("AppDelegate: GroupActivity PUSH — already processed, skipping")
+        }
+      }
+    } else {
+      logWarning("AppDelegate: Non-CKQueryNotification (likely CKDatabaseNotification)")
     }
 
-    // Fetch group invitations directly before completionHandler is called.
-    // This ensures the local notification is scheduled before the system
-    // suspends the app — relying on SyncEngine (lazy singleton) + internal
-    // NotificationCenter is unreliable when the app is woken in background.
-    BudgetGroupService.shared.fetchRemoteInvitations { [weak self] in
-      CloudKitManager.shared.handleRemoteNotification(userInfo: userInfo) {
-        completionHandler(.newData)
+    // Directly fetch recent GroupActivity records from shared DB.
+    // CKQuerySubscription in the shared DB doesn't reliably fire for records
+    // written by the zone owner to their private DB, so we proactively fetch
+    // on every push to ensure member notifications are delivered.
+    GroupNotificationManager.shared.fetchAndNotifyRecentActivities {
+      // Fetch group invitations directly before completionHandler is called.
+      // This ensures the local notification is scheduled before the system
+      // suspends the app — relying on SyncEngine (lazy singleton) + internal
+      // NotificationCenter is unreliable when the app is woken in background.
+      BudgetGroupService.shared.fetchRemoteInvitations {
+        CloudKitManager.shared.handleRemoteNotification(userInfo: userInfo) {
+          // Retry after delay to catch GroupActivity records still propagating
+          // from private DB to shared DB (CloudKit cross-DB propagation can take seconds).
+          // This keeps the app alive for a few more seconds before iOS suspends it.
+          DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
+            GroupNotificationManager.shared.fetchAndNotifyRecentActivities {
+              completionHandler(.newData)
+            }
+          }
+        }
       }
     }
   }
@@ -654,6 +694,28 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     // Mark notification as read when tapped
     let notificationId = notification.request.identifier
     NotificationHistoryManager.shared.markAsRead(id: notificationId)
+
+    // Check if this is a group activity notification about a transaction
+    if notification.request.content.categoryIdentifier == "GROUP_ACTIVITY",
+       let targetRecordName = userInfo["targetRecordName"] as? String,
+       let action = userInfo["action"] as? String {
+      let transactionActions: Set<String> = ["transaction_created", "transaction_edited"]
+      if transactionActions.contains(action) {
+        let repo = TransactionRepository()
+        if let transaction = repo.fetchTransaction(byCKRecordName: targetRecordName),
+           let transactionId = transaction.id {
+          DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            NotificationCenter.default.post(
+              name: .navigateToTransactionDetails,
+              object: nil,
+              userInfo: ["transactionId": transactionId]
+            )
+          }
+        }
+      }
+      completionHandler()
+      return
+    }
 
     // Check if this is a transaction notification (has transactionId in userInfo)
     if let transactionId = userInfo["transactionId"] as? Int {

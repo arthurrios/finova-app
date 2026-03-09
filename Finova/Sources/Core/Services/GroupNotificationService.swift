@@ -28,6 +28,7 @@ final class GroupNotificationService {
         action: GroupAction,
         groupId: String,
         detail: String,
+        targetRecordName: String? = nil,
         completion: ((Result<Void, Error>) -> Void)? = nil
     ) {
         let repository = BudgetGroupRepository()
@@ -60,13 +61,21 @@ final class GroupNotificationService {
         record["actorId"] = user.uid as CKRecordValue
         record["detail"] = detail as CKRecordValue
         record["timestamp"] = Date() as CKRecordValue
+        if let targetRecordName = targetRecordName {
+            record["targetRecordName"] = targetRecordName as CKRecordValue
+        }
+
+        let dbName = (database === CloudKitManager.shared.privateDatabase) ? "privateDB" : "sharedDB"
+        logWarning("GroupNotificationService: SAVING \(action.rawValue) to \(dbName) zone=Group-\(groupId) record=\(recordID.recordName)")
 
         let operation = CKModifyRecordsOperation(recordsToSave: [record], recordIDsToDelete: nil)
         operation.modifyRecordsResultBlock = { result in
             switch result {
             case .success:
+                logWarning("GroupNotificationService: logActivity SUCCEEDED — \(action.rawValue) in group \(groupId)")
                 completion?(.success(()))
             case .failure(let error):
+                logError("GroupNotificationService: logActivity FAILED — \(action.rawValue) in group \(groupId): \(error.localizedDescription)")
                 completion?(.failure(error))
             }
         }

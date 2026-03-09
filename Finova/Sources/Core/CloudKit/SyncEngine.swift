@@ -7,6 +7,7 @@
 
 import CloudKit
 import Foundation
+import UIKit
 
 enum SyncStatus {
     case idle
@@ -693,6 +694,41 @@ final class SyncEngine {
         // Also fetch invitations immediately (public DB notifications don't trigger private DB changes)
         BudgetGroupService.shared.fetchRemoteInvitations {}
         performFullSync()
+    }
+
+    /// Triggers an immediate push of pending local changes to CloudKit.
+    /// Uses a background task to ensure the push completes even if the app is backgrounded.
+    /// Call this after group transaction create/edit to ensure timely notification delivery.
+    func pushPendingChangesNow() {
+        logWarning("[SyncEngine] pushPendingChangesNow — called")
+        var bgTaskID = UIBackgroundTaskIdentifier.invalid
+        bgTaskID = UIApplication.shared.beginBackgroundTask {
+            logWarning("[SyncEngine] pushPendingChangesNow — background task expired")
+            UIApplication.shared.endBackgroundTask(bgTaskID)
+            bgTaskID = .invalid
+        }
+        syncQueue.async { [weak self] in
+            guard let self = self else {
+                UIApplication.shared.endBackgroundTask(bgTaskID)
+                return
+            }
+            if self.isSyncing {
+                logWarning("[SyncEngine] pushPendingChangesNow — SKIPPED (isSyncing=true), setting needsPostSyncPush")
+                self.needsPostSyncPush = true
+                UIApplication.shared.endBackgroundTask(bgTaskID)
+                return
+            }
+            logWarning("[SyncEngine] pushPendingChangesNow — executing pushLocalChanges")
+            self.pushLocalChanges { result in
+                switch result {
+                case .success:
+                    logWarning("[SyncEngine] pushPendingChangesNow — push SUCCEEDED")
+                case .failure(let error):
+                    logWarning("[SyncEngine] pushPendingChangesNow — push FAILED: \(error.localizedDescription)")
+                }
+                UIApplication.shared.endBackgroundTask(bgTaskID)
+            }
+        }
     }
 
     @objc private func handleLocalDataChange() {
@@ -2461,9 +2497,10 @@ final class SyncEngine {
         )
         let allLocalGroupIds = Set(allGroupRows.map { $0.id })
 
-        logWarning("[Sync] discoverGroupsFromAllZones: \(existingGroups.count) active, \(allLocalGroupIds.count) total local group(s)")
+        let currentUID = AuthenticationManager.shared.currentUser?.uid ?? "nil"
+        logWarning("[Sync] discoverGroupsFromAllZones: \(existingGroups.count) active, \(allLocalGroupIds.count) total local group(s), currentUID=\(currentUID)")
         for g in allGroupRows {
-            logWarning("[Sync]   group '\(g.name)' id=\(g.id) owner=\(g.ownerId) isDeleted=\(g.isDeleted) ckRecord=\(g.ckRecordId ?? "nil") ckShare=\(g.ckShareUrl ?? "nil")")
+            logWarning("[Sync]   group '\(g.name)' id=\(g.id) owner=\(g.ownerId) isOwner=\(g.isOwner) isDeleted=\(g.isDeleted) ckRecord=\(g.ckRecordId ?? "nil") ckShare=\(g.ckShareUrl ?? "nil")")
         }
 
         let operation = CKFetchRecordZonesOperation.fetchAllRecordZonesOperation()

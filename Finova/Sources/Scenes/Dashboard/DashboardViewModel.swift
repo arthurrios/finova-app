@@ -286,6 +286,7 @@ final class DashboardViewModel {
 
       // Capture group ID before deletion (needed for activity log)
       let groupId = transactionRepo.fetchSharedGroupId(for: id)
+        ?? (MirrorModeManager.shared.isEnabled ? MirrorModeManager.shared.linkedGroupId : nil)
 
       // Handle simple transactions directly
       if transaction.isRecurring != true && transaction.parentTransactionId == nil
@@ -316,6 +317,7 @@ final class DashboardViewModel {
         if let groupId = groupId {
           GroupNotificationService.shared.logActivity(
             action: .transactionDeleted, groupId: groupId, detail: transaction.title)
+          SyncEngine.shared.pushPendingChangesNow()
         }
 
         return .success(())
@@ -355,6 +357,7 @@ final class DashboardViewModel {
 
         // Capture group ID before deletion (needed for activity log)
         let groupId = self.transactionRepo.fetchSharedGroupId(for: transactionId)
+          ?? (MirrorModeManager.shared.isEnabled ? MirrorModeManager.shared.linkedGroupId : nil)
 
         // Use mode property to correctly identify transaction type
         // This is more reliable than looking up parent transactions
@@ -377,6 +380,7 @@ final class DashboardViewModel {
             if let groupId = groupId {
               GroupNotificationService.shared.logActivity(
                 action: .transactionDeleted, groupId: groupId, detail: transaction.title)
+              SyncEngine.shared.pushPendingChangesNow()
             }
             completion(.success(()))
           }
@@ -400,6 +404,7 @@ final class DashboardViewModel {
             if let groupId = groupId {
               GroupNotificationService.shared.logActivity(
                 action: .transactionDeleted, groupId: groupId, detail: transaction.title)
+              SyncEngine.shared.pushPendingChangesNow()
             }
             completion(.success(()))
           }
@@ -418,6 +423,7 @@ final class DashboardViewModel {
           if let groupId = groupId {
             GroupNotificationService.shared.logActivity(
               action: .transactionDeleted, groupId: groupId, detail: transaction.title)
+            SyncEngine.shared.pushPendingChangesNow()
           }
           DispatchQueue.main.async {
             completion(.success(()))

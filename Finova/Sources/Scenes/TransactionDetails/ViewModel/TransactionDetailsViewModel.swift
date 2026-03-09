@@ -219,22 +219,28 @@ final class TransactionDetailsViewModel {
     guard let txId = transaction.id else { return }
     let repo = transactionRepository as? TransactionRepository
     repo?.updateSharedGroupId(transactionId: txId, groupId: groupId)
+    let ckRecordName = repo?.fetchCKRecordName(for: txId)
 
     GroupNotificationService.shared.logActivity(
       action: .transactionCreated,
       groupId: groupId,
-      detail: transaction.title
+      detail: transaction.title,
+      targetRecordName: ckRecordName
     )
+    SyncEngine.shared.pushPendingChangesNow()
   }
 
   func moveTransactionToPersonal() {
     guard let txId = transaction.id else { return }
-    if let groupId = getSharedGroupId() {
+    let groupId = getSharedGroupId()
+      ?? (MirrorModeManager.shared.isEnabled ? MirrorModeManager.shared.linkedGroupId : nil)
+    if let groupId = groupId {
       GroupNotificationService.shared.logActivity(
         action: .transactionDeleted,
         groupId: groupId,
         detail: transaction.title
       )
+      SyncEngine.shared.pushPendingChangesNow()
     }
     let repo = transactionRepository as? TransactionRepository
     repo?.updateSharedGroupId(transactionId: txId, groupId: nil)

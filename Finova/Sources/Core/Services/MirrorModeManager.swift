@@ -30,10 +30,21 @@ final class MirrorModeManager {
         return UserDefaults.standard.string(forKey: "mirrorMode_groupId_\(uid)")
     }
 
+    /// Returns true only if the current user is the owner of the given group.
+    /// Mirror mode is exclusively an owner feature — members must never mirror personal data into the group.
+    private func isOwnerOfGroup(_ groupId: String) -> Bool {
+        guard let group = BudgetGroupRepository().fetchGroup(byId: groupId) else { return false }
+        return group.isOwner
+    }
+
     // MARK: - Enable / Disable
 
     func enableMirrorMode(groupId: String) {
         guard let uid = UIDUserDefaultsManager.shared.currentUserUID else { return }
+        guard isOwnerOfGroup(groupId) else {
+            logWarning("[MirrorMode] enableMirrorMode BLOCKED — current user is not owner of group \(groupId)")
+            return
+        }
         UserDefaults.standard.set(true, forKey: "mirrorMode_enabled_\(uid)")
         UserDefaults.standard.set(groupId, forKey: "mirrorMode_groupId_\(uid)")
         syncStateToCloud(enabled: true, groupId: groupId, uid: uid)
@@ -85,10 +96,25 @@ final class MirrorModeManager {
         logWarning("[MirrorMode] Cloud state changed: enabled=\(cloudEnabled), groupId=\(cloudGroupId ?? "nil") (local was enabled=\(localEnabled), groupId=\(localGroupId ?? "nil"))")
 
         if cloudEnabled, let groupId = cloudGroupId {
+            guard isOwnerOfGroup(groupId) else {
+                logWarning("[MirrorMode] Cloud state enable BLOCKED — current user is not owner of group \(groupId)")
+                return
+            }
             UserDefaults.standard.set(true, forKey: "mirrorMode_enabled_\(uid)")
             UserDefaults.standard.set(groupId, forKey: "mirrorMode_groupId_\(uid)")
             performInitialMirrorSync(groupId: groupId)
         } else if !cloudEnabled {
+            // Only disable if cloud explicitly has the enabled key set to false.
+            // cloud.bool(forKey:) returns false for MISSING keys too — a fresh device
+            // that never wrote mirror mode state should NOT disable it on other devices.
+            guard cloud.object(forKey: "mirrorMode_enabled_\(uid)") != nil else {
+                logWarning("[MirrorMode] Cloud state change: ignoring disable — key not explicitly set in cloud (fresh device?)")
+                // Seed cloud from local state so the fresh device picks up the correct value
+                if localEnabled, let groupId = localGroupId {
+                    syncStateToCloud(enabled: true, groupId: groupId, uid: uid)
+                }
+                return
+            }
             let previousGroupId = localGroupId
             UserDefaults.standard.set(false, forKey: "mirrorMode_enabled_\(uid)")
             UserDefaults.standard.removeObject(forKey: "mirrorMode_groupId_\(uid)")
@@ -120,6 +146,10 @@ final class MirrorModeManager {
         let cloudEnabled = cloud.bool(forKey: "mirrorMode_enabled_\(uid)")
 
         if cloudEnabled, let groupId = cloudGroupId, !isEnabled {
+            guard isOwnerOfGroup(groupId) else {
+                logWarning("[MirrorMode] Reconcile enable BLOCKED — current user is not owner of group \(groupId)")
+                return
+            }
             logWarning("[MirrorMode] Reconciling cloud state: enabling mirror mode for group \(groupId)")
             UserDefaults.standard.set(true, forKey: "mirrorMode_enabled_\(uid)")
             UserDefaults.standard.set(groupId, forKey: "mirrorMode_groupId_\(uid)")
@@ -139,6 +169,10 @@ final class MirrorModeManager {
 
     private func performInitialMirrorSync(groupId: String) {
         guard let uid = UIDUserDefaultsManager.shared.currentUserUID else { return }
+        guard isOwnerOfGroup(groupId) else {
+            logWarning("[MirrorMode] performInitialMirrorSync BLOCKED — current user is not owner of group \(groupId)")
+            return
+        }
 
         // 1. Transactions: tag all personal transactions with shared_group_id
         db.executeSyncUpdate(
@@ -182,7 +216,7 @@ final class MirrorModeManager {
         // 7. Trigger CloudKit sync
         SyncEngine.shared.performFullSync()
 
-        logInfo("MirrorModeManager: Initial mirror sync completed for group \(groupId)")
+        logWarning("[MirrorMode] Initial mirror sync completed for group \(groupId)")
     }
 
     // MARK: - Continuous Reconciliation
@@ -195,7 +229,15 @@ final class MirrorModeManager {
         guard isEnabled,
               let groupId = linkedGroupId,
               let uid = UIDUserDefaultsManager.shared.currentUserUID
-        else { return 0 }
+        else {
+            logWarning("[MirrorReconcile] SKIPPED — isEnabled=\(isEnabled), linkedGroupId=\(linkedGroupId ?? "nil"), uid=\(UIDUserDefaultsManager.shared.currentUserUID ?? "nil")")
+            return 0
+        }
+        guard isOwnerOfGroup(groupId) else {
+            logWarning("[MirrorReconcile] BLOCKED — current user is not owner of group \(groupId), disabling mirror mode")
+            disableMirrorMode()
+            return 0
+        }
 
         var totalChanged = 0
 
@@ -243,7 +285,7 @@ final class MirrorModeManager {
         if totalChanged > 0 {
             TransactionRepository.invalidateCache()
         }
-        logInfo("MirrorReconcile: reconciliation completed for group \(groupId) — \(totalChanged) rows changed")
+        logWarning("[MirrorReconcile] reconciliation completed for group \(groupId) — \(totalChanged) rows changed")
         return totalChanged
     }
 
@@ -282,6 +324,6 @@ final class MirrorModeManager {
 
         SyncEngine.shared.performFullSync()
 
-        logInfo("MirrorModeManager: Removed mirror for group \(groupId)")
+        logWarning("[MirrorMode] Removed mirror for group \(groupId)")
     }
 }

@@ -270,7 +270,7 @@ final class CloudKitManager {
             notificationInfo.alertLocalizationKey = "GROUP_ACTIVITY_BODY"
             notificationInfo.alertLocalizationArgs = ["actorName", "action"]
             notificationInfo.soundName = "default"
-            notificationInfo.desiredKeys = ["actorName", "action", "detail", "actorId"]
+            notificationInfo.desiredKeys = ["actorName", "action", "detail", "actorId", "targetRecordName"]
             subscription.notificationInfo = notificationInfo
 
             let operation = CKModifySubscriptionsOperation(
