@@ -201,8 +201,12 @@ class CreditCardService {
     private func reassignCardTransactions(card: CreditCard, userId: String, transactionRepo: TransactionRepository) {
         guard let cardId = card.id else { return }
         let allTransactions = transactionRepo.fetchAllTransactions()
+        // Skip CC installments that already have a statementId — their dateTimestamp
+        // has been remapped to the statement due date, so getOrCreateStatement would
+        // compute the wrong statement from the remapped date.
         let cardTransactions = allTransactions.filter {
             $0.creditCardId == cardId && $0.isCreditCardStatement != true
+            && !($0.installmentNumber != nil && $0.statementId != nil)
         }
 
         var affectedStatementIds = Set<Int>()
@@ -358,6 +362,106 @@ class CreditCardService {
         } catch {
             logError("Failed to check shared statement transaction count: \(error)")
         }
+    }
+
+    /// One-time migration: updates existing CC installments to use the statement due date
+    /// for their dateTimestamp and budgetMonthDate, instead of the original purchase date.
+    /// Also cleans up ghost duplicates created by lazy gen before the fix.
+    func migrateInstallmentDatesToStatementDueDates(transactionRepo: TransactionRepository) {
+        let migrationKey = "hasMigratedCCInstallmentDates_v4"
+        guard !UserDefaults.standard.bool(forKey: migrationKey) else { return }
+
+        let allTransactions = transactionRepo.fetchAllTransactions()
+
+        // Phase 1: Clean up ghost duplicates — for each installment parent
+        // whose children have a creditCardId, if two children share the same
+        // installmentNumber, keep the one with the lowest ID (the original)
+        // and delete the rest (ghosts from lazy gen).
+        // Note: parent transactions don't have creditCardId, only children do.
+        let installmentParents = allTransactions.filter {
+            $0.hasInstallments == true && $0.parentTransactionId == nil
+        }
+        // Only process parents that have CC installment children
+        let ccInstallmentParents = installmentParents.filter { parent in
+            guard let parentId = parent.id else { return false }
+            return allTransactions.contains { $0.parentTransactionId == parentId && $0.creditCardId != nil }
+        }
+
+        var deletedCount = 0
+        for parent in ccInstallmentParents {
+            guard let parentId = parent.id else { continue }
+            let children = allTransactions.filter { $0.parentTransactionId == parentId && $0.installmentNumber != nil }
+
+            // Group children by installmentNumber
+            var byNumber: [Int: [Transaction]] = [:]
+            for child in children {
+                if let num = child.installmentNumber {
+                    byNumber[num, default: []].append(child)
+                }
+            }
+
+            for (_, duplicates) in byNumber where duplicates.count > 1 {
+                // Sort by ID ascending — keep the lowest (the original), delete the rest
+                let sorted = duplicates.sorted { ($0.id ?? Int.max) < ($1.id ?? Int.max) }
+                for ghost in sorted.dropFirst() {
+                    if let ghostId = ghost.id {
+                        try? transactionRepo.delete(id: ghostId)
+                        deletedCount += 1
+                    }
+                }
+            }
+        }
+
+        if deletedCount > 0 {
+            logWarning("[CCInstallmentMigration] Deleted \(deletedCount) ghost duplicate installments")
+        }
+
+        // Phase 2: Remap remaining CC installments to statement due dates
+        // Re-fetch after deletions
+        let freshTransactions = transactionRepo.fetchAllTransactions()
+        let ccInstallments = freshTransactions.filter {
+            $0.creditCardId != nil && $0.statementId != nil && $0.installmentNumber != nil
+        }
+
+        guard !ccInstallments.isEmpty else {
+            UserDefaults.standard.set(true, forKey: migrationKey)
+            return
+        }
+
+        // Build a lookup of statementId → dueDate
+        var statementDueDates: [Int: Date] = [:]
+        for cardId in Set(ccInstallments.compactMap({ $0.creditCardId })) {
+            let statements = stmtRepo.fetchStatements(forCardId: cardId)
+            for stmt in statements {
+                if let stmtId = stmt.id {
+                    statementDueDates[stmtId] = stmt.dueDate
+                }
+            }
+        }
+
+        var migratedCount = 0
+        for tx in ccInstallments {
+            guard let txId = tx.id, let stmtId = tx.statementId,
+                  let dueDate = statementDueDates[stmtId] else { continue }
+
+            let dueDateTimestamp = Int(dueDate.timeIntervalSince1970)
+            let dueDateBudgetMonth = dueDate.monthAnchor
+            // Only update if the date is actually different
+            if tx.dateTimestamp != dueDateTimestamp || tx.budgetMonthDate != dueDateBudgetMonth {
+                transactionRepo.updateDateAndBudgetMonth(
+                    transactionId: txId,
+                    newDateTimestamp: dueDateTimestamp,
+                    newBudgetMonthDate: dueDateBudgetMonth
+                )
+                migratedCount += 1
+            }
+        }
+
+        if migratedCount > 0 {
+            logWarning("[CCInstallmentMigration] Migrated \(migratedCount) installments to statement due dates")
+        }
+
+        UserDefaults.standard.set(true, forKey: migrationKey)
     }
 
     private func daysInMonth(month: Int, year: Int) -> Int {

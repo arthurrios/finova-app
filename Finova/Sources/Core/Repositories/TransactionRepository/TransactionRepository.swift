@@ -140,6 +140,15 @@ final class TransactionRepository: TransactionRepositoryProtocol {
     try db.updateTransactionParentId(transactionId: transactionId, parentId: parentId)
   }
 
+  func updateDateAndBudgetMonth(transactionId: Int, newDateTimestamp: Int, newBudgetMonthDate: Int) {
+    Self.invalidateCache()
+    db.updateTransactionDateAndBudgetMonth(
+      transactionId: transactionId,
+      newDateTimestamp: newDateTimestamp,
+      newBudgetMonthDate: newBudgetMonthDate
+    )
+  }
+
   func updateTransaction(_ transaction: TransactionModel) throws {
     let allTransactions = fetchAllTransactions()
     guard
@@ -301,6 +310,15 @@ final class TransactionRepository: TransactionRepositoryProtocol {
               isCreditCardStatement: false
             )
             creditCardService.recalculateStatementTotal(statementId: statement.id!)
+
+            // Remap installment date to statement due date
+            let dueDateTimestamp = Int(statement.dueDate.timeIntervalSince1970)
+            let dueDateBudgetMonth = statement.dueDate.monthAnchor
+            updateDateAndBudgetMonth(
+              transactionId: insertedId,
+              newDateTimestamp: dueDateTimestamp,
+              newBudgetMonthDate: dueDateBudgetMonth
+            )
           }
         }
       } catch {

@@ -952,6 +952,22 @@ final class RecurringTransactionManager {
         let excludedAnchors = self.deletedInstanceAnchors[parentId] ?? []
         self.operationLock.unlock()
 
+        // For CC installments, dates are remapped to statement due dates, so the
+        // budgetMonthDate-based anchor check won't match the purchase-date-based
+        // target anchor. Build a set of existing installment numbers to prevent
+        // lazy gen from recreating installments that already exist at a different anchor.
+        // Note: parent transactions don't have creditCardId — only children do.
+        var existingInstallmentNumbers = Set<Int>()
+        let childrenOfParent = allTransactions.filter { $0.parentTransactionId == parentId }
+        let isCCInstallment = childrenOfParent.contains { $0.creditCardId != nil }
+        if isCCInstallment {
+          for tx in childrenOfParent {
+            if let num = tx.installmentNumber {
+              existingInstallmentNumbers.insert(num)
+            }
+          }
+        }
+
         let parentDate = parent.date
         let originalAmount = parent.originalAmount ?? parent.amount
         let amountPerInstallment = originalAmount / totalInstallments
@@ -965,6 +981,11 @@ final class RecurringTransactionManager {
           else { continue }
 
           let targetAnchor = targetDate.monthAnchor
+
+          // Skip if this installment number already exists (CC installments have remapped dates)
+          if isCCInstallment && existingInstallmentNumbers.contains(installmentNumber) {
+            continue
+          }
 
           // Only generate if this month is requested, doesn't exist yet, and wasn't intentionally deleted
           guard monthAnchors.contains(targetAnchor), !existingAnchors.contains(targetAnchor),
@@ -1009,7 +1030,7 @@ final class RecurringTransactionManager {
             // Link to credit card statement if the parent is a credit card transaction
             if let cardId = parent.creditCardId,
                let uid = AuthenticationManager.shared.currentUser?.uid {
-              self.assignToStatement(transactionId: insertedId, creditCardId: cardId, transactionDate: installmentDate, userId: uid)
+              self.assignToStatement(transactionId: insertedId, creditCardId: cardId, transactionDate: installmentDate, userId: uid, remapToStatementDueDate: true)
             }
           } catch {
             logError("Error creating installment instance: \(error)")
@@ -1044,7 +1065,10 @@ final class RecurringTransactionManager {
   // MARK: - Credit Card Statement Assignment
 
   /// Assigns a transaction to the correct credit card statement based on its date.
-  private func assignToStatement(transactionId: Int, creditCardId: Int, transactionDate: Date, userId: String) {
+  /// When `remapToStatementDueDate` is true (for CC installments), the transaction's
+  /// dateTimestamp and budgetMonthDate are updated to the statement's due date so that
+  /// the installment appears in the month money is actually debited.
+  private func assignToStatement(transactionId: Int, creditCardId: Int, transactionDate: Date, userId: String, remapToStatementDueDate: Bool = false) {
     guard let card = creditCardRepo.fetchCard(byId: creditCardId) else { return }
     guard let statement = creditCardService.getOrCreateStatement(for: card, transactionDate: transactionDate, userId: userId) else { return }
     do {
@@ -1055,6 +1079,16 @@ final class RecurringTransactionManager {
         isCreditCardStatement: false
       )
       creditCardService.recalculateStatementTotal(statementId: statement.id!)
+
+      if remapToStatementDueDate {
+        let dueDateTimestamp = Int(statement.dueDate.timeIntervalSince1970)
+        let dueDateBudgetMonth = statement.dueDate.monthAnchor
+        transactionRepo.updateDateAndBudgetMonth(
+          transactionId: transactionId,
+          newDateTimestamp: dueDateTimestamp,
+          newBudgetMonthDate: dueDateBudgetMonth
+        )
+      }
     } catch {
       logError("Error assigning transaction \(transactionId) to statement: \(error)")
     }

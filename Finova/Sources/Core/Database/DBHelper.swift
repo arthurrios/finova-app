@@ -646,6 +646,15 @@ class DBHelper {
         return results
     }
     
+    func updateTransactionDateAndBudgetMonth(transactionId: Int, newDateTimestamp: Int, newBudgetMonthDate: Int) {
+        guard isInitialized else { return }
+        let now = Int(Date().timeIntervalSince1970)
+        executeSyncUpdate(
+            "UPDATE Transactions SET date = ?, budget_month_date = ?, sync_status = 'pending', updated_at = ? WHERE id = ?;",
+            intBindings: [newDateTimestamp, newBudgetMonthDate, now, transactionId]
+        )
+    }
+
     func deleteTransaction(id: Int) throws {
         guard isInitialized else {
             logWarning("Database not initialized, skipping transaction delete")

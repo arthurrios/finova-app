@@ -462,6 +462,29 @@ final class AddTransactionModalViewModel {
           transactionRepo.updateSharedGroupId(transactionId: installmentId, groupId: groupId)
         }
 
+        // Assign installment to correct credit card statement + remap date to due date
+        if let cardId = data.creditCardId, let card = creditCardRepo.fetchCard(byId: cardId) {
+          if let uid = AuthenticationManager.shared.currentUser?.uid,
+             let statement = creditCardService.getOrCreateStatement(for: card, transactionDate: installmentDate, userId: uid) {
+            try transactionRepo.updateCreditCardFields(
+              transactionId: installmentId,
+              creditCardId: cardId,
+              statementId: statement.id!,
+              isCreditCardStatement: false
+            )
+            creditCardService.recalculateStatementTotal(statementId: statement.id!)
+
+            // Remap installment date to statement due date
+            let dueDateTimestamp = Int(statement.dueDate.timeIntervalSince1970)
+            let dueDateBudgetMonth = statement.dueDate.monthAnchor
+            transactionRepo.updateDateAndBudgetMonth(
+              transactionId: installmentId,
+              newDateTimestamp: dueDateTimestamp,
+              newBudgetMonthDate: dueDateBudgetMonth
+            )
+          }
+        }
+
         // Adicionar à lista para notificações otimizadas
         allInstallments.append(installmentModel)
       }
@@ -593,7 +616,7 @@ final class AddTransactionModalViewModel {
             self.transactionRepo.updateSharedGroupId(transactionId: insertedInstallmentId, groupId: groupId)
           }
 
-          // Assign installment to correct credit card statement
+          // Assign installment to correct credit card statement + remap date to due date
           if let cardId = data.creditCardId, let card = self.creditCardRepo.fetchCard(byId: cardId) {
             guard let uid = AuthenticationManager.shared.currentUser?.uid else { break }
             if let statement = self.creditCardService.getOrCreateStatement(for: card, transactionDate: installmentDate, userId: uid) {
@@ -604,6 +627,15 @@ final class AddTransactionModalViewModel {
                 isCreditCardStatement: false
               )
               self.creditCardService.recalculateStatementTotal(statementId: statement.id!)
+
+              // Remap installment date to statement due date
+              let dueDateTimestamp = Int(statement.dueDate.timeIntervalSince1970)
+              let dueDateBudgetMonth = statement.dueDate.monthAnchor
+              self.transactionRepo.updateDateAndBudgetMonth(
+                transactionId: insertedInstallmentId,
+                newDateTimestamp: dueDateTimestamp,
+                newBudgetMonthDate: dueDateBudgetMonth
+              )
             }
           }
         }
@@ -1476,6 +1508,28 @@ final class AddTransactionModalViewModel {
         amount: data.totalAmount,
         date: dateObj
       )
+
+      // Re-assign CC statement and remap date to due date for CC installments
+      if let cardId = data.creditCardId, let card = creditCardRepo.fetchCard(byId: cardId) {
+        if let uid = AuthenticationManager.shared.currentUser?.uid,
+           let statement = creditCardService.getOrCreateStatement(for: card, transactionDate: dateObj, userId: uid) {
+          try transactionRepo.updateCreditCardFields(
+            transactionId: id,
+            creditCardId: cardId,
+            statementId: statement.id!,
+            isCreditCardStatement: false
+          )
+          creditCardService.recalculateStatementTotal(statementId: statement.id!)
+
+          let dueDateTimestamp = Int(statement.dueDate.timeIntervalSince1970)
+          let dueDateBudgetMonth = statement.dueDate.monthAnchor
+          transactionRepo.updateDateAndBudgetMonth(
+            transactionId: id,
+            newDateTimestamp: dueDateTimestamp,
+            newBudgetMonthDate: dueDateBudgetMonth
+          )
+        }
+      }
 
       // Log group activity if transaction belongs to a group (or mirror mode)
       let singleInstallEditGroupId = transactionRepo.fetchSharedGroupId(for: id)

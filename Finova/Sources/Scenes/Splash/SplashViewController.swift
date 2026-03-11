@@ -86,6 +86,9 @@ final class SplashViewController: UIViewController {
       }
       BudgetAllocationRepository.migrateFromUserDefaultsIfNeeded()
 
+      // One-time: migrate existing CC installment dates to statement due dates
+      CreditCardService().migrateInstallmentDatesToStatementDueDates(transactionRepo: TransactionRepository())
+
       // Check if this user has existing settings
       let existingSettings = UIDUserDefaultsManager.shared.getUserSettings(for: firebaseUser.uid)
       var localUser: User?
