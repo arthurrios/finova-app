@@ -996,19 +996,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
 
   /// Monitora o saldo negativo do mês atual
   private func monitorNegativeBalance() {
-    // Check if user is authenticated first
-    guard let user = UserDefaultsManager.getUser(),
-      let firebaseUID = user.firebaseUID
-    else {
-      print("🔔 ❌ Cannot monitor balance: User not authenticated")
-      return
-    }
-
-    // Create balance monitor and check current month
-    let balanceMonitor = BalanceMonitorManager()
-    balanceMonitor.monitorCurrentMonthBalance()
-
-    print("🔔 💰 Balance monitoring completed")
+    BalanceMonitorManager.shared.forceTriggerBalanceMonitoring()
   }
 
   // MARK: - Monthly Notification System

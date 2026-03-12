@@ -144,7 +144,6 @@ final class AddTransactionModalViewModel {
           guard let self = self else { return }
           // These operations run on background thread (no UI blocking)
           self.scheduleNotificationsForRecurringTransactions()
-          self.monitorNegativeBalance()
           // Only the notification post needs main thread
           DispatchQueue.main.async {
             self.invalidateLedgerCache()
@@ -209,9 +208,6 @@ final class AddTransactionModalViewModel {
 
         // Schedule notification for the new transaction with its ID
         scheduleNotificationForNewTransaction(insertedId, model)
-
-        // Monitor negative balance after adding transaction
-        monitorNegativeBalance()
 
         // Invalidate ledger cache since transactions changed
         invalidateLedgerCache()
@@ -345,7 +341,6 @@ final class AddTransactionModalViewModel {
 
         // These operations run on background thread
         self.scheduleNotificationsForRecurringTransactions()
-        self.monitorNegativeBalance()
 
         // Invalidate cache and call completion on main thread
         DispatchQueue.main.async {
@@ -491,9 +486,6 @@ final class AddTransactionModalViewModel {
 
       // Agendar notificações otimizadas para as parcelas criadas
       scheduleOptimizedNotificationsForInstallments(allInstallments)
-
-      // Monitorar saldo negativo após adicionar transação parcelada
-      monitorNegativeBalance()
 
       // Invalidate ledger cache since transactions changed
       invalidateLedgerCache()
@@ -642,7 +634,6 @@ final class AddTransactionModalViewModel {
 
         // Schedule notifications
         self.scheduleOptimizedNotificationsForInstallments(allInstallments)
-        self.monitorNegativeBalance()
 
         DispatchQueue.main.async {
           self.invalidateLedgerCache()
@@ -1001,22 +992,6 @@ final class AddTransactionModalViewModel {
     return validDate
   }
 
-  // MARK: - Balance Monitoring
-
-  /// Monitora o saldo negativo do mês atual
-  private func monitorNegativeBalance() {
-    // Check if user is authenticated first
-    guard let user = UserDefaultsManager.getUser(),
-      let firebaseUID = user.firebaseUID
-    else {
-      return
-    }
-
-    // Create balance monitor and check current month
-    let balanceMonitor = BalanceMonitorManager()
-    balanceMonitor.monitorCurrentMonthBalance()
-  }
-
   // MARK: - Update Transaction Methods
 
   func updateTransaction(
@@ -1130,7 +1105,6 @@ final class AddTransactionModalViewModel {
       }
 
       invalidateLedgerCache()
-      monitorNegativeBalance()
       return .success(())
 
     } catch {
@@ -1350,7 +1324,6 @@ final class AddTransactionModalViewModel {
         }
 
         invalidateLedgerCache()
-        monitorNegativeBalance()
         return .success(())
       } catch {
         logError("Installment update error: \(error)")
@@ -1468,7 +1441,6 @@ final class AddTransactionModalViewModel {
       }
 
       invalidateLedgerCache()
-      monitorNegativeBalance()
       return .success(())
 
     } catch {
@@ -1542,7 +1514,6 @@ final class AddTransactionModalViewModel {
       }
 
       invalidateLedgerCache()
-      monitorNegativeBalance()
       return .success(())
 
     } catch {

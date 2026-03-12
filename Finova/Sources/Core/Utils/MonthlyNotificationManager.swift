@@ -12,7 +12,6 @@ import UserNotifications
 final class MonthlyNotificationManager {
   private let transactionRepo: TransactionRepository
   private let budgetRepo: BudgetRepository
-  private let balanceMonitor: BalanceMonitorManager
   private let notificationCenter = UNUserNotificationCenter.current()
   private let calendar = Calendar.current
   private let preferencesManager = NotificationPreferencesManager.shared
@@ -23,8 +22,6 @@ final class MonthlyNotificationManager {
   ) {
     self.transactionRepo = transactionRepo
     self.budgetRepo = budgetRepo
-    self.balanceMonitor = BalanceMonitorManager(
-      transactionRepo: transactionRepo, budgetRepo: budgetRepo)
   }
 
   // MARK: - Public Methods
@@ -362,7 +359,7 @@ final class MonthlyNotificationManager {
 
   /// Agenda notificações de saldo negativo
   private func scheduleBalanceNotifications() -> Bool {
-    balanceMonitor.monitorCurrentMonthBalance()
+    BalanceMonitorManager.shared.monitorCurrentMonthBalance()
     return true
   }
 
