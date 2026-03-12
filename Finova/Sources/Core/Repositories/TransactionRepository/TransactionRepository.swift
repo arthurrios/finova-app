@@ -46,6 +46,11 @@ final class TransactionRepository: TransactionRepositoryProtocol {
     Self.invalidateCache()
     logDebug("TransactionRepository: Deleting transaction with id \(id)")
 
+    // Cancel any scheduled notification for this transaction
+    UNUserNotificationCenter.current().removePendingNotificationRequests(
+      withIdentifiers: ["transaction_\(id)"]
+    )
+
     // Check if this record has been synced to CloudKit
     let ckName = fetchCKRecordName(for: id)
     if ckName != nil {

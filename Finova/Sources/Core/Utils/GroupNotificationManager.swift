@@ -14,47 +14,8 @@ final class GroupNotificationManager {
     static let shared = GroupNotificationManager()
 
     private static let processedRecordNamesKey = "GroupNotification_ProcessedRecordNames"
-    private var pollTimer: Timer?
 
-    private init() {
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(appDidBecomeActive),
-            name: UIApplication.didBecomeActiveNotification,
-            object: nil
-        )
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(appDidEnterBackground),
-            name: UIApplication.didEnterBackgroundNotification,
-            object: nil
-        )
-    }
-
-    @objc private func appDidBecomeActive() {
-        startPolling()
-    }
-
-    @objc private func appDidEnterBackground() {
-        stopPolling()
-    }
-
-    func startPolling() {
-        stopPolling()
-        // Trigger a sync every 30 seconds as a backup for when CK push notifications
-        // are delayed or throttled. The SyncEngine's pull path handles GroupActivity
-        // records via processGroupActivity → handleIncomingActivity, which is proven
-        // to work reliably for member-written records.
-        pollTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { _ in
-            logWarning("GroupNotificationManager: poll timer — triggering sync")
-            SyncEngine.shared.performFullSync()
-        }
-    }
-
-    func stopPolling() {
-        pollTimer?.invalidate()
-        pollTimer = nil
-    }
+    private init() {}
 
     // MARK: - Deduplication
 
@@ -123,8 +84,9 @@ final class GroupNotificationManager {
         }
         content.userInfo = userInfo
 
+        // Use logicalKey as identifier so iOS deduplicates across all paths
         let request = UNNotificationRequest(
-            identifier: recordName,
+            identifier: logicalKey,
             content: content,
             trigger: nil
         )
@@ -139,13 +101,9 @@ final class GroupNotificationManager {
         ])
     }
 
-    /// Triggers a sync and ensures polling is active.
-    /// GroupActivity records are processed by SyncEngine.processGroupActivity → handleIncomingActivity.
+    /// Triggers a sync to pick up any missed GroupActivity records.
     func fetchAndNotifyRecentActivities(completion: @escaping () -> Void) {
         SyncEngine.shared.performFullSync()
-        if pollTimer == nil {
-            startPolling()
-        }
         completion()
     }
 

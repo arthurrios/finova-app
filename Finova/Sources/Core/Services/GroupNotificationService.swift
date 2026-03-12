@@ -7,6 +7,7 @@
 
 import CloudKit
 import Foundation
+import UIKit
 
 final class GroupNotificationService {
     static let shared = GroupNotificationService()
@@ -73,6 +74,21 @@ final class GroupNotificationService {
         let dbName = (database === CloudKitManager.shared.privateDatabase) ? "privateDB" : "sharedDB"
         logWarning("GroupNotificationService: SAVING \(action.rawValue) to \(dbName) zone=Group-\(groupId) record=\(recordID.recordName)")
 
+        // Request background time so both CK uploads complete even if
+        // the user closes the app or the screen turns off.
+        var bgTaskID = UIBackgroundTaskIdentifier.invalid
+        let operationGroup = DispatchGroup()
+
+        bgTaskID = UIApplication.shared.beginBackgroundTask(withName: "com.finova.groupActivityUpload") {
+            logWarning("GroupNotificationService: background task expired")
+            if bgTaskID != .invalid {
+                UIApplication.shared.endBackgroundTask(bgTaskID)
+                bgTaskID = .invalid
+            }
+        }
+
+        // Zone record upload
+        operationGroup.enter()
         let operation = CKModifyRecordsOperation(recordsToSave: [record], recordIDsToDelete: nil)
         operation.modifyRecordsResultBlock = { result in
             switch result {
@@ -83,14 +99,16 @@ final class GroupNotificationService {
                 logError("GroupNotificationService: logActivity FAILED — \(action.rawValue) in group \(groupId): \(error.localizedDescription)")
                 completion?(.failure(error))
             }
+            operationGroup.leave()
         }
-        operation.qualityOfService = .utility
+        operation.qualityOfService = .userInitiated
         database.add(operation)
 
         // Also write a lightweight notification record to the PUBLIC database.
         // CKQuerySubscriptions on private/shared DB don't reliably fire for
         // records written by shared zone participants, so the public DB record
         // is what triggers the visible push notification (same pattern as invitations).
+        operationGroup.enter()
         writePublicActivityNotification(
             action: action,
             groupId: groupId,
@@ -98,7 +116,17 @@ final class GroupNotificationService {
             actorId: user.uid,
             detail: detail,
             targetRecordName: targetRecordName
-        )
+        ) {
+            operationGroup.leave()
+        }
+
+        // End background task when both uploads finish
+        operationGroup.notify(queue: .global(qos: .utility)) {
+            if bgTaskID != .invalid {
+                UIApplication.shared.endBackgroundTask(bgTaskID)
+                bgTaskID = .invalid
+            }
+        }
     }
 
     private func writePublicActivityNotification(
@@ -107,7 +135,8 @@ final class GroupNotificationService {
         actorName: String,
         actorId: String,
         detail: String,
-        targetRecordName: String?
+        targetRecordName: String?,
+        completion: (() -> Void)? = nil
     ) {
         let recordID = CKRecord.ID(recordName: "activityNotif-\(UUID().uuidString)")
         let record = CKRecord(recordType: "GroupActivityNotification", recordID: recordID)
@@ -130,8 +159,9 @@ final class GroupNotificationService {
             case .failure(let error):
                 logWarning("GroupNotificationService: public notification FAILED — \(error.localizedDescription)")
             }
+            completion?()
         }
-        operation.qualityOfService = .utility
+        operation.qualityOfService = .userInitiated
         CloudKitManager.shared.publicDatabase.add(operation)
     }
 }

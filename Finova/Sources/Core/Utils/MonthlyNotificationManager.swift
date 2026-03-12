@@ -264,6 +264,11 @@ final class MonthlyNotificationManager {
         return false
       }
 
+      // Skip credit card transactions — they are covered by statement_due_/statement_pay_ notifications
+      if tx.creditCardId != nil {
+        return false
+      }
+
       // Create notification time (8 AM) in local timezone
       var notificationDate = calendar.startOfDay(for: tx.date)
       notificationDate =

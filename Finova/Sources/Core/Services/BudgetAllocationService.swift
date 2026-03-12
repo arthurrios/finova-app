@@ -85,8 +85,9 @@ final class BudgetAllocationService {
         try allocationRepo.updateAllocation(updated)
 
         if let groupId = updated.sharedGroupId {
+            let categoryName = TransactionCategory.allCases.first(where: { $0.key == updated.categoryKey })?.displayName ?? updated.categoryKey
             GroupNotificationService.shared.logActivity(
-                action: .allocationEdited, groupId: groupId, detail: updated.categoryKey)
+                action: .allocationEdited, groupId: groupId, detail: categoryName)
         }
     }
 
@@ -117,16 +118,18 @@ final class BudgetAllocationService {
             logDebug("BudgetAllocationService: Calling updateRecurringAllocationAndFuture for id \(id)")
             try allocationRepo.updateRecurringAllocationAndFuture(id: id, newAmount: newAmount)
             if let groupId = allocation?.sharedGroupId {
+                let categoryName = allocation?.category.displayName ?? ""
                 GroupNotificationService.shared.logActivity(
-                    action: .allocationEdited, groupId: groupId, detail: allocation?.category.key ?? "")
+                    action: .allocationEdited, groupId: groupId, detail: categoryName)
             }
         case .all:
             // Update all allocations in this recurring series (past, present, future)
             logDebug("BudgetAllocationService: Calling updateAllRecurringAllocations for id \(id)")
             try allocationRepo.updateAllRecurringAllocations(id: id, newAmount: newAmount)
             if let groupId = allocation?.sharedGroupId {
+                let categoryName = allocation?.category.displayName ?? ""
                 GroupNotificationService.shared.logActivity(
-                    action: .allocationEdited, groupId: groupId, detail: allocation?.category.key ?? "")
+                    action: .allocationEdited, groupId: groupId, detail: categoryName)
             }
         }
     }

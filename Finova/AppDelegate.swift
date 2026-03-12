@@ -257,17 +257,18 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
          let detail = detail,
          let actorId = actorId,
          actorId != currentUID {
-        let requestId = notification.recordID?.recordName ?? UUID().uuidString
-        logWarning("AppDelegate: GroupActivity PUSH — action=\(action) actor=\(actorName) detail=\(detail) requestId=\(requestId)")
+        // Use logical key as notification identifier so iOS deduplicates
+        // across all paths (push payload, public DB fetch, zone sync).
+        let logicalKey = GroupNotificationManager.logicalDeduplicationKey(action: action, actorId: actorId, detail: detail)
+        let recordName = notification.recordID?.recordName
+        logWarning("AppDelegate: GroupActivity PUSH — action=\(action) actor=\(actorName) detail=\(detail) logicalKey=\(logicalKey)")
 
         // Mark as processed so fetchAndNotifyRecentActivities doesn't re-show it
         let processedKey = "GroupNotification_ProcessedRecordNames"
         var processed = UserDefaults.standard.stringArray(forKey: processedKey) ?? []
-        if !processed.contains(requestId) {
-          processed.append(requestId)
-          // Also mark a logical key so other paths won't duplicate
-          let logicalKey = GroupNotificationManager.logicalDeduplicationKey(action: action, actorId: actorId, detail: detail)
-          if !processed.contains(logicalKey) { processed.append(logicalKey) }
+        if !processed.contains(logicalKey) {
+          if let rn = recordName, !processed.contains(rn) { processed.append(rn) }
+          processed.append(logicalKey)
           if processed.count > 200 { processed = Array(processed.suffix(200)) }
           UserDefaults.standard.set(processed, forKey: processedKey)
 
@@ -281,12 +282,12 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
             notifUserInfo["targetRecordName"] = targetRecordName
           }
           content.userInfo = notifUserInfo
-          let request = UNNotificationRequest(identifier: requestId, content: content, trigger: nil)
+          let request = UNNotificationRequest(identifier: logicalKey, content: content, trigger: nil)
           UNUserNotificationCenter.current().add(request) { error in
             if let error = error {
               logWarning("AppDelegate: UNNotification add FAILED — \(error.localizedDescription)")
             } else {
-              logWarning("AppDelegate: UNNotification add SUCCEEDED — id=\(requestId)")
+              logWarning("AppDelegate: UNNotification add SUCCEEDED — id=\(logicalKey)")
             }
           }
         } else {
@@ -304,18 +305,10 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     // a CKDatabaseNotification push arrives first, so we fetch directly.
     fetchPublicGroupActivityNotifications()
 
-    // Directly fetch recent GroupActivity records from shared DB.
-    GroupNotificationManager.shared.fetchAndNotifyRecentActivities {
-      BudgetGroupService.shared.fetchRemoteInvitations {
-        CloudKitManager.shared.handleRemoteNotification(userInfo: userInfo) {
-          DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
-            logWarning("AppDelegate: 5s retry — fetching public DB again")
-            self.fetchPublicGroupActivityNotifications()
-            GroupNotificationManager.shared.fetchAndNotifyRecentActivities {
-              completionHandler(.newData)
-            }
-          }
-        }
+    // Process remote notification (zone changes, invitations, etc.)
+    BudgetGroupService.shared.fetchRemoteInvitations {
+      CloudKitManager.shared.handleRemoteNotification(userInfo: userInfo) {
+        completionHandler(.newData)
       }
     }
   }
@@ -386,7 +379,8 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     UNUserNotificationCenter.current().removeAllPendingNotificationRequests()
     print("🔔 🧹 Cleared existing notifications")
 
-    // Schedule notifications for all future transactions (excluding hidden parent transactions)
+    // Schedule notifications for all future transactions (excluding hidden parent transactions
+    // and credit card transactions, which are covered by statement notifications)
     let futureTxs = allTxs.filter { tx in
       // Skip parent transactions that are not visible in UI
       if tx.hasInstallments == true && tx.amount == 0 {
@@ -394,6 +388,11 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
       }
 
       if tx.isRecurring == true && tx.parentTransactionId == nil && tx.amount == 0 {
+        return false
+      }
+
+      // Skip credit card transactions — they are covered by statement_due_/statement_pay_ notifications
+      if tx.creditCardId != nil {
         return false
       }
 
@@ -952,10 +951,15 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
             continue
           }
 
-          processed.append(recordName)
-          // Also mark a logical key so handleIncomingActivity (zone sync) won't duplicate
+          // Check logical key to avoid duplicating a notification already shown via push payload or zone sync
           let logicalKey = GroupNotificationManager.logicalDeduplicationKey(action: action, actorId: actorId, detail: detail)
-          if !processed.contains(logicalKey) { processed.append(logicalKey) }
+          guard !processed.contains(logicalKey) else {
+            processed.append(recordName)
+            continue
+          }
+
+          processed.append(recordName)
+          processed.append(logicalKey)
           logWarning("AppDelegate: fetchPublicGroupActivity — DELIVERING \(action) from \(actorName)")
 
           let content = UNMutableNotificationContent()
@@ -969,12 +973,13 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
           }
           content.userInfo = notifUserInfo
 
-          let request = UNNotificationRequest(identifier: recordName, content: content, trigger: nil)
+          // Use logicalKey as identifier so iOS deduplicates across all paths
+          let request = UNNotificationRequest(identifier: logicalKey, content: content, trigger: nil)
           UNUserNotificationCenter.current().add(request) { error in
             if let error = error {
               logWarning("AppDelegate: fetchPublicGroupActivity — notification FAILED: \(error)")
             } else {
-              logWarning("AppDelegate: fetchPublicGroupActivity — notification SUCCEEDED: \(recordName)")
+              logWarning("AppDelegate: fetchPublicGroupActivity — notification SUCCEEDED: \(logicalKey)")
             }
           }
         }
