@@ -546,28 +546,18 @@ final class DashboardViewController: UIViewController {
     }
     
     private func debugBalanceMonitoring() {
-        // Run comprehensive balance monitoring debugging using dashboard data
-        let balanceMonitor = BalanceMonitorManager()
-        
-        // Get current month data from the dashboard
-        if let currentMonthData = syncedViewModel.getCurrentMonthData() {
-            balanceMonitor.debugBalanceMonitoring(with: currentMonthData)
-        } else {
-            // Fallback to regular debug if no dashboard data available
-            balanceMonitor.debugBalanceMonitoring()
-        }
+        // Run comprehensive balance monitoring debugging
+        BalanceMonitorManager.shared.debugBalanceMonitoring()
     }
     
     private func forceTriggerBalanceMonitoring() {
         // Force trigger balance monitoring
-        let balanceMonitor = BalanceMonitorManager()
-        balanceMonitor.forceTriggerBalanceMonitoring()
+        BalanceMonitorManager.shared.forceTriggerBalanceMonitoring()
     }
     
     private func clearBalanceNotifications() {
         // Clear all negative balance notifications
-        let balanceMonitor = BalanceMonitorManager()
-        balanceMonitor.clearAllNegativeBalanceNotifications()
+        BalanceMonitorManager.shared.clearAllNegativeBalanceNotifications()
         
         // Show confirmation alert
         let alert = UIAlertController(
@@ -582,8 +572,7 @@ final class DashboardViewController: UIViewController {
     
     private func testTomorrowNegativeBalanceAlert() {
         // Test tomorrow's negative balance notification
-        let balanceMonitor = BalanceMonitorManager()
-        balanceMonitor.testTomorrowNegativeBalanceNotification()
+        BalanceMonitorManager.shared.testTomorrowNegativeBalanceNotification()
         
         // Show confirmation alert
         let alert = UIAlertController(
@@ -598,8 +587,7 @@ final class DashboardViewController: UIViewController {
     
     private func testNegativeBalanceAlertIn1Minute() {
         // Test negative balance notification in 1 minute
-        let balanceMonitor = BalanceMonitorManager()
-        balanceMonitor.testNegativeBalanceNotificationIn1Minute()
+        BalanceMonitorManager.shared.testNegativeBalanceNotificationIn1Minute()
         
         // Show confirmation alert
         let alert = UIAlertController(

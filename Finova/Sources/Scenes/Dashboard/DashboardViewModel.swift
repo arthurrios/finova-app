@@ -13,7 +13,6 @@ final class DashboardViewModel {
   let budgetRepo: BudgetRepository
   let transactionRepo: TransactionRepository
   private let recurringManager: RecurringTransactionManager
-  private let balanceMonitor: BalanceMonitorManager
   private let monthlyNotificationManager: MonthlyNotificationManager
   let transactionLedger: TransactionLedgerService
   private let creditCardService = CreditCardService()
@@ -39,8 +38,6 @@ final class DashboardViewModel {
     self.transactionRepo = transactionRepo
     self.monthRange = monthRange
     self.recurringManager = RecurringTransactionManager(transactionRepo: transactionRepo)
-    self.balanceMonitor = BalanceMonitorManager(
-      transactionRepo: transactionRepo, budgetRepo: budgetRepo)
     self.monthlyNotificationManager = MonthlyNotificationManager(
       transactionRepo: transactionRepo, budgetRepo: budgetRepo)
     self.transactionLedger = TransactionLedgerService(
@@ -61,9 +58,6 @@ final class DashboardViewModel {
 
     // Use the transaction ledger service for all calculations
     let monthlyData = transactionLedger.calculateMonthlyData(for: monthRange)
-
-    // Monitor negative balance after loading data
-    balanceMonitor.monitorCurrentMonthBalance()
 
     // Trigger lazy generation AFTER returning data (non-blocking)
     triggerLazyGenerationInBackground()
@@ -427,17 +421,17 @@ final class DashboardViewModel {
 
   /// Força o monitoramento de saldo negativo
   func forceBalanceMonitoring() {
-    balanceMonitor.monitorCurrentMonthBalance()
+    BalanceMonitorManager.shared.monitorCurrentMonthBalance()
   }
 
   /// Remove todas as notificações de saldo negativo
   func removeNegativeBalanceNotifications() {
-    balanceMonitor.removeNegativeBalanceNotifications()
+    BalanceMonitorManager.shared.removeNegativeBalanceNotifications()
   }
 
   /// Verifica se há notificações de saldo negativo agendadas
   func hasNegativeBalanceNotifications() -> Bool {
-    return balanceMonitor.hasNegativeBalanceNotifications()
+    return BalanceMonitorManager.shared.hasNegativeBalanceNotifications()
   }
 
   // MARK: - Monthly Notification Functions
