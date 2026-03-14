@@ -1729,6 +1729,7 @@ final class AddTransactionModalViewModel {
             GroupNotificationService.shared.logActivity(
               action: .transactionEdited, groupId: groupId, detail: title,
               targetRecordName: ckRecordName)
+            SyncEngine.shared.pushPendingChangesNow()
           }
           self?.invalidateLedgerCache()
         }

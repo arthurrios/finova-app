@@ -778,7 +778,14 @@ final class SyncEngine {
         }
         logWarning("[SyncLife] handleLocalDataChange — scheduling push in 2s")
         syncQueue.asyncAfter(deadline: .now() + 2.0) { [weak self] in
-            guard let self = self, !self.isSyncing else { return }
+            guard let self = self else { return }
+            guard !self.isSyncing else {
+                // A sync started during the debounce window — defer to post-sync drain
+                // so the local change is not silently dropped.
+                self.needsPostSyncPush = true
+                logWarning("[SyncLife] handleLocalDataChange debounced push — deferred (isSyncing=true)")
+                return
+            }
             self.pushLocalChanges()
         }
     }
