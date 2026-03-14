@@ -2051,7 +2051,7 @@ final class SyncEngine {
                             // Non-retryable until the schema is deployed via CloudKit Dashboard.
                             if !hitSchemaError {
                                 hitSchemaError = true
-                                logWarning("[Sync] ⚠️ CloudKit schema error — new fields not yet deployed to production. Records will sync after schema deployment.")
+                                logWarning("[Sync] ⚠️ CloudKit schema error for record \(name): \(desc)")
                             }
                         } else if desc.contains("record not found") {
                             // Stale recordChangeTag — clear stored system fields so next push creates a fresh record.
