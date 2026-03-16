@@ -80,6 +80,25 @@ final class TransactionDetailsViewModel {
     }
   }
 
+  func deleteTransactionAsync(completion: @escaping (Result<Void, Error>) -> Void) {
+    DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+      guard let self = self else { return }
+      let result = self.deleteTransaction()
+      DispatchQueue.main.async { completion(result) }
+    }
+  }
+
+  func deleteTransactionWithOptionAsync(
+    transactionId: Int, option: RecurringCleanupOption,
+    completion: @escaping (Result<Void, Error>) -> Void
+  ) {
+    DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+      guard let self = self else { return }
+      let result = self.deleteTransactionWithOption(transactionId: transactionId, option: option)
+      DispatchQueue.main.async { completion(result) }
+    }
+  }
+
   func getFormattedAmount() -> String {
     return transaction.amount.currencyString
   }
@@ -99,6 +118,47 @@ final class TransactionDetailsViewModel {
   func getCreditCard() -> CreditCard? {
     guard let cardId = transaction.creditCardId else { return nil }
     return CreditCardRepository().fetchCard(byId: cardId)
+  }
+
+  // MARK: - Statement Move
+
+  func isCreditCardTransaction() -> Bool {
+    return transaction.creditCardId != nil && transaction.isCreditCardStatement != true
+  }
+
+  func getCurrentStatement() -> CreditCardStatement? {
+    guard let stmtId = transaction.statementId else { return nil }
+    guard let cardId = transaction.creditCardId else { return nil }
+    let statements = StatementRepository().fetchStatements(forCardId: cardId)
+    return statements.first(where: { $0.id == stmtId })
+  }
+
+  func getAvailableStatements() -> [CreditCardStatement] {
+    guard let cardId = transaction.creditCardId else { return [] }
+    let statements = StatementRepository().fetchStatements(forCardId: cardId)
+    return statements.sorted { $0.closingDate < $1.closingDate }
+  }
+
+  func moveToStatement(_ targetStatement: CreditCardStatement) {
+    guard let txId = transaction.id,
+          let cardId = transaction.creditCardId,
+          let targetId = targetStatement.id else { return }
+
+    let creditCardService = CreditCardService()
+    let repo = transactionRepository as? TransactionRepository ?? TransactionRepository()
+
+    creditCardService.moveTransactionToStatement(
+      transactionId: txId,
+      creditCardId: cardId,
+      toStatementId: targetId,
+      fromStatementId: transaction.statementId,
+      transactionRepo: repo
+    )
+
+    // Refresh transaction from DB to pick up the new statementId
+    refreshTransaction()
+
+    SyncEngine.shared.pushPendingChangesNow()
   }
 
   func getTransactionModeDescription() -> String {

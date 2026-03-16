@@ -13,6 +13,9 @@ protocol SyncSettingsViewDelegate: AnyObject {
   func didTapResetSync()
   func didTapResumeUpload()
   func didToggleSyncEnabled(_ isEnabled: Bool)
+  func didTapCloudCleanup()
+  func didTapForceRePush()
+  func didTapRecoverySync()
 }
 
 final class SyncSettingsView: UIView {
@@ -215,6 +218,48 @@ final class SyncSettingsView: UIView {
     return btn
   }()
 
+  private let cloudCleanupContainer = createSettingContainer()
+  private let cloudCleanupIconView = createIconView(imageName: "xmark.icloud", tintColor: Colors.mainRed)
+  private let cloudCleanupLabel: UILabel = {
+    let label = createSettingLabel(text: "syncSettings.cloudCleanup.title".localized)
+    label.textColor = Colors.mainRed
+    return label
+  }()
+  private let cloudCleanupButton: UIButton = {
+    let btn = UIButton(type: .custom)
+    btn.backgroundColor = .clear
+    btn.translatesAutoresizingMaskIntoConstraints = false
+    return btn
+  }()
+
+  private let forceRePushContainer = createSettingContainer()
+  private let forceRePushIconView = createIconView(imageName: "icloud.and.arrow.up", tintColor: Colors.mainMagenta)
+  private let forceRePushLabel: UILabel = {
+    let label = createSettingLabel(text: "syncSettings.forceRePush.title".localized)
+    label.textColor = Colors.mainMagenta
+    return label
+  }()
+  private let forceRePushButton: UIButton = {
+    let btn = UIButton(type: .custom)
+    btn.backgroundColor = .clear
+    btn.translatesAutoresizingMaskIntoConstraints = false
+    return btn
+  }()
+
+  private let recoverySyncContainer = createSettingContainer()
+  private let recoverySyncIconView = createIconView(imageName: "arrow.3.trianglepath", tintColor: Colors.mainRed)
+  private let recoverySyncLabel: UILabel = {
+    let label = createSettingLabel(text: "syncSettings.recoverySync.title".localized)
+    label.textColor = Colors.mainRed
+    return label
+  }()
+  private let recoverySyncButton: UIButton = {
+    let btn = UIButton(type: .custom)
+    btn.backgroundColor = .clear
+    btn.translatesAutoresizingMaskIntoConstraints = false
+    return btn
+  }()
+
   override init(frame: CGRect) {
     super.init(frame: .zero)
     setupView()
@@ -230,11 +275,14 @@ final class SyncSettingsView: UIView {
     backButton.addTarget(self, action: #selector(handleDidTapBackButton), for: .touchUpInside)
     syncNowButton.addTarget(self, action: #selector(didTapSyncNow), for: .touchUpInside)
     resetButton.addTarget(self, action: #selector(didTapResetSync), for: .touchUpInside)
+    cloudCleanupButton.addTarget(self, action: #selector(didTapCloudCleanup), for: .touchUpInside)
+    forceRePushButton.addTarget(self, action: #selector(didTapForceRePush), for: .touchUpInside)
+    recoverySyncButton.addTarget(self, action: #selector(didTapRecoverySync), for: .touchUpInside)
     uploadResumeButton.addTarget(self, action: #selector(didTapResumeUpload), for: .touchUpInside)
     syncEnabledSwitch.addTarget(self, action: #selector(syncEnabledToggled), for: .valueChanged)
 
+    addSubview(headerContainerView)
     addSubview(scrollView)
-    scrollView.addSubview(headerContainerView)
     scrollView.addSubview(contentStackView)
     headerContainerView.addSubview(headerItemsView)
     headerItemsView.addSubview(backButtonGlassContainer)
@@ -271,6 +319,12 @@ final class SyncSettingsView: UIView {
     contentStackView.addArrangedSubview(syncNowContainer)
     setupResetContainer()
     contentStackView.addArrangedSubview(resetContainer)
+    setupCloudCleanupContainer()
+    contentStackView.addArrangedSubview(cloudCleanupContainer)
+    setupForceRePushContainer()
+    contentStackView.addArrangedSubview(forceRePushContainer)
+    setupRecoverySyncContainer()
+    contentStackView.addArrangedSubview(recoverySyncContainer)
   }
 
   private func setupSyncEnabledContainer() {
@@ -355,6 +409,63 @@ final class SyncSettingsView: UIView {
     ])
   }
 
+  private func setupCloudCleanupContainer() {
+    cloudCleanupContainer.addSubview(cloudCleanupIconView)
+    cloudCleanupContainer.addSubview(cloudCleanupLabel)
+    cloudCleanupContainer.addSubview(cloudCleanupButton)
+
+    NSLayoutConstraint.activate([
+      cloudCleanupIconView.leadingAnchor.constraint(equalTo: cloudCleanupContainer.leadingAnchor, constant: Metrics.spacing4),
+      cloudCleanupIconView.centerYAnchor.constraint(equalTo: cloudCleanupContainer.centerYAnchor),
+
+      cloudCleanupLabel.leadingAnchor.constraint(equalTo: cloudCleanupIconView.trailingAnchor, constant: Metrics.spacing3),
+      cloudCleanupLabel.centerYAnchor.constraint(equalTo: cloudCleanupContainer.centerYAnchor),
+
+      cloudCleanupButton.topAnchor.constraint(equalTo: cloudCleanupContainer.topAnchor),
+      cloudCleanupButton.leadingAnchor.constraint(equalTo: cloudCleanupContainer.leadingAnchor),
+      cloudCleanupButton.trailingAnchor.constraint(equalTo: cloudCleanupContainer.trailingAnchor),
+      cloudCleanupButton.bottomAnchor.constraint(equalTo: cloudCleanupContainer.bottomAnchor)
+    ])
+  }
+
+  private func setupForceRePushContainer() {
+    forceRePushContainer.addSubview(forceRePushIconView)
+    forceRePushContainer.addSubview(forceRePushLabel)
+    forceRePushContainer.addSubview(forceRePushButton)
+
+    NSLayoutConstraint.activate([
+      forceRePushIconView.leadingAnchor.constraint(equalTo: forceRePushContainer.leadingAnchor, constant: Metrics.spacing4),
+      forceRePushIconView.centerYAnchor.constraint(equalTo: forceRePushContainer.centerYAnchor),
+
+      forceRePushLabel.leadingAnchor.constraint(equalTo: forceRePushIconView.trailingAnchor, constant: Metrics.spacing3),
+      forceRePushLabel.centerYAnchor.constraint(equalTo: forceRePushContainer.centerYAnchor),
+
+      forceRePushButton.topAnchor.constraint(equalTo: forceRePushContainer.topAnchor),
+      forceRePushButton.leadingAnchor.constraint(equalTo: forceRePushContainer.leadingAnchor),
+      forceRePushButton.trailingAnchor.constraint(equalTo: forceRePushContainer.trailingAnchor),
+      forceRePushButton.bottomAnchor.constraint(equalTo: forceRePushContainer.bottomAnchor)
+    ])
+  }
+
+  private func setupRecoverySyncContainer() {
+    recoverySyncContainer.addSubview(recoverySyncIconView)
+    recoverySyncContainer.addSubview(recoverySyncLabel)
+    recoverySyncContainer.addSubview(recoverySyncButton)
+
+    NSLayoutConstraint.activate([
+      recoverySyncIconView.leadingAnchor.constraint(equalTo: recoverySyncContainer.leadingAnchor, constant: Metrics.spacing4),
+      recoverySyncIconView.centerYAnchor.constraint(equalTo: recoverySyncContainer.centerYAnchor),
+
+      recoverySyncLabel.leadingAnchor.constraint(equalTo: recoverySyncIconView.trailingAnchor, constant: Metrics.spacing3),
+      recoverySyncLabel.centerYAnchor.constraint(equalTo: recoverySyncContainer.centerYAnchor),
+
+      recoverySyncButton.topAnchor.constraint(equalTo: recoverySyncContainer.topAnchor),
+      recoverySyncButton.leadingAnchor.constraint(equalTo: recoverySyncContainer.leadingAnchor),
+      recoverySyncButton.trailingAnchor.constraint(equalTo: recoverySyncContainer.trailingAnchor),
+      recoverySyncButton.bottomAnchor.constraint(equalTo: recoverySyncContainer.bottomAnchor)
+    ])
+  }
+
   private func setupDataSyncSection() {
     dataSyncSectionStack.addArrangedSubview(dataSyncHeaderView)
 
@@ -416,14 +527,10 @@ final class SyncSettingsView: UIView {
 
   private func setupConstraints() {
     NSLayoutConstraint.activate([
-      scrollView.topAnchor.constraint(equalTo: topAnchor),
-      scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
-      scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
-      scrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
-
+      // Header — fixed above scroll view
       headerContainerView.topAnchor.constraint(equalTo: topAnchor),
-      headerContainerView.leadingAnchor.constraint(equalTo: scrollView.leadingAnchor),
-      headerContainerView.trailingAnchor.constraint(equalTo: scrollView.trailingAnchor),
+      headerContainerView.leadingAnchor.constraint(equalTo: leadingAnchor),
+      headerContainerView.trailingAnchor.constraint(equalTo: trailingAnchor),
 
       headerItemsView.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor),
       headerItemsView.leadingAnchor.constraint(equalTo: headerContainerView.leadingAnchor),
@@ -443,7 +550,14 @@ final class SyncSettingsView: UIView {
       headerTitleLabel.leadingAnchor.constraint(equalTo: backButtonGlassContainer.trailingAnchor, constant: Metrics.spacing4),
       headerTitleLabel.centerYAnchor.constraint(equalTo: backButtonGlassContainer.centerYAnchor),
 
-      contentStackView.topAnchor.constraint(equalTo: headerContainerView.bottomAnchor, constant: Metrics.spacing4),
+      // Scroll view — below header, fills remaining space
+      scrollView.topAnchor.constraint(equalTo: headerContainerView.bottomAnchor),
+      scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
+      scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
+      scrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
+
+      // Content stack — defines scrollable content size
+      contentStackView.topAnchor.constraint(equalTo: scrollView.topAnchor, constant: Metrics.spacing4),
       contentStackView.leadingAnchor.constraint(equalTo: scrollView.leadingAnchor, constant: Metrics.spacing4),
       contentStackView.trailingAnchor.constraint(equalTo: scrollView.trailingAnchor, constant: -Metrics.spacing4),
       contentStackView.bottomAnchor.constraint(equalTo: scrollView.bottomAnchor, constant: -Metrics.spacing4),
@@ -574,6 +688,21 @@ final class SyncSettingsView: UIView {
   @objc
   private func didTapResumeUpload() {
     delegate?.didTapResumeUpload()
+  }
+
+  @objc
+  private func didTapCloudCleanup() {
+    delegate?.didTapCloudCleanup()
+  }
+
+  @objc
+  private func didTapForceRePush() {
+    delegate?.didTapForceRePush()
+  }
+
+  @objc
+  private func didTapRecoverySync() {
+    delegate?.didTapRecoverySync()
   }
 
   @objc

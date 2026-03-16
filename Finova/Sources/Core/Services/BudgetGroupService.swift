@@ -785,6 +785,14 @@ final class BudgetGroupService {
                         invitation.ckShareUrl = record["ckShareUrl"] as? String
 
                         if self.repository.fetchInvitation(byId: invitation.id) == nil {
+                            // Skip invitations for groups that already exist locally (e.g. discovered
+                            // via shared zone enumeration on a fresh device). The invitation's
+                            // "pending" status in the public DB is stale — the user already accepted.
+                            if let existingGroup = self.repository.fetchGroup(byId: invitation.groupId),
+                               !existingGroup.isDeleted {
+                                logInfo("Skipping invitation for already-active group: \(invitation.groupName) (\(invitation.groupId))")
+                                continue
+                            }
                             self.repository.insertInvitation(invitation)
                             newInvitations = true
                             logInfo("New invitation discovered: \(invitation.groupName) from \(invitation.inviterName)")

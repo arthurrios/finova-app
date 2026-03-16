@@ -5,6 +5,7 @@
 //  Created by Arthur Rios on 09/05/25.
 //
 
+import CloudKit
 import Foundation
 import ShimmerView
 import UIKit
@@ -30,8 +31,21 @@ final class DashboardViewController: UIViewController {
     weak var flowDelegate: DashboardFlowDelegate?
 
     private func mergeWithStatementTransactions(_ transactions: [Transaction]) -> [Transaction] {
+        // Filter out one-time CC transactions — they only appear inside statement details.
+        // CC installment children (parentTransactionId + installmentNumber) are kept visible
+        // in the main list for notification/filtering purposes — they're debited via the statement.
+        let displayed = transactions.filter { tx in
+            // Always show non-CC transactions
+            if tx.creditCardId == nil { return true }
+            // Always show synthetic statement entries
+            if tx.isCreditCardStatement == true { return true }
+            // Show CC installment children (informational — not debited here)
+            if tx.parentTransactionId != nil && tx.installmentNumber != nil { return true }
+            // Hide one-time CC transactions (replaced by statement entry)
+            return false
+        }
         let statementTxs = viewModel.getStatementTransactions()
-        return transactions + statementTxs
+        return displayed + statementTxs
     }
 
     private func logMirrorDiff(groupId: String, context: String) {
@@ -987,9 +1001,19 @@ final class DashboardViewController: UIViewController {
             _ in
             self.migrateAllDataToNewTimezone()
         }
-        
+
+        let syncDiagnosticAction = UIAlertAction(title: "☁️ Sync Diagnostic", style: .default) {
+            _ in
+            self.runSyncDiagnostic()
+        }
+
+        let repairStatementsAction = UIAlertAction(title: "🔧 Repair Missing Statements", style: .default) {
+            _ in
+            self.repairMissingStatements()
+        }
+
         let cancelAction = UIAlertAction(title: "Cancel", style: .cancel)
-        
+
         alertController.addAction(debugAction)
         alertController.addAction(balanceDebugAction)
         alertController.addAction(forceBalanceAction)
@@ -1004,6 +1028,8 @@ final class DashboardViewController: UIViewController {
         alertController.addAction(forceRefreshBalanceAction)
         alertController.addAction(migrateBudgetsAction)
         alertController.addAction(migrateAllDataAction)
+        alertController.addAction(syncDiagnosticAction)
+        alertController.addAction(repairStatementsAction)
         alertController.addAction(cancelAction)
         
         present(alertController, animated: true)
@@ -1047,10 +1073,315 @@ final class DashboardViewController: UIViewController {
                 completionAlert.addAction(UIAlertAction(title: "OK", style: .default))
                 self.present(completionAlert, animated: true)
             })
-        
+
         present(alert, animated: true)
     }
-    
+
+    private func runSyncDiagnostic() {
+        let db = DBHelper.shared
+        let txRepo = TransactionRepository()
+        let uid = UIDUserDefaultsManager.shared.currentUserUID ?? "nil"
+
+        let totalInDB = db.fetchSingleInt(
+            "SELECT COUNT(*) FROM Transactions WHERE user_id = ? AND (is_deleted IS NULL OR is_deleted = 0);",
+            textBinding: uid) ?? 0
+        let pendingSync = db.fetchSingleInt(
+            "SELECT COUNT(*) FROM Transactions WHERE user_id = ? AND sync_status = 'pending' AND (is_deleted IS NULL OR is_deleted = 0);",
+            textBinding: uid) ?? 0
+        let pendingDelete = db.fetchSingleInt(
+            "SELECT COUNT(*) FROM Transactions WHERE user_id = ? AND sync_status = 'pendingDelete';",
+            textBinding: uid) ?? 0
+        let unsyncedInstances = db.fetchSingleInt(
+            "SELECT COUNT(*) FROM Transactions WHERE user_id = ? AND ck_record_id IS NULL AND parent_transaction_id IS NOT NULL AND (is_deleted IS NULL OR is_deleted = 0);",
+            textBinding: uid) ?? 0
+        let syncedCount = db.fetchSingleInt(
+            "SELECT COUNT(*) FROM Transactions WHERE user_id = ? AND sync_status = 'synced' AND (is_deleted IS NULL OR is_deleted = 0);",
+            textBinding: uid) ?? 0
+        let tombstones = db.fetchSingleInt(
+            "SELECT COUNT(*) FROM Transactions WHERE user_id = ? AND is_deleted = 1;",
+            textBinding: uid) ?? 0
+
+        let mirrorEnabled = MirrorModeManager.shared.isEnabled
+        let mirrorGroup = MirrorModeManager.shared.linkedGroupId ?? "none"
+        let groupTagged = db.fetchSingleInt(
+            "SELECT COUNT(*) FROM Transactions WHERE user_id = ? AND shared_group_id IS NOT NULL AND shared_group_id != '' AND (is_deleted IS NULL OR is_deleted = 0);",
+            textBinding: uid) ?? 0
+
+        let localMsg = """
+        User: \(uid.prefix(8))...
+        Mirror: \(mirrorEnabled) (group: \(mirrorGroup.prefix(8))...)
+
+        --- LOCAL DB ---
+        Total in DB: \(totalInDB)
+        Synced: \(syncedCount)
+        Pending sync: \(pendingSync)
+        Pending delete: \(pendingDelete)
+        Unsynced instances: \(unsyncedInstances)
+        Tombstones: \(tombstones)
+        Group-tagged: \(groupTagged)
+        """
+
+        logWarning("[SyncDiag] \(localMsg)")
+
+        // Find any group to query — mirror group (owner) or first joined group (member)
+        var diagGroupId: String? = mirrorGroup != "none" ? mirrorGroup : nil
+        var diagZoneOwner: String = CKCurrentUserDefaultName
+        if diagGroupId == nil {
+            // Check for member groups
+            if let firstGroup = BudgetGroupRepository().fetchAllGroups().first(where: { !$0.isDeleted }) {
+                diagGroupId = firstGroup.id
+                diagZoneOwner = firstGroup.ckZoneOwner ?? CKCurrentUserDefaultName
+            }
+        }
+        if let gid = diagGroupId {
+            let zoneID = CKRecordZone.ID(zoneName: "Group-\(gid)", ownerName: diagZoneOwner)
+            let database = diagZoneOwner == CKCurrentUserDefaultName
+                ? CloudKitManager.shared.privateDatabase
+                : CloudKitManager.shared.sharedDatabase
+            let query = CKQuery(recordType: "Transaction", predicate: NSPredicate(value: true))
+
+            // Paginate through all results to get accurate count
+            var totalCloudCount = 0
+            let operation = CKQueryOperation(query: query)
+            operation.zoneID = zoneID
+            operation.desiredKeys = ["title"] // minimal data
+            operation.resultsLimit = CKQueryOperation.maximumResults
+
+            operation.recordMatchedBlock = { _, _ in
+                totalCloudCount += 1
+            }
+            operation.queryResultBlock = { [weak self] result in
+                switch result {
+                case .success(let cursor):
+                    if let cursor = cursor {
+                        self?.continueCounting(cursor: cursor, zoneID: zoneID, database: database, count: totalCloudCount, localMsg: localMsg)
+                    } else {
+                        let cloudMsg = "\(totalCloudCount) transactions in group zone"
+                        logWarning("[SyncDiag] Cloud: \(cloudMsg)")
+                        DispatchQueue.main.async {
+                            let alert = UIAlertController(
+                                title: "Sync Diagnostic",
+                                message: localMsg + "\n--- CLOUD ---\n\(cloudMsg)",
+                                preferredStyle: .alert
+                            )
+                            alert.addAction(UIAlertAction(title: "OK", style: .default))
+                            self?.present(alert, animated: true)
+                        }
+                    }
+                case .failure(let error):
+                    let cloudMsg = "Error: \(error.localizedDescription)"
+                    logWarning("[SyncDiag] Cloud: \(cloudMsg)")
+                    DispatchQueue.main.async {
+                        let alert = UIAlertController(
+                            title: "Sync Diagnostic",
+                            message: localMsg + "\n--- CLOUD ---\n\(cloudMsg)",
+                            preferredStyle: .alert
+                        )
+                        alert.addAction(UIAlertAction(title: "OK", style: .default))
+                        self?.present(alert, animated: true)
+                    }
+                }
+            }
+            logWarning("[SyncDiag] Querying cloud: zone=Group-\(gid), owner=\(diagZoneOwner == CKCurrentUserDefaultName ? "self" : diagZoneOwner.prefix(8)+"..."), db=\(diagZoneOwner == CKCurrentUserDefaultName ? "private" : "shared")")
+            database.add(operation)
+        } else {
+            let alert = UIAlertController(
+                title: "Sync Diagnostic",
+                message: localMsg + "\n(No group zone to query)",
+                preferredStyle: .alert
+            )
+            alert.addAction(UIAlertAction(title: "OK", style: .default))
+            present(alert, animated: true)
+        }
+    }
+
+    private func continueCounting(cursor: CKQueryOperation.Cursor, zoneID: CKRecordZone.ID, database: CKDatabase, count: Int, localMsg: String) {
+        var runningCount = count
+        let nextOp = CKQueryOperation(cursor: cursor)
+        nextOp.desiredKeys = ["title"]
+        nextOp.resultsLimit = CKQueryOperation.maximumResults
+        nextOp.recordMatchedBlock = { _, _ in
+            runningCount += 1
+        }
+        nextOp.queryResultBlock = { [weak self] result in
+            switch result {
+            case .success(let nextCursor):
+                if let nextCursor = nextCursor {
+                    self?.continueCounting(cursor: nextCursor, zoneID: zoneID, database: database, count: runningCount, localMsg: localMsg)
+                } else {
+                    let cloudMsg = "\(runningCount) transactions in group zone"
+                    logWarning("[SyncDiag] Cloud: \(cloudMsg)")
+                    DispatchQueue.main.async {
+                        let alert = UIAlertController(
+                            title: "Sync Diagnostic",
+                            message: localMsg + "\n--- CLOUD ---\n\(cloudMsg)",
+                            preferredStyle: .alert
+                        )
+                        alert.addAction(UIAlertAction(title: "OK", style: .default))
+                        self?.present(alert, animated: true)
+                    }
+                }
+            case .failure(let error):
+                let cloudMsg = "\(runningCount) counted before error: \(error.localizedDescription)"
+                logWarning("[SyncDiag] Cloud: \(cloudMsg)")
+                DispatchQueue.main.async {
+                    let alert = UIAlertController(
+                        title: "Sync Diagnostic",
+                        message: localMsg + "\n--- CLOUD ---\n\(cloudMsg)",
+                        preferredStyle: .alert
+                    )
+                    alert.addAction(UIAlertAction(title: "OK", style: .default))
+                    self?.present(alert, animated: true)
+                }
+            }
+        }
+        database.add(nextOp)
+    }
+
+    private func repairMissingStatements() {
+        let stmtRepo = StatementRepository()
+        let cardRepo = CreditCardRepository()
+        let txRepo = TransactionRepository()
+        let ccService = CreditCardService()
+        let calendar = Calendar.current
+        let userId = UIDUserDefaultsManager.shared.currentUserUID ?? ""
+
+        // Build set of all existing statement IDs
+        let allCards = cardRepo.fetchAllCards(userId: userId)
+        var existingStmtIds = Set<Int>()
+        for card in allCards {
+            guard let cardId = card.id else { continue }
+            let stmts = stmtRepo.fetchStatements(forCardId: cardId)
+            for stmt in stmts {
+                if let id = stmt.id { existingStmtIds.insert(id) }
+            }
+        }
+
+        // Find transactions whose statementId points to a missing statement
+        let allTx = txRepo.fetchAllTransactions()
+        let orphaned = allTx.filter { tx in
+            guard let stmtId = tx.statementId else { return false }
+            return !existingStmtIds.contains(stmtId)
+        }
+
+        guard !orphaned.isEmpty else {
+            let alert = UIAlertController(
+                title: "No Missing Statements",
+                message: "All transactions reference existing statements.",
+                preferredStyle: .alert
+            )
+            alert.addAction(UIAlertAction(title: "OK", style: .default))
+            present(alert, animated: true)
+            return
+        }
+
+        // Group by (creditCardId, old statementId) — same old ID = same new statement
+        var groups: [String: [Transaction]] = [:]
+        for tx in orphaned {
+            guard let cardId = tx.creditCardId, let stmtId = tx.statementId else { continue }
+            groups["\(cardId)-\(stmtId)", default: []].append(tx)
+        }
+
+        var statementsCreated = 0
+        var transactionsRelinked = 0
+
+        for (_, txGroup) in groups {
+            guard let firstTx = txGroup.first,
+                  let cardId = firstTx.creditCardId,
+                  let card = cardRepo.fetchCard(byId: cardId) else { continue }
+
+            var statement: CreditCardStatement?
+
+            // Prefer a non-installment tx (its dateTimestamp is the real purchase date)
+            if let normalTx = txGroup.first(where: { $0.installmentNumber == nil }) {
+                let txDate = Date(timeIntervalSince1970: TimeInterval(normalTx.dateTimestamp))
+                statement = ccService.getOrCreateStatement(for: card, transactionDate: txDate, userId: userId)
+            } else {
+                // All installments — dateTimestamp has been remapped to the statement due date.
+                // Reverse-compute the closing date from the due date + card config.
+                let dueDate = Date(timeIntervalSince1970: TimeInterval(firstTx.dateTimestamp))
+                let dueMonth = calendar.component(.month, from: dueDate)
+                let dueYear = calendar.component(.year, from: dueDate)
+
+                let closingMonth: Int
+                let closingYear: Int
+                if card.dueDay > card.closingDay {
+                    // Due and closing fall in the same month
+                    closingMonth = dueMonth
+                    closingYear = dueYear
+                } else {
+                    // Closing is the previous month
+                    if dueMonth == 1 {
+                        closingMonth = 12
+                        closingYear = dueYear - 1
+                    } else {
+                        closingMonth = dueMonth - 1
+                        closingYear = dueYear
+                    }
+                }
+
+                let closingDay = min(card.closingDay, ccService.daysInMonth(month: closingMonth, year: closingYear))
+                guard let closingDate = calendar.date(from: DateComponents(
+                    year: closingYear, month: closingMonth, day: closingDay
+                )) else { continue }
+
+                // Check if statement already exists for this closing date
+                if let existingId = stmtRepo.findStatement(creditCardId: cardId, closingDate: closingDate) {
+                    let stmts = stmtRepo.fetchStatements(forCardId: cardId)
+                    statement = stmts.first { $0.id == existingId }
+                } else {
+                    let newStmt = CreditCardStatement(
+                        id: nil,
+                        creditCardId: cardId,
+                        closingDate: closingDate,
+                        dueDate: dueDate,
+                        totalAmount: 0,
+                        isPaid: false,
+                        paidDate: nil,
+                        paidAmount: nil,
+                        isDatesOverridden: false,
+                        userId: userId,
+                        createdAt: Date(),
+                        updatedAt: Date()
+                    )
+                    if let newId = stmtRepo.insertStatement(newStmt) {
+                        var created = newStmt
+                        created.id = newId
+                        statement = created
+                        statementsCreated += 1
+                    }
+                }
+            }
+
+            guard let stmt = statement, let stmtId = stmt.id else { continue }
+
+            for tx in txGroup {
+                guard let txId = tx.id else { continue }
+                try? txRepo.updateCreditCardFields(
+                    transactionId: txId,
+                    creditCardId: cardId,
+                    statementId: stmtId,
+                    isCreditCardStatement: tx.isCreditCardStatement ?? false
+                )
+                transactionsRelinked += 1
+            }
+
+            stmtRepo.recalculateTotal(statementId: stmtId)
+        }
+
+        logWarning("[RepairStatements] Created \(statementsCreated) statements, relinked \(transactionsRelinked) transactions")
+
+        refreshDashboardData()
+
+        let alert = UIAlertController(
+            title: "Repair Complete",
+            message: "Created: \(statementsCreated) statements\nRelinked: \(transactionsRelinked) transactions",
+            preferredStyle: .alert
+        )
+        alert.addAction(UIAlertAction(title: "OK", style: .default))
+        present(alert, animated: true)
+    }
+
     private func forceRefreshCurrentMonthBalance() {
         // Force refresh the balance
         viewModel.forceRefreshCurrentMonthBalance()

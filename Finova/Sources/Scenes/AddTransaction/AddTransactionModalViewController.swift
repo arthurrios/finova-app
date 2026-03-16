@@ -207,6 +207,7 @@ extension AddTransactionModalViewController: AddTransactionModalViewDelegate,
   }
 
   func sendTransactionData(_ data: AddTransactionData) {
+    contentView.saveButton.startLoading()
     let result = viewModel.addTransaction(
       title: data.title,
       amount: data.amount,
@@ -214,6 +215,7 @@ extension AddTransactionModalViewController: AddTransactionModalViewDelegate,
       categoryKey: data.category,
       typeRaw: data.transactionType,
       creditCardId: data.creditCardId)
+    contentView.saveButton.stopLoading()
 
     handleTransactionResult(result)
   }
@@ -257,6 +259,7 @@ extension AddTransactionModalViewController: AddTransactionModalViewDelegate,
   }
 
   func updateTransactionData(id: Int, _ data: AddTransactionData) {
+    contentView.saveButton.startLoading()
     let result = viewModel.updateTransaction(
       id: id,
       title: data.title,
@@ -266,10 +269,12 @@ extension AddTransactionModalViewController: AddTransactionModalViewDelegate,
       typeRaw: data.transactionType,
       creditCardId: data.creditCardId
     )
+    contentView.saveButton.stopLoading()
     handleUpdateResult(result)
   }
 
   func updateRecurringTransactionData(id: Int, _ data: AddTransactionData) {
+    contentView.saveButton.startLoading()
     let result = viewModel.updateTransaction(
       id: id,
       title: data.title,
@@ -279,15 +284,19 @@ extension AddTransactionModalViewController: AddTransactionModalViewDelegate,
       typeRaw: data.transactionType,
       creditCardId: data.creditCardId
     )
+    contentView.saveButton.stopLoading()
     handleUpdateResult(result)
   }
 
   func updateInstallmentTransactionData(id: Int, _ data: InstallmentTransactionData) {
+    contentView.saveButton.startLoading()
     let result = viewModel.updateTransactionWithInstallments(id: id, data)
+    contentView.saveButton.stopLoading()
     handleUpdateResult(result)
   }
 
   func updateSingleRecurringTransactionData(id: Int, _ data: AddTransactionData) {
+    contentView.saveButton.startLoading()
     let result = viewModel.updateSingleTransaction(
       id: id,
       title: data.title,
@@ -297,11 +306,14 @@ extension AddTransactionModalViewController: AddTransactionModalViewDelegate,
       typeRaw: data.transactionType,
       creditCardId: data.creditCardId
     )
+    contentView.saveButton.stopLoading()
     handleUpdateResult(result)
   }
 
   func updateSingleInstallmentTransactionData(id: Int, _ data: InstallmentTransactionData) {
+    contentView.saveButton.startLoading()
     let result = viewModel.updateSingleTransactionWithInstallments(id: id, data)
+    contentView.saveButton.stopLoading()
     handleUpdateResult(result)
   }
 

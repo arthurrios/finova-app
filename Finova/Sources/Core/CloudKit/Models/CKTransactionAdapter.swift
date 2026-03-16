@@ -51,6 +51,9 @@ extension Transaction: CKRecordConvertible {
         record["creditCardId"] = creditCardId as CKRecordValue?
         record["statementId"] = statementId as CKRecordValue?
         record["isCreditCardStatement"] = ((isCreditCardStatement ?? false) ? 1 : 0) as CKRecordValue
+        if let txId = id {
+            record["isStatementOverridden"] = (DBHelper.shared.isStatementOverridden(transactionId: txId) ? 1 : 0) as CKRecordValue
+        }
 
         // Store CK record names for cross-device ID remapping
         if let ccId = creditCardId {

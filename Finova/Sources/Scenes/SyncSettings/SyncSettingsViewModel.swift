@@ -90,11 +90,30 @@ final class SyncSettingsViewModel {
     ensureCloudKitAvailable { [weak self] in
       guard let self = self else { return }
       self.delegate?.didUpdateSyncState(status: .syncing, lastSyncText: self.formatLastSyncDate())
-      // Re-fetch all records from CloudKit (resets change tokens).
-      // Uses forceFullFetch instead of forceAcceptCloud to avoid resetting local timestamps
-      // which can cause orphan cleanup to delete valid records and push deletions to CloudKit.
       self.syncEngine.performFullSync(forceFullFetch: true)
     }
+  }
+
+  func recoverySync() {
+    ensureCloudKitAvailable { [weak self] in
+      guard let self = self else { return }
+      self.delegate?.didUpdateSyncState(status: .syncing, lastSyncText: self.formatLastSyncDate())
+      self.syncEngine.performPrivateZoneRecovery()
+    }
+  }
+
+  func forceRePushLocal() {
+    ensureCloudKitAvailable { [weak self] in
+      guard let self = self else { return }
+      self.delegate?.didUpdateSyncState(status: .syncing, lastSyncText: self.formatLastSyncDate())
+      self.syncEngine.forceRePushAllLocal {
+        // Status updates are handled by SyncEngine notifications
+      }
+    }
+  }
+
+  func checkCloudKitForCleanup(onAvailable: @escaping () -> Void) {
+    ensureCloudKitAvailable(onAvailable: onAvailable)
   }
 
   func resumeUpload() {

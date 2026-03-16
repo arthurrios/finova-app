@@ -88,6 +88,17 @@ class CreditCardService {
         return created
     }
 
+    /// Finds an existing statement for a transaction on a given card/date.
+    /// Unlike `getOrCreateStatement`, this never creates a new statement.
+    func getExistingStatement(for card: CreditCard, transactionDate: Date) -> CreditCardStatement? {
+        let closingDate = calculateClosingDate(card: card, transactionDate: transactionDate)
+        if let existingId = stmtRepo.findStatement(creditCardId: card.id!, closingDate: closingDate) {
+            let statements = stmtRepo.fetchStatements(forCardId: card.id!)
+            return statements.first(where: { $0.id == existingId })
+        }
+        return nil
+    }
+
     func recalculateStatementTotal(statementId: Int) {
         // Don't touch cloud-synced statements — they may appear empty locally because
         // cross-device credit card ID remapping hasn't resolved yet. Deleting or
@@ -108,6 +119,44 @@ class CreditCardService {
         }
     }
 
+    /// Moves a CC transaction from one statement to another, recalculating both totals.
+    /// Sets `is_statement_overridden` so `reassignMisplacedTransactions` won't move it back.
+    func moveTransactionToStatement(
+        transactionId: Int,
+        creditCardId: Int,
+        toStatementId: Int,
+        fromStatementId: Int?,
+        transactionRepo: TransactionRepository
+    ) {
+        do {
+            try transactionRepo.updateCreditCardFields(
+                transactionId: transactionId,
+                creditCardId: creditCardId,
+                statementId: toStatementId,
+                isCreditCardStatement: false
+            )
+
+            // Mark as manually overridden so auto-reassign won't undo this
+            DBHelper.shared.setStatementOverridden(transactionId: transactionId, overridden: true)
+
+            // Mark transaction as pending sync
+            transactionRepo.markSyncPending(for: transactionId)
+
+            // Recalculate totals for both statements
+            stmtRepo.recalculateTotal(statementId: toStatementId)
+            stmtRepo.markSyncPending(for: toStatementId)
+
+            if let fromId = fromStatementId {
+                stmtRepo.recalculateTotal(statementId: fromId)
+                stmtRepo.markSyncPending(for: fromId)
+            }
+
+            NotificationCenter.default.post(name: .creditCardDataChanged, object: nil)
+        } catch {
+            logError("Failed to move transaction \(transactionId) to statement \(toStatementId): \(error)")
+        }
+    }
+
     /// Generates synthetic statement transactions for the dashboard.
     func generateStatementTransactions(userId: String) -> [Transaction] {
         let cards = cardRepo.fetchAllCards(userId: userId)
@@ -118,6 +167,56 @@ class CreditCardService {
 
         for card in cards {
             let statements = stmtRepo.fetchStatements(forCardId: card.id!)
+
+            // --- Diagnostic: detect duplicate statements (same closingDate) ---
+            var closingDateMap: [Int: [CreditCardStatement]] = [:]
+            for s in statements {
+                let key = Int(s.closingDate.timeIntervalSince1970)
+                closingDateMap[key, default: []].append(s)
+            }
+            for (closingTs, dupes) in closingDateMap where dupes.count > 1 {
+                let closingDate = Date(timeIntervalSince1970: TimeInterval(closingTs))
+                logWarning("[DiagStmt] DUPLICATE statements for card \(card.name) closing=\(closingDate): \(dupes.map { "id=\($0.id ?? -1) due=\($0.dueDate)" })")
+            }
+
+            // Diagnostic: log current + previous month statements with duplicate detection
+            let now = Date()
+            let calendar = Calendar.current
+            for label in ["CURRENT", "PREVIOUS"] {
+                let refDate = label == "CURRENT" ? now : calendar.date(byAdding: .month, value: -1, to: now)!
+                let monthStmts = statements.filter { calendar.isDate($0.dueDate, equalTo: refDate, toGranularity: .month) }
+                for s in monthStmts {
+                    let txs = allSecureTransactions.filter { $0.statementId == s.id && $0.isCreditCardStatement != true }
+                    logWarning("[DiagStmt] \(label) month stmt id=\(s.id ?? -1) closing=\(s.closingDate) due=\(s.dueDate) txCount=\(txs.count) txSum=\(txs.reduce(0) { $0 + $1.amount })")
+                    for t in txs {
+                        logWarning("[DiagStmt]   tx id=\(t.id ?? -1) '\(t.title)' amt=\(t.amount) install#=\(t.installmentNumber ?? -1)/\(t.totalInstallments ?? -1) date=\(Date(timeIntervalSince1970: TimeInterval(t.dateTimestamp)))")
+                    }
+                    // Flag potential duplicates: same title + same installmentNumber in one statement
+                    struct TxKey: Hashable { let title: String; let installmentNumber: Int? }
+                    var seen: [TxKey: [Int]] = [:]
+                    for t in txs {
+                        let key = TxKey(title: t.title, installmentNumber: t.installmentNumber)
+                        seen[key, default: []].append(t.id ?? -1)
+                    }
+                    for (key, ids) in seen where ids.count > 1 {
+                        logWarning("[DiagStmt]   ⚠️ DUPLICATE: '\(key.title)' install#=\(key.installmentNumber ?? -1) appears \(ids.count)x, ids=\(ids)")
+                    }
+                }
+            }
+
+            // Also check: CC transactions for this card NOT in any live statement
+            let liveStmtIds = Set(statements.compactMap { $0.id })
+            let orphanedForCard = allSecureTransactions.filter {
+                $0.creditCardId == card.id && $0.isCreditCardStatement != true
+                && ($0.statementId == nil || !liveStmtIds.contains($0.statementId!))
+            }
+            if !orphanedForCard.isEmpty {
+                logWarning("[DiagStmt] \(orphanedForCard.count) CC txs for card \(card.name) with NO live statement")
+                for t in orphanedForCard.prefix(10) {
+                    logWarning("[DiagStmt]   orphan id=\(t.id ?? -1) '\(t.title)' stmtId=\(t.statementId ?? -1) amt=\(t.amount)")
+                }
+            }
+            // --- End diagnostic ---
 
             for stmt in statements {
                 // Count and sum from the secure store (consistent with what StatementDetailsViewModel shows)
@@ -214,6 +313,9 @@ class CreditCardService {
         for tx in cardTransactions {
             guard let txId = tx.id else { continue }
 
+            // Skip transactions whose statement was manually overridden by the user
+            if DBHelper.shared.isStatementOverridden(transactionId: txId) { continue }
+
             let transactionDate = Date(timeIntervalSince1970: TimeInterval(tx.dateTimestamp))
             guard let correctStatement = getOrCreateStatement(for: card, transactionDate: transactionDate, userId: userId),
                   let correctStmtId = correctStatement.id else { continue }
@@ -253,6 +355,265 @@ class CreditCardService {
         }
     }
 
+    /// Propagates credit_card_id from installment parents to children that lost their CC link.
+    /// This repairs data from a sync bug that set credit_card_id = NULL on some CC transactions.
+    func repairCreditCardLinksFromParents(userId: String, transactionRepo: TransactionRepository) {
+        let allTransactions = transactionRepo.fetchAllTransactions()
+        let calendar = Calendar.current
+        var fixedCount = 0
+
+        // Phase 1: Parent → children propagation
+        // Parents that still have creditCardId — restore on orphaned children
+        let ccParents = allTransactions.filter {
+            $0.hasInstallments == true && $0.parentTransactionId == nil && $0.creditCardId != nil
+        }
+
+        for parent in ccParents {
+            guard let parentId = parent.id,
+                  let cardId = parent.creditCardId,
+                  let card = cardRepo.fetchCard(byId: cardId),
+                  let totalInstallments = parent.totalInstallments,
+                  totalInstallments > 1 else { continue }
+
+            let startDate = Date(timeIntervalSince1970: TimeInterval(parent.dateTimestamp))
+
+            // Children missing their CC link
+            let orphanedChildren = allTransactions.filter {
+                $0.parentTransactionId == parentId && $0.installmentNumber != nil && $0.creditCardId == nil
+            }
+
+            for child in orphanedChildren {
+                guard let childId = child.id,
+                      let installmentNumber = child.installmentNumber else { continue }
+
+                let targetDate = calendar.date(byAdding: .month, value: installmentNumber - 1, to: startDate) ?? startDate
+                guard let statement = getOrCreateStatement(for: card, transactionDate: targetDate, userId: userId),
+                      let stmtId = statement.id else { continue }
+
+                do {
+                    try transactionRepo.updateCreditCardFields(
+                        transactionId: childId,
+                        creditCardId: cardId,
+                        statementId: stmtId,
+                        isCreditCardStatement: false
+                    )
+                    let dueDateTimestamp = Int(statement.dueDate.timeIntervalSince1970)
+                    let dueDateBudgetMonth = statement.dueDate.monthAnchor
+                    transactionRepo.updateDateAndBudgetMonth(
+                        transactionId: childId,
+                        newDateTimestamp: dueDateTimestamp,
+                        newBudgetMonthDate: dueDateBudgetMonth
+                    )
+                    recalculateStatementTotal(statementId: stmtId)
+                    fixedCount += 1
+                    logWarning("[CCRepair] Restored CC link for child \(childId) #\(installmentNumber) → card \(cardId), stmt \(stmtId)")
+                } catch {
+                    logError("[CCRepair] Failed to restore CC link for child \(childId): \(error)")
+                }
+            }
+        }
+
+        // Phase 2: Child → parent reverse propagation
+        // If parent lost its creditCardId but any child still has it, restore from child
+        let parentsWithoutCC = allTransactions.filter {
+            $0.hasInstallments == true && $0.parentTransactionId == nil && $0.creditCardId == nil
+        }
+
+        for parent in parentsWithoutCC {
+            guard let parentId = parent.id else { continue }
+
+            guard let childWithCC = allTransactions.first(where: {
+                $0.parentTransactionId == parentId && $0.creditCardId != nil
+            }),
+            let cardId = childWithCC.creditCardId,
+            let card = cardRepo.fetchCard(byId: cardId) else { continue }
+
+            let parentDate = Date(timeIntervalSince1970: TimeInterval(parent.dateTimestamp))
+            guard let statement = getOrCreateStatement(for: card, transactionDate: parentDate, userId: userId),
+                  let stmtId = statement.id else { continue }
+
+            do {
+                try transactionRepo.updateCreditCardFields(
+                    transactionId: parentId,
+                    creditCardId: cardId,
+                    statementId: stmtId,
+                    isCreditCardStatement: false
+                )
+                recalculateStatementTotal(statementId: stmtId)
+                fixedCount += 1
+                logWarning("[CCRepair] Restored CC link for parent \(parentId) from child → card \(cardId)")
+
+                // Now also fix remaining orphaned children of this parent
+                let remainingOrphans = allTransactions.filter {
+                    $0.parentTransactionId == parentId && $0.installmentNumber != nil && $0.creditCardId == nil
+                }
+                for child in remainingOrphans {
+                    guard let childId = child.id,
+                          let installmentNumber = child.installmentNumber else { continue }
+                    let targetDate = calendar.date(byAdding: .month, value: installmentNumber - 1, to: parentDate) ?? parentDate
+                    guard let childStmt = getOrCreateStatement(for: card, transactionDate: targetDate, userId: userId),
+                          let childStmtId = childStmt.id else { continue }
+                    do {
+                        try transactionRepo.updateCreditCardFields(
+                            transactionId: childId,
+                            creditCardId: cardId,
+                            statementId: childStmtId,
+                            isCreditCardStatement: false
+                        )
+                        let dueDateTimestamp = Int(childStmt.dueDate.timeIntervalSince1970)
+                        transactionRepo.updateDateAndBudgetMonth(
+                            transactionId: childId,
+                            newDateTimestamp: dueDateTimestamp,
+                            newBudgetMonthDate: childStmt.dueDate.monthAnchor
+                        )
+                        recalculateStatementTotal(statementId: childStmtId)
+                        fixedCount += 1
+                    } catch {
+                        logError("[CCRepair] Failed to restore CC link for child \(childId) in phase 2: \(error)")
+                    }
+                }
+            } catch {
+                logError("[CCRepair] Failed to restore CC link for parent \(parentId): \(error)")
+            }
+        }
+
+        // Phase 3: Match orphaned installment children to statements by dueDate timestamp.
+        // If an installment's dateTimestamp matches a statement's dueDate, it belonged to that card/statement.
+        let cards = cardRepo.fetchAllCards(userId: userId)
+        var dueDateMap: [Int: (cardId: Int, stmtId: Int)] = [:]
+        for card in cards {
+            guard let cardId = card.id else { continue }
+            let stmts = stmtRepo.fetchStatements(forCardId: cardId)
+            for stmt in stmts {
+                guard let stmtId = stmt.id else { continue }
+                let dueDateTimestamp = Int(stmt.dueDate.timeIntervalSince1970)
+                dueDateMap[dueDateTimestamp] = (cardId: cardId, stmtId: stmtId)
+            }
+        }
+
+        // Re-fetch to pick up phase 1/2 fixes
+        TransactionRepository.invalidateCache()
+        let refreshedTransactions = transactionRepo.fetchAllTransactions()
+
+        let orphanedByDueDate = refreshedTransactions.filter {
+            $0.creditCardId == nil && $0.parentTransactionId != nil && $0.installmentNumber != nil
+        }
+
+        if !orphanedByDueDate.isEmpty {
+            logWarning("[CCRepair] Phase 3: \(orphanedByDueDate.count) orphaned installments, checking dueDate match against \(dueDateMap.count) statement due dates")
+        }
+
+        for tx in orphanedByDueDate {
+            guard let txId = tx.id else { continue }
+            if let match = dueDateMap[tx.dateTimestamp] {
+                do {
+                    try transactionRepo.updateCreditCardFields(
+                        transactionId: txId,
+                        creditCardId: match.cardId,
+                        statementId: match.stmtId,
+                        isCreditCardStatement: false
+                    )
+                    recalculateStatementTotal(statementId: match.stmtId)
+                    fixedCount += 1
+                    logWarning("[CCRepair] Phase 3: matched tx \(txId) #\(tx.installmentNumber ?? 0) to card \(match.cardId) stmt \(match.stmtId) via dueDate")
+                } catch {
+                    logError("[CCRepair] Phase 3: failed to restore tx \(txId): \(error)")
+                }
+            }
+        }
+
+        // Phase 4: Single-card fallback — if exactly one card exists, assign remaining
+        // orphaned installments to it using parent startDate + installmentNumber.
+        TransactionRepository.invalidateCache()
+        let finalTransactions = transactionRepo.fetchAllTransactions()
+
+        let stillOrphaned = finalTransactions.filter {
+            $0.creditCardId == nil && $0.parentTransactionId != nil && $0.installmentNumber != nil
+        }
+
+        if !stillOrphaned.isEmpty && cards.count == 1, let card = cards.first, let cardId = card.id {
+            logWarning("[CCRepair] Phase 4: \(stillOrphaned.count) orphans remain, single card \(cardId) fallback")
+
+            // Group orphans by parent
+            let parentIds = Set(stillOrphaned.compactMap { $0.parentTransactionId })
+            for parentId in parentIds {
+                guard let parent = finalTransactions.first(where: { $0.id == parentId }) else { continue }
+                let startDate = Date(timeIntervalSince1970: TimeInterval(parent.dateTimestamp))
+
+                // Fix parent if needed
+                if parent.creditCardId == nil {
+                    let parentDate = startDate
+                    if let stmt = getOrCreateStatement(for: card, transactionDate: parentDate, userId: userId),
+                       let stmtId = stmt.id {
+                        do {
+                            try transactionRepo.updateCreditCardFields(
+                                transactionId: parentId,
+                                creditCardId: cardId,
+                                statementId: stmtId,
+                                isCreditCardStatement: false
+                            )
+                            recalculateStatementTotal(statementId: stmtId)
+                            fixedCount += 1
+                            logWarning("[CCRepair] Phase 4: restored parent \(parentId) → card \(cardId)")
+                        } catch {
+                            logError("[CCRepair] Phase 4: failed to restore parent \(parentId): \(error)")
+                        }
+                    }
+                }
+
+                // Fix children
+                let orphanChildren = stillOrphaned.filter { $0.parentTransactionId == parentId }
+                for child in orphanChildren {
+                    guard let childId = child.id,
+                          let installmentNumber = child.installmentNumber else { continue }
+                    let targetDate = calendar.date(byAdding: .month, value: installmentNumber - 1, to: startDate) ?? startDate
+                    guard let stmt = getOrCreateStatement(for: card, transactionDate: targetDate, userId: userId),
+                          let stmtId = stmt.id else { continue }
+                    do {
+                        try transactionRepo.updateCreditCardFields(
+                            transactionId: childId,
+                            creditCardId: cardId,
+                            statementId: stmtId,
+                            isCreditCardStatement: false
+                        )
+                        let dueDateTimestamp = Int(stmt.dueDate.timeIntervalSince1970)
+                        transactionRepo.updateDateAndBudgetMonth(
+                            transactionId: childId,
+                            newDateTimestamp: dueDateTimestamp,
+                            newBudgetMonthDate: stmt.dueDate.monthAnchor
+                        )
+                        recalculateStatementTotal(statementId: stmtId)
+                        fixedCount += 1
+                    } catch {
+                        logError("[CCRepair] Phase 4: failed to restore child \(childId): \(error)")
+                    }
+                }
+            }
+        } else if !stillOrphaned.isEmpty && cards.count > 1 {
+            logWarning("[CCRepair] Phase 4: \(stillOrphaned.count) orphans remain but \(cards.count) cards exist — cannot auto-assign. Need manual or cloud recovery.")
+        }
+
+        // Final diagnostic
+        TransactionRepository.invalidateCache()
+        let diagnosticTxs = transactionRepo.fetchAllTransactions()
+        let remainingOrphanedInstallments = diagnosticTxs.filter {
+            $0.creditCardId == nil && $0.parentTransactionId != nil && $0.installmentNumber != nil
+        }
+        let installmentParentsNoCC = diagnosticTxs.filter {
+            $0.hasInstallments == true && $0.parentTransactionId == nil && $0.creditCardId == nil
+        }
+        logWarning("[CCRepair] repairCreditCardLinksFromParents DONE: restored \(fixedCount) total")
+        logWarning("[CCRepair]   Cards: \(cards.count), Statements: \(dueDateMap.count)")
+        logWarning("[CCRepair]   Remaining orphaned installment children: \(remainingOrphanedInstallments.count)")
+        logWarning("[CCRepair]   Installment parents without CC: \(installmentParentsNoCC.count)")
+
+        if !installmentParentsNoCC.isEmpty {
+            for p in installmentParentsNoCC.prefix(5) {
+                logWarning("[CCRepair]     parent id=\(p.id ?? -1) '\(p.title)' total=\(p.totalInstallments ?? 0) date=\(Date(timeIntervalSince1970: TimeInterval(p.dateTimestamp)))")
+            }
+        }
+    }
+
     /// Finds transactions that have a creditCardId but no statementId and assigns them to the correct statement.
     /// This repairs data from a bug where editing a transaction to use a credit card didn't create statements.
     func repairOrphanedCreditCardTransactions(userId: String, transactionRepo: TransactionRepository) {
@@ -269,7 +630,15 @@ class CreditCardService {
                   let txId = tx.id,
                   let card = cardRepo.fetchCard(byId: cardId) else { continue }
 
-            let transactionDate = Date(timeIntervalSince1970: TimeInterval(tx.dateTimestamp))
+            // Installment dates are remapped to statement due dates — reverse-compute
+            // the closing date so getOrCreateStatement finds/creates the correct statement.
+            let transactionDate: Date
+            if tx.installmentNumber != nil {
+                let dueDate = Date(timeIntervalSince1970: TimeInterval(tx.dateTimestamp))
+                transactionDate = reverseClosingDate(dueDate: dueDate, card: card)
+            } else {
+                transactionDate = Date(timeIntervalSince1970: TimeInterval(tx.dateTimestamp))
+            }
             if let statement = getOrCreateStatement(for: card, transactionDate: transactionDate, userId: userId) {
                 do {
                     try transactionRepo.updateCreditCardFields(
@@ -278,11 +647,565 @@ class CreditCardService {
                         statementId: statement.id!,
                         isCreditCardStatement: false
                     )
+                    // Only remap date for installments — their dates are mapped to
+                    // statement due dates at creation. Regular CC transactions keep
+                    // their original purchase date.
+                    if tx.installmentNumber != nil {
+                        let dueDateTimestamp = Int(statement.dueDate.timeIntervalSince1970)
+                        let dueDateBudgetMonth = statement.dueDate.monthAnchor
+                        transactionRepo.updateDateAndBudgetMonth(
+                            transactionId: txId,
+                            newDateTimestamp: dueDateTimestamp,
+                            newBudgetMonthDate: dueDateBudgetMonth
+                        )
+                    }
                     recalculateStatementTotal(statementId: statement.id!)
                 } catch {
                     logError("Failed to repair orphaned transaction \(txId): \(error)")
                 }
             }
+        }
+    }
+
+    /// Authoritative repair for CC installments: recomputes the correct statement for each
+    /// installment child using the parent's start date + installmentNumber, regardless of
+    /// what the child's current dateTimestamp or statementId says.
+    /// This handles all cases: NULL statementId, stale statementId, wrong statementId.
+    func repairInstallmentStatementLinks(userId: String, transactionRepo: TransactionRepository) {
+        let allTransactions = transactionRepo.fetchAllTransactions()
+        let calendar = Calendar.current
+
+        logWarning("[CCRepair] repairInstallmentStatementLinks: total transactions = \(allTransactions.count)")
+
+        // Find installment parents
+        let parents = allTransactions.filter { $0.hasInstallments == true && $0.parentTransactionId == nil }
+        logWarning("[CCRepair] Found \(parents.count) installment parents (hasInstallments=true, parentTransactionId=nil)")
+
+        if parents.isEmpty {
+            // Also check for parents with parentTransactionId == self.id
+            let altParents = allTransactions.filter { $0.hasInstallments == true }
+            logWarning("[CCRepair] Alt check: \(altParents.count) transactions with hasInstallments=true")
+            for p in altParents {
+                logWarning("[CCRepair]   parent id=\(p.id ?? -1), parentTxId=\(p.parentTransactionId ?? -1), title=\(p.title), totalInstallments=\(p.totalInstallments ?? 0)")
+            }
+        }
+
+        guard !parents.isEmpty else { return }
+
+        var fixedCount = 0
+
+        for parent in parents {
+            guard let parentId = parent.id,
+                  let totalInstallments = parent.totalInstallments,
+                  totalInstallments > 1 else { continue }
+
+            let startDate = Date(timeIntervalSince1970: TimeInterval(parent.dateTimestamp))
+
+            // Find children of this parent
+            let children = allTransactions.filter {
+                $0.parentTransactionId == parentId && $0.installmentNumber != nil
+            }
+
+            logWarning("[CCRepair] Parent \(parentId) '\(parent.title)': startDate=\(startDate), totalInstallments=\(totalInstallments), children found=\(children.count)")
+
+            for child in children {
+                guard let childId = child.id,
+                      let installmentNumber = child.installmentNumber else {
+                    logWarning("[CCRepair]   Skipping child: missing id or installmentNumber")
+                    continue
+                }
+
+                guard let cardId = child.creditCardId else {
+                    logWarning("[CCRepair]   Child \(childId) #\(installmentNumber): no creditCardId, skipping")
+                    continue
+                }
+
+                guard let card = cardRepo.fetchCard(byId: cardId) else {
+                    logWarning("[CCRepair]   Child \(childId) #\(installmentNumber): card \(cardId) not found, skipping")
+                    continue
+                }
+
+                // Compute the correct original installment date from parent start date
+                let targetDate = calendar.date(byAdding: .month, value: installmentNumber - 1, to: startDate) ?? startDate
+                let targetYear = calendar.component(.year, from: targetDate)
+                let targetMonth = calendar.component(.month, from: targetDate)
+                let originalDay = calendar.component(.day, from: startDate)
+                let maxDay = calendar.range(of: .day, in: .month, for: targetDate)?.count ?? 28
+                let validDay = min(originalDay, maxDay)
+                let installmentDate = calendar.date(from: DateComponents(year: targetYear, month: targetMonth, day: validDay)) ?? targetDate
+
+                // Get or create the correct statement
+                guard let correctStatement = getOrCreateStatement(for: card, transactionDate: installmentDate, userId: userId),
+                      let correctStmtId = correctStatement.id else { continue }
+
+                // Check if already correct
+                let correctDueTimestamp = Int(correctStatement.dueDate.timeIntervalSince1970)
+                if child.statementId == correctStmtId && child.dateTimestamp == correctDueTimestamp {
+                    continue // Already correct
+                }
+
+                // Fix: re-link and remap date
+                let oldStmtId = child.statementId
+                do {
+                    try transactionRepo.updateCreditCardFields(
+                        transactionId: childId,
+                        creditCardId: cardId,
+                        statementId: correctStmtId,
+                        isCreditCardStatement: false
+                    )
+                    transactionRepo.updateDateAndBudgetMonth(
+                        transactionId: childId,
+                        newDateTimestamp: correctDueTimestamp,
+                        newBudgetMonthDate: correctStatement.dueDate.monthAnchor
+                    )
+                    recalculateStatementTotal(statementId: correctStmtId)
+                    if let oldId = oldStmtId, oldId != correctStmtId {
+                        recalculateStatementTotal(statementId: oldId)
+                    }
+                    fixedCount += 1
+                } catch {
+                    logError("Failed to fix installment \(childId) statement link: \(error)")
+                }
+            }
+        }
+
+        if fixedCount > 0 {
+            logWarning("[CCRepair] Fixed \(fixedCount) installment statement links")
+        }
+
+        // Diagnostic: find CC transactions without statements
+        let ccWithoutStmt = allTransactions.filter {
+            $0.creditCardId != nil && $0.statementId == nil && $0.isCreditCardStatement != true
+        }
+        logWarning("[CCRepair] CC transactions with NO statementId: \(ccWithoutStmt.count)")
+        for tx in ccWithoutStmt.prefix(10) {
+            logWarning("[CCRepair]   id=\(tx.id ?? -1) '\(tx.title)' cardId=\(tx.creditCardId ?? -1) parentTxId=\(tx.parentTransactionId ?? -1) installment#=\(tx.installmentNumber ?? -1) date=\(Date(timeIntervalSince1970: TimeInterval(tx.dateTimestamp)))")
+        }
+
+        // Diagnostic: find CC transactions with stale statements
+        let ccWithStmt = allTransactions.filter {
+            $0.creditCardId != nil && $0.statementId != nil && $0.isCreditCardStatement != true
+        }
+        var staleCount = 0
+        var statementsCache: [Int: Set<Int>] = [:]
+        for tx in ccWithStmt {
+            guard let cardId = tx.creditCardId, let stmtId = tx.statementId else { continue }
+            if statementsCache[cardId] == nil {
+                let stmts = stmtRepo.fetchStatements(forCardId: cardId)
+                statementsCache[cardId] = Set(stmts.compactMap { $0.id })
+            }
+            if !(statementsCache[cardId]?.contains(stmtId) ?? false) {
+                staleCount += 1
+                if staleCount <= 5 {
+                    logWarning("[CCRepair]   STALE: id=\(tx.id ?? -1) '\(tx.title)' stmtId=\(stmtId) cardId=\(cardId)")
+                }
+            }
+        }
+        logWarning("[CCRepair] CC transactions with STALE statementId: \(staleCount)")
+        logWarning("[CCRepair] CC transactions with VALID statementId: \(ccWithStmt.count - staleCount)")
+    }
+
+    /// Deduplicates CC installment series and reassigns each installment to the correct
+    /// statement based on sequential monthly progression from installment #1.
+    /// Groups installments by (title, totalInstallments, creditCardId) to identify series.
+    func deduplicateAndFixCCInstallments(userId: String, transactionRepo: TransactionRepository) {
+        let migrationKey = "hasDeduplicatedCCInstallments_v2"
+        guard !UserDefaults.standard.bool(forKey: migrationKey) else { return }
+
+        let allTransactions = transactionRepo.fetchAllTransactions()
+
+        // Find all CC installment transactions (have creditCardId + installmentNumber)
+        let ccInstallments = allTransactions.filter {
+            $0.creditCardId != nil && $0.installmentNumber != nil && $0.isCreditCardStatement != true
+        }
+
+        guard !ccInstallments.isEmpty else {
+            UserDefaults.standard.set(true, forKey: migrationKey)
+            return
+        }
+
+        // Group into series by (title, creditCardId, totalInstallments)
+        struct SeriesKey: Hashable {
+            let title: String
+            let creditCardId: Int
+            let totalInstallments: Int
+        }
+
+        var series: [SeriesKey: [Transaction]] = [:]
+        for tx in ccInstallments {
+            guard let cardId = tx.creditCardId,
+                  let total = tx.totalInstallments else { continue }
+            let key = SeriesKey(title: tx.title, creditCardId: cardId, totalInstallments: total)
+            series[key, default: []].append(tx)
+        }
+
+        var totalDeleted = 0
+        var totalFixed = 0
+
+        for (key, transactions) in series {
+            guard let card = cardRepo.fetchCard(byId: key.creditCardId) else { continue }
+
+            // Group by installmentNumber
+            var byNumber: [Int: [Transaction]] = [:]
+            for tx in transactions {
+                if let num = tx.installmentNumber {
+                    byNumber[num, default: []].append(tx)
+                }
+            }
+
+            // Step 1: Deduplicate — keep lowest ID for each installment number
+            for (num, duplicates) in byNumber where duplicates.count > 1 {
+                let sorted = duplicates.sorted { ($0.id ?? Int.max) < ($1.id ?? Int.max) }
+                for dup in sorted.dropFirst() {
+                    if let dupId = dup.id {
+                        if let stmtId = dup.statementId {
+                            try? transactionRepo.delete(id: dupId)
+                            recalculateStatementTotal(statementId: stmtId)
+                        } else {
+                            try? transactionRepo.delete(id: dupId)
+                        }
+                        totalDeleted += 1
+                    }
+                }
+                // Keep only the survivor
+                byNumber[num] = [sorted[0]]
+            }
+
+            // Step 2: Find installment #1 to determine the series start date
+            // Use reverseClosingDate to recover the original transaction date from the due date
+            guard let firstInstallment = byNumber[1]?.first else {
+                logWarning("[CCRepair] Series '\(key.title)': no installment #1 found, skipping")
+                continue
+            }
+
+            let firstDueDate = Date(timeIntervalSince1970: TimeInterval(firstInstallment.dateTimestamp))
+            let originalStartDate = reverseClosingDate(dueDate: firstDueDate, card: card)
+
+            logWarning("[CCRepair] Series '\(key.title)' (\(key.totalInstallments) installments): startDate=\(originalStartDate)")
+
+            let calendar = Calendar.current
+
+            // Step 3: Reassign each installment to the correct statement
+            for installmentNumber in 1...key.totalInstallments {
+                guard let tx = byNumber[installmentNumber]?.first,
+                      let txId = tx.id else { continue }
+
+                // Compute correct date: startDate + (N-1) months
+                let correctDate = calendar.date(byAdding: .month, value: installmentNumber - 1, to: originalStartDate) ?? originalStartDate
+
+                guard let correctStatement = getOrCreateStatement(for: card, transactionDate: correctDate, userId: userId),
+                      let correctStmtId = correctStatement.id else { continue }
+
+                let correctDueTimestamp = Int(correctStatement.dueDate.timeIntervalSince1970)
+
+                // Only update if wrong
+                if tx.statementId != correctStmtId || tx.dateTimestamp != correctDueTimestamp {
+                    let oldStmtId = tx.statementId
+                    do {
+                        try transactionRepo.updateCreditCardFields(
+                            transactionId: txId,
+                            creditCardId: key.creditCardId,
+                            statementId: correctStmtId,
+                            isCreditCardStatement: false
+                        )
+                        transactionRepo.updateDateAndBudgetMonth(
+                            transactionId: txId,
+                            newDateTimestamp: correctDueTimestamp,
+                            newBudgetMonthDate: correctStatement.dueDate.monthAnchor
+                        )
+                        recalculateStatementTotal(statementId: correctStmtId)
+                        if let oldId = oldStmtId, oldId != correctStmtId {
+                            recalculateStatementTotal(statementId: oldId)
+                        }
+                        totalFixed += 1
+                        logWarning("[CCRepair]   Fixed '\(key.title)' #\(installmentNumber) → stmt \(correctStmtId) (due \(correctStatement.dueDate))")
+                    } catch {
+                        logError("[CCRepair] Failed to fix '\(key.title)' #\(installmentNumber): \(error)")
+                    }
+                }
+            }
+        }
+
+        // Force-recalculate ALL CC statement totals (bypasses the ck_record_name guard
+        // which would skip cloud-synced statements with stale totals)
+        let allCards = cardRepo.fetchAllCards(userId: userId)
+        if allCards.isEmpty {
+            // Fallback: get card IDs from the CC transactions themselves
+            let cardIds = Set(ccInstallments.compactMap { $0.creditCardId })
+            for cardId in cardIds {
+                let stmts = stmtRepo.fetchStatements(forCardId: cardId)
+                for stmt in stmts {
+                    if let stmtId = stmt.id {
+                        stmtRepo.recalculateTotal(statementId: stmtId)
+                    }
+                }
+            }
+        } else {
+            for card in allCards {
+                let stmts = stmtRepo.fetchStatements(forCardId: card.id!)
+                for stmt in stmts {
+                    if let stmtId = stmt.id {
+                        stmtRepo.recalculateTotal(statementId: stmtId)
+                    }
+                }
+            }
+        }
+
+        logWarning("[CCRepair] Deduplicated: deleted \(totalDeleted), reassigned \(totalFixed)")
+        UserDefaults.standard.set(true, forKey: migrationKey)
+    }
+
+    /// One-time repair v2: fixes CC transaction dates using BTG bank data, then reassigns
+    /// to correct statements. Previous version only moved statements but didn't fix dates,
+    /// so reassignMisplacedTransactions moved them again based on wrong dates.
+    func repairBTGStatementAssignments(userId: String, transactionRepo: TransactionRepository) {
+        let migrationKey = "hasRepairedBTGStatements_v2"
+        guard !UserDefaults.standard.bool(forKey: migrationKey) else { return }
+
+        let allTransactions = transactionRepo.fetchAllTransactions()
+
+        // Find the BTG card
+        let ccTransactions = allTransactions.filter { $0.creditCardId != nil && $0.isCreditCardStatement != true }
+        guard let cardId = ccTransactions.first?.creditCardId,
+              let card = cardRepo.fetchCard(byId: cardId) else {
+            logWarning("[BTGRepair] No CC card found, skipping")
+            UserDefaults.standard.set(true, forKey: migrationKey)
+            return
+        }
+
+        let calendar = Calendar.current
+
+        // Step 1: Delete confirmed duplicates (old edited versions)
+        let duplicateIds = [26712, 26714, 26717]
+        var deletedCount = 0
+        for dupId in duplicateIds {
+            if allTransactions.contains(where: { $0.id == dupId }) {
+                try? transactionRepo.delete(id: dupId)
+                deletedCount += 1
+                logWarning("[BTGRepair] Deleted duplicate id=\(dupId)")
+            }
+        }
+
+        // Step 2: Build amount → purchase date mapping from BTG statements
+        // BTG February (period 09/01-09/02, due 13/02) — regular transactions only
+        let btgFebDateMap: [(amount: Int, date: DateComponents, fuzzyRange: Int)] = [
+            (7890,  DateComponents(year: 2026, month: 1, day: 7), 0),
+            (3390,  DateComponents(year: 2026, month: 1, day: 8), 0),
+            (22996, DateComponents(year: 2026, month: 1, day: 10), 0),
+            (4990,  DateComponents(year: 2026, month: 1, day: 10), 0),
+            (9076,  DateComponents(year: 2026, month: 1, day: 13), 0),
+            (66276, DateComponents(year: 2026, month: 1, day: 14), 0),
+            (18190, DateComponents(year: 2026, month: 1, day: 17), 0),
+            (16000, DateComponents(year: 2026, month: 1, day: 18), 0),
+            (13515, DateComponents(year: 2026, month: 1, day: 19), 0),
+            (53374, DateComponents(year: 2026, month: 1, day: 21), 200),  // app has 53238
+            (16737, DateComponents(year: 2026, month: 1, day: 23), 0),
+            (1999,  DateComponents(year: 2026, month: 1, day: 24), 0),
+            (35628, DateComponents(year: 2026, month: 1, day: 26), 0),
+            (21245, DateComponents(year: 2026, month: 1, day: 26), 0),
+            (7497,  DateComponents(year: 2026, month: 1, day: 29), 0),
+            (12158, DateComponents(year: 2026, month: 2, day: 2), 0),
+            (66314, DateComponents(year: 2026, month: 2, day: 3), 0),
+        ]
+
+        // BTG March (period 09/02-09/03, due 13/03) — regular transactions only
+        let btgMarDateMap: [(amount: Int, date: DateComponents, fuzzyRange: Int)] = [
+            (84877,  DateComponents(year: 2026, month: 2, day: 10), 0),
+            (16991,  DateComponents(year: 2026, month: 2, day: 12), 0),
+            (26219,  DateComponents(year: 2026, month: 2, day: 12), 0),
+            (7998,   DateComponents(year: 2026, month: 2, day: 14), 0),
+            (22207,  DateComponents(year: 2026, month: 2, day: 15), 0),
+            (6900,   DateComponents(year: 2026, month: 2, day: 16), 0),
+            (21307,  DateComponents(year: 2026, month: 2, day: 18), 0),
+            (9350,   DateComponents(year: 2026, month: 2, day: 21), 0),
+            (8819,   DateComponents(year: 2026, month: 2, day: 21), 0),
+            (10718,  DateComponents(year: 2026, month: 2, day: 22), 0),
+            (54186,  DateComponents(year: 2026, month: 2, day: 24), 0),
+            (16990,  DateComponents(year: 2026, month: 2, day: 25), 0),
+            (18265,  DateComponents(year: 2026, month: 2, day: 26), 0),
+            (29986,  DateComponents(year: 2026, month: 2, day: 26), 0),
+            (19320,  DateComponents(year: 2026, month: 2, day: 27), 0),
+            (11295,  DateComponents(year: 2026, month: 2, day: 28), 200),  // app has 11290
+            (500000, DateComponents(year: 2026, month: 2, day: 28), 0),
+            (10584,  DateComponents(year: 2026, month: 3, day: 2), 0),
+            (14500,  DateComponents(year: 2026, month: 3, day: 3), 0),
+            (6440,   DateComponents(year: 2026, month: 3, day: 8), 0),
+        ]
+
+        // Combine into one lookup: amount → correct purchase date
+        var allBtgEntries = btgFebDateMap + btgMarDateMap
+
+        // Step 3: For each non-installment CC transaction, fix date and reassign statement
+        let freshAll = transactionRepo.fetchAllTransactions()
+        let cardCCTxs = freshAll.filter {
+            $0.creditCardId == cardId && $0.isCreditCardStatement != true && $0.installmentNumber == nil
+        }
+
+        var dateFixCount = 0
+        var stmtFixCount = 0
+        var usedEntryIndices = Set<Int>()
+
+        for tx in cardCCTxs {
+            guard let txId = tx.id else { continue }
+
+            // Find matching BTG entry by amount (exact first, then fuzzy)
+            var matchIdx: Int?
+            for (i, entry) in allBtgEntries.enumerated() {
+                if usedEntryIndices.contains(i) { continue }
+                if entry.fuzzyRange == 0 && tx.amount == entry.amount {
+                    matchIdx = i
+                    break
+                } else if entry.fuzzyRange > 0 && abs(tx.amount - entry.amount) <= entry.fuzzyRange {
+                    matchIdx = i
+                    break
+                }
+            }
+
+            guard let idx = matchIdx else { continue }
+            usedEntryIndices.insert(idx)
+            let entry = allBtgEntries[idx]
+
+            guard let correctDate = calendar.date(from: entry.date) else { continue }
+            let correctTimestamp = Int(correctDate.timeIntervalSince1970)
+            let correctBudgetMonth = correctDate.monthAnchor
+
+            // Fix date if wrong
+            if tx.dateTimestamp != correctTimestamp {
+                transactionRepo.updateDateAndBudgetMonth(
+                    transactionId: txId,
+                    newDateTimestamp: correctTimestamp,
+                    newBudgetMonthDate: correctBudgetMonth
+                )
+                dateFixCount += 1
+                logWarning("[BTGRepair] Fixed date id=\(txId) '\(tx.title)' \(tx.amount) → \(correctDate)")
+            }
+
+            // Reassign to correct statement using the correct date
+            if let correctStmt = getOrCreateStatement(for: card, transactionDate: correctDate, userId: userId),
+               let correctStmtId = correctStmt.id,
+               tx.statementId != correctStmtId {
+                do {
+                    try transactionRepo.updateCreditCardFields(
+                        transactionId: txId, creditCardId: cardId,
+                        statementId: correctStmtId, isCreditCardStatement: false
+                    )
+                    stmtFixCount += 1
+                    logWarning("[BTGRepair] Reassigned id=\(txId) '\(tx.title)' → stmt \(correctStmtId)")
+                } catch {
+                    logError("[BTGRepair] Failed to reassign \(txId): \(error)")
+                }
+            }
+        }
+
+        // Step 4: Recalculate ALL statement totals for this card
+        let allStmts = stmtRepo.fetchStatements(forCardId: cardId)
+        for stmt in allStmts {
+            if let stmtId = stmt.id {
+                stmtRepo.recalculateTotal(statementId: stmtId)
+            }
+        }
+
+        // Step 5: Log unmatched BTG entries
+        let unmatchedCount = allBtgEntries.count - usedEntryIndices.count
+        if unmatchedCount > 0 {
+            let unmatched = allBtgEntries.enumerated()
+                .filter { !usedEntryIndices.contains($0.offset) }
+                .map { "\($0.element.amount)" }
+            logWarning("[BTGRepair] ⚠️ \(unmatchedCount) BTG amounts unmatched in DB: \(unmatched.joined(separator: ", "))")
+        }
+
+        logWarning("[BTGRepair] Done. Deleted \(deletedCount) dupes, fixed \(dateFixCount) dates, reassigned \(stmtFixCount) stmts")
+        UserDefaults.standard.set(true, forKey: migrationKey)
+    }
+
+    /// Repair: finds CC transactions whose statementId points to a soft-deleted or missing statement
+    /// and re-links them to the correct live statement by matching due dates.
+    /// Cannot use repairOrphanedCreditCardTransactions for these because the installment's dateTimestamp
+    /// has already been remapped to the due date, so calculateClosingDate would compute the wrong period.
+    func repairStaleStatementLinks(userId: String, transactionRepo: TransactionRepository) {
+        let allTransactions = transactionRepo.fetchAllTransactions()
+
+        let linkedTransactions = allTransactions.filter { tx in
+            tx.creditCardId != nil && tx.statementId != nil && tx.isCreditCardStatement != true
+        }
+
+        guard !linkedTransactions.isEmpty else { return }
+
+        // Build lookups of live statements per card (by id and by dueDate timestamp)
+        var statementsCache: [Int: [CreditCardStatement]] = [:]
+        func liveStatements(forCard cardId: Int) -> [CreditCardStatement] {
+            if let cached = statementsCache[cardId] { return cached }
+            let stmts = stmtRepo.fetchStatements(forCardId: cardId)
+            statementsCache[cardId] = stmts
+            return stmts
+        }
+
+        for tx in linkedTransactions {
+            guard let txId = tx.id, let stmtId = tx.statementId,
+                  let cardId = tx.creditCardId else { continue }
+
+            let stmts = liveStatements(forCard: cardId)
+            let liveIds = Set(stmts.compactMap { $0.id })
+
+            // Statement is still live — nothing to fix
+            if liveIds.contains(stmtId) { continue }
+
+            // Statement is deleted/missing — find the correct one by matching due date
+            let txDueDate = Date(timeIntervalSince1970: TimeInterval(tx.dateTimestamp))
+            let txDueTimestamp = Int(txDueDate.timeIntervalSince1970)
+
+            if let matchingStmt = stmts.first(where: { Int($0.dueDate.timeIntervalSince1970) == txDueTimestamp }),
+               let matchingId = matchingStmt.id {
+                // Re-link to the existing live statement with the same due date
+                do {
+                    try transactionRepo.updateCreditCardFields(
+                        transactionId: txId,
+                        creditCardId: cardId,
+                        statementId: matchingId,
+                        isCreditCardStatement: false
+                    )
+                    recalculateStatementTotal(statementId: matchingId)
+                } catch {
+                    logError("Failed to re-link transaction \(txId) to statement \(matchingId): \(error)")
+                }
+            } else if let card = cardRepo.fetchCard(byId: cardId) {
+                // No live statement with matching due date — reverse-compute closing date and create one
+                let closingDate = reverseClosingDate(dueDate: txDueDate, card: card)
+                if let statement = getOrCreateStatement(for: card, transactionDate: closingDate, userId: userId) {
+                    do {
+                        try transactionRepo.updateCreditCardFields(
+                            transactionId: txId,
+                            creditCardId: cardId,
+                            statementId: statement.id!,
+                            isCreditCardStatement: false
+                        )
+                        recalculateStatementTotal(statementId: statement.id!)
+                    } catch {
+                        logError("Failed to re-link transaction \(txId) to new statement: \(error)")
+                    }
+                }
+            }
+        }
+    }
+
+    /// Reverse-computes the closing date from a due date for a given card.
+    /// This is the inverse of calculateDueDate.
+    private func reverseClosingDate(dueDate: Date, card: CreditCard) -> Date {
+        let calendar = Calendar.current
+        let dueMonth = calendar.component(.month, from: dueDate)
+        let dueYear = calendar.component(.year, from: dueDate)
+
+        if card.dueDay > card.closingDay {
+            // Due date and closing date are in the same month
+            let closingDay = min(card.closingDay, daysInMonth(month: dueMonth, year: dueYear))
+            return calendar.date(from: DateComponents(year: dueYear, month: dueMonth, day: closingDay))!
+        } else {
+            // Closing date is one month before due date
+            var closingMonth = dueMonth - 1
+            var closingYear = dueYear
+            if closingMonth < 1 { closingMonth = 12; closingYear -= 1 }
+            let closingDay = min(card.closingDay, daysInMonth(month: closingMonth, year: closingYear))
+            return calendar.date(from: DateComponents(year: closingYear, month: closingMonth, day: closingDay))!
         }
     }
 
@@ -464,7 +1387,7 @@ class CreditCardService {
         UserDefaults.standard.set(true, forKey: migrationKey)
     }
 
-    private func daysInMonth(month: Int, year: Int) -> Int {
+    func daysInMonth(month: Int, year: Int) -> Int {
         let calendar = Calendar.current
         let components = DateComponents(year: year, month: month)
         guard let date = calendar.date(from: components),

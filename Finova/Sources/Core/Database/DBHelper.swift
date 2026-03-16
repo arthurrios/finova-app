@@ -1245,6 +1245,7 @@ class DBHelper {
             "credit_card_id": "ALTER TABLE Transactions ADD COLUMN credit_card_id INTEGER;",
             "statement_id": "ALTER TABLE Transactions ADD COLUMN statement_id INTEGER;",
             "is_credit_card_statement": "ALTER TABLE Transactions ADD COLUMN is_credit_card_statement INTEGER DEFAULT 0;",
+            "is_statement_overridden": "ALTER TABLE Transactions ADD COLUMN is_statement_overridden INTEGER DEFAULT 0;",
         ]
         
         for (column, alterQuery) in ccColumns {
@@ -1652,7 +1653,7 @@ class DBHelper {
 
     func findStatement(creditCardId: Int, closingDate: Int) throws -> Int? {
         guard isInitialized else { return nil }
-        let query = "SELECT id FROM CreditCardStatements WHERE credit_card_id = ? AND closing_date = ?;"
+        let query = "SELECT id FROM CreditCardStatements WHERE credit_card_id = ? AND closing_date = ? AND (is_deleted IS NULL OR is_deleted = 0);"
         var statement: OpaquePointer?
         guard sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK else {
             let msg = String(cString: sqlite3_errmsg(db))
@@ -1761,6 +1762,23 @@ class DBHelper {
             let msg = String(cString: sqlite3_errmsg(db))
             throw DBError.stepFailed(message: msg)
         }
+    }
+
+    func setStatementOverridden(transactionId: Int, overridden: Bool) {
+        guard isInitialized else { return }
+        executeSyncUpdate(
+            "UPDATE Transactions SET is_statement_overridden = ? WHERE id = ?;",
+            intBindings: [overridden ? 1 : 0, transactionId]
+        )
+    }
+
+    func isStatementOverridden(transactionId: Int) -> Bool {
+        guard isInitialized else { return false }
+        let val = fetchSingleInt(
+            "SELECT is_statement_overridden FROM Transactions WHERE id = ?;",
+            intBinding: transactionId
+        )
+        return val == 1
     }
 
     func clearTransactionCreditCardFields(transactionId: Int) throws {
@@ -3347,6 +3365,22 @@ class DBHelper {
     func fetchAllCKRecordNames(table: String) -> [String] {
         guard isInitialized, syncableTables.contains(table) else { return [] }
         let query = "SELECT ck_record_id FROM \(table) WHERE ck_record_id IS NOT NULL AND (is_deleted IS NULL OR is_deleted = 0);"
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK else { return [] }
+        defer { sqlite3_finalize(statement) }
+        var names: [String] = []
+        while sqlite3_step(statement) == SQLITE_ROW {
+            let name = String(cString: sqlite3_column_text(statement, 0))
+            names.append(name)
+        }
+        return names
+    }
+
+    /// Returns ALL non-null ck_record_id values for the given table, including soft-deleted rows.
+    /// Used by cloud cleanup to avoid flagging soft-deleted records as orphans.
+    func fetchAllCKRecordNamesIncludingDeleted(table: String) -> [String] {
+        guard isInitialized, syncableTables.contains(table) else { return [] }
+        let query = "SELECT ck_record_id FROM \(table) WHERE ck_record_id IS NOT NULL;"
         var statement: OpaquePointer?
         guard sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK else { return [] }
         defer { sqlite3_finalize(statement) }

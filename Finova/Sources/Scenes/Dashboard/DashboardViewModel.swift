@@ -65,8 +65,23 @@ final class DashboardViewModel {
     switch currentContext {
     case .personal:
       // Repair credit card transactions: fix orphans and reassign misplaced ones
+      logWarning("[CCRepair] loadMonthlyCards called, uid=\(AuthenticationManager.shared.currentUser?.uid ?? "nil")")
       if let uid = AuthenticationManager.shared.currentUser?.uid {
-        creditCardService.repairOrphanedCreditCardTransactions(userId: uid, transactionRepo: transactionRepo)
+        // Only run destructive repairs on the device that originally needed them.
+        // Devices that received clean cloud data must NOT run these — they can
+        // create duplicate statements, delete valid records, or apply hardcoded fixes.
+        // The flag is set by the initial cloud push (only on the original device).
+        let isOriginalDevice = UserDefaults.standard.bool(forKey: "hasCompletedInitialCloudPush_v1")
+        if isOriginalDevice {
+          creditCardService.repairCreditCardLinksFromParents(userId: uid, transactionRepo: transactionRepo)
+          creditCardService.repairBTGStatementAssignments(userId: uid, transactionRepo: transactionRepo)
+          creditCardService.deduplicateAndFixCCInstallments(userId: uid, transactionRepo: transactionRepo)
+          creditCardService.repairInstallmentStatementLinks(userId: uid, transactionRepo: transactionRepo)
+          creditCardService.repairStaleStatementLinks(userId: uid, transactionRepo: transactionRepo)
+          creditCardService.repairOrphanedCreditCardTransactions(userId: uid, transactionRepo: transactionRepo)
+        } else {
+          logWarning("[CCRepair] Skipping destructive repairs — not the original device")
+        }
         creditCardService.reassignMisplacedTransactions(userId: uid, transactionRepo: transactionRepo)
       }
 
@@ -79,6 +94,22 @@ final class DashboardViewModel {
       return monthlyData
 
     case .group(let group):
+      // Repair credit card transactions in group context too
+      if let uid = AuthenticationManager.shared.currentUser?.uid {
+        let isOriginalDevice = UserDefaults.standard.bool(forKey: "hasCompletedInitialCloudPush_v1")
+        if isOriginalDevice {
+          creditCardService.repairCreditCardLinksFromParents(userId: uid, transactionRepo: transactionRepo)
+          creditCardService.repairBTGStatementAssignments(userId: uid, transactionRepo: transactionRepo)
+          creditCardService.deduplicateAndFixCCInstallments(userId: uid, transactionRepo: transactionRepo)
+          creditCardService.repairInstallmentStatementLinks(userId: uid, transactionRepo: transactionRepo)
+          creditCardService.repairStaleStatementLinks(userId: uid, transactionRepo: transactionRepo)
+          creditCardService.repairOrphanedCreditCardTransactions(userId: uid, transactionRepo: transactionRepo)
+        } else {
+          logWarning("[CCRepair] Skipping destructive repairs (group) — not the original device")
+        }
+        creditCardService.reassignMisplacedTransactions(userId: uid, transactionRepo: transactionRepo)
+      }
+
       // Lazy-generate recurring instances for group context too,
       // so future months show the same instances as personal view.
       triggerLazyGenerationInBackground()

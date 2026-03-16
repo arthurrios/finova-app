@@ -90,6 +90,45 @@ extension SyncSettingsViewController: SyncSettingsViewDelegate {
   func didToggleSyncEnabled(_ isEnabled: Bool) {
     viewModel.toggleSyncEnabled(isEnabled)
   }
+
+  func didTapForceRePush() {
+    let alert = UIAlertController(
+      title: "syncSettings.forceRePush.confirm.title".localized,
+      message: "syncSettings.forceRePush.confirm.message".localized,
+      preferredStyle: .alert
+    )
+    alert.addAction(UIAlertAction(title: "alert.cancel".localized, style: .cancel))
+    alert.addAction(UIAlertAction(title: "syncSettings.forceRePush.confirm.action".localized, style: .destructive) { [weak self] _ in
+      self?.viewModel.forceRePushLocal()
+    })
+    present(alert, animated: true)
+  }
+
+  func didTapRecoverySync() {
+    let alert = UIAlertController(
+      title: "syncSettings.recoverySync.confirm.title".localized,
+      message: "syncSettings.recoverySync.confirm.message".localized,
+      preferredStyle: .alert
+    )
+    alert.addAction(UIAlertAction(title: "alert.cancel".localized, style: .cancel))
+    alert.addAction(UIAlertAction(title: "syncSettings.recoverySync.confirm.action".localized, style: .destructive) { [weak self] _ in
+      self?.viewModel.recoverySync()
+    })
+    present(alert, animated: true)
+  }
+
+  func didTapCloudCleanup() {
+    viewModel.checkCloudKitForCleanup { [weak self] in
+      let vc = CloudCleanupViewController()
+      vc.modalPresentationStyle = .pageSheet
+      if let sheet = vc.sheetPresentationController {
+        sheet.detents = [.medium()]
+        sheet.prefersGrabberVisible = true
+        sheet.preferredCornerRadius = CornerRadius.bottomSheet
+      }
+      self?.present(vc, animated: true)
+    }
+  }
 }
 
 // MARK: - SyncSettingsViewModelDelegate

@@ -91,7 +91,9 @@ class UserDefaultsManager {
 
   static func getSyncEnabled() -> Bool {
     if UserDefaults.standard.object(forKey: syncEnabledKey) == nil {
-      return true
+      // Default to OFF — user must explicitly enable sync or use clean cloud.
+      // This prevents destructive auto-sync on fresh login / recovery scenarios.
+      return false
     }
     return UserDefaults.standard.bool(forKey: syncEnabledKey)
   }

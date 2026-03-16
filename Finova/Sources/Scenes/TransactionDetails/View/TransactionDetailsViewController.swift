@@ -132,6 +132,33 @@ extension TransactionDetailsViewController: TransactionDetailsViewDelegate {
     }
   }
 
+  func didTapMoveToStatement() {
+    let statements = viewModel.getAvailableStatements()
+    let currentStmtId = viewModel.transaction.statementId
+
+    guard !statements.isEmpty else { return }
+
+    let alert = UIAlertController(
+      title: "transactionDetails.moveToStatement.title".localized,
+      message: "transactionDetails.moveToStatement.message".localized,
+      preferredStyle: .actionSheet
+    )
+
+    let dateFormatter = DateFormatter.monthYearFormatter
+
+    for stmt in statements {
+      guard let stmtId = stmt.id, stmtId != currentStmtId else { continue }
+      let label = dateFormatter.string(from: stmt.dueDate)
+      alert.addAction(UIAlertAction(title: label, style: .default) { [weak self] _ in
+        self?.viewModel.moveToStatement(stmt)
+        self?.contentView.configure(with: self!.viewModel)
+      })
+    }
+
+    alert.addAction(UIAlertAction(title: "alert.cancel".localized, style: .cancel))
+    present(alert, animated: true)
+  }
+
   func didTapDeleteInstallment(_ transaction: Transaction) {
     // Get transaction type to determine deletion options
     let transactionType = viewModel.getTransactionType(for: transaction)
@@ -152,11 +179,15 @@ extension TransactionDetailsViewController: TransactionDetailsViewDelegate {
   }
 
   private func deleteTransaction() {
-    switch viewModel.deleteTransaction() {
-    case .success:
-      flowDelegate?.didDeleteTransaction()
-    case .failure(let error):
-      showErrorAlert(message: error.localizedDescription)
+    contentView.startDeleteLoading()
+    viewModel.deleteTransactionAsync { [weak self] result in
+      self?.contentView.stopDeleteLoading()
+      switch result {
+      case .success:
+        self?.flowDelegate?.didDeleteTransaction()
+      case .failure(let error):
+        self?.showErrorAlert(message: error.localizedDescription)
+      }
     }
   }
 
@@ -176,14 +207,18 @@ extension TransactionDetailsViewController: TransactionDetailsViewDelegate {
       return
     }
 
-    // For now, use the same deletion logic as the main transaction
-    // In a full implementation, this would use the transaction repository directly
-    switch viewModel.deleteTransaction() {
-    case .success:
-      // Refresh the installments table
-      contentView.configure(with: viewModel)
-    case .failure(let error):
-      showErrorAlert(message: error.localizedDescription)
+    contentView.startDeleteLoading()
+    viewModel.deleteTransactionAsync { [weak self] result in
+      self?.contentView.stopDeleteLoading()
+      switch result {
+      case .success:
+        // Refresh the installments table
+        if let self = self {
+          self.contentView.configure(with: self.viewModel)
+        }
+      case .failure(let error):
+        self?.showErrorAlert(message: error.localizedDescription)
+      }
     }
   }
 
@@ -240,15 +275,17 @@ extension TransactionDetailsViewController: TransactionDetailsViewDelegate {
       return
     }
 
-    // Use the new deletion method with specific cleanup option
-    switch viewModel.deleteTransactionWithOption(
-      transactionId: transactionId, option: cleanupOption)
-    {
-    case .success:
-      // Notify the flow delegate that the transaction was deleted
-      flowDelegate?.didDeleteTransaction()
-    case .failure(let error):
-      showErrorAlert(message: error.localizedDescription)
+    contentView.startDeleteLoading()
+    viewModel.deleteTransactionWithOptionAsync(
+      transactionId: transactionId, option: cleanupOption
+    ) { [weak self] result in
+      self?.contentView.stopDeleteLoading()
+      switch result {
+      case .success:
+        self?.flowDelegate?.didDeleteTransaction()
+      case .failure(let error):
+        self?.showErrorAlert(message: error.localizedDescription)
+      }
     }
   }
 

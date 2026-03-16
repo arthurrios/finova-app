@@ -80,6 +80,10 @@ final class SyncEngine {
     private var isSyncDisabledByUser: Bool {
         !UserDefaultsManager.getSyncEnabled()
     }
+
+    private var isUserAuthenticated: Bool {
+        AuthenticationManager.shared.currentUser != nil
+    }
     private static let largeSyncThreshold = 100
     /// Maps CK record names to (entityType, localId) for records that need ck_record_id set after successful push.
     /// Populated during pushLocalChanges, consumed per-record in pushBatches.
@@ -196,6 +200,11 @@ final class SyncEngine {
     /// changedZoneIDs even with a nil token, causing the zone fetch to be silently skipped.
     /// After fetching, fires all data change notifications and saves updated zone tokens.
     func performPrivateZoneRecovery(completion: (() -> Void)? = nil) {
+        guard isUserAuthenticated else {
+            logWarning("[Sync] performPrivateZoneRecovery — skipped (user not authenticated)")
+            completion?()
+            return
+        }
         syncQueue.async { [weak self] in
             guard let self = self else { completion?(); return }
             // Reset stuck sync state so recovery can proceed
@@ -589,6 +598,11 @@ final class SyncEngine {
             completion?()
             return
         }
+        guard isUserAuthenticated else {
+            logWarning("[Sync] performFullSync — skipped (user not authenticated)")
+            completion?()
+            return
+        }
         syncQueue.async { [weak self] in
             guard let self = self else {
                 completion?()
@@ -629,6 +643,11 @@ final class SyncEngine {
         if isSyncDisabledByUser {
             logWarning("[Sync] flushPendingChanges — skipped (sync disabled by user)")
             completion(true)
+            return
+        }
+        guard isUserAuthenticated else {
+            logWarning("[Sync] flushPendingChanges — skipped (user not authenticated)")
+            completion(false)
             return
         }
         syncQueue.async { [weak self] in
@@ -672,6 +691,46 @@ final class SyncEngine {
         }
     }
 
+    /// Force re-push: marks ALL local records as pending and pushes them to CloudKit.
+    /// Does NOT pull from cloud — this is a push-only recovery operation.
+    /// Bypasses the sync toggle (works even when sync is disabled).
+    /// Use this to restore CloudKit from local data after data loss.
+    func forceRePushAllLocal(completion: (() -> Void)? = nil) {
+        guard isUserAuthenticated else {
+            logWarning("[Sync] forceRePushAllLocal — skipped (user not authenticated)")
+            completion?()
+            return
+        }
+        logWarning("[Sync] forceRePushAllLocal — starting push-only recovery")
+        Self.resetAllSyncStatuses()
+        syncQueue.async { [weak self] in
+            guard let self = self else {
+                completion?()
+                return
+            }
+            if self.isSyncing {
+                logWarning("[Sync] forceRePushAllLocal — waiting for current sync to finish")
+                self.isSyncing = false
+                self.isProcessingCloudData = false
+                self.syncStartedAt = nil
+            }
+            self.isSyncing = true
+            self.status = .syncing
+            self.pushLocalChanges { [weak self] result in
+                switch result {
+                case .success:
+                    logWarning("[Sync] forceRePushAllLocal — push SUCCEEDED")
+                    self?.status = .synced
+                case .failure(let error):
+                    logWarning("[Sync] forceRePushAllLocal — push FAILED: \(error.localizedDescription)")
+                    self?.status = .error(error)
+                }
+                self?.isSyncing = false
+                DispatchQueue.main.async { completion?() }
+            }
+        }
+    }
+
     /// Resets all sync_status values to 'pending' so everything gets re-pushed to CloudKit.
     /// Also updates ck_modified_at to ensure re-pushed records win conflict resolution on other devices.
     private static func resetAllSyncStatuses() {
@@ -705,6 +764,10 @@ final class SyncEngine {
             logWarning("[Sync] handleRemoteNotification — skipped (sync disabled by user)")
             return
         }
+        guard isUserAuthenticated else {
+            logWarning("[Sync] handleRemoteNotification — skipped (user not authenticated)")
+            return
+        }
         // Cooldown: skip sync if we just finished one (our own push triggers CK notifications)
         if let lastCompleted = lastSyncCompletedAt,
            Date().timeIntervalSince(lastCompleted) < Self.syncCooldownInterval {
@@ -723,6 +786,10 @@ final class SyncEngine {
     func pushPendingChangesNow() {
         if isSyncDisabledByUser {
             logWarning("[SyncEngine] pushPendingChangesNow — skipped (sync disabled by user)")
+            return
+        }
+        guard isUserAuthenticated else {
+            logWarning("[SyncEngine] pushPendingChangesNow — skipped (user not authenticated)")
             return
         }
         logWarning("[SyncEngine] pushPendingChangesNow — called")
@@ -744,12 +811,14 @@ final class SyncEngine {
                 return
             }
             logWarning("[SyncEngine] pushPendingChangesNow — executing pushLocalChanges")
-            self.pushLocalChanges { result in
+            self.pushLocalChanges { [weak self] result in
                 switch result {
                 case .success:
                     logWarning("[SyncEngine] pushPendingChangesNow — push SUCCEEDED")
+                    self?.status = .synced
                 case .failure(let error):
                     logWarning("[SyncEngine] pushPendingChangesNow — push FAILED: \(error.localizedDescription)")
+                    self?.status = .error(error)
                 }
                 UIApplication.shared.endBackgroundTask(bgTaskID)
             }
@@ -759,6 +828,10 @@ final class SyncEngine {
     @objc private func handleLocalDataChange() {
         if isSyncDisabledByUser {
             logWarning("[SyncLife] handleLocalDataChange — skipped (sync disabled by user)")
+            return
+        }
+        guard isUserAuthenticated else {
+            logWarning("[SyncLife] handleLocalDataChange — skipped (user not authenticated)")
             return
         }
         guard !isProcessingCloudData && !isSyncing else {
@@ -802,6 +875,11 @@ final class SyncEngine {
         // for recurring instances. Without this, restoreTombstoneForInstance blocks legitimate
         // re-insertion of live records from CloudKit during recovery.
         db.executeSyncUpdate("DELETE FROM Transactions WHERE is_deleted = 1;")
+        // Clear unsynced lazily-generated recurring/installment instances. These have no CK
+        // link and survive the ck_record_id cleanup above. If their parent was deleted from
+        // CloudKit (by another device), these orphans persist as ghost duplicates. The pull
+        // will re-generate any instances whose parent still exists in CloudKit.
+        db.executeSyncUpdate("DELETE FROM Transactions WHERE ck_record_id IS NULL AND parent_transaction_id IS NOT NULL;")
         db.executeSyncUpdate("DELETE FROM BudgetAllocations WHERE ck_record_id IS NOT NULL;")
         db.executeSyncUpdate("DELETE FROM Budgets WHERE ck_record_id IS NOT NULL;")
         db.executeSyncUpdate("DELETE FROM CreditCards WHERE ck_record_id IS NOT NULL;")
@@ -1263,9 +1341,12 @@ final class SyncEngine {
                 // - First sync / incomplete sync flagged for full discovery (Fix 4a)
                 // This breaks the chicken-and-egg dependency on new devices.
                 if changedZoneIDs.isEmpty {
+                    let allGroups = BudgetGroupRepository().fetchAllGroups()
                     let hasAnyMemberZoneOwner = memberGroups.contains { $0.ckZoneOwner != nil }
+                    let isFirstSharedSync = token == nil && allGroups.isEmpty
                     let shouldEnumerateAll = (self?.needsFullSharedDBDiscovery == true)
                         || (!hasAnyMemberZoneOwner && !memberGroups.isEmpty)
+                        || isFirstSharedSync
                     if shouldEnumerateAll {
                         self?.needsFullSharedDBDiscovery = false
                         logWarning("[Sync] No changed shared zones — enumerating all shared zones as fallback")
@@ -1630,25 +1711,12 @@ final class SyncEngine {
             // Guard: skip credit card transactions whose card has no ck_record_name yet.
             // The card must be pushed first so other devices can remap IDs correctly.
             if let ccId = tx.creditCardId, cardRepo.fetchCKRecordName(for: ccId) == nil {
-                // Check if the card even exists — if not, detach the transaction from
-                // the non-existent card so it can be pushed as a regular transaction.
-                if let uid = UIDUserDefaultsManager.shared.currentUserUID {
-                    let cardExists = cardRepo.fetchAllCards(userId: uid).contains { $0.id == ccId }
-                    if !cardExists, let txId = tx.id {
-                        logWarning("[Sync] Detaching transaction \(txId) from non-existent credit card \(ccId)")
-                        DBHelper.shared.executeSyncUpdate(
-                            "UPDATE Transactions SET credit_card_id = NULL, statement_id = NULL WHERE id = ?;",
-                            intBindings: [txId]
-                        )
-                        // Continue processing — the transaction will be pushed without a credit card reference
-                    } else {
-                        logWarning("[Sync] Skipping transaction \(tx.id ?? -1): credit card \(ccId) has no ck_record_name yet")
-                        continue
-                    }
-                } else {
-                    logWarning("[Sync] Skipping transaction \(tx.id ?? -1): credit card \(ccId) has no ck_record_name yet")
-                    continue
-                }
+                // Card has no ck_record_name — skip this transaction for now.
+                // The card must be pushed first so other devices can remap IDs.
+                // NEVER detach transactions from their credit card — the card may
+                // not have been synced yet (group zone, recovery sync, etc.).
+                logWarning("[Sync] Skipping transaction \(tx.id ?? -1): credit card \(ccId) has no ck_record_name yet")
+                continue
             }
             let storedName = tx.id.flatMap { txRepo.fetchCKRecordName(for: $0) }
             let groupId = tx.id.flatMap { txRepo.fetchSharedGroupId(for: $0) }
@@ -2327,6 +2395,11 @@ final class SyncEngine {
                 logWarning("[StmtSync] Incoming CC transaction: id=\(transaction.id ?? -1), title=\(transaction.title), creditCardId=\(transaction.creditCardId ?? -1), statementId=\(transaction.statementId ?? -1)")
             }
             ConflictResolver.shared.resolveTransaction(remote: transaction, ckRecord: record)
+            // Persist statement override flag from cloud
+            if (record["isStatementOverridden"] as? Int) == 1,
+               let localId = TransactionRepository().fetchTransaction(byCKRecordName: record.recordID.recordName)?.id {
+                DBHelper.shared.setStatementOverridden(transactionId: localId, overridden: true)
+            }
         case "Budget":
             guard let budget = BudgetModel.fromCKRecord(record) else { return }
             ConflictResolver.shared.resolveBudget(remote: budget, ckRecord: record)

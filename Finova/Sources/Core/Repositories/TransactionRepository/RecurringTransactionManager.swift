@@ -848,17 +848,13 @@ final class RecurringTransactionManager {
         existingTitleAnchors.insert("\(tx.title)|\(tx.budgetMonthDate)")
       }
 
-      // Filter recurring parents and installment parents
+      // Filter recurring parents only — installments are now generated upfront at creation time
       let recurringParents = allTransactions.filter {
         $0.isRecurring == true && ($0.parentTransactionId == nil || $0.parentTransactionId == $0.id)
       }
 
-      let installmentParents = allTransactions.filter {
-        $0.hasInstallments == true && $0.parentTransactionId == nil
-      }
-
-      // Early exit if no parents to process
-      guard !recurringParents.isEmpty || !installmentParents.isEmpty else {
+      // Early exit if no recurring parents to process
+      guard !recurringParents.isEmpty else {
         DispatchQueue.main.async { completion?(0) }
         return
       }
@@ -938,105 +934,7 @@ final class RecurringTransactionManager {
         }
       }
 
-      // Process installment transactions
-      for parent in installmentParents {
-        guard let parentId = parent.id,
-          let totalInstallments = parent.totalInstallments,
-          totalInstallments > 1
-        else { continue }
-
-        let existingAnchors = instancesByParentId[parentId] ?? []
-
-        // Get anchors of intentionally deleted instances (from .currentSelection deletion)
-        self.operationLock.lock()
-        let excludedAnchors = self.deletedInstanceAnchors[parentId] ?? []
-        self.operationLock.unlock()
-
-        // For CC installments, dates are remapped to statement due dates, so the
-        // budgetMonthDate-based anchor check won't match the purchase-date-based
-        // target anchor. Build a set of existing installment numbers to prevent
-        // lazy gen from recreating installments that already exist at a different anchor.
-        // Note: parent transactions don't have creditCardId — only children do.
-        var existingInstallmentNumbers = Set<Int>()
-        let childrenOfParent = allTransactions.filter { $0.parentTransactionId == parentId }
-        let isCCInstallment = childrenOfParent.contains { $0.creditCardId != nil }
-        if isCCInstallment {
-          for tx in childrenOfParent {
-            if let num = tx.installmentNumber {
-              existingInstallmentNumbers.insert(num)
-            }
-          }
-        }
-
-        let parentDate = parent.date
-        let originalAmount = parent.originalAmount ?? parent.amount
-        let amountPerInstallment = originalAmount / totalInstallments
-        let remainder = originalAmount % totalInstallments
-        let cleanTitle = parent.title.replacingOccurrences(of: " - Installment Parent", with: "")
-
-        for installmentNumber in 1...totalInstallments {
-          guard
-            let targetDate = self.calendar.date(
-              byAdding: .month, value: installmentNumber - 1, to: parentDate)
-          else { continue }
-
-          let targetAnchor = targetDate.monthAnchor
-
-          // Skip if this installment number already exists (CC installments have remapped dates)
-          if isCCInstallment && existingInstallmentNumbers.contains(installmentNumber) {
-            continue
-          }
-
-          // Only generate if this month is requested, doesn't exist yet, and wasn't intentionally deleted
-          guard monthAnchors.contains(targetAnchor), !existingAnchors.contains(targetAnchor),
-                !excludedAnchors.contains(targetAnchor) else {
-            continue
-          }
-
-          let installmentAmount =
-            installmentNumber == 1 ? amountPerInstallment + remainder : amountPerInstallment
-
-          // Safety check: skip if a transaction with same title+month already exists
-          let instKey = "\(cleanTitle)|\(targetAnchor)"
-          guard !existingTitleAnchors.contains(instKey) else { continue }
-
-          let targetYear = self.calendar.component(.year, from: targetDate)
-          let targetMonth = self.calendar.component(.month, from: targetDate)
-
-          let installmentDate = self.generateValidDateForMonth(
-            originalDate: parentDate,
-            targetMonth: targetMonth,
-            targetYear: targetYear
-          )
-
-          let installmentModel = TransactionModel(
-            title: cleanTitle,
-            category: parent.category.key,
-            amount: installmentAmount,
-            type: parent.type.key,
-            dateTimestamp: Int(installmentDate.timeIntervalSince1970),
-            budgetMonthDate: targetAnchor,
-            parentTransactionId: parentId,
-            originalAmount: originalAmount,
-            installmentNumber: installmentNumber,
-            totalInstallments: totalInstallments,
-            creditCardId: parent.creditCardId
-          )
-
-          do {
-            let insertedId = try self.transactionRepo.insertTransactionAndGetId(installmentModel)
-            newInstancesCreated += 1
-            existingTitleAnchors.insert(instKey)
-            // Link to credit card statement if the parent is a credit card transaction
-            if let cardId = parent.creditCardId,
-               let uid = AuthenticationManager.shared.currentUser?.uid {
-              self.assignToStatement(transactionId: insertedId, creditCardId: cardId, transactionDate: installmentDate, userId: uid, remapToStatementDueDate: true)
-            }
-          } catch {
-            logError("Error creating installment instance: \(error)")
-          }
-        }
-      }
+      // Installment lazy generation removed — all installments are now created upfront at creation time
 
       // Mirror mode: ensure all newly created instances are tagged with group ID
       if newInstancesCreated > 0 {
@@ -1070,7 +968,16 @@ final class RecurringTransactionManager {
   /// the installment appears in the month money is actually debited.
   private func assignToStatement(transactionId: Int, creditCardId: Int, transactionDate: Date, userId: String, remapToStatementDueDate: Bool = false) {
     guard let card = creditCardRepo.fetchCard(byId: creditCardId) else { return }
-    guard let statement = creditCardService.getOrCreateStatement(for: card, transactionDate: transactionDate, userId: userId) else { return }
+    // On non-original devices, only link to existing statements (never create new ones).
+    // Statements should already exist from cloud sync.
+    let isOriginalDevice = UserDefaults.standard.bool(forKey: "hasCompletedInitialCloudPush_v1")
+    let statement: CreditCardStatement?
+    if isOriginalDevice {
+        statement = creditCardService.getOrCreateStatement(for: card, transactionDate: transactionDate, userId: userId)
+    } else {
+        statement = creditCardService.getExistingStatement(for: card, transactionDate: transactionDate)
+    }
+    guard let statement = statement else { return }
     do {
       try transactionRepo.updateCreditCardFields(
         transactionId: transactionId,

@@ -32,7 +32,13 @@ final class RealPostSyncActions: PostSyncActions {
         }
 
         group.notify(queue: DispatchQueue(label: "com.finova.postsync")) {
-            Self.repairCreditCardDataIntegrity()
+            // Only run destructive CC repairs on the original device.
+            // Fresh devices that pulled clean cloud data must not create/modify statements.
+            if UserDefaults.standard.bool(forKey: "hasCompletedInitialCloudPush_v1") {
+                Self.repairCreditCardDataIntegrity()
+            } else {
+                logWarning("[PostSync] Skipping repairCreditCardDataIntegrity — not the original device")
+            }
 
             // Fix 2b: Ensure owner pushes personal offset to group zone after sync.
             // Covers the case where offset was set before the group existed.
@@ -148,6 +154,15 @@ final class RealPostSyncActions: PostSyncActions {
 
         let cards = cardRepo.fetchAllCards(userId: userId)
         logWarning("[CCRepair] Starting repair — \(cards.count) card(s) found for user")
+
+        // Safety: skip repair when no cards exist locally — this likely means
+        // credit cards haven't been resolved yet (e.g., fresh sync, recovery sync,
+        // or cards live in a group zone). Running repair here would destructively
+        // delete valid statements and orphan transactions.
+        if cards.isEmpty {
+            logWarning("[CCRepair] No local cards — skipping repair to avoid data loss")
+            return
+        }
 
         // === Step 1: Fix orphaned creditCardId references ===
         var didRepairOrphans = false

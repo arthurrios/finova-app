@@ -14,6 +14,7 @@ protocol TransactionDetailsViewDelegate: AnyObject {
   func didTapBack()
   func didTapDeleteInstallment(_ transaction: Transaction)
   func didTapMoveToGroup()
+  func didTapMoveToStatement()
 }
 
 final class TransactionDetailsView: UIView {
@@ -302,6 +303,7 @@ final class TransactionDetailsView: UIView {
 
   private var installmentsTableHeightConstraint: NSLayoutConstraint?
   private var contentBottomConstraint: NSLayoutConstraint?
+  private var moveToGroupTopConstraint: NSLayoutConstraint?
   private var installmentTransactions: [Transaction] = []
 
   // MARK: - Move to Group Row
@@ -333,6 +335,51 @@ final class TransactionDetailsView: UIView {
   }()
 
   private let moveToGroupChevron: UIImageView = {
+    let iv = UIImageView()
+    iv.image = UIImage(systemName: "chevron.right")
+    iv.tintColor = Colors.gray500
+    iv.contentMode = .scaleAspectFit
+    iv.translatesAutoresizingMaskIntoConstraints = false
+    return iv
+  }()
+
+  // MARK: - Move to Statement Row
+  private lazy var moveToStatementContainer: UIView = {
+    let container = UIView()
+    container.backgroundColor = Colors.gray100
+    container.layer.cornerRadius = CornerRadius.large
+    container.isUserInteractionEnabled = true
+    container.translatesAutoresizingMaskIntoConstraints = false
+    container.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(didTapMoveToStatement)))
+    return container
+  }()
+
+  private let moveToStatementIcon: UIImageView = {
+    let iv = UIImageView()
+    iv.image = UIImage(systemName: "doc.text")
+    iv.tintColor = Colors.gray600
+    iv.contentMode = .scaleAspectFit
+    iv.translatesAutoresizingMaskIntoConstraints = false
+    return iv
+  }()
+
+  private let moveToStatementLabel: UILabel = {
+    let label = UILabel()
+    label.font = Fonts.titleSM.font
+    label.textColor = Colors.gray700
+    label.translatesAutoresizingMaskIntoConstraints = false
+    return label
+  }()
+
+  private let moveToStatementValueLabel: UILabel = {
+    let label = UILabel()
+    label.font = Fonts.textSM.font
+    label.textColor = Colors.gray500
+    label.translatesAutoresizingMaskIntoConstraints = false
+    return label
+  }()
+
+  private let moveToStatementChevron: UIImageView = {
     let iv = UIImageView()
     iv.image = UIImage(systemName: "chevron.right")
     iv.tintColor = Colors.gray500
@@ -426,6 +473,14 @@ final class TransactionDetailsView: UIView {
     // Add transaction details section
     contentView.addSubview(transactionDetailsHeaderView)
     contentView.addSubview(transactionDetailsContentView)
+
+    // Add move-to-statement row
+    contentView.addSubview(moveToStatementContainer)
+    moveToStatementContainer.addSubview(moveToStatementIcon)
+    moveToStatementContainer.addSubview(moveToStatementLabel)
+    moveToStatementContainer.addSubview(moveToStatementValueLabel)
+    moveToStatementContainer.addSubview(moveToStatementChevron)
+    moveToStatementContainer.isHidden = true
 
     // Add move-to-group row
     contentView.addSubview(moveToGroupContainer)
@@ -538,9 +593,38 @@ final class TransactionDetailsView: UIView {
       transactionDetailsContentView.trailingAnchor.constraint(
         equalTo: transactionDetailsHeaderView.trailingAnchor),
 
-      // Move to group row
-      moveToGroupContainer.topAnchor.constraint(
+      // Move to statement row
+      moveToStatementContainer.topAnchor.constraint(
         equalTo: transactionDetailsContentView.bottomAnchor, constant: Metrics.spacing4),
+      moveToStatementContainer.leadingAnchor.constraint(
+        equalTo: contentView.leadingAnchor, constant: Metrics.spacing4),
+      moveToStatementContainer.trailingAnchor.constraint(
+        equalTo: contentView.trailingAnchor, constant: -Metrics.spacing4),
+      moveToStatementContainer.heightAnchor.constraint(equalToConstant: Metrics.buttonHeight),
+
+      moveToStatementIcon.leadingAnchor.constraint(
+        equalTo: moveToStatementContainer.leadingAnchor, constant: Metrics.spacing4),
+      moveToStatementIcon.centerYAnchor.constraint(equalTo: moveToStatementContainer.centerYAnchor),
+      moveToStatementIcon.widthAnchor.constraint(equalToConstant: 20),
+      moveToStatementIcon.heightAnchor.constraint(equalToConstant: 20),
+
+      moveToStatementLabel.leadingAnchor.constraint(
+        equalTo: moveToStatementIcon.trailingAnchor, constant: Metrics.spacing3),
+      moveToStatementLabel.centerYAnchor.constraint(equalTo: moveToStatementContainer.centerYAnchor),
+
+      moveToStatementValueLabel.trailingAnchor.constraint(
+        equalTo: moveToStatementChevron.leadingAnchor, constant: -Metrics.spacing2),
+      moveToStatementValueLabel.centerYAnchor.constraint(equalTo: moveToStatementContainer.centerYAnchor),
+      moveToStatementValueLabel.leadingAnchor.constraint(
+        greaterThanOrEqualTo: moveToStatementLabel.trailingAnchor, constant: Metrics.spacing3),
+
+      moveToStatementChevron.trailingAnchor.constraint(
+        equalTo: moveToStatementContainer.trailingAnchor, constant: -Metrics.spacing4),
+      moveToStatementChevron.centerYAnchor.constraint(equalTo: moveToStatementContainer.centerYAnchor),
+      moveToStatementChevron.widthAnchor.constraint(equalToConstant: 12),
+      moveToStatementChevron.heightAnchor.constraint(equalToConstant: 12),
+
+      // Move to group row (top constraint set dynamically in configure())
       moveToGroupContainer.leadingAnchor.constraint(
         equalTo: contentView.leadingAnchor, constant: Metrics.spacing4),
       moveToGroupContainer.trailingAnchor.constraint(
@@ -866,6 +950,15 @@ final class TransactionDetailsView: UIView {
     deleteButton.isEnabled = canDelete
     deleteButton.alpha = canDelete ? 1.0 : 0.5
 
+    // Configure move-to-statement row (only for CC transactions)
+    let isCCTransaction = viewModel.isCreditCardTransaction()
+    moveToStatementContainer.isHidden = !isCCTransaction
+    if isCCTransaction, let stmt = viewModel.getCurrentStatement() {
+      moveToStatementLabel.text = "transactionDetails.moveToStatement".localized
+      let formatter = DateFormatter.monthYearFormatter
+      moveToStatementValueLabel.text = formatter.string(from: stmt.dueDate)
+    }
+
     // Configure move-to-group row
     let isInGroup = viewModel.isInGroup()
     let hasGroups = !viewModel.getAvailableGroups().isEmpty
@@ -874,10 +967,24 @@ final class TransactionDetailsView: UIView {
       ? "transactionDetails.moveToPersonal".localized
       : "transactionDetails.moveToGroup".localized
 
-    // Update bottom constraint based on move-to-group visibility
+    // Update move-to-group top constraint (depends on move-to-statement visibility)
+    moveToGroupTopConstraint?.isActive = false
+    if !moveToStatementContainer.isHidden {
+      moveToGroupTopConstraint = moveToGroupContainer.topAnchor.constraint(
+        equalTo: moveToStatementContainer.bottomAnchor, constant: Metrics.spacing4)
+    } else {
+      moveToGroupTopConstraint = moveToGroupContainer.topAnchor.constraint(
+        equalTo: transactionDetailsContentView.bottomAnchor, constant: Metrics.spacing4)
+    }
+    moveToGroupTopConstraint?.isActive = true
+
+    // Update bottom constraint based on visibility of optional rows
     contentBottomConstraint?.isActive = false
     if !moveToGroupContainer.isHidden {
       contentBottomConstraint = moveToGroupContainer.bottomAnchor.constraint(
+        equalTo: contentView.bottomAnchor, constant: -Metrics.spacing4)
+    } else if !moveToStatementContainer.isHidden {
+      contentBottomConstraint = moveToStatementContainer.bottomAnchor.constraint(
         equalTo: contentView.bottomAnchor, constant: -Metrics.spacing4)
     } else {
       contentBottomConstraint = transactionDetailsContentView.bottomAnchor.constraint(
@@ -885,6 +992,10 @@ final class TransactionDetailsView: UIView {
     }
     contentBottomConstraint?.isActive = true
   }
+
+  // MARK: - Loading State
+  func startDeleteLoading() { deleteButton.startLoading() }
+  func stopDeleteLoading() { deleteButton.stopLoading() }
 
   // MARK: - Actions
   @objc private func didTapEdit() {
@@ -901,6 +1012,10 @@ final class TransactionDetailsView: UIView {
 
   @objc private func didTapMoveToGroup() {
     delegate?.didTapMoveToGroup()
+  }
+
+  @objc private func didTapMoveToStatement() {
+    delegate?.didTapMoveToStatement()
   }
 }
 

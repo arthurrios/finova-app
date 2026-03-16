@@ -82,7 +82,9 @@ final class SplashViewController: UIViewController {
           // Ensure balance offset is pushed to CloudKit during re-push
           Self.pushBalanceOffsetIfNeeded(uid: firebaseUser.uid)
         }
-        SyncEngine.shared.performFullSync(forceFullFetch: forceFullFetch, forceRePush: needsRePush)
+        if UserDefaultsManager.getSyncEnabled() {
+          SyncEngine.shared.performFullSync(forceFullFetch: forceFullFetch, forceRePush: needsRePush)
+        }
       }
       BudgetAllocationRepository.migrateFromUserDefaultsIfNeeded()
 
@@ -437,7 +439,7 @@ extension SplashViewController {
       UIDUserDefaultsManager.shared.currentUserUID = firebaseUser.uid
       DBHelper.shared.backfillUserIds(uid: firebaseUser.uid)
       let didCleanup = Self.performCloudGhostCleanupIfNeeded()
-      if !didCleanup {
+      if !didCleanup && UserDefaultsManager.getSyncEnabled() {
         SyncEngine.shared.performFullSync(forceFullFetch: true)
       }
 

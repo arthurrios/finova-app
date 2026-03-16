@@ -126,11 +126,10 @@ final class AddTransactionModalViewModel {
             transactionId: insertedId, parentId: insertedId)
         }
 
-        // LAZY GENERATION: Only generate instances for a small window (next 2 months)
-        // Additional instances will be generated lazily when the user navigates to those months
+        // UPFRONT GENERATION: Generate 24 months of instances for cloud sync consistency
         let immediateMonthAnchors: Set<Int> = {
           var anchors = Set<Int>()
-          for monthOffset in 1...2 {
+          for monthOffset in 1...24 {
             if let futureDate = calendar.date(byAdding: .month, value: monthOffset, to: date) {
               anchors.insert(futureDate.monthAnchor)
             }
@@ -321,10 +320,10 @@ final class AddTransactionModalViewModel {
         }
       }
 
-      // Generate instances for immediate window (next 2 months)
+      // UPFRONT GENERATION: Generate 24 months of instances for cloud sync consistency
       let immediateMonthAnchors: Set<Int> = {
         var anchors = Set<Int>()
-        for monthOffset in 1...2 {
+        for monthOffset in 1...24 {
           if let futureDate = calendar.date(byAdding: .month, value: monthOffset, to: date) {
             anchors.insert(futureDate.monthAnchor)
           }
@@ -415,9 +414,8 @@ final class AddTransactionModalViewModel {
         SyncEngine.shared.pushPendingChangesNow()
       }
 
-      // LAZY GENERATION: Only create immediate installments (first 3 months)
-      // Additional installments will be generated lazily when the user navigates to those months
-      let immediateInstallmentCount = min(3, totalInstallments)
+      // UPFRONT GENERATION: Create ALL installments at once for cloud sync consistency
+      let immediateInstallmentCount = totalInstallments
 
       var allInstallments: [TransactionModel] = []
 
@@ -567,8 +565,8 @@ final class AddTransactionModalViewModel {
             targetRecordName: ckRecordName)
         }
 
-        // Create immediate installments (first 3 months)
-        let immediateInstallmentCount = min(3, totalInstallments)
+        // UPFRONT GENERATION: Create ALL installments at once for cloud sync consistency
+        let immediateInstallmentCount = totalInstallments
         var allInstallments: [TransactionModel] = []
 
         for installmentNumber in 1...immediateInstallmentCount {
@@ -1104,6 +1102,11 @@ final class AddTransactionModalViewModel {
         creditCardService.recalculateStatementTotal(statementId: newStmtId)
       }
 
+      // Push CC statement changes to cloud (even for personal transactions)
+      if newCreditCardId != nil || originalCreditCardId != nil {
+        SyncEngine.shared.pushPendingChangesNow()
+      }
+
       invalidateLedgerCache()
       return .success(())
 
@@ -1323,6 +1326,11 @@ final class AddTransactionModalViewModel {
             targetRecordName: ckRecordName)
         }
 
+        // Push CC statement changes to cloud (even for personal transactions)
+        if data.creditCardId != nil {
+          SyncEngine.shared.pushPendingChangesNow()
+        }
+
         invalidateLedgerCache()
         return .success(())
       } catch {
@@ -1440,6 +1448,11 @@ final class AddTransactionModalViewModel {
           targetRecordName: ckRecordName)
       }
 
+      // Push CC statement changes to cloud (even for personal transactions)
+      if creditCardId != nil || originalCreditCardId != nil {
+        SyncEngine.shared.pushPendingChangesNow()
+      }
+
       invalidateLedgerCache()
       return .success(())
 
@@ -1511,6 +1524,11 @@ final class AddTransactionModalViewModel {
         GroupNotificationService.shared.logActivity(
           action: .transactionEdited, groupId: groupId, detail: data.title,
           targetRecordName: ckRecordName)
+      }
+
+      // Push CC statement changes to cloud (even for personal transactions)
+      if data.creditCardId != nil {
+        SyncEngine.shared.pushPendingChangesNow()
       }
 
       invalidateLedgerCache()
