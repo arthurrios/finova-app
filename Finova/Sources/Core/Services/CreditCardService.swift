@@ -55,14 +55,30 @@ class CreditCardService {
     }
 
     /// Gets or creates a statement for a transaction on a given card/date.
+    /// Enforces "at most one statement per (card, calendar month)": if a statement
+    /// already exists in the same month as the computed closing date (even with
+    /// different exact dates — e.g. after the card's closingDay was changed and
+    /// past statements kept their old dates), that existing statement is reused
+    /// instead of creating a duplicate.
     func getOrCreateStatement(for card: CreditCard, transactionDate: Date, userId: String) -> CreditCardStatement? {
         let closingDate = calculateClosingDate(card: card, transactionDate: transactionDate)
         let dueDate = calculateDueDate(closingDate: closingDate, card: card)
+        let statements = stmtRepo.fetchStatements(forCardId: card.id!)
 
-        // Check if statement already exists
-        if let existingId = stmtRepo.findStatement(creditCardId: card.id!, closingDate: closingDate) {
-            let statements = stmtRepo.fetchStatements(forCardId: card.id!)
-            return statements.first(where: { $0.id == existingId })
+        // Exact closing-date match
+        if let existingId = stmtRepo.findStatement(creditCardId: card.id!, closingDate: closingDate),
+           let exact = statements.first(where: { $0.id == existingId }) {
+            return exact
+        }
+
+        // Same-month fallback: reuse an existing statement in the same calendar month.
+        // Prefer the oldest (lowest id) so repeated calls stay stable when duplicates exist.
+        let calendar = Calendar.current
+        let sameMonth = statements
+            .filter { calendar.isDate($0.closingDate, equalTo: closingDate, toGranularity: .month) }
+            .sorted { ($0.id ?? Int.max) < ($1.id ?? Int.max) }
+        if let reused = sameMonth.first {
+            return reused
         }
 
         // Create new statement
@@ -90,13 +106,23 @@ class CreditCardService {
 
     /// Finds an existing statement for a transaction on a given card/date.
     /// Unlike `getOrCreateStatement`, this never creates a new statement.
+    /// Falls back to a same-calendar-month match so callers find legacy
+    /// statements whose exact closing date no longer matches the card's
+    /// current closingDay.
     func getExistingStatement(for card: CreditCard, transactionDate: Date) -> CreditCardStatement? {
         let closingDate = calculateClosingDate(card: card, transactionDate: transactionDate)
-        if let existingId = stmtRepo.findStatement(creditCardId: card.id!, closingDate: closingDate) {
-            let statements = stmtRepo.fetchStatements(forCardId: card.id!)
-            return statements.first(where: { $0.id == existingId })
+        let statements = stmtRepo.fetchStatements(forCardId: card.id!)
+
+        if let existingId = stmtRepo.findStatement(creditCardId: card.id!, closingDate: closingDate),
+           let exact = statements.first(where: { $0.id == existingId }) {
+            return exact
         }
-        return nil
+
+        let calendar = Calendar.current
+        return statements
+            .filter { calendar.isDate($0.closingDate, equalTo: closingDate, toGranularity: .month) }
+            .sorted { ($0.id ?? Int.max) < ($1.id ?? Int.max) }
+            .first
     }
 
     func recalculateStatementTotal(statementId: Int) {
@@ -268,6 +294,81 @@ class CreditCardService {
         }
 
         return statementTransactions
+    }
+
+    /// One-time migration: collapses duplicate (same year+month) statements per card
+    /// into the oldest one, preserving the keeper's closing/due dates. Fixes the case
+    /// where editing a card's closingDay/dueDay then correcting transactions created
+    /// a second statement in the same month with the new dates.
+    func consolidateDuplicateStatementsByMonth(userId: String, transactionRepo: TransactionRepository) {
+        let migrationKey = "hasConsolidatedDuplicateMonthlyStatements_v1"
+        guard !UserDefaults.standard.bool(forKey: migrationKey) else { return }
+
+        let cards = cardRepo.fetchAllCards(userId: userId)
+        let calendar = Calendar.current
+        var mergedTxCount = 0
+        var deletedStmtCount = 0
+
+        struct MonthKey: Hashable { let year: Int; let month: Int }
+
+        for card in cards {
+            guard let cardId = card.id else { continue }
+            let statements = stmtRepo.fetchStatements(forCardId: cardId)
+
+            var byMonth: [MonthKey: [CreditCardStatement]] = [:]
+            for stmt in statements {
+                let key = MonthKey(
+                    year: calendar.component(.year, from: stmt.closingDate),
+                    month: calendar.component(.month, from: stmt.closingDate)
+                )
+                byMonth[key, default: []].append(stmt)
+            }
+
+            for (_, group) in byMonth where group.count > 1 {
+                let sorted = group.sorted { ($0.id ?? Int.max) < ($1.id ?? Int.max) }
+                guard let keeper = sorted.first, let keeperId = keeper.id else { continue }
+
+                // Re-fetch transactions per merge so we see updates from prior iterations
+                let allTransactions = transactionRepo.fetchAllTransactions()
+
+                for stmt in sorted.dropFirst() {
+                    guard let dropId = stmt.id else { continue }
+
+                    let dropTxs = allTransactions.filter {
+                        $0.statementId == dropId && $0.isCreditCardStatement != true
+                    }
+                    for tx in dropTxs {
+                        guard let txId = tx.id else { continue }
+                        do {
+                            try transactionRepo.updateCreditCardFields(
+                                transactionId: txId,
+                                creditCardId: cardId,
+                                statementId: keeperId,
+                                isCreditCardStatement: false
+                            )
+                            mergedTxCount += 1
+                        } catch {
+                            logError("[StmtConsolidation] Failed to move tx \(txId) from \(dropId) to \(keeperId): \(error)")
+                        }
+                    }
+
+                    _ = stmtRepo.deleteStatement(statementId: dropId)
+                    deletedStmtCount += 1
+                    logWarning("[StmtConsolidation] Merged stmt \(dropId) into \(keeperId) (card \(cardId))")
+                }
+
+                // Recalculate keeper total directly (bypassing the cloud-synced guard
+                // in recalculateStatementTotal — keeper now has freshly-attached txs).
+                stmtRepo.recalculateTotal(statementId: keeperId)
+            }
+        }
+
+        if mergedTxCount > 0 || deletedStmtCount > 0 {
+            logWarning("[StmtConsolidation] Done: moved \(mergedTxCount) txs, deleted \(deletedStmtCount) duplicate statements")
+            NotificationCenter.default.post(name: .creditCardDataChanged, object: nil)
+        }
+
+        UserDefaults.standard.set(true, forKey: migrationKey)
     }
 
     /// Recalculates closing and due dates for statements that haven't closed yet,

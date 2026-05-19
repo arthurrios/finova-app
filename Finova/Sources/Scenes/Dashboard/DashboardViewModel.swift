@@ -79,6 +79,7 @@ final class DashboardViewModel {
           creditCardService.repairInstallmentStatementLinks(userId: uid, transactionRepo: transactionRepo)
           creditCardService.repairStaleStatementLinks(userId: uid, transactionRepo: transactionRepo)
           creditCardService.repairOrphanedCreditCardTransactions(userId: uid, transactionRepo: transactionRepo)
+          creditCardService.consolidateDuplicateStatementsByMonth(userId: uid, transactionRepo: transactionRepo)
         } else {
           logWarning("[CCRepair] Skipping destructive repairs — not the original device")
         }
@@ -104,6 +105,7 @@ final class DashboardViewModel {
           creditCardService.repairInstallmentStatementLinks(userId: uid, transactionRepo: transactionRepo)
           creditCardService.repairStaleStatementLinks(userId: uid, transactionRepo: transactionRepo)
           creditCardService.repairOrphanedCreditCardTransactions(userId: uid, transactionRepo: transactionRepo)
+          creditCardService.consolidateDuplicateStatementsByMonth(userId: uid, transactionRepo: transactionRepo)
         } else {
           logWarning("[CCRepair] Skipping destructive repairs (group) — not the original device")
         }
