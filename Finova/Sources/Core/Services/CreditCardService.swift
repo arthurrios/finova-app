@@ -927,7 +927,12 @@ class CreditCardService {
 
             logWarning("[CCRepair] Parent \(parentId) '\(parent.title)': startDate=\(startDate), totalInstallments=\(totalInstallments), children found=\(children.count)")
 
-            for child in children {
+            // Process children in installmentNumber order so consecutive-cycle routing
+            // (each installment N+1 lands one cycle after N) stays stable.
+            let sortedChildren = children.sorted { ($0.installmentNumber ?? 0) < ($1.installmentNumber ?? 0) }
+            var previousChildStatement: CreditCardStatement? = nil
+
+            for child in sortedChildren {
                 guard let childId = child.id,
                       let installmentNumber = child.installmentNumber else {
                     logWarning("[CCRepair]   Skipping child: missing id or installmentNumber")
@@ -936,11 +941,13 @@ class CreditCardService {
 
                 guard let cardId = child.creditCardId else {
                     logWarning("[CCRepair]   Child \(childId) #\(installmentNumber): no creditCardId, skipping")
+                    previousChildStatement = nil
                     continue
                 }
 
                 guard let card = cardRepo.fetchCard(byId: cardId) else {
                     logWarning("[CCRepair]   Child \(childId) #\(installmentNumber): card \(cardId) not found, skipping")
+                    previousChildStatement = nil
                     continue
                 }
 
@@ -953,13 +960,24 @@ class CreditCardService {
                 let validDay = min(originalDay, maxDay)
                 let installmentDate = calendar.date(from: DateComponents(year: targetYear, month: targetMonth, day: validDay)) ?? targetDate
 
-                // Get or create the correct statement
-                guard let correctStatement = getOrCreateStatement(for: card, transactionDate: installmentDate, userId: userId),
+                // For installment 1 (or when we lost the anchor), route by date.
+                // For installments 2+, route via nextStatement(after: previous) so
+                // the series stays on consecutive billing cycles even when card
+                // rules have changed mid-series.
+                let correctStatement: CreditCardStatement?
+                if let prev = previousChildStatement {
+                    correctStatement = nextStatement(after: prev, for: card, userId: userId)
+                } else {
+                    correctStatement = getOrCreateStatement(for: card, transactionDate: installmentDate, userId: userId)
+                }
+
+                guard let correctStatement = correctStatement,
                       let correctStmtId = correctStatement.id else { continue }
 
                 // Check if already correct
                 let correctDueTimestamp = Int(correctStatement.dueDate.timeIntervalSince1970)
                 if child.statementId == correctStmtId && child.dateTimestamp == correctDueTimestamp {
+                    previousChildStatement = correctStatement
                     continue // Already correct
                 }
 
@@ -981,6 +999,7 @@ class CreditCardService {
                     if let oldId = oldStmtId, oldId != correctStmtId {
                         recalculateStatementTotal(statementId: oldId)
                     }
+                    previousChildStatement = correctStatement
                     fixedCount += 1
                 } catch {
                     logError("Failed to fix installment \(childId) statement link: \(error)")
