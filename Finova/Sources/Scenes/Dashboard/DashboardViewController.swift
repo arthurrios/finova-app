@@ -31,17 +31,12 @@ final class DashboardViewController: UIViewController {
     weak var flowDelegate: DashboardFlowDelegate?
 
     private func mergeWithStatementTransactions(_ transactions: [Transaction]) -> [Transaction] {
-        // Filter out one-time CC transactions — they only appear inside statement details.
-        // CC installment children (parentTransactionId + installmentNumber) are kept visible
-        // in the main list for notification/filtering purposes — they're debited via the statement.
+        // Hide all credit card purchases (one-time and installment children) — they only
+        // appear inside their statement details. The synthetic statement row represents
+        // the total being debited from the main list.
         let displayed = transactions.filter { tx in
-            // Always show non-CC transactions
             if tx.creditCardId == nil { return true }
-            // Always show synthetic statement entries
             if tx.isCreditCardStatement == true { return true }
-            // Show CC installment children (informational — not debited here)
-            if tx.parentTransactionId != nil && tx.installmentNumber != nil { return true }
-            // Hide one-time CC transactions (replaced by statement entry)
             return false
         }
         let statementTxs = viewModel.getStatementTransactions()
