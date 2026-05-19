@@ -54,34 +54,68 @@ class CreditCardService {
         }
     }
 
+    /// Finds an existing statement whose billing period contains `transactionDate`.
+    /// A statement's period is `(previousStatement.closingDate, this.closingDate]` —
+    /// the day after the previous statement closed, through this statement's closing
+    /// date (inclusive). The oldest statement extends back unbounded.
+    ///
+    /// This is what lets old statements keep their old dates after a card's
+    /// closingDay/dueDay changes: a new purchase dated in a period covered by an
+    /// existing (old-dates) statement is routed to that statement, even though
+    /// `calculateClosingDate` under the new card rules would point elsewhere.
+    private func statementCoveringPeriod(for cardId: Int, transactionDate: Date, statements: [CreditCardStatement]) -> CreditCardStatement? {
+        let sorted = statements.sorted { $0.closingDate < $1.closingDate }
+        for (idx, stmt) in sorted.enumerated() {
+            let periodStart: Date
+            if idx == 0 {
+                periodStart = .distantPast
+            } else {
+                let prevClose = sorted[idx - 1].closingDate
+                periodStart = Calendar.current.date(byAdding: .second, value: 1, to: prevClose) ?? prevClose
+            }
+            if transactionDate > periodStart && transactionDate <= stmt.closingDate {
+                return stmt
+            }
+        }
+        return nil
+    }
+
     /// Gets or creates a statement for a transaction on a given card/date.
-    /// Enforces "at most one statement per (card, calendar month)": if a statement
-    /// already exists in the same month as the computed closing date (even with
-    /// different exact dates — e.g. after the card's closingDay was changed and
-    /// past statements kept their old dates), that existing statement is reused
-    /// instead of creating a duplicate.
+    ///
+    /// Lookup order:
+    /// 1. An existing statement whose billing period covers `transactionDate`
+    ///    (preserves old-rules assignment when the card's dates changed later).
+    /// 2. An existing statement with an exact closing-date match under current rules.
+    /// 3. An existing statement in the same calendar month as the computed closing
+    ///    date (enforces "at most one statement per (card, month)").
+    /// 4. Create a new statement under current card rules.
     func getOrCreateStatement(for card: CreditCard, transactionDate: Date, userId: String) -> CreditCardStatement? {
-        let closingDate = calculateClosingDate(card: card, transactionDate: transactionDate)
-        let dueDate = calculateDueDate(closingDate: closingDate, card: card)
         let statements = stmtRepo.fetchStatements(forCardId: card.id!)
 
-        // Exact closing-date match
+        // 1. Existing period covers this date — historical preservation
+        if let covering = statementCoveringPeriod(for: card.id!, transactionDate: transactionDate, statements: statements) {
+            return covering
+        }
+
+        let closingDate = calculateClosingDate(card: card, transactionDate: transactionDate)
+        let dueDate = calculateDueDate(closingDate: closingDate, card: card)
+
+        // 2. Exact closing-date match under current rules
         if let existingId = stmtRepo.findStatement(creditCardId: card.id!, closingDate: closingDate),
            let exact = statements.first(where: { $0.id == existingId }) {
             return exact
         }
 
-        // Same-month fallback: reuse an existing statement in the same calendar month.
-        // Prefer the oldest (lowest id) so repeated calls stay stable when duplicates exist.
+        // 3. Same-month fallback
         let calendar = Calendar.current
-        let sameMonth = statements
-            .filter { calendar.isDate($0.closingDate, equalTo: closingDate, toGranularity: .month) }
-            .sorted { ($0.id ?? Int.max) < ($1.id ?? Int.max) }
-        if let reused = sameMonth.first {
-            return reused
+        if let sameMonth = statements
+            .filter({ calendar.isDate($0.closingDate, equalTo: closingDate, toGranularity: .month) })
+            .sorted(by: { ($0.id ?? Int.max) < ($1.id ?? Int.max) })
+            .first {
+            return sameMonth
         }
 
-        // Create new statement
+        // 4. Create new statement
         let newStatement = CreditCardStatement(
             id: nil,
             creditCardId: card.id!,
@@ -106,12 +140,15 @@ class CreditCardService {
 
     /// Finds an existing statement for a transaction on a given card/date.
     /// Unlike `getOrCreateStatement`, this never creates a new statement.
-    /// Falls back to a same-calendar-month match so callers find legacy
-    /// statements whose exact closing date no longer matches the card's
-    /// current closingDay.
+    /// Uses the same lookup order minus the create step.
     func getExistingStatement(for card: CreditCard, transactionDate: Date) -> CreditCardStatement? {
-        let closingDate = calculateClosingDate(card: card, transactionDate: transactionDate)
         let statements = stmtRepo.fetchStatements(forCardId: card.id!)
+
+        if let covering = statementCoveringPeriod(for: card.id!, transactionDate: transactionDate, statements: statements) {
+            return covering
+        }
+
+        let closingDate = calculateClosingDate(card: card, transactionDate: transactionDate)
 
         if let existingId = stmtRepo.findStatement(creditCardId: card.id!, closingDate: closingDate),
            let exact = statements.first(where: { $0.id == existingId }) {
