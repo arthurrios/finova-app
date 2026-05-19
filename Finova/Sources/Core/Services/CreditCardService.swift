@@ -270,14 +270,17 @@ class CreditCardService {
         return statementTransactions
     }
 
-    /// Recalculates closing and due dates for all unpaid statements of a card,
-    /// then reassigns transactions to the correct statements based on the new dates.
+    /// Recalculates closing and due dates for statements that haven't closed yet,
+    /// then reassigns transactions in those future cycles to the correct statements.
+    /// Past statements (closingDate already in the past) are left untouched so historical
+    /// records remain stable.
     /// Call this after editing a card's closingDay or dueDay.
     func recalculateStatementDatesForCard(_ card: CreditCard, userId: String? = nil, transactionRepo: TransactionRepository? = nil) {
         guard let cardId = card.id else { return }
         let statements = stmtRepo.fetchStatements(forCardId: cardId)
+        let now = Date()
 
-        for stmt in statements where !stmt.isPaid {
+        for stmt in statements where stmt.closingDate > now && !stmt.isPaid {
             // Recalculate closing date based on existing closing date's month
             let calendar = Calendar.current
             let month = calendar.component(.month, from: stmt.closingDate)
@@ -293,11 +296,14 @@ class CreditCardService {
 
         // Reassign transactions to correct statements based on new dates
         guard let userId = userId, let transactionRepo = transactionRepo else { return }
-        reassignCardTransactions(card: card, userId: userId, transactionRepo: transactionRepo)
+        reassignCardTransactions(card: card, userId: userId, transactionRepo: transactionRepo, onlyFutureCycles: true)
     }
 
     /// Reassigns all transactions for a card to their correct statements based on current card settings.
-    private func reassignCardTransactions(card: CreditCard, userId: String, transactionRepo: TransactionRepository) {
+    /// When `onlyFutureCycles` is true, leaves transactions in already-closed statements alone and
+    /// avoids moving any transaction into a target whose closing date is in the past — preserving
+    /// historical records when the user only wants to reshape future billing cycles.
+    private func reassignCardTransactions(card: CreditCard, userId: String, transactionRepo: TransactionRepository, onlyFutureCycles: Bool = false) {
         guard let cardId = card.id else { return }
         let allTransactions = transactionRepo.fetchAllTransactions()
         // Skip CC installments that already have a statementId — their dateTimestamp
@@ -308,6 +314,13 @@ class CreditCardService {
             && !($0.installmentNumber != nil && $0.statementId != nil)
         }
 
+        let now = Date()
+        var closedStatementIds: Set<Int> = []
+        if onlyFutureCycles {
+            let stmts = stmtRepo.fetchStatements(forCardId: cardId)
+            closedStatementIds = Set(stmts.filter { $0.closingDate <= now }.compactMap { $0.id })
+        }
+
         var affectedStatementIds = Set<Int>()
 
         for tx in cardTransactions {
@@ -316,7 +329,19 @@ class CreditCardService {
             // Skip transactions whose statement was manually overridden by the user
             if DBHelper.shared.isStatementOverridden(transactionId: txId) { continue }
 
+            // Don't move transactions out of past statements
+            if onlyFutureCycles, let stmtId = tx.statementId, closedStatementIds.contains(stmtId) {
+                continue
+            }
+
             let transactionDate = Date(timeIntervalSince1970: TimeInterval(tx.dateTimestamp))
+
+            // Don't pull transactions into a past cycle (also avoids creating empty past statements)
+            if onlyFutureCycles {
+                let targetClosingDate = calculateClosingDate(card: card, transactionDate: transactionDate)
+                if targetClosingDate <= now { continue }
+            }
+
             guard let correctStatement = getOrCreateStatement(for: card, transactionDate: transactionDate, userId: userId),
                   let correctStmtId = correctStatement.id else { continue }
 
