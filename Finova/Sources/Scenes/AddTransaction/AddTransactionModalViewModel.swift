@@ -418,6 +418,9 @@ final class AddTransactionModalViewModel {
       let immediateInstallmentCount = totalInstallments
 
       var allInstallments: [TransactionModel] = []
+      // Track the previous installment's statement so installment N+1 lands in the
+      // billing cycle right after N, regardless of date-based routing rules.
+      var previousStatement: CreditCardStatement? = nil
 
       for installmentNumber in 1...immediateInstallmentCount {
         // Calcular a data da parcela usando a função de geração de datas válidas
@@ -457,24 +460,33 @@ final class AddTransactionModalViewModel {
 
         // Assign installment to correct credit card statement + remap date to due date
         if let cardId = data.creditCardId, let card = creditCardRepo.fetchCard(byId: cardId) {
-          if let uid = AuthenticationManager.shared.currentUser?.uid,
-             let statement = creditCardService.getOrCreateStatement(for: card, transactionDate: installmentDate, userId: uid) {
-            try transactionRepo.updateCreditCardFields(
-              transactionId: installmentId,
-              creditCardId: cardId,
-              statementId: statement.id!,
-              isCreditCardStatement: false
-            )
-            creditCardService.recalculateStatementTotal(statementId: statement.id!)
+          if let uid = AuthenticationManager.shared.currentUser?.uid {
+            let statement: CreditCardStatement?
+            if let prev = previousStatement {
+              statement = creditCardService.nextStatement(after: prev, for: card, userId: uid)
+            } else {
+              statement = creditCardService.getOrCreateStatement(for: card, transactionDate: installmentDate, userId: uid)
+            }
+            if let statement = statement {
+              try transactionRepo.updateCreditCardFields(
+                transactionId: installmentId,
+                creditCardId: cardId,
+                statementId: statement.id!,
+                isCreditCardStatement: false
+              )
+              creditCardService.recalculateStatementTotal(statementId: statement.id!)
 
-            // Remap installment date to statement due date
-            let dueDateTimestamp = Int(statement.dueDate.timeIntervalSince1970)
-            let dueDateBudgetMonth = statement.dueDate.monthAnchor
-            transactionRepo.updateDateAndBudgetMonth(
-              transactionId: installmentId,
-              newDateTimestamp: dueDateTimestamp,
-              newBudgetMonthDate: dueDateBudgetMonth
-            )
+              // Remap installment date to statement due date
+              let dueDateTimestamp = Int(statement.dueDate.timeIntervalSince1970)
+              let dueDateBudgetMonth = statement.dueDate.monthAnchor
+              transactionRepo.updateDateAndBudgetMonth(
+                transactionId: installmentId,
+                newDateTimestamp: dueDateTimestamp,
+                newBudgetMonthDate: dueDateBudgetMonth
+              )
+
+              previousStatement = statement
+            }
           }
         }
 
@@ -568,6 +580,9 @@ final class AddTransactionModalViewModel {
         // UPFRONT GENERATION: Create ALL installments at once for cloud sync consistency
         let immediateInstallmentCount = totalInstallments
         var allInstallments: [TransactionModel] = []
+        // Track previous installment's statement so each installment lands in the
+        // billing cycle right after the previous one (consecutive cycles).
+        var previousStatement: CreditCardStatement? = nil
 
         for installmentNumber in 1...immediateInstallmentCount {
           let targetDate =
@@ -609,7 +624,13 @@ final class AddTransactionModalViewModel {
           // Assign installment to correct credit card statement + remap date to due date
           if let cardId = data.creditCardId, let card = self.creditCardRepo.fetchCard(byId: cardId) {
             guard let uid = AuthenticationManager.shared.currentUser?.uid else { break }
-            if let statement = self.creditCardService.getOrCreateStatement(for: card, transactionDate: installmentDate, userId: uid) {
+            let statement: CreditCardStatement?
+            if let prev = previousStatement {
+              statement = self.creditCardService.nextStatement(after: prev, for: card, userId: uid)
+            } else {
+              statement = self.creditCardService.getOrCreateStatement(for: card, transactionDate: installmentDate, userId: uid)
+            }
+            if let statement = statement {
               try self.transactionRepo.updateCreditCardFields(
                 transactionId: insertedInstallmentId,
                 creditCardId: cardId,
@@ -626,6 +647,8 @@ final class AddTransactionModalViewModel {
                 newDateTimestamp: dueDateTimestamp,
                 newBudgetMonthDate: dueDateBudgetMonth
               )
+
+              previousStatement = statement
             }
           }
         }

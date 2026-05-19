@@ -138,6 +138,62 @@ class CreditCardService {
         return created
     }
 
+    /// Returns the statement representing the billing cycle that comes immediately
+    /// after `current`, using the card's *current* closingDay/dueDay to compute the
+    /// new cycle's dates. Creates the next statement if it doesn't already exist.
+    ///
+    /// Use this for CC installment series so each installment N+1 lands one cycle
+    /// after installment N regardless of how card rules have changed mid-series.
+    /// Date-based routing (`getOrCreateStatement`) can skip a cycle when the
+    /// closing day moves earlier, leaving installments orphaned or one month late.
+    func nextStatement(after current: CreditCardStatement, for card: CreditCard, userId: String) -> CreditCardStatement? {
+        guard let cardId = card.id else { return nil }
+        let calendar = Calendar.current
+
+        let currentMonth = calendar.component(.month, from: current.closingDate)
+        let currentYear = calendar.component(.year, from: current.closingDate)
+        var nextMonth = currentMonth + 1
+        var nextYear = currentYear
+        if nextMonth > 12 { nextMonth = 1; nextYear += 1 }
+
+        let nextClosingDay = min(card.closingDay, daysInMonth(month: nextMonth, year: nextYear))
+        let nextClosingDate = calendar.date(from: DateComponents(year: nextYear, month: nextMonth, day: nextClosingDay))!
+        let nextDueDate = calculateDueDate(closingDate: nextClosingDate, card: card)
+
+        let statements = stmtRepo.fetchStatements(forCardId: cardId)
+
+        if let existingId = stmtRepo.findStatement(creditCardId: cardId, closingDate: nextClosingDate),
+           let exact = statements.first(where: { $0.id == existingId }) {
+            return exact
+        }
+
+        if let sameMonth = statements
+            .filter({ calendar.isDate($0.closingDate, equalTo: nextClosingDate, toGranularity: .month) })
+            .sorted(by: { ($0.id ?? Int.max) < ($1.id ?? Int.max) })
+            .first {
+            return sameMonth
+        }
+
+        let newStmt = CreditCardStatement(
+            id: nil,
+            creditCardId: cardId,
+            closingDate: nextClosingDate,
+            dueDate: nextDueDate,
+            totalAmount: 0,
+            isPaid: false,
+            paidDate: nil,
+            paidAmount: nil,
+            isDatesOverridden: false,
+            userId: userId,
+            createdAt: Date(),
+            updatedAt: Date()
+        )
+        guard let newId = stmtRepo.insertStatement(newStmt) else { return nil }
+        var created = newStmt
+        created.id = newId
+        return created
+    }
+
     /// Finds an existing statement for a transaction on a given card/date.
     /// Unlike `getOrCreateStatement`, this never creates a new statement.
     /// Uses the same lookup order minus the create step.
