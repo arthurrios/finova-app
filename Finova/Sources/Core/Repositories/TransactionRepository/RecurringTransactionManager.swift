@@ -6,7 +6,6 @@
 //
 
 import Foundation
-import NotificationCenter
 
 enum RecurringCleanupOption {
   case currentSelection
@@ -21,22 +20,39 @@ enum RecurringEditOption {
 }
 
 final class RecurringTransactionManager {
+  /// EAGER BOUNDED GENERATION: a recurring series always materializes its occurrences as real
+  /// rows from its start month through `now + horizonMonths`. Occurrences are created at
+  /// creation time (full horizon, pushed immediately) and kept rolling forward by an
+  /// idempotent, forward-only, tombstone-aware, hydration-gated top-up on dashboard load —
+  /// never reactively per-navigation. This is what makes recurring sync cleanly: every
+  /// occurrence is a first-class synced row created once, not regenerated independently on
+  /// each device (which produced duplicates and resurrected deletions).
+  static let horizonMonths = 36
+
   private let transactionRepo: TransactionRepository
   private let creditCardService: CreditCardService
   private let creditCardRepo: CreditCardRepository
   private let calendar: Calendar
-  private let notificationCenter = UNUserNotificationCenter.current()
 
   // MARK: - Concurrency Control
-  private let operationQueue = DispatchQueue(
+  // Static so ALL manager instances share one serial queue. Recurring generation,
+  // edits and deletes are then mutually serialized across the whole app — previously
+  // each instance had its own queue, so (for example) an "edit future" on the
+  // AddTransaction screen's manager could run concurrently with lazy generation on the
+  // Dashboard's manager and interleave reads/writes on the same series.
+  private static let operationQueue = DispatchQueue(
     label: "recurring.transaction.operations", qos: .userInitiated)
-  private var currentOperations: Set<String> = []
-  private let operationLock = NSLock()
+  private static var currentOperations: Set<String> = []
+  private static let operationLock = NSLock()
 
   // MARK: - Deleted Instance Tracking
   // Tracks instances deleted via .currentSelection to prevent lazy generation from recreating them.
   // Key: parentTransactionId, Value: set of month anchors that should NOT be regenerated.
-  private var deletedInstanceAnchors: [Int: Set<Int>] = [:]
+  // Static + lock-guarded so every manager instance AND the repository's delete path
+  // share the same view (previously each instance had its own copy, so a delete on one
+  // instance didn't stop regeneration driven by another).
+  private static var deletedInstanceAnchors: [Int: Set<Int>] = [:]
+  private static let deletedAnchorsLock = NSLock()
 
   init(
     transactionRepo: TransactionRepository = TransactionRepository(),
@@ -59,7 +75,7 @@ final class RecurringTransactionManager {
     transactionStartDate: Date? = nil
   ) {
     // Use async queue to prevent blocking the main thread
-    operationQueue.async { [weak self] in
+    Self.operationQueue.async { [weak self] in
       guard let self = self else { return }
 
       let recurringTransactions = self.transactionRepo.fetchRecurringTransactions()
@@ -98,7 +114,7 @@ final class RecurringTransactionManager {
     }
 
     // Use async queue to prevent blocking the main thread
-    operationQueue.async { [weak self] in
+    Self.operationQueue.async { [weak self] in
       guard let self = self else {
         DispatchQueue.main.async { completion?() }
         return
@@ -214,7 +230,7 @@ final class RecurringTransactionManager {
 
     // Schedule notifications for all newly created instances
     if !newInstances.isEmpty {
-      scheduleOptimizedNotificationsForRecurringInstances(newInstances)
+      RecurringNotificationManager.shared.scheduleNotifications(for: newInstances)
     }
   }
 
@@ -272,8 +288,7 @@ final class RecurringTransactionManager {
           try transactionRepo.delete(id: id)
 
           // Clean up notification for deleted recurring instance
-          let notifID = "transaction_\(id)"
-          notificationCenter.removePendingNotificationRequests(withIdentifiers: [notifID])
+          TransactionNotificationManager.shared.cancelNotification(for: id)
         } catch {
           logError("Error deleting outdated recurring instance: \(error)")
         }
@@ -290,229 +305,70 @@ final class RecurringTransactionManager {
   }
 
   /// Record that a specific instance was intentionally deleted so lazy generation won't recreate it.
-  func trackDeletedInstance(parentId: Int, monthAnchor: Int) {
-    operationLock.lock()
-    defer { operationLock.unlock() }
+  static func trackDeletedInstance(parentId: Int, monthAnchor: Int) {
+    deletedAnchorsLock.lock()
+    defer { deletedAnchorsLock.unlock() }
     deletedInstanceAnchors[parentId, default: []].insert(monthAnchor)
   }
 
   /// Clear deletion tracking for a parent (called when the parent itself is deleted).
-  func clearDeletedInstanceTracking(for parentId: Int) {
-    operationLock.lock()
-    defer { operationLock.unlock() }
+  static func clearDeletedInstanceTracking(for parentId: Int) {
+    deletedAnchorsLock.lock()
+    defer { deletedAnchorsLock.unlock() }
     deletedInstanceAnchors.removeValue(forKey: parentId)
   }
 
-  func cleanupRecurringInstancesFromDate(
-    parentTransactionId: Int,
-    selectedTransactionDate: Date,
-    cleanupOption: RecurringCleanupOption,
-    completion: (() -> Void)? = nil
-  ) {
-    let operationId = "cleanup_recurring_\(parentTransactionId)_\(cleanupOption)"
-
-    // Prevent concurrent deletion operations on the same transaction
-    operationLock.lock()
-    defer { operationLock.unlock() }
-
-    guard !currentOperations.contains(operationId) else {
-      DispatchQueue.main.async { completion?() }
-      return
-    }
-
-    currentOperations.insert(operationId)
-
-    operationQueue.async { [weak self] in
-      defer {
-        self?.operationLock.lock()
-        self?.currentOperations.remove(operationId)
-        self?.operationLock.unlock()
-        // Call completion on main thread
-        DispatchQueue.main.async { completion?() }
-      }
-
-      guard let self = self else {
-        DispatchQueue.main.async { completion?() }
-        return
-      }
-
-      let selectedAnchor = selectedTransactionDate.monthAnchor
-      let allInstances = self.transactionRepo.fetchAllRecurringInstances()
-
-      let relatedInstances = allInstances.filter {
-        $0.parentTransactionId == parentTransactionId
-      }
-
-      // Delete instances in a single transaction to prevent partial states
-      var instancesToDelete: [Int] = []
-
-      for instance in relatedInstances {
-        let shouldDelete: Bool
-
-        switch cleanupOption {
-        case .currentSelection:
-          // Only delete the current selected transaction
-          shouldDelete = instance.budgetMonthDate == selectedAnchor
-        case .futureOnly:
-          shouldDelete = instance.budgetMonthDate >= selectedAnchor
-        case .all:
-          shouldDelete = true
-        }
-
-        if shouldDelete, let instanceId = instance.id {
-          instancesToDelete.append(instanceId)
-        }
-      }
-
-      // Perform deletions atomically
-      for instanceId in instancesToDelete {
-        do {
-          try self.transactionRepo.delete(id: instanceId)
-          let notifID = "transaction_\(instanceId)"
-          self.notificationCenter.removePendingNotificationRequests(withIdentifiers: [notifID])
-        } catch {
-          logError("Error deleting recurring instance \(instanceId): \(error)")
-        }
-      }
-
-      // Track deleted anchors so lazy generation won't recreate them
-      if cleanupOption == .currentSelection && !instancesToDelete.isEmpty {
-        self.trackDeletedInstance(parentId: parentTransactionId, monthAnchor: selectedAnchor)
-      }
-
-      if cleanupOption == .all {
-        do {
-          try self.transactionRepo.delete(id: parentTransactionId)
-          let notifID = "transaction_\(parentTransactionId)"
-          self.notificationCenter.removePendingNotificationRequests(withIdentifiers: [notifID])
-        } catch {
-          logError("Error deleting parent recurring transaction \(parentTransactionId): \(error)")
-        }
-        self.clearDeletedInstanceTracking(for: parentTransactionId)
-      } else {
-        // For non-"all" deletions, check if parent is now orphaned
-        let remainingInstances = self.transactionRepo.fetchTransactionInstancesForRecurring(
-          parentTransactionId)
-        if remainingInstances.isEmpty {
-          // Delete orphaned parent to prevent resurrection bugs
-          do {
-            try self.transactionRepo.delete(id: parentTransactionId)
-            let notifID = "transaction_\(parentTransactionId)"
-            self.notificationCenter.removePendingNotificationRequests(withIdentifiers: [notifID])
-          } catch {
-            logError("Error deleting orphaned parent transaction \(parentTransactionId): \(error)")
-          }
-          self.clearDeletedInstanceTracking(for: parentTransactionId)
-        } else if cleanupOption == .futureOnly {
-          // When deleting future instances, mark parent as no longer recurring
-          // This prevents lazy generation from recreating deleted instances
-          do {
-            try self.transactionRepo.updateIsRecurring(
-              transactionId: parentTransactionId, isRecurring: false)
-          } catch {
-            logError("Error updating isRecurring flag for parent \(parentTransactionId): \(error)")
-          }
-          self.clearDeletedInstanceTracking(for: parentTransactionId)
-        }
-      }
-    }
+  /// Month anchors intentionally deleted for a parent (read by lazy generation so it
+  /// won't recreate a month the user explicitly removed).
+  static func excludedAnchors(for parentId: Int) -> Set<Int> {
+    deletedAnchorsLock.lock()
+    defer { deletedAnchorsLock.unlock() }
+    return deletedInstanceAnchors[parentId] ?? []
   }
 
-  func cleanupInstallmentTransactionsFromDate(
-    parentTransactionId: Int,
-    selectedTransactionDate: Date,
-    cleanupOption: RecurringCleanupOption,
-    completion: (() -> Void)? = nil
+  /// Single serialized entry point for deleting a recurring OR installment transaction
+  /// with a scope option (this / future / all).
+  ///
+  /// Runs on the same serial `operationQueue` as lazy generation (so a delete never
+  /// races an in-flight generation) and delegates the actual row selection to
+  /// `TransactionRepository.deleteTransactionWithOption` — the ONE canonical
+  /// implementation now shared by every screen (Dashboard, Transaction Details,
+  /// Statement Details, Allocation Details). Previously the Dashboard used bespoke
+  /// month/exact-date-keyed cleanup methods while the detail screens used the
+  /// repository, so the same action deleted different rows depending on the screen
+  /// (e.g. installment "delete this" over-deleted siblings that shared a due date).
+  func deleteWithOption(
+    transactionId: Int,
+    option: RecurringCleanupOption,
+    completion: ((Result<Void, Error>) -> Void)? = nil
   ) {
-    let operationId = "cleanup_installment_\(parentTransactionId)_\(cleanupOption)"
+    let operationId = "delete_\(transactionId)_\(option)"
 
-    // Prevent concurrent deletion operations on the same transaction
-    operationLock.lock()
-    defer { operationLock.unlock() }
-
-    guard !currentOperations.contains(operationId) else {
-      DispatchQueue.main.async { completion?() }
+    Self.operationLock.lock()
+    guard !Self.currentOperations.contains(operationId) else {
+      Self.operationLock.unlock()
+      DispatchQueue.main.async { completion?(.success(())) }
       return
     }
+    Self.currentOperations.insert(operationId)
+    Self.operationLock.unlock()
 
-    currentOperations.insert(operationId)
-
-    operationQueue.async { [weak self] in
+    Self.operationQueue.async { [weak self] in
+      var result: Result<Void, Error> = .success(())
       defer {
-        self?.operationLock.lock()
-        self?.currentOperations.remove(operationId)
-        self?.operationLock.unlock()
-        // Call completion on main thread
-        DispatchQueue.main.async { completion?() }
+        Self.operationLock.lock()
+        Self.currentOperations.remove(operationId)
+        Self.operationLock.unlock()
+        DispatchQueue.main.async { completion?(result) }
       }
 
-      guard let self = self else {
-        DispatchQueue.main.async { completion?() }
-        return
-      }
+      guard let self = self else { return }
 
-      // Use the more efficient method to get only instances for this parent
-      let installmentInstances = self.transactionRepo.fetchTransactionInstancesForRecurring(
-        parentTransactionId)
-
-      // Collect instances to delete first to avoid partial states
-      var instancesToDelete: [Int] = []
-
-      for instance in installmentInstances {
-        let shouldDelete: Bool
-
-        switch cleanupOption {
-        case .currentSelection:
-          // Only delete the current selected transaction
-          shouldDelete = instance.date == selectedTransactionDate
-        case .futureOnly:
-          shouldDelete = instance.date >= selectedTransactionDate
-        case .all:
-          shouldDelete = true
-        }
-
-        if shouldDelete, let instanceId = instance.id {
-          instancesToDelete.append(instanceId)
-        }
-      }
-
-      // Perform deletions atomically
-      for instanceId in instancesToDelete {
-        do {
-          try self.transactionRepo.delete(id: instanceId)
-          let notifID = "transaction_\(instanceId)"
-          self.notificationCenter.removePendingNotificationRequests(withIdentifiers: [notifID])
-        } catch {
-          logError("Error deleting installment instance: \(error)")
-        }
-      }
-
-      // Track deleted anchors so lazy generation won't recreate them
-      if cleanupOption == .currentSelection && !instancesToDelete.isEmpty {
-        let selectedAnchor = selectedTransactionDate.monthAnchor
-        self.trackDeletedInstance(parentId: parentTransactionId, monthAnchor: selectedAnchor)
-      }
-
-      if cleanupOption == .all {
-        do {
-          try self.transactionRepo.delete(id: parentTransactionId)
-          let notifID = "transaction_\(parentTransactionId)"
-          self.notificationCenter.removePendingNotificationRequests(withIdentifiers: [notifID])
-        } catch {
-          logError("Error deleting parent installment transaction: \(error)")
-        }
-        self.clearDeletedInstanceTracking(for: parentTransactionId)
-      } else if cleanupOption == .futureOnly {
-        // For futureOnly, also delete the parent to prevent lazy regeneration
-        // This is safe because the parent is just a hidden "Installment Parent" record
-        do {
-          try self.transactionRepo.delete(id: parentTransactionId)
-          let notifID = "transaction_\(parentTransactionId)"
-          self.notificationCenter.removePendingNotificationRequests(withIdentifiers: [notifID])
-        } catch {
-          logError("Error deleting parent installment transaction: \(error)")
-        }
-        self.clearDeletedInstanceTracking(for: parentTransactionId)
+      do {
+        try self.transactionRepo.deleteTransactionWithOption(id: transactionId, option: option)
+      } catch {
+        logError("Error deleting transaction \(transactionId) with option \(option): \(error)")
+        result = .failure(error)
       }
     }
   }
@@ -528,7 +384,7 @@ final class RecurringTransactionManager {
     newData: TransactionModel,
     completion: @escaping (Result<Void, Error>) -> Void
   ) {
-    operationQueue.async { [weak self] in
+    Self.operationQueue.async { [weak self] in
       guard let self = self else {
         DispatchQueue.main.async { completion(.failure(TransactionError.repositoryUnavailable)) }
         return
@@ -572,7 +428,28 @@ final class RecurringTransactionManager {
   ) throws {
     let selectedAnchor = selectedTransactionDate.monthAnchor
 
-    // Fetch all transactions ONCE
+    // DETERMINISTIC EDIT: "this and future" / "all" must affect the whole series — not only the
+    // months that happen to be materialized right now. Recurring occurrences are created lazily,
+    // so a device that never navigated forward (or whose lazy generation was gated) has no future
+    // rows to update, and the edit would silently touch only the current one. Materialize the
+    // forward horizon (matching creation's 24-month window) first, so every future occurrence
+    // exists as a row. performLazyGeneration skips intentionally-deleted months, so this never
+    // resurrects a deleted occurrence. Runs inline on operationQueue (the Async caller already
+    // serialized us; performLazyGeneration is documented safe to call inline here).
+    if editOption != .currentSelection {
+      var horizonAnchors = Set<Int>()
+      for offset in 0...Self.horizonMonths {
+        if let d = calendar.date(byAdding: .month, value: offset, to: selectedTransactionDate) {
+          horizonAnchors.insert(d.monthAnchor)
+        }
+      }
+      let materialized = performLazyGeneration(horizonAnchors)
+      if materialized > 0 {
+        logWarning("[RecurringEdit] Materialized \(materialized) missing future instance(s) before edit (option=\(editOption))")
+      }
+    }
+
+    // Fetch all transactions ONCE (now includes any just-materialized future rows)
     let allTransactions = transactionRepo.fetchAllTransactions()
 
     // Filter to related instances
@@ -731,6 +608,10 @@ final class RecurringTransactionManager {
     for oldStmtId in oldStatementIdsToRecalculate {
       creditCardService.recalculateStatementTotal(statementId: oldStmtId)
     }
+
+    // Recompute the recurring series' consolidated notifications so an "edit this/future"
+    // change to amount/day is reflected (this bulk edit previously rescheduled nothing).
+    RecurringNotificationManager.shared.rescheduleNotifications(parentTransactionId: parentTransactionId)
   }
 
   // MARK: - Recurring Transaction Linking
@@ -800,19 +681,30 @@ final class RecurringTransactionManager {
       return
     }
 
-    operationQueue.async { [weak self] in
+    Self.operationQueue.async { [weak self] in
       guard let self = self else {
         DispatchQueue.main.async { completion?(0) }
         return
       }
+      let created = self.performLazyGeneration(monthAnchors)
+      completion?(created)
+    }
+  }
 
+  /// Synchronous core of lazy generation. Materializes any missing recurring instances
+  /// for the given month anchors and returns how many were created.
+  ///
+  /// Safe to call inline while already serialized on `operationQueue` — used both by the
+  /// async `generateInstancesLazilyForMonths` above and by the "delete future" backfill,
+  /// which needs to materialize pre-cutoff months synchronously before the parent's
+  /// recurrence is disabled.
+  private func performLazyGeneration(_ monthAnchors: Set<Int>) -> Int {
       // Fetch ALL transactions ONCE for efficiency
       let allTransactions = self.transactionRepo.fetchAllTransactions()
 
       // Early exit if no transactions
       guard !allTransactions.isEmpty else {
-        DispatchQueue.main.async { completion?(0) }
-        return
+        return 0
       }
 
       // Build lookup tables ONCE
@@ -829,6 +721,23 @@ final class RecurringTransactionManager {
         }
       }
 
+      // Group full occurrences per series (parent + its instances), sorted by month.
+      // New instances inherit from the occurrence "in effect" at their target month — the
+      // most recent occurrence at or before it — instead of always the original parent.
+      // This makes "edit this and future occurrences" changes (amount, title, category, type,
+      // card) propagate to months that are materialized lazily later, while months before an
+      // edit keep their original values.
+      var occurrencesBySeriesId: [Int: [Transaction]] = [:]
+      for tx in allTransactions {
+        guard let seriesId = tx.parentTransactionId ?? tx.id else { continue }
+        occurrencesBySeriesId[seriesId, default: []].append(tx)
+      }
+      for (seriesId, occurrences) in occurrencesBySeriesId {
+        occurrencesBySeriesId[seriesId] = occurrences.sorted {
+          $0.budgetMonthDate < $1.budgetMonthDate
+        }
+      }
+
       // Also include soft-deleted (is_deleted=1) instances so lazy generation never recreates
       // an instance the user intentionally deleted, even if the active row was removed.
       // This covers both in-session deletions (row still soft-deleted) and post-CK-delete
@@ -840,12 +749,15 @@ final class RecurringTransactionManager {
         }
       }
 
-      // Build a set of existing (title, budgetMonthDate) to prevent duplicates
-      // even when parent_transaction_id is wrong (cross-device ID mismatch)
-      // or amounts differ slightly (rounding, edits on different devices).
+      // Build a set of existing (title, budgetMonthDate, DAY) to prevent duplicates even when
+      // parent_transaction_id is wrong (cross-device ID mismatch). The DAY is part of the key so
+      // two same-title recurring series that fall on DIFFERENT days of the month can coexist —
+      // keying on title+month alone wrongly blocked a new series when another same-title one
+      // already occupied every month (it generated 0 instances, leaving only a stray parent).
       var existingTitleAnchors: Set<String> = []
       for tx in allTransactions {
-        existingTitleAnchors.insert("\(tx.title)|\(tx.budgetMonthDate)")
+        let txDay = calendar.component(.day, from: Date(timeIntervalSince1970: TimeInterval(tx.dateTimestamp)))
+        existingTitleAnchors.insert("\(tx.title)|\(tx.budgetMonthDate)|\(txDay)")
       }
 
       // Filter recurring parents only — installments are now generated upfront at creation time
@@ -855,12 +767,15 @@ final class RecurringTransactionManager {
 
       // Early exit if no recurring parents to process
       guard !recurringParents.isEmpty else {
-        DispatchQueue.main.async { completion?(0) }
-        return
+        return 0
       }
 
       var newInstancesCreated = 0
 
+      // Batch every insert/update in this generation pass into ONE transaction (one fsync)
+      // instead of one per row. Inner per-row do/catch still logs and continues, so a single
+      // bad row doesn't roll back the whole batch. (See DBHelper.inTransaction — re-entrant safe.)
+      try? DBHelper.shared.inTransaction {
       // Process recurring transactions
       for recurringTx in recurringParents {
         guard let recurringTxId = recurringTx.id else { continue }
@@ -870,9 +785,7 @@ final class RecurringTransactionManager {
         let existingAnchors = instancesByParentId[recurringTxId] ?? []
 
         // Get anchors of intentionally deleted instances (from .currentSelection deletion)
-        self.operationLock.lock()
-        let excludedAnchors = self.deletedInstanceAnchors[recurringTxId] ?? []
-        self.operationLock.unlock()
+        let excludedAnchors = Self.excludedAnchors(for: recurringTxId)
 
         // Only generate for months that don't have instances yet and weren't intentionally deleted
         let missingAnchors = monthAnchors.subtracting(existingAnchors)
@@ -882,19 +795,27 @@ final class RecurringTransactionManager {
 
         guard !missingAnchors.isEmpty else { continue }
 
-        let originalDate = Date(timeIntervalSince1970: TimeInterval(recurringTx.dateTimestamp))
+        // Occurrences of this series, ascending by month (for picking the in-effect template).
+        let seriesOccurrences = occurrencesBySeriesId[recurringTxId] ?? [recurringTx]
 
         for targetAnchor in missingAnchors {
-          // Safety check: skip if a transaction with same title+month already exists
-          // This prevents duplicates when parent_transaction_id is wrong (cross-device sync)
-          // or amounts differ slightly between devices
-          let key = "\(recurringTx.title)|\(targetAnchor)"
+          // Inherit from the most recent occurrence at or before this month, so a prior
+          // "edit this and future" change carries forward. Falls back to the parent.
+          let template = seriesOccurrences.last(where: { $0.budgetMonthDate <= targetAnchor })
+            ?? recurringTx
+
+          // Safety check: skip only if a same-title row on the SAME day already exists in this
+          // month (cross-device duplicate protection). A same-title series on a different day is
+          // legitimately distinct and must still generate.
+          let templateDay = calendar.component(.day, from: Date(timeIntervalSince1970: TimeInterval(template.dateTimestamp)))
+          let key = "\(template.title)|\(targetAnchor)|\(templateDay)"
           guard !existingTitleAnchors.contains(key) else { continue }
 
           let targetDate = Date(timeIntervalSince1970: TimeInterval(targetAnchor))
           let targetYear = self.calendar.component(.year, from: targetDate)
           let targetMonth = self.calendar.component(.month, from: targetDate)
 
+          let originalDate = Date(timeIntervalSince1970: TimeInterval(template.dateTimestamp))
           let instanceDate = self.generateValidDateForMonth(
             originalDate: originalDate,
             targetMonth: targetMonth,
@@ -902,14 +823,14 @@ final class RecurringTransactionManager {
           )
 
           let instanceModel = TransactionModel(
-            title: recurringTx.title,
-            category: recurringTx.category.key,
-            amount: recurringTx.amount,
-            type: recurringTx.type.key,
+            title: template.title,
+            category: template.category.key,
+            amount: template.amount,
+            type: template.type.key,
             dateTimestamp: Int(instanceDate.timeIntervalSince1970),
             budgetMonthDate: targetAnchor,
             parentTransactionId: recurringTxId,
-            creditCardId: recurringTx.creditCardId
+            creditCardId: template.creditCardId
           )
 
           do {
@@ -924,7 +845,7 @@ final class RecurringTransactionManager {
             }
 
             // Assign to correct monthly statement if linked to a credit card
-            if let cardId = recurringTx.creditCardId,
+            if let cardId = template.creditCardId,
                let uid = AuthenticationManager.shared.currentUser?.uid {
               self.assignToStatement(transactionId: insertedId, creditCardId: cardId, transactionDate: instanceDate, userId: uid)
             }
@@ -933,6 +854,7 @@ final class RecurringTransactionManager {
           }
         }
       }
+      } // end inTransaction
 
       // Installment lazy generation removed — all installments are now created upfront at creation time
 
@@ -941,9 +863,38 @@ final class RecurringTransactionManager {
         MirrorModeManager.shared.reconcileMirrorData()
       }
 
-      // Call completion on current (background) queue - callers should dispatch to main if needed
-      completion?(newInstancesCreated)
+      return newInstancesCreated
+  }
+
+  /// Materializes any missing recurring instances for months strictly between the
+  /// parent's own month and `cutoffAnchor`. Called by "delete future" BEFORE the
+  /// parent's recurrence is disabled, so pre-cutoff months that were never lazily
+  /// generated aren't silently lost (disabling recurrence stops all future generation).
+  /// Runs synchronously/inline — the caller is responsible for serialization if needed.
+  func backfillRecurringMonths(parentTransactionId: Int, cutoffAnchor: Int) {
+    let all = transactionRepo.fetchAllTransactions()
+    guard let parent = all.first(where: { $0.id == parentTransactionId }) else { return }
+    let startAnchor = parent.budgetMonthDate
+    guard startAnchor < cutoffAnchor else { return }
+
+    // Enumerate month anchors strictly between the parent's month and the cutoff, using
+    // the same (current-timezone) month-anchor convention instances were created with.
+    var cal = Calendar(identifier: .gregorian)
+    cal.timeZone = TimeZone.current
+    var anchors: Set<Int> = []
+    var date = Date(timeIntervalSince1970: TimeInterval(startAnchor))
+    var steps = 0
+    while steps < 600 {  // safety bound (~50 years)
+      steps += 1
+      guard let next = cal.date(byAdding: .month, value: 1, to: date) else { break }
+      date = next
+      let anchor = next.monthAnchor
+      if anchor >= cutoffAnchor { break }
+      anchors.insert(anchor)
     }
+
+    guard !anchors.isEmpty else { return }
+    _ = performLazyGeneration(anchors)
   }
 
   /// Check if lazy generation is needed for the given month anchors (lightweight check)
@@ -1049,117 +1000,4 @@ final class RecurringTransactionManager {
     return validDate
   }
 
-  // MARK: - Notification Management
-
-  /// Optimized system for scheduling recurring transaction notifications
-  private func scheduleOptimizedNotificationsForRecurringInstances(_ instances: [TransactionModel])
-  {
-    // Group instances by month
-    var instancesByMonth: [String: [TransactionModel]] = [:]
-
-    for instance in instances {
-      let date = Date(timeIntervalSince1970: TimeInterval(instance.data.dateTimestamp))
-      let monthKey =
-        "\(calendar.component(.year, from: date))-\(calendar.component(.month, from: date))"
-
-      if instancesByMonth[monthKey] == nil {
-        instancesByMonth[monthKey] = []
-      }
-      instancesByMonth[monthKey]?.append(instance)
-    }
-
-    // Schedule notification for each month (max 1 per month)
-    for (monthKey, monthInstances) in instancesByMonth {
-      scheduleMonthlyRecurringNotification(monthKey: monthKey, instances: monthInstances)
-    }
-  }
-
-  /// Schedule a monthly notification for all recurring instances in a month
-  private func scheduleMonthlyRecurringNotification(monthKey: String, instances: [TransactionModel])
-  {
-    guard let firstInstance = instances.first else { return }
-
-    let date = Date(timeIntervalSince1970: TimeInterval(firstInstance.data.dateTimestamp))
-
-    // Check if the date is too far in the future (more than 1 year)
-    let oneYearFromNow = Calendar.current.date(byAdding: .year, value: 1, to: Date()) ?? Date()
-    if date > oneYearFromNow { return }
-
-    // Create notification time (8 AM) in local timezone
-    var notificationDate = calendar.startOfDay(for: date)
-    notificationDate =
-      calendar.date(byAdding: .hour, value: 8, to: notificationDate) ?? notificationDate
-
-    // Only schedule if notification time is in the future
-    guard notificationDate > Date() else { return }
-
-    let timeInterval = notificationDate.timeIntervalSinceNow
-
-    // Check if the interval is too large (more than 30 days)
-    let thirtyDaysInSeconds: TimeInterval = 30 * 24 * 60 * 60
-    if timeInterval > thirtyDaysInSeconds {
-      scheduleRecurringReminderNotification(for: monthKey, instances: instances)
-      return
-    }
-
-    // Create consolidated monthly notification
-    let totalAmount = instances.reduce(0) { $0 + $1.data.amount }
-    let instanceCount = instances.count
-
-    let title = "notification.recurring.title".localized
-    let bodyKey =
-      instanceCount == 1
-      ? "notification.recurring.body.singular" : "notification.recurring.body.plural"
-    let body =
-      instanceCount == 1
-      ? String(format: bodyKey.localized, totalAmount.currencyString)
-      : String(format: bodyKey.localized, instanceCount, totalAmount.currencyString)
-
-    let content = UNMutableNotificationContent()
-    content.title = title
-    content.body = body
-    content.sound = .default
-    content.categoryIdentifier = "TRANSACTION_REMINDER"
-    content.userInfo = [
-      "type": "recurring_month",
-      "monthKey": monthKey,
-      "instanceCount": instanceCount,
-      "totalAmount": totalAmount,
-    ]
-
-    let trigger = UNTimeIntervalNotificationTrigger(timeInterval: timeInterval, repeats: false)
-    let request = UNNotificationRequest(
-      identifier: "recurring_month_\(monthKey)", content: content, trigger: trigger)
-
-    notificationCenter.add(request) { error in
-      if let error = error {
-        logError("Error scheduling recurring notification for month \(monthKey): \(error)")
-      }
-    }
-  }
-
-  /// Schedule a reminder notification for distant recurring instances
-  private func scheduleRecurringReminderNotification(
-    for monthKey: String, instances: [TransactionModel]
-  ) {
-    let thirtyDaysInSeconds: TimeInterval = 30 * 24 * 60 * 60
-    let trigger = UNTimeIntervalNotificationTrigger(
-      timeInterval: thirtyDaysInSeconds, repeats: false)
-
-    let content = UNMutableNotificationContent()
-    content.title = "notification.recurring.reminder.title".localized
-    content.body = "notification.recurring.reminder.body".localized
-    content.sound = .default
-    content.categoryIdentifier = "TRANSACTION_REMINDER"
-    content.userInfo = ["type": "recurring_reminder", "monthKey": monthKey]
-
-    let request = UNNotificationRequest(
-      identifier: "recurring_reminder_\(monthKey)", content: content, trigger: trigger)
-
-    notificationCenter.add(request) { error in
-      if let error = error {
-        logError("Error scheduling recurring reminder for month \(monthKey): \(error)")
-      }
-    }
-  }
 }

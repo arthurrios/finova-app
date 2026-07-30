@@ -7,7 +7,10 @@ import Foundation
 
 class StatementRepository {
 
-    private let db = DBHelper.shared
+    /// Injectable for two-device tests; production always uses `.shared`.
+    private let db: DBHelper
+
+    init(db: DBHelper = .shared) { self.db = db }
 
     func insertStatement(_ stmt: CreditCardStatement) -> Int? {
         do {
@@ -36,7 +39,7 @@ class StatementRepository {
         do {
             let rows = try db.getStatements(creditCardId: cardId)
             return rows.map { row in
-                CreditCardStatement(
+                var stmt = CreditCardStatement(
                     id: row.id,
                     creditCardId: row.creditCardId,
                     closingDate: Date(timeIntervalSince1970: TimeInterval(row.closingDate)),
@@ -50,6 +53,9 @@ class StatementRepository {
                     createdAt: Date(timeIntervalSince1970: TimeInterval(row.createdAt)),
                     updatedAt: Date(timeIntervalSince1970: TimeInterval(row.updatedAt))
                 )
+                // Carry record ownership through to the push path — see getStatements.
+                stmt.createdByUid = row.createdByUid
+                return stmt
             }
         } catch {
             logError("Failed to fetch statements: \(error)")
@@ -84,6 +90,9 @@ class StatementRepository {
                 return false
             }
         }
+        // Cancel the statement's due/pay reminders — otherwise they keep firing for a
+        // statement that no longer exists.
+        StatementNotificationManager.shared.cancelNotifications(for: statementId)
         NotificationCenter.default.post(name: .creditCardDataChanged, object: nil)
         return true
     }
@@ -96,6 +105,17 @@ class StatementRepository {
                 "UPDATE CreditCardStatements SET sync_status = 'pending' WHERE id = ?;",
                 intBindings: [statementId]
             )
+            // Also update the corresponding statement Transaction row so the Dashboard
+            // reflects the new total (its amount comes from Transaction.amount).
+            db.executeSyncUpdate(
+                """
+                UPDATE Transactions SET amount = ?, original_amount = ?, sync_status = 'pending',
+                       ck_modified_at = ? WHERE statement_id = ? AND is_credit_card_statement = 1
+                       AND (is_deleted IS NULL OR is_deleted = 0);
+                """,
+                intBindings: [total, total, Int(Date().timeIntervalSince1970), statementId]
+            )
+            TransactionRepository.invalidateCache()
             NotificationCenter.default.post(name: .creditCardDataChanged, object: nil)
         } catch {
             logError("Failed to recalculate statement total: \(error)")
@@ -164,7 +184,17 @@ class StatementRepository {
         return pendingStatements
     }
 
-    func markAsSynced(ckRecordName: String) {
+    /// See `TransactionRepository.markAsSynced` for why `pushedUpdatedAt` matters: without it, an
+    /// edit made while the push was in flight is marked synced and never pushed.
+    func markAsSynced(ckRecordName: String, pushedUpdatedAt: Date? = nil) {
+        if let pushedUpdatedAt = pushedUpdatedAt {
+            db.executeSyncUpdate(
+                "UPDATE CreditCardStatements SET sync_status = 'synced' WHERE ck_record_id = ? AND COALESCE(updated_at, 0) <= ?;",
+                textBindings: [ckRecordName],
+                intBindings: [Int(pushedUpdatedAt.timeIntervalSince1970)]
+            )
+            return
+        }
         // Phase 3C: CK record name is pre-stored before push, so matching by ck_record_id is sufficient
         db.executeSyncUpdate(
             "UPDATE CreditCardStatements SET sync_status = 'synced' WHERE ck_record_id = ?;",
@@ -213,7 +243,7 @@ class StatementRepository {
                 total_amount = ?, is_paid = ?, paid_date = ?,
                 paid_amount = ?, is_dates_overridden = ?,
                 updated_at = ?, sync_status = 'synced', ck_modified_at = ?,
-                created_by_uid = ?, is_deleted = 0
+                created_by_uid = COALESCE(?, created_by_uid), is_deleted = 0
             WHERE ck_record_id = ?;
             """,
             orderedBindings: [
@@ -234,6 +264,16 @@ class StatementRepository {
     }
 
     func deleteFromCloud(ckRecordName recordName: String) {
+        // RECREATION-WINS guard: keep a statement with unpushed local edits rather than applying
+        // a remote delete (it re-pushes, preserving the newer local change).
+        if db.fetchSingleString("SELECT sync_status FROM CreditCardStatements WHERE ck_record_id = ?;", textBinding: recordName) == "pending" {
+            return
+        }
+        // Cancel reminders for a statement deleted on another device before removing the row.
+        if let localId = db.fetchSingleInt(
+            "SELECT id FROM CreditCardStatements WHERE ck_record_id = ?;", textBinding: recordName) {
+            StatementNotificationManager.shared.cancelNotifications(for: localId)
+        }
         db.executeSyncUpdate(
             "DELETE FROM CreditCardStatements WHERE ck_record_id = ?;",
             textBindings: [recordName]
@@ -246,6 +286,10 @@ class StatementRepository {
     }
 
     func hardDeleteByCKRecordName(_ recordName: String) {
+        if let localId = db.fetchSingleInt(
+            "SELECT id FROM CreditCardStatements WHERE ck_record_id = ?;", textBinding: recordName) {
+            StatementNotificationManager.shared.cancelNotifications(for: localId)
+        }
         db.executeSyncUpdate(
             "DELETE FROM CreditCardStatements WHERE ck_record_id = ?;",
             textBindings: [recordName]

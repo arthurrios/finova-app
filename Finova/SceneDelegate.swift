@@ -226,17 +226,18 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
 
     switch status {
     case .syncing:
-      // Don't show toast if user is on the SyncSettings screen
-      guard !isOnSyncSettingsScreen() else { return }
+      // Don't show toast if user is on screens with their own sync UI
+      guard !isOnSyncDedicatedScreen() else { return }
       showSyncToastOnCurrentWindow()
     case .synced, .error, .idle:
       break
     }
   }
 
-  private func isOnSyncSettingsScreen() -> Bool {
+  private func isOnSyncDedicatedScreen() -> Bool {
     guard let nav = window?.rootViewController as? UINavigationController else { return false }
-    return nav.topViewController is SyncSettingsViewController
+    let top = nav.topViewController
+    return top is SyncSettingsViewController || top is InitialSyncViewController
   }
 
   /// Shows the sync toast on the current window

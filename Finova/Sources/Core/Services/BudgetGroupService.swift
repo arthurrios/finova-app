@@ -82,8 +82,50 @@ final class BudgetGroupService {
         repository.updateGroup(group)
     }
 
+    /// Soft-deletes a group locally and, when the current user OWNS it, removes its CloudKit zone.
+    ///
+    /// Deleting the zone is what actually makes the group go away. `softDeleteGroup` alone only sets
+    /// `is_deleted = 1` on this device — the `Group-<id>` zone stayed in CloudKit forever, and any
+    /// device that hadn't seen the group locally would rediscover the zone and insert it as a LIVE
+    /// group (the soft-delete guard in `processIncomingBudgetGroup` only fires when a local row
+    /// already exists). One account had 9 dead zones accumulate this way, so a fresh install
+    /// resurrected 9 phantom copies of the same group and pulled transactions out of all of them.
+    ///
+    /// Members must NOT reach the zone-delete path: they don't own the zone, and leaving a group is
+    /// not the same as deleting it for everyone. `leaveGroup` stays local-only.
     func deleteGroup(id: String) {
+        let group = repository.fetchGroup(byId: id)
         repository.softDeleteGroup(id: id)
+
+        guard let group = group, group.isOwner else {
+            logInfo("[Groups] Soft-deleted group \(id) locally (not owner — CloudKit zone left intact)")
+            return
+        }
+        deleteGroupZone(groupId: id)
+    }
+
+    /// Removes a group's zone from the owner's private database, taking every record in it with it.
+    /// Safe to call when the zone is already gone (`.zoneNotFound` / `.userDeletedZone` are treated
+    /// as success), so a retry after a failed delete converges.
+    private func deleteGroupZone(groupId: String) {
+        let zoneID = CKRecordZone.ID(zoneName: "Group-\(groupId)", ownerName: CKCurrentUserDefaultName)
+        let op = CKModifyRecordZonesOperation(recordZonesToSave: nil, recordZoneIDsToDelete: [zoneID])
+        op.modifyRecordZonesResultBlock = { result in
+            switch result {
+            case .success:
+                logWarning("[Groups] Deleted CloudKit zone \(zoneID.zoneName) for owned group \(groupId)")
+            case .failure(let error):
+                if let ck = error as? CKError, ck.code == .zoneNotFound || ck.code == .userDeletedZone {
+                    logInfo("[Groups] Zone \(zoneID.zoneName) already absent — nothing to delete")
+                } else {
+                    // Non-fatal: the group is gone locally. The zone becomes an orphan that a fresh
+                    // device could rediscover, so surface it loudly rather than swallowing it.
+                    logError("[Groups] ⚠️ Failed to delete zone \(zoneID.zoneName) — it will remain an orphan in CloudKit: \(error.localizedDescription)")
+                }
+            }
+        }
+        op.qualityOfService = .userInitiated
+        cloudKit.privateDatabase.add(op)
     }
 
     /// Public entry point for propagating a share URL to invitation records in public DB.
@@ -186,15 +228,23 @@ final class BudgetGroupService {
             self.repository.insertInvitation(invitation)
 
             let groupForPush = finalShareUrl != nil ? latestGroup : group
-            self.pushInvitationToCloud(invitation, group: groupForPush) { [weak self] _ in
+            self.pushInvitationToCloud(invitation, group: groupForPush) { [weak self] participantResult in
+                // The invitation record is written either way, so the owner sees a pending invite
+                // and can retry. But a participant-add failure is now REPORTED rather than
+                // discarded: shares use publicPermission = .none, so without the participant the
+                // invitee can never accept — previously that failed completely silently.
                 self?.saveInvitationToPublicDB(invitation) { saveResult in
-                    switch saveResult {
-                    case .success:
-                        completion(.success(()))
-                    case .failure(let error):
+                    if case .failure(let error) = saveResult {
                         logError("Failed to save invitation to public DB: \(error)")
                         completion(.failure(error))
+                        return
                     }
+                    if case .failure(let error) = participantResult {
+                        logError("[Invite] Invitation recorded but invitee was NOT granted share access: \(error.localizedDescription)")
+                        completion(.failure(error))
+                        return
+                    }
+                    completion(.success(()))
                 }
             }
         }
@@ -260,6 +310,83 @@ final class BudgetGroupService {
 
     func respondToInvitation(id: String, accept: Bool) {
         repository.updateInvitationStatus(id: id, status: accept ? "accepted" : "declined")
+        markInvitationResolved(id)
+    }
+
+    // MARK: - Resolved Invitation Ledger
+
+    /// Invitation IDs this user has already accepted or declined.
+    ///
+    /// The public-DB `status` field cannot serve this purpose: only a record's *creator* (the
+    /// inviter) may modify a public database record, so the invitee's status write always fails and
+    /// the record stays `"pending"` in CloudKit forever. With only the local `GroupInvitations` row
+    /// to dedup against, a resolved invitation reappeared as soon as that row was gone — a fresh
+    /// install, a reset, or cleared app data resurrected invitations the user had already declined
+    /// or long since accepted.
+    ///
+    /// Kept in the iCloud key-value store (not UserDefaults) so it survives a reinstall and follows
+    /// the user to their other devices — the same store already used for mirror-mode state.
+    private static let resolvedInvitationsKey = "resolvedGroupInvitationIds"
+    /// Cap so the ledger can't grow unbounded against the KVS size limit. Oldest entries drop first.
+    private static let resolvedInvitationsCap = 200
+
+    private var resolvedInvitationsStore: NSUbiquitousKeyValueStore { .default }
+
+    private func resolvedInvitationIds() -> [String] {
+        resolvedInvitationsStore.array(forKey: Self.resolvedInvitationsKey) as? [String] ?? []
+    }
+
+    func isInvitationResolved(_ invitationId: String) -> Bool {
+        resolvedInvitationIds().contains(invitationId)
+    }
+
+    func markInvitationResolved(_ invitationId: String) {
+        var ids = resolvedInvitationIds()
+        guard !ids.contains(invitationId) else { return }
+        ids.append(invitationId)
+        if ids.count > Self.resolvedInvitationsCap {
+            ids.removeFirst(ids.count - Self.resolvedInvitationsCap)
+        }
+        resolvedInvitationsStore.set(ids, forKey: Self.resolvedInvitationsKey)
+        resolvedInvitationsStore.synchronize()
+        logInfo("[Invitations] Marked \(invitationId) resolved (ledger holds \(ids.count))")
+    }
+
+    /// Owner-side cleanup: once a member is confirmed in the group, delete their now-obsolete
+    /// invitation records from the public database. Only the owner (the record creator) can do this,
+    /// which is exactly why the invitee's own status update never worked. This also stops the
+    /// invitation's email addresses and group name from sitting in a world-readable database
+    /// indefinitely.
+    func deletePublicInvitations(forGroupId groupId: String, inviteeEmail: String) {
+        let predicate = NSPredicate(format: "groupId == %@ AND inviteeEmail == %@", groupId, inviteeEmail)
+        let query = CKQuery(recordType: "GroupInvitation", predicate: predicate)
+
+        cloudKit.publicDatabase.fetch(withQuery: query, desiredKeys: []) { [weak self] result in
+            guard let self = self else { return }
+            guard case .success(let (matchResults, _)) = result else {
+                if case .failure(let error) = result {
+                    logInfo("[Invitations] Could not query invitations for cleanup (non-critical): \(error.localizedDescription)")
+                }
+                return
+            }
+            let ids = matchResults.compactMap { (recordID, recordResult) -> CKRecord.ID? in
+                if case .success = recordResult { return recordID }
+                return nil
+            }
+            guard !ids.isEmpty else { return }
+
+            let op = CKModifyRecordsOperation(recordsToSave: nil, recordIDsToDelete: ids)
+            op.modifyRecordsResultBlock = { result in
+                switch result {
+                case .success:
+                    logInfo("[Invitations] Removed \(ids.count) obsolete public invitation(s) for group \(groupId)")
+                case .failure(let error):
+                    logInfo("[Invitations] Could not remove public invitation(s) (non-critical): \(error.localizedDescription)")
+                }
+            }
+            op.qualityOfService = .utility
+            self.cloudKit.publicDatabase.add(op)
+        }
     }
 
     // MARK: - Push GroupMember CKRecord
@@ -292,6 +419,11 @@ final class BudgetGroupService {
         }
 
         let operation = CKModifyRecordsOperation(recordsToSave: [record], recordIDsToDelete: nil)
+        // `.allKeys` is REQUIRED. This builds a fresh CKRecord with no recordChangeTag, so the
+        // default `.ifServerRecordUnchanged` fails with `serverRecordChanged` whenever the record
+        // already exists on the server — meaning only the very first push ever succeeded and later
+        // updates (e.g. a permission change) silently never landed.
+        operation.savePolicy = .allKeys
         operation.modifyRecordsResultBlock = { result in
             switch result {
             case .success:
@@ -324,9 +456,17 @@ final class BudgetGroupService {
         record["email"] = member.email as CKRecordValue
         record["role"] = member.role.rawValue as CKRecordValue
         record["joinedAt"] = member.joinedAt as NSDate
+        // Carried so `.allKeys` (below) doesn't blank the field on the server.
+        record["permissions"] = member.permissions.asJSON as CKRecordValue
         record["isRemoved"] = 1 as CKRecordValue
 
         let operation = CKModifyRecordsOperation(recordsToSave: [record], recordIDsToDelete: nil)
+        // `.allKeys` is REQUIRED, and this is the case where the default policy hurt most: the
+        // member's own record ALWAYS already exists on the server, so a fresh CKRecord with no
+        // recordChangeTag failed `serverRecordChanged` every single time. `isRemoved = 1` therefore
+        // never reached the member's device and removed members kept full read/write access to the
+        // group zone.
+        operation.savePolicy = .allKeys
         operation.modifyRecordsResultBlock = { result in
             switch result {
             case .success:
@@ -343,8 +483,14 @@ final class BudgetGroupService {
 
     // MARK: - Share Permission Migration
 
-    /// Upgrades existing CKShares from .none to .readWrite so invitees can accept via URL.
-    /// Also performs one-time migration from hierarchical to zone-based shares.
+    /// Closes existing CKShares that were left world-writable, and performs the one-time migration
+    /// from hierarchical to zone-based shares.
+    ///
+    /// This used to do the OPPOSITE — it widened every owned share to `.readWrite`, which combined
+    /// with publishing the share URL in the public database meant any authenticated user of the app
+    /// could harvest a URL and gain read/write access to a stranger's financial data. Shares already
+    /// widened by earlier builds are still live in CloudKit, so this pass actively narrows them back
+    /// to `.none`; access is granted only to explicitly invited participants.
     private func upgradeExistingSharePermissions(groups: [BudgetGroup]) {
         let ownedGroups = groups.filter { $0.isOwner && $0.ckShareUrl != nil }
         guard !ownedGroups.isEmpty else { return }
@@ -370,16 +516,17 @@ final class BudgetGroupService {
                     let shareRecordID = metadata.share.recordID
                     self.cloudKit.privateDatabase.fetch(withRecordID: shareRecordID) { record, _ in
                         guard let share = record as? CKShare else { return }
-                        guard share.publicPermission != .readWrite else { return }
+                        // Already closed — nothing to do.
+                        guard share.publicPermission != .none else { return }
 
-                        share.publicPermission = .readWrite
+                        share.publicPermission = .none
                         let saveOp = CKModifyRecordsOperation(recordsToSave: [share], recordIDsToDelete: nil)
                         saveOp.modifyRecordsResultBlock = { result in
                             switch result {
                             case .success:
-                                logInfo("Upgraded CKShare permission to .readWrite for group \(group.name)")
+                                logWarning("[Security] Closed public access on CKShare for group \(group.name) — invited participants only")
                             case .failure(let error):
-                                logError("Failed to upgrade CKShare permission for group \(group.name): \(error)")
+                                logError("Failed to close CKShare public access for group \(group.name): \(error)")
                             }
                         }
                         saveOp.qualityOfService = .utility
@@ -446,7 +593,8 @@ final class BudgetGroupService {
 
             let newShare = CKShare(recordZoneID: zoneID)
             newShare[CKShare.SystemFieldKey.title] = group.name as CKRecordValue
-            newShare.publicPermission = .readWrite
+            // SECURITY: invited participants only — see createShareRecord.
+            newShare.publicPermission = .none
 
             let saveOp = CKModifyRecordsOperation(recordsToSave: [newShare], recordIDsToDelete: nil)
             saveOp.modifyRecordsResultBlock = { [weak self] result in
@@ -601,7 +749,13 @@ final class BudgetGroupService {
         // CKShare(recordZoneID:) makes every record in the zone visible to participants.
         let share = CKShare(recordZoneID: zoneID)
         share[CKShare.SystemFieldKey.title] = group.name as CKRecordValue
-        share.publicPermission = .readWrite
+        // SECURITY: `.none` — access is granted ONLY to explicitly invited participants (added in
+        // pushInvitationToCloud). This was `.readWrite`, which makes the share URL a bearer token:
+        // anyone holding it gets read/write on the group's financial data. Since the URL is also
+        // written to the world-readable public database for invitation discovery, any authenticated
+        // user of the app could query GroupInvitation records, harvest URLs, and join arbitrary
+        // groups. Never widen this back to `.readWrite`.
+        share.publicPermission = .none
 
         let operation = CKModifyRecordsOperation(recordsToSave: [record, share], recordIDsToDelete: nil)
         operation.modifyRecordsResultBlock = { [weak self] result in
@@ -626,38 +780,47 @@ final class BudgetGroupService {
         cloudKit.privateDatabase.add(operation)
     }
 
+    /// Adds the invitee to the group's CKShare as an explicit participant.
+    ///
+    /// Now that shares are created with `publicPermission = .none`, this is the ONLY thing that
+    /// grants access — the share URL alone no longer does. So failures here can no longer be
+    /// swallowed as they were: doing so produced an invitation the invitee could never accept, with
+    /// no signal to the owner. The invitation record is still written either way (so the owner sees
+    /// it as pending and can retry), but the error is reported.
     private func pushInvitationToCloud(
         _ invitation: GroupInvitation,
         group: BudgetGroup,
         completion: @escaping (Result<Void, Error>) -> Void
     ) {
-        // Use CKShare to add participant by email lookup
+        func participantFailure(_ reason: String) -> Error {
+            NSError(domain: "BudgetGroupService", code: 3, userInfo: [
+                NSLocalizedDescriptionKey: "groupInvite.error.participant".localized,
+                NSDebugDescriptionErrorKey: reason
+            ])
+        }
+
         guard let shareURLString = group.ckShareUrl,
               let shareURL = URL(string: shareURLString) else {
-            logError("CKShare URL missing for group \(group.id) — skipping participant add")
-            // Still allow the invitation to be saved to public DB even without CKShare
-            completion(.success(()))
+            logError("[Invite] CKShare URL missing for group \(group.id) — invitee cannot be granted access")
+            completion(.failure(participantFailure("missing share URL for group \(group.id)")))
             return
         }
 
         // Fetch the share, add participant
         cloudKit.container.fetchShareMetadata(with: shareURL) { [weak self] metadata, error in
-            guard let self = self, let metadata = metadata else {
-                logError("Failed to fetch share metadata: \(error?.localizedDescription ?? "unknown")")
-                // Allow invitation to proceed via public DB even if share lookup fails
-                completion(.success(()))
+            guard let self = self, metadata != nil else {
+                logError("[Invite] Failed to fetch share metadata: \(error?.localizedDescription ?? "unknown")")
+                completion(.failure(participantFailure("share metadata fetch failed: \(error?.localizedDescription ?? "unknown")")))
                 return
             }
 
-            // Look up the user by email
+            // Look up the invitee's iCloud identity by email
             self.cloudKit.container.fetchShareParticipant(
                 withEmailAddress: invitation.inviteeEmail
             ) { participant, error in
                 guard let participant = participant else {
-                    logError("Could not find iCloud participant for \(invitation.inviteeEmail): \(error?.localizedDescription ?? "unknown")")
-                    // Allow invitation to proceed via public DB even if participant lookup fails
-                    // The invitee can still see the invitation and accept via share URL
-                    completion(.success(()))
+                    logError("[Invite] No iCloud participant for \(invitation.inviteeEmail): \(error?.localizedDescription ?? "unknown")")
+                    completion(.failure(participantFailure("no iCloud participant for \(invitation.inviteeEmail)")))
                     return
                 }
 
@@ -680,7 +843,7 @@ final class BudgetGroupService {
 
         fetchOp.perShareMetadataResultBlock = { [weak self] url, result in
             guard let self = self else {
-                completion(.success(()))
+                completion(.failure(NSError(domain: "BudgetGroupService", code: 3)))
                 return
             }
             switch result {
@@ -690,7 +853,7 @@ final class BudgetGroupService {
                 self.cloudKit.privateDatabase.fetch(withRecordID: shareRecordID) { record, error in
                     guard let share = record as? CKShare else {
                         logError("Failed to fetch CKShare record: \(error?.localizedDescription ?? "not a CKShare")")
-                        completion(.success(()))
+                        completion(.failure(error ?? NSError(domain: "BudgetGroupService", code: 3)))
                         return
                     }
                     share.addParticipant(participant)
@@ -702,16 +865,18 @@ final class BudgetGroupService {
                             logInfo("Participant added to CKShare successfully")
                             completion(.success(()))
                         case .failure(let error):
+                            // Reported, not swallowed: with publicPermission = .none this save is
+                            // what grants access, so silently succeeding would leave the invitee
+                            // permanently unable to accept.
                             logError("Failed to save participant to CKShare: \(error)")
-                            // Still allow invitation to proceed
-                            completion(.success(()))
+                            completion(.failure(error))
                         }
                     }
                     self.cloudKit.privateDatabase.add(saveOp)
                 }
             case .failure(let error):
                 logError("Failed to fetch share metadata for participant add: \(error)")
-                completion(.success(()))
+                completion(.failure(error))
             }
         }
 
@@ -749,6 +914,15 @@ final class BudgetGroupService {
     }
 
     func fetchRemoteInvitations(completion: @escaping () -> Void) {
+        // Suppress invitation fetching until initial pull completes.
+        // On a new device, groups haven't been discovered from shared zones yet,
+        // so the dedup check can't filter stale invitations.
+        guard UserDefaults.standard.bool(forKey: "syncFullPullVerified_v2") else {
+            logWarning("[Invitations] Skipping fetchRemoteInvitations — initial pull not verified")
+            completion()
+            return
+        }
+
         guard let email = AuthenticationManager.shared.currentUser?.email else {
             logWarning("Cannot fetch invitations: no current user email")
             completion()
@@ -785,6 +959,13 @@ final class BudgetGroupService {
                         invitation.ckShareUrl = record["ckShareUrl"] as? String
 
                         if self.repository.fetchInvitation(byId: invitation.id) == nil {
+                            // The public-DB `status` is unreliable — the invitee cannot write it (see
+                            // the resolved-invitation ledger), so it stays "pending" forever. Check
+                            // the ledger, which survives reinstalls and follows the user's devices.
+                            if self.isInvitationResolved(invitation.id) {
+                                logInfo("Skipping already-resolved invitation: \(invitation.groupName) (\(invitation.id))")
+                                continue
+                            }
                             // Skip invitations for groups that already exist locally (e.g. discovered
                             // via shared zone enumeration on a fresh device). The invitation's
                             // "pending" status in the public DB is stale — the user already accepted.

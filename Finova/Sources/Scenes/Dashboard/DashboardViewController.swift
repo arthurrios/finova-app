@@ -31,16 +31,15 @@ final class DashboardViewController: UIViewController {
     weak var flowDelegate: DashboardFlowDelegate?
 
     private func mergeWithStatementTransactions(_ transactions: [Transaction]) -> [Transaction] {
-        // Hide all credit card purchases (one-time and installment children) — they only
-        // appear inside their statement details. The synthetic statement row represents
-        // the total being debited from the main list.
-        let displayed = transactions.filter { tx in
-            if tx.creditCardId == nil { return true }
-            if tx.isCreditCardStatement == true { return true }
-            return false
-        }
+        // Credit-card purchases ARE listed in the main transaction list (for visibility and so
+        // the "Credit Card" search filter works), but they must NOT count toward the balance —
+        // only their synthetic statement row carries the debt. That separation is enforced in
+        // TransactionLedgerService, which computes the balance from its own fetch and excludes
+        // `creditCardId != nil` while counting `isCreditCardStatement == true` rows. So here we
+        // keep every displayed transaction (installment/recurring parent placeholders are already
+        // filtered out upstream by fetchTransactions) and simply append the statement synthetics.
         let statementTxs = viewModel.getStatementTransactions()
-        return displayed + statementTxs
+        return transactions + statementTxs
     }
 
     private func logMirrorDiff(groupId: String, context: String) {
@@ -177,6 +176,13 @@ final class DashboardViewController: UIViewController {
         // Update notification badge count
         updateNotificationBadge()
 
+        // Show/hide sync error indicator based on current status
+        if case .error = SyncEngine.shared.status {
+            contentView.setSyncErrorVisible(true)
+        } else {
+            contentView.setSyncErrorVisible(false)
+        }
+
         // Refresh avatar in case it was changed in Profile screen (async to avoid blocking main thread)
         DispatchQueue.global(qos: .userInitiated).async {
             let userImage = ProfileImageManager.shared.loadProfileImage()
@@ -271,7 +277,7 @@ final class DashboardViewController: UIViewController {
         syncedViewModel.setTransactions(mergeWithStatementTransactions(transactions))
 
         // Schedule notifications for any new transactions in the next 30 days
-        scheduleNext30DaysNotifications()
+        scheduleTransactionNotificationsViaManager()
 
         // Force refresh the current visible cell if it exists
         if let currentCell = currentCell {
@@ -305,7 +311,7 @@ final class DashboardViewController: UIViewController {
                         let txKey = DateFormatter.keyFormatter.string(from: txDate)
                         let matches = txKey == key
                         return matches
-                    }.sorted { $0.date > $1.date }
+                    }.sorted { $0.date != $1.date ? $0.date > $1.date : ($0.id ?? 0) > ($1.id ?? 0) }
 
                     // Update transactions without reconfiguring the month card (to preserve day slider)
                     currentCell.updateTransactions(filteredTransactions)
@@ -390,7 +396,7 @@ final class DashboardViewController: UIViewController {
                             let txDate = Date(timeIntervalSince1970: TimeInterval(tx.dateTimestamp))
                             let txKey = DateFormatter.keyFormatter.string(from: txDate)
                             return txKey == key
-                        }.sorted { $0.date > $1.date }
+                        }.sorted { $0.date != $1.date ? $0.date > $1.date : ($0.id ?? 0) > ($1.id ?? 0) }
 
                         cell.updateTransactions(filteredTransactions)
                     }
@@ -419,7 +425,7 @@ final class DashboardViewController: UIViewController {
             self.syncedViewModel.setTransactions(self.mergeWithStatementTransactions(transactions))
 
             // Schedule notifications for any new transactions in the next 30 days
-            self.scheduleNext30DaysNotifications()
+            self.scheduleTransactionNotificationsViaManager()
             
             // Force refresh the UI with animation
             DispatchQueue.main.async {
@@ -516,7 +522,7 @@ final class DashboardViewController: UIViewController {
                         let txDate = Date(timeIntervalSince1970: TimeInterval(tx.dateTimestamp))
                         let txKey = DateFormatter.keyFormatter.string(from: txDate)
                         return txKey == key
-                    }.sorted { $0.date > $1.date }
+                    }.sorted { $0.date != $1.date ? $0.date > $1.date : ($0.id ?? 0) > ($1.id ?? 0) }
                     
                     // Save current scroll position to restore after update
                     let currentContentOffset = cell.transactionTableView.contentOffset
@@ -564,6 +570,8 @@ final class DashboardViewController: UIViewController {
         // Use slight delay to ensure collection view layout is complete
         DispatchQueue.main.async { [weak self] in
             self?.restoreBudgetViewStateForCurrentCell()
+            self?.showSyncingStateIfHydrating()
+            self?.mountGlobalSyncToastIfNeeded()
         }
 
         // Check if we should show notification success alert
@@ -756,9 +764,46 @@ final class DashboardViewController: UIViewController {
             DispatchQueue.main.async { [weak self] in
                 self?.showSyncDownloadShimmer()
             }
-        case .synced, .error, .idle:
-            break  // hideShimmerOnAllCards() is already called in performDashboardRefresh()
+        case .error:
+            DispatchQueue.main.async { [weak self] in
+                self?.contentView.setSyncErrorVisible(true)
+            }
+        case .synced, .idle:
+            DispatchQueue.main.async { [weak self] in
+                self?.contentView.setSyncErrorVisible(false)
+                // Clear the syncing shimmer as soon as the cycle finishes (previously it relied
+                // only on the 10s safety timeout). The post-sync .transactionDataChanged refresh
+                // then populates the freshly-pulled data.
+                self?.hideShimmerOnAllCards()
+            }
         }
+    }
+
+    /// On a device still completing its first full pull, the dashboard can appear AFTER the
+    /// `.syncing` status was posted (the first sync runs in the InitialSync scene, before this
+    /// screen exists), so it would otherwise show momentarily-empty content. Proactively show the
+    /// sync shimmer while a sync is in progress and hydration isn't verified. Bounded by
+    /// `isSyncInProgress` and the shimmer's own timeout, so it can never get stuck; it clears on
+    /// the next `.synced`/`.idle` status.
+    private func showSyncingStateIfHydrating() {
+        guard SyncEngine.shared.isSyncInProgress,
+              !UserDefaults.standard.bool(forKey: "syncFullPullVerified_v2") else { return }
+        showSyncDownloadShimmer()
+    }
+
+    /// Mounts a persistent, window-level sync toast (tag 99998) that auto-shows "Syncing… (batch
+    /// x/y)" whenever a push is in flight — notably the first-launch backfill of the eager
+    /// recurring/allocation horizons, which otherwise uploads hundreds of records with no visible
+    /// affordance. Idempotent; InitialSyncViewController dismisses it by the same tag.
+    private func mountGlobalSyncToastIfNeeded() {
+        guard let window = view.window else { return }
+        if window.viewWithTag(99998) != nil { return }
+        let container = SyncToastContainer(frame: window.bounds)
+        container.tag = 99998
+        container.isPersistent = true
+        container.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        window.addSubview(container)
+        container.beginObserving()
     }
 
     private func showSyncDownloadShimmer() {
@@ -1747,6 +1792,10 @@ extension DashboardViewController: DashboardViewDelegate {
     func didTapNotifications() {
         self.flowDelegate?.navigateToNotificationHistory()
     }
+
+    func didTapSyncError() {
+        self.flowDelegate?.navigateToSyncSettingsFromDashboard()
+    }
     
     func dashboardViewDidRequestRefresh(_ dashboardView: DashboardView) {
         // Trigger iCloud sync on pull-to-refresh
@@ -1842,9 +1891,7 @@ extension DashboardViewController: UICollectionViewDataSource {
                 let txDate = Date(timeIntervalSince1970: TimeInterval(tx.dateTimestamp))
                 let txKey = DateFormatter.keyFormatter.string(from: txDate)
                 return txKey == key
-            }.sorted { (tx1, tx2) -> Bool in
-                return tx1.date > tx2.date
-            }
+            }.sorted { $0.date != $1.date ? $0.date > $1.date : ($0.id ?? 0) > ($1.id ?? 0) }
             
             if indexPath.item == syncedViewModel.selectedIndex {
                 currentCellTransactions = txs
@@ -2030,9 +2077,7 @@ extension DashboardViewController: UIScrollViewDelegate {
                         let txDate = Date(timeIntervalSince1970: TimeInterval(tx.dateTimestamp))
                         let txKey = DateFormatter.keyFormatter.string(from: txDate)
                         return txKey == key
-                    }.sorted { (tx1, tx2) -> Bool in
-                        return tx1.date > tx2.date
-                    }
+                    }.sorted { $0.date != $1.date ? $0.date > $1.date : ($0.id ?? 0) > ($1.id ?? 0) }
                     currentCellTransactions = txs
 
                     // Ensure budget view state is synchronized after scroll ends
@@ -2084,9 +2129,7 @@ extension DashboardViewController: SyncedCollectionsViewModelDelegate {
                 let txDate = Date(timeIntervalSince1970: TimeInterval(tx.dateTimestamp))
                 let txKey = DateFormatter.keyFormatter.string(from: txDate)
                 return txKey == key
-            }.sorted { (tx1, tx2) -> Bool in
-                return tx1.date > tx2.date
-            }
+            }.sorted { $0.date != $1.date ? $0.date > $1.date : ($0.id ?? 0) > ($1.id ?? 0) }
             currentCellTransactions = txs
         }
         
@@ -2171,9 +2214,7 @@ extension DashboardViewController: SyncedCollectionsViewModelDelegate {
                     let txDate = Date(timeIntervalSince1970: TimeInterval(tx.dateTimestamp))
                     let txKey = DateFormatter.keyFormatter.string(from: txDate)
                     return txKey == key
-                }.sorted { (tx1, tx2) -> Bool in
-                    return tx1.date > tx2.date
-                }
+                }.sorted { $0.date != $1.date ? $0.date > $1.date : ($0.id ?? 0) > ($1.id ?? 0) }
                 currentCellTransactions = txs
             }
         }
@@ -2854,7 +2895,7 @@ extension DashboardViewController {
                         let txDate = Date(timeIntervalSince1970: TimeInterval(tx.dateTimestamp))
                         let txKey = DateFormatter.keyFormatter.string(from: txDate)
                         return txKey == key
-                    }.sorted { $0.date > $1.date }
+                    }.sorted { $0.date != $1.date ? $0.date > $1.date : ($0.id ?? 0) > ($1.id ?? 0) }
                     
                     // Safely update the current cell with new transaction data (preserving day slider)
                     currentCell.monthCard.refresh(with: monthData)
@@ -2871,147 +2912,24 @@ extension DashboardViewController {
     }
     
     // MARK: - Automatic Notification Scheduling
-    
-    /// Verifica e agenda notificações automaticamente quando necessário
+
     private func checkAndScheduleNotificationsIfNeeded() {
         let status = viewModel.checkMonthlyNotificationsStatus()
-        
         switch status {
-        case .notConfigured:
-            scheduleNotificationsAutomatically()
-
-        case .outdated:
-            scheduleNotificationsAutomatically()
-
+        case .notConfigured, .outdated:
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                self.scheduleTransactionNotificationsViaManager()
+            }
         case .configured:
             break
         }
     }
-    
-    /// Agenda notificações automaticamente sem interação do usuário
-    private func scheduleNotificationsAutomatically() {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-            self.scheduleNext30DaysNotifications()
-        }
-    }
-    
-    /// Smart notification scheduling for the next 30 days
-    private func scheduleNext30DaysNotifications() {
-        // Check if user is authenticated first
-        guard let user = UserDefaultsManager.getUser(),
-              let firebaseUID = user.firebaseUID
-        else {
-            return
-        }
-        
-        // Get all transactions
+
+    private func scheduleTransactionNotificationsViaManager() {
+        guard UserDefaultsManager.getUser()?.firebaseUID != nil else { return }
         let allTxs = viewModel.transactionRepo.fetchAllTransactions()
-        let now = Date()
-        var calendar = Calendar.current
-        calendar.timeZone = TimeZone.current
-        
-        // Filter for future transactions in next 30 days (excluding hidden parent transactions)
-        let thirtyDaysFromNow = calendar.date(byAdding: .day, value: 30, to: now) ?? now
-        
-        let next30DaysTxs = allTxs.filter { tx in
-            // Skip parent transactions that are not visible in UI
-            if tx.hasInstallments == true && tx.amount == 0 {
-                return false
-            }
-            if tx.isRecurring == true && tx.parentTransactionId == nil && tx.amount == 0 {
-                return false
-            }
-            
-            // Create notification time (8 AM) in local timezone
-            var notificationDate = calendar.startOfDay(for: tx.date)
-            notificationDate =
-            calendar.date(byAdding: .hour, value: 8, to: notificationDate) ?? notificationDate
-            
-            // Must be in future and within 30 days
-            return notificationDate > now && tx.date <= thirtyDaysFromNow
-        }.sorted { $0.date < $1.date }  // Sort by date (closest first)
-        
-        // Get currently pending notifications to avoid duplicates
-        UNUserNotificationCenter.current().getPendingNotificationRequests { [weak self] requests in
-            DispatchQueue.main.async {
-                let existingNotificationIds = Set(requests.map { $0.identifier })
-                
-                // Schedule notifications for transactions that don't already have them
-                var scheduledCount = 0
-                var skippedCount = 0
-                
-                for tx in next30DaysTxs {
-                    guard let transactionId = tx.id else { continue }
-                    
-                    let notificationId = "transaction_\(transactionId)"
-
-                    if existingNotificationIds.contains(notificationId) {
-                        skippedCount += 1
-                        continue
-                    }
-                    
-                    // Schedule the notification
-                    self?.scheduleNotificationForTransaction(tx, calendar: calendar)
-                    scheduledCount += 1
-                    
-                    // Respect iOS limit - stop at 50 total (but prioritize by date)
-                    if scheduledCount >= 50 {
-                        break
-                    }
-                }
-
-                // Clean up any duplicate notifications
-                self?.removeDuplicateNotifications()
-            }
-        }
-    }
-    
-    /// Schedule notification for a specific transaction
-    private func scheduleNotificationForTransaction(_ tx: Transaction, calendar: Calendar) {
-        guard let transactionId = tx.id else { return }
-        
-        let id = "transaction_\(transactionId)"
-        
-        // Create notification time (8 AM) in local timezone
-        var notificationDate = calendar.startOfDay(for: tx.date)
-        notificationDate =
-        calendar.date(byAdding: .hour, value: 8, to: notificationDate) ?? notificationDate
-        
-        // Only schedule if notification time is in the future
-        guard notificationDate > Date() else { return }
-        
-        let timeInterval = notificationDate.timeIntervalSinceNow
-        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: timeInterval, repeats: false)
-        
-        let titleKey =
-        tx.type == .income
-        ? "notification.transaction.title.income" : "notification.transaction.title.expense"
-        let bodyKey =
-        tx.type == .income
-        ? "notification.transaction.body.income" : "notification.transaction.body.expense"
-        
-        let amountString = tx.amount.currencyString
-        let title = titleKey.localized
-        let body = String(format: bodyKey.localized, amountString, tx.title)
-        
-        let content = UNMutableNotificationContent()
-        content.title = title
-        content.body = body
-        content.sound = .default
-        content.categoryIdentifier = "TRANSACTION_REMINDER"
-        content.userInfo = ["transactionId": transactionId, "date": tx.date.timeIntervalSince1970]
-        
-        let request = UNNotificationRequest(identifier: id, content: content, trigger: trigger)
-        UNUserNotificationCenter.current().add(request) { error in
-            if let error = error {
-                logError("Error scheduling notification for \(tx.title): \(error)")
-            }
-        }
-    }
-    
-    /// Remove duplicate notifications based on content similarity
-    private func removeDuplicateNotifications() {
-        // Use the improved logic from NotificationDebugManager
+        TransactionNotificationManager.shared.scheduleAllTransactionNotifications(
+            transactions: allTxs, clearExisting: false, limit: 50)
         NotificationDebugManager.shared.removeDuplicateNotifications()
     }
     

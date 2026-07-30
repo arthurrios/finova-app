@@ -133,10 +133,10 @@ extension TransactionDetailsViewController: TransactionDetailsViewDelegate {
   }
 
   func didTapMoveToStatement() {
-    let statements = viewModel.getAvailableStatements()
-    let currentStmtId = viewModel.transaction.statementId
+    let monthOptions = viewModel.getMonthOptionsForMove()
+    let currentStatement = viewModel.getCurrentStatement()
 
-    guard !statements.isEmpty else { return }
+    guard !monthOptions.isEmpty else { return }
 
     let alert = UIAlertController(
       title: "transactionDetails.moveToStatement.title".localized,
@@ -144,13 +144,16 @@ extension TransactionDetailsViewController: TransactionDetailsViewDelegate {
       preferredStyle: .actionSheet
     )
 
-    let dateFormatter = DateFormatter.monthYearFormatter
+    let calendar = Calendar.current
+    for option in monthOptions {
+      // Skip the month of the current statement (already there)
+      if let currentClosing = currentStatement?.closingDate,
+         calendar.isDate(option.firstOfMonth, equalTo: currentClosing, toGranularity: .month) {
+        continue
+      }
 
-    for stmt in statements {
-      guard let stmtId = stmt.id, stmtId != currentStmtId else { continue }
-      let label = dateFormatter.string(from: stmt.dueDate)
-      alert.addAction(UIAlertAction(title: label, style: .default) { [weak self] _ in
-        self?.viewModel.moveToStatement(stmt)
+      alert.addAction(UIAlertAction(title: option.label, style: .default) { [weak self] _ in
+        self?.viewModel.moveToStatementForMonth(option.firstOfMonth)
         self?.contentView.configure(with: self!.viewModel)
       })
     }

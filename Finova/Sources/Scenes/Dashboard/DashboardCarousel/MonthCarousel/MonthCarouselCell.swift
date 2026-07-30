@@ -402,6 +402,14 @@ class MonthCarouselCell: UICollectionViewCell {
     }
 
     @objc private func handleAllocationDataChanged() {
+        // This handler touches UIKit directly, and `.allocationDataChanged` is posted from
+        // background write/sync paths too — NotificationCenter delivers on the posting thread,
+        // so bounce to main before doing anything.
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in self?.handleAllocationDataChanged() }
+            return
+        }
+
         // Only refresh if currently showing budget view
         guard isShowingBudgetView else { return }
 
@@ -842,9 +850,17 @@ class MonthCarouselCell: UICollectionViewCell {
             normalizedSearchText.isEmpty || normalizedTitle.contains(normalizedSearchText)
             
             // Category filter
-            let matchesCategory =
-            currentFilters.categories.isEmpty
-            || currentFilters.categories.contains(transaction.category)
+            let matchesCategory: Bool
+            if currentFilters.categories.isEmpty {
+                matchesCategory = true
+            } else if currentFilters.categories.contains(.creditCard) {
+                // Credit Card filter: show individual CC transactions, not statement synthetics
+                let matchesCreditCard = transaction.creditCardId != nil && transaction.isCreditCardStatement != true
+                let otherCategories = currentFilters.categories.subtracting([.creditCard])
+                matchesCategory = matchesCreditCard || (!otherCategories.isEmpty && otherCategories.contains(transaction.category))
+            } else {
+                matchesCategory = currentFilters.categories.contains(transaction.category)
+            }
             
             // Type filter
             let matchesType =

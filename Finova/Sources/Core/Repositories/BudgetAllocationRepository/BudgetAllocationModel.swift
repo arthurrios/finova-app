@@ -206,9 +206,10 @@ struct UnallocatedCategorySpending {
 // MARK: - Allocation Edit Option
 
 enum AllocationEditOption {
-    case currentOnly    // Edit only this month's allocation
-    case futureOnly     // Edit this month and all future allocations
-    case all            // Edit all occurrences (past, present, future)
+    case currentOnly            // Edit only this month's allocation
+    case futureOnly             // Edit this month and all future allocations
+    case throughMonth(Int)      // Edit this month through the given month anchor (inclusive)
+    case all                    // Edit all occurrences (past, present, future)
 }
 
 // MARK: - Errors

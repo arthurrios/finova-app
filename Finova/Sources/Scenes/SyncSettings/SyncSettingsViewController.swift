@@ -9,6 +9,7 @@ import UIKit
 
 protocol SyncSettingsFlowDelegate: AnyObject {
   func dismissSyncSettings()
+  func navigateToInitialSync()
 }
 
 final class SyncSettingsViewController: UIViewController {
@@ -89,6 +90,9 @@ extension SyncSettingsViewController: SyncSettingsViewDelegate {
 
   func didToggleSyncEnabled(_ isEnabled: Bool) {
     viewModel.toggleSyncEnabled(isEnabled)
+    if isEnabled {
+      flowDelegate?.navigateToInitialSync()
+    }
   }
 
   func didTapForceRePush() {

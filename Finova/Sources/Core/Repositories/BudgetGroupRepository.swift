@@ -8,7 +8,10 @@
 import Foundation
 
 final class BudgetGroupRepository {
-    private let db = DBHelper.shared
+    /// Injectable for two-device tests; production always uses `.shared`.
+    private let db: DBHelper
+
+    init(db: DBHelper = .shared) { self.db = db }
 
     // MARK: - BudgetGroup CRUD
 

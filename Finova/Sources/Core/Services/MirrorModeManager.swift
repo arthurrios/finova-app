@@ -241,28 +241,45 @@ final class MirrorModeManager {
 
         var totalChanged = 0
 
-        // Tag transactions: fix untagged OR wrong group ID (stale from recovery/previous sync)
+        // Which rows may be pulled into the mirrored group: untagged ones, plus ones whose tag is
+        // STALE (points at a group that no longer exists locally — left over from a recovery pull,
+        // or a group the user left).
+        //
+        // Crucially this must NOT match rows tagged to a *different live group*. The old predicate
+        // was `shared_group_id != <mirrorGroup>`, which stole every record belonging to any other
+        // group the user was in: the row was re-tagged and pushed into the mirror group's zone
+        // (while the other group's zone copy stayed put), then the next pull of that zone
+        // re-applied the original tag — so the row ping-ponged between groups on every sync and
+        // was permanently stuck 'pending'.
+        let reTaggable = """
+            (
+              shared_group_id IS NULL OR shared_group_id = ''
+              OR shared_group_id NOT IN (SELECT id FROM BudgetGroups WHERE is_deleted = 0)
+            )
+            """
+
+        // Tag transactions: untagged or stale-tagged only
         totalChanged += db.executeSyncUpdateCount(
-            "UPDATE Transactions SET shared_group_id = ?, sync_status = 'pending' WHERE user_id = ? AND (shared_group_id IS NULL OR shared_group_id = '' OR shared_group_id != ?) AND (is_deleted IS NULL OR is_deleted = 0);",
-            textBindings: [groupId, uid, groupId]
+            "UPDATE Transactions SET shared_group_id = ?, sync_status = 'pending' WHERE user_id = ? AND \(reTaggable) AND (is_deleted IS NULL OR is_deleted = 0);",
+            textBindings: [groupId, uid]
         )
 
-        // Tag budgets: fix untagged OR wrong group ID
+        // Tag budgets: untagged or stale-tagged only
         totalChanged += db.executeSyncUpdateCount(
-            "UPDATE Budgets SET shared_group_id = ?, sync_status = 'pending' WHERE user_id = ? AND (shared_group_id IS NULL OR shared_group_id = '' OR shared_group_id != ?);",
-            textBindings: [groupId, uid, groupId]
+            "UPDATE Budgets SET shared_group_id = ?, sync_status = 'pending' WHERE user_id = ? AND \(reTaggable);",
+            textBindings: [groupId, uid]
         )
 
-        // Tag credit cards: fix untagged OR wrong group ID
+        // Tag credit cards: untagged or stale-tagged only
         totalChanged += db.executeSyncUpdateCount(
-            "UPDATE CreditCards SET shared_group_id = ?, sync_status = 'pending' WHERE user_id = ? AND (shared_group_id IS NULL OR shared_group_id = '' OR shared_group_id != ?) AND is_deleted = 0;",
-            textBindings: [groupId, uid, groupId]
+            "UPDATE CreditCards SET shared_group_id = ?, sync_status = 'pending' WHERE user_id = ? AND \(reTaggable) AND is_deleted = 0;",
+            textBindings: [groupId, uid]
         )
 
-        // Tag allocations: fix untagged OR wrong group ID
+        // Tag allocations: untagged or stale-tagged only
         totalChanged += db.executeSyncUpdateCount(
-            "UPDATE BudgetAllocations SET shared_group_id = ?, sync_status = 'pending' WHERE user_id = ? AND (shared_group_id IS NULL OR shared_group_id = '' OR shared_group_id != ?);",
-            textBindings: [groupId, uid, groupId]
+            "UPDATE BudgetAllocations SET shared_group_id = ?, sync_status = 'pending' WHERE user_id = ? AND \(reTaggable);",
+            textBindings: [groupId, uid]
         )
 
         // Mark credit card statements pending ONLY when their parent card was just re-tagged
@@ -272,15 +289,20 @@ final class MirrorModeManager {
             textBindings: [uid]
         )
 
-        // Ensure balance offset stays in sync: personal → group
-        // Always call setGroupBalanceOffset to ensure the offset is pushed to the group zone
-        // (members need this record to see the correct balance)
-        let personalOffset = UIDUserDefaultsManager.shared.getCurrentUserBalanceOffset()
-        let groupOffset = UIDUserDefaultsManager.shared.getGroupBalanceOffset(groupId: groupId)
-        if personalOffset != groupOffset {
-            logInfo("MirrorReconcile: fixed group balance offset \(groupOffset) → \(personalOffset)")
+        // Ensure balance offset stays in sync: personal → group — but ONLY once this device has
+        // completed a verified full pull, and only when the values actually differ. Otherwise a
+        // pre-hydration default (0) would stamp a fresh local timestamp on the group offset,
+        // winning last-writer-wins over the other device's real value (hiding it locally and,
+        // before the push gate, clobbering the cloud). After hydration the pulled value is
+        // authoritative and this reconciliation is safe.
+        if UserDefaults.standard.bool(forKey: "syncFullPullVerified_v2") {
+            let personalOffset = UIDUserDefaultsManager.shared.getCurrentUserBalanceOffset()
+            let groupOffset = UIDUserDefaultsManager.shared.getGroupBalanceOffset(groupId: groupId)
+            if personalOffset != groupOffset {
+                logInfo("MirrorReconcile: fixed group balance offset \(groupOffset) → \(personalOffset)")
+                UIDUserDefaultsManager.shared.setGroupBalanceOffset(personalOffset, groupId: groupId)
+            }
         }
-        UIDUserDefaultsManager.shared.setGroupBalanceOffset(personalOffset, groupId: groupId)
 
         if totalChanged > 0 {
             TransactionRepository.invalidateCache()

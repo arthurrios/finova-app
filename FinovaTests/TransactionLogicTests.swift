@@ -313,8 +313,111 @@ class TransactionLogicTests: XCTestCase {
         }
     }
     
+    // MARK: - Recurring Transaction Editing Tests
+
+    /// Regression test: editing "this and future occurrences" must also affect future
+    /// instances that are materialized lazily *after* the edit. Previously those were
+    /// regenerated from the original parent template and reverted to the old amount.
+    func testRecurringEditFutureOnlyPropagatesToLaterGeneratedInstances() {
+        authenticateUniqueTestUser()
+
+        let calendar = Calendar.current
+        let startDate = DateFormatter.fullDateFormatter.date(from: "15/01/2025")!
+
+        // Create the parent recurring transaction at $1000.00 (deterministic — no async path).
+        let parentModel = TransactionModel(
+            title: "Apartment Rent",
+            category: "utilities",
+            amount: 100000,
+            type: "expense",
+            dateTimestamp: Int(startDate.timeIntervalSince1970),
+            budgetMonthDate: startDate.monthAnchor,
+            isRecurring: true
+        )
+        guard let parentId = try? transactionRepo.insertTransactionAndGetId(parentModel) else {
+            XCTFail("Should insert parent recurring transaction"); return
+        }
+        try? transactionRepo.updateParentTransactionId(transactionId: parentId, parentId: parentId)
+
+        // Materialize the first two years of instances (Feb 2025 … Jan 2027).
+        var earlyAnchors = Set<Int>()
+        for offset in 1...24 {
+            if let d = calendar.date(byAdding: .month, value: offset, to: startDate) {
+                earlyAnchors.insert(d.monthAnchor)
+            }
+        }
+        let genExp = XCTestExpectation(description: "materialize early window")
+        recurringManager.generateInstancesLazilyForMonths(earlyAnchors) { _ in genExp.fulfill() }
+        wait(for: [genExp], timeout: 5.0)
+
+        let marchDate = DateFormatter.fullDateFormatter.date(from: "15/03/2025")!
+        let marchAnchor = marchDate.monthAnchor
+        let created = transactionRepo.fetchAllTransactions()
+        guard let marchInstance = created.first(where: {
+            $0.parentTransactionId == parentId && $0.date.monthAnchor == marchAnchor
+        }) else {
+            XCTFail("Should have materialized a March 2025 instance"); return
+        }
+
+        // Edit "this and future occurrences" from March 2025 → new amount $1200.00.
+        let newData = TransactionModel(
+            id: marchInstance.id,
+            title: "Apartment Rent",
+            category: "utilities",
+            amount: 120000,
+            type: "expense",
+            dateTimestamp: Int(marchDate.timeIntervalSince1970),
+            budgetMonthDate: marchAnchor,
+            isRecurring: true,
+            hasInstallments: false,
+            parentTransactionId: parentId,
+            originalAmount: 120000
+        )
+        do {
+            try recurringManager.editRecurringTransactionsFromDate(
+                parentTransactionId: parentId,
+                selectedTransactionDate: marchDate,
+                editOption: .futureOnly,
+                newData: newData
+            )
+        } catch {
+            XCTFail("Future-only edit should succeed: \(error)"); return
+        }
+
+        // Already-materialized instances from March onward reflect the edit; earlier ones don't.
+        let afterEdit = transactionRepo.fetchAllTransactions()
+        for inst in afterEdit where inst.parentTransactionId == parentId {
+            if inst.date.monthAnchor >= marchAnchor {
+                XCTAssertEqual(inst.amount, 120000,
+                    "Instances at/after the edit month should use the new amount")
+            } else {
+                XCTAssertEqual(inst.amount, 100000,
+                    "Instances before the edit month should keep the original amount")
+            }
+        }
+
+        // A month beyond the materialized window is not generated yet.
+        let farDate = DateFormatter.fullDateFormatter.date(from: "15/06/2027")!
+        let farAnchor = farDate.monthAnchor
+        XCTAssertFalse(
+            afterEdit.contains { $0.parentTransactionId == parentId && $0.date.monthAnchor == farAnchor },
+            "Far-future month should not be materialized yet")
+
+        // Materialize it now — this is the path that used to revert to the stale parent amount.
+        let lazyExp = XCTestExpectation(description: "lazily generate far-future month")
+        recurringManager.generateInstancesLazilyForMonths([farAnchor]) { _ in lazyExp.fulfill() }
+        wait(for: [lazyExp], timeout: 5.0)
+
+        let farInstance = transactionRepo.fetchAllTransactions().first {
+            $0.parentTransactionId == parentId && $0.date.monthAnchor == farAnchor
+        }
+        XCTAssertNotNil(farInstance, "Far-future instance should now be generated")
+        XCTAssertEqual(farInstance?.amount, 120000,
+            "Lazily-generated future instance must inherit the future-only edit, not the stale parent amount")
+    }
+
     // MARK: - Installment Transaction Tests
-    
+
     func testInstallmentCreation() {
         authenticateUniqueTestUser()
         

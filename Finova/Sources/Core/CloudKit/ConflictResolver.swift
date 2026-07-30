@@ -11,23 +11,66 @@ import Foundation
 final class ConflictResolver {
     static let shared = ConflictResolver()
 
-    private init() {}
+    /// The database this resolver applies inbound records to.
+    ///
+    /// Injectable so a test can stand up two resolvers over two genuinely separate databases —
+    /// without this, both "devices" in the cross-device tests resolved into `DBHelper.shared`,
+    /// i.e. into each other, which is why those tests could never detect a sync bug.
+    private let db: DBHelper
+
+    init(db: DBHelper = .shared) {
+        self.db = db
+    }
 
     // MARK: - System Fields Persistence
 
     /// Encodes a CKRecord's system fields (including recordChangeTag) and persists them
-    /// so the next push can use `.ifServerRecordUnchanged` with the correct tag.
+    /// so the next push can use `.ifServerRecordUnchanged` with the correct tag. Also persists
+    /// the record's deterministic version (`rev`/`revDevice`) so subsequent conflict decisions
+    /// are clock-independent. Called after EVERY inbound apply, so this is the single place that
+    /// keeps the local row's version in sync with the server's.
     private func storeSystemFields(from ckRecord: CKRecord, table: String) {
         let coder = NSKeyedArchiver(requiringSecureCoding: true)
         ckRecord.encodeSystemFields(with: coder)
         coder.finishEncoding()
-        DBHelper.shared.saveSystemFields(coder.encodedData, ckRecordName: ckRecord.recordID.recordName, table: table)
+        db.saveSystemFields(coder.encodedData, ckRecordName: ckRecord.recordID.recordName, table: table)
+
+        // Persist the incoming version. Only store a real (>0) rev — a record from an older
+        // client without a rev leaves the local rev untouched (stays in timestamp-fallback mode).
+        if let remoteRev = ckRecord["rev"] as? Int, remoteRev > 0 {
+            db.setRev(
+                table: table,
+                ckRecordName: ckRecord.recordID.recordName,
+                rev: remoteRev,
+                device: ckRecord["revDevice"] as? String
+            )
+        }
+    }
+
+    /// Deterministic conflict decision: should the REMOTE record be applied over the local row?
+    ///
+    /// When BOTH sides carry a real version (rev > 0), compares (rev, revDevice) — higher rev
+    /// wins, ties broken by a stable device-id string compare. This is clock-independent and
+    /// avoids the unreliable `updated_at`/`ck_modified_at` timestamps. When either side lacks a
+    /// rev (legacy data, or mid-migration before rev has propagated), falls back to the existing
+    /// timestamp last-writer-wins — so behavior is unchanged until rev is present on both sides.
+    private func remoteShouldWin(ckRecord: CKRecord, remoteUpdatedAt: Date, localModDate: Date?) -> Bool {
+        let remoteRev = ckRecord["rev"] as? Int ?? 0
+        let (localRev, localDevice) = db.fetchRevAnyTable(ckRecordName: ckRecord.recordID.recordName)
+        if remoteRev > 0 && localRev > 0 {
+            if remoteRev != localRev { return remoteRev > localRev }
+            let remoteDevice = ckRecord["revDevice"] as? String ?? ""
+            return remoteDevice >= (localDevice ?? "")
+        }
+        // Fallback: timestamp LWW (current behavior). No local basis → cloud wins, as today.
+        guard let localModDate = localModDate else { return true }
+        return remoteUpdatedAt >= localModDate
     }
 
     // MARK: - Transaction
 
     func resolveTransaction(remote: Transaction, ckRecord: CKRecord) {
-        let repo = TransactionRepository()
+        let repo = TransactionRepository(db: db)
         let recordName = ckRecord.recordID.recordName
         let sharedGroupId = ckRecord["sharedGroupId"] as? String
 
@@ -41,7 +84,7 @@ final class ConflictResolver {
             let needsCardIdRepair = existingCCId != nil &&
                 existingCCId != remote.creditCardId &&
                 remote.creditCardId != nil &&
-                CreditCardRepository().fetchCKRecordName(for: existingCCId!) == nil
+                CreditCardRepository(db: db).fetchCKRecordName(for: existingCCId!) == nil
             if needsCardIdRepair {
                 repo.updateFromCloud(remote, ckRecordName: recordName, sharedGroupId: sharedGroupId)
                 storeSystemFields(from: ckRecord, table: "Transactions")
@@ -50,7 +93,7 @@ final class ConflictResolver {
 
             let remoteUpdatedAt = remote.updatedAt ?? ckRecord.modificationDate ?? Date.distantPast
             if let localModDate = repo.lastModifiedDate(for: existing.id ?? 0) {
-                if remoteUpdatedAt >= localModDate {
+                if remoteShouldWin(ckRecord: ckRecord, remoteUpdatedAt: remoteUpdatedAt, localModDate: localModDate) {
                     repo.updateFromCloud(remote, ckRecordName: recordName, sharedGroupId: sharedGroupId)
                 } else {
                     repo.markSyncPending(for: existing.id ?? 0)
@@ -89,7 +132,7 @@ final class ConflictResolver {
 
                         let remoteUpdatedAt = remote.updatedAt ?? ckRecord.modificationDate ?? Date.distantPast
                         if let localModDate = repo.lastModifiedDate(for: localId) {
-                            if remoteUpdatedAt >= localModDate {
+                            if remoteShouldWin(ckRecord: ckRecord, remoteUpdatedAt: remoteUpdatedAt, localModDate: localModDate) {
                                 repo.updateFromCloud(remote, ckRecordName: recordName, sharedGroupId: sharedGroupId)
                             } else {
                                 repo.markSyncPending(for: localId)
@@ -166,7 +209,7 @@ final class ConflictResolver {
 
                     let remoteUpdatedAt = remote.updatedAt ?? ckRecord.modificationDate ?? Date.distantPast
                     if let localModDate = repo.lastModifiedDate(for: localId) {
-                        if remoteUpdatedAt >= localModDate {
+                        if remoteShouldWin(ckRecord: ckRecord, remoteUpdatedAt: remoteUpdatedAt, localModDate: localModDate) {
                             repo.updateFromCloud(remote, ckRecordName: recordName, sharedGroupId: sharedGroupId)
                         } else {
                             repo.markSyncPending(for: localId)
@@ -204,7 +247,7 @@ final class ConflictResolver {
 
                 let remoteUpdatedAt = remote.updatedAt ?? ckRecord.modificationDate ?? Date.distantPast
                 if let localModDate = repo.lastModifiedDate(for: localId) {
-                    if remoteUpdatedAt >= localModDate {
+                    if remoteShouldWin(ckRecord: ckRecord, remoteUpdatedAt: remoteUpdatedAt, localModDate: localModDate) {
                         repo.updateFromCloud(remote, ckRecordName: recordName, sharedGroupId: sharedGroupId)
                     } else {
                         repo.markSyncPending(for: localId)
@@ -248,13 +291,13 @@ final class ConflictResolver {
     // MARK: - Budget
 
     func resolveBudget(remote: BudgetModel, ckRecord: CKRecord) {
-        let repo = BudgetRepository()
+        let repo = BudgetRepository(db: db)
         let recordName = ckRecord.recordID.recordName
 
         if let existing = repo.fetchBudget(byCKRecordName: recordName) {
             let remoteUpdatedAt = remote.updatedAt ?? ckRecord.modificationDate ?? Date.distantPast
             if let localModDate = repo.lastModifiedDate(forMonthDate: existing.monthDate) {
-                if remoteUpdatedAt >= localModDate {
+                if remoteShouldWin(ckRecord: ckRecord, remoteUpdatedAt: remoteUpdatedAt, localModDate: localModDate) {
                     repo.updateFromCloud(remote, ckRecordName: recordName)
                 } else {
                     repo.markSyncPending(forMonthDate: existing.monthDate)
@@ -271,7 +314,7 @@ final class ConflictResolver {
 
             let remoteUpdatedAt = remote.updatedAt ?? ckRecord.modificationDate ?? Date.distantPast
             if let localModDate = repo.lastModifiedDate(forMonthDate: local.monthDate) {
-                if remoteUpdatedAt >= localModDate {
+                if remoteShouldWin(ckRecord: ckRecord, remoteUpdatedAt: remoteUpdatedAt, localModDate: localModDate) {
                     repo.updateFromCloud(remote, ckRecordName: recordName)
                 } else {
                     repo.markSyncPending(forMonthDate: local.monthDate)
@@ -295,13 +338,13 @@ final class ConflictResolver {
     // MARK: - Credit Card
 
     func resolveCreditCard(remote: CreditCard, ckRecord: CKRecord) {
-        let repo = CreditCardRepository()
+        let repo = CreditCardRepository(db: db)
         let recordName = ckRecord.recordID.recordName
 
         if let existing = repo.fetchCard(byCKRecordName: recordName) {
             let remoteUpdatedAt = remote.updatedAt
             if let localModDate = repo.lastModifiedDate(for: existing.id ?? 0) {
-                if remoteUpdatedAt >= localModDate {
+                if remoteShouldWin(ckRecord: ckRecord, remoteUpdatedAt: remoteUpdatedAt, localModDate: localModDate) {
                     repo.updateFromCloud(remote, ckRecordName: recordName)
                 } else {
                     repo.markSyncPending(for: existing.id ?? 0)
@@ -323,7 +366,7 @@ final class ConflictResolver {
     // MARK: - Credit Card Statement
 
     func resolveCreditCardStatement(remote: CreditCardStatement, ckRecord: CKRecord) {
-        let repo = StatementRepository()
+        let repo = StatementRepository(db: db)
         let recordName = ckRecord.recordID.recordName
 
         if let existing = repo.fetchStatement(byCKRecordName: recordName) {
@@ -333,7 +376,7 @@ final class ConflictResolver {
             // row used the wrong source-device local ID — always accept the remote data
             // to fix the reference and restore correct card linkage.
             let needsCardIdRepair = existing.creditCardId != remote.creditCardId &&
-                CreditCardRepository().fetchCKRecordName(for: existing.creditCardId) == nil
+                CreditCardRepository(db: db).fetchCKRecordName(for: existing.creditCardId) == nil
             if needsCardIdRepair {
                 repo.updateFromCloud(remote, ckRecordName: recordName)
                 storeSystemFields(from: ckRecord, table: "CreditCardStatements")
@@ -342,7 +385,7 @@ final class ConflictResolver {
 
             let remoteUpdatedAt = remote.updatedAt
             if let localModDate = repo.lastModifiedDate(for: existing.id ?? 0) {
-                if remoteUpdatedAt >= localModDate {
+                if remoteShouldWin(ckRecord: ckRecord, remoteUpdatedAt: remoteUpdatedAt, localModDate: localModDate) {
                     repo.updateFromCloud(remote, ckRecordName: recordName)
                 } else {
                     repo.markSyncPending(for: existing.id ?? 0)
@@ -364,7 +407,7 @@ final class ConflictResolver {
                 repo.setCKRecordId(for: existingId, ckRecordName: recordName)
                 let remoteUpdatedAt = remote.updatedAt
                 if let localModDate = repo.lastModifiedDate(for: existingId) {
-                    if remoteUpdatedAt >= localModDate {
+                    if remoteShouldWin(ckRecord: ckRecord, remoteUpdatedAt: remoteUpdatedAt, localModDate: localModDate) {
                         repo.updateFromCloud(remote, ckRecordName: recordName)
                     } else {
                         repo.markSyncPending(for: existingId)
@@ -394,13 +437,13 @@ final class ConflictResolver {
     // MARK: - Budget Allocation
 
     func resolveBudgetAllocation(remote: BudgetAllocationModel, ckRecord: CKRecord) {
-        let repo = BudgetAllocationRepository()
+        let repo = BudgetAllocationRepository(db: db)
         let recordName = ckRecord.recordID.recordName
 
         if let existing = repo.fetchAllocation(byCKRecordName: recordName) {
             let remoteUpdatedAt = remote.updatedAt ?? ckRecord.modificationDate ?? Date.distantPast
             if let localModDate = repo.lastModifiedDate(for: existing.id ?? 0) {
-                if remoteUpdatedAt >= localModDate {
+                if remoteShouldWin(ckRecord: ckRecord, remoteUpdatedAt: remoteUpdatedAt, localModDate: localModDate) {
                     repo.updateFromCloud(remote, ckRecordName: recordName)
                 } else {
                     repo.markSyncPending(for: existing.id ?? 0)
@@ -419,6 +462,25 @@ final class ConflictResolver {
         // restore its pendingDelete status so it gets removed from CloudKit on the next
         // push, rather than re-inserting and immediately re-deleting it every sync cycle.
         if repo.restorePendingDeleteIfNeeded(ckRecordName: recordName) { return }
+
+        // Natural-key deduplication: check if an allocation with the same month_date +
+        // category_key + shared_group_id already exists locally (unsynced or with a different
+        // CK record name). This prevents duplicates when the same allocation is created on
+        // two devices before the first sync merges them.
+        if let localMatch = repo.fetchAllocation(byMonthDate: remote.monthDate, categoryKey: remote.categoryKey, sharedGroupId: remote.sharedGroupId) {
+            let remoteUpdatedAt = remote.updatedAt ?? ckRecord.modificationDate ?? Date.distantPast
+            if let localModDate = repo.lastModifiedDate(for: localMatch.id ?? 0) {
+                if remoteShouldWin(ckRecord: ckRecord, remoteUpdatedAt: remoteUpdatedAt, localModDate: localModDate) {
+                    repo.updateFromCloud(remote, localId: localMatch.id ?? 0, ckRecordName: recordName)
+                } else {
+                    repo.linkCKRecordName(recordName, toLocalId: localMatch.id ?? 0)
+                }
+            } else {
+                repo.updateFromCloud(remote, localId: localMatch.id ?? 0, ckRecordName: recordName)
+            }
+            storeSystemFields(from: ckRecord, table: "BudgetAllocations")
+            return
+        }
 
         repo.insertFromCloud(remote, ckRecordName: recordName)
         storeSystemFields(from: ckRecord, table: "BudgetAllocations")

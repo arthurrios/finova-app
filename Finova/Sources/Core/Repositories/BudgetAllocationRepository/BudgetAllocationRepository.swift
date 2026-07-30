@@ -17,10 +17,13 @@ protocol BudgetAllocationRepositoryProtocol {
     func updateAllocation(_ model: BudgetAllocationModel) throws
     func updateRecurringAllocationAndFuture(id: Int, newAmount: Int) throws
     func updateAllRecurringAllocations(id: Int, newAmount: Int) throws
+    func updateRecurringAllocationsThrough(id: Int, newAmount: Int, endMonth: Int) throws
     func deleteAllocation(id: Int) throws
     func deleteRecurringAllocationAndFuture(id: Int) throws
     func deleteAllRecurringAllocations(id: Int) throws
     func updateIsRecurring(allocationId: Int, isRecurring: Bool) throws
+    /// Batches a multi-row mutation into one transaction + one change notification.
+    func performBulk(_ work: () throws -> Void) throws
     func fetchPersonalAllocationsCount() -> Int
     func fetchImportableAllocationsCount() -> Int
     func migrateAllocationsToGroup(groupId: String) -> Int
@@ -30,8 +33,46 @@ protocol BudgetAllocationRepositoryProtocol {
 
 final class BudgetAllocationRepository: BudgetAllocationRepositoryProtocol {
 
-    private let db = DBHelper.shared
+    /// Injectable for two-device tests; production always uses `.shared`.
+    private let db: DBHelper
     private static let userDefaultsKey = "budgetAllocations"
+
+    init(db: DBHelper = .shared) { self.db = db }
+
+    // MARK: - Change Notification / Bulk Batching
+
+    // `.allocationDataChanged` observers refresh UIKit directly (see MonthCarouselCell), so the
+    // notification MUST be posted on the main thread — allocation writes now run on a background
+    // queue. And during a multi-row mutation it must fire ONCE at the end, not per row: a 36-month
+    // horizon previously posted 36 times, each triggering a full allocation re-query + table
+    // reload on the main thread.
+    private static var bulkDepth = 0
+    private static let bulkLock = NSLock()
+
+    private func notifyAllocationDataChanged() {
+        Self.bulkLock.lock()
+        let suppressed = Self.bulkDepth > 0
+        Self.bulkLock.unlock()
+        guard !suppressed else { return }
+
+        // Always deliver asynchronously on main: guarantees UIKit-thread safety, and avoids
+        // re-entering an in-flight UIKit update (the observer calls reloadData()) when a write
+        // happens to originate on the main thread.
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(name: .allocationDataChanged, object: nil)
+        }
+    }
+
+    /// Runs a multi-row allocation mutation as ONE database transaction (one commit instead of one
+    /// per row) and ONE UI notification, emitted after the batch completes. Nesting is safe.
+    func performBulk(_ work: () throws -> Void) throws {
+        Self.bulkLock.lock(); Self.bulkDepth += 1; Self.bulkLock.unlock()
+        defer {
+            Self.bulkLock.lock(); Self.bulkDepth -= 1; Self.bulkLock.unlock()
+            notifyAllocationDataChanged()
+        }
+        try db.inTransaction(work)
+    }
 
     // MARK: - One-Time Migration from UserDefaults to SQLite
 
@@ -98,9 +139,7 @@ final class BudgetAllocationRepository: BudgetAllocationRepositoryProtocol {
             updateSharedGroupId(allocationId: newId, groupId: groupId)
         }
 
-        DispatchQueue.main.async {
-            NotificationCenter.default.post(name: .allocationDataChanged, object: nil)
-        }
+        notifyAllocationDataChanged()
 
         return newId
     }
@@ -119,7 +158,7 @@ final class BudgetAllocationRepository: BudgetAllocationRepositoryProtocol {
 
         updateAllocationRow(model)
 
-        NotificationCenter.default.post(name: .allocationDataChanged, object: nil)
+        notifyAllocationDataChanged()
     }
 
     func updateRecurringAllocationAndFuture(id: Int, newAmount: Int) throws {
@@ -130,25 +169,60 @@ final class BudgetAllocationRepository: BudgetAllocationRepositoryProtocol {
 
         let parentId = allocation.parentAllocationId ?? id
         let currentMonthDate = allocation.monthDate
+        let now = Int(Date().timeIntervalSince1970)
 
         let allModels = db.fetchAllBudgetAllocations(userId: UIDUserDefaultsManager.shared.currentUserUID)
-        for model in allModels {
-            guard let modelId = model.id else { continue }
+        // One transaction + one UI notification for the whole series (was: a commit and a full
+        // main-thread allocation refresh per updated row).
+        try performBulk {
+            for model in allModels {
+                guard let modelId = model.id else { continue }
 
-            let isCurrentAllocation = modelId == id
-            let isParent = modelId == parentId
-            let isRelatedChild = model.parentAllocationId == parentId
-            let isFutureOrCurrent = model.monthDate >= currentMonthDate
+                let isCurrentAllocation = modelId == id
+                let isParent = modelId == parentId
+                let isRelatedChild = model.parentAllocationId == parentId
+                let isFutureOrCurrent = model.monthDate >= currentMonthDate
 
-            if isCurrentAllocation || ((isParent || isRelatedChild) && isFutureOrCurrent) {
-                db.executeSyncUpdate(
-                    "UPDATE BudgetAllocations SET allocated_amount = ?, sync_status = 'pending' WHERE id = ?;",
-                    intBindings: [newAmount, modelId]
-                )
+                if isCurrentAllocation || ((isParent || isRelatedChild) && isFutureOrCurrent) {
+                    db.executeSyncUpdate(
+                        "UPDATE BudgetAllocations SET allocated_amount = ?, sync_status = 'pending', ck_modified_at = ?, updated_at = ? WHERE id = ?;",
+                        intBindings: [newAmount, now, now, modelId]
+                    )
+                }
             }
         }
+    }
 
-        NotificationCenter.default.post(name: .allocationDataChanged, object: nil)
+    /// Updates this occurrence and every later one in the series UP TO AND INCLUDING `endMonth`.
+    /// Occurrences after `endMonth` keep their current amount — this is the "this through <month>"
+    /// bounded edit.
+    func updateRecurringAllocationsThrough(id: Int, newAmount: Int, endMonth: Int) throws {
+        guard let allocation = db.fetchBudgetAllocation(byId: id) else {
+            logError("BudgetAllocationRepository: Allocation with id \(id) not found for bounded update")
+            throw BudgetAllocationError.allocationNotFound
+        }
+
+        let parentId = allocation.parentAllocationId ?? id
+        let currentMonthDate = allocation.monthDate
+        let now = Int(Date().timeIntervalSince1970)
+
+        let allModels = db.fetchAllBudgetAllocations(userId: UIDUserDefaultsManager.shared.currentUserUID)
+        try performBulk {
+            for model in allModels {
+                guard let modelId = model.id else { continue }
+
+                let isCurrentAllocation = modelId == id
+                let isRelated = modelId == parentId || model.parentAllocationId == parentId
+                let inRange = model.monthDate >= currentMonthDate && model.monthDate <= endMonth
+
+                if isCurrentAllocation || (isRelated && inRange) {
+                    db.executeSyncUpdate(
+                        "UPDATE BudgetAllocations SET allocated_amount = ?, sync_status = 'pending', ck_modified_at = ?, updated_at = ? WHERE id = ?;",
+                        intBindings: [newAmount, now, now, modelId]
+                    )
+                }
+            }
+        }
     }
 
     func updateAllRecurringAllocations(id: Int, newAmount: Int) throws {
@@ -158,19 +232,21 @@ final class BudgetAllocationRepository: BudgetAllocationRepositoryProtocol {
         }
 
         let parentId = allocation.parentAllocationId ?? id
+        let now = Int(Date().timeIntervalSince1970)
 
         let allModels = db.fetchAllBudgetAllocations(userId: UIDUserDefaultsManager.shared.currentUserUID)
-        for model in allModels {
-            guard let modelId = model.id else { continue }
-            if modelId == parentId || model.parentAllocationId == parentId {
-                db.executeSyncUpdate(
-                    "UPDATE BudgetAllocations SET allocated_amount = ?, sync_status = 'pending' WHERE id = ?;",
-                    intBindings: [newAmount, modelId]
-                )
+        // One transaction + one UI notification for the whole series.
+        try performBulk {
+            for model in allModels {
+                guard let modelId = model.id else { continue }
+                if modelId == parentId || model.parentAllocationId == parentId {
+                    db.executeSyncUpdate(
+                        "UPDATE BudgetAllocations SET allocated_amount = ?, sync_status = 'pending', ck_modified_at = ?, updated_at = ? WHERE id = ?;",
+                        intBindings: [newAmount, now, now, modelId]
+                    )
+                }
             }
         }
-
-        NotificationCenter.default.post(name: .allocationDataChanged, object: nil)
     }
 
     // MARK: - Delete
@@ -181,18 +257,20 @@ final class BudgetAllocationRepository: BudgetAllocationRepositoryProtocol {
             throw BudgetAllocationError.allocationNotFound
         }
 
+        let now = Int(Date().timeIntervalSince1970)
+
         if let parentId = allocationToDelete.parentAllocationId {
             db.executeSyncUpdate(
-                "UPDATE BudgetAllocations SET is_recurring = 0, sync_status = 'pending' WHERE id = ?;",
-                intBindings: [parentId]
+                "UPDATE BudgetAllocations SET is_recurring = 0, sync_status = 'pending', ck_modified_at = ?, updated_at = ? WHERE id = ?;",
+                intBindings: [now, now, parentId]
             )
         }
 
         let ckName = fetchCKRecordName(for: id)
         if ckName != nil {
             db.executeSyncUpdate(
-                "UPDATE BudgetAllocations SET is_deleted = 1, sync_status = 'pendingDelete' WHERE id = ?;",
-                intBindings: [id]
+                "UPDATE BudgetAllocations SET is_deleted = 1, sync_status = 'pendingDelete', ck_modified_at = ?, updated_at = ? WHERE id = ?;",
+                intBindings: [now, now, id]
             )
         } else {
             db.executeSyncUpdate(
@@ -201,7 +279,7 @@ final class BudgetAllocationRepository: BudgetAllocationRepositoryProtocol {
             )
         }
 
-        NotificationCenter.default.post(name: .allocationDataChanged, object: nil)
+        notifyAllocationDataChanged()
     }
 
     func deleteRecurringAllocationAndFuture(id: Int) throws {
@@ -214,30 +292,83 @@ final class BudgetAllocationRepository: BudgetAllocationRepositoryProtocol {
         let currentMonthDate = allocation.monthDate
 
         let allModels = db.fetchAllBudgetAllocations(userId: UIDUserDefaultsManager.shared.currentUserUID)
-        for model in allModels {
-            guard let modelId = model.id else { continue }
+        // Whole delete-future operation (deletes + backfill inserts + parent update) as ONE
+        // transaction and ONE UI notification.
+        try performBulk {
+            for model in allModels {
+                guard let modelId = model.id else { continue }
 
-            if modelId == id {
-                softDeleteOrHardDelete(id: modelId)
-                continue
+                if modelId == id {
+                    softDeleteOrHardDelete(id: modelId)
+                    continue
+                }
+
+                let isRelated = modelId == parentId || model.parentAllocationId == parentId
+                let isFutureOrCurrent = model.monthDate >= currentMonthDate
+                if isRelated && isFutureOrCurrent {
+                    softDeleteOrHardDelete(id: modelId)
+                }
             }
 
-            let isRelated = modelId == parentId || model.parentAllocationId == parentId
-            let isFutureOrCurrent = model.monthDate >= currentMonthDate
-            if isRelated && isFutureOrCurrent {
-                softDeleteOrHardDelete(id: modelId)
+            // Preserve months between the parent and the cutoff that were never materialized,
+            // BEFORE disabling the parent's recurrence below (which stops all future
+            // generation — including pre-cutoff months that lazy generation never created).
+            backfillRecurringAllocationMonths(parentId: parentId, cutoffMonth: currentMonthDate)
+
+            // Stop parent from generating future instances
+            if db.fetchBudgetAllocation(byId: parentId) != nil {
+                db.executeSyncUpdate(
+                    "UPDATE BudgetAllocations SET is_recurring = 0, sync_status = 'pending' WHERE id = ?;",
+                    intBindings: [parentId]
+                )
             }
         }
+    }
 
-        // Stop parent from generating future instances
-        if db.fetchBudgetAllocation(byId: parentId) != nil {
-            db.executeSyncUpdate(
-                "UPDATE BudgetAllocations SET is_recurring = 0, sync_status = 'pending' WHERE id = ?;",
-                intBindings: [parentId]
+    /// Materializes any missing recurring allocation instances for months strictly
+    /// between the parent's own month and `cutoffMonth`, inheriting the amount from the
+    /// occurrence in effect at each month. Called by "delete future" before the parent's
+    /// recurrence is disabled, so pre-cutoff months that were never lazily generated
+    /// aren't lost. Mirrors the recurring-transaction backfill.
+    private func backfillRecurringAllocationMonths(parentId: Int, cutoffMonth: Int) {
+        let all = db.fetchAllBudgetAllocations(userId: UIDUserDefaultsManager.shared.currentUserUID)
+        guard let parent = all.first(where: { $0.id == parentId }) else { return }
+        let startMonth = parent.monthDate
+        guard startMonth < cutoffMonth else { return }
+
+        // Occurrences of this series, ascending, for picking the in-effect template.
+        let series = all
+            .filter { $0.id == parentId || $0.parentAllocationId == parentId }
+            .sorted { $0.monthDate < $1.monthDate }
+
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone.current
+        var date = Date(timeIntervalSince1970: TimeInterval(startMonth))
+        var steps = 0
+        while steps < 600 {  // safety bound (~50 years)
+            steps += 1
+            guard let next = cal.date(byAdding: .month, value: 1, to: date) else { break }
+            date = next
+            let monthAnchor = next.monthAnchor
+            if monthAnchor >= cutoffMonth { break }
+
+            // Skip if any allocation already exists for this month+category.
+            let exists = all.contains {
+                $0.monthDate == monthAnchor && $0.categoryKey == parent.categoryKey
+            }
+            if exists { continue }
+
+            let template = series.last(where: { $0.monthDate <= monthAnchor }) ?? parent
+            let instance = BudgetAllocationModel(
+                monthDate: monthAnchor,
+                categoryKey: parent.categoryKey,
+                allocatedAmount: template.allocatedAmount,
+                isRecurring: true,
+                parentAllocationId: parentId,
+                sharedGroupId: parent.sharedGroupId
             )
+            _ = try? insertAllocation(instance)
         }
-
-        NotificationCenter.default.post(name: .allocationDataChanged, object: nil)
     }
 
     func deleteAllRecurringAllocations(id: Int) throws {
@@ -249,14 +380,15 @@ final class BudgetAllocationRepository: BudgetAllocationRepositoryProtocol {
         let parentId = allocation.parentAllocationId ?? id
 
         let allModels = db.fetchAllBudgetAllocations(userId: UIDUserDefaultsManager.shared.currentUserUID)
-        for model in allModels {
-            guard let modelId = model.id else { continue }
-            if modelId == parentId || model.parentAllocationId == parentId {
-                softDeleteOrHardDelete(id: modelId)
+        // One transaction + one UI notification for the whole series.
+        try performBulk {
+            for model in allModels {
+                guard let modelId = model.id else { continue }
+                if modelId == parentId || model.parentAllocationId == parentId {
+                    softDeleteOrHardDelete(id: modelId)
+                }
             }
         }
-
-        NotificationCenter.default.post(name: .allocationDataChanged, object: nil)
     }
 
     // MARK: - Update Is Recurring
@@ -336,7 +468,17 @@ final class BudgetAllocationRepository: BudgetAllocationRepositoryProtocol {
         )
     }
 
-    func markAsSynced(ckRecordName: String) {
+    /// See `TransactionRepository.markAsSynced` for why `pushedUpdatedAt` matters: without it, an
+    /// edit made while the push was in flight is marked synced and never pushed.
+    func markAsSynced(ckRecordName: String, pushedUpdatedAt: Date? = nil) {
+        if let pushedUpdatedAt = pushedUpdatedAt {
+            db.executeSyncUpdate(
+                "UPDATE BudgetAllocations SET sync_status = 'synced' WHERE ck_record_id = ? AND COALESCE(updated_at, 0) <= ?;",
+                textBindings: [ckRecordName],
+                intBindings: [Int(pushedUpdatedAt.timeIntervalSince1970)]
+            )
+            return
+        }
         // Phase 3C: CK record name is pre-stored before push, so matching by ck_record_id is sufficient
         db.executeSyncUpdate(
             "UPDATE BudgetAllocations SET sync_status = 'synced' WHERE ck_record_id = ?;",
@@ -381,7 +523,7 @@ final class BudgetAllocationRepository: BudgetAllocationRepositoryProtocol {
                 is_recurring = ?, parent_allocation_id = ?,
                 shared_group_id = ?,
                 sync_status = 'synced', ck_modified_at = ?, updated_at = ?,
-                created_by_uid = ?, is_deleted = 0
+                created_by_uid = COALESCE(?, created_by_uid), is_deleted = 0
             WHERE ck_record_id = ?;
             """,
             orderedBindings: [
@@ -399,7 +541,48 @@ final class BudgetAllocationRepository: BudgetAllocationRepositoryProtocol {
         )
     }
 
+    /// Updates an allocation matched by local ID (natural-key dedup) and links it to a CK record.
+    func updateFromCloud(_ allocation: BudgetAllocationModel, localId: Int, ckRecordName: String) {
+        db.executeGroupWrite(
+            """
+            UPDATE BudgetAllocations SET
+                month_date = ?, category_key = ?, allocated_amount = ?,
+                is_recurring = ?, parent_allocation_id = ?,
+                shared_group_id = ?, ck_record_id = ?,
+                sync_status = 'synced', ck_modified_at = ?, updated_at = ?,
+                created_by_uid = COALESCE(?, created_by_uid), is_deleted = 0
+            WHERE id = ?;
+            """,
+            orderedBindings: [
+                allocation.monthDate,
+                allocation.categoryKey,
+                allocation.allocatedAmount,
+                allocation.isRecurring ? 1 : 0,
+                allocation.parentAllocationId,
+                allocation.sharedGroupId,
+                ckRecordName,
+                Int(Date().timeIntervalSince1970),
+                Int((allocation.updatedAt ?? Date()).timeIntervalSince1970),
+                allocation.createdByUid,
+                localId
+            ]
+        )
+    }
+
+    /// Links a CK record name to a local allocation (local data wins, mark pending for next push).
+    func linkCKRecordName(_ ckRecordName: String, toLocalId localId: Int) {
+        db.executeGroupWrite(
+            "UPDATE BudgetAllocations SET ck_record_id = ?, sync_status = 'pending' WHERE id = ?;",
+            orderedBindings: [ckRecordName, localId]
+        )
+    }
+
     func deleteFromCloud(ckRecordName recordName: String) {
+        // RECREATION-WINS guard: keep a row with unpushed local edits rather than applying a
+        // remote delete (it re-pushes, preserving the newer local change).
+        if db.fetchSingleString("SELECT sync_status FROM BudgetAllocations WHERE ck_record_id = ?;", textBinding: recordName) == "pending" {
+            return
+        }
         db.executeSyncUpdate(
             "DELETE FROM BudgetAllocations WHERE ck_record_id = ?;",
             textBindings: [recordName]
@@ -431,6 +614,23 @@ final class BudgetAllocationRepository: BudgetAllocationRepositoryProtocol {
             textBinding: recordName
         )
         guard let id = id else { return nil }
+        return db.fetchBudgetAllocation(byId: id)
+    }
+
+    /// Finds an active allocation matching the natural key (monthDate + categoryKey)
+    /// within the same group context. Used as a deduplication fallback when the CK
+    /// record name doesn't match any local row.
+    func fetchAllocation(byMonthDate monthDate: Int, categoryKey: String, sharedGroupId: String?) -> BudgetAllocationModel? {
+        let query: String
+        let bindings: [Any?]
+        if let groupId = sharedGroupId, !groupId.isEmpty {
+            query = "SELECT id FROM BudgetAllocations WHERE month_date = ? AND category_key = ? AND shared_group_id = ? AND (is_deleted IS NULL OR is_deleted = 0) LIMIT 1;"
+            bindings = [monthDate, categoryKey, groupId]
+        } else {
+            query = "SELECT id FROM BudgetAllocations WHERE month_date = ? AND category_key = ? AND (shared_group_id IS NULL OR shared_group_id = '') AND (is_deleted IS NULL OR is_deleted = 0) LIMIT 1;"
+            bindings = [monthDate, categoryKey]
+        }
+        guard let id = db.fetchSingleInt(query, orderedBindings: bindings) else { return nil }
         return db.fetchBudgetAllocation(byId: id)
     }
 
@@ -476,10 +676,11 @@ final class BudgetAllocationRepository: BudgetAllocationRepositoryProtocol {
     /// Soft-deletes a synced allocation (marks pendingDelete) or hard-deletes an unsynced one.
     private func softDeleteOrHardDelete(id: Int) {
         let ckName = fetchCKRecordName(for: id)
+        let now = Int(Date().timeIntervalSince1970)
         if ckName != nil {
             db.executeSyncUpdate(
-                "UPDATE BudgetAllocations SET is_deleted = 1, sync_status = 'pendingDelete' WHERE id = ?;",
-                intBindings: [id]
+                "UPDATE BudgetAllocations SET is_deleted = 1, sync_status = 'pendingDelete', ck_modified_at = ?, updated_at = ? WHERE id = ?;",
+                intBindings: [now, now, id]
             )
         } else {
             db.executeSyncUpdate(
@@ -491,13 +692,14 @@ final class BudgetAllocationRepository: BudgetAllocationRepositoryProtocol {
 
     private func updateAllocationRow(_ model: BudgetAllocationModel) {
         guard let id = model.id else { return }
+        let now = Int(Date().timeIntervalSince1970)
         // Use executeGroupWrite for mixed binding types
         db.executeGroupWrite(
             """
             UPDATE BudgetAllocations SET
                 month_date = ?, category_key = ?, allocated_amount = ?,
                 is_recurring = ?, parent_allocation_id = ?, shared_group_id = ?,
-                sync_status = 'pending'
+                sync_status = 'pending', ck_modified_at = ?, updated_at = ?
             WHERE id = ?;
             """,
             orderedBindings: [
@@ -507,6 +709,8 @@ final class BudgetAllocationRepository: BudgetAllocationRepositoryProtocol {
                 model.isRecurring ? 1 : 0,
                 model.parentAllocationId,
                 model.sharedGroupId,
+                now,
+                now,
                 id
             ]
         )

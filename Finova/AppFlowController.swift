@@ -12,6 +12,9 @@ class AppFlowController {
     // MARK: - Properties
     private var navigationController: UINavigationController?
     private let viewControllersFactory: ViewControllersFactoryProtocol
+    /// Tracks whether a pending large-sync notification needs to show InitialSync
+    /// once the dashboard becomes visible (handles race condition).
+    private var pendingLargeSyncDetected = false
     // MARK: - init
     public init() {
         viewControllersFactory = ViewControllersFactory()
@@ -61,6 +64,13 @@ class AppFlowController {
             self,
             selector: #selector(handleNavigateToGroupInvitation(_:)),
             name: .navigateToGroupInvitation,
+            object: nil
+        )
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleLargeSyncDetected),
+            name: .syncRequiresLoadingScreen,
             object: nil
         )
     }
@@ -204,6 +214,54 @@ class AppFlowController {
         }
     }
     
+    // MARK: - Initial Sync Detection
+
+    private func needsInitialSync() -> Bool {
+        guard UserDefaultsManager.getSyncEnabled() else { return false }
+        return !UserDefaults.standard.bool(forKey: "syncFullPullVerified_v2")
+    }
+
+    @objc private func handleLargeSyncDetected() {
+        pendingLargeSyncDetected = true
+        presentInitialSyncIfReady(attempt: 0)
+    }
+
+    /// Attempts to show InitialSync screen when the dashboard is visible.
+    /// Retries with delay to handle the race condition where the notification
+    /// fires while navigation to the dashboard is still in progress.
+    private func presentInitialSyncIfReady(attempt: Int) {
+        guard pendingLargeSyncDetected else { return }
+        guard let topVC = navigationController?.topViewController else {
+            retryPresentInitialSync(attempt: attempt)
+            return
+        }
+        // Already on InitialSync — no-op
+        if topVC is InitialSyncViewController {
+            pendingLargeSyncDetected = false
+            return
+        }
+        // Dashboard visible — show InitialSync
+        if topVC is DashboardViewController {
+            pendingLargeSyncDetected = false
+            let syncVC = InitialSyncViewController()
+            syncVC.flowDelegate = self
+            navigationController?.pushViewController(syncVC, animated: true)
+            return
+        }
+        // Some other VC (Splash transitioning, modal, etc.) — retry
+        retryPresentInitialSync(attempt: attempt)
+    }
+
+    private func retryPresentInitialSync(attempt: Int) {
+        guard attempt < 10 else {
+            pendingLargeSyncDetected = false
+            return
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            self?.presentInitialSyncIfReady(attempt: attempt + 1)
+        }
+    }
+
     deinit {
         NotificationCenter.default.removeObserver(self)
     }
@@ -213,9 +271,15 @@ class AppFlowController {
 extension AppFlowController: CommonFlowDelegate {
     func navigateToDashboard() {
         navigationController?.dismiss(animated: false)
-        let dashboardViewController = viewControllersFactory.makeDashboardViewController(
-            flowDelegate: self)
-        navigationController?.pushViewController(dashboardViewController, animated: true)
+        if needsInitialSync() {
+            let vc = InitialSyncViewController()
+            vc.flowDelegate = self
+            navigationController?.pushViewController(vc, animated: true)
+        } else {
+            let dashboardViewController = viewControllersFactory.makeDashboardViewController(
+                flowDelegate: self)
+            navigationController?.pushViewController(dashboardViewController, animated: true)
+        }
     }
 }
 
@@ -232,8 +296,14 @@ extension AppFlowController: SplashFlowDelegate {
     
     func navigateDirectlyToDashboard() {
         navigationController?.dismiss(animated: false)
-        let viewController = viewControllersFactory.makeDashboardViewController(flowDelegate: self)
-        navigationController?.pushViewController(viewController, animated: true)
+        if needsInitialSync() {
+            let vc = InitialSyncViewController()
+            vc.flowDelegate = self
+            navigationController?.pushViewController(vc, animated: true)
+        } else {
+            let viewController = viewControllersFactory.makeDashboardViewController(flowDelegate: self)
+            navigationController?.pushViewController(viewController, animated: true)
+        }
     }
 }
 
@@ -456,6 +526,11 @@ extension AppFlowController: DashboardFlowDelegate, SettingsFlowDelegate, Profil
         navigationController?.pushViewController(viewController, animated: true)
     }
 
+    func navigateToSyncSettingsFromDashboard() {
+        let viewController = viewControllersFactory.makeSyncSettingsViewController(flowDelegate: self)
+        navigationController?.pushViewController(viewController, animated: true)
+    }
+
     func navigateToSyncSettings() {
         let viewController = viewControllersFactory.makeSyncSettingsViewController(flowDelegate: self)
         navigationController?.pushViewController(viewController, animated: true)
@@ -463,6 +538,12 @@ extension AppFlowController: DashboardFlowDelegate, SettingsFlowDelegate, Profil
 
     func dismissSyncSettings() {
         navigationController?.popViewController(animated: true)
+    }
+
+    func navigateToInitialSync() {
+        let syncVC = InitialSyncViewController()
+        syncVC.flowDelegate = self
+        navigationController?.setViewControllers([syncVC], animated: true)
     }
 }
 
@@ -826,8 +907,11 @@ extension AppFlowController: GroupInvitationFlowDelegate {
 
     func didAcceptInvitation() {
         navigationController?.dismiss(animated: true) { [weak self] in
-            // Refresh budget groups list if visible
-            NotificationCenter.default.post(name: .budgetGroupDataChanged, object: nil)
+            guard let self = self else { return }
+            // Show InitialSync screen to wait for full group data sync
+            let syncVC = InitialSyncViewController()
+            syncVC.flowDelegate = self
+            self.navigationController?.pushViewController(syncVC, animated: true)
         }
     }
 
@@ -893,5 +977,15 @@ extension AppFlowController: AddAllocationModalFlowDelegate {
                 }
             }
         }
+    }
+}
+
+// MARK: - InitialSyncFlowDelegate
+
+extension AppFlowController: InitialSyncFlowDelegate {
+    func initialSyncDidComplete() {
+        pendingLargeSyncDetected = false
+        let dashboardVC = viewControllersFactory.makeDashboardViewController(flowDelegate: self)
+        navigationController?.setViewControllers([dashboardVC], animated: true)
     }
 }

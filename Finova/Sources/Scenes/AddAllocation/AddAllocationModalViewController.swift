@@ -53,6 +53,8 @@ final class AddAllocationModalViewController: UIViewController {
 
         contentView.delegate = self
         setupView()
+        // Duration presets ("6 months") resolve relative to the month being allocated.
+        contentView.setBaseMonth(monthAnchor)
 
         if let allocation = allocationToEdit {
             contentView.configureForEdit(allocation: allocation)
@@ -127,10 +129,13 @@ extension AddAllocationModalViewController: AddAllocationModalViewDelegate {
         flowDelegate?.dismissAllocationModal()
     }
 
-    func didTapSave(category: TransactionCategory, amount: Int, isRecurring: Bool) {
+    func didTapSave(
+        category: TransactionCategory, amount: Int, isRecurring: Bool, recurrenceEndMonth: Int?
+    ) {
         if let allocation = allocationToEdit, let allocationId = allocation.dbId {
-            // Edit mode - check if recurring to show options
-            let isRecurringAllocation = allocation.isRecurring || allocation.parentAllocationId != nil
+            // Edit mode - check if recurring to show options. Uses the service check so a BOUNDED
+            // series (parent already stopped recurring, but still owns children) still prompts.
+            let isRecurringAllocation = allocationService.isPartOfRecurringSeries(allocationId: allocationId)
 
             if isRecurringAllocation {
                 showRecurringEditOptions(allocationId: allocationId, newAmount: amount)
@@ -153,20 +158,54 @@ extension AddAllocationModalViewController: AddAllocationModalViewDelegate {
                 }
             }
 
-            // Create new allocation
+            // Create new allocation (backgrounded with a loading state — recurring creation now
+            // eagerly materializes the full horizon + pushes, which is too heavy for the main thread).
+            performCreateAllocation(
+                category: category, amount: amount, isRecurring: isRecurring,
+                recurrenceEndMonth: recurrenceEndMonth)
+        }
+    }
+
+    /// Creates an allocation off the main thread with a loading state, optionally deleting
+    /// conflicting future allocations first. Recurring creation eagerly generates the whole
+    /// horizon and pushes, so it must not run on the main thread. Callbacks land on main.
+    private func performCreateAllocation(
+        category: TransactionCategory,
+        amount: Int,
+        isRecurring: Bool,
+        recurrenceEndMonth: Int? = nil,
+        deletingConflictingIds conflictingIds: [Int] = []
+    ) {
+        contentView.saveButton.startLoading()
+        let monthAnchor = self.monthAnchor
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self = self else { return }
             do {
-                try allocationService.createAllocation(
+                if !conflictingIds.isEmpty {
+                    let repository = BudgetAllocationRepository()
+                    for allocationId in conflictingIds {
+                        try repository.deleteAllocation(id: allocationId)
+                    }
+                }
+                try self.allocationService.createAllocation(
                     category: category,
                     amount: amount,
                     monthAnchor: monthAnchor,
-                    isRecurring: isRecurring
+                    isRecurring: isRecurring,
+                    recurrenceEndMonth: recurrenceEndMonth
                 )
-                flowDelegate?.didSaveAllocation()
+                DispatchQueue.main.async {
+                    self.contentView.saveButton.stopLoading()
+                    self.flowDelegate?.didSaveAllocation()
+                }
             } catch {
-                handleError(
-                    title: "allocation.add.error.save.title".localized,
-                    message: error.localizedDescription
-                )
+                DispatchQueue.main.async {
+                    self.contentView.saveButton.stopLoading()
+                    self.handleError(
+                        title: "allocation.add.error.save.title".localized,
+                        message: error.localizedDescription
+                    )
+                }
             }
         }
     }
@@ -224,28 +263,10 @@ extension AddAllocationModalViewController: AddAllocationModalViewDelegate {
             title: "allocation.recurring.conflict.overwrite".localized,
             style: .destructive
         ) { [weak self] _ in
-            guard let self = self else { return }
-            do {
-                // Delete all conflicting future allocations
-                let repository = BudgetAllocationRepository()
-                for allocationId in conflictingAllocationIds {
-                    try repository.deleteAllocation(id: allocationId)
-                }
-
-                // Now create the recurring allocation
-                try self.allocationService.createAllocation(
-                    category: category,
-                    amount: amount,
-                    monthAnchor: self.monthAnchor,
-                    isRecurring: true
-                )
-                self.flowDelegate?.didSaveAllocation()
-            } catch {
-                self.handleError(
-                    title: "allocation.add.error.save.title".localized,
-                    message: error.localizedDescription
-                )
-            }
+            // Overwrite: delete conflicting future allocations, then create the recurring series.
+            self?.performCreateAllocation(
+                category: category, amount: amount, isRecurring: true,
+                deletingConflictingIds: conflictingAllocationIds)
         })
 
         // Option 2: Keep existing and create recurring (ignore conflicts)
@@ -253,22 +274,8 @@ extension AddAllocationModalViewController: AddAllocationModalViewDelegate {
             title: "allocation.recurring.conflict.keepExisting".localized,
             style: .default
         ) { [weak self] _ in
-            guard let self = self else { return }
-            do {
-                // Create recurring allocation - lazy generation will skip months with existing allocations
-                try self.allocationService.createAllocation(
-                    category: category,
-                    amount: amount,
-                    monthAnchor: self.monthAnchor,
-                    isRecurring: true
-                )
-                self.flowDelegate?.didSaveAllocation()
-            } catch {
-                self.handleError(
-                    title: "allocation.add.error.save.title".localized,
-                    message: error.localizedDescription
-                )
-            }
+            // Generation skips months that already have an allocation for this category.
+            self?.performCreateAllocation(category: category, amount: amount, isRecurring: true)
         })
 
         // Option 3: Create as non-recurring (this month only)
@@ -276,21 +283,7 @@ extension AddAllocationModalViewController: AddAllocationModalViewDelegate {
             title: "allocation.recurring.conflict.thisMonthOnly".localized,
             style: .default
         ) { [weak self] _ in
-            guard let self = self else { return }
-            do {
-                try self.allocationService.createAllocation(
-                    category: category,
-                    amount: amount,
-                    monthAnchor: self.monthAnchor,
-                    isRecurring: false  // Create as non-recurring
-                )
-                self.flowDelegate?.didSaveAllocation()
-            } catch {
-                self.handleError(
-                    title: "allocation.add.error.save.title".localized,
-                    message: error.localizedDescription
-                )
-            }
+            self?.performCreateAllocation(category: category, amount: amount, isRecurring: false)
         })
 
         // Option 4: Cancel
@@ -329,6 +322,14 @@ extension AddAllocationModalViewController: AddAllocationModalViewDelegate {
             self?.performUpdate(allocationId: allocationId, newAmount: newAmount, option: .futureOnly)
         })
 
+        // Edit this month through a chosen end month (bounded)
+        alert.addAction(UIAlertAction(
+            title: "allocation.edit.scope.through".localized,
+            style: .default
+        ) { [weak self] _ in
+            self?.promptForEndMonth(allocationId: allocationId, newAmount: newAmount)
+        })
+
         // Edit all occurrences (past, present, and future)
         alert.addAction(UIAlertAction(
             title: "allocation.edit.recurring.all".localized,
@@ -346,22 +347,75 @@ extension AddAllocationModalViewController: AddAllocationModalViewDelegate {
         present(alert, animated: true)
     }
 
+    /// Lets the user pick the last month a bounded edit should apply to. Only offers months that
+    /// actually exist in this series from the edited month forward — never a month that would
+    /// silently do nothing.
+    private func promptForEndMonth(allocationId: Int, newAmount: Int) {
+        let all = BudgetAllocationRepository().fetchAllAllocations()
+        guard let current = all.first(where: { $0.dbId == allocationId }) else { return }
+        let parentId = current.parentAllocationId ?? allocationId
+
+        let months = all
+            .filter {
+                ($0.dbId == parentId || $0.parentAllocationId == parentId)
+                    && $0.monthDate >= current.monthDate
+            }
+            .map { $0.monthDate }
+        let uniqueMonths = Array(Set(months)).sorted()
+        guard !uniqueMonths.isEmpty else { return }
+
+        let sheet = UIAlertController(
+            title: "allocation.edit.scope.throughTitle".localized,
+            message: nil,
+            preferredStyle: .actionSheet)
+
+        let formatter = DateFormatter()
+        formatter.locale = Locale.current
+        formatter.dateFormat = "MMM yyyy"
+        formatter.timeZone = TimeZone(abbreviation: "UTC")
+
+        for anchor in uniqueMonths {
+            let title = formatter.string(from: Date(timeIntervalSince1970: TimeInterval(anchor)))
+            sheet.addAction(UIAlertAction(title: title, style: .default) { [weak self] _ in
+                self?.performUpdate(
+                    allocationId: allocationId, newAmount: newAmount, option: .throughMonth(anchor))
+            })
+        }
+        sheet.addAction(UIAlertAction(title: "alert.cancel".localized, style: .cancel))
+
+        if let popover = sheet.popoverPresentationController {
+            popover.sourceView = contentView.saveButton
+            popover.sourceRect = contentView.saveButton.bounds
+        }
+        present(sheet, animated: true)
+    }
+
     private func performUpdate(allocationId: Int, newAmount: Int, option: AllocationEditOption) {
         logDebug("AddAllocationModal: performUpdate - allocationId: \(allocationId), newAmount: \(newAmount), option: \(option)")
-        do {
-            try allocationService.updateAllocationWithOption(
-                id: allocationId,
-                newAmount: newAmount,
-                option: option
-            )
-            logDebug("AddAllocationModal: Update successful, calling flowDelegate?.didSaveAllocation()")
-            flowDelegate?.didSaveAllocation()
-        } catch {
-            logError("AddAllocationModal: Update failed with error: \(error)")
-            handleError(
-                title: "allocation.edit.error.save.title".localized,
-                message: error.localizedDescription
-            )
+        // Backgrounded with a loading state — a "future"/"all" edit can touch many rows.
+        contentView.saveButton.startLoading()
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self = self else { return }
+            do {
+                try self.allocationService.updateAllocationWithOption(
+                    id: allocationId,
+                    newAmount: newAmount,
+                    option: option
+                )
+                DispatchQueue.main.async {
+                    self.contentView.saveButton.stopLoading()
+                    self.flowDelegate?.didSaveAllocation()
+                }
+            } catch {
+                logError("AddAllocationModal: Update failed with error: \(error)")
+                DispatchQueue.main.async {
+                    self.contentView.saveButton.stopLoading()
+                    self.handleError(
+                        title: "allocation.edit.error.save.title".localized,
+                        message: error.localizedDescription
+                    )
+                }
+            }
         }
     }
 

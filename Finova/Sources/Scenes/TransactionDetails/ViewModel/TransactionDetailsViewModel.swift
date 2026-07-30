@@ -139,6 +139,39 @@ final class TransactionDetailsViewModel {
     return statements.sorted { $0.closingDate < $1.closingDate }
   }
 
+  /// Returns month options (past 6 through future 2) for the move-to-statement picker.
+  /// Each entry is a `(label, Date)` where `Date` is the 1st of that month.
+  func getMonthOptionsForMove() -> [(label: String, firstOfMonth: Date)] {
+    let calendar = Calendar.current
+    let now = Date()
+    let formatter = DateFormatter.monthYearFormatter
+    var options: [(label: String, firstOfMonth: Date)] = []
+
+    for offset in -6...2 {
+      guard let refDate = calendar.date(byAdding: .month, value: offset, to: now) else { continue }
+      let components = calendar.dateComponents([.year, .month], from: refDate)
+      guard let firstOfMonth = calendar.date(from: components) else { continue }
+      options.append((label: formatter.string(from: firstOfMonth), firstOfMonth: firstOfMonth))
+    }
+
+    return options
+  }
+
+  /// Moves a transaction to a statement for the given month, creating the statement if needed.
+  func moveToStatementForMonth(_ firstOfMonth: Date) {
+    guard let cardId = transaction.creditCardId else { return }
+    guard let userId = AuthenticationManager.shared.currentUser?.uid else { return }
+    let cardRepo = CreditCardRepository()
+    guard let card = cardRepo.fetchCard(byId: cardId) else { return }
+
+    let ccService = CreditCardService()
+    guard let targetStatement = ccService.getOrCreateStatement(
+      for: card, transactionDate: firstOfMonth, userId: userId
+    ) else { return }
+
+    moveToStatement(targetStatement)
+  }
+
   func moveToStatement(_ targetStatement: CreditCardStatement) {
     guard let txId = transaction.id,
           let cardId = transaction.creditCardId,

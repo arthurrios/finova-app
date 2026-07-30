@@ -109,6 +109,17 @@ final class DashboardView: UIView {
     return label
   }()
 
+  let syncErrorButton: UIButton = {
+    let btn = UIButton(type: .system)
+    let config = UIImage.SymbolConfiguration(pointSize: 14, weight: .medium)
+    btn.setImage(UIImage(systemName: "exclamationmark.icloud", withConfiguration: config), for: .normal)
+    btn.tintColor = Colors.mainRed
+    btn.alpha = 0
+    btn.isHidden = true
+    btn.translatesAutoresizingMaskIntoConstraints = false
+    return btn
+  }()
+
   lazy var monthSelectorView: MonthSelectorView = {
     let sel = MonthSelectorView()
     sel.alpha = 0
@@ -247,6 +258,7 @@ final class DashboardView: UIView {
     headerItemsView.addSubview(notificationButton)
     headerItemsView.addSubview(notificationBadge)
     notificationBadge.addSubview(notificationBadgeLabel)
+    headerItemsView.addSubview(syncErrorButton)
     headerItemsView.addSubview(profileTapButton)
 
     addSubview(monthSelectorShimmerView)
@@ -265,6 +277,11 @@ final class DashboardView: UIView {
     notificationButton.addTarget(
       self,
       action: #selector(notificationsTapped),
+      for: .touchUpInside)
+
+    syncErrorButton.addTarget(
+      self,
+      action: #selector(syncErrorTapped),
       for: .touchUpInside)
 
     addTransactionButton.addTarget(
@@ -359,6 +376,11 @@ final class DashboardView: UIView {
       notificationButton.heightAnchor.constraint(equalToConstant: Metrics.logoutButtonSize),
       notificationButton.widthAnchor.constraint(equalToConstant: Metrics.logoutButtonSize),
 
+      syncErrorButton.centerYAnchor.constraint(equalTo: avatar.centerYAnchor),
+      syncErrorButton.trailingAnchor.constraint(equalTo: notificationButton.leadingAnchor, constant: -Metrics.spacing3),
+      syncErrorButton.heightAnchor.constraint(equalToConstant: Metrics.logoutButtonSize),
+      syncErrorButton.widthAnchor.constraint(equalToConstant: Metrics.logoutButtonSize),
+
       notificationBadge.topAnchor.constraint(equalTo: notificationButton.topAnchor, constant: -2),
       notificationBadge.trailingAnchor.constraint(equalTo: notificationButton.trailingAnchor, constant: 4),
       notificationBadge.widthAnchor.constraint(greaterThanOrEqualToConstant: 18),
@@ -449,6 +471,25 @@ final class DashboardView: UIView {
 
   @objc private func notificationsTapped() {
     delegate?.didTapNotifications()
+  }
+
+  @objc private func syncErrorTapped() {
+    delegate?.didTapSyncError()
+  }
+
+  func setSyncErrorVisible(_ visible: Bool) {
+    if visible {
+      syncErrorButton.isHidden = false
+      UIView.animate(withDuration: 0.25) {
+        self.syncErrorButton.alpha = 1
+      }
+    } else {
+      UIView.animate(withDuration: 0.25, animations: {
+        self.syncErrorButton.alpha = 0
+      }, completion: { _ in
+        self.syncErrorButton.isHidden = true
+      })
+    }
   }
 
   /// Updates the notification badge visibility and count

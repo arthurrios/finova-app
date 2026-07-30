@@ -42,6 +42,17 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
       #if DEBUG
         // 🧪 Debug: Show data status on app launch (only in debug mode)
         DebugDataManager.shared.showDataStatus()
+
+        // 🧹 ONE-SHOT REPAIR — remove once it has logged "PURGE — DONE" on every owner device.
+        // Deletes CloudKit zones left behind by groups that were deleted before
+        // BudgetGroupService.deleteGroup started removing them. Delayed so Firebase auth has
+        // settled (the purge needs a signed-in user to resolve group ownership) and so it can't
+        // race the first sync cycle. Self-guarded: runs at most once, logs everything it is about
+        // to destroy, and never touches FinovaPrivateZone, _defaultZone, live groups, or zones with
+        // no local group row.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 8) {
+          DeadGroupZonePurge.runOnceIfNeeded()
+        }
       #endif
     }
 
@@ -341,341 +352,32 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
   // MARK: - Notification Scheduling on Launch
 
   func scheduleNotificationsOnLaunch() {
-    // Only schedule notifications if we have permission
     UNUserNotificationCenter.current().getNotificationSettings { settings in
-      guard settings.authorizationStatus == .authorized else {
-        return
-      }
+      guard settings.authorizationStatus == .authorized else { return }
 
-      // Schedule notifications for all future transactions
-      // This will be called once on app launch to ensure notifications are set up
-      DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {  // Delay to ensure data is loaded
-        self.scheduleAllTransactionNotifications()
-        self.scheduleCreditCardStatementNotifications()
+      DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+        guard UserDefaultsManager.getUser()?.firebaseUID != nil else { return }
+
+        let transactionRepo = TransactionRepository()
+        let allTxs = transactionRepo.fetchAllTransactions()
+        TransactionNotificationManager.shared.scheduleAllTransactionNotifications(transactions: allTxs)
+        // Recalculate all statement totals to fix any stale values from past deletes
+        let ccService = CreditCardService()
+        ccService.recalculateAllStatementTotals()
+        // Fix budget_month_date for transactions previously moved between statements
+        ccService.repairBudgetMonthForOverriddenTransactions()
+        StatementNotificationManager.shared.scheduleAllStatementNotifications()
         self.monitorNegativeBalance()
       }
     }
   }
 
-  private func scheduleAllTransactionNotifications() {
-    // Check if user is authenticated first
-    guard let user = UserDefaultsManager.getUser(),
-      let firebaseUID = user.firebaseUID
-    else {
-      print("🔔 ❌ Cannot schedule notifications: User not authenticated")
-      print("🔔 ❌ Cannot schedule notifications: User not authenticated")
-      return
-    }
-
-    let transactionRepo = TransactionRepository()
-    let allTxs = transactionRepo.fetchAllTransactions()
-    let now = Date()
-    var calendar = Calendar.current
-    calendar.timeZone = TimeZone.current
-
-    print("🔔 📡 Scheduling notifications for \(allTxs.count) transactions")
-
-    // Clear existing notifications first
-    UNUserNotificationCenter.current().removeAllPendingNotificationRequests()
-    print("🔔 🧹 Cleared existing notifications")
-
-    // Schedule notifications for all future transactions (excluding hidden parent transactions
-    // and credit card transactions, which are covered by statement notifications)
-    let futureTxs = allTxs.filter { tx in
-      // Skip parent transactions that are not visible in UI
-      if tx.hasInstallments == true && tx.amount == 0 {
-        return false
-      }
-
-      if tx.isRecurring == true && tx.parentTransactionId == nil && tx.amount == 0 {
-        return false
-      }
-
-      // Skip credit card transactions — they are covered by statement_due_/statement_pay_ notifications
-      if tx.creditCardId != nil {
-        return false
-      }
-
-      // Create notification time (8 AM) in local timezone
-      var notificationDate = calendar.startOfDay(for: tx.date)
-      notificationDate =
-        calendar.date(byAdding: .hour, value: 8, to: notificationDate) ?? notificationDate
-
-      return notificationDate > now
-    }
-
-    print("🔔 📅 Found \(futureTxs.count) future transactions to schedule")
-
-    // Sort by date to prioritize closest transactions first
-    let sortedTxs = futureTxs.sorted { tx1, tx2 in
-      tx1.date < tx2.date
-    }
-
-    // Prioritize transactions in the next 30 days
-    let thirtyDaysFromNow = calendar.date(byAdding: .day, value: 30, to: now) ?? now
-    let next30DaysTxs = sortedTxs.filter { tx in
-      tx.date <= thirtyDaysFromNow
-    }
-    let remainingTxs = sortedTxs.filter { tx in
-      tx.date > thirtyDaysFromNow
-    }
-
-    print("🔔 📅 Next 30 days: \(next30DaysTxs.count) transactions")
-    print("🔔 📅 Beyond 30 days: \(remainingTxs.count) transactions")
-
-    // Combine arrays: prioritize next 30 days, then remaining sorted by date
-    let prioritizedTxs = next30DaysTxs + remainingTxs
-
-    // Limitar a 50 notificações para evitar problemas com limite do iOS
-    let limitedTxs = Array(prioritizedTxs.prefix(50))
-    if limitedTxs.count < prioritizedTxs.count {
-      let skippedInNext30Days = max(0, next30DaysTxs.count - min(50, next30DaysTxs.count))
-      print(
-        "🔔 ⚠️ Limited notifications to 50 (iOS limit). \(prioritizedTxs.count - limitedTxs.count) transactions will not have notifications"
-      )
-      if skippedInNext30Days > 0 {
-        print(
-          "🔔 ⚠️ WARNING: \(skippedInNext30Days) transactions in the next 30 days will NOT have notifications!"
-        )
-      } else {
-        print(
-          "🔔 ✅ All \(next30DaysTxs.count) transactions in the next 30 days will have notifications")
-      }
-    } else {
-      print(
-        "🔔 ✅ All \(next30DaysTxs.count) transactions in the next 30 days will have notifications")
-    }
-
-    limitedTxs.forEach { tx in
-      scheduleNotification(for: tx, calendar: calendar)
-    }
-  }
-
-  private func scheduleNotification(for tx: Transaction, calendar: Calendar) {
-    guard let transactionId = tx.id else {
-      return
-    }
-
-    let id = "transaction_\(transactionId)"
-
-    // Create notification time (8 AM) in local timezone
-    var notificationDate = calendar.startOfDay(for: tx.date)
-    notificationDate =
-      calendar.date(byAdding: .hour, value: 8, to: notificationDate) ?? notificationDate
-
-    // Only schedule if notification time is in the future
-    guard notificationDate > Date() else {
-      return
-    }
-
-    // Verificar se a data é muito no futuro (mais de 1 ano)
-    let oneYearFromNow = calendar.date(byAdding: .year, value: 1, to: Date()) ?? Date()
-    if tx.date > oneYearFromNow {
-      print("🔔 ⚠️ Skipping notification for \(tx.title) - date too far in future")
-      return
-    }
-
-    // Calculate time interval from now to notification date
-    let timeInterval = notificationDate.timeIntervalSinceNow
-
-    // Verificar se o intervalo é muito grande (mais de 30 dias)
-    let thirtyDaysInSeconds: TimeInterval = 30 * 24 * 60 * 60
-    if timeInterval > thirtyDaysInSeconds {
-      print("🔔 ⚠️ Skipping notification for \(tx.title) - more than 30 days away")
-      return
-    }
-
-    let trigger = UNTimeIntervalNotificationTrigger(timeInterval: timeInterval, repeats: false)
-
-    let titleKey =
-      tx.type == .income
-      ? "notification.transaction.title.income"
-      : "notification.transaction.title.expense"
-    let bodyKey =
-      tx.type == .income
-      ? "notification.transaction.body.income"
-      : "notification.transaction.body.expense"
-
-    let amountString = tx.amount.currencyString
-    let title = titleKey.localized
-    let body = String(format: bodyKey.localized, amountString, tx.title)
-
-    let content = UNMutableNotificationContent()
-    content.title = title
-    content.body = body
-    content.sound = .default
-    content.categoryIdentifier = "TRANSACTION_REMINDER"
-    content.userInfo = ["transactionId": transactionId, "date": tx.date.timeIntervalSince1970]
-
-    let request = UNNotificationRequest(identifier: id, content: content, trigger: trigger)
-    UNUserNotificationCenter.current().add(request) { error in
-      if let error = error {
-        print("🔔 ❌ Error scheduling notification for \(tx.title): \(error)")
-      } else {
-        print(
-          "🔔 ✅ Scheduled notification for \(tx.title) at \(DateFormatter.debugTimestampFormatter.string(from: notificationDate))"
-        )
-      }
-    }
-  }
-
-  // MARK: - Notification Management
-
-  /// Reagenda notificações para transações que estão próximas (dentro de 30 dias)
   private func rescheduleNearbyNotifications() {
-    guard let user = UserDefaultsManager.getUser(),
-      let firebaseUID = user.firebaseUID
-    else {
-      return
-    }
+    guard UserDefaultsManager.getUser()?.firebaseUID != nil else { return }
 
     let transactionRepo = TransactionRepository()
     let allTxs = transactionRepo.fetchAllTransactions()
-    let now = Date()
-    var calendar = Calendar.current
-    calendar.timeZone = TimeZone.current
-
-    // Encontrar transações que estão entre 30 e 60 dias no futuro
-    let thirtyDaysFromNow = calendar.date(byAdding: .day, value: 30, to: now) ?? now
-    let sixtyDaysFromNow = calendar.date(byAdding: .day, value: 60, to: now) ?? now
-
-    let nearbyTxs = allTxs.filter { tx in
-      // Skip parent transactions that are not visible in UI
-      if tx.hasInstallments == true && tx.amount == 0 {
-        return false
-      }
-
-      if tx.isRecurring == true && tx.parentTransactionId == nil && tx.amount == 0 {
-        return false
-      }
-
-      return tx.date >= thirtyDaysFromNow && tx.date <= sixtyDaysFromNow
-    }
-
-    if !nearbyTxs.isEmpty {
-      print("🔔 🔄 Rescheduling notifications for \(nearbyTxs.count) nearby transactions")
-      nearbyTxs.forEach { tx in
-        scheduleNotification(for: tx, calendar: calendar)
-      }
-    }
-  }
-
-  // MARK: - Credit Card Statement Notifications
-
-  private func scheduleCreditCardStatementNotifications() {
-    guard NotificationPreferencesManager.shared.shouldShowNotification(type: .creditCardStatement) else {
-      print("🔔 💳 Credit card statement notifications disabled - skipping")
-      return
-    }
-
-    guard let user = UserDefaultsManager.getUser(),
-          let firebaseUID = user.firebaseUID else {
-      print("🔔 ❌ Cannot schedule statement notifications: User not authenticated")
-      return
-    }
-
-    let cardRepo = CreditCardRepository()
-    let statementRepo = StatementRepository()
-    let cards = cardRepo.fetchAllCards(userId: firebaseUID)
-
-    let now = Date()
-    var calendar = Calendar.current
-    calendar.timeZone = TimeZone.current
-
-    // Remove old statement notifications first
-    UNUserNotificationCenter.current().getPendingNotificationRequests { requests in
-      let statementIds = requests
-        .filter { $0.identifier.hasPrefix("statement_due_") || $0.identifier.hasPrefix("statement_pay_") }
-        .map { $0.identifier }
-      UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: statementIds)
-      print("🔔 🧹 Cleared \(statementIds.count) existing statement notifications")
-    }
-
-    var scheduledCount = 0
-
-    for card in cards where !card.isDeleted {
-      guard let cardId = card.id else { continue }
-      let statements = statementRepo.fetchStatements(forCardId: cardId)
-
-      for statement in statements {
-        guard !statement.isPaid, let statementId = statement.id else { continue }
-
-        let dueDate = statement.dueDate
-        guard dueDate > now else { continue }
-
-        let amountString = statement.totalAmount.currencyString
-
-        // Due-soon notification (3 days before due date, at 9 AM)
-        if let threeDaysBefore = calendar.date(byAdding: .day, value: -3, to: dueDate) {
-          var dueSoonDate = calendar.startOfDay(for: threeDaysBefore)
-          dueSoonDate = calendar.date(byAdding: .hour, value: 9, to: dueSoonDate) ?? dueSoonDate
-
-          if dueSoonDate > now {
-            let timeInterval = dueSoonDate.timeIntervalSinceNow
-            let thirtyDaysInSeconds: TimeInterval = 30 * 24 * 60 * 60
-            if timeInterval <= thirtyDaysInSeconds {
-              let trigger = UNTimeIntervalNotificationTrigger(timeInterval: timeInterval, repeats: false)
-
-              let content = UNMutableNotificationContent()
-              content.title = "notification.statement.dueSoon.title".localized
-              content.body = String(format: "notification.statement.dueSoon.body".localized, card.name, amountString)
-              content.sound = .default
-              content.userInfo = [
-                "type": "credit_card_statement",
-                "statementId": statementId,
-                "cardId": cardId
-              ]
-
-              let id = "statement_due_\(statementId)"
-              let request = UNNotificationRequest(identifier: id, content: content, trigger: trigger)
-              UNUserNotificationCenter.current().add(request) { error in
-                if let error = error {
-                  print("🔔 ❌ Error scheduling due-soon notification: \(error)")
-                } else {
-                  print("🔔 ✅ Scheduled due-soon notification for \(card.name) statement \(statementId)")
-                }
-              }
-              scheduledCount += 1
-            }
-          }
-        }
-
-        // Payment reminder (on due date, at 9 AM)
-        var paymentDate = calendar.startOfDay(for: dueDate)
-        paymentDate = calendar.date(byAdding: .hour, value: 9, to: paymentDate) ?? paymentDate
-
-        if paymentDate > now {
-          let timeInterval = paymentDate.timeIntervalSinceNow
-          let thirtyDaysInSeconds: TimeInterval = 30 * 24 * 60 * 60
-          if timeInterval <= thirtyDaysInSeconds {
-            let trigger = UNTimeIntervalNotificationTrigger(timeInterval: timeInterval, repeats: false)
-
-            let content = UNMutableNotificationContent()
-            content.title = "notification.statement.paymentDue.title".localized
-            content.body = String(format: "notification.statement.paymentDue.body".localized, card.name, amountString)
-            content.sound = .default
-            content.userInfo = [
-              "type": "credit_card_statement",
-              "statementId": statementId,
-              "cardId": cardId
-            ]
-
-            let id = "statement_pay_\(statementId)"
-            let request = UNNotificationRequest(identifier: id, content: content, trigger: trigger)
-            UNUserNotificationCenter.current().add(request) { error in
-              if let error = error {
-                print("🔔 ❌ Error scheduling payment-due notification: \(error)")
-              } else {
-                print("🔔 ✅ Scheduled payment-due notification for \(card.name) statement \(statementId)")
-              }
-            }
-            scheduledCount += 1
-          }
-        }
-      }
-    }
-
-    print("🔔 💳 Scheduled \(scheduledCount) credit card statement notifications")
+    TransactionNotificationManager.shared.rescheduleNearbyTransactions(transactions: allTxs)
   }
 
   // MARK: - UNUserNotificationCenterDelegate

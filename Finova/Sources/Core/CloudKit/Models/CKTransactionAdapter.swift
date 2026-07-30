@@ -69,7 +69,12 @@ extension Transaction: CKRecordConvertible {
             record["parentCKRecordName"] = parentCKName as CKRecordValue?
         }
 
-        record["updatedAt"] = (updatedAt ?? Date()) as CKRecordValue
+        // The receiving device orders conflicts on this value, so it must be the real last-edit
+        // time — never `Date()`. Stamping "now" made every push look newer than the other device's
+        // genuine edit, so any non-edit re-push (mirror reconcile, CC repair, force re-push) silently
+        // reverted it. `nil` only happens for legacy rows written before `updated_at` existed; those
+        // have no basis for comparison, so fall back to the record's creation date if we have one.
+        record["updatedAt"] = (updatedAt ?? record.creationDate ?? Date()) as CKRecordValue
         record["createdByUid"] = createdByUid as CKRecordValue?
 
         return record

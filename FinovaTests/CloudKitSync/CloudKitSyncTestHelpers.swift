@@ -72,26 +72,84 @@ final class MockCloudStore {
 
 // MARK: - DeviceSimulator
 
-/// Encapsulates a "device" with its own user context for sync testing.
+/// One simulated device: its **own** SQLite database, its own repositories, and its own conflict
+/// resolver, all sharing a single `MockCloudStore` that stands in for CloudKit.
+///
+/// Previously every `DeviceSimulator` used `DBHelper.shared` — one singleton on one fixed file — so
+/// "device A" and "device B" were the same database, and `activate()` merely flipped a uid that was
+/// identical for both. `testCreateOnA_SyncToB` therefore passed because the row had never gone
+/// anywhere. The whole cross-device suite would pass with sync switched off.
 final class DeviceSimulator {
     let userUID: String
     let mockCloud: MockCloudStore
+    let db: DBHelper
+    let dbPath: URL
     let transactionRepo: TransactionRepository
     let budgetRepo: BudgetRepository
     let groupRepo: BudgetGroupRepository
+    let cardRepo: CreditCardRepository
+    let statementRepo: StatementRepository
+    let allocationRepo: BudgetAllocationRepository
+    let resolver: ConflictResolver
 
-    init(userUID: String, mockCloud: MockCloudStore) {
+    /// - Parameter label: distinguishes this device's database file; use "A"/"B".
+    init(userUID: String, mockCloud: MockCloudStore, label: String = UUID().uuidString) {
         self.userUID = userUID
         self.mockCloud = mockCloud
-        self.transactionRepo = TransactionRepository()
-        self.budgetRepo = BudgetRepository()
-        self.groupRepo = BudgetGroupRepository()
+        self.dbPath = FileManager.default.temporaryDirectory
+            .appendingPathComponent("FinovaTest-\(label)-\(UUID().uuidString).sqlite")
+        self.db = DBHelper(path: dbPath)
+        self.transactionRepo = TransactionRepository(db: db)
+        self.budgetRepo = BudgetRepository(db: db)
+        self.groupRepo = BudgetGroupRepository(db: db)
+        self.cardRepo = CreditCardRepository(db: db)
+        self.statementRepo = StatementRepository(db: db)
+        self.allocationRepo = BudgetAllocationRepository(db: db)
+        self.resolver = ConflictResolver(db: db)
     }
 
     /// Activates this device's user context.
+    ///
+    /// `TransactionRepository`'s cache is static, so it must be invalidated whenever the active
+    /// device changes or one device will read the other's cached rows — the isolation is in the
+    /// database, not in that cache.
     func activate() {
         UIDUserDefaultsManager.shared.currentUserUID = userUID
         TransactionRepository.invalidateCache()
+    }
+
+    // MARK: - Convergence
+
+    /// Every synced column of every synced row, ordered deterministically, for A-vs-B comparison.
+    ///
+    /// This is the assertion that matters: not "B received the record" but "A and B agree".
+    /// Excludes columns that are legitimately device-local — the local autoincrement `id`, the
+    /// integer foreign keys derived from it, and `sync_status`/`ck_modified_at` bookkeeping.
+    func dataFingerprint() -> [String] {
+        activate()
+        var lines: [String] = []
+
+        for tx in transactionRepo.fetchAllTransactions().sorted(by: { $0.title < $1.title }) {
+            let ck = tx.id.flatMap { transactionRepo.fetchCKRecordName(for: $0) } ?? "-"
+            lines.append("TX|\(ck)|\(tx.title)|\(tx.amount)|\(tx.budgetMonthDate)|\(tx.category.rawValue)|\(tx.type.rawValue)")
+        }
+        for b in budgetRepo.fetchBudgets().sorted(by: { $0.monthDate < $1.monthDate }) {
+            lines.append("BUDGET|\(b.monthDate)|\(b.amount)")
+        }
+        for c in cardRepo.fetchAllCards(userId: userUID).sorted(by: { $0.name < $1.name }) {
+            lines.append("CARD|\(c.name)|\(c.lastFourDigits)|\(c.closingDay)|\(c.dueDay)")
+        }
+        return lines.sorted()
+    }
+
+    // MARK: - Cleanup
+
+    /// Closes and removes this device's database file.
+    func destroy() {
+        for suffix in ["", "-wal", "-shm"] {
+            let url = URL(fileURLWithPath: dbPath.path + suffix)
+            try? FileManager.default.removeItem(at: url)
+        }
     }
 
     // MARK: - Push
@@ -140,8 +198,29 @@ final class DeviceSimulator {
         }
     }
 
+    /// Push pending credit cards to mock cloud.
+    func pushCards() {
+        activate()
+        let zoneID = MockCloudStore.zoneID
+        for card in cardRepo.fetchPendingSync() {
+            guard let cardId = card.id else { continue }
+            let storedName = cardRepo.fetchCKRecordName(for: cardId)
+            let record = card.toCKRecord(in: zoneID, storedRecordName: storedName)
+            if storedName == nil {
+                cardRepo.setCKRecordId(for: cardId, ckRecordName: record.recordID.recordName)
+            }
+            mockCloud.save(record)
+            cardRepo.markAsSynced(ckRecordName: record.recordID.recordName)
+        }
+    }
+
     /// Push all pending data to mock cloud.
+    ///
+    /// Cards go FIRST: a transaction's `creditCardCKRecordName` is only populated once its card has
+    /// a `ck_record_id`, so pushing transactions first would ship them with a nil card reference —
+    /// the same ordering constraint the real `pushLocalChanges` enforces.
     func pushAll() {
+        pushCards()
         pushTransactions()
         pushBudgets()
     }
@@ -154,8 +233,12 @@ final class DeviceSimulator {
         let cloudRecords = mockCloud.fetchAll(recordType: "Transaction")
 
         for ckRecord in cloudRecords {
+            // Faithfully reproduce the production pull path: SyncEngine rewrites the record's
+            // foreign keys from the sender's local integers to this device's before parsing.
+            // Omitting this would make the harness fail for a reason the real app doesn't have.
+            SyncEngine.remapCrossDeviceIDs(in: ckRecord, db: db)
             guard let remote = Transaction.fromCKRecord(ckRecord) else { continue }
-            ConflictResolver.shared.resolveTransaction(remote: remote, ckRecord: ckRecord)
+            resolver.resolveTransaction(remote: remote, ckRecord: ckRecord)
         }
 
         transactionRepo.fixAndDeduplicateAfterSync()
@@ -169,12 +252,25 @@ final class DeviceSimulator {
 
         for ckRecord in cloudRecords {
             guard let remote = BudgetModel.fromCKRecord(ckRecord) else { continue }
-            ConflictResolver.shared.resolveBudget(remote: remote, ckRecord: ckRecord)
+            resolver.resolveBudget(remote: remote, ckRecord: ckRecord)
+        }
+    }
+
+    /// Pull credit cards from mock cloud and resolve conflicts.
+    func pullCards() {
+        activate()
+        for ckRecord in mockCloud.fetchAll(recordType: "CreditCard") {
+            guard let remote = CreditCard.fromCKRecord(ckRecord) else { continue }
+            resolver.resolveCreditCard(remote: remote, ckRecord: ckRecord)
         }
     }
 
     /// Pull all data from mock cloud.
+    ///
+    /// Cards before transactions, mirroring `SyncRecordCategory` ordering in the real engine, so a
+    /// transaction's card reference can resolve on arrival.
     func pullAll() {
+        pullCards()
         pullTransactions()
         pullBudgets()
     }
@@ -209,6 +305,7 @@ final class DeviceSimulator {
         activate()
         transactionRepo.clearAllTransactionsForTesting()
         TransactionRepository.invalidateCache()
+        destroy()
     }
 }
 

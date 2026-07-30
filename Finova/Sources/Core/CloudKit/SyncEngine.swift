@@ -66,6 +66,14 @@ final class SyncEngine {
         get { syncFlagLock.lock(); defer { syncFlagLock.unlock() }; return _needsPostSyncPush }
         set { syncFlagLock.lock(); defer { syncFlagLock.unlock() }; _needsPostSyncPush = newValue }
     }
+
+    /// Records that a local write landed while a sync cycle was in flight, so `finishSync` drains a
+    /// follow-up push instead of leaving the row stranded as 'pending'. Called by
+    /// `SyncChangeTracker` (which cannot post its usual notification mid-cycle without racing the
+    /// running push). Thread-safe — `needsPostSyncPush` is lock-guarded.
+    func noteLocalChangeDuringSync() {
+        needsPostSyncPush = true
+    }
     private(set) var currentPushProgress: SyncPushProgress?
     private var isInitialPush = false
     private var isLargeSyncCycle = false
@@ -85,6 +93,12 @@ final class SyncEngine {
         AuthenticationManager.shared.currentUser != nil
     }
     private static let largeSyncThreshold = 100
+    /// Threshold for showing the InitialSync loading screen during background syncs.
+    /// When a pull exceeds this many records while dashboard is visible, a notification
+    /// is posted so AppFlowController can present the loading screen.
+    static let loadingScreenThreshold = 30
+    /// Cumulative record count across all pull phases in the current sync cycle.
+    private var cyclePullRecordCount = 0
     /// Maps CK record names to (entityType, localId) for records that need ck_record_id set after successful push.
     /// Populated during pushLocalChanges, consumed per-record in pushBatches.
     private var pendingCKIdAssignments: [String: (type: String, localId: Int)] = [:]
@@ -142,6 +156,12 @@ final class SyncEngine {
             name: .allocationDataChanged,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleLocalDataChange),
+            name: .localSyncableDataDidChange,
+            object: nil
+        )
     }
 
     // MARK: - Public API
@@ -188,6 +208,52 @@ final class SyncEngine {
                     completion(recordCount)
                 case .failure(let error):
                     logError("[Sync] Direct shared zone fetch failed: \(error.localizedDescription)")
+                    completion(0)
+                }
+            }
+        )
+    }
+
+    /// Directly fetches the OWNER's own group zone from the PRIVATE database (nil token = full
+    /// fetch). The private-DB counterpart of `fetchSharedGroupZone`: called when the user opens
+    /// their own group's context so a second device of the same account reliably pulls the group's
+    /// transactions/budgets even if the incremental force-include never fired (the local group row
+    /// didn't exist yet at fetch time) — fixing an owner group that shows empty on a second device.
+    func fetchOwnedGroupZone(groupId: String, completion: @escaping (Int) -> Void) {
+        let zoneID = CKRecordZone.ID(zoneName: "Group-\(groupId)", ownerName: CKCurrentUserDefaultName)
+        logWarning("[Sync] Direct fetch for owned group zone: \(zoneID.zoneName)")
+
+        var recordCount = 0
+
+        cloudKitOps.fetchZoneChanges(
+            zoneIDs: [zoneID],
+            database: .private,
+            tokenForZone: { _ in nil }, // nil = full fetch from beginning
+            recordHandler: { [weak self] record in
+                recordCount += 1
+                self?.processIncomingRecord(record)
+            },
+            deleteHandler: { [weak self] recordID, recordType in
+                self?.processDeletedRecord(recordID: recordID, recordType: recordType)
+            },
+            zoneTokenHandler: { [weak self] zoneID, token in
+                self?.stateManager.saveChangeToken(token, for: zoneID.zoneName, database: "private")
+            },
+            completion: { result in
+                switch result {
+                case .success:
+                    logWarning("[Sync] Direct owned group zone fetch complete — \(recordCount) record(s)")
+                    TransactionRepository.invalidateCache()
+                    DispatchQueue.main.async {
+                        NotificationCenter.default.post(name: .transactionDataChanged, object: nil)
+                        NotificationCenter.default.post(name: .budgetDataChanged, object: nil)
+                        NotificationCenter.default.post(name: .creditCardDataChanged, object: nil)
+                        NotificationCenter.default.post(name: .allocationDataChanged, object: nil)
+                        NotificationCenter.default.post(name: .budgetGroupDataChanged, object: nil)
+                    }
+                    completion(recordCount)
+                case .failure(let error):
+                    logError("[Sync] Direct owned group zone fetch failed: \(error.localizedDescription)")
                     completion(0)
                 }
             }
@@ -248,6 +314,11 @@ final class SyncEngine {
             // creditCardId/statementId fields in Statements and Transactions correctly.
             var bufferedRecords: [CKRecord] = []
             var bufferedDeletes: [(CKRecord.ID, String)] = []
+            // Same rule as fetchZoneChanges: hold zone tokens until the buffered records they cover
+            // are actually applied. Recovery starts from nil tokens, so committing eagerly and then
+            // failing would leave saved tokens pointing past records that were never written —
+            // the next normal sync would skip them forever.
+            var pendingZoneTokens: [(zoneID: CKRecordZone.ID, token: CKServerChangeToken?, dbKey: String)] = []
 
             // Step 1: Fetch private DB zones
             self.cloudKitOps.fetchZoneChanges(
@@ -260,8 +331,8 @@ final class SyncEngine {
                 deleteHandler: { recordID, recordType in
                     bufferedDeletes.append((recordID, recordType))
                 },
-                zoneTokenHandler: { [weak self] zoneID, token in
-                    self?.stateManager.saveChangeToken(token, for: zoneID.zoneName, database: "private")
+                zoneTokenHandler: { zoneID, token in
+                    pendingZoneTokens.append((zoneID, token, "private"))
                 },
                 completion: { [weak self] result in
                     guard let self = self else { completion?(); return }
@@ -269,6 +340,7 @@ final class SyncEngine {
                     guard case .success = result else {
                         if case .failure(let error) = result {
                             logError("[Sync] Recovery private fetch failed: \(error.localizedDescription)")
+                            logWarning("[Sync] Recovery: discarding \(pendingZoneTokens.count) uncommitted zone token(s) — records were never applied")
                             self.finishSync(status: .error(error), completion: completion)
                         }
                         return
@@ -284,6 +356,7 @@ final class SyncEngine {
                         self.processRecoveryBuffer(
                             records: bufferedRecords, deletes: bufferedDeletes,
                             zoneCount: totalZoneCount,
+                            zoneTokens: pendingZoneTokens,
                             completion: completion
                         )
                     }
@@ -303,16 +376,19 @@ final class SyncEngine {
                         deleteHandler: { recordID, recordType in
                             bufferedDeletes.append((recordID, recordType))
                         },
-                        zoneTokenHandler: { [weak self] zoneID, token in
-                            self?.stateManager.saveChangeToken(token, for: zoneID.zoneName, database: "shared")
+                        zoneTokenHandler: { zoneID, token in
+                            pendingZoneTokens.append((zoneID, token, "shared"))
                         },
                         completion: { [weak self] result in
                             guard self != nil else { completion?(); return }
                             let sharedCount = bufferedRecords.count - privateCount
                             logWarning("[Sync] Recovery: shared fetch got \(sharedCount) record(s)")
-                            // Process even if shared fetch fails — private data is more important
+                            // Process even if shared fetch fails — private data is more important.
+                            // Drop the shared tokens in that case so the partially-fetched shared
+                            // zones are retried from scratch rather than skipped.
                             if case .failure(let error) = result {
-                                logWarning("[Sync] Recovery: shared fetch failed (non-fatal): \(error.localizedDescription)")
+                                logWarning("[Sync] Recovery: shared fetch failed (non-fatal): \(error.localizedDescription) — dropping shared zone tokens for retry")
+                                pendingZoneTokens.removeAll { $0.dbKey == "shared" }
                             }
                             fetchSharedAndProcess()
                         }
@@ -328,6 +404,7 @@ final class SyncEngine {
         records bufferedRecords: [CKRecord],
         deletes bufferedDeletes: [(CKRecord.ID, String)],
         zoneCount: Int,
+        zoneTokens: [(zoneID: CKRecordZone.ID, token: CKServerChangeToken?, dbKey: String)] = [],
         completion: (() -> Void)?
     ) {
         // Recovery is a clean-slate cloud-wins pull: delete every previously-synced
@@ -475,6 +552,10 @@ final class SyncEngine {
         TransactionRepository.invalidateCache()
         let recoveredCount = sortedRecords.count
         logWarning("[Sync] Recovery complete — \(recoveredCount) record(s) from \(zoneCount) zone(s)")
+        // Commit zone tokens only now that every buffered record has been written locally.
+        for entry in zoneTokens {
+            stateManager.saveChangeToken(entry.token, for: entry.zoneID.zoneName, database: entry.dbKey)
+        }
         stateManager.updateLastSyncDate(for: "privateDB")
         DispatchQueue.main.async {
             NotificationCenter.default.post(name: .transactionDataChanged, object: nil)
@@ -566,12 +647,13 @@ final class SyncEngine {
     /// Fetches shared group data with escalating retries.
     /// Called after CKShare acceptance to handle CloudKit propagation delays.
     /// Uses a threshold > 1 because the zone-wide CKShare record itself counts as 1 record.
-    func syncSharedGroupData(groupId: String, zoneOwner: String) {
+    func syncSharedGroupData(groupId: String, zoneOwner: String, completion: (() -> Void)? = nil) {
         let delays: [Double] = [2.0, 5.0, 10.0, 20.0, 40.0, 60.0]
 
         func attemptFetch(index: Int) {
             guard index < delays.count else {
                 logWarning("[Sync] Shared group data: exhausted all \(delays.count) retries for group \(groupId)")
+                completion?()
                 return
             }
 
@@ -580,6 +662,7 @@ final class SyncEngine {
                     // count > 1 because the CKShare record itself counts as 1
                     if count > 1 {
                         logWarning("[Sync] Shared group data fetched (\(count) records) on attempt \(index + 1)")
+                        completion?()
                     } else {
                         logWarning("[Sync] Shared group data: \(count) record(s) on attempt \(index + 1) (only share metadata?) — retrying")
                         attemptFetch(index: index + 1)
@@ -600,6 +683,10 @@ final class SyncEngine {
         }
         guard isUserAuthenticated else {
             logWarning("[Sync] performFullSync — skipped (user not authenticated)")
+            // Publish a terminal status. Returning silently left observers that gate their UI on
+            // sync status (InitialSyncViewController, the sync toast) waiting on a status that
+            // would never arrive.
+            status = .idle
             completion?()
             return
         }
@@ -793,6 +880,12 @@ final class SyncEngine {
             return
         }
         logWarning("[SyncEngine] pushPendingChangesNow — called")
+        // UIApplication is main-thread-only, and this is now called from background write paths
+        // (allocation create/edit, recurring generation). Hop to main to claim the background task.
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in self?.pushPendingChangesNow() }
+            return
+        }
         var bgTaskID = UIBackgroundTaskIdentifier.invalid
         bgTaskID = UIApplication.shared.beginBackgroundTask {
             logWarning("[SyncEngine] pushPendingChangesNow — background task expired")
@@ -826,6 +919,11 @@ final class SyncEngine {
     }
 
     @objc private func handleLocalDataChange() {
+        // Block standalone pushes until initial pull is verified on new devices
+        guard UserDefaults.standard.bool(forKey: Self.fullPullVerifiedKey) else {
+            logWarning("[SyncLife] handleLocalDataChange — skipped (initial pull not verified)")
+            return
+        }
         if isSyncDisabledByUser {
             logWarning("[SyncLife] handleLocalDataChange — skipped (sync disabled by user)")
             return
@@ -945,6 +1043,19 @@ final class SyncEngine {
 
             // Fix 4c: Post-sync data integrity check after first verified pull
             performPostSyncIntegrityCheck()
+
+            // Deletes are gated by this flag (canPushDeletes). Any delete the user made BEFORE
+            // this first verified pull was deferred and is still sitting in `pendingDelete`; flush
+            // it now that pushing deletes is allowed — otherwise the cloud stays stale (and a
+            // deleted series would re-hydrate to other devices). Deferred so the current cycle
+            // finishes first; pushPendingChangesNow is a no-op when nothing is pending.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
+                self?.pushPendingChangesNow()
+                // Same gate applies to the balance offset: flush any offset edit deferred while
+                // this device was hydrating (it was blocked so it couldn't clobber the other
+                // device's value with a pre-hydration 0).
+                UIDUserDefaultsManager.shared.repushPendingBalanceOffsetsAfterHydration()
+            }
         }
     }
 
@@ -1120,6 +1231,7 @@ final class SyncEngine {
         postSyncPushCycleCount = 0
         didReceiveBalanceOffsetDuringPull = false
         isLargeSyncCycle = false
+        cyclePullRecordCount = 0
         status = .syncing
         postPhaseProgress(progress: 0.0, phaseKey: "sync.phase.preparing")
         cloudKitOps.ensureZoneExists { [weak self] result in
@@ -1275,11 +1387,29 @@ final class SyncEngine {
                     if changedZoneIDs.isEmpty {
                         // When the token was nil (forceFullFetch/reset), an empty changedZoneIDs
                         // is unexpected — it likely means the DB-level fetch returned before the
-                        // zone handler fired (e.g. async delivery edge case).  Fall back to a
-                        // direct zone fetch for the private zone so the recovery pull is not skipped.
+                        // zone handler fired (e.g. async delivery edge case). Enumerate ALL private
+                        // record zones directly so the recovery pull covers the default zone AND the
+                        // owner's own `Group-<id>` zones — otherwise a fresh device (no local group
+                        // rows yet, so the force-include above adds nothing) never fetches the group
+                        // zone and the group shows empty until a later cycle. Mirrors the shared-DB
+                        // fallback.
                         if token == nil {
-                            logWarning("[Sync] No changed zones with nil token — falling back to direct private zone fetch to ensure recovery")
-                            self?.fetchZoneChanges(zoneIDs: [CloudKitManager.privateZoneID], database: .private, completion: completion)
+                            logWarning("[Sync] No changed zones with nil token — enumerating all private zones (incl. owned group zones) for recovery")
+                            var recoveryZoneIDs: [CKRecordZone.ID] = [CloudKitManager.privateZoneID]
+                            let fallbackOp = CKFetchRecordZonesOperation.fetchAllRecordZonesOperation()
+                            fallbackOp.perRecordZoneResultBlock = { zoneID, result in
+                                if case .success = result,
+                                   zoneID.zoneName.hasPrefix("Group-"),
+                                   !recoveryZoneIDs.contains(where: { $0.zoneName == zoneID.zoneName }) {
+                                    recoveryZoneIDs.append(zoneID)
+                                    logWarning("[Sync] Fallback discovered private group zone: \(zoneID.zoneName)")
+                                }
+                            }
+                            fallbackOp.fetchRecordZonesResultBlock = { [weak self] _ in
+                                self?.fetchZoneChanges(zoneIDs: recoveryZoneIDs, database: .private, completion: completion)
+                            }
+                            fallbackOp.qualityOfService = .userInitiated
+                            CloudKitManager.shared.privateDatabase.add(fallbackOp)
                         } else {
                             logWarning("[Sync] No changed zones — skipping zone fetch")
                             completion(.success(()))
@@ -1403,6 +1533,10 @@ final class SyncEngine {
         self.isProcessingCloudData = true
         var pulledRecordCount = 0
         var pulledDeleteCount = 0
+        var bufferedRecords: [CKRecord] = []
+        // Zone tokens are held here until the records they cover have actually been applied.
+        // See the completion block for why they must not be persisted as they arrive.
+        var pendingZoneTokens: [(zoneID: CKRecordZone.ID, token: CKServerChangeToken?)] = []
 
         let pullBaseProgress: Float = database == .private ? 0.25 : 0.40
         let pullPhaseKey = database == .private ? "sync.phase.downloading" : "sync.phase.downloadingShared"
@@ -1419,10 +1553,11 @@ final class SyncEngine {
             },
             recordHandler: { [weak self] record in
                 pulledRecordCount += 1
+                self?.cyclePullRecordCount += 1
                 if self?.isFullRefetch == true {
                     self?.pulledCKRecordNames.insert(record.recordID.recordName)
                 }
-                self?.processIncomingRecord(record)
+                bufferedRecords.append(record)
 
                 // Detect large sync early — as soon as threshold is crossed during pull
                 if pulledRecordCount == Self.largeSyncThreshold + 1,
@@ -1432,10 +1567,18 @@ final class SyncEngine {
                     self?.postPhaseProgress(progress: pullBaseProgress + 0.05, phaseKey: pullPhaseKey)
                 }
 
+                // Notify AppFlowController to show loading screen for large background syncs
+                if let count = self?.cyclePullRecordCount,
+                   count == Self.loadingScreenThreshold {
+                    DispatchQueue.main.async {
+                        NotificationCenter.default.post(name: .syncRequiresLoadingScreen, object: nil)
+                    }
+                }
+
                 // Incremental pull progress every 25 records (capped at next phase boundary)
                 if pulledRecordCount % 25 == 0 {
                     let increment = Float(pulledRecordCount) * 0.001
-                    let nextBoundary: Float = database == .private ? 0.40 : 0.50
+                    let nextBoundary: Float = database == .private ? 0.30 : 0.42
                     let pullProgress = min(pullBaseProgress + increment, nextBoundary - 0.01)
                     self?.postPhaseProgress(progress: pullProgress, phaseKey: pullPhaseKey)
                 }
@@ -1444,15 +1587,27 @@ final class SyncEngine {
                 pulledDeleteCount += 1
                 self?.processDeletedRecord(recordID: recordID, recordType: recordType)
             },
-            zoneTokenHandler: { [weak self] zoneID, token in
-                let dbKey = database == .private ? "private" : "shared"
-                self?.stateManager.saveChangeToken(token, for: zoneID.zoneName, database: dbKey)
+            zoneTokenHandler: { zoneID, token in
+                // Deliberately NOT persisted here — buffered until the records are applied below.
+                pendingZoneTokens.append((zoneID, token))
             },
             completion: { [weak self] result in
-                self?.isProcessingCloudData = false
+                let dbKey = database == .private ? "private" : "shared"
                 switch result {
                 case .success:
                     logWarning("[Sync] Pull complete — \(pulledRecordCount) record(s), \(pulledDeleteCount) delete(s), largeSync=\(self?.isLargeSyncCycle ?? false)")
+                    self?.processBufferedRecords(bufferedRecords, database: database)
+                    // Commit zone tokens ONLY now that the records they cover are in the local DB.
+                    // Persisting them as they arrived (the old behaviour) silently lost data: records
+                    // are buffered and applied here, so any failure below — or a 30s request timeout,
+                    // network drop, or app kill mid-fetch — discarded the buffer while the token had
+                    // already advanced past those records, making CloudKit never re-deliver them.
+                    // Re-fetching an already-applied record is idempotent, so erring toward
+                    // re-delivery is always the safe direction.
+                    for entry in pendingZoneTokens {
+                        self?.stateManager.saveChangeToken(entry.token, for: entry.zoneID.zoneName, database: dbKey)
+                    }
+                    self?.isProcessingCloudData = false
                     TransactionRepository.invalidateCache()
                     let localCount = TransactionRepository().fetchAllTransactions().count
                     logWarning("[Sync] Local DB has \(localCount) transaction(s) after pull")
@@ -1466,6 +1621,13 @@ final class SyncEngine {
                     // steps have completed, avoiding intermediate/broken states.
                     completion(.success(()))
                 case .failure(let error):
+                    self?.isProcessingCloudData = false
+                    // Intentionally drop `pendingZoneTokens`: the buffered records were never
+                    // applied, so the next fetch must start from the previous token and re-deliver
+                    // them. Committing here would strand those records permanently.
+                    if !pendingZoneTokens.isEmpty {
+                        logWarning("[Sync] Pull failed — discarding \(pendingZoneTokens.count) uncommitted zone token(s) so \(bufferedRecords.count) unapplied record(s) are re-delivered next fetch")
+                    }
                     if let ckError = error as? CKError, ckError.code == .changeTokenExpired {
                         logWarning("Zone changes token expired — resetting all tokens and retrying")
                         self?.stateManager.resetAllTokens()
@@ -1476,6 +1638,100 @@ final class SyncEngine {
                 }
             }
         )
+    }
+
+    private func processBufferedRecords(_ records: [CKRecord], database: CKDatabase.Scope) {
+        var categorized: [SyncRecordCategory: [CKRecord]] = [:]
+        var uncategorized: [CKRecord] = []
+        for record in records {
+            if let cat = SyncRecordCategory.category(for: record.recordType) {
+                categorized[cat, default: []].append(record)
+            } else {
+                uncategorized.append(record)
+            }
+        }
+
+        // Process uncategorized first (system types like cloudkit.share)
+        for record in uncategorized { processIncomingRecord(record) }
+
+        let progressStart: Float = database == .private ? 0.30 : 0.42
+        let progressEnd: Float = database == .private ? 0.40 : 0.50
+        let activeCategories = SyncRecordCategory.allCases.filter { !(categorized[$0] ?? []).isEmpty }
+        guard !activeCategories.isEmpty else { return }
+        let step = (progressEnd - progressStart) / Float(activeCategories.count)
+
+        for (i, category) in activeCategories.enumerated() {
+            postPhaseProgress(
+                progress: progressStart + Float(i) * step,
+                phaseKey: category.phaseKey,
+                totalRecords: categorized[category]?.count ?? 0
+            )
+
+            // Sort within category: parents before children
+            var recs = categorized[category] ?? []
+            recs.sort { lhs, rhs in
+                let lp = SyncRecordCategory.intraCategoryPriority(for: lhs.recordType)
+                let rp = SyncRecordCategory.intraCategoryPriority(for: rhs.recordType)
+                if lp != rp { return lp < rp }
+                // Transactions: parents (no parentCKRecordName) before children
+                if category == .transactions {
+                    let lChild = (lhs["parentCKRecordName"] as? String) != nil
+                    let rChild = (rhs["parentCKRecordName"] as? String) != nil
+                    if lChild != rChild { return !lChild }
+                }
+                return false
+            }
+
+            for record in recs { processIncomingRecord(record) }
+        }
+    }
+
+    // MARK: - Sync Record Categories
+
+    private enum SyncRecordCategory: Int, CaseIterable, Comparable {
+        case groups = 0        // BudgetGroup, GroupMember, GroupActivity
+        case creditCards = 1   // CreditCard
+        case budgets = 2       // Budget, BalanceOffset
+        case statements = 3    // CreditCardStatement
+        case allocations = 4   // BudgetAllocation
+        case transactions = 5  // Transaction
+
+        static func < (lhs: Self, rhs: Self) -> Bool { lhs.rawValue < rhs.rawValue }
+
+        static func category(for recordType: String) -> SyncRecordCategory? {
+            switch recordType {
+            case "BudgetGroup", "GroupMember", "GroupActivity": return .groups
+            case "CreditCard": return .creditCards
+            case "Budget", "BalanceOffset": return .budgets
+            case "CreditCardStatement": return .statements
+            case "BudgetAllocation": return .allocations
+            case "Transaction": return .transactions
+            default: return nil
+            }
+        }
+
+        var phaseKey: String {
+            switch self {
+            case .groups:       return "sync.phase.syncingGroups"
+            case .creditCards:  return "sync.phase.syncingCreditCards"
+            case .budgets:      return "sync.phase.syncingBudgets"
+            case .statements:   return "sync.phase.syncingStatements"
+            case .allocations:  return "sync.phase.syncingAllocations"
+            case .transactions: return "sync.phase.syncingTransactions"
+            }
+        }
+
+        /// Intra-category priority: lower = processed first within the same category.
+        static func intraCategoryPriority(for recordType: String) -> Int {
+            switch recordType {
+            case "BudgetGroup": return 0
+            case "GroupMember": return 1
+            case "GroupActivity": return 2
+            case "Budget": return 0
+            case "BalanceOffset": return 1
+            default: return 0
+            }
+        }
     }
 
     // MARK: - Group Zone Routing
@@ -1524,6 +1780,19 @@ final class SyncEngine {
             zoneID: CKRecordZone.ID(zoneName: "Group-\(groupId)", ownerName: ownerName),
             database: .shared
         )
+    }
+
+    /// Returns false when a group record's CloudKit destination can't be safely resolved yet:
+    /// the group hasn't been discovered locally, or a member's shared-zone owner (`ckZoneOwner`)
+    /// hasn't been resolved. In those cases the push must be DEFERRED (row left pending) rather
+    /// than misrouted to the private/self zone — misrouting silently fails on the real (owner's)
+    /// zone and can delete the private-zone copy, making the record appear to vanish/resurrect.
+    /// Personal (non-group) records always resolve.
+    private func canResolveDestination(forGroupId groupId: String?) -> Bool {
+        guard let groupId = groupId, !groupId.isEmpty else { return true }
+        guard let group = BudgetGroupRepository().fetchGroup(byId: groupId) else { return false }
+        if group.isOwner { return true }
+        return !(group.ckZoneOwner?.isEmpty ?? true)
     }
 
     /// One-time migration: marks group-tagged synced records as pending and clears their
@@ -1593,6 +1862,39 @@ final class SyncEngine {
         DBHelper.shared.saveSystemFields(coder.encodedData, ckRecordName: record.recordID.recordName, table: table)
     }
 
+    /// Decodes the zone a record was last successfully synced into, from its stored system fields.
+    /// (`storeSystemFields` refreshes these after every successful push, so this is the record's
+    /// current home in CloudKit.)
+    private func lastSyncedZone(ckRecordName name: String, table: String) -> CKRecordZone.ID? {
+        guard let data = DBHelper.shared.fetchSystemFields(ckRecordName: name, table: table),
+              let unarchiver = try? NSKeyedUnarchiver(forReadingFrom: data) else { return nil }
+        unarchiver.requiresSecureCoding = true
+        guard let archived = CKRecord(coder: unarchiver) else { return nil }
+        unarchiver.finishDecoding()
+        return archived.recordID.zoneID
+    }
+
+    /// Returns the stale copy to delete when a record is moving zones, or nil when it isn't.
+    ///
+    /// A record's zone changes whenever its group tag changes: personal → group (mirror mode on),
+    /// group → personal (mirror mode off, or leaving a group), or group A → group B. `buildCKRecord`
+    /// already pushes to the NEW zone, but nothing removed the OLD zone's copy — so disabling mirror
+    /// mode left every personal record sitting in the group zone, where members kept seeing it and a
+    /// second device re-pulled it and re-applied the group tag (silently re-enabling the mirror).
+    /// Deleting the old copy is what actually un-shares the record.
+    private func staleZoneCopy(
+        storedName: String?,
+        table: String,
+        newZoneID: CKRecordZone.ID
+    ) -> (id: CKRecord.ID, database: CKDatabase.Scope)? {
+        guard let name = storedName,
+              let oldZone = lastSyncedZone(ckRecordName: name, table: table),
+              oldZone != newZoneID else { return nil }
+        // A zone we don't own lives in the shared DB; our own zones are in the private DB.
+        let database: CKDatabase.Scope = oldZone.ownerName == CKCurrentUserDefaultName ? .private : .shared
+        return (CKRecord.ID(recordName: name, zoneID: oldZone), database)
+    }
+
     /// Rebuilds a push-ready CKRecord by merging the local field values (from `fresh`) onto
     /// a system-fields-bearing CKRecord decoded from `systemFieldsData`.
     /// This preserves `recordChangeTag`, enabling `.ifServerRecordUnchanged`.
@@ -1608,7 +1910,12 @@ final class SyncEngine {
         // the archived system fields have the OLD zone baked in. Discard them and use
         // the fresh record so the push targets the correct zone.
         if archived.recordID.zoneID != fresh.recordID.zoneID {
-            logWarning("[Sync] Zone mismatch for '\(fresh.recordID.recordName)': archived=\(archived.recordID.zoneID.zoneName) vs fresh=\(fresh.recordID.zoneID.zoneName) — using fresh record")
+            // Dedupe: this fires once per record, so log only the first time we see each
+            // archived→fresh zone pair (the interesting signal is the pair, not the count).
+            let pairKey = "\(archived.recordID.zoneID.zoneName)→\(fresh.recordID.zoneID.zoneName)"
+            if Self.loggedZoneMismatchPairs.insert(pairKey).inserted {
+                logWarning("[GROUPDIAG] Zone mismatch (records tagged to a different group than last synced): archived=\(archived.recordID.zoneID.zoneName) vs fresh=\(fresh.recordID.zoneID.zoneName) — using fresh; suppressing further identical lines")
+            }
             return fresh
         }
 
@@ -1651,6 +1958,77 @@ final class SyncEngine {
         return false
     }
 
+    /// Zone-pairs already logged by `buildCKRecord`, so a zone mismatch prints once per pair
+    /// instead of once per record (~1000 lines). Diagnostic only.
+    private static var loggedZoneMismatchPairs = Set<String>()
+
+    /// Stable per-device identifier for the deterministic-version tiebreaker.
+    private static let revDeviceId: String = {
+        let key = "finovaRevDeviceId"
+        if let existing = UserDefaults.standard.string(forKey: key) { return existing }
+        let id = UUID().uuidString
+        UserDefaults.standard.set(id, forKey: key)
+        return id
+    }()
+
+    private static func revTable(forRecordType type: String) -> String? {
+        switch type {
+        case "Transaction": return "Transactions"
+        case "Budget": return "Budgets"
+        case "CreditCard": return "CreditCards"
+        case "CreditCardStatement": return "CreditCardStatements"
+        case "BudgetAllocation": return "BudgetAllocations"
+        default: return nil
+        }
+    }
+
+    /// Whether the `rev` / `revDevice` fields have been deployed to the PRODUCTION CloudKit schema.
+    /// MUST stay `false` until those fields are added to every synced record type via the CloudKit
+    /// Dashboard (Schema → Record Types → add `rev` INT64 + `revDevice` STRING, then Deploy to
+    /// Production). While `false`, we never write them onto pushed records — otherwise CloudKit
+    /// rejects EVERY save in production with "Cannot create or modify field … in production schema",
+    /// which aborts the whole push and silently breaks discovery, the balance-offset flush, and the
+    /// group refresh (they only run on push success). With the fields absent, `remoteShouldWin`
+    /// falls back to timestamp LWW — the exact behavior that predates the rev model. Flip to `true`
+    /// ONLY after the schema is live in production.
+    private static let revFieldsDeployedInSchema = false
+
+    /// Stamps the deterministic version onto a record about to be pushed: bumps `rev` to
+    /// (localRev + 1) — a logical clock, NOT wall time — and records this device as author. The
+    /// new rev is persisted locally for existing records so bumps stay monotonic; brand-new
+    /// records start at rev=1 and self-heal locally when the push echoes back on the next fetch.
+    /// Returns the record for call-site chaining. Never changes sync_status (invisible to the user).
+    private func stampedRev(_ record: CKRecord) -> CKRecord {
+        let name = record.recordID.recordName
+        let table = Self.revTable(forRecordType: record.recordType)
+        let localRev = table.map { DBHelper.shared.fetchRev(table: $0, ckRecordName: name).rev } ?? 0
+        let newRev = localRev + 1
+        // Only stamp the CKRecord when the schema is deployed to production (see the flag's docs).
+        // Local rev tracking stays live regardless so it's already correct once the fields ship.
+        if Self.revFieldsDeployedInSchema {
+            record["rev"] = newRev as CKRecordValue
+            record["revDevice"] = Self.revDeviceId as CKRecordValue
+        }
+        if let table = table {
+            DBHelper.shared.setRev(table: table, ckRecordName: name, rev: newRev, device: Self.revDeviceId)
+        }
+        return record
+    }
+
+    /// OWNERSHIP INVARIANT for group-shared records: a delete may only be pushed to CloudKit by
+    /// the user who created the record, or by the group's owner. Personal (non-group) records are
+    /// always deletable. Legacy records with no `created_by_uid` are treated as owned by the
+    /// current user (they predate group sharing). This prevents a member's local repair/edit from
+    /// deleting another member's — or the owner's — shared records for everyone.
+    private func mayPushDeleteForGroupRecord(sharedGroupId: String?, createdByUid: String?) -> Bool {
+        guard let gid = sharedGroupId, !gid.isEmpty else { return true }
+        guard let uid = UIDUserDefaultsManager.shared.currentUserUID else { return false }
+        if createdByUid == nil || createdByUid == uid { return true }
+        // Another member created it — only the group owner may delete it.
+        if let group = BudgetGroupRepository().fetchGroup(byId: gid) { return group.isOwner }
+        return false
+    }
+
     private func pushLocalChanges(completion: ((Result<Void, Error>) -> Void)? = nil) {
         // Respect CloudKit throttle window
         if let throttledUntil = pushThrottledUntil, Date() < throttledUntil {
@@ -1667,6 +2045,18 @@ final class SyncEngine {
         var sharedDeleteIDs: [CKRecord.ID] = []
         var orphanDeleteNames: Set<String> = []
         pendingCKIdAssignments = [:]
+
+        // HYDRATION INVARIANT: a device that has not completed a verified full pull must NEVER
+        // push a delete to CloudKit (nor hard-delete the local rows those deletes are based on).
+        // A fresh / re-installed / just-logged-in device can carry `pendingDelete` tombstones it
+        // inherited (from a restored DB, a prior destructive migration, or a repair) — pushing
+        // them up would remove the record for EVERY device. Deletes stay queued locally until the
+        // first full pull is verified, after which they push normally. Worst case becomes a
+        // still-present record, never silent data loss.
+        let canPushDeletes = UserDefaults.standard.bool(forKey: Self.fullPullVerifiedKey)
+        if !canPushDeletes {
+            logWarning("[Sync] Full pull not yet verified — deferring ALL pending deletes (none will be pushed this cycle)")
+        }
 
         // Repair: any soft-deleted transaction whose sync_status was corrupted (e.g. overwritten
         // by a previous pull before the pendingDelete could be pushed) gets re-queued here.
@@ -1716,10 +2106,21 @@ final class SyncEngine {
                 // NEVER detach transactions from their credit card — the card may
                 // not have been synced yet (group zone, recovery sync, etc.).
                 logWarning("[Sync] Skipping transaction \(tx.id ?? -1): credit card \(ccId) has no ck_record_name yet")
+                // The card is being pushed in THIS cycle (its ck_record_name is assigned in the
+                // per-record success callback), so retry right after — otherwise a brand-new card
+                // and its transactions need a second cycle that nothing would schedule.
+                needsPostSyncPush = true
                 continue
             }
             let storedName = tx.id.flatMap { txRepo.fetchCKRecordName(for: $0) }
             let groupId = tx.id.flatMap { txRepo.fetchSharedGroupId(for: $0) }
+            guard canResolveDestination(forGroupId: groupId) else {
+                logWarning("[Sync] Deferring push of transaction \(tx.id ?? -1) — group \(groupId ?? "-") destination not resolved yet")
+                // Group discovery / ckZoneOwner resolution happens later in this same cycle, so
+                // retry after it finishes rather than stranding the row as 'pending'.
+                needsPostSyncPush = true
+                continue
+            }
             let dest = destination(forGroupId: groupId)
 
             let freshRecord = tx.toCKRecord(in: dest.zoneID, storedRecordName: storedName)
@@ -1734,16 +2135,27 @@ final class SyncEngine {
             let systemFields = storedName.flatMap {
                 DBHelper.shared.fetchSystemFields(ckRecordName: $0, table: "Transactions")
             }
-            appendRecord(buildCKRecord(fresh: freshRecord, systemFieldsData: systemFields), database: dest.database)
-            // Clean up orphaned FinovaPrivateZone copy when pushing to Group zone
-            if let name = storedName, groupId != nil && !(groupId?.isEmpty ?? true) && dest.zoneID != CloudKitManager.privateZoneID {
-                appendOrphanDeleteID(CKRecord.ID(recordName: name, zoneID: CloudKitManager.privateZoneID), database: .private)
+            appendRecord(stampedRev(buildCKRecord(fresh: freshRecord, systemFieldsData: systemFields)), database: dest.database)
+            // Remove the copy in whatever zone this record used to live in (covers personal→group,
+            // group→personal on un-mirror/leave, and group A→group B).
+            if let stale = staleZoneCopy(storedName: storedName, table: "Transactions", newZoneID: dest.zoneID) {
+                appendOrphanDeleteID(stale.id, database: stale.database)
             }
         }
 
         // Transaction deletes
+        if canPushDeletes {
         for pending in txRepo.fetchPendingDeletes() {
             let groupId = txRepo.fetchSharedGroupId(for: pending.localId)
+            // OWNERSHIP INVARIANT: never push a delete for a group-tagged record the local user
+            // did not create (unless they own the group) — a member repairing/re-bucketing the
+            // owner's data must not remove it for everyone.
+            let createdBy = DBHelper.shared.fetchSingleString(
+                "SELECT created_by_uid FROM Transactions WHERE id = ?;", intBinding: pending.localId)
+            guard mayPushDeleteForGroupRecord(sharedGroupId: groupId, createdByUid: createdBy) else {
+                logWarning("[Sync] Skipping delete of transaction \(pending.localId): group record not owned by current user")
+                continue
+            }
             let dest = destination(forGroupId: groupId)
             appendDeleteID(CKRecord.ID(recordName: pending.ckRecordName, zoneID: dest.zoneID), database: dest.database)
             // Also delete orphaned copy from FinovaPrivateZone to prevent ghost resurrection
@@ -1751,32 +2163,46 @@ final class SyncEngine {
                 appendOrphanDeleteID(CKRecord.ID(recordName: pending.ckRecordName, zoneID: CloudKitManager.privateZoneID), database: .private)
             }
         }
+        }
 
         // Budgets (uses monthDate as key — deterministic across devices)
         let budgetRepo = BudgetRepository()
         let pendingBudgets = budgetRepo.fetchPendingSync()
         for budget in pendingBudgets {
+            guard canResolveDestination(forGroupId: budget.sharedGroupId) else {
+                logWarning("[Sync] Deferring push of budget \(budget.monthDate) — group destination not resolved yet")
+                needsPostSyncPush = true
+                continue
+            }
             let dest = destination(forGroupId: budget.sharedGroupId)
             let freshRecord = budget.toCKRecord(in: dest.zoneID)
             let budgetRecordName = freshRecord.recordID.recordName
             let systemFields = DBHelper.shared.fetchSystemFields(ckRecordName: budgetRecordName, table: "Budgets")
-            appendRecord(buildCKRecord(fresh: freshRecord, systemFieldsData: systemFields), database: dest.database)
-            if let gid = budget.sharedGroupId, !gid.isEmpty, dest.zoneID != CloudKitManager.privateZoneID {
-                appendOrphanDeleteID(CKRecord.ID(recordName: budgetRecordName, zoneID: CloudKitManager.privateZoneID), database: .private)
+            appendRecord(stampedRev(buildCKRecord(fresh: freshRecord, systemFieldsData: systemFields)), database: dest.database)
+            if let stale = staleZoneCopy(storedName: budgetRecordName, table: "Budgets", newZoneID: dest.zoneID) {
+                appendOrphanDeleteID(stale.id, database: stale.database)
             }
         }
 
         // Budget deletes
+        if canPushDeletes {
         for pending in budgetRepo.fetchPendingDeletes() {
             let groupId = DBHelper.shared.fetchSingleString(
                 "SELECT shared_group_id FROM Budgets WHERE month_date = ?;",
                 intBinding: pending.monthDate
             )
+            let createdBy = DBHelper.shared.fetchSingleString(
+                "SELECT created_by_uid FROM Budgets WHERE month_date = ?;", intBinding: pending.monthDate)
+            guard mayPushDeleteForGroupRecord(sharedGroupId: groupId, createdByUid: createdBy) else {
+                logWarning("[Sync] Skipping delete of budget \(pending.monthDate): group record not owned by current user")
+                continue
+            }
             let dest = destination(forGroupId: groupId)
             appendDeleteID(CKRecord.ID(recordName: pending.ckRecordName, zoneID: dest.zoneID), database: dest.database)
             if groupId != nil && !(groupId?.isEmpty ?? true) && dest.zoneID != CloudKitManager.privateZoneID {
                 appendOrphanDeleteID(CKRecord.ID(recordName: pending.ckRecordName, zoneID: CloudKitManager.privateZoneID), database: .private)
             }
+        }
         }
 
         // Credit Cards — use stored ck_record_id
@@ -1789,6 +2215,11 @@ final class SyncEngine {
         for card in pendingCards {
             let storedName = card.id.flatMap { cardRepo.fetchCKRecordName(for: $0) }
             let groupId = card.sharedGroupId
+            guard canResolveDestination(forGroupId: groupId) else {
+                logWarning("[Sync] Deferring push of credit card \(card.id ?? -1) — group destination not resolved yet")
+                needsPostSyncPush = true
+                continue
+            }
             let dest = destination(forGroupId: groupId)
 
             let freshRecord = card.toCKRecord(in: dest.zoneID, storedRecordName: storedName)
@@ -1801,20 +2232,28 @@ final class SyncEngine {
             let systemFields = storedName.flatMap {
                 DBHelper.shared.fetchSystemFields(ckRecordName: $0, table: "CreditCards")
             }
-            appendRecord(buildCKRecord(fresh: freshRecord, systemFieldsData: systemFields), database: dest.database)
-            if let name = storedName, let gid = groupId, !gid.isEmpty, dest.zoneID != CloudKitManager.privateZoneID {
-                appendOrphanDeleteID(CKRecord.ID(recordName: name, zoneID: CloudKitManager.privateZoneID), database: .private)
+            appendRecord(stampedRev(buildCKRecord(fresh: freshRecord, systemFieldsData: systemFields)), database: dest.database)
+            if let stale = staleZoneCopy(storedName: storedName, table: "CreditCards", newZoneID: dest.zoneID) {
+                appendOrphanDeleteID(stale.id, database: stale.database)
             }
         }
 
         // Credit Card deletes
+        if canPushDeletes {
         for pending in cardRepo.fetchPendingDeletes() {
             let groupId = cardRepo.fetchSharedGroupId(for: pending.localId)
+            let createdBy = DBHelper.shared.fetchSingleString(
+                "SELECT created_by_uid FROM CreditCards WHERE id = ?;", intBinding: pending.localId)
+            guard mayPushDeleteForGroupRecord(sharedGroupId: groupId, createdByUid: createdBy) else {
+                logWarning("[Sync] Skipping delete of credit card \(pending.localId): group record not owned by current user")
+                continue
+            }
             let dest = destination(forGroupId: groupId)
             appendDeleteID(CKRecord.ID(recordName: pending.ckRecordName, zoneID: dest.zoneID), database: dest.database)
             if groupId != nil && !(groupId?.isEmpty ?? true) && dest.zoneID != CloudKitManager.privateZoneID {
                 appendOrphanDeleteID(CKRecord.ID(recordName: pending.ckRecordName, zoneID: CloudKitManager.privateZoneID), database: .private)
             }
+        }
         }
 
         // Credit Card Statements — use stored ck_record_id
@@ -1825,10 +2264,16 @@ final class SyncEngine {
             // Guard: skip statements whose parent card has no ck_record_name yet.
             if cardRepo.fetchCKRecordName(for: stmt.creditCardId) == nil {
                 logWarning("[Sync] Skipping statement \(stmt.id ?? -1): credit card \(stmt.creditCardId) has no ck_record_name yet")
+                needsPostSyncPush = true
                 continue
             }
             let storedName = stmt.id.flatMap { stmtRepo.fetchCKRecordName(for: $0) }
             let parentGroupId = cardRepo.fetchSharedGroupId(for: stmt.creditCardId)
+            guard canResolveDestination(forGroupId: parentGroupId) else {
+                logWarning("[Sync] Deferring push of statement \(stmt.id ?? -1) — group destination not resolved yet")
+                needsPostSyncPush = true
+                continue
+            }
             let dest = destination(forGroupId: parentGroupId)
 
             let freshRecord = stmt.toCKRecord(in: dest.zoneID, storedRecordName: storedName)
@@ -1838,30 +2283,56 @@ final class SyncEngine {
             let systemFields = storedName.flatMap {
                 DBHelper.shared.fetchSystemFields(ckRecordName: $0, table: "CreditCardStatements")
             }
-            appendRecord(buildCKRecord(fresh: freshRecord, systemFieldsData: systemFields), database: dest.database)
-            if let name = storedName, parentGroupId != nil && !(parentGroupId?.isEmpty ?? true) && dest.zoneID != CloudKitManager.privateZoneID {
-                appendOrphanDeleteID(CKRecord.ID(recordName: name, zoneID: CloudKitManager.privateZoneID), database: .private)
+            appendRecord(stampedRev(buildCKRecord(fresh: freshRecord, systemFieldsData: systemFields)), database: dest.database)
+            if let stale = staleZoneCopy(storedName: storedName, table: "CreditCardStatements", newZoneID: dest.zoneID) {
+                appendOrphanDeleteID(stale.id, database: stale.database)
             }
         }
 
         // Statement deletes
-        for pending in stmtRepo.fetchPendingDeletes() {
+        var stmtLocalIdsToPurge: [Int] = []
+        if canPushDeletes {
+        let pendingStmtDeletes = stmtRepo.fetchPendingDeletes()
+        for pending in pendingStmtDeletes {
             let parentCardId = DBHelper.shared.fetchSingleInt(
                 "SELECT credit_card_id FROM CreditCardStatements WHERE id = ?;",
                 intBinding: pending.localId
             )
             let parentGroupId = parentCardId.flatMap { cardRepo.fetchSharedGroupId(for: $0) }
+            let createdBy = DBHelper.shared.fetchSingleString(
+                "SELECT created_by_uid FROM CreditCardStatements WHERE id = ?;", intBinding: pending.localId)
+            guard mayPushDeleteForGroupRecord(sharedGroupId: parentGroupId, createdByUid: createdBy) else {
+                logWarning("[Sync] Skipping delete of statement \(pending.localId): group record not owned by current user")
+                continue
+            }
             let dest = destination(forGroupId: parentGroupId)
             appendDeleteID(CKRecord.ID(recordName: pending.ckRecordName, zoneID: dest.zoneID), database: dest.database)
             if parentGroupId != nil && !(parentGroupId?.isEmpty ?? true) && dest.zoneID != CloudKitManager.privateZoneID {
                 appendOrphanDeleteID(CKRecord.ID(recordName: pending.ckRecordName, zoneID: CloudKitManager.privateZoneID), database: .private)
             }
+            stmtLocalIdsToPurge.append(pending.localId)
+        }
+        // Neutralize ONLY the statement deletes we actually collected above (owned + hydrated),
+        // so a skipped (non-owned / deferred) statement's local row is never removed.
+        // hardDeleteLocal on the CK callback thread is unreliable (SQLITE_BUSY), so these are
+        // purged here on the sync queue now that their CKRecord.IDs are collected.
+        for localId in stmtLocalIdsToPurge {
+            DBHelper.shared.executeSyncUpdate(
+                "DELETE FROM CreditCardStatements WHERE id = ?;",
+                intBindings: [localId]
+            )
+        }
         }
 
         // Budget Allocations — use stored ck_record_id
         let allocRepo = BudgetAllocationRepository()
         let pendingAllocs = allocRepo.fetchPendingSync()
         for alloc in pendingAllocs {
+            guard canResolveDestination(forGroupId: alloc.sharedGroupId) else {
+                logWarning("[Sync] Deferring push of allocation \(alloc.id ?? -1) — group destination not resolved yet")
+                needsPostSyncPush = true
+                continue
+            }
             let storedName = alloc.id.flatMap { allocRepo.fetchCKRecordName(for: $0) }
             let dest = destination(forGroupId: alloc.sharedGroupId)
 
@@ -1872,23 +2343,31 @@ final class SyncEngine {
             let systemFields = storedName.flatMap {
                 DBHelper.shared.fetchSystemFields(ckRecordName: $0, table: "BudgetAllocations")
             }
-            appendRecord(buildCKRecord(fresh: freshRecord, systemFieldsData: systemFields), database: dest.database)
-            if let name = storedName, let gid = alloc.sharedGroupId, !gid.isEmpty, dest.zoneID != CloudKitManager.privateZoneID {
-                appendOrphanDeleteID(CKRecord.ID(recordName: name, zoneID: CloudKitManager.privateZoneID), database: .private)
+            appendRecord(stampedRev(buildCKRecord(fresh: freshRecord, systemFieldsData: systemFields)), database: dest.database)
+            if let stale = staleZoneCopy(storedName: storedName, table: "BudgetAllocations", newZoneID: dest.zoneID) {
+                appendOrphanDeleteID(stale.id, database: stale.database)
             }
         }
 
         // Allocation deletes
+        if canPushDeletes {
         for pending in allocRepo.fetchPendingDeletes() {
             let groupId = DBHelper.shared.fetchSingleString(
                 "SELECT shared_group_id FROM BudgetAllocations WHERE id = ?;",
                 intBinding: pending.localId
             )
+            let createdBy = DBHelper.shared.fetchSingleString(
+                "SELECT created_by_uid FROM BudgetAllocations WHERE id = ?;", intBinding: pending.localId)
+            guard mayPushDeleteForGroupRecord(sharedGroupId: groupId, createdByUid: createdBy) else {
+                logWarning("[Sync] Skipping delete of allocation \(pending.localId): group record not owned by current user")
+                continue
+            }
             let dest = destination(forGroupId: groupId)
             appendDeleteID(CKRecord.ID(recordName: pending.ckRecordName, zoneID: dest.zoneID), database: dest.database)
             if groupId != nil && !(groupId?.isEmpty ?? true) && dest.zoneID != CloudKitManager.privateZoneID {
                 appendOrphanDeleteID(CKRecord.ID(recordName: pending.ckRecordName, zoneID: CloudKitManager.privateZoneID), database: .private)
             }
+        }
         }
 
         // Push current user's GroupMember record only when it hasn't been confirmed
@@ -2052,6 +2531,10 @@ final class SyncEngine {
         var batchSuccessCount = 0
         var batchFailureCount = 0
 
+        // Suppress SyncChangeTracker during per-record completion so markAsSynced
+        // calls don't re-trigger handleLocalDataChange → another push cycle.
+        SyncChangeTracker.shared.isSuppressed = true
+
         cloudKitOps.saveRecords(batch, database: database, savePolicy: .ifServerRecordUnchanged) { [weak self] recordID, result in
             let name = recordID.recordName
             switch result {
@@ -2084,16 +2567,21 @@ final class SyncEngine {
                     }
                 }
 
+                // The `updatedAt` we actually pushed (CloudKit echoes user fields back on save).
+                // markAsSynced only clears the pending flag if the local row hasn't been edited
+                // since, so an edit made while this push was in flight stays pending and goes up
+                // on the next cycle instead of being silently marked synced and lost.
+                let pushedUpdatedAt = savedRecord["updatedAt"] as? Date
                 if name.hasPrefix("transaction-") {
-                    TransactionRepository().markAsSynced(ckRecordName: name)
+                    TransactionRepository().markAsSynced(ckRecordName: name, pushedUpdatedAt: pushedUpdatedAt)
                 } else if name.hasPrefix("budget-") {
-                    BudgetRepository().markAsSynced(ckRecordName: name)
+                    BudgetRepository().markAsSynced(ckRecordName: name, pushedUpdatedAt: pushedUpdatedAt)
                 } else if name.hasPrefix("creditCard-") {
-                    CreditCardRepository().markAsSynced(ckRecordName: name)
+                    CreditCardRepository().markAsSynced(ckRecordName: name, pushedUpdatedAt: pushedUpdatedAt)
                 } else if name.hasPrefix("statement-") {
-                    StatementRepository().markAsSynced(ckRecordName: name)
+                    StatementRepository().markAsSynced(ckRecordName: name, pushedUpdatedAt: pushedUpdatedAt)
                 } else if name.hasPrefix("allocation-") {
-                    BudgetAllocationRepository().markAsSynced(ckRecordName: name)
+                    BudgetAllocationRepository().markAsSynced(ckRecordName: name, pushedUpdatedAt: pushedUpdatedAt)
                 }
             case .failure(let error):
                 batchFailureCount += 1
@@ -2144,7 +2632,8 @@ final class SyncEngine {
                 }
             }
         } completion: { [weak self] result in
-            logWarning("[Sync] Batch \(index + 1)/\(batches.count) result: \(batchSuccessCount) succeeded, \(batchFailureCount) failed")
+            SyncChangeTracker.shared.isSuppressed = false
+            logWarning("[GROUPDIAG] [Push] Batch \(index + 1)/\(batches.count) result: \(batchSuccessCount) succeeded, \(batchFailureCount) failed")
 
             if let self = self {
                 let progress = SyncPushProgress(currentBatch: index + 1, totalBatches: batches.count, totalRecords: batches.reduce(0) { $0 + $1.count })
@@ -2177,7 +2666,7 @@ final class SyncEngine {
             if hitSchemaError {
                 // Stop processing remaining save batches — schema needs to be deployed first.
                 // But still send deletes, since they don't involve the new field.
-                logWarning("[Sync] Stopping save batches due to schema error. Deploy schema via CloudKit Dashboard, then sync again.")
+                logWarning("[GROUPDIAG] [Push] Stopping save batches due to schema error. Deploy schema via CloudKit Dashboard, then sync again.")
                 if !deleteIDs.isEmpty {
                     self?.pushDeletes(deleteIDs, database: database, orphanNames: orphanNames, completion: completion)
                 } else {
@@ -2256,6 +2745,7 @@ final class SyncEngine {
             }
 
             let batch = batches[index]
+            SyncChangeTracker.shared.isSuppressed = true
             cloudKitOps.deleteRecords(batch, database: database) { [weak self] recordID, result in
                 let name = recordID.recordName
                 // Orphan deletes clean up private-zone copies of group-zone records.
@@ -2277,10 +2767,14 @@ final class SyncEngine {
                                 Self.hardDeleteLocal(recordName: name)
                             }
                         case .permissionFailure:
-                            // Member doesn't have permission to delete this record from the shared zone.
-                            // Hard-delete locally to stop the loop — the CK record stays until the owner removes it.
-                            logWarning("[Sync] ⚠️ Permission denied deleting \(name) — removing locally to stop loop")
-                            if !isOrphan { Self.hardDeleteLocal(recordName: name) }
+                            // Member doesn't have permission to delete this record from the shared
+                            // zone. Do NOT hard-delete locally — the CK record still exists, so a
+                            // local delete would be pure data loss (and the record would reappear on
+                            // the next full pull anyway, looking like a resurrection). The ownership
+                            // guard in pushLocalChanges (mayPushDeleteForGroupRecord) means we should
+                            // not normally reach here for non-owned records; if we do, leave the local
+                            // row intact and stop trying — the guard prevents a re-push loop.
+                            logWarning("[Sync] ⚠️ Permission denied deleting \(name) — keeping local row (never hard-delete a record that still exists in CloudKit)")
                         case .userDeletedZone, .zoneNotFound:
                             // Zone no longer exists — record is effectively gone; clean up locally.
                             logWarning("[Sync] ⚠️ Zone gone for \(name) — removing locally")
@@ -2296,6 +2790,7 @@ final class SyncEngine {
                     }
                 }
             } completion: { [weak self] result in
+                SyncChangeTracker.shared.isSuppressed = false
                 switch result {
                 case .success:
                     pushDeleteBatch(index: index + 1)
@@ -2342,6 +2837,8 @@ final class SyncEngine {
         } else if name.hasPrefix("creditCard-") {
             CreditCardRepository().hardDeleteByCKRecordName(name)
         } else if name.hasPrefix("statement-") {
+            // Statement rows are already deleted in pushLocalChanges (on the sync queue)
+            // before the CK push begins. This is a no-op safety net.
             StatementRepository().hardDeleteByCKRecordName(name)
         } else if name.hasPrefix("allocation-") {
             BudgetAllocationRepository().hardDeleteByCKRecordName(name)
@@ -2437,8 +2934,14 @@ final class SyncEngine {
     /// Remaps local auto-increment IDs (creditCardId, statementId) in the CKRecord
     /// using stored CK record names, so the receiving device gets correct local references.
     private func remapCrossDeviceIDs(in record: CKRecord) {
-        let cardRepo = CreditCardRepository()
-        let stmtRepo = StatementRepository()
+        Self.remapCrossDeviceIDs(in: record, db: .shared)
+    }
+
+    /// Static, database-injectable form so the two-device test harness can reproduce the real pull
+    /// path faithfully instead of approximating it. Behaviour is unchanged.
+    static func remapCrossDeviceIDs(in record: CKRecord, db: DBHelper) {
+        let cardRepo = CreditCardRepository(db: db)
+        let stmtRepo = StatementRepository(db: db)
 
         switch record.recordType {
         case "CreditCardStatement":
@@ -2503,6 +3006,17 @@ final class SyncEngine {
     /// After a full re-fetch (reset sync), removes local records that have a ck_record_id
     /// but were not seen in the CloudKit fetch — meaning they were deleted on another device.
     private func cleanupOrphanedRecords() {
+        // SAFETY (group data): orphan cleanup deletes local rows whose ck_record_id wasn't seen
+        // in the pull. Shared-database (group zone) fetches can silently under-deliver, so a
+        // member's valid group records would be wrongly treated as orphans and deleted. Since
+        // this only runs on an explicit cloud-reset, skip it entirely when the account belongs
+        // to any group — deletes still propagate through the normal inbound-delete path. Solo
+        // accounts (no shared zones to partially fetch) keep the cleanup.
+        if !BudgetGroupService.shared.fetchAllGroups().isEmpty {
+            logWarning("[Sync] Orphan cleanup SKIPPED — account is in one or more groups; shared-zone fetches can under-deliver and cleanup could delete valid group records")
+            return
+        }
+
         let tables = ["Transactions", "Budgets", "CreditCards", "CreditCardStatements", "BudgetAllocations"]
 
         // Safety: count total local synced records across all tables.
@@ -2630,6 +3144,16 @@ final class SyncEngine {
         repo.insertMember(member)
         logInfo("[Sync] Inserted GroupMember \(name) into group \(groupId) from CloudKit")
 
+        // Owner-side invitation cleanup: this member is now confirmed in the group, so their public
+        // invitation record is obsolete. Only the owner (who created it) can delete it — the
+        // invitee's own status update always fails — so without this the record lingers in the
+        // world-readable public database forever, still marked "pending".
+        if !email.isEmpty,
+           userId != AuthenticationManager.shared.currentUser?.uid,
+           let group = repo.fetchGroup(byId: groupId), group.isOwner {
+            BudgetGroupService.shared.deletePublicInvitations(forGroupId: groupId, inviteeEmail: email)
+        }
+
         // Clear the one-time repair flag so Fix 6a can re-attempt if another member joins later
         UserDefaults.standard.removeObject(forKey: "memberRepairAttempted-\(groupId)")
 
@@ -2655,12 +3179,24 @@ final class SyncEngine {
 
         DispatchQueue.main.async {
             var didUpdate = false
+            let cloudDate = record["updatedAt"] as? Date ?? record.modificationDate ?? .distantPast
+
             if key == "personal" {
                 let current = UserDefaults.standard.integer(forKey: "balanceOffset_\(uid)")
+                let localTs = UserDefaults.standard.double(forKey: "balanceOffset_\(uid)_localTs")
+
                 if current != offset {
-                    UserDefaults.standard.set(offset, forKey: "balanceOffset_\(uid)")
-                    logInfo("Balance offset updated from sync: personal = \(offset)")
-                    didUpdate = true
+                    // If local change is newer than the cloud record, keep local
+                    if localTs > 0 && Date(timeIntervalSince1970: localTs) > cloudDate {
+                        logInfo("Balance offset from sync: local personal (\(current)) is newer — keeping local")
+                    } else {
+                        UserDefaults.standard.set(offset, forKey: "balanceOffset_\(uid)")
+                        UserDefaults.standard.removeObject(forKey: "balanceOffset_\(uid)_localTs")
+                        logInfo("Balance offset updated from sync: personal = \(offset)")
+                        didUpdate = true
+                    }
+                } else {
+                    UserDefaults.standard.removeObject(forKey: "balanceOffset_\(uid)_localTs")
                 }
                 // Mirror mode: keep linked group offset in sync locally —
                 // but only for owners. Members receive the group offset from the
@@ -2669,21 +3205,32 @@ final class SyncEngine {
                    let groupId = MirrorModeManager.shared.linkedGroupId {
                     let group = BudgetGroupRepository().fetchGroup(byId: groupId)
                     if group?.isOwner != false {
-                        UserDefaults.standard.set(offset, forKey: "balanceOffset_group_\(groupId)")
+                        let effectiveOffset = UserDefaults.standard.integer(forKey: "balanceOffset_\(uid)")
+                        UserDefaults.standard.set(effectiveOffset, forKey: "balanceOffset_group_\(groupId)")
                     }
                 }
             } else if key.hasPrefix("group-") {
                 let groupId = String(key.dropFirst("group-".count))
                 let current = UserDefaults.standard.integer(forKey: "balanceOffset_group_\(groupId)")
+                let localTs = UserDefaults.standard.double(forKey: "balanceOffset_group_\(groupId)_localTs")
+
                 if current != offset {
-                    UserDefaults.standard.set(offset, forKey: "balanceOffset_group_\(groupId)")
-                    logInfo("Balance offset updated from sync: \(key) = \(offset)")
-                    didUpdate = true
+                    if localTs > 0 && Date(timeIntervalSince1970: localTs) > cloudDate {
+                        logInfo("Balance offset from sync: local group-\(groupId) (\(current)) is newer — keeping local")
+                    } else {
+                        UserDefaults.standard.set(offset, forKey: "balanceOffset_group_\(groupId)")
+                        UserDefaults.standard.removeObject(forKey: "balanceOffset_group_\(groupId)_localTs")
+                        logInfo("Balance offset updated from sync: \(key) = \(offset)")
+                        didUpdate = true
+                    }
+                } else {
+                    UserDefaults.standard.removeObject(forKey: "balanceOffset_group_\(groupId)_localTs")
                 }
                 // Mirror mode: keep personal offset in sync locally
                 if MirrorModeManager.shared.isEnabled,
                    MirrorModeManager.shared.linkedGroupId == groupId {
-                    UserDefaults.standard.set(offset, forKey: "balanceOffset_\(uid)")
+                    let effectiveOffset = UserDefaults.standard.integer(forKey: "balanceOffset_group_\(groupId)")
+                    UserDefaults.standard.set(effectiveOffset, forKey: "balanceOffset_\(uid)")
                 }
             }
             // Balance offset update notification is deferred to the end of
@@ -2707,9 +3254,9 @@ final class SyncEngine {
         let allLocalGroupIds = Set(allGroupRows.map { $0.id })
 
         let currentUID = AuthenticationManager.shared.currentUser?.uid ?? "nil"
-        logWarning("[Sync] discoverGroupsFromAllZones: \(existingGroups.count) active, \(allLocalGroupIds.count) total local group(s), currentUID=\(currentUID)")
+        logWarning("[GROUPDIAG] discoverGroupsFromAllZones: \(existingGroups.count) active, \(allLocalGroupIds.count) total local group(s), currentUID=\(currentUID)")
         for g in allGroupRows {
-            logWarning("[Sync]   group '\(g.name)' id=\(g.id) owner=\(g.ownerId) isOwner=\(g.isOwner) isDeleted=\(g.isDeleted) ckRecord=\(g.ckRecordId ?? "nil") ckShare=\(g.ckShareUrl ?? "nil")")
+            logWarning("[GROUPDIAG] localGroup name='\(g.name)' id=\(g.id) owner=\(g.ownerId) isOwner=\(g.isOwner) isDeleted=\(g.isDeleted) ckRecord=\(g.ckRecordId ?? "nil") ckZoneOwner=\(g.ckZoneOwner ?? "nil") ckShare=\(g.ckShareUrl ?? "nil")")
         }
 
         let operation = CKFetchRecordZonesOperation.fetchAllRecordZonesOperation()
@@ -2741,8 +3288,8 @@ final class SyncEngine {
         operation.fetchRecordZonesResultBlock = { [weak self] result in
             switch result {
             case .success:
-                logWarning("[Sync] Private zone enumeration complete — all zones: \(allZoneNames)")
-                logWarning("[Sync] Private zone enumeration — \(newGroupZoneIDs.count) new, \(unfetchedZoneIDs.count) unfetched group zone(s)")
+                logWarning("[GROUPDIAG] cloud private zones: \(allZoneNames)")
+                logWarning("[GROUPDIAG] zone enumeration — \(newGroupZoneIDs.count) new, \(unfetchedZoneIDs.count) unfetched group zone(s)")
 
                 // Detect local owned groups whose CloudKit zones are missing and need repair.
                 // This covers two cases:
@@ -2882,18 +3429,21 @@ final class SyncEngine {
         operation.fetchRecordZonesResultBlock = { [weak self] result in
             switch result {
             case .success:
-                // Check for member groups with accepted share but no data (empty group).
+                // Check for member groups with accepted share but no data (empty group),
+                // or placeholder groups that need their real data fetched.
                 // This handles the case where the initial fetch after CKShare acceptance
                 // only returned the share metadata due to CloudKit propagation delay.
                 let repo = BudgetGroupRepository()
                 let txRepo = TransactionRepository()
+                let placeholderNames: Set<String> = ["Group", "Shared Group"]
                 for groupId in foundSharedGroupIds {
                     if let group = repo.fetchGroup(byId: groupId),
                        !group.isOwner,
                        group.ckZoneOwner != nil {
+                        let isPlaceholder = placeholderNames.contains(group.name)
                         let groupTxCount = txRepo.fetchTransactionsForGroup(groupId: groupId).count
-                        if groupTxCount == 0 {
-                            logWarning("[Sync] Member group '\(group.name)' has shared zone but 0 transactions — resetting token for re-fetch")
+                        if groupTxCount == 0 || isPlaceholder {
+                            logWarning("[Sync] Member group '\(group.name)' needs re-fetch (txCount=\(groupTxCount), isPlaceholder=\(isPlaceholder)) — resetting token")
                             let zoneName = "Group-\(groupId)"
                             self?.stateManager.saveChangeToken(nil, for: zoneName, database: "shared")
                             let zoneID = CKRecordZone.ID(zoneName: zoneName, ownerName: group.ckZoneOwner!)
@@ -2949,8 +3499,12 @@ final class SyncEngine {
         CloudKitManager.shared.sharedDatabase.add(operation)
     }
 
-    /// Queries the shared database directly for GroupMember records in owned group zones.
-    /// Catches member writes that haven't propagated from shared → private DB yet.
+    /// Queries owned group zones directly for GroupMember records, catching member writes that the
+    /// zone-level change token has already advanced past.
+    ///
+    /// These zones live in the OWNER's private database. The operation used to be added to
+    /// `sharedDatabase`, which fails unconditionally with "Only shared zones can be accessed in the
+    /// shared DB" — so this repair never actually ran a single time since it was written.
     private func discoverMembersFromSharedDB(completion: @escaping () -> Void) {
         let repo = BudgetGroupRepository()
         let ownedGroups = repo.fetchAllGroups().filter { $0.isOwner && !$0.isDeleted }
@@ -2979,13 +3533,15 @@ final class SyncEngine {
 
             operation.queryResultBlock = { result in
                 if case .failure(let error) = result {
-                    logWarning("[Sync] Shared DB member query failed for group \(group.id): \(error.localizedDescription)")
+                    logWarning("[Sync] Owned-zone member query failed for group \(group.id): \(error.localizedDescription)")
                 }
                 dispatchGroup.leave()
             }
 
             operation.qualityOfService = .utility
-            CloudKitManager.shared.sharedDatabase.add(operation)
+            // Private DB: `zoneID` above is the owner's own zone (ownerName == CKCurrentUserDefaultName),
+            // and own zones are never reachable through the shared database.
+            CloudKitManager.shared.privateDatabase.add(operation)
         }
 
         dispatchGroup.notify(queue: .global(qos: .utility)) {
@@ -3032,9 +3588,16 @@ final class SyncEngine {
                     // Zone-based share: shares ALL records in the zone
                     let share = CKShare(recordZoneID: zoneID)
                     share[CKShare.SystemFieldKey.title] = group.name as CKRecordValue
-                    share.publicPermission = .readWrite
+                    // SECURITY: invited participants only — `.readWrite` here would make the share
+                    // URL a bearer token for the group's financial data. See
+                    // BudgetGroupService.createShareRecord.
+                    share.publicPermission = .none
 
                     let saveOp = CKModifyRecordsOperation(recordsToSave: [record, share], recordIDsToDelete: nil)
+                    // Fresh CKRecord with no recordChangeTag: the default `.ifServerRecordUnchanged`
+                    // fails with `serverRecordChanged` if a BudgetGroup record already exists in the
+                    // re-created zone, silently aborting the repair.
+                    saveOp.savePolicy = .allKeys
                     saveOp.modifyRecordsResultBlock = { saveResult in
                         switch saveResult {
                         case .success:
@@ -3243,7 +3806,8 @@ final class SyncEngine {
 
         let newShare = CKShare(recordZoneID: zoneID)
         newShare[CKShare.SystemFieldKey.title] = group.name as CKRecordValue
-        newShare.publicPermission = .readWrite
+        // SECURITY: invited participants only — see BudgetGroupService.createShareRecord.
+        newShare.publicPermission = .none
 
         let saveOp = CKModifyRecordsOperation(recordsToSave: [record, newShare], recordIDsToDelete: nil)
         saveOp.savePolicy = .allKeys
@@ -3305,8 +3869,20 @@ final class SyncEngine {
                     self?.processIncomingBudgetGroup(record)
                 } else if let error = error {
                     logWarning("[Sync] Could not fetch BudgetGroup for zone '\(zoneID.zoneName)' from \(dbLabel) DB: \(error.localizedDescription)")
-                    // Create placeholder so the group is at least visible
-                    self?.createPlaceholderGroup(groupId: groupId)
+                    // A SHARED zone with no readable BudgetGroup record still means real membership
+                    // (we only see the zone because we accepted its CKShare), so make it visible.
+                    //
+                    // A PRIVATE zone with no BudgetGroup record is different: the record is deleted
+                    // along with the zone when an owner deletes a group, so a leftover zone with no
+                    // record is a group that's gone — inventing a "Group" placeholder for it
+                    // resurrected phantom groups on every fresh install. Groups that legitimately
+                    // exist locally but lost their record are handled by repairMissingGroupZones,
+                    // which recreates it.
+                    if database == .shared {
+                        self?.createPlaceholderGroup(groupId: groupId, zoneID: zoneID)
+                    } else {
+                        logWarning("[Sync] Skipping placeholder for private zone '\(zoneID.zoneName)' — no BudgetGroup record means the group was deleted")
+                    }
                 }
                 group.leave()
             }
@@ -3322,23 +3898,36 @@ final class SyncEngine {
     }
 
     /// Creates a minimal BudgetGroup from zone info when the CKRecord isn't available.
-    private func createPlaceholderGroup(groupId: String) {
+    /// Uses zone ownership to determine if the current user is the owner or a member.
+    private func createPlaceholderGroup(groupId: String, zoneID: CKRecordZone.ID) {
         let repo = BudgetGroupRepository()
         guard repo.fetchGroup(byId: groupId) == nil else { return }
         guard let uid = AuthenticationManager.shared.currentUser?.uid else { return }
 
         let userName = UserDefaultsManager.getUser()?.name ?? "User"
         let userEmail = AuthenticationManager.shared.currentUser?.email ?? ""
-        let group = BudgetGroup(
+
+        // Determine ownership: if the zone owner is the current user (CKCurrentUserDefaultName),
+        // this device owns the group. Otherwise, this is a shared zone from another user.
+        let isCurrentUserOwner = zoneID.ownerName == CKCurrentUserDefaultName
+
+        var group = BudgetGroup(
             id: groupId,
             name: "Group",
-            ownerId: uid,
-            ownerName: userName,
-            ownerEmail: userEmail
+            ownerId: isCurrentUserOwner ? uid : "",
+            ownerName: isCurrentUserOwner ? userName : "",
+            ownerEmail: isCurrentUserOwner ? userEmail : ""
         )
+
+        // Set ckZoneOwner for shared zones so subsequent fetchSharedDatabaseChanges
+        // can include this zone in the fetch list
+        if !isCurrentUserOwner {
+            group.ckZoneOwner = zoneID.ownerName
+        }
+
         repo.insertGroup(group)
 
-        // Check for existing member (including removed) to avoid duplicates
+        // Add current user as member with correct role
         let allMembers = repo.fetchMembersIncludingRemoved(forGroupId: groupId)
         if let existing = allMembers.first(where: { $0.userId == uid }) {
             if existing.isRemoved {
@@ -3347,17 +3936,17 @@ final class SyncEngine {
                 repo.updateMember(updated)
             }
         } else {
-            let ownerMember = GroupMember(
+            let member = GroupMember(
                 groupId: groupId,
                 userId: uid,
                 name: userName,
                 email: userEmail,
-                role: .owner,
-                permissions: .fullAccess
+                role: isCurrentUserOwner ? .owner : .member,
+                permissions: isCurrentUserOwner ? .fullAccess : .memberDefault
             )
-            repo.insertMember(ownerMember)
+            repo.insertMember(member)
         }
-        logInfo("[Sync] Created placeholder BudgetGroup for group \(groupId)")
+        logInfo("[Sync] Created placeholder BudgetGroup for group \(groupId) (isOwner=\(isCurrentUserOwner), ckZoneOwner=\(isCurrentUserOwner ? "self" : zoneID.ownerName))")
 
         DispatchQueue.main.async {
             NotificationCenter.default.post(name: .budgetGroupDataChanged, object: nil)

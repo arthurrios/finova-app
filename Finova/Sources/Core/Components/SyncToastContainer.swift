@@ -13,6 +13,10 @@ final class SyncToastContainer: UIView {
     private var toastView: SyncToastView?
     private var isShowing = false
     private var dismissTimer: Timer?
+    private var isObserving = false
+    /// When true (global window-level overlay), the container keeps observing and stays mounted
+    /// after a toast dismisses, so the NEXT push (e.g. a later sync) re-shows it automatically.
+    var isPersistent = false
     var onDismissed: (() -> Void)?
 
     // MARK: - Initialization
@@ -51,6 +55,7 @@ final class SyncToastContainer: UIView {
     // MARK: - Public Methods
 
     func showSyncToast() {
+        beginObserving()
         guard !isShowing else { return }
 
         let toast = SyncToastView()
@@ -62,7 +67,13 @@ final class SyncToastContainer: UIView {
 
         isShowing = true
         toast.show(animated: true)
+    }
 
+    /// Starts observing sync notifications WITHOUT showing a toast, so a mounted persistent
+    /// container auto-shows the moment a push begins (idempotent).
+    func beginObserving() {
+        guard !isObserving else { return }
+        isObserving = true
         startObserving()
     }
 
@@ -71,7 +82,7 @@ final class SyncToastContainer: UIView {
         dismissTimer = nil
 
         guard let toast = toastView, isShowing else {
-            removeSelf()
+            if !isPersistent { removeSelf() }
             return
         }
 
@@ -79,7 +90,8 @@ final class SyncToastContainer: UIView {
             toast.removeFromSuperview()
             self?.toastView = nil
             self?.isShowing = false
-            self?.removeSelf()
+            // A persistent window overlay stays mounted + observing so the next push re-shows it.
+            if self?.isPersistent == false { self?.removeSelf() }
         }
     }
 
@@ -132,9 +144,27 @@ final class SyncToastContainer: UIView {
 
         toastView?.updatePushProgress(progress)
 
-        // Cancel dismiss timer — don't auto-hide during active push
+        // Safety dismiss: overlapping pushes can emit a trailing progress AFTER the terminal
+        // `.synced` status, cancelling that status's dismiss timer and leaving the toast stuck on
+        // "uploading x/y". Instead of cancelling outright, (re)arm a timer that dismisses once the
+        // engine is genuinely idle — and re-checks while a sync is still running.
+        scheduleSafetyDismiss()
+    }
+
+    /// Dismisses the toast once no sync is actually in progress; reschedules itself while one is.
+    /// Guards against the toast getting stuck when the last event received is a push-progress
+    /// with no trailing `.synced`/`.idle` status.
+    private func scheduleSafetyDismiss() {
         dismissTimer?.invalidate()
-        dismissTimer = nil
+        dismissTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: false) { [weak self] _ in
+            guard let self = self else { return }
+            if SyncEngine.shared.isSyncInProgress {
+                self.scheduleSafetyDismiss()
+            } else {
+                self.toastView?.updateStatus(.synced)
+                self.scheduleDismiss(after: 1.5)
+            }
+        }
     }
 
     // MARK: - Private Helpers

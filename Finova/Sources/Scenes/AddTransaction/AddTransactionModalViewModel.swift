@@ -6,7 +6,6 @@
 //
 
 import Foundation
-import UserNotifications
 
 final class AddTransactionModalViewModel {
   private let transactionRepo: TransactionRepository
@@ -17,7 +16,6 @@ final class AddTransactionModalViewModel {
     cal.timeZone = TimeZone.current  // Ensure we use local timezone
     return cal
   }()
-  private let notificationCenter = UNUserNotificationCenter.current()
   private let creditCardService = CreditCardService()
   private let creditCardRepo = CreditCardRepository()
 
@@ -126,10 +124,11 @@ final class AddTransactionModalViewModel {
             transactionId: insertedId, parentId: insertedId)
         }
 
-        // UPFRONT GENERATION: Generate 24 months of instances for cloud sync consistency
+        // UPFRONT GENERATION: eagerly generate the full recurring horizon so every occurrence
+        // exists as a real, syncable row at creation time (see RecurringTransactionManager.horizonMonths).
         let immediateMonthAnchors: Set<Int> = {
           var anchors = Set<Int>()
-          for monthOffset in 1...24 {
+          for monthOffset in 1...RecurringTransactionManager.horizonMonths {
             if let futureDate = calendar.date(byAdding: .month, value: monthOffset, to: date) {
               anchors.insert(futureDate.monthAnchor)
             }
@@ -137,15 +136,14 @@ final class AddTransactionModalViewModel {
           return anchors
         }()
 
-        // Generate only the immediate window of instances
-        // Completion runs on background queue - heavy work stays there
-        recurringManager.generateInstancesLazilyForMonths(immediateMonthAnchors) { [weak self] _ in
+        // Generate the full horizon, then push immediately so sync happens right after creation
+        // (not on a later navigation). Completion runs on background queue - heavy work stays there.
+        recurringManager.generateInstancesLazilyForMonths(immediateMonthAnchors) { [weak self] created in
           guard let self = self else { return }
-          // These operations run on background thread (no UI blocking)
-          self.scheduleNotificationsForRecurringTransactions()
-          // Only the notification post needs main thread
+          logWarning("[RecurringCreate] upfront generation produced \(created) future instance(s) for '\(title)'")
           DispatchQueue.main.async {
             self.invalidateLedgerCache()
+            SyncEngine.shared.pushPendingChangesNow()
           }
         }
 
@@ -206,7 +204,7 @@ final class AddTransactionModalViewModel {
         }
 
         // Schedule notification for the new transaction with its ID
-        scheduleNotificationForNewTransaction(insertedId, model)
+        TransactionNotificationManager.shared.scheduleNotification(transactionId: insertedId, model: model)
 
         // Invalidate ledger cache since transactions changed
         invalidateLedgerCache()
@@ -294,11 +292,13 @@ final class AddTransactionModalViewModel {
         amount: amount,
         type: type.key
       ), let existingId = existingSimilar.id {
+        logWarning("[RecurringCreate] '\(title)' LINKED to existing series parent=\(existingId) (not a new series) — future months belong to that series")
         try recurringManager.linkToExistingRecurringTransaction(
           newTransactionId: insertedId,
           existingParentId: existingId
         )
       } else {
+        logWarning("[RecurringCreate] '\(title)' created as NEW series parent=\(insertedId)")
         try transactionRepo.updateParentTransactionId(
           transactionId: insertedId, parentId: insertedId)
       }
@@ -320,10 +320,11 @@ final class AddTransactionModalViewModel {
         }
       }
 
-      // UPFRONT GENERATION: Generate 24 months of instances for cloud sync consistency
+      // UPFRONT GENERATION: eagerly generate the full recurring horizon so every occurrence
+      // exists as a real, syncable row at creation time (see RecurringTransactionManager.horizonMonths).
       let immediateMonthAnchors: Set<Int> = {
         var anchors = Set<Int>()
-        for monthOffset in 1...24 {
+        for monthOffset in 1...RecurringTransactionManager.horizonMonths {
           if let futureDate = calendar.date(byAdding: .month, value: monthOffset, to: date) {
             anchors.insert(futureDate.monthAnchor)
           }
@@ -331,19 +332,41 @@ final class AddTransactionModalViewModel {
         return anchors
       }()
 
-      // Wait for instance generation to complete before calling completion
-      recurringManager.generateInstancesLazilyForMonths(immediateMonthAnchors) { [weak self] _ in
+      // Wait for instance generation to complete before calling completion, then push
+      // immediately so sync happens right after creation (not on a later navigation).
+      recurringManager.generateInstancesLazilyForMonths(immediateMonthAnchors) { [weak self] created in
+        // `created` is APP-WIDE (all recurring parents this pass). Log THIS series' actual
+        // materialized months so a shortfall (e.g. dedup skipping months that already have a
+        // same-title row from earlier testing) is unambiguous.
+        let seriesMonths = self?.transactionRepo
+          .fetchTransactionInstancesForRecurring(insertedId)
+          .map { $0.budgetMonthDate }.sorted() ?? []
+        logWarning("[RecurringCreate] '\(title)' parent=\(insertedId): this series now spans \(seriesMonths.count) month(s); app-wide new this pass=\(created)")
+        // If the series is empty, dump the same-title rows blocking generation + their group tag,
+        // so we can tell whether context-blind dedup (personal rows blocking a group series) is the cause.
+        if seriesMonths.count <= 1, let repo = self?.transactionRepo {
+          let sameTitle = repo.fetchAllTransactions().filter { $0.title == title }
+          logWarning("[RecurringDiag] \(sameTitle.count) existing active '\(title)' row(s) blocking generation:")
+          for t in sameTitle.prefix(45) {
+            let gid = t.id.flatMap { repo.fetchSharedGroupId(for: $0) } ?? "nil"
+            logWarning("[RecurringDiag]   id=\(t.id ?? -1) month=\(t.budgetMonthDate) parent=\(t.parentTransactionId ?? -1) recurring=\(t.isRecurring ?? false) group=\(gid)")
+          }
+        }
         guard let self = self else {
-          DispatchQueue.main.async { completion(.success(())) }
+          DispatchQueue.main.async {
+            SyncEngine.shared.pushPendingChangesNow()
+            completion(.success(()))
+          }
           return
         }
 
         // These operations run on background thread
-        self.scheduleNotificationsForRecurringTransactions()
+        // Notification scheduling is handled by RecurringTransactionManager via RecurringNotificationManager
 
         // Invalidate cache and call completion on main thread
         DispatchQueue.main.async {
           self.invalidateLedgerCache()
+          SyncEngine.shared.pushPendingChangesNow()
           completion(.success(()))
         }
       }
@@ -495,10 +518,13 @@ final class AddTransactionModalViewModel {
       }
 
       // Agendar notificações otimizadas para as parcelas criadas
-      scheduleOptimizedNotificationsForInstallments(allInstallments)
+      InstallmentNotificationManager.shared.scheduleNotifications(for: allInstallments)
 
       // Invalidate ledger cache since transactions changed
       invalidateLedgerCache()
+
+      // Push immediately so sync happens right after creation (all installments are eager).
+      SyncEngine.shared.pushPendingChangesNow()
 
       return .success(())
     } catch {
@@ -654,10 +680,12 @@ final class AddTransactionModalViewModel {
         }
 
         // Schedule notifications
-        self.scheduleOptimizedNotificationsForInstallments(allInstallments)
+        InstallmentNotificationManager.shared.scheduleNotifications(for: allInstallments)
 
         DispatchQueue.main.async {
           self.invalidateLedgerCache()
+          // Push immediately so sync happens right after creation (all installments are eager).
+          SyncEngine.shared.pushPendingChangesNow()
           completion(.success(()))
         }
 
@@ -665,298 +693,6 @@ final class AddTransactionModalViewModel {
         DispatchQueue.main.async {
           completion(.failure(error))
         }
-      }
-    }
-  }
-
-  // MARK: - Notification Scheduling
-
-  private func scheduleNotificationForNewTransaction(
-    _ transactionId: Int, _ model: TransactionModel
-  ) {
-    // Check if we have notification permission first
-    notificationCenter.getNotificationSettings { settings in
-      guard settings.authorizationStatus == .authorized else {
-        return
-      }
-
-      DispatchQueue.main.async { [weak self] in
-        self?.scheduleNotification(for: transactionId, model: model)
-      }
-    }
-  }
-
-  /// Sistema otimizado para agendar notificações de parcelas
-  private func scheduleOptimizedNotificationsForInstallments(_ installments: [TransactionModel]) {
-    // Agrupar parcelas por mês
-    var installmentsByMonth: [String: [TransactionModel]] = [:]
-
-    for installment in installments {
-      let date = Date(timeIntervalSince1970: TimeInterval(installment.data.dateTimestamp))
-      let monthKey =
-        "\(calendar.component(.year, from: date))-\(calendar.component(.month, from: date))"
-
-      if installmentsByMonth[monthKey] == nil {
-        installmentsByMonth[monthKey] = []
-      }
-      installmentsByMonth[monthKey]?.append(installment)
-    }
-
-    // Agendar notificação para cada mês (máximo 1 por mês)
-    for (monthKey, monthInstallments) in installmentsByMonth {
-      scheduleMonthlyInstallmentNotification(monthKey: monthKey, installments: monthInstallments)
-    }
-  }
-
-  /// Agenda uma notificação mensal para todas as parcelas do mês
-  private func scheduleMonthlyInstallmentNotification(
-    monthKey: String, installments: [TransactionModel]
-  ) {
-    guard let firstInstallment = installments.first else { return }
-
-    let date = Date(timeIntervalSince1970: TimeInterval(firstInstallment.data.dateTimestamp))
-
-    // Verificar se a data é muito no futuro (mais de 1 ano)
-    let oneYearFromNow = Calendar.current.date(byAdding: .year, value: 1, to: Date()) ?? Date()
-    if date > oneYearFromNow {
-      return
-    }
-
-    // Create notification time (8 AM) in local timezone
-    var notificationDate = calendar.startOfDay(for: date)
-    notificationDate =
-      calendar.date(byAdding: .hour, value: 8, to: notificationDate) ?? notificationDate
-
-    // Only schedule if notification time is in the future
-    guard notificationDate > Date() else {
-      return
-    }
-
-    let timeInterval = notificationDate.timeIntervalSinceNow
-
-    // Verificar se o intervalo é muito grande (mais de 30 dias)
-    let thirtyDaysInSeconds: TimeInterval = 30 * 24 * 60 * 60
-    if timeInterval > thirtyDaysInSeconds {
-      scheduleReminderNotification(for: monthKey, installments: installments)
-      return
-    }
-
-    // Criar notificação mensal consolidada
-    let totalAmount = installments.reduce(0) { $0 + $1.data.amount }
-    let installmentCount = installments.count
-
-    let title = "notification.installment.title".localized
-    let bodyKey =
-      installmentCount == 1
-      ? "notification.installment.body.singular" : "notification.installment.body.plural"
-    let body =
-      installmentCount == 1
-      ? String(format: bodyKey.localized, totalAmount.currencyString)
-      : String(format: bodyKey.localized, installmentCount, totalAmount.currencyString)
-
-    let content = UNMutableNotificationContent()
-    content.title = title
-    content.body = body
-    content.sound = .default
-    content.categoryIdentifier = "TRANSACTION_REMINDER"
-    content.userInfo = [
-      "type": "installment_month",
-      "monthKey": monthKey,
-      "installmentCount": installmentCount,
-      "totalAmount": totalAmount,
-    ]
-
-    let trigger = UNTimeIntervalNotificationTrigger(timeInterval: timeInterval, repeats: false)
-    let request = UNNotificationRequest(
-      identifier: "installment_month_\(monthKey)", content: content, trigger: trigger)
-
-    notificationCenter.add(request) { error in
-      if let error = error {
-        logError("Error scheduling installment notification for month \(monthKey): \(error)")
-      }
-    }
-  }
-
-  /// Agenda uma notificação de lembrete para parcelas distantes (mais de 30 dias)
-  private func scheduleReminderNotification(for monthKey: String, installments: [TransactionModel])
-  {
-    // For installments more than 30 days away, schedule a reminder for 30 days from now
-    // This reminder will trigger the app to reschedule the actual notifications when closer
-    let thirtyDaysInSeconds: TimeInterval = 30 * 24 * 60 * 60
-    let trigger = UNTimeIntervalNotificationTrigger(
-      timeInterval: thirtyDaysInSeconds, repeats: false)
-
-    let content = UNMutableNotificationContent()
-    content.title = "notification.installment.reminder.title".localized
-    content.body = "notification.installment.reminder.body".localized
-    content.sound = .default
-    content.categoryIdentifier = "TRANSACTION_REMINDER"
-    content.userInfo = ["type": "installment_reminder", "monthKey": monthKey]
-
-    let request = UNNotificationRequest(
-      identifier: "installment_reminder_\(monthKey)", content: content, trigger: trigger)
-
-    notificationCenter.add(request) { error in
-      if let error = error {
-        logError("Error scheduling installment reminder for month \(monthKey): \(error)")
-      }
-    }
-  }
-
-  private func scheduleNotification(for transactionId: Int, model: TransactionModel) {
-    let date = Date(timeIntervalSince1970: TimeInterval(model.data.dateTimestamp))
-
-    // Verificar se a data é muito no futuro (mais de 1 ano)
-    let oneYearFromNow = Calendar.current.date(byAdding: .year, value: 1, to: Date()) ?? Date()
-    if date > oneYearFromNow {
-      return
-    }
-
-    // Create notification time (8 AM) in local timezone
-    var notificationDate = calendar.startOfDay(for: date)
-    notificationDate =
-      calendar.date(byAdding: .hour, value: 8, to: notificationDate) ?? notificationDate
-
-    // Only schedule if notification time is in the future
-    guard notificationDate > Date() else {
-      return
-    }
-
-    // Verificar se já existe uma notificação para este dia
-    let dayIdentifier = "day_\(calendar.startOfDay(for: date).timeIntervalSince1970)"
-
-    // Limpar notificações antigas para este dia se existirem
-    notificationCenter.removePendingNotificationRequests(withIdentifiers: [dayIdentifier])
-
-    let id = "transaction_\(transactionId)"
-    let timeInterval = notificationDate.timeIntervalSinceNow
-
-    // Verificar se o intervalo é muito grande (mais de 30 dias)
-    let thirtyDaysInSeconds: TimeInterval = 30 * 24 * 60 * 60
-    if timeInterval > thirtyDaysInSeconds {
-      // Agendar para 30 dias e depois reagendar quando chegar mais perto
-      let adjustedInterval = thirtyDaysInSeconds
-      let trigger = UNTimeIntervalNotificationTrigger(
-        timeInterval: adjustedInterval, repeats: false)
-
-      let content = UNMutableNotificationContent()
-      content.title = "notification.transaction.reminder.title".localized
-      content.body = "notification.transaction.reminder.body".localized
-      content.sound = .default
-      content.categoryIdentifier = "TRANSACTION_REMINDER"
-      content.userInfo = ["type": "reminder", "transactionId": transactionId]
-
-      let request = UNNotificationRequest(
-        identifier: dayIdentifier, content: content, trigger: trigger)
-      notificationCenter.add(request) { error in
-        if let error = error {
-          logError("Error scheduling reminder notification: \(error)")
-        }
-      }
-      return
-    }
-
-    let trigger = UNTimeIntervalNotificationTrigger(timeInterval: timeInterval, repeats: false)
-
-    let titleKey =
-      model.data.type == "income"
-      ? "notification.transaction.title.income"
-      : "notification.transaction.title.expense"
-    let bodyKey =
-      model.data.type == "income"
-      ? "notification.transaction.body.income"
-      : "notification.transaction.body.expense"
-
-    let amountString = model.data.amount.currencyString
-    let title = titleKey.localized
-    let body = bodyKey.localized(amountString, model.data.title)
-
-    let content = UNMutableNotificationContent()
-    content.title = title
-    content.body = body
-    content.sound = .default
-    content.categoryIdentifier = "TRANSACTION_REMINDER"
-    content.userInfo = ["transactionId": transactionId, "date": date.timeIntervalSince1970]
-
-    let request = UNNotificationRequest(identifier: id, content: content, trigger: trigger)
-    notificationCenter.add(request) { error in
-      if let error = error {
-        logError("Error scheduling notification for \(model.data.title): \(error)")
-      }
-    }
-  }
-
-  private func scheduleNotificationsForRecurringTransactions() {
-    // This will schedule notifications for newly created recurring transactions
-    notificationCenter.getNotificationSettings { settings in
-      guard settings.authorizationStatus == .authorized else {
-        return
-      }
-
-      DispatchQueue.main.async { [weak self] in
-        // Get all transactions and schedule notifications for future ones only
-        let allTxs = self?.transactionRepo.fetchTransactions() ?? []
-        let now = Date()
-
-        // Only schedule for future transactions and don't clear existing ones
-        let futureTxs = allTxs.filter { tx in
-          // Create notification time (8 AM) in local timezone
-          var notificationDate = self?.calendar.startOfDay(for: tx.date) ?? tx.date
-          notificationDate =
-            self?.calendar.date(byAdding: .hour, value: 8, to: notificationDate) ?? notificationDate
-          return notificationDate > now
-        }
-
-        futureTxs.forEach { tx in
-          self?.scheduleNotificationForTransaction(tx)
-        }
-      }
-    }
-  }
-
-  private func scheduleNotificationForTransaction(_ tx: Transaction) {
-    guard let transactionId = tx.id else {
-      return
-    }
-
-    let id = "transaction_\(transactionId)"
-
-    // Create notification time (8 AM) in local timezone
-    var notificationDate = calendar.startOfDay(for: tx.date)
-    notificationDate =
-      calendar.date(byAdding: .hour, value: 8, to: notificationDate) ?? notificationDate
-
-    // Only schedule if notification time is in the future
-    guard notificationDate > Date() else {
-      return
-    }
-
-    let timeInterval = notificationDate.timeIntervalSinceNow
-    let trigger = UNTimeIntervalNotificationTrigger(timeInterval: timeInterval, repeats: false)
-
-    let titleKey =
-      tx.type == .income
-      ? "notification.transaction.title.income"
-      : "notification.transaction.title.expense"
-    let bodyKey =
-      tx.type == .income
-      ? "notification.transaction.body.income"
-      : "notification.transaction.body.expense"
-
-    let amountString = tx.amount.currencyString
-    let title = titleKey.localized
-    let body = bodyKey.localized(amountString, tx.title)
-
-    let content = UNMutableNotificationContent()
-    content.title = title
-    content.body = body
-    content.sound = .default
-    content.categoryIdentifier = "TRANSACTION_REMINDER"
-
-    let request = UNNotificationRequest(identifier: id, content: content, trigger: trigger)
-    notificationCenter.add(request) { error in
-      if let error = error {
-        logError("Error scheduling notification for \(tx.title): \(error)")
       }
     }
   }

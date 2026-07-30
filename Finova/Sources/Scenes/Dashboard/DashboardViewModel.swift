@@ -67,23 +67,29 @@ final class DashboardViewModel {
       // Repair credit card transactions: fix orphans and reassign misplaced ones
       logWarning("[CCRepair] loadMonthlyCards called, uid=\(AuthenticationManager.shared.currentUser?.uid ?? "nil")")
       if let uid = AuthenticationManager.shared.currentUser?.uid {
-        // Only run destructive repairs on the device that originally needed them.
-        // Devices that received clean cloud data must NOT run these — they can
-        // create duplicate statements, delete valid records, or apply hardcoded fixes.
-        // The flag is set by the initial cloud push (only on the original device).
+        // Destructive CC repairs may run ONLY on a device that both (a) originally held the
+        // buggy data AND (b) has completed a verified full pull. A freshly-synced device that
+        // "repairs" clean cloud data would push the damage back up. The original-device flag
+        // alone is unreliable (a 2nd device flips it true after its first large push), so we
+        // additionally require hydration. reassignMisplacedTransactions is included in the gate
+        // (it previously ran unconditionally and re-buckets/re-pushes transactions).
         let isOriginalDevice = UserDefaults.standard.bool(forKey: "hasCompletedInitialCloudPush_v1")
-        if isOriginalDevice {
+        let hydrated = UserDefaults.standard.bool(forKey: "syncFullPullVerified_v2")
+        if isOriginalDevice && hydrated {
           creditCardService.repairCreditCardLinksFromParents(userId: uid, transactionRepo: transactionRepo)
-          creditCardService.repairBTGStatementAssignments(userId: uid, transactionRepo: transactionRepo)
+          // repairBTGStatementAssignments removed: it hardcoded one specific user's transaction
+          // amounts and deleted by hardcoded local row id — and local ids mean different rows on
+          // different devices, so it destroyed arbitrary records on any device but the one it was
+          // written against.
           creditCardService.deduplicateAndFixCCInstallments(userId: uid, transactionRepo: transactionRepo)
           creditCardService.repairInstallmentStatementLinks(userId: uid, transactionRepo: transactionRepo)
           creditCardService.repairStaleStatementLinks(userId: uid, transactionRepo: transactionRepo)
           creditCardService.repairOrphanedCreditCardTransactions(userId: uid, transactionRepo: transactionRepo)
           creditCardService.consolidateDuplicateStatementsByMonth(userId: uid, transactionRepo: transactionRepo)
+          creditCardService.reassignMisplacedTransactions(userId: uid, transactionRepo: transactionRepo)
         } else {
-          logWarning("[CCRepair] Skipping destructive repairs — not the original device")
+          logWarning("[CCRepair] Skipping destructive repairs — original=\(isOriginalDevice), hydrated=\(hydrated)")
         }
-        creditCardService.reassignMisplacedTransactions(userId: uid, transactionRepo: transactionRepo)
       }
 
       // Use the transaction ledger service for all calculations
@@ -95,22 +101,13 @@ final class DashboardViewModel {
       return monthlyData
 
     case .group(let group):
-      // Repair credit card transactions in group context too
-      if let uid = AuthenticationManager.shared.currentUser?.uid {
-        let isOriginalDevice = UserDefaults.standard.bool(forKey: "hasCompletedInitialCloudPush_v1")
-        if isOriginalDevice {
-          creditCardService.repairCreditCardLinksFromParents(userId: uid, transactionRepo: transactionRepo)
-          creditCardService.repairBTGStatementAssignments(userId: uid, transactionRepo: transactionRepo)
-          creditCardService.deduplicateAndFixCCInstallments(userId: uid, transactionRepo: transactionRepo)
-          creditCardService.repairInstallmentStatementLinks(userId: uid, transactionRepo: transactionRepo)
-          creditCardService.repairStaleStatementLinks(userId: uid, transactionRepo: transactionRepo)
-          creditCardService.repairOrphanedCreditCardTransactions(userId: uid, transactionRepo: transactionRepo)
-          creditCardService.consolidateDuplicateStatementsByMonth(userId: uid, transactionRepo: transactionRepo)
-        } else {
-          logWarning("[CCRepair] Skipping destructive repairs (group) — not the original device")
-        }
-        creditCardService.reassignMisplacedTransactions(userId: uid, transactionRepo: transactionRepo)
-      }
+      // OWNERSHIP INVARIANT: do NOT run destructive credit-card repairs in group context.
+      // These operate on fetchAllTransactions()/fetchAllCards(), which include the group
+      // OWNER's shared records that a member's DB holds. Consolidating/reassigning/deleting
+      // them marks the owner's records pending/pendingDelete and pushes those edits/deletes
+      // into the shared zone — corrupting or deleting the owner's data for every member.
+      // Group records are repaired only by their author, in that author's own personal context.
+      logWarning("[CCRepair] Skipping ALL destructive CC repairs in group context (protects other members' data)")
 
       // Lazy-generate recurring instances for group context too,
       // so future months show the same instances as personal view.
@@ -128,14 +125,22 @@ final class DashboardViewModel {
     transactionLedger.invalidateCache()
     onDataNeedsRefresh?()
 
-    // When switching to a group context, trigger a direct shared zone fetch
-    // to ensure the latest group data is loaded (bypasses CKShare propagation issues)
-    if case .group(let group) = context, !group.isOwner, let zoneOwner = group.ckZoneOwner {
-      SyncEngine.shared.fetchSharedGroupZone(groupId: group.id, zoneOwner: zoneOwner) { [weak self] count in
+    // When switching to a group context, directly fetch that group's zone so the latest data is
+    // loaded on demand (bypasses CKShare/replication propagation gaps). Members read the owner's
+    // SHARED zone; the owner (and their other same-account devices) read the OWN group zone in the
+    // PRIVATE DB — without this, a second device that missed the incremental force-include shows
+    // the owner's group empty.
+    if case .group(let group) = context {
+      let onFetched: (Int) -> Void = { [weak self] count in
         if count > 0 {
           self?.transactionLedger.invalidateCache()
           self?.onDataNeedsRefresh?()
         }
+      }
+      if !group.isOwner, let zoneOwner = group.ckZoneOwner {
+        SyncEngine.shared.fetchSharedGroupZone(groupId: group.id, zoneOwner: zoneOwner, completion: onFetched)
+      } else if group.isOwner {
+        SyncEngine.shared.fetchOwnedGroupZone(groupId: group.id, completion: onFetched)
       }
     }
   }
@@ -147,6 +152,16 @@ final class DashboardViewModel {
   /// Triggers lazy generation in background without blocking UI
   /// This is called after loadMonthlyCards returns to avoid blocking
   private func triggerLazyGenerationInBackground() {
+    // HYDRATION GATE: never materialize recurring instances before this device has completed a
+    // verified full pull. Otherwise a freshly-logged-in device regenerates "deleted" future
+    // instances from a cloud parent that still reads isRecurring=true (a fresh device has no
+    // tombstones to suppress it), making a deleted series reappear. Once the authoritative
+    // parent state is pulled, generation resumes on the next dashboard refresh.
+    guard UserDefaults.standard.bool(forKey: "syncFullPullVerified_v2") else {
+      logWarning("[LazyGen] Skipping generation — full pull not yet verified on this device")
+      return
+    }
+
     guard !isLazyGenerationInProgress else {
       return
     }
@@ -160,8 +175,13 @@ final class DashboardViewModel {
       let now = Date()
       var monthAnchors = Set<Int>()
 
-      // Generate anchors for all months in the range
-      for offset in self.monthRange {
+      // ROLLING HORIZON: ensure every recurring series is materialized forward to
+      // now + horizonMonths (eager-bounded model). This also backfills existing series
+      // created before the horizon was widened — no separate migration needed. Keeps the
+      // dashboard's lower bound so already-visible past months still fill in.
+      // performLazyGeneration is idempotent, forward-only and tombstone-aware, so re-running
+      // it never duplicates or resurrects a deleted occurrence.
+      for offset in self.monthRange.lowerBound...RecurringTransactionManager.horizonMonths {
         if let date = self.calendar.date(byAdding: .month, value: offset, to: now) {
           monthAnchors.insert(date.monthAnchor)
         }
@@ -389,38 +409,21 @@ final class DashboardViewModel {
         // Use mode property to correctly identify transaction type
         // This is more reliable than looking up parent transactions
         switch transaction.mode {
-        case .recurring:
-          // Handle recurring transactions (both parent and instances)
-          let parentId = transaction.parentTransactionId ?? transactionId
-          self.recurringManager.cleanupRecurringInstancesFromDate(
-            parentTransactionId: parentId,
-            selectedTransactionDate: transaction.date,
-            cleanupOption: cleanupOption
-          ) {
-            // Recalculate statement total if applicable
-            if let stmtId = transaction.statementId {
-              self.creditCardService.recalculateStatementTotal(statementId: stmtId)
+        case .recurring, .installments:
+          // Route BOTH recurring and installment deletions through the single canonical
+          // delete engine (RecurringTransactionManager.deleteWithOption →
+          // TransactionRepository.deleteTransactionWithOption), the same path the
+          // Transaction/Statement/Allocation Details screens use. This removes the old
+          // divergence where the Dashboard used month/exact-date-keyed cleanup that
+          // deleted different rows than the detail screens for the identical action.
+          self.recurringManager.deleteWithOption(
+            transactionId: transactionId,
+            option: cleanupOption
+          ) { result in
+            if case .failure(let error) = result {
+              completion(.failure(error))
+              return
             }
-            // Invalidate ledger cache since transactions changed
-            self.transactionLedger.invalidateCache()
-            BalanceMonitorManager.shared.forceTriggerBalanceMonitoring()
-            if let groupId = groupId {
-              GroupNotificationService.shared.logActivity(
-                action: .transactionDeleted, groupId: groupId, detail: transaction.title)
-              SyncEngine.shared.pushPendingChangesNow()
-            }
-            completion(.success(()))
-          }
-          return
-
-        case .installments:
-          // Handle installment transactions (both parent and instances)
-          let parentId = transaction.parentTransactionId ?? transactionId
-          self.recurringManager.cleanupInstallmentTransactionsFromDate(
-            parentTransactionId: parentId,
-            selectedTransactionDate: transaction.date,
-            cleanupOption: cleanupOption
-          ) {
             // Recalculate statement total if applicable
             if let stmtId = transaction.statementId {
               self.creditCardService.recalculateStatementTotal(statementId: stmtId)

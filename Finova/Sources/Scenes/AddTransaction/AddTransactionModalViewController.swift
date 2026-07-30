@@ -221,6 +221,12 @@ extension AddTransactionModalViewController: AddTransactionModalViewDelegate,
   }
 
   func sendRecurringTransactionData(_ data: AddTransactionData) {
+    // Recurring generation now dedupes by title + month + DAY, so a same-title series on a
+    // different day coexists and generates its full horizon — no confirmation needed.
+    performRecurringCreate(data)
+  }
+
+  private func performRecurringCreate(_ data: AddTransactionData) {
     // Show loading state
     contentView.saveButton.startLoading()
 

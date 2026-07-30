@@ -66,7 +66,9 @@ final class BudgetGroupsViewModel {
             onError?("sharing.error.onlyOwnerCanDelete".localized)
             return
         }
-        repository.softDeleteGroup(id: group.id)
+        // Via the service, not the repository: it also deletes the group's CloudKit zone, without
+        // which the zone lingers and other devices resurrect the group.
+        BudgetGroupService.shared.deleteGroup(id: group.id)
 
         // Disable mirror mode if linked to this group
         if MirrorModeManager.shared.isEnabled,

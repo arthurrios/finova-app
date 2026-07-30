@@ -126,6 +126,7 @@ class UIDUserDefaultsManager {
   func setCurrentUserBalanceOffset(_ offset: Int) {
     guard let uid = currentUserUID else { return }
     UserDefaults.standard.set(offset, forKey: "balanceOffset_\(uid)")
+    UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: "balanceOffset_\(uid)_localTs")
     pushBalanceOffsetToCloud(offset, key: "personal", uid: uid)
     // Mirror mode: propagate personal → group only for owners.
     // Members receive the group offset from the owner's shared zone;
@@ -145,6 +146,7 @@ class UIDUserDefaultsManager {
 
   func setGroupBalanceOffset(_ offset: Int, groupId: String) {
     UserDefaults.standard.set(offset, forKey: "balanceOffset_group_\(groupId)")
+    UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: "balanceOffset_group_\(groupId)_localTs")
     if let uid = currentUserUID {
       pushBalanceOffsetToCloud(offset, key: "group-\(groupId)", uid: uid)
       // Also push to the group zone so members can see the offset
@@ -155,6 +157,15 @@ class UIDUserDefaultsManager {
   // MARK: - CloudKit Balance Offset Sync
 
   private func pushBalanceOffsetToCloud(_ offset: Int, key: String, uid: String) {
+    // HYDRATION GATE: never push the balance offset until this device has completed a verified
+    // full pull. A fresh/re-installed device starts with offset 0; pushing that 0 (with a fresh
+    // timestamp) would win last-writer-wins and overwrite the other device's real value. The
+    // local value + localTs are still set, and markFullPullVerified re-pushes any pending offset
+    // once hydrated. (Symmetric with the delete-push gate.)
+    guard UserDefaults.standard.bool(forKey: "syncFullPullVerified_v2") else {
+      logWarning("[GROUPDIAG] [BalanceOffset] Deferring push (\(key)) — full pull not yet verified")
+      return
+    }
     let recordID = CKRecord.ID(
       recordName: "balanceOffset-\(uid)-\(key)",
       zoneID: CloudKitManager.privateZoneID
@@ -170,7 +181,15 @@ class UIDUserDefaultsManager {
     operation.modifyRecordsResultBlock = { result in
       switch result {
       case .success:
-        logInfo("Balance offset synced to CloudKit: \(key) = \(offset)")
+        logWarning("[GROUPDIAG] [BalanceOffset] pushed to CloudKit: \(key) = \(offset)")
+        // Clear local timestamp — cloud now has the latest value
+        DispatchQueue.main.async {
+          if key == "personal" {
+            UserDefaults.standard.removeObject(forKey: "balanceOffset_\(uid)_localTs")
+          } else if key.hasPrefix("group-") {
+            UserDefaults.standard.removeObject(forKey: "balanceOffset_\(key)_localTs")
+          }
+        }
       case .failure(let error):
         logError("Failed to sync balance offset to CloudKit: \(error)")
       }
@@ -179,6 +198,12 @@ class UIDUserDefaultsManager {
   }
 
   private func pushBalanceOffsetToGroupZone(_ offset: Int, groupId: String, uid: String) {
+    // HYDRATION GATE (see pushBalanceOffsetToCloud): don't push a pre-hydration offset to the
+    // group zone either — it would overwrite the owner's authoritative group value on all devices.
+    guard UserDefaults.standard.bool(forKey: "syncFullPullVerified_v2") else {
+      logWarning("[GROUPDIAG] [BalanceOffset] Deferring group-zone push (group-\(groupId)) — full pull not yet verified")
+      return
+    }
     let group = BudgetGroupService.shared.fetchGroup(byId: groupId)
     guard let group = group, group.isOwner else { return }
 
@@ -201,6 +226,24 @@ class UIDUserDefaultsManager {
       }
     }
     CloudKitManager.shared.privateDatabase.add(operation)
+  }
+
+  /// Re-pushes any locally-set balance offset whose push was DEFERRED while this device was
+  /// hydrating (its `_localTs` is still present — a successful push clears it). Called once the
+  /// first full pull is verified, so a genuine offset edit made pre-hydration still reaches the
+  /// cloud instead of sitting local-only.
+  func repushPendingBalanceOffsetsAfterHydration() {
+    guard let uid = currentUserUID else { return }
+    if UserDefaults.standard.object(forKey: "balanceOffset_\(uid)_localTs") != nil {
+      pushBalanceOffsetToCloud(
+        UserDefaults.standard.integer(forKey: "balanceOffset_\(uid)"), key: "personal", uid: uid)
+    }
+    if MirrorModeManager.shared.isEnabled, let groupId = MirrorModeManager.shared.linkedGroupId,
+       UserDefaults.standard.object(forKey: "balanceOffset_group_\(groupId)_localTs") != nil {
+      let offset = UserDefaults.standard.integer(forKey: "balanceOffset_group_\(groupId)")
+      pushBalanceOffsetToCloud(offset, key: "group-\(groupId)", uid: uid)
+      pushBalanceOffsetToGroupZone(offset, groupId: groupId, uid: uid)
+    }
   }
 
   func fetchBalanceOffsetsFromCloud(completion: @escaping () -> Void) {
@@ -240,10 +283,23 @@ class UIDUserDefaultsManager {
         fetchedPersonalOffset = offset
         fetchedPersonalDate = record["updatedAt"] as? Date
         let currentLocal = UserDefaults.standard.integer(forKey: "balanceOffset_\(uid)")
+        let localTs = UserDefaults.standard.double(forKey: "balanceOffset_\(uid)_localTs")
+        let cloudDate = record["updatedAt"] as? Date ?? .distantPast
+
         if currentLocal != offset {
-          UserDefaults.standard.set(offset, forKey: "balanceOffset_\(uid)")
-          logInfo("Balance offset updated from CloudKit: personal = \(offset)")
-          didUpdate = true
+          // If the local value was changed after the cloud record, push local to cloud
+          if localTs > 0 && Date(timeIntervalSince1970: localTs) > cloudDate {
+            logInfo("Balance offset: local personal (\(currentLocal)) is newer than cloud (\(offset)) — pushing local")
+            self.pushBalanceOffsetToCloud(currentLocal, key: "personal", uid: uid)
+          } else {
+            UserDefaults.standard.set(offset, forKey: "balanceOffset_\(uid)")
+            UserDefaults.standard.removeObject(forKey: "balanceOffset_\(uid)_localTs")
+            logInfo("Balance offset updated from CloudKit: personal = \(offset)")
+            didUpdate = true
+          }
+        } else {
+          // Values match — clear the local timestamp
+          UserDefaults.standard.removeObject(forKey: "balanceOffset_\(uid)_localTs")
         }
       } else if let ckError = error as? CKError, ckError.code == .unknownItem {
         // No personal offset in CloudKit yet — push local if non-zero
@@ -270,7 +326,7 @@ class UIDUserDefaultsManager {
         )
 
         dispatchGroup.enter()
-        CloudKitManager.shared.privateDatabase.fetch(withRecordID: groupRecordID) { record, error in
+        CloudKitManager.shared.privateDatabase.fetch(withRecordID: groupRecordID) { [weak self] record, error in
           if let record = record,
              let offset = record["offset"] as? Int {
             let updatedAt = record["updatedAt"] as? Date ?? .distantPast
@@ -278,10 +334,21 @@ class UIDUserDefaultsManager {
               fetchedGroupOffsets.append((groupId: group.id, offset: offset, updatedAt: updatedAt))
             }
             let currentLocal = UserDefaults.standard.integer(forKey: "balanceOffset_group_\(group.id)")
+            let localTs = UserDefaults.standard.double(forKey: "balanceOffset_group_\(group.id)_localTs")
+
             if currentLocal != offset {
-              UserDefaults.standard.set(offset, forKey: "balanceOffset_group_\(group.id)")
-              logInfo("Balance offset updated from CloudKit: group-\(group.id) = \(offset)")
-              didUpdate = true
+              if localTs > 0 && Date(timeIntervalSince1970: localTs) > updatedAt {
+                logInfo("Balance offset: local group-\(group.id) (\(currentLocal)) is newer than cloud (\(offset)) — pushing local")
+                self?.pushBalanceOffsetToCloud(currentLocal, key: "group-\(group.id)", uid: uid)
+                self?.pushBalanceOffsetToGroupZone(currentLocal, groupId: group.id, uid: uid)
+              } else {
+                UserDefaults.standard.set(offset, forKey: "balanceOffset_group_\(group.id)")
+                UserDefaults.standard.removeObject(forKey: "balanceOffset_group_\(group.id)_localTs")
+                logInfo("Balance offset updated from CloudKit: group-\(group.id) = \(offset)")
+                didUpdate = true
+              }
+            } else {
+              UserDefaults.standard.removeObject(forKey: "balanceOffset_group_\(group.id)_localTs")
             }
           } else if let ckError = error as? CKError, ckError.code == .unknownItem {
             // No group offset in CloudKit yet — push local if non-zero

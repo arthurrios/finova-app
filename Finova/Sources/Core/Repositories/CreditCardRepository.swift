@@ -7,7 +7,10 @@ import Foundation
 
 class CreditCardRepository {
 
-    private let db = DBHelper.shared
+    /// Injectable for two-device tests; production always uses `.shared`.
+    private let db: DBHelper
+
+    init(db: DBHelper = .shared) { self.db = db }
 
     func insertCard(_ card: CreditCard) -> Int? {
         do {
@@ -40,7 +43,7 @@ class CreditCardRepository {
         do {
             let rows = try db.getCreditCards(userId: userId)
             return rows.map { row in
-                CreditCard(
+                var card = CreditCard(
                     id: row.id,
                     name: row.name,
                     lastFourDigits: row.lastFourDigits,
@@ -56,6 +59,9 @@ class CreditCardRepository {
                     updatedAt: Date(timeIntervalSince1970: TimeInterval(row.updatedAt)),
                     sharedGroupId: row.sharedGroupId
                 )
+                // Carry record ownership through to the push path — see getCreditCards.
+                card.createdByUid = row.createdByUid
+                return card
             }
         } catch {
             logError("Failed to fetch credit cards: \(error)")
@@ -120,6 +126,13 @@ class CreditCardRepository {
 
     func deleteCard(id: Int) -> Bool {
         do {
+            // Cancel due/pay reminders for every one of this card's statements before the card
+            // (and its statements) are soft-deleted — otherwise they keep firing for a card that
+            // no longer exists.
+            for statementId in StatementRepository().fetchStatements(forCardId: id).compactMap({ $0.id }) {
+                StatementNotificationManager.shared.cancelNotifications(for: statementId)
+            }
+
             try db.softDeleteCreditCard(id: id)
             // Check if synced — use pendingDelete to trigger CK deletion
             let ckName = fetchCKRecordName(for: id)
@@ -194,7 +207,17 @@ class CreditCardRepository {
         }
     }
 
-    func markAsSynced(ckRecordName: String) {
+    /// See `TransactionRepository.markAsSynced` for why `pushedUpdatedAt` matters: without it, an
+    /// edit made while the push was in flight is marked synced and never pushed.
+    func markAsSynced(ckRecordName: String, pushedUpdatedAt: Date? = nil) {
+        if let pushedUpdatedAt = pushedUpdatedAt {
+            db.executeSyncUpdate(
+                "UPDATE CreditCards SET sync_status = 'synced' WHERE ck_record_id = ? AND COALESCE(updated_at, 0) <= ?;",
+                textBindings: [ckRecordName],
+                intBindings: [Int(pushedUpdatedAt.timeIntervalSince1970)]
+            )
+            return
+        }
         // Phase 3C: CK record name is pre-stored before push, so matching by ck_record_id is sufficient
         db.executeSyncUpdate(
             "UPDATE CreditCards SET sync_status = 'synced' WHERE ck_record_id = ?;",
@@ -246,7 +269,7 @@ class CreditCardRepository {
                 card_color = ?, is_deleted = ?, is_default = ?,
                 shared_group_id = ?,
                 updated_at = ?, sync_status = 'synced', ck_modified_at = ?,
-                created_by_uid = ?
+                created_by_uid = COALESCE(?, created_by_uid)
             WHERE ck_record_id = ?;
             """,
             orderedBindings: [
@@ -269,6 +292,11 @@ class CreditCardRepository {
     }
 
     func deleteFromCloud(ckRecordName recordName: String) {
+        // RECREATION-WINS guard: keep a row with unpushed local edits rather than applying a
+        // remote delete (it re-pushes, preserving the newer local change).
+        if db.fetchSingleString("SELECT sync_status FROM CreditCards WHERE ck_record_id = ?;", textBinding: recordName) == "pending" {
+            return
+        }
         db.executeSyncUpdate(
             "DELETE FROM CreditCards WHERE ck_record_id = ?;",
             textBindings: [recordName]

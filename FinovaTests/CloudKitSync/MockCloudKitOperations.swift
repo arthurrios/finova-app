@@ -37,6 +37,7 @@ final class MockCloudKitOperations: CloudKitOperationsProvider {
     // Saved data tracking
     private(set) var lastSavedRecords: [CKRecord] = []
     private(set) var lastDeletedRecordIDs: [CKRecord.ID] = []
+    private(set) var lastSavePolicy: CKModifyRecordsOperation.RecordSavePolicy?
 
     init(mockCloud: MockCloudStore) {
         self.mockCloud = mockCloud
@@ -126,11 +127,13 @@ final class MockCloudKitOperations: CloudKitOperationsProvider {
     func saveRecords(
         _ records: [CKRecord],
         database: CKDatabase.Scope,
+        savePolicy: CKModifyRecordsOperation.RecordSavePolicy,
         perRecordHandler: @escaping (CKRecord.ID, Result<CKRecord, Error>) -> Void,
         completion: @escaping (Result<Void, Error>) -> Void
     ) {
         saveRecordsCallCount += 1
         lastSavedRecords = records
+        lastSavePolicy = savePolicy
 
         if let error = saveError {
             completion(.failure(error))

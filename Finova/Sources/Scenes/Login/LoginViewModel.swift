@@ -36,6 +36,17 @@ extension LoginViewModel: AuthenticationManagerDelegate {
         if let firebaseUID = user.firebaseUID {
             // Set current user UID for settings lookup
             UIDUserDefaultsManager.shared.currentUserUID = firebaseUID
+            // Auto-enable sync on fresh installs (key never set).
+            // InitialSync screen now guarantees pull-first, so auto-sync is safe.
+            if UserDefaults.standard.object(forKey: "syncEnabled") == nil {
+                UserDefaultsManager.setSyncEnabled(true)
+            }
+            // Backfill syncFullPullVerified_v2 for existing devices that already synced
+            // successfully before this flag was introduced.
+            if !UserDefaults.standard.bool(forKey: "syncFullPullVerified_v2"),
+               SyncStateManager.shared.changeToken(for: "privateDB", database: "private") != nil {
+                UserDefaults.standard.set(true, forKey: "syncFullPullVerified_v2")
+            }
             DBHelper.shared.backfillUserIds(uid: firebaseUID)
 
             // Check if this user has existing settings
@@ -90,7 +101,9 @@ extension LoginViewModel: AuthenticationManagerDelegate {
 
             // Force full fetch to pull ALL data from CloudKit on login
             // Only auto-sync if user hasn't disabled sync (allows safe login for recovery scenarios)
-            if UserDefaultsManager.getSyncEnabled() {
+            // On new devices, InitialSyncViewController will trigger the sync instead
+            let isNewDevice = !UserDefaults.standard.bool(forKey: "syncFullPullVerified_v2")
+            if UserDefaultsManager.getSyncEnabled() && !isNewDevice {
                 SyncEngine.shared.performFullSync(forceFullFetch: true)
             }
         }

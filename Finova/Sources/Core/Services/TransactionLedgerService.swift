@@ -18,6 +18,13 @@ final class TransactionLedgerService {
   private var lastCacheUpdate: Date = Date.distantPast
   private let cacheValidityDuration: TimeInterval = 60  // 1 minute
 
+  // P2: memoize the full transaction+statement array for a short window. Per-day balance calls
+  // (e.g. dragging the day slider) previously re-fetched and re-mapped the ENTIRE table on every
+  // call; this serves them from one fetch. Same staleness window as monthlyDataCache and cleared
+  // by the same invalidation points, so it never serves data older than the balances beside it.
+  private var cachedAllTransactions: [Transaction]?
+  private var cachedAllTransactionsTime: Date = Date.distantPast
+
   init(
     transactionRepo: TransactionRepository = TransactionRepository(),
     budgetRepo: BudgetRepository = BudgetRepository()
@@ -28,11 +35,17 @@ final class TransactionLedgerService {
 
   /// Fetches all transactions including synthetic CC statement transactions for balance calculations
   private func fetchAllTransactionsIncludingStatements() -> [Transaction] {
+    if let cached = cachedAllTransactions,
+       Date().timeIntervalSince(cachedAllTransactionsTime) < cacheValidityDuration {
+      return cached
+    }
     var transactions = transactionRepo.fetchAllTransactions()
     if let uid = AuthenticationManager.shared.currentUser?.uid {
       let statementTxs = creditCardService.generateStatementTransactions(userId: uid)
       transactions.append(contentsOf: statementTxs)
     }
+    cachedAllTransactions = transactions
+    cachedAllTransactionsTime = Date()
     return transactions
   }
 
@@ -115,9 +128,10 @@ final class TransactionLedgerService {
       let income = cashTransactions.filter { $0.type == .income }.reduce(0) { $0 + $1.amount }
       let budgetLimit = budgetsByAnchor[anchor]
 
-      // usedValue excludes individual CC transactions (same logic as personal path).
+      // usedValue counts individual CC transactions in the month they were created
+      // (same logic as personal path). Statement synthetics only affect balance.
       let usedTransactions = transactionsForMonth.filter { tx in
-        tx.creditCardId == nil || tx.isCreditCardStatement == true
+        tx.isCreditCardStatement != true
       }
       let usedValue = usedTransactions.filter { $0.type == .expense }.reduce(0) { $0 + $1.amount }
 
@@ -291,11 +305,11 @@ final class TransactionLedgerService {
       let income = cashTransactions.filter { $0.type == .income }.reduce(0) { $0 + $1.amount }
       let budgetLimit = budgetsByAnchor[anchor]
 
-      // usedValue excludes individual CC transactions — they're debited through their
-      // statement entry instead. This matches the cash-flow view: CC spending is counted
-      // in the month the statement is due, not when the purchase was made.
+      // usedValue counts individual CC transactions in the month they were created
+      // (matching how budget allocations track spending). Statement synthetics are
+      // excluded here — they only affect balance, not "used" budget.
       let usedTransactions = transactionsForMonth.filter { tx in
-        tx.creditCardId == nil || tx.isCreditCardStatement == true
+        tx.isCreditCardStatement != true
       }
       let usedValue = usedTransactions.filter { $0.type == .expense }.reduce(0) { $0 + $1.amount }
 
@@ -341,7 +355,7 @@ final class TransactionLedgerService {
         let transactionMonthAnchor = transactionDate.monthAnchor
         return transactionMonthAnchor == monthAnchor
       }
-      .sorted { $0.date > $1.date }
+      .sorted { $0.date != $1.date ? $0.date > $1.date : ($0.id ?? 0) > ($1.id ?? 0) }
   }
 
   func getTransactionsForDateRange(from startDate: Date, to endDate: Date) -> [Transaction] {
@@ -356,7 +370,7 @@ final class TransactionLedgerService {
         let transactionMonthAnchor = transactionDate.monthAnchor
         return transactionMonthAnchor >= startAnchor && transactionMonthAnchor <= endAnchor
       }
-      .sorted { $0.date > $1.date }
+      .sorted { $0.date != $1.date ? $0.date > $1.date : ($0.id ?? 0) > ($1.id ?? 0) }
   }
 
   // MARK: - Balance Calculations
@@ -498,6 +512,7 @@ final class TransactionLedgerService {
 
     // Invalidate cache for current month only
     monthlyDataCache.removeValue(forKey: currentMonthAnchor)
+    cachedAllTransactions = nil
 
     // Also invalidate the last cache update time to force fresh calculation
     lastCacheUpdate = Date.distantPast
@@ -507,6 +522,7 @@ final class TransactionLedgerService {
   func forceRefreshCurrentMonthBalance() {
     // Clear all cache to ensure fresh calculation
     monthlyDataCache.removeAll()
+    cachedAllTransactions = nil
     lastCacheUpdate = Date.distantPast
 
     // Force recalculate current month (offset 0 = current month)
@@ -517,6 +533,7 @@ final class TransactionLedgerService {
   func forceRefreshAllBalances() {
     // Clear all cache
     monthlyDataCache.removeAll()
+    cachedAllTransactions = nil
     lastCacheUpdate = Date.distantPast
 
     // Force recalculate a range of months to ensure fresh data
@@ -587,6 +604,7 @@ final class TransactionLedgerService {
 
   func invalidateCache() {
     monthlyDataCache.removeAll()
+    cachedAllTransactions = nil
     lastCacheUpdate = Date.distantPast
   }
 
@@ -597,6 +615,7 @@ final class TransactionLedgerService {
 
   func clearCache() {
     monthlyDataCache.removeAll()
+    cachedAllTransactions = nil
     lastCacheUpdate = Date.distantPast
   }
 

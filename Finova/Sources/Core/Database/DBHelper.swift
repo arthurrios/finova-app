@@ -19,17 +19,33 @@ private let SQLITE_TRANSIENT = unsafeBitCast(-1, to: sqlite3_destructor_type.sel
 
 class DBHelper {
     static let shared = DBHelper()
-    
+
     private var db: OpaquePointer?
     private var isInitialized = false
-    
+
+    /// Where this instance's SQLite file lives. `nil` means the app's real database.
+    /// Only tests pass a value, so they can stand up genuinely independent "devices".
+    private let overridePath: URL?
+
     /// Serial queue to ensure thread-safe database access
     private let dbQueue = DispatchQueue(label: "com.finova.dbhelper", qos: .userInitiated)
-    
+
     private init() {
+        self.overridePath = nil
         initializeDatabase()
     }
-    
+
+    /// Creates an isolated database at `path`, fully migrated, sharing no state with `.shared`.
+    ///
+    /// This exists so two `DeviceSimulator`s in the test suite are actually two devices. Until now
+    /// `DBHelper` was a singleton on one fixed file, so both "devices" in the cross-device tests
+    /// read and wrote the SAME database as the SAME user — which is why `testCreateOnA_SyncToB`
+    /// passed: the row had never left. Those tests would pass with sync entirely disabled.
+    init(path: URL) {
+        self.overridePath = path
+        initializeDatabase()
+    }
+
     private func initializeDatabase() {
         do {
             try openDatabase()
@@ -54,7 +70,10 @@ class DBHelper {
             try migrateSyncColumnsV5()
             try migrateBudgetGroupsAddZoneOwner()
             try migrateCreatedByUidColumns()
+            try migrateRevColumns()
+            try migrateUuidColumnsV1()
             isInitialized = true
+            performUuidBackfillV1()
             performSyncFixMigration()
             performParentIdFixMigration()
             performPendingModifiedAtMigration()
@@ -69,16 +88,54 @@ class DBHelper {
     }
     
     private func openDatabase() throws {
-        let fileURL = try! FileManager.default
+        let fileURL = try overridePath ?? FileManager.default
             .url(for: .documentDirectory, in: .userDomainMask, appropriateFor: nil, create: false)
             .appendingPathComponent("AppFinance.sqlite")
-        
+
         // Use sqlite3_open_v2 with SQLITE_OPEN_FULLMUTEX for thread-safe serialized mode
         let flags = SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX
         if sqlite3_open_v2(fileURL.path, &db, flags, nil) != SQLITE_OK {
             throw DBError.openDatabaseFailed
         }
+
+        // PERFORMANCE: WAL lets readers proceed without blocking the single writer (fewer
+        // main-thread stalls during background generation), and synchronous=NORMAL removes a
+        // per-commit fsync. Combined with wrapping bulk generation in one transaction (see
+        // `inTransaction`), creating a 36-month recurring series goes from ~36 fsyncs to ~1.
+        // Both are safe on an existing database file.
+        sqlite3_exec(db, "PRAGMA journal_mode=WAL;", nil, nil, nil)
+        sqlite3_exec(db, "PRAGMA synchronous=NORMAL;", nil, nil, nil)
     }
+
+    /// Runs `work` inside a single SQLite transaction so a batch of inserts/updates commits once
+    /// (one fsync) instead of per-row. Re-entrant safe: if a transaction is already open on this
+    /// connection, it just runs `work` inline (no nested BEGIN, which SQLite rejects). Rolls back
+    /// and rethrows on error, so a partial batch never lands.
+    func inTransaction(_ work: () throws -> Void) throws {
+        guard isInitialized, let db = db else { try work(); return }
+        // Serialize transactions: writes now run on several background queues (recurring
+        // generation, allocation CRUD), and two threads interleaving BEGIN/COMMIT on this single
+        // shared connection would nest incorrectly and commit each other's work. Recursive so a
+        // nested inTransaction on the SAME thread just runs inline.
+        Self.transactionLock.lock()
+        defer { Self.transactionLock.unlock() }
+
+        // sqlite3_get_autocommit == 0 means a transaction is already active.
+        if sqlite3_get_autocommit(db) == 0 {
+            try work()
+            return
+        }
+        sqlite3_exec(db, "BEGIN", nil, nil, nil)
+        do {
+            try work()
+            sqlite3_exec(db, "COMMIT", nil, nil, nil)
+        } catch {
+            sqlite3_exec(db, "ROLLBACK", nil, nil, nil)
+            throw error
+        }
+    }
+
+    private static let transactionLock = NSRecursiveLock()
     
     private func createBudgetsTable() throws {
         let createTableQuery = """
@@ -508,6 +565,7 @@ class DBHelper {
             throw DBError.stepFailed(message: msg)
         }
 
+        SyncChangeTracker.shared.markDirty()
         return Int(sqlite3_last_insert_rowid(db))
     }
 
@@ -655,6 +713,15 @@ class DBHelper {
         )
     }
 
+    func updateTransactionBudgetMonthDate(transactionId: Int, newBudgetMonthDate: Int) {
+        guard isInitialized else { return }
+        let now = Int(Date().timeIntervalSince1970)
+        executeSyncUpdate(
+            "UPDATE Transactions SET budget_month_date = ?, sync_status = 'pending', ck_modified_at = ?, updated_at = ? WHERE id = ?;",
+            intBindings: [newBudgetMonthDate, now, now, transactionId]
+        )
+    }
+
     func deleteTransaction(id: Int) throws {
         guard isInitialized else {
             logWarning("Database not initialized, skipping transaction delete")
@@ -779,6 +846,12 @@ class DBHelper {
             let createdByUid: String? = columnCount > 16 && sqlite3_column_type(statement, 16) != SQLITE_NULL
             ? String(cString: sqlite3_column_text(statement, 16)) : nil
 
+            // Optional 18th column: `updated_at`. Only callers that need the real last-edit time
+            // select it (notably fetchPendingSync, which feeds the CloudKit push) — everything else
+            // keeps its existing 17-column shape and leaves this nil.
+            let updatedAt: Date? = columnCount > 17 && sqlite3_column_type(statement, 17) != SQLITE_NULL
+            ? Date(timeIntervalSince1970: TimeInterval(sqlite3_column_int64(statement, 17))) : nil
+
             let dbData = DBTransactionData(
                 id: id, title: title, amount: amount, dateTimestamp: ts, budgetMonthDate: monthAnchor,
                 isRecurring: isRecurring, hasInstallments: hasInstallments,
@@ -787,6 +860,7 @@ class DBHelper {
                 originalAmount: originalAmount,
                 creditCardId: creditCardId, statementId: statementId,
                 isCreditCardStatement: isCreditCardStatement,
+                updatedAt: updatedAt,
                 createdByUid: createdByUid,
                 category: catKey, type: typeKey
             )
@@ -823,13 +897,14 @@ class DBHelper {
         sqlite3_bind_int64(statement, 2, now)
         sqlite3_bind_int64(statement, 3, now)
         sqlite3_bind_int64(statement, 4, Int64(transactionId))
-        
+
         guard sqlite3_step(statement) == SQLITE_DONE else {
             let msg = String(cString: sqlite3_errmsg(db))
             throw DBError.stepFailed(message: msg)
         }
+        SyncChangeTracker.shared.markDirty()
     }
-    
+
     func getTransactionWithParent(id: Int) throws -> (transaction: Transaction?, parent: Transaction?)
     {
         let query = """
@@ -1008,13 +1083,14 @@ class DBHelper {
         sqlite3_bind_int64(statement, 14, now)
         sqlite3_bind_int64(statement, 15, now)
         sqlite3_bind_int64(statement, 16, Int64(transaction.data.id!))
-        
+
         guard sqlite3_step(statement) == SQLITE_DONE else {
             let msg = String(cString: sqlite3_errmsg(db))
             throw DBError.stepFailed(message: msg)
         }
+        SyncChangeTracker.shared.markDirty()
     }
-    
+
     func updateSingleTransaction(_ transaction: TransactionModel) throws {
         guard isInitialized else {
             logWarning("Database not initialized, skipping single transaction update")
@@ -1051,13 +1127,14 @@ class DBHelper {
         sqlite3_bind_int64(statement, 8, now)
         sqlite3_bind_int64(statement, 9, now)
         sqlite3_bind_int64(statement, 10, Int64(transaction.data.id!))
-        
+
         guard sqlite3_step(statement) == SQLITE_DONE else {
             let msg = String(cString: sqlite3_errmsg(db))
             throw DBError.stepFailed(message: msg)
         }
+        SyncChangeTracker.shared.markDirty()
     }
-    
+
     // MARK: - Recurring Transaction Updates
     
     /// Updates the is_recurring flag for a transaction
@@ -1139,7 +1216,13 @@ class DBHelper {
     
     func fetchBudgetsForGroup(groupId: String) throws -> [BudgetModel] {
         guard isInitialized else { return [] }
-        let query = "SELECT month_date, amount FROM Budgets WHERE shared_group_id = ?;"
+        // `is_deleted` filter is required — every other budget read applies it. Without it a
+        // soft-deleted group budget (is_deleted=1, awaiting its CloudKit delete) still renders as
+        // the group's budget limit.
+        let query = """
+            SELECT month_date, amount FROM Budgets
+             WHERE shared_group_id = ? AND (is_deleted IS NULL OR is_deleted = 0);
+            """
         var statement: OpaquePointer?
         guard sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK else {
             let msg = String(cString: sqlite3_errmsg(db))
@@ -1377,12 +1460,17 @@ class DBHelper {
         return Int(sqlite3_last_insert_rowid(db))
     }
 
-    func getCreditCards(userId: String) throws -> [(id: Int, name: String, lastFourDigits: String, cardBrand: String, closingDay: Int, dueDay: Int, creditLimit: Int?, cardColor: String, isDeleted: Bool, isDefault: Bool, createdAt: Int, updatedAt: Int, sharedGroupId: String?)] {
+    /// `created_by_uid` is selected because these rows feed the CloudKit push. Omitting it made the
+    /// adapter write `createdByUid = nil` to CloudKit on every card push, and each inbound
+    /// `updateFromCloud` then NULLed the column on every device — defeating
+    /// `mayPushDeleteForGroupRecord` and letting any group member delete the owner's cards.
+    func getCreditCards(userId: String) throws -> [(id: Int, name: String, lastFourDigits: String, cardBrand: String, closingDay: Int, dueDay: Int, creditLimit: Int?, cardColor: String, isDeleted: Bool, isDefault: Bool, createdAt: Int, updatedAt: Int, sharedGroupId: String?, createdByUid: String?)] {
         guard isInitialized else { return [] }
 
         let query = """
         SELECT id, name, last_four_digits, card_brand, closing_day, due_day,
-               credit_limit, card_color, is_deleted, is_default, created_at, updated_at, shared_group_id
+               credit_limit, card_color, is_deleted, is_default, created_at, updated_at, shared_group_id,
+               created_by_uid
         FROM CreditCards WHERE user_id = ? AND is_deleted = 0
         ORDER BY created_at DESC;
         """
@@ -1395,7 +1483,7 @@ class DBHelper {
         defer { sqlite3_finalize(statement) }
         sqlite3_bind_text(statement, 1, userId, -1, SQLITE_TRANSIENT)
 
-        var results: [(id: Int, name: String, lastFourDigits: String, cardBrand: String, closingDay: Int, dueDay: Int, creditLimit: Int?, cardColor: String, isDeleted: Bool, isDefault: Bool, createdAt: Int, updatedAt: Int, sharedGroupId: String?)] = []
+        var results: [(id: Int, name: String, lastFourDigits: String, cardBrand: String, closingDay: Int, dueDay: Int, creditLimit: Int?, cardColor: String, isDeleted: Bool, isDefault: Bool, createdAt: Int, updatedAt: Int, sharedGroupId: String?, createdByUid: String?)] = []
 
         while sqlite3_step(statement) == SQLITE_ROW {
             let id = Int(sqlite3_column_int64(statement, 0))
@@ -1411,8 +1499,9 @@ class DBHelper {
             let createdAt = Int(sqlite3_column_int64(statement, 10))
             let updatedAt = Int(sqlite3_column_int64(statement, 11))
             let sharedGroupId: String? = sqlite3_column_type(statement, 12) == SQLITE_NULL ? nil : String(cString: sqlite3_column_text(statement, 12))
+            let createdByUid: String? = sqlite3_column_type(statement, 13) == SQLITE_NULL ? nil : String(cString: sqlite3_column_text(statement, 13))
 
-            results.append((id, name, lastFour, brand, closing, due, limit, color, deleted, isDefault, createdAt, updatedAt, sharedGroupId))
+            results.append((id, name, lastFour, brand, closing, due, limit, color, deleted, isDefault, createdAt, updatedAt, sharedGroupId, createdByUid))
         }
 
         return results
@@ -1593,9 +1682,11 @@ class DBHelper {
         return Int(sqlite3_last_insert_rowid(db))
     }
 
-    func getStatements(creditCardId: Int) throws -> [(id: Int, creditCardId: Int, closingDate: Int, dueDate: Int, totalAmount: Int, isPaid: Bool, paidDate: Int?, paidAmount: Int?, userId: String, isDatesOverridden: Bool, createdAt: Int, updatedAt: Int)] {
+    /// `created_by_uid` is selected because these rows feed the CloudKit push — see getCreditCards
+    /// for why dropping it wiped record ownership across every device.
+    func getStatements(creditCardId: Int) throws -> [(id: Int, creditCardId: Int, closingDate: Int, dueDate: Int, totalAmount: Int, isPaid: Bool, paidDate: Int?, paidAmount: Int?, userId: String, isDatesOverridden: Bool, createdAt: Int, updatedAt: Int, createdByUid: String?)] {
         guard isInitialized else { return [] }
-        let query = "SELECT id, credit_card_id, closing_date, due_date, total_amount, is_paid, paid_date, paid_amount, user_id, is_dates_overridden, created_at, updated_at FROM CreditCardStatements WHERE credit_card_id = ? AND (is_deleted IS NULL OR is_deleted = 0) ORDER BY due_date DESC;"
+        let query = "SELECT id, credit_card_id, closing_date, due_date, total_amount, is_paid, paid_date, paid_amount, user_id, is_dates_overridden, created_at, updated_at, created_by_uid FROM CreditCardStatements WHERE credit_card_id = ? AND (is_deleted IS NULL OR is_deleted = 0) ORDER BY due_date DESC;"
         var statement: OpaquePointer?
         guard sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK else {
             let msg = String(cString: sqlite3_errmsg(db))
@@ -1604,7 +1695,7 @@ class DBHelper {
         defer { sqlite3_finalize(statement) }
         sqlite3_bind_int64(statement, 1, Int64(creditCardId))
 
-        var results: [(id: Int, creditCardId: Int, closingDate: Int, dueDate: Int, totalAmount: Int, isPaid: Bool, paidDate: Int?, paidAmount: Int?, userId: String, isDatesOverridden: Bool, createdAt: Int, updatedAt: Int)] = []
+        var results: [(id: Int, creditCardId: Int, closingDate: Int, dueDate: Int, totalAmount: Int, isPaid: Bool, paidDate: Int?, paidAmount: Int?, userId: String, isDatesOverridden: Bool, createdAt: Int, updatedAt: Int, createdByUid: String?)] = []
         while sqlite3_step(statement) == SQLITE_ROW {
             results.append((
                 Int(sqlite3_column_int64(statement, 0)),
@@ -1618,7 +1709,8 @@ class DBHelper {
                 String(cString: sqlite3_column_text(statement, 8)),
                 sqlite3_column_int(statement, 9) == 1,
                 Int(sqlite3_column_int64(statement, 10)),
-                Int(sqlite3_column_int64(statement, 11))
+                Int(sqlite3_column_int64(statement, 11)),
+                sqlite3_column_type(statement, 12) == SQLITE_NULL ? nil : String(cString: sqlite3_column_text(statement, 12))
             ))
         }
         return results
@@ -1762,6 +1854,7 @@ class DBHelper {
             let msg = String(cString: sqlite3_errmsg(db))
             throw DBError.stepFailed(message: msg)
         }
+        SyncChangeTracker.shared.markDirty()
     }
 
     func setStatementOverridden(transactionId: Int, overridden: Bool) {
@@ -1798,6 +1891,7 @@ class DBHelper {
             let msg = String(cString: sqlite3_errmsg(db))
             throw DBError.stepFailed(message: msg)
         }
+        SyncChangeTracker.shared.markDirty()
     }
 
     func getSharedGroupId(transactionId: Int) -> String? {
@@ -1814,7 +1908,12 @@ class DBHelper {
 
     func getTransactionCountForStatement(statementId: Int) throws -> Int {
         guard isInitialized else { return 0 }
-        let query = "SELECT COUNT(*) FROM Transactions WHERE statement_id = ? AND is_credit_card_statement = 0;"
+        let query = """
+            SELECT COUNT(*) FROM Transactions
+            WHERE statement_id = ? AND is_credit_card_statement = 0
+            AND NOT (COALESCE(has_installments, 0) = 1 AND parent_transaction_id IS NULL)
+            AND NOT (COALESCE(is_recurring, 0) = 1 AND parent_transaction_id IS NULL);
+            """
         var statement: OpaquePointer?
         guard sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK else {
             let msg = String(cString: sqlite3_errmsg(db))
@@ -1828,7 +1927,13 @@ class DBHelper {
 
     func getTransactionSumForStatement(statementId: Int) throws -> Int {
         guard isInitialized else { return 0 }
-        let query = "SELECT COALESCE(SUM(amount), 0) FROM Transactions WHERE statement_id = ? AND is_credit_card_statement = 0 AND (is_deleted IS NULL OR is_deleted = 0);"
+        let query = """
+            SELECT COALESCE(SUM(amount), 0) FROM Transactions
+            WHERE statement_id = ? AND is_credit_card_statement = 0
+            AND (is_deleted IS NULL OR is_deleted = 0)
+            AND NOT (COALESCE(has_installments, 0) = 1 AND parent_transaction_id IS NULL)
+            AND NOT (COALESCE(is_recurring, 0) = 1 AND parent_transaction_id IS NULL);
+            """
         var statement: OpaquePointer?
         guard sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK else {
             let msg = String(cString: sqlite3_errmsg(db))
@@ -2002,20 +2107,271 @@ class DBHelper {
         try addColumnIfNotExists(table: "BudgetGroups", column: "ck_zone_owner", definition: "TEXT")
     }
 
+    /// Deterministic per-record version for conflict resolution. `rev` is a logical clock
+    /// (bumped as max(local, last-seen-server) + 1 on every local mutation — NOT wall time),
+    /// with `rev_device` as a stable tiebreaker. Arbitration compares (rev, rev_device); this is
+    /// clock-independent and covers updates AND deletes. Additive + backward-compatible: legacy
+    /// rows default rev=0 and fall back to timestamp LWW until both sides carry a real rev>0.
+    private func migrateRevColumns() throws {
+        let tables = ["Transactions", "Budgets", "CreditCards", "CreditCardStatements", "BudgetAllocations"]
+        for table in tables {
+            try addColumnIfNotExists(table: table, column: "rev", definition: "INTEGER NOT NULL DEFAULT 0")
+            try addColumnIfNotExists(table: table, column: "rev_device", definition: "TEXT")
+        }
+        // One-time backfill: give every already-synced row a defined starting version (rev=1) so
+        // it beats legacy/unsynced rows (rev=0). rev then propagates to CloudKit lazily as rows
+        // are edited. Gated so it never re-runs and clobbers a bumped rev. Does NOT mark rows
+        // pending (no mass re-push) — sync_status is untouched, so this is invisible to the user.
+        let backfillKey = "hasBackfilledRevV1"
+        if !UserDefaults.standard.bool(forKey: backfillKey) {
+            for table in tables {
+                executeSyncUpdate("UPDATE \(table) SET rev = 1 WHERE ck_record_id IS NOT NULL AND rev = 0;")
+            }
+            UserDefaults.standard.set(true, forKey: backfillKey)
+        }
+    }
+
+    // MARK: - Stage 1: device-independent record identity
+
+    /// Tables that participate in CloudKit sync and therefore need a stable identity.
+    static let syncableTablesV1 = [
+        "Transactions", "Budgets", "CreditCards", "CreditCardStatements", "BudgetAllocations",
+    ]
+
+    /// Adds a client-generated `uuid` to every synced table, plus uuid-valued parallel foreign keys.
+    ///
+    /// Why this exists: rows are identified locally by SQLite AUTOINCREMENT integers, and every
+    /// foreign key is one of those integers — a value that is meaningless on any other device. The
+    /// receiving device currently has to reconstruct each relationship from `*CKRecordName` side
+    /// channels that are nil until the referent has been pushed, and when that fails it writes the
+    /// SENDER's integer into its own database, producing a dangling or silently mis-linked row.
+    ///
+    /// Purely additive — no existing column is touched, so this is safe against live data and a
+    /// downgrade simply ignores the new columns.
+    private func migrateUuidColumnsV1() throws {
+        for table in Self.syncableTablesV1 {
+            try addColumnIfNotExists(table: table, column: "uuid", definition: "TEXT")
+        }
+
+        // Parallel uuid foreign keys. The integer FKs remain as the local join path (every existing
+        // query uses them); these are the durable, device-independent pointers that cross the wire.
+        try addColumnIfNotExists(table: "Transactions", column: "credit_card_uuid", definition: "TEXT")
+        try addColumnIfNotExists(table: "Transactions", column: "statement_uuid", definition: "TEXT")
+        try addColumnIfNotExists(table: "Transactions", column: "parent_transaction_uuid", definition: "TEXT")
+        try addColumnIfNotExists(table: "CreditCardStatements", column: "credit_card_uuid", definition: "TEXT")
+        // BudgetAllocations.parent_allocation_id has NEVER had any remapping mechanism at all —
+        // a recurring allocation's parent pointer is a foreign device's autoincrement id written
+        // verbatim. This column is what finally gives it one.
+        try addColumnIfNotExists(table: "BudgetAllocations", column: "parent_allocation_uuid", definition: "TEXT")
+
+        // Deliberately NOT added: Transactions.budget_uuid. `budget_month_date` is a month bucket,
+        // not a pointer to a row identity — it is already identical on every device.
+    }
+
+    /// Schema version stored in the database file itself (not UserDefaults): migration state must
+    /// travel with the data, or a restored/copied database desynchronises from the app container.
+    private func schemaUserVersion() -> Int {
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, "PRAGMA user_version;", -1, &stmt, nil) == SQLITE_OK else { return 0 }
+        defer { sqlite3_finalize(stmt) }
+        return sqlite3_step(stmt) == SQLITE_ROW ? Int(sqlite3_column_int64(stmt, 0)) : 0
+    }
+
+    private func setSchemaUserVersion(_ version: Int) {
+        sqlite3_exec(db, "PRAGMA user_version = \(version);", nil, nil, nil)
+    }
+
+    /// Populates `uuid` and the uuid foreign keys for rows that predate them.
+    ///
+    /// **Derives, rather than mints, wherever possible.** Existing CloudKit record names already
+    /// have the shape `<type>-<UUID>`, so stripping the prefix yields an identity that BOTH devices
+    /// compute identically from data they already hold — no coordination, no network, and the
+    /// record's existing CloudKit name is already `"<type>-\(uuid)"` under the new scheme. That is
+    /// what makes this migration require no cloud re-keying at all.
+    ///
+    /// Minting fresh UUIDs instead would have each device independently assign a *different*
+    /// identity to the same logical row — reintroducing the very defect being fixed.
+    private func performUuidBackfillV1() {
+        guard isInitialized else { return }
+        guard schemaUserVersion() < 1 else { return }
+
+        // 1. Derive from the UUID already embedded in ck_record_id.
+        //    Guarded on length and dash positions so a malformed or legacy `<type>-<int>` name falls
+        //    through to step 2 rather than producing a truncated identity.
+        let derivations: [(table: String, prefix: String)] = [
+            ("Transactions", "transaction-"),
+            ("CreditCards", "creditCard-"),
+            ("CreditCardStatements", "statement-"),
+            ("BudgetAllocations", "allocation-"),
+        ]
+        for d in derivations {
+            let n = d.prefix.count
+            executeSyncUpdate("""
+                UPDATE \(d.table)
+                   SET uuid = upper(substr(ck_record_id, \(n + 1)))
+                 WHERE uuid IS NULL
+                   AND ck_record_id IS NOT NULL
+                   AND substr(ck_record_id, 1, \(n)) = '\(d.prefix)'
+                   AND length(ck_record_id) = \(n + 36)
+                   AND substr(ck_record_id, \(n + 9),  1) = '-'
+                   AND substr(ck_record_id, \(n + 14), 1) = '-'
+                   AND substr(ck_record_id, \(n + 19), 1) = '-'
+                   AND substr(ck_record_id, \(n + 24), 1) = '-';
+                """)
+        }
+
+        // 2. Everything still NULL was never pushed (or has a legacy name) — mint a fresh UUID.
+        //    Done per row in Swift so the values match `UUID().uuidString` exactly in form.
+        for table in Self.syncableTablesV1 {
+            let key = table == "Budgets" ? "month_date" : "id"
+            let ids = fetchIntList("SELECT \(key) FROM \(table) WHERE uuid IS NULL;")
+            for rowKey in ids {
+                executeSyncUpdate(
+                    "UPDATE \(table) SET uuid = ? WHERE \(key) = ? AND uuid IS NULL;",
+                    textBindings: [UUID().uuidString],
+                    intBindings: [rowKey]
+                )
+            }
+            if !ids.isEmpty {
+                logInfo("[UUID] Minted \(ids.count) uuid(s) for \(table) (rows never pushed to CloudKit)")
+            }
+        }
+
+        // 3. Backfill the uuid foreign keys by joining on the existing integer FKs. Runs only after
+        //    every table has a uuid, or the joins would resolve to NULL.
+        let fkRules: [(table: String, intCol: String, uuidCol: String, refTable: String)] = [
+            ("Transactions", "credit_card_id", "credit_card_uuid", "CreditCards"),
+            ("Transactions", "statement_id", "statement_uuid", "CreditCardStatements"),
+            ("Transactions", "parent_transaction_id", "parent_transaction_uuid", "Transactions"),
+            ("CreditCardStatements", "credit_card_id", "credit_card_uuid", "CreditCards"),
+            ("BudgetAllocations", "parent_allocation_id", "parent_allocation_uuid", "BudgetAllocations"),
+        ]
+        for r in fkRules {
+            executeSyncUpdate("""
+                UPDATE \(r.table)
+                   SET \(r.uuidCol) = (SELECT t.uuid FROM \(r.refTable) t WHERE t.id = \(r.table).\(r.intCol))
+                 WHERE \(r.uuidCol) IS NULL AND \(r.intCol) IS NOT NULL;
+                """)
+            // Rows whose integer FK already pointed at nothing. Not cleared — the integer is the
+            // only remaining evidence of intent, and the existing CC repairs still read it.
+            let orphans = fetchSingleInt("""
+                SELECT COUNT(*) FROM \(r.table)
+                 WHERE \(r.intCol) IS NOT NULL AND \(r.uuidCol) IS NULL;
+                """) ?? 0
+            if orphans > 0 {
+                logWarning("[UUID] \(r.table).\(r.intCol): \(orphans) row(s) reference a missing \(r.refTable) — pre-existing orphans, left as-is")
+            }
+        }
+
+        // 4. Verify before committing to the new schema version.
+        for table in Self.syncableTablesV1 {
+            let nulls = fetchSingleInt("SELECT COUNT(*) FROM \(table) WHERE uuid IS NULL;") ?? -1
+            let dupes = fetchSingleInt("""
+                SELECT COUNT(*) FROM (SELECT uuid FROM \(table) GROUP BY uuid HAVING COUNT(*) > 1);
+                """) ?? -1
+            guard nulls == 0, dupes == 0 else {
+                logError("[UUID] Backfill verification FAILED for \(table): \(nulls) null uuid(s), \(dupes) duplicate(s). Not advancing schema version; will retry next launch.")
+                return
+            }
+        }
+
+        // 5. Uniqueness, created only once the data is known to satisfy it. Partial index matching
+        //    the existing ck_record_id idiom.
+        for table in Self.syncableTablesV1 {
+            sqlite3_exec(
+                db,
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_\(table.lowercased())_uuid ON \(table)(uuid) WHERE uuid IS NOT NULL;",
+                nil, nil, nil
+            )
+        }
+        for r in fkRules {
+            sqlite3_exec(
+                db,
+                "CREATE INDEX IF NOT EXISTS idx_\(r.table.lowercased())_\(r.uuidCol) ON \(r.table)(\(r.uuidCol));",
+                nil, nil, nil
+            )
+        }
+
+        setSchemaUserVersion(1)
+        logWarning("[UUID] Identity backfill complete — schema version 1")
+    }
+
+    /// Rebuilds local integer foreign keys from the authoritative uuid pointers.
+    ///
+    /// > **uuid is authoritative. The integer FK is a derived cache. Never the reverse on inbound sync.**
+    ///
+    /// Idempotent and order-independent: a pointer whose referent hasn't arrived yet is simply left
+    /// for a later pass, so a child arriving before its parent resolves on the next call instead of
+    /// being silently mis-linked. The `EXISTS` guard is load-bearing — without it a not-yet-arrived
+    /// referent would overwrite a currently-correct integer with NULL.
+    @discardableResult
+    func resolveUuidForeignKeys() -> Int {
+        guard isInitialized else { return 0 }
+        var changed = 0
+        let rules: [(table: String, intCol: String, uuidCol: String, refTable: String)] = [
+            ("Transactions", "credit_card_id", "credit_card_uuid", "CreditCards"),
+            ("Transactions", "statement_id", "statement_uuid", "CreditCardStatements"),
+            ("Transactions", "parent_transaction_id", "parent_transaction_uuid", "Transactions"),
+            ("CreditCardStatements", "credit_card_id", "credit_card_uuid", "CreditCards"),
+            ("BudgetAllocations", "parent_allocation_id", "parent_allocation_uuid", "BudgetAllocations"),
+        ]
+        for r in rules {
+            changed += executeSyncUpdateCount("""
+                UPDATE \(r.table)
+                   SET \(r.intCol) = (SELECT t.id FROM \(r.refTable) t WHERE t.uuid = \(r.table).\(r.uuidCol))
+                 WHERE \(r.uuidCol) IS NOT NULL
+                   AND EXISTS (SELECT 1 FROM \(r.refTable) t WHERE t.uuid = \(r.table).\(r.uuidCol))
+                   AND \(r.intCol) IS NOT (SELECT t.id FROM \(r.refTable) t WHERE t.uuid = \(r.table).\(r.uuidCol));
+                """)
+        }
+        if changed > 0 {
+            logInfo("[UUID] Resolved \(changed) foreign key(s) from uuid pointers")
+            TransactionRepository.invalidateCache()
+        }
+        return changed
+    }
+
+    /// Small helper: reads a single integer column into an array.
+    private func fetchIntList(_ query: String) -> [Int] {
+        guard isInitialized else { return [] }
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, query, -1, &stmt, nil) == SQLITE_OK else { return [] }
+        defer { sqlite3_finalize(stmt) }
+        var out: [Int] = []
+        while sqlite3_step(stmt) == SQLITE_ROW { out.append(Int(sqlite3_column_int64(stmt, 0))) }
+        return out
+    }
+
     private func migrateCreatedByUidColumns() throws {
         let tables = ["Transactions", "Budgets", "BudgetAllocations", "CreditCards", "CreditCardStatements"]
         for table in tables {
             try addColumnIfNotExists(table: table, column: "created_by_uid", definition: "TEXT")
         }
-        // Backfill existing records with current user's UID
-        if let uid = UIDUserDefaultsManager.shared.currentUserUID {
-            for table in tables {
-                executeSyncUpdate(
-                    "UPDATE \(table) SET created_by_uid = ? WHERE created_by_uid IS NULL;",
-                    textBindings: [uid]
-                )
-            }
+        // One-time backfill attributing pre-existing rows to the current user.
+        //
+        // GATED, and it must stay gated. This runs inside `initializeDatabase()`, i.e. on every
+        // process start. Ungated, it re-stamped `created_by_uid = <this device's user>` on every
+        // row where the column was NULL — including group records pulled from OTHER members whose
+        // sender didn't populate the field. That silently rewrote authorship on every launch, which
+        // defeats `mayPushDeleteForGroupRecord` (a member's device would believe it authored, and
+        // may therefore delete, the owner's records) and would corrupt any repair keyed on
+        // authorship.
+        //
+        // Only rows that predate the column should be attributed this way, and only once.
+        let backfillKey = "hasBackfilledCreatedByUid_v1"
+        guard !UserDefaults.standard.bool(forKey: backfillKey) else { return }
+        guard let uid = UIDUserDefaultsManager.shared.currentUserUID else {
+            // No user yet (this runs before auth restores on a cold start). Leave the flag unset so
+            // the backfill is retried on a later launch rather than silently consumed.
+            return
         }
+        for table in tables {
+            executeSyncUpdate(
+                "UPDATE \(table) SET created_by_uid = ? WHERE created_by_uid IS NULL;",
+                textBindings: [uid]
+            )
+        }
+        UserDefaults.standard.set(true, forKey: backfillKey)
     }
 
     private func migrateSyncColumnsV3() throws {
@@ -2119,22 +2475,17 @@ class DBHelper {
         executeSyncUpdate("UPDATE Transactions SET user_id = ? WHERE user_id IS NULL;", textBindings: [uid])
         executeSyncUpdate("UPDATE Budgets SET user_id = ? WHERE user_id IS NULL;", textBindings: [uid])
 
-        // Remove duplicate cloud records (keep only the row with the lowest id for each ck_record_id)
-        let dedup = """
-          DELETE FROM Transactions WHERE id NOT IN (
-            SELECT MIN(id) FROM Transactions GROUP BY ck_record_id
-          ) AND ck_record_id IS NOT NULL;
-          """
-        var dedupStmt: OpaquePointer?
-        if sqlite3_prepare_v2(db, dedup, -1, &dedupStmt, nil) == SQLITE_OK {
-            if sqlite3_step(dedupStmt) == SQLITE_DONE {
-                let removed = sqlite3_changes(db)
-                if removed > 0 {
-                    logWarning("[Backfill] Removed \(removed) duplicate cloud-synced transactions")
-                }
-            }
-            sqlite3_finalize(dedupStmt)
-        }
+        // REMOVED: a hard `DELETE FROM Transactions WHERE id NOT IN (SELECT MIN(id) ... GROUP BY
+        // ck_record_id)`.
+        //
+        // It ran on every launch, every login and every dashboard load, with no gate and no user
+        // scoping, and hard-deleted synced rows with no CloudKit tombstone — so the rows came back
+        // on the next pull and were deleted again, forever. "Keep the lowest rowid" is also the
+        // wrong survivor: local rowids are device-specific, so two devices keep opposite copies.
+        //
+        // Deduplication belongs in one place, keyed on a stable identity and keeping the newest
+        // version rather than the lowest rowid. Until that exists, doing nothing is strictly safer
+        // than deleting the user's financial records on every app launch.
     }
 
     // MARK: - User-Filtered Queries
@@ -2247,6 +2598,12 @@ class DBHelper {
             let createdByUid: String? = columnCount > 16 && sqlite3_column_type(statement, 16) != SQLITE_NULL
             ? String(cString: sqlite3_column_text(statement, 16)) : nil
 
+            // Optional 18th column: `updated_at`. Only callers that need the real last-edit time
+            // select it (notably fetchPendingSync, which feeds the CloudKit push) — everything else
+            // keeps its existing 17-column shape and leaves this nil.
+            let updatedAt: Date? = columnCount > 17 && sqlite3_column_type(statement, 17) != SQLITE_NULL
+            ? Date(timeIntervalSince1970: TimeInterval(sqlite3_column_int64(statement, 17))) : nil
+
             let dbData = DBTransactionData(
                 id: id, title: title, amount: amount, dateTimestamp: ts, budgetMonthDate: monthAnchor,
                 isRecurring: isRecurring, hasInstallments: hasInstallments,
@@ -2255,6 +2612,7 @@ class DBHelper {
                 originalAmount: originalAmount,
                 creditCardId: creditCardId, statementId: statementId,
                 isCreditCardStatement: isCreditCardStatement,
+                updatedAt: updatedAt,
                 createdByUid: createdByUid,
                 category: catKey, type: typeKey
             )
@@ -2337,6 +2695,12 @@ class DBHelper {
             let createdByUid: String? = columnCount > 16 && sqlite3_column_type(statement, 16) != SQLITE_NULL
             ? String(cString: sqlite3_column_text(statement, 16)) : nil
 
+            // Optional 18th column: `updated_at`. Only callers that need the real last-edit time
+            // select it (notably fetchPendingSync, which feeds the CloudKit push) — everything else
+            // keeps its existing 17-column shape and leaves this nil.
+            let updatedAt: Date? = columnCount > 17 && sqlite3_column_type(statement, 17) != SQLITE_NULL
+            ? Date(timeIntervalSince1970: TimeInterval(sqlite3_column_int64(statement, 17))) : nil
+
             let dbData = DBTransactionData(
                 id: id, title: title, amount: amount, dateTimestamp: ts, budgetMonthDate: monthAnchor,
                 isRecurring: isRecurring, hasInstallments: hasInstallments,
@@ -2345,6 +2709,7 @@ class DBHelper {
                 originalAmount: originalAmount,
                 creditCardId: creditCardId, statementId: statementId,
                 isCreditCardStatement: isCreditCardStatement,
+                updatedAt: updatedAt,
                 createdByUid: createdByUid,
                 category: catKey, type: typeKey
             )
@@ -2377,6 +2742,7 @@ class DBHelper {
         }
 
         sqlite3_step(statement)
+        SyncChangeTracker.shared.markDirty()
     }
 
     /// Same as `executeSyncUpdate` but returns the number of rows affected.
@@ -2398,7 +2764,9 @@ class DBHelper {
         }
 
         sqlite3_step(statement)
-        return Int(sqlite3_changes(db))
+        let changes = Int(sqlite3_changes(db))
+        if changes > 0 { SyncChangeTracker.shared.markDirty() }
+        return changes
     }
 
     func executeCloudInsert(
@@ -2574,6 +2942,31 @@ class DBHelper {
         return Int(sqlite3_column_int64(statement, 0))
     }
 
+    func fetchSingleInt(_ query: String, orderedBindings: [Any?]) -> Int? {
+        guard isInitialized else { return nil }
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK else { return nil }
+        defer { sqlite3_finalize(statement) }
+
+        for (index, binding) in orderedBindings.enumerated() {
+            let col = Int32(index + 1)
+            switch binding {
+            case let text as String:
+                sqlite3_bind_text(statement, col, text, -1, SQLITE_TRANSIENT)
+            case let intVal as Int:
+                sqlite3_bind_int64(statement, col, Int64(intVal))
+            case nil:
+                sqlite3_bind_null(statement, col)
+            default:
+                sqlite3_bind_null(statement, col)
+            }
+        }
+
+        guard sqlite3_step(statement) == SQLITE_ROW else { return nil }
+        if sqlite3_column_type(statement, 0) == SQLITE_NULL { return nil }
+        return Int(sqlite3_column_int64(statement, 0))
+    }
+
     func fetchIdAndCKRecordName(_ query: String) -> [(ckRecordName: String, localId: Int)]? {
         guard isInitialized else { return nil }
         var statement: OpaquePointer?
@@ -2738,6 +3131,33 @@ class DBHelper {
         return results
     }
 
+    /// Tombstone keys ("<month_date>|<category_key>") for SOFT-DELETED recurring allocation
+    /// occurrences, so eager/rolling generation never recreates a month the user deleted.
+    /// (fetchAllBudgetAllocations excludes is_deleted rows, so without this the generator is blind
+    /// to deletions and resurrects them — the allocation counterpart of the transaction tombstone.)
+    func fetchDeletedAllocationKeys(userId: String?) -> Set<String> {
+        guard isInitialized else { return [] }
+        let query: String
+        if userId != nil {
+            query = "SELECT month_date, category_key FROM BudgetAllocations WHERE user_id = ? AND is_deleted = 1;"
+        } else {
+            query = "SELECT month_date, category_key FROM BudgetAllocations WHERE is_deleted = 1;"
+        }
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK else { return [] }
+        defer { sqlite3_finalize(statement) }
+        if let uid = userId {
+            sqlite3_bind_text(statement, 1, uid, -1, SQLITE_TRANSIENT)
+        }
+        var keys: Set<String> = []
+        while sqlite3_step(statement) == SQLITE_ROW {
+            let monthDate = Int(sqlite3_column_int64(statement, 0))
+            let categoryKey = String(cString: sqlite3_column_text(statement, 1))
+            keys.insert("\(monthDate)|\(categoryKey)")
+        }
+        return keys
+    }
+
     /// Fix 5a: Fetches allocations filtered by shared_group_id.
     func fetchBudgetAllocationsForGroup(groupId: String) -> [BudgetAllocationModel] {
         guard isInitialized else { return [] }
@@ -2811,13 +3231,21 @@ class DBHelper {
         )
     }
 
+    /// Budgets awaiting a CloudKit push.
+    ///
+    /// `updated_at` and `created_by_uid` MUST be selected. Omitting them meant every pushed budget
+    /// carried `updatedAt = Date()` (push time, which reverts the other device's newer edit under
+    /// last-writer-wins) and `createdByUid = nil`, which wiped the ownership field in CloudKit on
+    /// every push — defeating `mayPushDeleteForGroupRecord` and letting any group member delete the
+    /// owner's budgets for everyone.
     func fetchPendingSyncBudgets(userId: String?) -> [BudgetModel] {
         guard isInitialized else { return [] }
+        let columns = "month_date, amount, shared_group_id, updated_at, created_by_uid"
         let query: String
         if userId != nil {
-            query = "SELECT month_date, amount, shared_group_id FROM Budgets WHERE sync_status = 'pending' AND user_id = ? AND (is_deleted IS NULL OR is_deleted = 0);"
+            query = "SELECT \(columns) FROM Budgets WHERE sync_status = 'pending' AND user_id = ? AND (is_deleted IS NULL OR is_deleted = 0);"
         } else {
-            query = "SELECT month_date, amount, shared_group_id FROM Budgets WHERE sync_status = 'pending' AND (is_deleted IS NULL OR is_deleted = 0);"
+            query = "SELECT \(columns) FROM Budgets WHERE sync_status = 'pending' AND (is_deleted IS NULL OR is_deleted = 0);"
         }
         var statement: OpaquePointer?
         guard sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK else { return [] }
@@ -2834,26 +3262,39 @@ class DBHelper {
                 guard let ptr = sqlite3_column_text(statement, 2) else { return nil }
                 return String(cString: ptr)
             }()
-            results.append(BudgetModel(monthDate: monthDate, amount: amount, sharedGroupId: sharedGroupId))
+            let updatedAt: Date? = sqlite3_column_type(statement, 3) == SQLITE_NULL
+                ? nil : Date(timeIntervalSince1970: TimeInterval(sqlite3_column_int64(statement, 3)))
+            let createdByUid: String? = {
+                if sqlite3_column_type(statement, 4) == SQLITE_NULL { return nil }
+                guard let ptr = sqlite3_column_text(statement, 4) else { return nil }
+                return String(cString: ptr)
+            }()
+            results.append(BudgetModel(
+                monthDate: monthDate,
+                amount: amount,
+                sharedGroupId: sharedGroupId,
+                updatedAt: updatedAt,
+                createdByUid: createdByUid
+            ))
         }
         return results
     }
 
+    /// Allocations awaiting a CloudKit push.
+    ///
+    /// `updated_at` and `created_by_uid` MUST be selected — see `fetchPendingSyncBudgets` for why
+    /// omitting them silently reverted the other device's edits and wiped record ownership.
     func fetchPendingSyncAllocations(userId: String?) -> [BudgetAllocationModel] {
         guard isInitialized else { return [] }
+        let columns = """
+            id, month_date, category_key, allocated_amount, is_recurring,
+            parent_allocation_id, shared_group_id, updated_at, created_by_uid
+            """
         let query: String
         if userId != nil {
-            query = """
-                SELECT id, month_date, category_key, allocated_amount, is_recurring,
-                       parent_allocation_id, shared_group_id
-                FROM BudgetAllocations WHERE sync_status = 'pending' AND user_id = ? AND (is_deleted IS NULL OR is_deleted = 0);
-                """
+            query = "SELECT \(columns) FROM BudgetAllocations WHERE sync_status = 'pending' AND user_id = ? AND (is_deleted IS NULL OR is_deleted = 0);"
         } else {
-            query = """
-                SELECT id, month_date, category_key, allocated_amount, is_recurring,
-                       parent_allocation_id, shared_group_id
-                FROM BudgetAllocations WHERE sync_status = 'pending' AND (is_deleted IS NULL OR is_deleted = 0);
-                """
+            query = "SELECT \(columns) FROM BudgetAllocations WHERE sync_status = 'pending' AND (is_deleted IS NULL OR is_deleted = 0);"
         }
         var statement: OpaquePointer?
         guard sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK else { return [] }
@@ -2874,6 +3315,10 @@ class DBHelper {
                 ? nil : Int(sqlite3_column_int64(statement, 5))
             let sharedGroupId: String? = sqlite3_column_type(statement, 6) == SQLITE_NULL
                 ? nil : String(cString: sqlite3_column_text(statement, 6))
+            let updatedAt: Date? = sqlite3_column_type(statement, 7) == SQLITE_NULL
+                ? nil : Date(timeIntervalSince1970: TimeInterval(sqlite3_column_int64(statement, 7)))
+            let createdByUid: String? = sqlite3_column_type(statement, 8) == SQLITE_NULL
+                ? nil : String(cString: sqlite3_column_text(statement, 8))
 
             results.append(BudgetAllocationModel(
                 id: id,
@@ -2882,7 +3327,9 @@ class DBHelper {
                 allocatedAmount: allocatedAmount,
                 isRecurring: isRecurring,
                 parentAllocationId: parentAllocationId,
-                sharedGroupId: sharedGroupId
+                sharedGroupId: sharedGroupId,
+                updatedAt: updatedAt,
+                createdByUid: createdByUid
             ))
         }
         return results
@@ -2890,10 +3337,32 @@ class DBHelper {
 
     // MARK: - BudgetGroup CRUD Helpers
 
+    /// Fire-and-forget variant, kept for call sites that genuinely cannot fail.
+    /// Prefer `executeGroupWriteChecked` for anything that writes a record — see its docs.
     func executeGroupWrite(_ query: String, orderedBindings: [Any?]) {
-        guard isInitialized else { return }
+        do {
+            try executeGroupWriteChecked(query, orderedBindings: orderedBindings)
+        } catch {
+            logError("[DB] executeGroupWrite failed: \(error) — query: \(Self.sqlSummary(query))")
+        }
+    }
+
+    /// Executes a bound write and THROWS on failure.
+    ///
+    /// The fire-and-forget version discarded `sqlite3_step`'s result entirely, which makes a
+    /// constraint violation indistinguishable from success. That is not a theoretical concern:
+    /// this function backs all five `insertFromCloud` paths, so `BudgetRepository.insertFromCloud`'s
+    /// plain `INSERT` has been silently dropping any inbound budget whose `month_date` already
+    /// exists locally — a lost record with no log line. Any future UNIQUE constraint (notably the
+    /// forthcoming `uuid` index) would turn every collision into the same silent loss.
+    ///
+    /// Every write that can violate a constraint must use this and handle the error.
+    func executeGroupWriteChecked(_ query: String, orderedBindings: [Any?]) throws {
+        guard isInitialized else { throw DBError.openDatabaseFailed }
         var statement: OpaquePointer?
-        guard sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK else { return }
+        guard sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK else {
+            throw DBError.prepareFailed(message: String(cString: sqlite3_errmsg(db)))
+        }
         defer { sqlite3_finalize(statement) }
 
         for (index, binding) in orderedBindings.enumerated() {
@@ -2910,7 +3379,15 @@ class DBHelper {
             }
         }
 
-        sqlite3_step(statement)
+        let rc = sqlite3_step(statement)
+        guard rc == SQLITE_DONE || rc == SQLITE_ROW else {
+            throw DBError.stepFailed(message: "rc=\(rc): \(String(cString: sqlite3_errmsg(db)))")
+        }
+    }
+
+    /// First line of a query, for log messages — full SQL is too noisy and may embed values.
+    private static func sqlSummary(_ query: String) -> String {
+        query.split(separator: "\n").first.map(String.init)?.trimmingCharacters(in: .whitespaces) ?? "?"
     }
 
     func fetchBudgetGroupRows(_ query: String, textBindings: [String] = []) -> [BudgetGroup] {
@@ -3409,7 +3886,9 @@ class DBHelper {
         guard sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK else { return 0 }
         defer { sqlite3_finalize(statement) }
         sqlite3_step(statement)
-        return Int(sqlite3_changes(db))
+        let changes = Int(sqlite3_changes(db))
+        if changes > 0 { SyncChangeTracker.shared.markDirty() }
+        return changes
     }
 
     /// Deletes rows from the given table whose ck_record_id matches any of the provided names.
@@ -3443,6 +3922,52 @@ class DBHelper {
             sqlite3_bind_blob(statement, 1, ptr.baseAddress, Int32(data.count), SQLITE_TRANSIENT)
         }
         sqlite3_bind_text(statement, 2, ckRecordName, -1, SQLITE_TRANSIENT)
+        sqlite3_step(statement)
+    }
+
+    // MARK: - Deterministic version (rev) accessors
+
+    /// Reads the monotonic version + device tiebreaker for a synced record. Returns (0, nil)
+    /// when the record isn't found or has no rev yet (legacy row → falls back to timestamp LWW).
+    func fetchRev(table: String, ckRecordName: String) -> (rev: Int, device: String?) {
+        guard isInitialized, syncableTables.contains(table) else { return (0, nil) }
+        let query = "SELECT rev, rev_device FROM \(table) WHERE ck_record_id = ?;"
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK else { return (0, nil) }
+        defer { sqlite3_finalize(statement) }
+        sqlite3_bind_text(statement, 1, ckRecordName, -1, SQLITE_TRANSIENT)
+        guard sqlite3_step(statement) == SQLITE_ROW else { return (0, nil) }
+        let rev = Int(sqlite3_column_int64(statement, 0))
+        let device: String? = sqlite3_column_type(statement, 1) == SQLITE_NULL
+            ? nil : String(cString: sqlite3_column_text(statement, 1))
+        return (rev, device)
+    }
+
+    /// Reads a record's version without knowing its table (CK record names are globally unique),
+    /// scanning the syncable tables until a match is found. Returns (0, nil) if not found.
+    func fetchRevAnyTable(ckRecordName: String) -> (rev: Int, device: String?) {
+        for table in syncableTables {
+            let result = fetchRev(table: table, ckRecordName: ckRecordName)
+            if result.rev > 0 { return result }
+        }
+        return (0, nil)
+    }
+
+    /// Persists a record's version + device. Never marks the row pending — this only tracks the
+    /// version metadata, not user-facing data.
+    func setRev(table: String, ckRecordName: String, rev: Int, device: String?) {
+        guard isInitialized, syncableTables.contains(table) else { return }
+        let query = "UPDATE \(table) SET rev = ?, rev_device = ? WHERE ck_record_id = ?;"
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK else { return }
+        defer { sqlite3_finalize(statement) }
+        sqlite3_bind_int64(statement, 1, Int64(rev))
+        if let device = device {
+            sqlite3_bind_text(statement, 2, device, -1, SQLITE_TRANSIENT)
+        } else {
+            sqlite3_bind_null(statement, 2)
+        }
+        sqlite3_bind_text(statement, 3, ckRecordName, -1, SQLITE_TRANSIENT)
         sqlite3_step(statement)
     }
 

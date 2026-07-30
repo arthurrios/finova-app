@@ -37,13 +37,41 @@ final class BudgetAllocationService {
     ///   - amount: The allocated amount in cents
     ///   - monthAnchor: The month anchor timestamp
     ///   - isRecurring: Whether this allocation should recur monthly
+    ///   - recurrenceEndMonth: last month anchor the series should cover. `nil` = ongoing
+    ///     ("Always"). A bounded series materializes only up to this month and then stops recurring.
     /// - Returns: The ID of the created allocation
     @discardableResult
     func createAllocation(
         category: TransactionCategory,
         amount: Int,
         monthAnchor: Int,
+        isRecurring: Bool,
+        recurrenceEndMonth: Int?
+    ) throws -> Int {
+        try createAllocationInternal(
+            category: category, amount: amount, monthAnchor: monthAnchor,
+            isRecurring: isRecurring, recurrenceEndMonth: recurrenceEndMonth)
+    }
+
+    /// Back-compat overload: ongoing recurrence (no end month).
+    @discardableResult
+    func createAllocation(
+        category: TransactionCategory,
+        amount: Int,
+        monthAnchor: Int,
         isRecurring: Bool
+    ) throws -> Int {
+        try createAllocationInternal(
+            category: category, amount: amount, monthAnchor: monthAnchor,
+            isRecurring: isRecurring, recurrenceEndMonth: nil)
+    }
+
+    private func createAllocationInternal(
+        category: TransactionCategory,
+        amount: Int,
+        monthAnchor: Int,
+        isRecurring: Bool,
+        recurrenceEndMonth: Int?
     ) throws -> Int {
         guard amount > 0 else { throw BudgetAllocationError.invalidAmount }
 
@@ -54,7 +82,29 @@ final class BudgetAllocationService {
             isRecurring: isRecurring
         )
 
-        return try allocationRepo.insertAllocation(model)
+        let newId = try allocationRepo.insertAllocation(model)
+
+        // EAGER BOUNDED GENERATION: materialize the full forward horizon now, so every future
+        // occurrence exists as a real, syncable row at creation time (not lazily on navigation).
+        // Series-scoped + tombstone-aware, so it only touches this brand-new series. Then push
+        // immediately so sync happens right after creation.
+        if isRecurring {
+            generateRecurringAllocationHorizon(parentId: newId, endMonth: recurrenceEndMonth)
+            SyncEngine.shared.pushPendingChangesNow()
+        }
+
+        return newId
+    }
+
+    /// True if this allocation belongs to a recurring series — including a BOUNDED series whose
+    /// parent has already stopped recurring (`is_recurring = 0`) but still owns child occurrences.
+    /// Without the children check, editing the first month of a bounded series would be treated as
+    /// a one-off and silently skip the scope prompt.
+    func isPartOfRecurringSeries(allocationId: Int) -> Bool {
+        let all = allocationRepo.fetchAllAllocations()
+        guard let allocation = all.first(where: { $0.dbId == allocationId }) else { return false }
+        if allocation.isRecurring || allocation.parentAllocationId != nil { return true }
+        return all.contains { $0.parentAllocationId == allocationId }
     }
 
     // MARK: - Update
@@ -122,6 +172,16 @@ final class BudgetAllocationService {
                 GroupNotificationService.shared.logActivity(
                     action: .allocationEdited, groupId: groupId, detail: categoryName)
             }
+        case .throughMonth(let endMonth):
+            // Update this occurrence and every later one up to (and including) endMonth
+            logDebug("BudgetAllocationService: Calling updateRecurringAllocationsThrough for id \(id), endMonth \(endMonth)")
+            try allocationRepo.updateRecurringAllocationsThrough(
+                id: id, newAmount: newAmount, endMonth: endMonth)
+            if let groupId = allocation?.sharedGroupId {
+                let categoryName = allocation?.category.displayName ?? ""
+                GroupNotificationService.shared.logActivity(
+                    action: .allocationEdited, groupId: groupId, detail: categoryName)
+            }
         case .all:
             // Update all allocations in this recurring series (past, present, future)
             logDebug("BudgetAllocationService: Calling updateAllRecurringAllocations for id \(id)")
@@ -158,11 +218,13 @@ final class BudgetAllocationService {
         // First, generate any missing recurring instances
         generateRecurringInstancesIfNeeded(forMonth: monthAnchor)
 
-        // Fetch allocations for the month
-        var allocations = allocationRepo.fetchAllocations(for: monthAnchor)
-
-        // Debug: Log all allocations in storage vs filtered
+        // P3: fetch the full allocation set ONCE and filter locally. This method previously did
+        // three separate full-table scans per call (fetchAllocations(for:) + a debug-only
+        // fetchAllAllocations + …); the carousel is paged so this runs per visible card, but the
+        // redundant scans within a single call were pure waste.
         let allAllocations = allocationRepo.fetchAllAllocations()
+        var allocations = allAllocations.filter { $0.monthDate == monthAnchor }
+
         logDebug("BudgetAllocationService: All allocations in storage: \(allAllocations.count), for month \(monthAnchor): \(allocations.count)")
         if allocations.isEmpty && !allAllocations.isEmpty {
             logDebug("BudgetAllocationService: Stored monthDates: \(allAllocations.map { $0.monthDate })")
@@ -294,11 +356,23 @@ final class BudgetAllocationService {
     /// Generates recurring allocation instances for a month if they don't exist.
     /// Uses lazy generation pattern - instances are created on-demand when viewing a month.
     private func generateRecurringInstancesIfNeeded(forMonth monthAnchor: Int) {
+        // HYDRATION GATE (mirrors recurring-transaction generation): a device that has not
+        // completed a verified full pull must not materialize recurring occurrences for OTHER
+        // series — it lacks the authoritative state (and tombstones) to know what was deleted
+        // elsewhere, so it would resurrect deletions and diverge. Creation of a brand-new series
+        // uses the ungated, series-scoped generateRecurringAllocationHorizon instead.
+        guard UserDefaults.standard.bool(forKey: "syncFullPullVerified_v2") else { return }
+
         // Get all recurring parent allocations
         let allAllocations = allocationRepo.fetchAllAllocations()
         let recurringParents = allAllocations.filter {
             $0.isRecurring && $0.parentAllocationId == nil
         }
+
+        // TOMBSTONE AWARENESS: never recreate a month+category the user soft-deleted
+        // (fetchAllAllocations excludes deleted rows, so we must consult deletions explicitly).
+        let deletedKeys = DBHelper.shared.fetchDeletedAllocationKeys(
+            userId: UIDUserDefaultsManager.shared.currentUserUID)
 
         logDebug("BudgetAllocationService: Found \(recurringParents.count) recurring parents")
 
@@ -314,6 +388,12 @@ final class BudgetAllocationService {
                 continue
             }
 
+            // Don't resurrect a deleted occurrence.
+            if deletedKeys.contains("\(monthAnchor)|\(parent.category.key)") {
+                logDebug("BudgetAllocationService: Skipping deleted occurrence \(parent.category.key) @ \(monthAnchor)")
+                continue
+            }
+
             // Check if ANY allocation already exists for this month and category
             // This includes independent allocations (not linked to this parent) to support "ignore conflicts" flow
             let hasInstance = allAllocations.contains { allocation in
@@ -322,11 +402,21 @@ final class BudgetAllocationService {
             }
 
             if !hasInstance {
-                logDebug("BudgetAllocationService: Creating recurring instance for \(parent.category.key) in month \(monthAnchor)")
+                // Inherit the amount from the occurrence "in effect" at this month — the
+                // most recent occurrence (parent or an edited child) at or before the
+                // target month — instead of always the parent's amount. Without this, an
+                // "edit this and future" change (which updates existing rows but not the
+                // earlier parent) silently reverted for months materialized later.
+                let seriesOccurrences = allAllocations
+                    .filter { $0.dbId == parentId || $0.parentAllocationId == parentId }
+                    .sorted { $0.monthDate < $1.monthDate }
+                let template = seriesOccurrences.last(where: { $0.monthDate <= monthAnchor }) ?? parent
+
+                logDebug("BudgetAllocationService: Creating recurring instance for \(parent.category.key) in month \(monthAnchor) with amount \(template.allocatedAmount)")
                 let instance = BudgetAllocationModel(
                     monthDate: monthAnchor,
                     categoryKey: parent.category.key,
-                    allocatedAmount: parent.allocatedAmount,
+                    allocatedAmount: template.allocatedAmount,
                     isRecurring: true,  // Child instances are still part of the recurring series
                     parentAllocationId: parentId,
                     sharedGroupId: parent.sharedGroupId
@@ -336,5 +426,67 @@ final class BudgetAllocationService {
                 logDebug("BudgetAllocationService: Instance already exists for \(parent.category.key) in month \(monthAnchor)")
             }
         }
+    }
+
+    /// EAGER, series-scoped horizon generation for a single recurring parent. Materializes every
+    /// occurrence from the parent's month through `now + horizonMonths`. Unlike
+    /// generateRecurringInstancesIfNeeded this is NOT hydration-gated — it only ever touches the
+    /// one (brand-new) series identified by `parentId`, which has no cross-device history to
+    /// conflict with — but it IS tombstone-aware and idempotent, so it never duplicates or
+    /// resurrects a deleted occurrence. Called at creation so the whole series syncs up front.
+    private func generateRecurringAllocationHorizon(parentId: Int, endMonth: Int? = nil) {
+        let all = allocationRepo.fetchAllAllocations()
+        guard let parent = all.first(where: { $0.dbId == parentId }), parent.isRecurring else { return }
+
+        let deletedKeys = DBHelper.shared.fetchDeletedAllocationKeys(
+            userId: UIDUserDefaultsManager.shared.currentUserUID)
+
+        let seriesOccurrences = all
+            .filter { $0.dbId == parentId || $0.parentAllocationId == parentId }
+            .sorted { $0.monthDate < $1.monthDate }
+
+        // Months already covered for this category (any series), so we don't duplicate.
+        var existingMonths = Set(all.filter { $0.category.key == parent.category.key }.map { $0.monthDate })
+
+        var utcCalendar = Calendar(identifier: .gregorian)
+        utcCalendar.timeZone = TimeZone(abbreviation: "UTC")!
+        let now = Date()
+
+        // Batch all horizon inserts into one transaction (one fsync instead of ~36) AND one UI
+        // change notification (each insert previously triggered a full main-thread allocation
+        // re-query + table reload — 36 of them back to back).
+        try? allocationRepo.performBulk {
+            for offset in 1...RecurringTransactionManager.horizonMonths {
+                guard let targetDate = utcCalendar.date(byAdding: .month, value: offset, to: now) else { continue }
+                let anchor = targetDate.monthAnchor
+                guard anchor > parent.monthDate else { continue }
+                // Bounded series: never materialize past the chosen end month.
+                if let endMonth = endMonth, anchor > endMonth { break }
+                if existingMonths.contains(anchor) { continue }
+                if deletedKeys.contains("\(anchor)|\(parent.category.key)") { continue }
+
+                let template = seriesOccurrences.last(where: { $0.monthDate <= anchor }) ?? parent
+                let instance = BudgetAllocationModel(
+                    monthDate: anchor,
+                    categoryKey: parent.category.key,
+                    allocatedAmount: template.allocatedAmount,
+                    isRecurring: true,
+                    parentAllocationId: parentId,
+                    sharedGroupId: parent.sharedGroupId
+                )
+                if (try? allocationRepo.insertAllocation(instance)) != nil {
+                    existingMonths.insert(anchor)
+                }
+            }
+        }
+        // A bounded series must stop growing: clear the parent's recurrence so the rolling
+        // generator (`generateRecurringInstancesIfNeeded`) never extends it past the end month.
+        // `is_recurring` is an already-synced column, so the bound is honoured on every device
+        // without adding a new CloudKit field (which production schema would reject).
+        if endMonth != nil {
+            try? allocationRepo.updateIsRecurring(allocationId: parentId, isRecurring: false)
+        }
+
+        logWarning("[RecurringAllocationCreate] generated horizon for parent \(parentId) (\(parent.category.key)) endMonth=\(endMonth.map(String.init) ?? "always")")
     }
 }

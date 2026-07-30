@@ -244,117 +244,14 @@ final class MonthlyNotificationManager {
     }
   }
 
-  /// Agenda notificações de transações
+  /// Agenda notificações de transações via TransactionNotificationManager
   private func scheduleTransactionNotifications() -> Bool {
-    // Usar lógica existente do AppDelegate
+    // Gap #3 fix: Invalidate cache before fetching to ensure fresh data
+    TransactionRepository.invalidateCache()
     let allTxs = transactionRepo.fetchAllTransactions()
-    let now = Date()
-    var calendar = Calendar.current
-    calendar.timeZone = TimeZone.current
-
-    let futureTxs = allTxs.filter { tx in
-      // Skip parent transactions that are not visible in UI
-      if tx.hasInstallments == true && tx.amount == 0 {
-        return false
-      }
-      if tx.isRecurring == true && tx.parentTransactionId == nil && tx.amount == 0 {
-        return false
-      }
-
-      // Skip credit card transactions — they are covered by statement_due_/statement_pay_ notifications
-      if tx.creditCardId != nil {
-        return false
-      }
-
-      // Create notification time (8 AM) in local timezone
-      var notificationDate = calendar.startOfDay(for: tx.date)
-      notificationDate =
-        calendar.date(byAdding: .hour, value: 8, to: notificationDate) ?? notificationDate
-
-      return notificationDate > now
-    }
-
-    // Sort by date to prioritize closest transactions first
-    let sortedTxs = futureTxs.sorted { tx1, tx2 in
-      tx1.date < tx2.date
-    }
-
-    // Prioritize transactions in the next 30 days
-    let thirtyDaysFromNow = calendar.date(byAdding: .day, value: 30, to: now) ?? now
-    let next30DaysTxs = sortedTxs.filter { tx in
-      tx.date <= thirtyDaysFromNow
-    }
-    let remainingTxs = sortedTxs.filter { tx in
-      tx.date > thirtyDaysFromNow
-    }
-
-    // Combine arrays: prioritize next 30 days, then remaining sorted by date
-    let prioritizedTxs = next30DaysTxs + remainingTxs
-
-    let limitedTxs = Array(prioritizedTxs.prefix(30))  // Limitar a 30 para o mês
-
-    limitedTxs.forEach { tx in
-      scheduleTransactionNotification(for: tx, calendar: calendar)
-    }
-
+    TransactionNotificationManager.shared.scheduleAllTransactionNotifications(
+      transactions: allTxs, clearExisting: false, limit: 30)
     return true
-  }
-
-  /// Agenda notificação individual de transação
-  private func scheduleTransactionNotification(for tx: Transaction, calendar: Calendar) {
-    guard let transactionId = tx.id else { return }
-
-    let id = "transaction_\(transactionId)"
-
-    // Create notification time (8 AM) in local timezone
-    var notificationDate = calendar.startOfDay(for: tx.date)
-    notificationDate =
-      calendar.date(byAdding: .hour, value: 8, to: notificationDate) ?? notificationDate
-
-    // Only schedule if notification time is in the future
-    guard notificationDate > Date() else { return }
-
-    // Verificar se a data é muito no futuro (mais de 1 ano)
-    let oneYearFromNow = Calendar.current.date(byAdding: .year, value: 1, to: Date()) ?? Date()
-    if tx.date > oneYearFromNow {
-      return
-    }
-
-    // Calculate time interval from now to notification date
-    let timeInterval = notificationDate.timeIntervalSinceNow
-
-    // Verificar se o intervalo é muito grande (mais de 30 dias)
-    let thirtyDaysInSeconds: TimeInterval = 30 * 24 * 60 * 60
-    if timeInterval > thirtyDaysInSeconds {
-      return
-    }
-
-    let trigger = UNTimeIntervalNotificationTrigger(timeInterval: timeInterval, repeats: false)
-
-    let titleKey =
-      tx.type == .income
-      ? "notification.transaction.title.income" : "notification.transaction.title.expense"
-    let bodyKey =
-      tx.type == .income
-      ? "notification.transaction.body.income" : "notification.transaction.body.expense"
-
-    let amountString = tx.amount.currencyString
-    let title = titleKey.localized
-    let body = String(format: bodyKey.localized, amountString, tx.title)
-
-    let content = UNMutableNotificationContent()
-    content.title = title
-    content.body = body
-    content.sound = .default
-    content.categoryIdentifier = "TRANSACTION_REMINDER"
-    content.userInfo = ["transactionId": transactionId, "date": tx.date.timeIntervalSince1970]
-
-    let request = UNNotificationRequest(identifier: id, content: content, trigger: trigger)
-    notificationCenter.add(request) { error in
-      if let error = error {
-        logError("Error scheduling transaction notification: \(error)")
-      }
-    }
   }
 
   /// Agenda notificações de saldo negativo

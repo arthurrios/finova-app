@@ -32,12 +32,18 @@ final class RealPostSyncActions: PostSyncActions {
         }
 
         group.notify(queue: DispatchQueue(label: "com.finova.postsync")) {
-            // Only run destructive CC repairs on the original device.
-            // Fresh devices that pulled clean cloud data must not create/modify statements.
-            if UserDefaults.standard.bool(forKey: "hasCompletedInitialCloudPush_v1") {
+            // Destructive CC repairs may run ONLY on a device that both (a) originally held the
+            // buggy data AND (b) has completed a verified full pull — the same gate
+            // DashboardViewModel already applies. The original-device flag alone is unreliable: a
+            // second device flips it true after its first large push (SyncEngine sets it whenever
+            // totalRecords > batchSize), at which point a half-hydrated device would "repair" clean
+            // cloud data and push the damage back up.
+            let isOriginalDevice = UserDefaults.standard.bool(forKey: "hasCompletedInitialCloudPush_v1")
+            let hydrated = UserDefaults.standard.bool(forKey: "syncFullPullVerified_v2")
+            if isOriginalDevice && hydrated {
                 Self.repairCreditCardDataIntegrity()
             } else {
-                logWarning("[PostSync] Skipping repairCreditCardDataIntegrity — not the original device")
+                logWarning("[PostSync] Skipping repairCreditCardDataIntegrity — originalDevice=\(isOriginalDevice), hydrated=\(hydrated)")
             }
 
             // Fix 2b: Ensure owner pushes personal offset to group zone after sync.
@@ -258,36 +264,48 @@ final class RealPostSyncActions: PostSyncActions {
                 }
             }
 
-            // Also fix transactions whose statementId points to a non-existent statement
-            let orphanedTxStmts = db.fetchIntIntPairs(
-                """
-                SELECT t.id, t.statement_id FROM Transactions t
-                LEFT JOIN CreditCardStatements s ON t.statement_id = s.id
-                WHERE s.id IS NULL AND t.statement_id IS NOT NULL AND t.statement_id > 0
-                  AND (t.is_deleted IS NULL OR t.is_deleted = 0);
-                """
-            )
-            if !orphanedTxStmts.isEmpty {
-                logWarning("[CCRepair] Found \(orphanedTxStmts.count) transaction(s) with orphaned statementId — clearing for re-creation")
-                for (txId, oldStmtId) in orphanedTxStmts {
-                    db.executeSyncUpdate(
-                        "UPDATE Transactions SET statement_id = NULL, sync_status = 'pending' WHERE id = ?;",
-                        intBindings: [txId]
-                    )
-                    logWarning("[CCRepair] Cleared statementId \(oldStmtId) on transaction \(txId)")
-                }
-            }
-
             TransactionRepository.invalidateCache()
         } else {
             logWarning("[CCRepair] No orphaned card references found")
         }
 
+        // === Step 1a: Fix transactions whose statementId points to a non-existent statement ===
+        // Runs INDEPENDENTLY of the card-reference repair above. It used to be nested inside that
+        // `if`, so it was skipped exactly when card references were healthy — which is the common
+        // case. One account sat on 123 credit-card transactions pointing at deleted statements while
+        // the log cheerfully reported "No orphaned card references found" on every single sync.
+        let orphanedTxStmts = db.fetchIntIntPairs(
+            """
+            SELECT t.id, t.statement_id FROM Transactions t
+            LEFT JOIN CreditCardStatements s ON t.statement_id = s.id
+            WHERE s.id IS NULL AND t.statement_id IS NOT NULL AND t.statement_id > 0
+              AND (t.is_deleted IS NULL OR t.is_deleted = 0);
+            """
+        )
+        if !orphanedTxStmts.isEmpty {
+            logWarning("[CCRepair] Found \(orphanedTxStmts.count) transaction(s) with orphaned statementId — clearing for re-creation")
+            for (txId, oldStmtId) in orphanedTxStmts {
+                db.executeSyncUpdate(
+                    "UPDATE Transactions SET statement_id = NULL, sync_status = 'pending' WHERE id = ?;",
+                    intBindings: [txId]
+                )
+                logWarning("[CCRepair] Cleared statementId \(oldStmtId) on transaction \(txId)")
+            }
+            didRepairOrphans = true
+            TransactionRepository.invalidateCache()
+        }
+
         // === Step 1b: One-time consolidation of CC transactions to correct card ===
         consolidateCreditCardTransactions(cards: cards, txRepo: txRepo, db: db)
 
-        // === Step 1c: Merge duplicate statements with same creditCardId + closingDate ===
-        mergeDuplicateStatements(cards: cards, stmtRepo: stmtRepo, db: db)
+        // === Step 1c: REMOVED from the sync path ===
+        // `mergeDuplicateStatements` ran on every single sync with no gate, chose its survivor by
+        // *local row id* — which is device-specific, so two devices pick opposite winners — and
+        // then deleted the loser from CloudKit and re-parented its transactions as 'pending'. Two
+        // devices therefore deleted each other's statements in a loop, forever.
+        //
+        // Genuine duplicate statements still need merging, but it must be a deliberate, hydrated,
+        // identity-keyed operation, not something that fires after every pull.
 
         // === Step 2: Repair orphaned CC transactions (only if orphans exist) ===
         // Only run if there are CC transactions without a statementId — these are genuinely orphaned.

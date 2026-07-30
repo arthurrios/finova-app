@@ -8,7 +8,10 @@
 import Foundation
 
 final class BudgetRepository: BudgetRepositoryProtocol {
-  private let db = DBHelper.shared
+  /// Injectable for two-device tests; production always uses `.shared`.
+  private let db: DBHelper
+
+  init(db: DBHelper = .shared) { self.db = db }
 
   func insert(budget: BudgetModel) throws {
     try db.insertBudget(monthDate: budget.monthDate, amount: budget.amount)
@@ -112,11 +115,21 @@ final class BudgetRepository: BudgetRepositoryProtocol {
     return db.fetchPendingSyncBudgets(userId: nil)
   }
 
-  func markAsSynced(ckRecordName: String) {
+  /// See `TransactionRepository.markAsSynced` for why `pushedUpdatedAt` matters: without it, an
+  /// edit made while the push was in flight is marked synced and never pushed.
+  func markAsSynced(ckRecordName: String, pushedUpdatedAt: Date? = nil) {
     // Phase 3C: CK record name is pre-stored before push, so matching by ck_record_id is sufficient
+    guard let pushedUpdatedAt = pushedUpdatedAt else {
+      db.executeSyncUpdate(
+        "UPDATE Budgets SET sync_status = 'synced' WHERE ck_record_id = ?;",
+        textBindings: [ckRecordName]
+      )
+      return
+    }
     db.executeSyncUpdate(
-      "UPDATE Budgets SET sync_status = 'synced' WHERE ck_record_id = ?;",
-      textBindings: [ckRecordName]
+      "UPDATE Budgets SET sync_status = 'synced' WHERE ck_record_id = ? AND COALESCE(updated_at, 0) <= ?;",
+      textBindings: [ckRecordName],
+      intBindings: [Int(pushedUpdatedAt.timeIntervalSince1970)]
     )
   }
 
@@ -126,29 +139,48 @@ final class BudgetRepository: BudgetRepositoryProtocol {
       textBindings: [ckRecordName]
     )
 
-    db.executeGroupWrite(
-      """
-      INSERT INTO Budgets (month_date, amount, user_id, shared_group_id, ck_record_id, sync_status, ck_modified_at, updated_at, created_by_uid)
-      VALUES (?, ?, ?, ?, ?, 'synced', ?, ?, ?);
-      """,
-      orderedBindings: [
-        budget.monthDate,
-        budget.amount,
-        UIDUserDefaultsManager.shared.currentUserUID,
-        budget.sharedGroupId,
-        ckRecordName,
-        Int(Date().timeIntervalSince1970),
-        Int((budget.updatedAt ?? Date()).timeIntervalSince1970),
-        budget.createdByUid
-      ]
-    )
+    do {
+      try db.executeGroupWriteChecked(
+        """
+        INSERT INTO Budgets (month_date, amount, user_id, shared_group_id, ck_record_id, sync_status, ck_modified_at, updated_at, created_by_uid)
+        VALUES (?, ?, ?, ?, ?, 'synced', ?, ?, ?);
+        """,
+        orderedBindings: [
+          budget.monthDate,
+          budget.amount,
+          // The record's author, NOT the receiving device's user. Binding the receiver's uid
+          // rewrote every inbound budget into the local namespace, which is what makes the
+          // month_date collision below inevitable rather than incidental.
+          budget.createdByUid ?? UIDUserDefaultsManager.shared.currentUserUID,
+          budget.sharedGroupId,
+          ckRecordName,
+          Int(Date().timeIntervalSince1970),
+          Int((budget.updatedAt ?? Date()).timeIntervalSince1970),
+          budget.createdByUid
+        ]
+      )
+    } catch {
+      // `Budgets.month_date` is a GLOBAL primary key, so a month can hold exactly one budget row
+      // — a personal budget and a group budget for the same month are physically the same row.
+      // This insert therefore fails whenever the month is already taken, and until now that
+      // failure was discarded, silently dropping the record.
+      //
+      // Deliberately NOT resolved by upserting: `INSERT OR REPLACE` would let an arriving group
+      // budget overwrite the user's personal budget for that month. Surfacing it is the correct
+      // interim behaviour; the real fix is the scoped key in Stage 2.
+      logError("""
+        [Budget] Cannot insert \(ckRecordName) for month \(budget.monthDate) — a budget already \
+        exists for that month and `month_date` is a global primary key. Record NOT stored. \
+        (\(error))
+        """)
+    }
   }
 
   func updateFromCloud(_ budget: BudgetModel, ckRecordName: String) {
     db.executeGroupWrite(
       """
       UPDATE Budgets SET amount = ?, shared_group_id = ?, sync_status = 'synced', ck_modified_at = ?, updated_at = ?,
-          created_by_uid = ?, is_deleted = 0
+          created_by_uid = COALESCE(?, created_by_uid), is_deleted = 0
       WHERE ck_record_id = ?;
       """,
       orderedBindings: [
@@ -163,6 +195,11 @@ final class BudgetRepository: BudgetRepositoryProtocol {
   }
 
   func deleteFromCloud(ckRecordName recordName: String) {
+    // RECREATION-WINS guard: keep a row that has unpushed local edits instead of applying a
+    // remote delete (it re-pushes, so the newer local change is preserved).
+    if db.fetchSingleString("SELECT sync_status FROM Budgets WHERE ck_record_id = ?;", textBinding: recordName) == "pending" {
+      return
+    }
     db.executeSyncUpdate(
       "DELETE FROM Budgets WHERE ck_record_id = ?;",
       textBindings: [recordName]

@@ -42,6 +42,10 @@ final class GroupInvitationViewModel {
         }
 
         repository.updateInvitationStatus(id: invitation.id, status: "accepted")
+        // Record it in the durable ledger BEFORE the best-effort remote update: the remote write is
+        // expected to fail (only the inviter can modify their public-DB record), so the ledger is
+        // what actually stops this invitation from resurfacing after a reinstall or on another device.
+        BudgetGroupService.shared.markInvitationResolved(invitation.id)
         updateRemoteInvitationStatus("accepted")
 
         // Ensure owner member exists locally (avoid duplicates)
@@ -98,7 +102,7 @@ final class GroupInvitationViewModel {
                             }
                         } else {
                             logWarning("No updated share URL available — proceeding without CKShare")
-                            SyncEngine.shared.performFullSync()
+                            // AppFlowController will show InitialSync screen which monitors performFullSync
                             DispatchQueue.main.async { completion(.success(group)) }
                         }
                     }
@@ -113,7 +117,7 @@ final class GroupInvitationViewModel {
                         DispatchQueue.main.async { completion(.success(group)) }
                     }
                 } else {
-                    SyncEngine.shared.performFullSync()
+                    // AppFlowController will show InitialSync screen which monitors performFullSync
                     DispatchQueue.main.async { completion(.success(group)) }
                 }
             }
@@ -138,25 +142,9 @@ final class GroupInvitationViewModel {
             CloudKitManager.shared.container.accept(metadata) { share, error in
                 if let error = error {
                     logError("CKShare acceptance failed: \(error.localizedDescription)")
-                    SyncEngine.shared.performFullSync()
                     completion(false)
                 } else {
                     logInfo("CKShare accepted successfully")
-                    if let share = share {
-                        let ownerName = share.recordID.zoneID.ownerName
-                        self.repository.updateZoneOwner(groupId: self.invitation.groupId, zoneOwner: ownerName)
-
-                        BudgetGroupService.shared.pushGroupMemberRecord(
-                            member: member,
-                            groupId: self.invitation.groupId,
-                            zoneOwner: ownerName
-                        ) { _ in }
-
-                        SyncEngine.shared.syncSharedGroupData(
-                            groupId: self.invitation.groupId,
-                            zoneOwner: ownerName
-                        )
-                    }
 
                     let currentUserName = UserDefaultsManager.getUser()?.name
                         ?? AuthenticationManager.shared.currentUser?.displayName
@@ -167,8 +155,29 @@ final class GroupInvitationViewModel {
                         detail: currentUserName
                     )
 
-                    SyncEngine.shared.performFullSync()
-                    completion(true)
+                    if let share = share {
+                        let ownerName = share.recordID.zoneID.ownerName
+                        self.repository.updateZoneOwner(groupId: self.invitation.groupId, zoneOwner: ownerName)
+
+                        BudgetGroupService.shared.pushGroupMemberRecord(
+                            member: member,
+                            groupId: self.invitation.groupId,
+                            zoneOwner: ownerName
+                        ) { _ in }
+
+                        // Wait for shared group data before dismissing modal
+                        SyncEngine.shared.syncSharedGroupData(
+                            groupId: self.invitation.groupId,
+                            zoneOwner: ownerName
+                        ) {
+                            completion(true)
+                            // Full sync continues, monitored by InitialSync screen
+                            SyncEngine.shared.performFullSync()
+                        }
+                    } else {
+                        completion(true)
+                        SyncEngine.shared.performFullSync()
+                    }
                 }
             }
         }
@@ -219,11 +228,16 @@ final class GroupInvitationViewModel {
 
     func declineInvitation() {
         repository.updateInvitationStatus(id: invitation.id, status: "declined")
+        // Without this, a declined invitation came back on the next sync from any device whose local
+        // GroupInvitations row was missing — the remote status write below cannot succeed.
+        BudgetGroupService.shared.markInvitationResolved(invitation.id)
         updateRemoteInvitationStatus("declined")
     }
 
     /// Updates the invitation status in public DB.
-    /// Only the record creator (the inviter/owner) can modify it — the invitee's update is best-effort.
+    /// Only the record creator (the inviter/owner) can modify it — the invitee's update is best-effort
+    /// and normally fails. The authoritative record of "I already answered this" is the resolved
+    /// invitation ledger in `BudgetGroupService`; this call is a bonus for when the owner reads it.
     private func updateRemoteInvitationStatus(_ status: String) {
         let recordID = CKRecord.ID(recordName: "invitation-\(invitation.id)")
         CloudKitManager.shared.publicDatabase.fetch(withRecordID: recordID) { record, error in

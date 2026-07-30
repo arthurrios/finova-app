@@ -38,7 +38,9 @@ extension BudgetAllocationModel: CKRecordConvertible {
         record["parentAllocationId"] = parentAllocationId as CKRecordValue?
         record["userId"] = (UIDUserDefaultsManager.shared.currentUserUID ?? "") as CKRecordValue
         record["sharedGroupId"] = sharedGroupId as CKRecordValue?
-        record["updatedAt"] = (updatedAt ?? Date()) as CKRecordValue
+        // Real last-edit time, never `Date()` — see CKTransactionAdapter for why stamping the push
+        // time silently reverted the other device's newer edit.
+        record["updatedAt"] = (updatedAt ?? record.creationDate ?? Date()) as CKRecordValue
         record["createdByUid"] = createdByUid as CKRecordValue?
         return record
     }
