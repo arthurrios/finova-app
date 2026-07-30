@@ -22,7 +22,15 @@ extension Transaction: CKRecordConvertible {
         return toCKRecord(in: zoneID, storedRecordName: nil)
     }
 
-    func toCKRecord(in zoneID: CKRecordZone.ID, storedRecordName: String?) -> CKRecord {
+    /// - Parameter db: the database this row belongs to. Explicit because the adapter reads the
+    ///   row's identity columns and its referents' CK names; defaulting to `.shared` silently read
+    ///   the WRONG database whenever the caller was operating on another one (as the two-device
+    ///   test harness does), which produced nil references that then "resolved" by coincidence.
+    func toCKRecord(
+        in zoneID: CKRecordZone.ID,
+        storedRecordName: String?,
+        db: DBHelper = .shared
+    ) -> CKRecord {
         let recordID: CKRecord.ID
         if let storedName = storedRecordName {
             recordID = CKRecord.ID(recordName: storedName, zoneID: zoneID)
@@ -52,20 +60,35 @@ extension Transaction: CKRecordConvertible {
         record["statementId"] = statementId as CKRecordValue?
         record["isCreditCardStatement"] = ((isCreditCardStatement ?? false) ? 1 : 0) as CKRecordValue
         if let txId = id {
-            record["isStatementOverridden"] = (DBHelper.shared.isStatementOverridden(transactionId: txId) ? 1 : 0) as CKRecordValue
+            record["isStatementOverridden"] = (db.isStatementOverridden(transactionId: txId) ? 1 : 0) as CKRecordValue
         }
 
-        // Store CK record names for cross-device ID remapping
+        // Stable, device-independent identity and relationships.
+        //
+        // These are what let the receiving device resolve a reference REGARDLESS of arrival order.
+        // The `*CKRecordName` fields below are nil until the referent has been pushed, so a record
+        // that arrives before its parent/card cannot be linked and the sender's meaningless local
+        // integer ends up in the receiver's database. A uuid exists from row creation, so it is
+        // always available and always correct.
+        if let txId = id, let ids = db.uuidIdentity(table: "Transactions", localId: txId) {
+            record["uuid"] = ids.uuid as CKRecordValue
+            record["creditCardUuid"] = ids.creditCardUuid as CKRecordValue?
+            record["statementUuid"] = ids.statementUuid as CKRecordValue?
+            record["parentTransactionUuid"] = ids.parentUuid as CKRecordValue?
+            record["schemaVersion"] = 1 as CKRecordValue
+        }
+
+        // Legacy cross-device remapping fields. Still written so a device on an older build keeps
+        // working exactly as before; the uuid path above supersedes them and they can be dropped
+        // once every peer reports schemaVersion >= 1.
         if let ccId = creditCardId {
-            record["creditCardCKRecordName"] = CreditCardRepository().fetchCKRecordName(for: ccId) as CKRecordValue?
+            record["creditCardCKRecordName"] = CreditCardRepository(db: db).fetchCKRecordName(for: ccId) as CKRecordValue?
         }
         if let stmtId = statementId {
-            record["statementCKRecordName"] = StatementRepository().fetchCKRecordName(for: stmtId) as CKRecordValue?
+            record["statementCKRecordName"] = StatementRepository(db: db).fetchCKRecordName(for: stmtId) as CKRecordValue?
         }
-
-        // Phase 4A: Store parent's CK record name for cross-device parent resolution
         if let parentId = parentTransactionId {
-            let parentCKName = TransactionRepository().fetchCKRecordName(for: parentId)
+            let parentCKName = TransactionRepository(db: db).fetchCKRecordName(for: parentId)
             record["parentCKRecordName"] = parentCKName as CKRecordValue?
         }
 

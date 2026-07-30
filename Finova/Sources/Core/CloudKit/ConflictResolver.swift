@@ -29,7 +29,27 @@ final class ConflictResolver {
     /// the record's deterministic version (`rev`/`revDevice`) so subsequent conflict decisions
     /// are clock-independent. Called after EVERY inbound apply, so this is the single place that
     /// keeps the local row's version in sync with the server's.
+    /// Persists the stable identity and uuid foreign keys an inbound record carries.
+    ///
+    /// Called alongside `storeSystemFields` on every apply path. Unlike the `*CKRecordName` side
+    /// channels these are always present (a uuid exists from row creation), so the relationship
+    /// survives even when the referenced row has not arrived yet — `resolveUuidForeignKeys()`
+    /// converts it to a local integer on this or a later pass.
+    private func storeInboundUuids(from ckRecord: CKRecord, table: String) {
+        db.applyInboundUuids(
+            table: table,
+            ckRecordName: ckRecord.recordID.recordName,
+            uuid: ckRecord["uuid"] as? String,
+            creditCardUuid: ckRecord["creditCardUuid"] as? String,
+            statementUuid: ckRecord["statementUuid"] as? String,
+            parentUuid: (ckRecord["parentTransactionUuid"] as? String)
+                ?? (ckRecord["parentAllocationUuid"] as? String)
+        )
+    }
+
     private func storeSystemFields(from ckRecord: CKRecord, table: String) {
+        storeInboundUuids(from: ckRecord, table: table)
+
         let coder = NSKeyedArchiver(requiringSecureCoding: true)
         ckRecord.encodeSystemFields(with: coder)
         coder.finishEncoding()

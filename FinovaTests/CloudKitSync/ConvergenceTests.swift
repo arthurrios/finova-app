@@ -286,14 +286,25 @@ final class ConvergenceTests: XCTestCase {
             return XCTFail("Device B never received the card")
         }
 
+        let aCard = deviceA.db.uuidIdentity(table: "CreditCards", localId: cardId ?? 0)
+        let aTxId = deviceA.transactionRepo.fetchAllTransactions()
+            .first(where: { $0.title == "OutOfOrder" })?.id ?? 0
+        let aTx = deviceA.db.uuidIdentity(table: "Transactions", localId: aTxId)
+        let bCard = deviceB.db.uuidIdentity(table: "CreditCards", localId: cardOnB.id ?? 0)
+        let bTx = deviceB.db.uuidIdentity(table: "Transactions", localId: txOnB.id ?? 0)
+
         XCTAssertEqual(
             txOnB.creditCardId, cardOnB.id,
             """
             Out-of-order arrival lost the relationship.
             B's transaction points at card id \(txOnB.creditCardId.map(String.init) ?? "nil") \
             but B's own "RealCard" is id \(cardOnB.id.map(String.init) ?? "nil").
-            The reference must be resolvable regardless of arrival order — that is what a stable, \
-            device-independent record identity buys.
+
+            identity chain:
+              A card.uuid          = \(aCard?.uuid ?? "nil")
+              A tx.creditCardUuid  = \(aTx?.creditCardUuid ?? "nil")
+              B card.uuid          = \(bCard?.uuid ?? "nil")
+              B tx.creditCardUuid  = \(bTx?.creditCardUuid ?? "nil")
             """
         )
     }

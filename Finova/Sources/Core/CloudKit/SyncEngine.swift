@@ -1684,6 +1684,12 @@ final class SyncEngine {
 
             for record in recs { processIncomingRecord(record) }
         }
+
+        // Turn the uuid pointers just written by the inbound records into local integer foreign
+        // keys. Runs after the whole buffer so intra-batch ordering stops mattering: a child that
+        // arrived before its parent is simply resolved here, or on a later pull if the parent is
+        // still absent. Idempotent, so calling it when nothing changed is free.
+        DBHelper.shared.resolveUuidForeignKeys()
     }
 
     // MARK: - Sync Record Categories

@@ -29,7 +29,13 @@ extension CreditCard: CKRecordConvertible {
         return toCKRecord(in: zoneID, storedRecordName: nil)
     }
 
-    func toCKRecord(in zoneID: CKRecordZone.ID, storedRecordName: String?) -> CKRecord {
+    /// - Parameter db: the database this row belongs to; see `CKTransactionAdapter` for why this
+    ///   must be explicit rather than defaulting to the shared singleton.
+    func toCKRecord(
+        in zoneID: CKRecordZone.ID,
+        storedRecordName: String?,
+        db: DBHelper = .shared
+    ) -> CKRecord {
         let recordID: CKRecord.ID
         if let storedName = storedRecordName {
             recordID = CKRecord.ID(recordName: storedName, zoneID: zoneID)
@@ -56,6 +62,14 @@ extension CreditCard: CKRecordConvertible {
         record["isDefault"] = (isDefault ? 1 : 0) as CKRecordValue
         record["updatedAt"] = updatedAt as CKRecordValue
         record["createdByUid"] = createdByUid as CKRecordValue?
+
+        // The card's stable identity. Without this the receiving device generates its own uuid for
+        // the card, and every transaction referencing it by `creditCardUuid` then fails to resolve —
+        // the reference is only as good as the referent's identity travelling with it.
+        if let cardId = id, let ids = db.uuidIdentity(table: "CreditCards", localId: cardId) {
+            record["uuid"] = ids.uuid as CKRecordValue
+            record["schemaVersion"] = 1 as CKRecordValue
+        }
         return record
     }
 

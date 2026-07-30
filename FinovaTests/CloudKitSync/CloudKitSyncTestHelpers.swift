@@ -40,16 +40,28 @@ final class MockCloudStore {
         deletedRecordNames.insert(recordName)
     }
 
+    /// Vends a COPY, never the stored instance.
+    ///
+    /// Real CloudKit deserializes a fresh `CKRecord` per fetch, per device. Returning the stored
+    /// instance let one device's in-place mutations — `SyncEngine.remapCrossDeviceIDs` rewrites
+    /// `creditCardId`/`statementId` on the record it is handed — leak into the "cloud" and corrupt
+    /// what every other device subsequently reads. That made results order-dependent and produced
+    /// failures that vanished when a test was run alone.
+    private func copy(_ record: CKRecord) -> CKRecord {
+        // swiftlint:disable:next force_cast
+        record.copy() as! CKRecord
+    }
+
     func fetchAll() -> [CKRecord] {
-        Array(records.values)
+        records.values.map(copy)
     }
 
     func fetchAll(recordType: String) -> [CKRecord] {
-        records.values.filter { $0.recordType == recordType }
+        records.values.filter { $0.recordType == recordType }.map(copy)
     }
 
     func fetch(recordName: String) -> CKRecord? {
-        records[recordName]
+        records[recordName].map(copy)
     }
 
     func fetchChanges(since date: Date?) -> [CKRecord] {
@@ -164,7 +176,9 @@ final class DeviceSimulator {
             guard let txId = tx.id else { continue }
 
             let storedName = transactionRepo.fetchCKRecordName(for: txId)
-            let record = tx.toCKRecord(in: zoneID, storedRecordName: storedName)
+            // `db:` is essential — the adapter reads this row's identity and its referents' CK
+            // names, and defaulting to .shared would read the other device's database.
+            let record = tx.toCKRecord(in: zoneID, storedRecordName: storedName, db: db)
 
             // Store the CK record name locally before saving to cloud
             if storedName == nil {
@@ -205,7 +219,7 @@ final class DeviceSimulator {
         for card in cardRepo.fetchPendingSync() {
             guard let cardId = card.id else { continue }
             let storedName = cardRepo.fetchCKRecordName(for: cardId)
-            let record = card.toCKRecord(in: zoneID, storedRecordName: storedName)
+            let record = card.toCKRecord(in: zoneID, storedRecordName: storedName, db: db)
             if storedName == nil {
                 cardRepo.setCKRecordId(for: cardId, ckRecordName: record.recordID.recordName)
             }
@@ -273,6 +287,9 @@ final class DeviceSimulator {
         pullCards()
         pullTransactions()
         pullBudgets()
+        // Mirrors SyncEngine.processBufferedRecords: resolve uuid pointers into local integer FKs
+        // once the whole batch has landed.
+        db.resolveUuidForeignKeys()
     }
 
     // MARK: - Push Deletes
