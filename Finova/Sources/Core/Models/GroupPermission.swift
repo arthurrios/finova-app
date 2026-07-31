@@ -21,6 +21,15 @@ struct GroupPermissions: Equatable, Encodable {
     var canEditOwnBudgets: Bool
     var canEditOwnAllocations: Bool
 
+    /// Transparent Mode. Set by the member themselves, never by the group owner — it is a decision
+    /// to publish, not a permission that is granted. It rides here rather than in its own field
+    /// because `GroupMember.permissions` is already deployed in the production CloudKit schema and
+    /// `JSONDecoder` ignores keys it does not know, so older clients stay compatible.
+    ///
+    /// Deliberately absent from `allPermissions` and `setPermission` — those drive the owner's
+    /// permission editor, and this is not the owner's to change.
+    var publishesPersonalLedger: Bool
+
     static let memberDefault = GroupPermissions(
         canCreateTransactions: true,
         canEditTransactions: false,
@@ -33,7 +42,8 @@ struct GroupPermissions: Equatable, Encodable {
         canEditOwnTransactions: true,
         canDeleteOwnTransactions: true,
         canEditOwnBudgets: true,
-        canEditOwnAllocations: true
+        canEditOwnAllocations: true,
+        publishesPersonalLedger: false
     )
 
     static let viewOnly = GroupPermissions(
@@ -48,7 +58,8 @@ struct GroupPermissions: Equatable, Encodable {
         canEditOwnTransactions: false,
         canDeleteOwnTransactions: false,
         canEditOwnBudgets: false,
-        canEditOwnAllocations: false
+        canEditOwnAllocations: false,
+        publishesPersonalLedger: false
     )
 
     static let canAdd = GroupPermissions(
@@ -63,7 +74,8 @@ struct GroupPermissions: Equatable, Encodable {
         canEditOwnTransactions: true,
         canDeleteOwnTransactions: true,
         canEditOwnBudgets: true,
-        canEditOwnAllocations: true
+        canEditOwnAllocations: true,
+        publishesPersonalLedger: false
     )
 
     static let fullAccess = GroupPermissions(
@@ -78,7 +90,8 @@ struct GroupPermissions: Equatable, Encodable {
         canEditOwnTransactions: true,
         canDeleteOwnTransactions: true,
         canEditOwnBudgets: true,
-        canEditOwnAllocations: true
+        canEditOwnAllocations: true,
+        publishesPersonalLedger: false
     )
 
     var asJSON: String {
@@ -139,6 +152,7 @@ extension GroupPermissions: Decodable {
         case canViewCreditCards, canManageCreditCards, canInviteMembers
         case canEditOwnTransactions, canDeleteOwnTransactions
         case canEditOwnBudgets, canEditOwnAllocations
+        case publishesPersonalLedger
     }
 
     init(from decoder: Decoder) throws {
@@ -156,5 +170,8 @@ extension GroupPermissions: Decodable {
         canDeleteOwnTransactions = try container.decodeIfPresent(Bool.self, forKey: .canDeleteOwnTransactions) ?? true
         canEditOwnBudgets = try container.decodeIfPresent(Bool.self, forKey: .canEditOwnBudgets) ?? true
         canEditOwnAllocations = try container.decodeIfPresent(Bool.self, forKey: .canEditOwnAllocations) ?? true
+        // Defaults to FALSE, unlike the keys above: absence means the member never opted in to
+        // publishing. Defaulting to true would silently expose an old client's personal ledger.
+        publishesPersonalLedger = try container.decodeIfPresent(Bool.self, forKey: .publishesPersonalLedger) ?? false
     }
 }
