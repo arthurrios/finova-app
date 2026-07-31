@@ -108,6 +108,19 @@ extension SyncSettingsViewController: SyncSettingsViewDelegate {
     present(alert, animated: true)
   }
 
+  func didTapPurgeDeadZones() {
+    let alert = UIAlertController(
+      title: "syncSettings.purgeZones.confirm.title".localized,
+      message: "syncSettings.purgeZones.confirm.message".localized,
+      preferredStyle: .alert
+    )
+    alert.addAction(UIAlertAction(title: "alert.cancel".localized, style: .cancel))
+    alert.addAction(UIAlertAction(title: "syncSettings.purgeZones.confirm.action".localized, style: .destructive) { [weak self] _ in
+      self?.viewModel.purgeDeadGroupZones()
+    })
+    present(alert, animated: true)
+  }
+
   func didTapRepairData() {
     let alert = UIAlertController(
       title: "syncSettings.repairData.confirm.title".localized,

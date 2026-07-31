@@ -103,6 +103,18 @@ final class SyncSettingsViewModel {
     }
   }
 
+  /// Deletes the CloudKit zones of groups this user already deleted locally.
+  ///
+  /// Destructive and outward-facing, so it is user-invoked only. Every guard lives in
+  /// `DeadGroupZonePurge`: the zone must be `Group-<id>`, a local row must exist for that id, that
+  /// row must be soft-deleted AND owned by this user, and `FinovaPrivateZone`/`_defaultZone` can
+  /// never be touched. It logs everything it is about to destroy before destroying it.
+  func purgeDeadGroupZones() {
+    ensureCloudKitAvailable {
+      DeadGroupZonePurge.runNow()
+    }
+  }
+
   func recoverySync() {
     ensureCloudKitAvailable { [weak self] in
       guard let self = self else { return }

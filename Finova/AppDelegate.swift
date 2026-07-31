@@ -42,18 +42,15 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
       #if DEBUG
         // 🧪 Debug: Show data status on app launch (only in debug mode)
         DebugDataManager.shared.showDataStatus()
-
-        // 🧹 ONE-SHOT REPAIR — remove once it has logged "PURGE — DONE" on every owner device.
-        // Deletes CloudKit zones left behind by groups that were deleted before
-        // BudgetGroupService.deleteGroup started removing them. Delayed so Firebase auth has
-        // settled (the purge needs a signed-in user to resolve group ownership) and so it can't
-        // race the first sync cycle. Self-guarded: runs at most once, logs everything it is about
-        // to destroy, and never touches FinovaPrivateZone, _defaultZone, live groups, or zones with
-        // no local group row.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 8) {
-          DeadGroupZonePurge.runOnceIfNeeded()
-        }
       #endif
+
+      // The dead-group-zone purge used to run here, eight seconds after launch, under #if DEBUG.
+      // It DELETES CloudKit zones, and nothing that deletes cloud data should fire on its own — the
+      // same rule Stage 4 applied to the local repair passes. It now lives behind an explicit
+      // action in Sync Settings, which also means it is available in a Release build; being
+      // DEBUG-only was what made it look as though the Release scheme were needed to reach the
+      // production zones. It never was: `icloud-container-environment` is pinned to Production for
+      // both configurations, so every build has always talked to the same CloudKit database.
     }
 
     return true

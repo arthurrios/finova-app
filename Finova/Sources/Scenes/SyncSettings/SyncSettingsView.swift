@@ -17,6 +17,7 @@ protocol SyncSettingsViewDelegate: AnyObject {
   func didTapForceRePush()
   func didTapRecoverySync()
   func didTapRepairData()
+  func didTapPurgeDeadZones()
 }
 
 final class SyncSettingsView: UIView {
@@ -247,6 +248,20 @@ final class SyncSettingsView: UIView {
     return btn
   }()
 
+  private let purgeZonesContainer = createSettingContainer()
+  private let purgeZonesIconView = createIconView(imageName: "trash", tintColor: Colors.mainRed)
+  private let purgeZonesLabel: UILabel = {
+    let label = createSettingLabel(text: "syncSettings.purgeZones.title".localized)
+    label.textColor = Colors.mainRed
+    return label
+  }()
+  private let purgeZonesButton: UIButton = {
+    let btn = UIButton(type: .custom)
+    btn.backgroundColor = .clear
+    btn.translatesAutoresizingMaskIntoConstraints = false
+    return btn
+  }()
+
   private let repairDataContainer = createSettingContainer()
   private let repairDataIconView = createIconView(imageName: "wrench.and.screwdriver", tintColor: Colors.gray600)
   private let repairDataLabel = createSettingLabel(text: "syncSettings.repairData.title".localized)
@@ -289,6 +304,7 @@ final class SyncSettingsView: UIView {
     cloudCleanupButton.addTarget(self, action: #selector(didTapCloudCleanup), for: .touchUpInside)
     forceRePushButton.addTarget(self, action: #selector(didTapForceRePush), for: .touchUpInside)
     repairDataButton.addTarget(self, action: #selector(didTapRepairData), for: .touchUpInside)
+    purgeZonesButton.addTarget(self, action: #selector(didTapPurgeDeadZones), for: .touchUpInside)
     recoverySyncButton.addTarget(self, action: #selector(didTapRecoverySync), for: .touchUpInside)
     uploadResumeButton.addTarget(self, action: #selector(didTapResumeUpload), for: .touchUpInside)
     syncEnabledSwitch.addTarget(self, action: #selector(syncEnabledToggled), for: .valueChanged)
@@ -337,6 +353,7 @@ final class SyncSettingsView: UIView {
     contentStackView.addArrangedSubview(forceRePushContainer)
     setupRecoverySyncContainer()
     contentStackView.addArrangedSubview(repairDataContainer)
+    contentStackView.addArrangedSubview(purgeZonesContainer)
     contentStackView.addArrangedSubview(recoverySyncContainer)
   }
 
@@ -461,6 +478,20 @@ final class SyncSettingsView: UIView {
   }
 
   private func setupRecoverySyncContainer() {
+    purgeZonesContainer.addSubview(purgeZonesIconView)
+    purgeZonesContainer.addSubview(purgeZonesLabel)
+    purgeZonesContainer.addSubview(purgeZonesButton)
+    NSLayoutConstraint.activate([
+      purgeZonesIconView.leadingAnchor.constraint(equalTo: purgeZonesContainer.leadingAnchor, constant: Metrics.spacing4),
+      purgeZonesIconView.centerYAnchor.constraint(equalTo: purgeZonesContainer.centerYAnchor),
+      purgeZonesLabel.leadingAnchor.constraint(equalTo: purgeZonesIconView.trailingAnchor, constant: Metrics.spacing3),
+      purgeZonesLabel.centerYAnchor.constraint(equalTo: purgeZonesContainer.centerYAnchor),
+      purgeZonesButton.topAnchor.constraint(equalTo: purgeZonesContainer.topAnchor),
+      purgeZonesButton.leadingAnchor.constraint(equalTo: purgeZonesContainer.leadingAnchor),
+      purgeZonesButton.trailingAnchor.constraint(equalTo: purgeZonesContainer.trailingAnchor),
+      purgeZonesButton.bottomAnchor.constraint(equalTo: purgeZonesContainer.bottomAnchor)
+    ])
+
     repairDataContainer.addSubview(repairDataIconView)
     repairDataContainer.addSubview(repairDataLabel)
     repairDataContainer.addSubview(repairDataButton)
@@ -725,6 +756,11 @@ final class SyncSettingsView: UIView {
   @objc
   private func didTapForceRePush() {
     delegate?.didTapForceRePush()
+  }
+
+  @objc
+  private func didTapPurgeDeadZones() {
+    delegate?.didTapPurgeDeadZones()
   }
 
   @objc

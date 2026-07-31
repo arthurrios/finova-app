@@ -17,8 +17,6 @@
 import CloudKit
 import Foundation
 
-#if DEBUG
-
 enum DeadGroupZonePurge {
 
     /// Zones that must NEVER be deleted, whatever the rest of the logic concludes.
@@ -37,6 +35,16 @@ enum DeadGroupZonePurge {
     ///   3. That row has `is_deleted = 1` (the group was deleted on this device).
     ///   4. That row is owned by the current user — we must not delete someone else's zone.
     ///   5. The zone name is not in `protectedZoneNames`.
+    /// Runs the purge because the user asked, whether or not it has run before.
+    ///
+    /// The one-shot flag exists so an automatic launch hook could not repeat a destructive CloudKit
+    /// operation. It should not stand in the way of someone asking deliberately — and once consumed
+    /// there was no way to ask again short of reinstalling.
+    static func runNow() {
+        UserDefaults.standard.removeObject(forKey: hasRunKey)
+        runOnceIfNeeded()
+    }
+
     static func runOnceIfNeeded() {
         guard !UserDefaults.standard.bool(forKey: hasRunKey) else {
             logInfo("[Purge] Already ran on this install — skipping")
@@ -223,5 +231,3 @@ enum DeadGroupZonePurge {
         }
     }
 }
-
-#endif

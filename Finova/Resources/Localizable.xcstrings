@@ -11123,6 +11123,74 @@
         }
       }
     },
+    "syncSettings.purgeZones.confirm.action": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Excluir"
+          }
+        }
+      }
+    },
+    "syncSettings.purgeZones.confirm.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Removes the iCloud storage left behind by groups you already deleted. Your own data and any group you still belong to are never touched. This cannot be undone."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove o armazenamento do iCloud deixado por grupos que você já excluiu. Seus próprios dados e qualquer grupo do qual você ainda participa não são afetados. Não é possível desfazer."
+          }
+        }
+      }
+    },
+    "syncSettings.purgeZones.confirm.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete unused group zones?"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Excluir zonas de grupos não usadas?"
+          }
+        }
+      }
+    },
+    "syncSettings.purgeZones.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete unused group zones"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Excluir zonas de grupos não usadas"
+          }
+        }
+      }
+    },
     "syncSettings.recoverySync.confirm.action": {
       "extractionState": "manual",
       "localizations": {
