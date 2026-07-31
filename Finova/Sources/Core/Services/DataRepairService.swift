@@ -69,6 +69,23 @@ enum DataRepairService {
         creditCardService.recalculateAllStatementTotals()
         creditCardService.repairBudgetMonthForOverriddenTransactions()
 
+        // Consolidate duplicate allocations — one per (scope, month, category), which is the app's
+        // own invariant: `insertAllocation` rejects a second one for the same category and month in
+        // the same ledger. Inbound sync and lazy generation bypass that check, so duplicates could
+        // still form.
+        //
+        // They did: while allocations were group-tagged, `generateRecurringInstancesIfNeeded` read the
+        // now-personal-scoped `fetchAllAllocations()`, could not see them, and re-materialised the
+        // months. Un-tagging then left both copies personal. 23 pairs on the reporter's device.
+        //
+        // It cannot recur — `idx_budgetallocations_uuid` is UNIQUE and generated instances now derive
+        // a UUIDv5 from (parent, month), so a second generation collides and is rejected — but the
+        // rows already created need clearing.
+        let mergedAllocations = deduplicateAllocations(db: db, uid: uid)
+        if mergedAllocations > 0 {
+            logWarning("[Repair] Consolidated \(mergedAllocations) duplicate allocation(s)")
+        }
+
         // Re-run the mirror-tag restore, bypassing its one-shot flag.
         //
         // Safe to repeat: it only ever un-tags rows THIS user authored, and a row already personal is
@@ -121,6 +138,36 @@ enum DataRepairService {
         }
         logWarning("[Repair] Backup written: \(url.lastPathComponent)")
         return url.lastPathComponent
+    }
+
+    /// Soft-deletes all but one allocation per (scope, month, category) and queues the losers for
+    /// deletion in CloudKit, so a duplicate cannot simply return on the next pull.
+    ///
+    /// The survivor is the highest `(rev, rev_device, id)` — the same convergent tie-break the
+    /// `ck_record_id` dedupe uses. `rev` is a logical clock, so two devices cleaning up the same pair
+    /// independently keep the SAME row; keeping the lowest local id would have them keep different
+    /// ones and push them over each other, which is the defect that made the old repair passes worse
+    /// than the damage they addressed.
+    private static func deduplicateAllocations(db: DBHelper, uid: String) -> Int {
+        db.executeSyncUpdateCount(
+            """
+            UPDATE BudgetAllocations
+               SET is_deleted = 1, sync_status = 'pendingDelete'
+             WHERE user_id = ?
+               AND (is_deleted IS NULL OR is_deleted = 0)
+               AND id NOT IN (
+                 SELECT keep FROM (
+                   SELECT id AS keep, ROW_NUMBER() OVER (
+                            PARTITION BY user_id, COALESCE(shared_group_id, ''), month_date, category_key
+                            ORDER BY COALESCE(rev, 0) DESC, COALESCE(rev_device, '') DESC, id DESC
+                          ) AS rn
+                     FROM BudgetAllocations
+                    WHERE user_id = ? AND (is_deleted IS NULL OR is_deleted = 0)
+                 ) WHERE rn = 1
+               );
+            """,
+            textBindings: [uid, uid]
+        )
     }
 
     private struct Inventory: CustomStringConvertible {
