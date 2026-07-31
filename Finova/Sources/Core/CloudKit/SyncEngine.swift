@@ -89,8 +89,17 @@ final class SyncEngine {
         !UserDefaultsManager.getSyncEnabled()
     }
 
+    /// Answers "is somebody signed in?" — the guard on the front of every sync entry point.
+    ///
+    /// Injected rather than read from `AuthenticationManager.shared`, which resolves
+    /// `Auth.auth().currentUser`: a live Firebase session that no unit test can produce. That single
+    /// unmockable read is why 18 SyncEngineTests could only ever observe the "not signed in" path,
+    /// and why the projection fan-out — which lives past this guard, inside `pushLocalChanges` —
+    /// had no way to be exercised at all.
+    var authProvider: AuthProviding = FirebaseAuthProvider()
+
     private var isUserAuthenticated: Bool {
-        AuthenticationManager.shared.currentUser != nil
+        authProvider.isAuthenticated
     }
     private static let largeSyncThreshold = 100
     /// Threshold for showing the InitialSync loading screen during background syncs.
@@ -119,10 +128,12 @@ final class SyncEngine {
     }
 
     init(cloudKitOps: CloudKitOperationsProvider, stateManager: SyncStateManager = .shared,
-         postSyncActions: PostSyncActions = RealPostSyncActions()) {
+         postSyncActions: PostSyncActions = RealPostSyncActions(),
+         authProvider: AuthProviding = FirebaseAuthProvider()) {
         self.cloudKitOps = cloudKitOps
         self.stateManager = stateManager
         self.postSyncActions = postSyncActions
+        self.authProvider = authProvider
     }
 
     private func setupObservers() {

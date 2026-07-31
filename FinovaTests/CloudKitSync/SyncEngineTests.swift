@@ -29,26 +29,32 @@ final class SyncEngineTests: XCTestCase {
         // out immediately when sync is disabled.
         UserDefaultsManager.setSyncEnabled(true)
 
-        // KNOWN BROKEN: 18 of the 19 tests in this class currently fail, and have done since the
-        // `isUserAuthenticated` guard was added to SyncEngine (it predates the sync refactor —
-        // present in 0bcea64). Every sync entry point starts with
-        //
+        // Authentication IS now injectable (see AuthProviding), which removed the first of two
+        // blockers. Every sync entry point opens with
         //     guard isUserAuthenticated else { completion?(); return }
+        // which used to read `AuthenticationManager.shared.currentUser` — a live Firebase session no
+        // test can create — so this class returned before touching the mock and asserted against a
+        // stale status ("Expected .error, got idle"). With a stub session the guard passes.
         //
-        // which reads `AuthenticationManager.shared.currentUser` — a live Firebase user that no
-        // test can produce. So the tests return before touching the mock and assert against a
-        // stale status, e.g. "Expected .error, got idle".
+        // STILL BROKEN, for a DIFFERENT reason: the tests now reach the sync cycle and hang there,
+        // so the failures read "Expected .synced, got syncing" plus expectation timeouts. Nine
+        // functions inside the cycle use `CloudKitManager.shared.privateDatabase` /
+        // `.sharedDatabase` DIRECTLY instead of the injectable `CloudKitOperationsProvider` — most
+        // importantly `discoverGroupsFromAllZones` (:3550) and `fetchSharedDatabaseChanges` (:1508),
+        // both of which sit on the critical path. Those CKOperations never call back on a simulator
+        // with no iCloud account, so the cycle never completes and `isSyncing` stays true.
         //
-        // Fixing this means making authentication injectable the way the database now is
-        // (`DBHelper(path:)`, `ConflictResolver(db:)`) — a small protocol around "is there a signed-in
-        // user" that production satisfies with AuthenticationManager and tests satisfy with a stub.
-        // Until then this class reports false failures, not real ones. ConvergenceTests is the suite
-        // that currently carries real signal.
+        // Fixing it means routing group discovery and shared-database changes through the provider
+        // (or a second provider alongside it). Until then this class still reports false failures.
+        // ConvergenceTests and the other CloudKitSync suites carry the real signal.
 
         mockCloud = MockCloudStore()
         mockOps = MockCloudKitOperations(mockCloud: mockCloud)
         mockPostSync = MockPostSyncActions()
-        syncEngine = SyncEngine(cloudKitOps: mockOps, postSyncActions: mockPostSync)
+        syncEngine = SyncEngine(
+            cloudKitOps: mockOps, postSyncActions: mockPostSync,
+            authProvider: StubAuthProvider(currentUserId: userUID)
+        )
         txRepo = TransactionRepository()
         budgetRepo = BudgetRepository()
     }
@@ -236,7 +242,8 @@ final class SyncEngineTests: XCTestCase {
         mockCloud.reset()
 
         // Create fresh engine for second sync (reset subscriptions flag)
-        let engine2 = SyncEngine(cloudKitOps: mockOps, postSyncActions: mockPostSync)
+        let engine2 = SyncEngine(cloudKitOps: mockOps, postSyncActions: mockPostSync,
+                                  authProvider: StubAuthProvider(currentUserId: userUID))
         let exp = expectation(description: "sync 2 completes")
         engine2.performFullSync {
             exp.fulfill()
@@ -290,7 +297,8 @@ final class SyncEngineTests: XCTestCase {
         mockCloud.delete(recordName: savedRecord.recordID.recordName)
 
         // Sync again with a fresh engine
-        let engine2 = SyncEngine(cloudKitOps: mockOps, postSyncActions: mockPostSync)
+        let engine2 = SyncEngine(cloudKitOps: mockOps, postSyncActions: mockPostSync,
+                                  authProvider: StubAuthProvider(currentUserId: userUID))
         let exp = expectation(description: "sync 2 completes")
         engine2.performFullSync {
             exp.fulfill()
@@ -363,7 +371,8 @@ final class SyncEngineTests: XCTestCase {
         performSyncAndWait()
 
         // Second sync with a fresh engine that has same mockOps
-        let engine2 = SyncEngine(cloudKitOps: mockOps, postSyncActions: mockPostSync)
+        let engine2 = SyncEngine(cloudKitOps: mockOps, postSyncActions: mockPostSync,
+                                  authProvider: StubAuthProvider(currentUserId: userUID))
         let exp = expectation(description: "sync 2")
         engine2.performFullSync {
             exp.fulfill()
@@ -374,7 +383,8 @@ final class SyncEngineTests: XCTestCase {
         XCTAssertEqual(mockOps.setupSubscriptionsCallCount, 2, "Each engine sets up subscriptions once")
 
         // Now verify the same engine doesn't set up twice
-        let engine3 = SyncEngine(cloudKitOps: mockOps, postSyncActions: mockPostSync)
+        let engine3 = SyncEngine(cloudKitOps: mockOps, postSyncActions: mockPostSync,
+                                  authProvider: StubAuthProvider(currentUserId: userUID))
         let exp2 = expectation(description: "sync 3a")
         engine3.performFullSync {
             exp2.fulfill()
