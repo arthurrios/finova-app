@@ -2,7 +2,10 @@
 //  DeadGroupZonePurge.swift
 //  Finova
 //
-//  ONE-SHOT DATA REPAIR — SAFE TO DELETE THIS ENTIRE FILE ONCE IT HAS RUN.
+//  User-invoked maintenance — "Delete unused group zones" in Sync Settings. NOT one-shot, and not
+//  safe to delete: it is a shipped action, not a migration. (It began life as a DEBUG-only launch
+//  hook that ran once; nothing that deletes cloud data should fire unprompted, so it moved behind an
+//  explicit confirmation.)
 //
 //  Background: `softDeleteGroup` only ever set `is_deleted = 1` locally; nothing deleted the
 //  group's `Group-<id>` CloudKit zone. Zones from deleted groups therefore accumulated in the
@@ -10,8 +13,13 @@
 //  and insert each one as a LIVE group (the soft-delete guard in `processIncomingBudgetGroup` only
 //  fires when a local row already exists), then pull transactions out of every dead zone.
 //
-//  `BudgetGroupService.deleteGroup` now deletes the zone, so this can't happen again. This file
-//  cleans up the zones that were already orphaned before that fix landed.
+//  `BudgetGroupService.deleteGroup` now deletes the zone as part of deleting a group, so new orphans
+//  are not created. This stays available for zones orphaned before that landed, and for the case
+//  where zone deletion fails at delete time and leaves one behind.
+//
+//  Note a zone can legitimately be ABSENT for a soft-deleted group: if `createCloudKitShare` never
+//  completed, no zone was created. On the reporter's device 9 soft-deleted groups had only 1 zone
+//  between them. That is not an error, and the purge simply finds nothing to do for the other 8.
 //
 
 import CloudKit
