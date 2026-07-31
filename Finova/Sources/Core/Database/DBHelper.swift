@@ -74,6 +74,7 @@ class DBHelper {
             try migrateUuidColumnsV1()
             isInitialized = true
             performUuidBackfillV1()
+            rebuildBudgetsTableV2()
             performSyncFixMigration()
             performParentIdFixMigration()
             performPendingModifiedAtMigration()
@@ -160,14 +161,17 @@ class DBHelper {
         }
     }
     
-    func insertBudget(monthDate: Int, amount: Int) throws {
+    /// - Parameter sharedGroupId: which scope this budget belongs to; `nil` is personal.
+    ///   Part of the row's natural key since Stage 2 — a month can hold a personal budget and one
+    ///   per group, and they are distinguished by nothing else.
+    func insertBudget(monthDate: Int, amount: Int, sharedGroupId: String? = nil) throws {
         guard isInitialized else {
             logWarning("Database not initialized, skipping budget insert")
             return
         }
 
         let uid = UIDUserDefaultsManager.shared.currentUserUID
-        let insertQuery = "INSERT INTO Budgets (month_date, amount, user_id, ck_modified_at, updated_at, created_by_uid) VALUES (?, ?, ?, ?, ?, ?);"
+        let insertQuery = "INSERT INTO Budgets (month_date, amount, user_id, ck_modified_at, updated_at, created_by_uid, shared_group_id) VALUES (?, ?, ?, ?, ?, ?, ?);"
         var statement: OpaquePointer?
 
         guard sqlite3_prepare_v2(db, insertQuery, -1, &statement, nil) == SQLITE_OK else {
@@ -191,6 +195,11 @@ class DBHelper {
             sqlite3_bind_text(statement, 6, uid, -1, SQLITE_TRANSIENT)
         } else {
             sqlite3_bind_null(statement, 6)
+        }
+        if let sharedGroupId = sharedGroupId, !sharedGroupId.isEmpty {
+            sqlite3_bind_text(statement, 7, sharedGroupId, -1, SQLITE_TRANSIENT)
+        } else {
+            sqlite3_bind_null(statement, 7)
         }
 
         guard sqlite3_step(statement) == SQLITE_DONE else {
@@ -2390,6 +2399,145 @@ class DBHelper {
             TransactionRepository.invalidateCache()
         }
         return changed
+    }
+
+    // MARK: - Stage 2: give budgets a scoped key
+
+    /// Atomic pre-migration snapshot.
+    ///
+    /// `VACUUM INTO` writes a single consistent file with the WAL already checkpointed in. A plain
+    /// file copy can capture the `.sqlite` without its `-wal` and silently lose the most recent
+    /// commits — not acceptable before a destructive table rebuild on real financial data.
+    @discardableResult
+    func snapshotDatabase(tag: String) -> URL? {
+        guard isInitialized else { return nil }
+        do {
+            let dir = try FileManager.default
+                .url(for: .documentDirectory, in: .userDomainMask, appropriateFor: nil, create: false)
+                .appendingPathComponent("Backups", isDirectory: true)
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            let url = dir.appendingPathComponent("AppFinance-\(tag)-\(Int(Date().timeIntervalSince1970)).sqlite")
+
+            var err: UnsafeMutablePointer<Int8>?
+            let escaped = url.path.replacingOccurrences(of: "'", with: "''")
+            guard sqlite3_exec(db, "VACUUM INTO '\(escaped)';", nil, nil, &err) == SQLITE_OK else {
+                let msg = err.map { String(cString: $0) } ?? "unknown"
+                sqlite3_free(err)
+                logError("[Migration] Snapshot failed: \(msg)")
+                return nil
+            }
+            var values = URLResourceValues()
+            values.isExcludedFromBackup = true   // disposable local recovery state
+            var mutable = url
+            try? mutable.setResourceValues(values)
+            logWarning("[Migration] Snapshot written: \(url.lastPathComponent)")
+            return url
+        } catch {
+            logError("[Migration] Snapshot failed: \(error)")
+            return nil
+        }
+    }
+
+    /// Replaces `Budgets`' global `month_date` primary key with a stable uuid, and scopes the
+    /// natural key by owner + group.
+    ///
+    /// `month_date INTEGER PRIMARY KEY` means a month can hold exactly ONE budget row, so a personal
+    /// budget and a group budget for the same month are physically the same record: the second
+    /// insert is rejected, and an inbound group budget can hijack the user's personal figure. In
+    /// CloudKit the name is `budget-<monthDate>`, identical across zones, while `ck_record_id` stores
+    /// no zone — so two distinct cloud records also collapse onto one local row.
+    ///
+    /// SQLite cannot alter a primary key, so this is a table rebuild. It is safe here because
+    /// `PRAGMA foreign_keys` is never enabled (see `openDatabase`), so the `REFERENCES Budgets(...)`
+    /// clause on Transactions is inert and nothing cascades. Row counts are asserted before the old
+    /// table is dropped, and a snapshot is taken first.
+    private func rebuildBudgetsTableV2() {
+        guard isInitialized, schemaUserVersion() < 2 else { return }
+
+        let before = fetchSingleInt("SELECT COUNT(*) FROM Budgets;") ?? -1
+        guard before >= 0 else {
+            logError("[Migration] Cannot count Budgets — aborting rebuild")
+            return
+        }
+        snapshotDatabase(tag: "pre-budgets-v2")
+
+        // A non-constant DEFAULT is legal in CREATE TABLE (unlike ADD COLUMN), which is what lets
+        // `uuid` be NOT NULL: the AFTER INSERT backstop trigger fires too late to satisfy a NOT NULL
+        // constraint, so the value has to exist at insert time.
+        let uuidDefault = """
+            upper(
+              hex(randomblob(4)) || '-' || hex(randomblob(2)) || '-4' ||
+              substr(hex(randomblob(2)), 2) || '-' ||
+              substr('89AB', abs(random()) % 4 + 1, 1) ||
+              substr(hex(randomblob(2)), 2) || '-' || hex(randomblob(6))
+            )
+            """
+
+        let steps = [
+            """
+            CREATE TABLE IF NOT EXISTS Budgets_new (
+                uuid             TEXT    PRIMARY KEY NOT NULL DEFAULT (\(uuidDefault)),
+                month_date       INTEGER NOT NULL,
+                amount           INTEGER NOT NULL,
+                user_id          TEXT,
+                shared_group_id  TEXT,
+                ck_record_id     TEXT,
+                ck_modified_at   INTEGER,
+                ck_system_fields BLOB,
+                sync_status      TEXT    DEFAULT 'pending',
+                is_deleted       INTEGER NOT NULL DEFAULT 0,
+                updated_at       INTEGER,
+                created_by_uid   TEXT,
+                rev              INTEGER NOT NULL DEFAULT 0,
+                rev_device       TEXT
+            );
+            """,
+            """
+            INSERT INTO Budgets_new
+              (uuid, month_date, amount, user_id, shared_group_id, ck_record_id, ck_modified_at,
+               ck_system_fields, sync_status, is_deleted, updated_at, created_by_uid, rev, rev_device)
+            SELECT uuid, month_date, amount, user_id, shared_group_id, ck_record_id, ck_modified_at,
+                   ck_system_fields, sync_status, COALESCE(is_deleted, 0), updated_at,
+                   created_by_uid, COALESCE(rev, 0), rev_device
+              FROM Budgets;
+            """,
+        ]
+        for sql in steps {
+            var err: UnsafeMutablePointer<Int8>?
+            guard sqlite3_exec(db, sql, nil, nil, &err) == SQLITE_OK else {
+                let msg = err.map { String(cString: $0) } ?? "unknown"
+                sqlite3_free(err)
+                logError("[Migration] Budgets rebuild failed: \(msg) — old table left intact")
+                sqlite3_exec(db, "DROP TABLE IF EXISTS Budgets_new;", nil, nil, nil)
+                return
+            }
+        }
+
+        let copied = fetchSingleInt("SELECT COUNT(*) FROM Budgets_new;") ?? -1
+        guard copied == before else {
+            logError("[Migration] Budgets rebuild lost rows (\(before) → \(copied)) — aborting, old table left intact")
+            sqlite3_exec(db, "DROP TABLE IF EXISTS Budgets_new;", nil, nil, nil)
+            return
+        }
+
+        sqlite3_exec(db, "DROP TABLE Budgets;", nil, nil, nil)
+        sqlite3_exec(db, "ALTER TABLE Budgets_new RENAME TO Budgets;", nil, nil, nil)
+
+        // The scoped natural key. COALESCE is required: SQLite treats NULLs as DISTINCT in a UNIQUE
+        // index, so a plain UNIQUE(user_id, shared_group_id, month_date) would permit unlimited
+        // duplicate personal budgets for the same month.
+        sqlite3_exec(db, """
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_budgets_scope_month
+                ON Budgets(COALESCE(user_id, ''), COALESCE(shared_group_id, ''), month_date);
+            """, nil, nil, nil)
+        sqlite3_exec(db, """
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_budgets_ck_record_id
+                ON Budgets(ck_record_id) WHERE ck_record_id IS NOT NULL;
+            """, nil, nil, nil)
+        sqlite3_exec(db, "CREATE INDEX IF NOT EXISTS idx_budgets_month ON Budgets(month_date);", nil, nil, nil)
+
+        setSchemaUserVersion(2)
+        logWarning("[Migration] Budgets rebuilt with uuid primary key and scoped natural key — \(copied) row(s) preserved")
     }
 
     /// A row's stable identity and its uuid-valued foreign keys, for building a push record.

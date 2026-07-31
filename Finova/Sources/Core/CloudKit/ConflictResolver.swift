@@ -313,14 +313,18 @@ final class ConflictResolver {
     func resolveBudget(remote: BudgetModel, ckRecord: CKRecord) {
         let repo = BudgetRepository(db: db)
         let recordName = ckRecord.recordID.recordName
+        // Which budget this record IS. Since Stage 2 a month can hold a personal budget and one per
+        // group, so every lookup below must be scoped — matching on month alone let an inbound
+        // GROUP budget claim the user's PERSONAL row for that month and overwrite their figure.
+        let scope = (ckRecord["sharedGroupId"] as? String) ?? remote.sharedGroupId
 
         if let existing = repo.fetchBudget(byCKRecordName: recordName) {
             let remoteUpdatedAt = remote.updatedAt ?? ckRecord.modificationDate ?? Date.distantPast
-            if let localModDate = repo.lastModifiedDate(forMonthDate: existing.monthDate) {
+            if let localModDate = repo.lastModifiedDate(forMonthDate: existing.monthDate, sharedGroupId: scope) {
                 if remoteShouldWin(ckRecord: ckRecord, remoteUpdatedAt: remoteUpdatedAt, localModDate: localModDate) {
                     repo.updateFromCloud(remote, ckRecordName: recordName)
                 } else {
-                    repo.markSyncPending(forMonthDate: existing.monthDate)
+                    repo.markSyncPending(forMonthDate: existing.monthDate, sharedGroupId: scope)
                 }
             } else {
                 repo.updateFromCloud(remote, ckRecordName: recordName)
@@ -329,15 +333,18 @@ final class ConflictResolver {
             return
         }
 
-        if let local = repo.fetchBudget(byMonthDate: remote.monthDate) {
-            repo.setCKRecordId(forMonthDate: remote.monthDate, ckRecordName: recordName)
+        // Natural-key match, scoped. An unscoped match here was the hijack: a group budget for a
+        // month the user already had personally would adopt that row's identity via setCKRecordId
+        // and then overwrite it.
+        if let local = repo.fetchBudget(byMonthDate: remote.monthDate, sharedGroupId: scope) {
+            repo.setCKRecordId(forMonthDate: remote.monthDate, sharedGroupId: scope, ckRecordName: recordName)
 
             let remoteUpdatedAt = remote.updatedAt ?? ckRecord.modificationDate ?? Date.distantPast
-            if let localModDate = repo.lastModifiedDate(forMonthDate: local.monthDate) {
+            if let localModDate = repo.lastModifiedDate(forMonthDate: local.monthDate, sharedGroupId: scope) {
                 if remoteShouldWin(ckRecord: ckRecord, remoteUpdatedAt: remoteUpdatedAt, localModDate: localModDate) {
                     repo.updateFromCloud(remote, ckRecordName: recordName)
                 } else {
-                    repo.markSyncPending(forMonthDate: local.monthDate)
+                    repo.markSyncPending(forMonthDate: local.monthDate, sharedGroupId: scope)
                 }
             } else {
                 repo.updateFromCloud(remote, ckRecordName: recordName)

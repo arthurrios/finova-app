@@ -14,15 +14,16 @@ final class BudgetRepository: BudgetRepositoryProtocol {
   init(db: DBHelper = .shared) { self.db = db }
 
   func insert(budget: BudgetModel) throws {
-    try db.insertBudget(monthDate: budget.monthDate, amount: budget.amount)
-    db.executeSyncUpdate(
-      "UPDATE Budgets SET sync_status = 'pending' WHERE month_date = ?;",
-      intBindings: [budget.monthDate]
-    )
-    if MirrorModeManager.shared.isEnabled,
-       let groupId = MirrorModeManager.shared.linkedGroupId {
-      updateSharedGroupId(monthDate: budget.monthDate, groupId: groupId)
-    }
+    // The model's own scope is honoured. Previously it was DISCARDED — `insert` wrote the row and
+    // then only ever set `shared_group_id` from mirror mode, so a budget explicitly created for a
+    // group silently landed as a personal one. That was invisible while `month_date` was a global
+    // primary key (there could only be one row per month anyway); now that a month can hold a
+    // personal budget and one per group, dropping the scope collapses them onto the same row.
+    let scope = budget.sharedGroupId
+      ?? (MirrorModeManager.shared.isEnabled ? MirrorModeManager.shared.linkedGroupId : nil)
+
+    try db.insertBudget(monthDate: budget.monthDate, amount: budget.amount, sharedGroupId: scope)
+    markSyncPending(forMonthDate: budget.monthDate, sharedGroupId: scope)
     NotificationCenter.default.post(name: .budgetDataChanged, object: nil)
   }
 
@@ -268,11 +269,55 @@ final class BudgetRepository: BudgetRepositoryProtocol {
     )
   }
 
-  func setCKRecordId(forMonthDate monthDate: Int, ckRecordName: String) {
-    db.executeSyncUpdate(
-      "UPDATE Budgets SET ck_record_id = ? WHERE month_date = ? AND ck_record_id IS NULL;",
-      textBindings: [ckRecordName],
-      intBindings: [monthDate]
+  /// - Parameter sharedGroupId: which budget for that month — `nil` means the personal one.
+  ///
+  /// Since Stage 2 a month can hold several budgets (one personal, one per group), so every
+  /// identity-critical write must say WHICH. Without the scope this tagged an arbitrary row with
+  /// another scope's CloudKit identity.
+  func setCKRecordId(forMonthDate monthDate: Int, sharedGroupId: String? = nil, ckRecordName: String) {
+    // orderedBindings, not textBindings/intBindings: those bind ALL text before ALL ints, which
+    // would scramble a query whose placeholders interleave the two types.
+    db.executeGroupWrite(
+      """
+      UPDATE Budgets SET ck_record_id = ?
+       WHERE month_date = ? AND ck_record_id IS NULL
+         AND COALESCE(shared_group_id, '') = ?;
+      """,
+      orderedBindings: [ckRecordName, monthDate, sharedGroupId ?? ""]
+    )
+  }
+
+  /// The budget for a month in a specific scope. `nil` group means the personal budget.
+  func fetchBudget(byMonthDate monthDate: Int, sharedGroupId: String?) -> BudgetModel? {
+    guard let amount = db.fetchSingleInt(
+      """
+      SELECT amount FROM Budgets
+       WHERE month_date = ? AND COALESCE(shared_group_id, '') = ?
+         AND (is_deleted IS NULL OR is_deleted = 0);
+      """,
+      orderedBindings: [monthDate, sharedGroupId ?? ""]
+    ) else { return nil }
+    return BudgetModel(monthDate: monthDate, amount: amount, sharedGroupId: sharedGroupId)
+  }
+
+  /// Scoped counterpart of `lastModifiedDate(forMonthDate:)`, so conflict resolution compares the
+  /// timestamp of the budget actually being resolved rather than whichever row the month matched.
+  func lastModifiedDate(forMonthDate monthDate: Int, sharedGroupId: String?) -> Date? {
+    guard let ts = db.fetchSingleInt(
+      "SELECT updated_at FROM Budgets WHERE month_date = ? AND COALESCE(shared_group_id, '') = ?;",
+      orderedBindings: [monthDate, sharedGroupId ?? ""]
+    ), ts > 0 else { return nil }
+    return Date(timeIntervalSince1970: TimeInterval(ts))
+  }
+
+  /// Scoped counterpart of `markSyncPending(forMonthDate:)`.
+  func markSyncPending(forMonthDate monthDate: Int, sharedGroupId: String?) {
+    db.executeGroupWrite(
+      """
+      UPDATE Budgets SET sync_status = 'pending', ck_modified_at = ?
+       WHERE month_date = ? AND COALESCE(shared_group_id, '') = ?;
+      """,
+      orderedBindings: [Int(Date().timeIntervalSince1970), monthDate, sharedGroupId ?? ""]
     )
   }
 }

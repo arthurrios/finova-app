@@ -274,6 +274,10 @@ final class ConvergenceTests: XCTestCase {
         deviceB.activate()
         deviceB.pullTransactions()
         deviceB.pullCards()
+        // Production runs this at the end of every pull batch (SyncEngine.processBufferedRecords).
+        // Calling the two pull methods directly bypasses it, so the test has to do it explicitly —
+        // resolution is deliberately a batch-end pass, which is what makes arrival order irrelevant.
+        deviceB.db.resolveUuidForeignKeys()
 
         guard let txOnB = deviceB.transactionRepo.fetchAllTransactions()
             .first(where: { $0.title == "OutOfOrder" })
