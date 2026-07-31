@@ -38,6 +38,8 @@ final class MockCloudKitOperations: CloudKitOperationsProvider {
     private(set) var lastSavedRecords: [CKRecord] = []
     private(set) var lastDeletedRecordIDs: [CKRecord.ID] = []
     private(set) var lastSavePolicy: CKModifyRecordsOperation.RecordSavePolicy?
+    private(set) var fetchAllZonesCallCount = 0
+    private(set) var queryRecordsCallCount = 0
 
     init(mockCloud: MockCloudStore) {
         self.mockCloud = mockCloud
@@ -85,6 +87,54 @@ final class MockCloudKitOperations: CloudKitOperationsProvider {
         }
 
         completion(.success(nil))
+    }
+
+    /// The shared database has nothing in it unless a test says otherwise, and — critically — it
+    /// CALLS BACK. The real implementation was issued straight against
+    /// `CloudKitManager.shared.sharedDatabase`, which on a simulator with no iCloud account never
+    /// completes, so `executeSyncCycle` hung with `isSyncing = true` and every test timed out.
+    func fetchDatabaseChanges(
+        database: CKDatabase.Scope,
+        token: CKServerChangeToken?,
+        changedZoneHandler: @escaping (CKRecordZone.ID) -> Void,
+        completion: @escaping (Result<CKServerChangeToken?, Error>) -> Void
+    ) {
+        guard database == .private else {
+            completion(.success(nil))
+            return
+        }
+        fetchDatabaseChanges(
+            token: token, changedZoneHandler: changedZoneHandler, completion: completion)
+    }
+
+    /// Zones the mock cloud actually holds records in. Group discovery walks this, and it is on the
+    /// sync cycle's critical path.
+    func fetchAllZones(
+        database: CKDatabase.Scope,
+        completion: @escaping (Result<[CKRecordZone.ID], Error>) -> Void
+    ) {
+        fetchAllZonesCallCount += 1
+        guard database == .private else {
+            completion(.success([]))
+            return
+        }
+        var zoneIDs = Set([CloudKitManager.privateZoneID, MockCloudStore.zoneID])
+        for record in mockCloud.fetchAll() { zoneIDs.insert(record.recordID.zoneID) }
+        completion(.success(Array(zoneIDs)))
+    }
+
+    func queryRecords(
+        recordType: String,
+        zoneID: CKRecordZone.ID,
+        database: CKDatabase.Scope,
+        recordHandler: @escaping (CKRecord) -> Void,
+        completion: @escaping (Result<Void, Error>) -> Void
+    ) {
+        queryRecordsCallCount += 1
+        for record in mockCloud.fetchAll(inZone: zoneID) where record.recordType == recordType {
+            recordHandler(record)
+        }
+        completion(.success(()))
     }
 
     func fetchZoneChanges(

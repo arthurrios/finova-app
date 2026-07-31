@@ -205,6 +205,18 @@ final class SyncEngineTests: XCTestCase {
     }
 
     func testPush_SharedGroupIdIncluded() {
+        // The group must exist locally WITH a resolved zone owner. `canResolveDestination` defers the
+        // push otherwise — deliberately, because a group-tagged record whose zone cannot be resolved
+        // would otherwise be guessed into the wrong zone (or the wrong database) and resurrect there.
+        let groupRepo = BudgetGroupRepository()
+        groupRepo.insertGroup(
+            BudgetGroup(
+                id: "group-abc-123", name: "Test Group", ownerId: "owner-uid",
+                ownerName: "Owner", ownerEmail: "owner@test.com"
+            )
+        )
+        groupRepo.updateZoneOwner(groupId: "group-abc-123", zoneOwner: "_ownerRecordName")
+
         let model = CloudKitSyncTestHelpers.makeTransactionModel(title: "Group TX", amount: 5000)
         let txId = try! txRepo.insertTransactionAndGetId(model)
 
@@ -223,6 +235,24 @@ final class SyncEngineTests: XCTestCase {
         XCTAssertEqual(savedRecord?["sharedGroupId"] as? String, "group-abc-123")
     }
 
+    /// KNOWN FAILING — the last one in this class, and a genuine question, not a stale expectation.
+    ///
+    /// Symptom: after the FIRST `performSyncAndWait()`, `fetchAllTransactions()` returns empty, so the
+    /// test cannot find the row it just inserted and synced ("No transaction to delete" at the guard
+    /// below). The row is inserted personal, so the Stage 3f scoping of personal reads
+    /// (`shared_group_id IS NULL`) should not exclude it.
+    ///
+    /// Two candidates, in order:
+    ///   1. The pull phase now runs where it previously never did (this class used to bail on the
+    ///      auth guard), and something in it removes or re-scopes the row — the orphan cleanup that
+    ///      follows a full refetch is the prime suspect, since the recovery fallback makes this a
+    ///      nil-token full fetch.
+    ///   2. `TransactionRepository`'s static cache: this test does not invalidate it between the
+    ///      sync and the read.
+    ///
+    /// Worth resolving before trusting this class completely: if it is (1), it is a real defect in a
+    /// path no test could previously reach, which is exactly the kind of thing this work exists to
+    /// surface. Do NOT "fix" it by relaxing the assertion until (1) is ruled out.
     func testPush_DeletesSentAfterSaves() {
         // Insert and sync a transaction first
         let model = CloudKitSyncTestHelpers.makeTransactionModel(title: "To Delete", amount: 3000)
@@ -401,12 +431,23 @@ final class SyncEngineTests: XCTestCase {
         XCTAssertEqual(mockOps.setupSubscriptionsCallCount, 3, "Same engine should set up subscriptions only once across multiple syncs")
     }
 
-    func testNoChangesInCloud_SkipsZoneFetch() {
+    /// With NO stored change token, an empty "no changed zones" answer is ambiguous: it means either
+    /// "nothing changed" or "this device has never synced". `fetchPrivateDatabaseChanges` therefore
+    /// enumerates the private zones and fetches them anyway — the recovery fallback that exists
+    /// because skipping left owned group zones unfetched and the group rendering empty until some
+    /// later cycle happened to report them.
+    ///
+    /// This test previously asserted zero zone fetches. That expectation predates the fallback and
+    /// was never observed failing, because the whole class returned early on the auth guard.
+    func testNoChangesInCloud_WithNoToken_StillFetchesForRecovery() {
         // Empty cloud — no records, no deletions
         performSyncAndWait()
 
         XCTAssertEqual(mockOps.fetchDatabaseChangesCallCount, 1, "Should still check for database changes")
-        XCTAssertEqual(mockOps.fetchZoneChangesCallCount, 0, "Should skip zone fetch when no changes reported")
+        XCTAssertEqual(
+            mockOps.fetchZoneChangesCallCount, 1,
+            "A device with no change token must fetch its zones rather than trust an empty changed-zone list"
+        )
     }
 
     func testPull_ThenPush_FullRoundtrip() {

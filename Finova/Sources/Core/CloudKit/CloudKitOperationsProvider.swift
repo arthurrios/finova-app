@@ -20,6 +20,32 @@ protocol CloudKitOperationsProvider {
         completion: @escaping (Result<CKServerChangeToken?, Error>) -> Void
     )
 
+    /// Database-level changes for either scope. The shared database's variant was previously issued
+    /// straight against `CloudKitManager.shared.sharedDatabase`, which is why the sync cycle could
+    /// never complete under test: the operation simply never called back.
+    func fetchDatabaseChanges(
+        database: CKDatabase.Scope,
+        token: CKServerChangeToken?,
+        changedZoneHandler: @escaping (CKRecordZone.ID) -> Void,
+        completion: @escaping (Result<CKServerChangeToken?, Error>) -> Void
+    )
+
+    /// Every zone in a database. Used by group discovery, which is on the sync cycle's critical
+    /// path — so it has to be mockable or the cycle hangs waiting for it.
+    func fetchAllZones(
+        database: CKDatabase.Scope,
+        completion: @escaping (Result<[CKRecordZone.ID], Error>) -> Void
+    )
+
+    /// All records of one type in one zone. Used by member discovery and group-record backfill.
+    func queryRecords(
+        recordType: String,
+        zoneID: CKRecordZone.ID,
+        database: CKDatabase.Scope,
+        recordHandler: @escaping (CKRecord) -> Void,
+        completion: @escaping (Result<Void, Error>) -> Void
+    )
+
     func fetchZoneChanges(
         zoneIDs: [CKRecordZone.ID],
         database: CKDatabase.Scope,
@@ -107,6 +133,73 @@ final class RealCloudKitOperations: CloudKitOperationsProvider {
         operation.qualityOfService = .userInitiated
         Self.applyTimeouts(to: operation)
         cloudKit.privateDatabase.add(operation)
+    }
+
+    private func database(_ scope: CKDatabase.Scope) -> CKDatabase {
+        scope == .shared ? cloudKit.sharedDatabase : cloudKit.privateDatabase
+    }
+
+    func fetchDatabaseChanges(
+        database scope: CKDatabase.Scope,
+        token: CKServerChangeToken?,
+        changedZoneHandler: @escaping (CKRecordZone.ID) -> Void,
+        completion: @escaping (Result<CKServerChangeToken?, Error>) -> Void
+    ) {
+        let operation = CKFetchDatabaseChangesOperation(previousServerChangeToken: token)
+        operation.recordZoneWithIDChangedBlock = { changedZoneHandler($0) }
+        operation.fetchDatabaseChangesResultBlock = { result in
+            switch result {
+            case .success(let (newToken, _)): completion(.success(newToken))
+            case .failure(let error): completion(.failure(error))
+            }
+        }
+        operation.qualityOfService = .userInitiated
+        Self.applyTimeouts(to: operation)
+        database(scope).add(operation)
+    }
+
+    func fetchAllZones(
+        database scope: CKDatabase.Scope,
+        completion: @escaping (Result<[CKRecordZone.ID], Error>) -> Void
+    ) {
+        let operation = CKFetchRecordZonesOperation.fetchAllRecordZonesOperation()
+        var zoneIDs: [CKRecordZone.ID] = []
+        operation.perRecordZoneResultBlock = { zoneID, result in
+            if case .success = result { zoneIDs.append(zoneID) }
+        }
+        operation.fetchRecordZonesResultBlock = { result in
+            switch result {
+            case .success: completion(.success(zoneIDs))
+            case .failure(let error): completion(.failure(error))
+            }
+        }
+        operation.qualityOfService = .userInitiated
+        Self.applyTimeouts(to: operation)
+        database(scope).add(operation)
+    }
+
+    func queryRecords(
+        recordType: String,
+        zoneID: CKRecordZone.ID,
+        database scope: CKDatabase.Scope,
+        recordHandler: @escaping (CKRecord) -> Void,
+        completion: @escaping (Result<Void, Error>) -> Void
+    ) {
+        let query = CKQuery(recordType: recordType, predicate: NSPredicate(value: true))
+        let operation = CKQueryOperation(query: query)
+        operation.zoneID = zoneID
+        operation.recordMatchedBlock = { _, result in
+            if case .success(let record) = result { recordHandler(record) }
+        }
+        operation.queryResultBlock = { result in
+            switch result {
+            case .success: completion(.success(()))
+            case .failure(let error): completion(.failure(error))
+            }
+        }
+        operation.qualityOfService = .userInitiated
+        Self.applyTimeouts(to: operation)
+        database(scope).add(operation)
     }
 
     func fetchZoneChanges(

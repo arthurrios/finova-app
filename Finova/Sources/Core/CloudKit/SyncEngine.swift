@@ -1402,20 +1402,17 @@ final class SyncEngine {
                         if token == nil {
                             logWarning("[Sync] No changed zones with nil token — enumerating all private zones (incl. owned group zones) for recovery")
                             var recoveryZoneIDs: [CKRecordZone.ID] = [CloudKitManager.privateZoneID]
-                            let fallbackOp = CKFetchRecordZonesOperation.fetchAllRecordZonesOperation()
-                            fallbackOp.perRecordZoneResultBlock = { zoneID, result in
-                                if case .success = result,
-                                   zoneID.zoneName.hasPrefix("Group-"),
-                                   !recoveryZoneIDs.contains(where: { $0.zoneName == zoneID.zoneName }) {
-                                    recoveryZoneIDs.append(zoneID)
-                                    logWarning("[Sync] Fallback discovered private group zone: \(zoneID.zoneName)")
+                            self?.cloudKitOps.fetchAllZones(database: .private) { [weak self] zonesResult in
+                                if case .success(let zoneIDs) = zonesResult {
+                                    for zoneID in zoneIDs
+                                    where zoneID.zoneName.hasPrefix("Group-")
+                                        && !recoveryZoneIDs.contains(where: { $0.zoneName == zoneID.zoneName }) {
+                                        recoveryZoneIDs.append(zoneID)
+                                        logWarning("[Sync] Fallback discovered private group zone: \(zoneID.zoneName)")
+                                    }
                                 }
-                            }
-                            fallbackOp.fetchRecordZonesResultBlock = { [weak self] _ in
                                 self?.fetchZoneChanges(zoneIDs: recoveryZoneIDs, database: .private, completion: completion)
                             }
-                            fallbackOp.qualityOfService = .userInitiated
-                            CloudKitManager.shared.privateDatabase.add(fallbackOp)
                         } else {
                             logWarning("[Sync] No changed zones — skipping zone fetch")
                             completion(.success(()))
@@ -1444,15 +1441,13 @@ final class SyncEngine {
         logWarning("[Sync] Fetching shared database changes (hasToken=\(token != nil))")
         var changedZoneIDs: [CKRecordZone.ID] = []
 
-        let operation = CKFetchDatabaseChangesOperation(previousServerChangeToken: token)
-
-        operation.recordZoneWithIDChangedBlock = { zoneID in
-            changedZoneIDs.append(zoneID)
-        }
-
-        operation.fetchDatabaseChangesResultBlock = { [weak self] result in
+        cloudKitOps.fetchDatabaseChanges(
+            database: .shared,
+            token: token,
+            changedZoneHandler: { changedZoneIDs.append($0) }
+        ) { [weak self] result in
             switch result {
-            case .success(let (newToken, _)):
+            case .success(let newToken):
                 let zoneNames = changedZoneIDs.map { $0.zoneName }
                 logWarning("[Sync] Shared DB changes fetched — \(changedZoneIDs.count) changed zone(s): \(zoneNames)")
                 self?.stateManager.saveChangeToken(newToken, for: "sharedDB", database: "shared")
@@ -1486,15 +1481,16 @@ final class SyncEngine {
                     if shouldEnumerateAll {
                         self?.needsFullSharedDBDiscovery = false
                         logWarning("[Sync] No changed shared zones — enumerating all shared zones as fallback")
-                        let fallbackOp = CKFetchRecordZonesOperation.fetchAllRecordZonesOperation()
-                        fallbackOp.perRecordZoneResultBlock = { zoneID, result in
-                            if case .success = result, zoneID.zoneName.hasPrefix("Group-") {
-                                changedZoneIDs.append(zoneID)
-                                BudgetGroupRepository().updateZoneOwner(groupId: String(zoneID.zoneName.dropFirst("Group-".count)), zoneOwner: zoneID.ownerName)
-                                logWarning("[Sync] Fallback discovered shared zone: \(zoneID.zoneName) (owner: \(zoneID.ownerName))")
+                        self?.cloudKitOps.fetchAllZones(database: .shared) { [weak self] zonesResult in
+                            if case .success(let zoneIDs) = zonesResult {
+                                for zoneID in zoneIDs where zoneID.zoneName.hasPrefix("Group-") {
+                                    changedZoneIDs.append(zoneID)
+                                    BudgetGroupRepository().updateZoneOwner(
+                                        groupId: String(zoneID.zoneName.dropFirst("Group-".count)),
+                                        zoneOwner: zoneID.ownerName)
+                                    logWarning("[Sync] Fallback discovered shared zone: \(zoneID.zoneName) (owner: \(zoneID.ownerName))")
+                                }
                             }
-                        }
-                        fallbackOp.fetchRecordZonesResultBlock = { [weak self] _ in
                             if changedZoneIDs.isEmpty {
                                 logWarning("[Sync] Fallback shared zone enumeration found 0 zones")
                                 completion()
@@ -1504,8 +1500,6 @@ final class SyncEngine {
                                 }
                             }
                         }
-                        fallbackOp.qualityOfService = .userInitiated
-                        CloudKitManager.shared.sharedDatabase.add(fallbackOp)
                         return
                     }
                     logWarning("[Sync] No changed shared zones — skipping")
@@ -1526,9 +1520,6 @@ final class SyncEngine {
                 }
             }
         }
-
-        operation.qualityOfService = .userInitiated
-        CloudKitManager.shared.sharedDatabase.add(operation)
     }
 
     private func fetchZoneChanges(
@@ -3415,17 +3406,16 @@ final class SyncEngine {
             logWarning("[GROUPDIAG] localGroup name='\(g.name)' id=\(g.id) owner=\(g.ownerId) isOwner=\(g.isOwner) isDeleted=\(g.isDeleted) ckRecord=\(g.ckRecordId ?? "nil") ckZoneOwner=\(g.ckZoneOwner ?? "nil") ckShare=\(g.ckShareUrl ?? "nil")")
         }
 
-        let operation = CKFetchRecordZonesOperation.fetchAllRecordZonesOperation()
         var newGroupZoneIDs: [CKRecordZone.ID] = []
         var unfetchedZoneIDs: [CKRecordZone.ID] = []
 
         var allZoneNames: [String] = []
 
-        operation.perRecordZoneResultBlock = { [weak self] zoneID, result in
-            switch result {
-            case .success:
-                allZoneNames.append(zoneID.zoneName)
-                if zoneID.zoneName.hasPrefix("Group-") {
+        cloudKitOps.fetchAllZones(database: .private) { [weak self] result in
+            if case .success(let zoneIDs) = result {
+                for zoneID in zoneIDs {
+                    allZoneNames.append(zoneID.zoneName)
+                    guard zoneID.zoneName.hasPrefix("Group-") else { continue }
                     let groupId = String(zoneID.zoneName.dropFirst("Group-".count))
                     if !allLocalGroupIds.contains(groupId) {
                         newGroupZoneIDs.append(zoneID)
@@ -3436,12 +3426,7 @@ final class SyncEngine {
                         logWarning("[Sync] Group zone exists but never fetched: \(zoneID.zoneName)")
                     }
                 }
-            case .failure(let error):
-                logError("[Sync] Failed to fetch zone \(zoneID.zoneName): \(error.localizedDescription)")
             }
-        }
-
-        operation.fetchRecordZonesResultBlock = { [weak self] result in
             switch result {
             case .success:
                 logWarning("[GROUPDIAG] cloud private zones: \(allZoneNames)")
@@ -3545,9 +3530,6 @@ final class SyncEngine {
                 )
             }
         }
-
-        operation.qualityOfService = .userInitiated
-        CloudKitManager.shared.privateDatabase.add(operation)
     }
 
     /// Discovers group zones in the shared database (zones shared by other iCloud accounts).
@@ -3555,16 +3537,15 @@ final class SyncEngine {
         existingGroupIds: Set<String>,
         completion: @escaping () -> Void
     ) {
-        let operation = CKFetchRecordZonesOperation.fetchAllRecordZonesOperation()
         var sharedGroupZoneIDs: [CKRecordZone.ID] = []
         var sharedUnfetchedZoneIDs: [CKRecordZone.ID] = []
         var foundSharedGroupIds: Set<String> = []
 
-        operation.perRecordZoneResultBlock = { [weak self] zoneID, result in
-            switch result {
-            case .success:
-                logWarning("[Sync] Shared DB zone found: \(zoneID.zoneName) (owner: \(zoneID.ownerName))")
-                if zoneID.zoneName.hasPrefix("Group-") {
+        cloudKitOps.fetchAllZones(database: .shared) { [weak self] result in
+            if case .success(let zoneIDs) = result {
+                for zoneID in zoneIDs {
+                    logWarning("[Sync] Shared DB zone found: \(zoneID.zoneName) (owner: \(zoneID.ownerName))")
+                    guard zoneID.zoneName.hasPrefix("Group-") else { continue }
                     let groupId = String(zoneID.zoneName.dropFirst("Group-".count))
                     foundSharedGroupIds.insert(groupId)
                     // Backfill: store zone owner name for existing groups that don't have it yet
@@ -3577,12 +3558,7 @@ final class SyncEngine {
                         logWarning("[Sync] Shared group zone exists but never fetched: \(zoneID.zoneName)")
                     }
                 }
-            case .failure(let error):
-                logError("[Sync] Failed to fetch shared zone \(zoneID.zoneName): \(error.localizedDescription)")
             }
-        }
-
-        operation.fetchRecordZonesResultBlock = { [weak self] result in
             switch result {
             case .success:
                 // Check for member groups with accepted share but no data (empty group),
@@ -3650,9 +3626,6 @@ final class SyncEngine {
                 }
             }
         }
-
-        operation.qualityOfService = .userInitiated
-        CloudKitManager.shared.sharedDatabase.add(operation)
     }
 
     /// Queries owned group zones directly for GroupMember records, catching member writes that the
@@ -3676,28 +3649,19 @@ final class SyncEngine {
             dispatchGroup.enter()
 
             let zoneID = CKRecordZone.ID(zoneName: "Group-\(group.id)", ownerName: CKCurrentUserDefaultName)
-            let predicate = NSPredicate(value: true)
-            let query = CKQuery(recordType: "GroupMember", predicate: predicate)
-            let operation = CKQueryOperation(query: query)
-            operation.zoneID = zoneID
-
-            operation.recordMatchedBlock = { [weak self] _, result in
-                if case .success(let record) = result {
-                    self?.processIncomingGroupMember(record)
-                }
-            }
-
-            operation.queryResultBlock = { result in
+            // Private DB: `zoneID` above is the owner's own zone (ownerName == CKCurrentUserDefaultName),
+            // and own zones are never reachable through the shared database.
+            cloudKitOps.queryRecords(
+                recordType: "GroupMember",
+                zoneID: zoneID,
+                database: .private,
+                recordHandler: { [weak self] record in self?.processIncomingGroupMember(record) }
+            ) { result in
                 if case .failure(let error) = result {
                     logWarning("[Sync] Owned-zone member query failed for group \(group.id): \(error.localizedDescription)")
                 }
                 dispatchGroup.leave()
             }
-
-            operation.qualityOfService = .utility
-            // Private DB: `zoneID` above is the owner's own zone (ownerName == CKCurrentUserDefaultName),
-            // and own zones are never reachable through the shared database.
-            CloudKitManager.shared.privateDatabase.add(operation)
         }
 
         dispatchGroup.notify(queue: .global(qos: .utility)) {
