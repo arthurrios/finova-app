@@ -921,10 +921,21 @@ final class TransactionRepository: TransactionRepositoryProtocol {
     // consolidated installment/recurring month buckets).
     let doomed = fetchTransaction(byCKRecordName: recordName)
 
-    // RECREATION-WINS guard (fixes "stale delete beats newer local edit"): if the local row has
-    // unpushed local edits (sync_status = 'pending'), do NOT apply the remote delete — the local
-    // change is newer and will re-push, so the record is preserved. 'pendingDelete' still deletes
-    // (we agreed to delete it too); 'synced' deletes normally.
+    // RECREATION-WINS — the delete-vs-edit policy, applied identically in all five repositories.
+    //
+    // If the local row has unpushed edits (sync_status = 'pending'), do NOT apply the remote delete:
+    // the local change re-pushes and the record comes back. 'pendingDelete' still deletes (we agreed
+    // to delete it too); 'synced' deletes normally.
+    //
+    // Why this is not ordered by `rev` like every other conflict: a CloudKit deletion carries no
+    // record. `recordDeletedBlock` hands over a record ID and nothing else, so there is no version to
+    // compare an edit against. Ordering the two would require tombstones on the wire — `isDeleted`
+    // pushed as a field update instead of a delete — which only CreditCard currently has.
+    //
+    // So the choice is made under genuine ambiguity, on which failure is recoverable: a resurrected
+    // row is visible and the user can delete it again, whereas a swallowed edit is money that
+    // silently is not there. DeleteVsEditTests pins the behaviour AND that it converges — a rule that
+    // kept the row on one device and dropped it on the other would be worse than either answer.
     if let localId = doomed?.id,
        db.fetchSingleString("SELECT sync_status FROM Transactions WHERE id = ?;", intBinding: localId) == "pending" {
       logWarning("[Sync] Skipping inbound delete of transaction \(localId) — unpushed local edit exists (recreation wins)")
