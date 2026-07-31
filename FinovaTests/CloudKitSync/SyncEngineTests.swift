@@ -12,6 +12,8 @@ import XCTest
 
 final class SyncEngineTests: XCTestCase {
     private var userUID: String!
+    private var db: DBHelper!
+    private var dbPath: URL!
     private var mockCloud: MockCloudStore!
     private var mockOps: MockCloudKitOperations!
     private var mockPostSync: MockPostSyncActions!
@@ -48,26 +50,37 @@ final class SyncEngineTests: XCTestCase {
         // (or a second provider alongside it). Until then this class still reports false failures.
         // ConvergenceTests and the other CloudKitSync suites carry the real signal.
 
+        // Its OWN database file, like every other suite in CloudKitSync since Stage 0. This class was
+        // the last one on `db`, and because that file survives across test RUNS the
+        // `pendingDelete` tombstones one run left behind were pushed by the next — which hard-deleted
+        // rows out from under whichever test was running.
+        dbPath = FileManager.default.temporaryDirectory
+            .appendingPathComponent("FinovaSyncEngine-\(UUID().uuidString).sqlite")
+        db = DBHelper(path: dbPath)
+
         mockCloud = MockCloudStore()
         mockOps = MockCloudKitOperations(mockCloud: mockCloud)
         mockPostSync = MockPostSyncActions()
         syncEngine = SyncEngine(
             cloudKitOps: mockOps, postSyncActions: mockPostSync,
-            authProvider: StubAuthProvider(currentUserId: userUID)
+            authProvider: StubAuthProvider(currentUserId: userUID),
+            db: db
         )
-        txRepo = TransactionRepository()
-        budgetRepo = BudgetRepository()
+        txRepo = TransactionRepository(db: db)
+        budgetRepo = BudgetRepository(db: db)
     }
 
     override func tearDown() {
-        txRepo.clearAllTransactionsForTesting()
         TransactionRepository.invalidateCache()
-        for budget in budgetRepo.fetchBudgets() {
-            try? budgetRepo.delete(monthDate: budget.monthDate)
-        }
         mockCloud.reset()
         SyncStateManager.shared.resetAllTokens()
         UIDUserDefaultsManager.shared.signOut()
+        // Deleting the file beats clearing tables: the previous teardown SOFT-deleted budgets
+        // (`is_deleted = 1, sync_status = 'pendingDelete'`), so every run left tombstones for the
+        // next one to push.
+        for suffix in ["", "-wal", "-shm"] {
+            try? FileManager.default.removeItem(at: URL(fileURLWithPath: dbPath.path + suffix))
+        }
         super.tearDown()
     }
 
@@ -200,7 +213,7 @@ final class SyncEngineTests: XCTestCase {
         performSyncAndWait()
 
         TransactionRepository.invalidateCache()
-        let pendingAfter = TransactionRepository().fetchPendingSync()
+        let pendingAfter = TransactionRepository(db: db).fetchPendingSync()
         XCTAssertEqual(pendingAfter.count, 0, "Should have 0 pending after sync")
     }
 
@@ -208,7 +221,7 @@ final class SyncEngineTests: XCTestCase {
         // The group must exist locally WITH a resolved zone owner. `canResolveDestination` defers the
         // push otherwise — deliberately, because a group-tagged record whose zone cannot be resolved
         // would otherwise be guessed into the wrong zone (or the wrong database) and resurrect there.
-        let groupRepo = BudgetGroupRepository()
+        let groupRepo = BudgetGroupRepository(db: db)
         groupRepo.insertGroup(
             BudgetGroup(
                 id: "group-abc-123", name: "Test Group", ownerId: "owner-uid",
@@ -221,7 +234,7 @@ final class SyncEngineTests: XCTestCase {
         let txId = try! txRepo.insertTransactionAndGetId(model)
 
         // Set shared group ID on the transaction
-        DBHelper.shared.executeSyncUpdate(
+        db.executeSyncUpdate(
             "UPDATE Transactions SET shared_group_id = 'group-abc-123', sync_status = 'pending' WHERE id = ?;",
             intBindings: [txId]
         )
@@ -235,29 +248,19 @@ final class SyncEngineTests: XCTestCase {
         XCTAssertEqual(savedRecord?["sharedGroupId"] as? String, "group-abc-123")
     }
 
-    /// KNOWN FAILING, and the cause is test pollution rather than a production defect — but note the
-    /// diagnosis below took two wrong turns, so treat it as established only where it says so.
+    /// Was the last failure in this class, and worth chasing rather than relaxing — the plausible
+    /// alternative was that the pull phase's post-full-refetch orphan cleanup deleted the row, which
+    /// would have been a real defect in a path no test could reach before authentication and CloudKit
+    /// discovery became injectable.
     ///
-    /// ESTABLISHED: the row is genuinely absent from the database after the first sync (the raw count
-    /// assertion below reads 0), and the outcome depends on whether the simulator was erased
-    /// beforehand. Erased → the whole class passes 19/19. Not erased → this test fails.
+    /// It was neither. Two separate pieces of test pollution, both now fixed: the class shared
+    /// `DBHelper.shared` (a file that survives across test RUNS, accumulating `pendingDelete`
+    /// tombstones that a later run pushed), and the second engine below was constructed without
+    /// `db:`, so it ran against a different database than the one the test had seeded.
     ///
-    /// CAUSE: `SyncEngineTests` is the ONLY suite in CloudKitSync still using `DBHelper.shared`;
-    /// every other one got an isolated `DBHelper(path:)` in Stage 0. That file persists across test
-    /// RUNS, and `tearDown` soft-deletes budgets (`is_deleted = 1, sync_status = 'pendingDelete'`)
-    /// rather than removing them, so tombstones accumulate. A later run pushes those inherited
-    /// tombstones and `pushDeletes` hard-deletes the matching local rows — including this test's.
-    /// That is the same hydration-invariant hazard the engine guards against in production and which
-    /// a shared test database recreates artificially.
-    ///
-    /// FIX: give this class an isolated database, which means threading `db:` into `SyncEngine` the
-    /// way `ConflictResolver(db:)` and the repositories already are. Until then, the assertion below
-    /// is the one that matters: it distinguishes "row deleted" from "row hidden by a stale cache",
-    /// so a genuine over-eager orphan cleanup would still be caught rather than masked.
-    ///
-    /// I initially concluded the static `TransactionRepository` cache explained this. It does not —
-    /// the row is really gone. The cache invalidation below is still correct and still needed, it just
-    /// is not the cause.
+    /// The raw-count assertion is kept deliberately: it reads the database directly rather than
+    /// through the repository, so a genuine over-eager cleanup would surface here instead of hiding
+    /// behind a stale cache.
     func testPush_DeletesSentAfterSaves() {
         // Insert and sync a transaction first
         let model = CloudKitSyncTestHelpers.makeTransactionModel(title: "To Delete", amount: 3000)
@@ -272,7 +275,7 @@ final class SyncEngineTests: XCTestCase {
         // what it just pushed. This is the assertion that would have caught an over-eager orphan
         // cleanup, and it is why the guard below is not the only check here.
         XCTAssertEqual(
-            DBHelper.shared.fetchSingleInt(
+            db.fetchSingleInt(
                 "SELECT COUNT(*) FROM Transactions WHERE (is_deleted IS NULL OR is_deleted = 0);"),
             1,
             "The synced transaction must survive its own sync cycle"
@@ -292,7 +295,8 @@ final class SyncEngineTests: XCTestCase {
 
         // Create fresh engine for second sync (reset subscriptions flag)
         let engine2 = SyncEngine(cloudKitOps: mockOps, postSyncActions: mockPostSync,
-                                  authProvider: StubAuthProvider(currentUserId: userUID))
+                                  authProvider: StubAuthProvider(currentUserId: userUID),
+                                  db: db)
         let exp = expectation(description: "sync 2 completes")
         engine2.performFullSync {
             exp.fulfill()
@@ -347,7 +351,8 @@ final class SyncEngineTests: XCTestCase {
 
         // Sync again with a fresh engine
         let engine2 = SyncEngine(cloudKitOps: mockOps, postSyncActions: mockPostSync,
-                                  authProvider: StubAuthProvider(currentUserId: userUID))
+                                  authProvider: StubAuthProvider(currentUserId: userUID),
+                                  db: db)
         let exp = expectation(description: "sync 2 completes")
         engine2.performFullSync {
             exp.fulfill()
@@ -421,7 +426,8 @@ final class SyncEngineTests: XCTestCase {
 
         // Second sync with a fresh engine that has same mockOps
         let engine2 = SyncEngine(cloudKitOps: mockOps, postSyncActions: mockPostSync,
-                                  authProvider: StubAuthProvider(currentUserId: userUID))
+                                  authProvider: StubAuthProvider(currentUserId: userUID),
+                                  db: db)
         let exp = expectation(description: "sync 2")
         engine2.performFullSync {
             exp.fulfill()
@@ -433,7 +439,8 @@ final class SyncEngineTests: XCTestCase {
 
         // Now verify the same engine doesn't set up twice
         let engine3 = SyncEngine(cloudKitOps: mockOps, postSyncActions: mockPostSync,
-                                  authProvider: StubAuthProvider(currentUserId: userUID))
+                                  authProvider: StubAuthProvider(currentUserId: userUID),
+                                  db: db)
         let exp2 = expectation(description: "sync 3a")
         engine3.performFullSync {
             exp2.fulfill()

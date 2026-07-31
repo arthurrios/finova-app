@@ -98,6 +98,26 @@ final class SyncEngine {
     /// had no way to be exercised at all.
     var authProvider: AuthProviding = FirebaseAuthProvider()
 
+    /// The database this engine reads and writes. Injected for the same reason the repositories and
+    /// `ConflictResolver` already are: SyncEngineTests was the last suite still sharing the singleton
+    /// database, and because that file survives across test RUNS, `pendingDelete` tombstones left by
+    /// one run were pushed by the next and hard-deleted rows out from under it.
+    ///
+    /// Resolved LAZILY, and deliberately not captured in `init`. Reading the shared instance from
+    /// `SyncEngine.init()` deadlocks the app before launch:
+    ///
+    ///     DBHelper.shared (dispatch_once) -> initializeDatabase -> performUuidBackfillV1
+    ///       -> executeSyncUpdate -> SyncChangeTracker.markDirty -> SyncEngine.shared
+    ///       -> SyncEngine.init -> DBHelper.shared, still inside its own dispatch_once
+    ///
+    /// which traps in `_dispatch_once_wait`. Keeping the singleton lookup out of `init` breaks the
+    /// cycle: nothing reaches for it until the engine is actually used.
+    private let injectedDB: DBHelper?
+    var db: DBHelper { injectedDB ?? .shared }
+
+    /// Bound to `db`, so inbound records resolve against the same database the engine pushes from.
+    private lazy var resolver = ConflictResolver(db: db)
+
     private var isUserAuthenticated: Bool {
         authProvider.isAuthenticated
     }
@@ -121,6 +141,7 @@ final class SyncEngine {
     private var pulledCKRecordNames: Set<String> = []
 
     private init() {
+        self.injectedDB = nil
         self.cloudKitOps = RealCloudKitOperations()
         self.stateManager = SyncStateManager.shared
         self.postSyncActions = RealPostSyncActions()
@@ -129,7 +150,9 @@ final class SyncEngine {
 
     init(cloudKitOps: CloudKitOperationsProvider, stateManager: SyncStateManager = .shared,
          postSyncActions: PostSyncActions = RealPostSyncActions(),
-         authProvider: AuthProviding = FirebaseAuthProvider()) {
+         authProvider: AuthProviding = FirebaseAuthProvider(),
+         db: DBHelper? = nil) {
+        self.injectedDB = db
         self.cloudKitOps = cloudKitOps
         self.stateManager = stateManager
         self.postSyncActions = postSyncActions
@@ -308,7 +331,7 @@ final class SyncEngine {
             //   3. Member group zones — records shared by other iCloud accounts
             var privateZoneIDs: [CKRecordZone.ID] = [CloudKitManager.privateZoneID]
             var sharedZoneIDs: [CKRecordZone.ID] = []
-            let allGroups = BudgetGroupRepository().fetchAllGroups()
+            let allGroups = BudgetGroupRepository(db: db).fetchAllGroups()
             for group in allGroups where !group.isDeleted {
                 if group.isOwner {
                     let zoneID = CKRecordZone.ID(zoneName: "Group-\(group.id)", ownerName: CKCurrentUserDefaultName)
@@ -443,8 +466,8 @@ final class SyncEngine {
         // to nothing. We patch every CK record with the correct new local IDs BEFORE
         // processIncomingRecord runs (which avoids depending on remapCrossDeviceIDs, since
         // old CK records lack the creditCardCKRecordName/statementCKRecordName fields).
-        let cardRepo = CreditCardRepository()
-        let stmtRepo = StatementRepository()
+        let cardRepo = CreditCardRepository(db: db)
+        let stmtRepo = StatementRepository(db: db)
 
         // Phase 0: CreditCards
         let cardRecords = sortedRecords.filter { $0.recordType == "CreditCard" }
@@ -589,7 +612,7 @@ final class SyncEngine {
         stmtCKNameMap: [String: Int],
         stmtIdMap: [Int: Int]
     ) {
-        let db = DBHelper.shared
+        let db = db
 
         // 1. Repair statements: find any with credit_card_id that doesn't reference a valid card
         let orphanedStmts = db.fetchIntIntPairs(
@@ -725,14 +748,14 @@ final class SyncEngine {
                 UserDefaults.standard.removeObject(forKey: Self.fullPullVerifiedKey)
             }
             if forceAcceptCloud {
-                Self.resetLocalModificationTimestamps()
+                self.resetLocalModificationTimestamps()
                 self.stateManager.resetAllTokens()
                 self.isFullRefetch = true
                 self.pulledCKRecordNames = []
                 UserDefaults.standard.removeObject(forKey: Self.fullPullVerifiedKey)
             }
             if forceRePush {
-                Self.resetAllSyncStatuses()
+                self.resetAllSyncStatuses()
             }
             self.executeSyncCycle(completion: completion)
         }
@@ -805,7 +828,7 @@ final class SyncEngine {
             return
         }
         logWarning("[Sync] forceRePushAllLocal — starting push-only recovery")
-        Self.resetAllSyncStatuses()
+        self.resetAllSyncStatuses()
         syncQueue.async { [weak self] in
             guard let self = self else {
                 completion?()
@@ -836,12 +859,12 @@ final class SyncEngine {
 
     /// Resets all sync_status values to 'pending' so everything gets re-pushed to CloudKit.
     /// Also updates ck_modified_at to ensure re-pushed records win conflict resolution on other devices.
-    private static func resetAllSyncStatuses() {
+    private func resetAllSyncStatuses() {
         logWarning("[Sync] Resetting all sync statuses to 'pending' for re-push")
         let now = Int(Date().timeIntervalSince1970)
         let tables = ["Transactions", "Budgets", "CreditCards", "CreditCardStatements", "BudgetAllocations"]
         for table in tables {
-            DBHelper.shared.executeSyncUpdate(
+            db.executeSyncUpdate(
                 "UPDATE \(table) SET sync_status = 'pending', ck_modified_at = \(now) WHERE sync_status = 'synced' AND (is_deleted IS NULL OR is_deleted = 0);",
                 textBindings: []
             )
@@ -851,11 +874,11 @@ final class SyncEngine {
 
     /// Resets all local ck_modified_at and updated_at timestamps to 0 so incoming cloud data always wins
     /// conflict resolution. Used when the user explicitly chooses to accept cloud data.
-    private static func resetLocalModificationTimestamps() {
+    private func resetLocalModificationTimestamps() {
         logWarning("[Sync] Resetting all local ck_modified_at and updated_at to 0 — cloud data will take priority")
         let tables = ["Transactions", "Budgets", "CreditCards", "CreditCardStatements", "BudgetAllocations"]
         for table in tables {
-            DBHelper.shared.executeSyncUpdate(
+            db.executeSyncUpdate(
                 "UPDATE \(table) SET ck_modified_at = 0, updated_at = 0;",
                 textBindings: []
             )
@@ -981,7 +1004,7 @@ final class SyncEngine {
     /// before a clean-slate recovery pull. Local-only rows (ck_record_id IS NULL) are preserved
     /// so pending new records are re-pushed on the next sync cycle.
     private func clearSyncedLocalData() {
-        let db = DBHelper.shared
+        let db = db
         // Delete dependents before their parents to respect any FK ordering.
         db.executeSyncUpdate("DELETE FROM CreditCardStatements WHERE ck_record_id IS NOT NULL;")
         db.executeSyncUpdate("DELETE FROM Transactions WHERE ck_record_id IS NOT NULL;")
@@ -1078,7 +1101,7 @@ final class SyncEngine {
     /// Lightweight integrity check after the first verified full pull.
     /// Logs warnings for missing data that should have arrived.
     private func performPostSyncIntegrityCheck() {
-        let repo = BudgetGroupRepository()
+        let repo = BudgetGroupRepository(db: db)
         let groups = repo.fetchAllGroups().filter { !$0.isDeleted }
 
         // Verify all member groups have ckZoneOwner set
@@ -1090,7 +1113,7 @@ final class SyncEngine {
         }
 
         // Log record counts for diagnostics
-        let db = DBHelper.shared
+        let db = db
         let txCount = db.fetchSingleInt("SELECT COUNT(*) FROM Transactions WHERE (is_deleted IS NULL OR is_deleted = 0);") ?? 0
         let budgetCount = db.fetchSingleInt("SELECT COUNT(*) FROM Budgets WHERE (is_deleted IS NULL OR is_deleted = 0);") ?? 0
         let cardCount = db.fetchSingleInt("SELECT COUNT(*) FROM CreditCards WHERE (is_deleted IS NULL OR is_deleted = 0);") ?? 0
@@ -1300,10 +1323,10 @@ final class SyncEngine {
                                             // Diagnostic: group balance state
                                             if let uid = UIDUserDefaultsManager.shared.currentUserUID {
                                                 let personalOffset = UserDefaults.standard.integer(forKey: "balanceOffset_\(uid)")
-                                                let groups = BudgetGroupRepository().fetchAllGroups()
+                                                let groups = BudgetGroupRepository(db: self.db).fetchAllGroups()
                                                 for g in groups {
                                                     let groupOffset = UserDefaults.standard.integer(forKey: "balanceOffset_group_\(g.id)")
-                                                    let txRepo = TransactionRepository()
+                                                    let txRepo = TransactionRepository(db: self.db)
                                                     let mirrorTxCount = txRepo.fetchTransactionsForGroup(groupId: g.id).count
                                                     let allTxCount = txRepo.fetchAllTransactions().count
                                                     logWarning("[Sync] Balance diagnostic: personalOffset=\(personalOffset), groupOffset=\(groupOffset) (group '\(g.name)'), mirrorTx=\(mirrorTxCount)/\(allTxCount)")
@@ -1445,7 +1468,7 @@ final class SyncEngine {
             database: .shared,
             token: token,
             changedZoneHandler: { changedZoneIDs.append($0) }
-        ) { [weak self] result in
+        ) { [weak self, db] result in
             switch result {
             case .success(let newToken):
                 let zoneNames = changedZoneIDs.map { $0.zoneName }
@@ -1455,7 +1478,7 @@ final class SyncEngine {
                 // Always include member group zones — owner-side writes may
                 // not be reported by fetchDatabaseChanges on the member's
                 // shared DB. Zone-level tokens keep this cheap.
-                let memberGroups = BudgetGroupRepository().fetchAllGroups().filter { !$0.isOwner && !$0.isDeleted }
+                let memberGroups = BudgetGroupRepository(db: db).fetchAllGroups().filter { !$0.isOwner && !$0.isDeleted }
                 let existingSharedZoneNames = Set(changedZoneIDs.map { $0.zoneName })
                 for group in memberGroups {
                     if let zoneOwner = group.ckZoneOwner {
@@ -1472,7 +1495,7 @@ final class SyncEngine {
                 // - First sync / incomplete sync flagged for full discovery (Fix 4a)
                 // This breaks the chicken-and-egg dependency on new devices.
                 if changedZoneIDs.isEmpty {
-                    let allGroups = BudgetGroupRepository().fetchAllGroups()
+                    let allGroups = BudgetGroupRepository(db: db).fetchAllGroups()
                     let hasAnyMemberZoneOwner = memberGroups.contains { $0.ckZoneOwner != nil }
                     let isFirstSharedSync = token == nil && allGroups.isEmpty
                     let shouldEnumerateAll = (self?.needsFullSharedDBDiscovery == true)
@@ -1485,7 +1508,7 @@ final class SyncEngine {
                             if case .success(let zoneIDs) = zonesResult {
                                 for zoneID in zoneIDs where zoneID.zoneName.hasPrefix("Group-") {
                                     changedZoneIDs.append(zoneID)
-                                    BudgetGroupRepository().updateZoneOwner(
+                                    BudgetGroupRepository(db: db).updateZoneOwner(
                                         groupId: String(zoneID.zoneName.dropFirst("Group-".count)),
                                         zoneOwner: zoneID.ownerName)
                                     logWarning("[Sync] Fallback discovered shared zone: \(zoneID.zoneName) (owner: \(zoneID.ownerName))")
@@ -1588,7 +1611,7 @@ final class SyncEngine {
                 // Deliberately NOT persisted here — buffered until the records are applied below.
                 pendingZoneTokens.append((zoneID, token))
             },
-            completion: { [weak self] result in
+            completion: { [weak self, db] result in
                 let dbKey = database == .private ? "private" : "shared"
                 switch result {
                 case .success:
@@ -1606,7 +1629,7 @@ final class SyncEngine {
                     }
                     self?.isProcessingCloudData = false
                     TransactionRepository.invalidateCache()
-                    let localCount = TransactionRepository().fetchAllTransactions().count
+                    let localCount = TransactionRepository(db: db).fetchAllTransactions().count
                     logWarning("[Sync] Local DB has \(localCount) transaction(s) after pull")
                     // NOTE: fixAndDeduplicateAfterSync() removed from per-sync execution.
                     // The ConflictResolver already handles deduplication during pull.
@@ -1686,7 +1709,7 @@ final class SyncEngine {
         // keys. Runs after the whole buffer so intra-batch ordering stops mattering: a child that
         // arrived before its parent is simply resolved here, or on a later pull if the parent is
         // still absent. Idempotent, so calling it when nothing changed is free.
-        DBHelper.shared.resolveUuidForeignKeys()
+        db.resolveUuidForeignKeys()
     }
 
     // MARK: - Sync Record Categories
@@ -1753,7 +1776,7 @@ final class SyncEngine {
             return RecordDestination(zoneID: CloudKitManager.privateZoneID, database: .private)
         }
 
-        let group = BudgetGroupRepository().fetchGroup(byId: groupId)
+        let group = BudgetGroupRepository(db: db).fetchGroup(byId: groupId)
         if let group = group, group.isOwner {
             return RecordDestination(
                 zoneID: CKRecordZone.ID(zoneName: "Group-\(groupId)", ownerName: CKCurrentUserDefaultName),
@@ -1793,7 +1816,7 @@ final class SyncEngine {
     /// Personal (non-group) records always resolve.
     private func canResolveDestination(forGroupId groupId: String?) -> Bool {
         guard let groupId = groupId, !groupId.isEmpty else { return true }
-        guard let group = BudgetGroupRepository().fetchGroup(byId: groupId) else { return false }
+        guard let group = BudgetGroupRepository(db: db).fetchGroup(byId: groupId) else { return false }
         if group.isOwner { return true }
         return !(group.ckZoneOwner?.isEmpty ?? true)
     }
@@ -1807,7 +1830,7 @@ final class SyncEngine {
         // Tables with shared_group_id column
         let groupTables = ["Transactions", "Budgets", "CreditCards", "BudgetAllocations"]
         for table in groupTables {
-            DBHelper.shared.executeSyncUpdate(
+            db.executeSyncUpdate(
                 "UPDATE \(table) SET sync_status = 'pending', ck_system_fields = NULL WHERE sync_status = 'synced' AND shared_group_id IS NOT NULL AND shared_group_id != '';",
                 textBindings: []
             )
@@ -1815,7 +1838,7 @@ final class SyncEngine {
 
         // CreditCardStatements don't have shared_group_id — mark them pending
         // if their parent credit card belongs to a group
-        DBHelper.shared.executeSyncUpdate(
+        db.executeSyncUpdate(
             "UPDATE CreditCardStatements SET sync_status = 'pending', ck_system_fields = NULL WHERE sync_status = 'synced' AND credit_card_id IN (SELECT id FROM CreditCards WHERE shared_group_id IS NOT NULL AND shared_group_id != '');",
             textBindings: []
         )
@@ -1853,7 +1876,7 @@ final class SyncEngine {
     /// Clears stored system fields for a record so the next push treats it as new.
     private func clearSystemFields(ckRecordName name: String) {
         guard let table = tableForRecordName(name) else { return }
-        DBHelper.shared.clearSystemFields(ckRecordName: name, table: table)
+        db.clearSystemFields(ckRecordName: name, table: table)
     }
 
     /// Encodes a CKRecord's system fields and stores them in the local DB.
@@ -1865,7 +1888,7 @@ final class SyncEngine {
 
         let zoneID = record.recordID.zoneID
         guard !isProjection(recordName: record.recordID.recordName, table: table, zoneID: zoneID) else {
-            DBHelper.shared.saveProjectionSystemFields(
+            db.saveProjectionSystemFields(
                 coder.encodedData,
                 recordName: record.recordID.recordName,
                 zoneName: zoneID.zoneName,
@@ -1873,7 +1896,7 @@ final class SyncEngine {
             )
             return
         }
-        DBHelper.shared.saveSystemFields(coder.encodedData, ckRecordName: record.recordID.recordName, table: table)
+        db.saveSystemFields(coder.encodedData, ckRecordName: record.recordID.recordName, table: table)
     }
 
     /// A group-zone record whose local row is NOT tagged to that group is a Transparent Mode
@@ -1897,14 +1920,14 @@ final class SyncEngine {
     }
 
     private func isProjection(recordName: String, table: String, zoneID: CKRecordZone.ID) -> Bool {
-        Self.isProjection(recordName: recordName, table: table, zoneID: zoneID, db: DBHelper.shared)
+        Self.isProjection(recordName: recordName, table: table, zoneID: zoneID, db: db)
     }
 
     /// Decodes the zone a record was last successfully synced into, from its stored system fields.
     /// (`storeSystemFields` refreshes these after every successful push, so this is the record's
     /// current home in CloudKit.)
     private func lastSyncedZone(ckRecordName name: String, table: String) -> CKRecordZone.ID? {
-        guard let data = DBHelper.shared.fetchSystemFields(ckRecordName: name, table: table),
+        guard let data = db.fetchSystemFields(ckRecordName: name, table: table),
               let unarchiver = try? NSKeyedUnarchiver(forReadingFrom: data) else { return nil }
         unarchiver.requiresSecureCoding = true
         guard let archived = CKRecord(coder: unarchiver) else { return nil }
@@ -1972,24 +1995,24 @@ final class SyncEngine {
 
     /// Returns true if any repository has records pending sync or pending deletion.
     private func hasPendingRecords() -> Bool {
-        let txRepo = TransactionRepository()
+        let txRepo = TransactionRepository(db: db)
         TransactionRepository.invalidateCache()
         if !txRepo.fetchPendingSync().isEmpty { return true }
         if !txRepo.fetchPendingDeletes().isEmpty { return true }
 
-        let budgetRepo = BudgetRepository()
+        let budgetRepo = BudgetRepository(db: db)
         if !budgetRepo.fetchPendingSync().isEmpty { return true }
         if !budgetRepo.fetchPendingDeletes().isEmpty { return true }
 
-        let cardRepo = CreditCardRepository()
+        let cardRepo = CreditCardRepository(db: db)
         if !cardRepo.fetchPendingSync().isEmpty { return true }
         if !cardRepo.fetchPendingDeletes().isEmpty { return true }
 
-        let stmtRepo = StatementRepository()
+        let stmtRepo = StatementRepository(db: db)
         if !stmtRepo.fetchPendingSync().isEmpty { return true }
         if !stmtRepo.fetchPendingDeletes().isEmpty { return true }
 
-        let allocRepo = BudgetAllocationRepository()
+        let allocRepo = BudgetAllocationRepository(db: db)
         if !allocRepo.fetchPendingSync().isEmpty { return true }
         if !allocRepo.fetchPendingDeletes().isEmpty { return true }
 
@@ -2039,7 +2062,7 @@ final class SyncEngine {
     private func stampedRev(_ record: CKRecord) -> CKRecord {
         let name = record.recordID.recordName
         let table = Self.revTable(forRecordType: record.recordType)
-        let localRev = table.map { DBHelper.shared.fetchRev(table: $0, ckRecordName: name).rev } ?? 0
+        let localRev = table.map { db.fetchRev(table: $0, ckRecordName: name).rev } ?? 0
         let newRev = localRev + 1
         // Only stamp the CKRecord when the schema is deployed to production (see the flag's docs).
         // Local rev tracking stays live regardless so it's already correct once the fields ship.
@@ -2048,7 +2071,7 @@ final class SyncEngine {
             record["revDevice"] = Self.revDeviceId as CKRecordValue
         }
         if let table = table {
-            DBHelper.shared.setRev(table: table, ckRecordName: name, rev: newRev, device: Self.revDeviceId)
+            db.setRev(table: table, ckRecordName: name, rev: newRev, device: Self.revDeviceId)
         }
         return record
     }
@@ -2063,7 +2086,7 @@ final class SyncEngine {
         guard let uid = UIDUserDefaultsManager.shared.currentUserUID else { return false }
         if createdByUid == nil || createdByUid == uid { return true }
         // Another member created it — only the group owner may delete it.
-        if let group = BudgetGroupRepository().fetchGroup(byId: gid) { return group.isOwner }
+        if let group = BudgetGroupRepository(db: db).fetchGroup(byId: gid) { return group.isOwner }
         return false
     }
 
@@ -2103,9 +2126,9 @@ final class SyncEngine {
         // Fill in uuid foreign keys for rows created since the last push. Without this a locally
         // created row ships with a nil reference and the receiving device has nothing to resolve —
         // the insert trigger gives a row its own uuid, but not its pointers.
-        DBHelper.shared.deriveUuidForeignKeys()
+        db.deriveUuidForeignKeys()
 
-        let repairedCount = DBHelper.shared.repairCorruptedPendingDeletes()
+        let repairedCount = db.repairCorruptedPendingDeletes()
         if repairedCount > 0 {
             logWarning("[Sync] Repaired \(repairedCount) soft-deleted transaction(s) whose pendingDelete status was lost")
         }
@@ -2182,13 +2205,13 @@ final class SyncEngine {
             // Withdraw: a zone we projected into before but no longer publish to. This is what
             // makes revoking transparency actually un-share the record, and it is the ONLY delete
             // Transparent Mode ever issues — the personal row is never touched.
-            for stale in DBHelper.shared.projectionZones(recordName: name)
+            for stale in db.projectionZones(recordName: name)
             where !liveZoneNames.contains(stale.zoneName) {
                 let zoneID = CKRecordZone.ID(zoneName: stale.zoneName, ownerName: stale.zoneOwner)
                 let database: CKDatabase.Scope =
                     stale.zoneOwner == CKCurrentUserDefaultName ? .private : .shared
                 appendOrphanDeleteID(CKRecord.ID(recordName: name, zoneID: zoneID), database: database)
-                DBHelper.shared.deleteProjectionState(recordName: name, zoneName: stale.zoneName)
+                db.deleteProjectionState(recordName: name, zoneName: stale.zoneName)
             }
 
             for target in live {
@@ -2198,7 +2221,7 @@ final class SyncEngine {
                 for key in copy.allKeys() { projected[key] = copy[key] }
                 // Receivers tag by zone, but state it explicitly so the record is self-describing.
                 projected["sharedGroupId"] = target.groupId as CKRecordValue
-                let systemFields = DBHelper.shared.fetchProjectionSystemFields(
+                let systemFields = db.fetchProjectionSystemFields(
                     recordName: name, zoneName: target.dest.zoneID.zoneName
                 )
                 appendRecord(
@@ -2209,8 +2232,8 @@ final class SyncEngine {
         }
 
         // Transactions — use stored ck_record_id to avoid creating duplicate CK records
-        let txRepo = TransactionRepository()
-        let cardRepo = CreditCardRepository()
+        let txRepo = TransactionRepository(db: db)
+        let cardRepo = CreditCardRepository(db: db)
         TransactionRepository.invalidateCache()
         let allTxCount = txRepo.fetchAllTransactions().count
         let pendingTransactions = txRepo.fetchPendingSync()
@@ -2251,7 +2274,7 @@ final class SyncEngine {
                 freshRecord["sharedGroupId"] = groupId as CKRecordValue
             }
             let systemFields = storedName.flatMap {
-                DBHelper.shared.fetchSystemFields(ckRecordName: $0, table: "Transactions")
+                db.fetchSystemFields(ckRecordName: $0, table: "Transactions")
             }
             appendRecord(stampedRev(buildCKRecord(fresh: freshRecord, systemFieldsData: systemFields)), database: dest.database)
             fanOutProjections(of: freshRecord, isPersonal: (groupId ?? "").isEmpty)
@@ -2271,7 +2294,7 @@ final class SyncEngine {
             // OWNERSHIP INVARIANT: never push a delete for a group-tagged record the local user
             // did not create (unless they own the group) — a member repairing/re-bucketing the
             // owner's data must not remove it for everyone.
-            let createdBy = DBHelper.shared.fetchSingleString(
+            let createdBy = db.fetchSingleString(
                 "SELECT created_by_uid FROM Transactions WHERE id = ?;", intBinding: pending.localId)
             guard mayPushDeleteForGroupRecord(sharedGroupId: groupId, createdByUid: createdBy) else {
                 logWarning("[Sync] Skipping delete of transaction \(pending.localId): group record not owned by current user")
@@ -2287,7 +2310,7 @@ final class SyncEngine {
         }
 
         // Budgets (uses monthDate as key — deterministic across devices)
-        let budgetRepo = BudgetRepository()
+        let budgetRepo = BudgetRepository(db: db)
         let pendingBudgets = budgetRepo.fetchPendingSync()
         for budget in pendingBudgets {
             guard canResolveDestination(forGroupId: budget.sharedGroupId) else {
@@ -2320,7 +2343,7 @@ final class SyncEngine {
                 ckRecordName: budgetRecordName
             )
 
-            let systemFields = DBHelper.shared.fetchSystemFields(ckRecordName: budgetRecordName, table: "Budgets")
+            let systemFields = db.fetchSystemFields(ckRecordName: budgetRecordName, table: "Budgets")
             appendRecord(stampedRev(buildCKRecord(fresh: freshRecord, systemFieldsData: systemFields)), database: dest.database)
             fanOutProjections(of: freshRecord, isPersonal: (budget.sharedGroupId ?? "").isEmpty)
             if let stale = staleZoneCopyOutsideProjections(
@@ -2333,11 +2356,11 @@ final class SyncEngine {
         // Budget deletes
         if canPushDeletes {
         for pending in budgetRepo.fetchPendingDeletes() {
-            let groupId = DBHelper.shared.fetchSingleString(
+            let groupId = db.fetchSingleString(
                 "SELECT shared_group_id FROM Budgets WHERE month_date = ?;",
                 intBinding: pending.monthDate
             )
-            let createdBy = DBHelper.shared.fetchSingleString(
+            let createdBy = db.fetchSingleString(
                 "SELECT created_by_uid FROM Budgets WHERE month_date = ?;", intBinding: pending.monthDate)
             guard mayPushDeleteForGroupRecord(sharedGroupId: groupId, createdByUid: createdBy) else {
                 logWarning("[Sync] Skipping delete of budget \(pending.monthDate): group record not owned by current user")
@@ -2376,7 +2399,7 @@ final class SyncEngine {
                 freshRecord["sharedGroupId"] = groupId as CKRecordValue
             }
             let systemFields = storedName.flatMap {
-                DBHelper.shared.fetchSystemFields(ckRecordName: $0, table: "CreditCards")
+                db.fetchSystemFields(ckRecordName: $0, table: "CreditCards")
             }
             appendRecord(stampedRev(buildCKRecord(fresh: freshRecord, systemFieldsData: systemFields)), database: dest.database)
             fanOutProjections(of: freshRecord, isPersonal: (groupId ?? "").isEmpty)
@@ -2391,7 +2414,7 @@ final class SyncEngine {
         if canPushDeletes {
         for pending in cardRepo.fetchPendingDeletes() {
             let groupId = cardRepo.fetchSharedGroupId(for: pending.localId)
-            let createdBy = DBHelper.shared.fetchSingleString(
+            let createdBy = db.fetchSingleString(
                 "SELECT created_by_uid FROM CreditCards WHERE id = ?;", intBinding: pending.localId)
             guard mayPushDeleteForGroupRecord(sharedGroupId: groupId, createdByUid: createdBy) else {
                 logWarning("[Sync] Skipping delete of credit card \(pending.localId): group record not owned by current user")
@@ -2407,7 +2430,7 @@ final class SyncEngine {
 
         // Credit Card Statements — use stored ck_record_id
         // Statements inherit their group zone from their parent credit card
-        let stmtRepo = StatementRepository()
+        let stmtRepo = StatementRepository(db: db)
         let pendingStmts = stmtRepo.fetchPendingSync()
         for stmt in pendingStmts {
             // Guard: skip statements whose parent card has no ck_record_name yet.
@@ -2430,7 +2453,7 @@ final class SyncEngine {
                 pendingCKIdAssignments[freshRecord.recordID.recordName] = (type: "statement", localId: stmtId)
             }
             let systemFields = storedName.flatMap {
-                DBHelper.shared.fetchSystemFields(ckRecordName: $0, table: "CreditCardStatements")
+                db.fetchSystemFields(ckRecordName: $0, table: "CreditCardStatements")
             }
             appendRecord(stampedRev(buildCKRecord(fresh: freshRecord, systemFieldsData: systemFields)), database: dest.database)
             fanOutProjections(of: freshRecord, isPersonal: (parentGroupId ?? "").isEmpty)
@@ -2446,12 +2469,12 @@ final class SyncEngine {
         if canPushDeletes {
         let pendingStmtDeletes = stmtRepo.fetchPendingDeletes()
         for pending in pendingStmtDeletes {
-            let parentCardId = DBHelper.shared.fetchSingleInt(
+            let parentCardId = db.fetchSingleInt(
                 "SELECT credit_card_id FROM CreditCardStatements WHERE id = ?;",
                 intBinding: pending.localId
             )
             let parentGroupId = parentCardId.flatMap { cardRepo.fetchSharedGroupId(for: $0) }
-            let createdBy = DBHelper.shared.fetchSingleString(
+            let createdBy = db.fetchSingleString(
                 "SELECT created_by_uid FROM CreditCardStatements WHERE id = ?;", intBinding: pending.localId)
             guard mayPushDeleteForGroupRecord(sharedGroupId: parentGroupId, createdByUid: createdBy) else {
                 logWarning("[Sync] Skipping delete of statement \(pending.localId): group record not owned by current user")
@@ -2469,7 +2492,7 @@ final class SyncEngine {
         // hardDeleteLocal on the CK callback thread is unreliable (SQLITE_BUSY), so these are
         // purged here on the sync queue now that their CKRecord.IDs are collected.
         for localId in stmtLocalIdsToPurge {
-            DBHelper.shared.executeSyncUpdate(
+            db.executeSyncUpdate(
                 "DELETE FROM CreditCardStatements WHERE id = ?;",
                 intBindings: [localId]
             )
@@ -2477,7 +2500,7 @@ final class SyncEngine {
         }
 
         // Budget Allocations — use stored ck_record_id
-        let allocRepo = BudgetAllocationRepository()
+        let allocRepo = BudgetAllocationRepository(db: db)
         let pendingAllocs = allocRepo.fetchPendingSync()
         for alloc in pendingAllocs {
             guard canResolveDestination(forGroupId: alloc.sharedGroupId) else {
@@ -2493,7 +2516,7 @@ final class SyncEngine {
                 pendingCKIdAssignments[freshRecord.recordID.recordName] = (type: "allocation", localId: allocId)
             }
             let systemFields = storedName.flatMap {
-                DBHelper.shared.fetchSystemFields(ckRecordName: $0, table: "BudgetAllocations")
+                db.fetchSystemFields(ckRecordName: $0, table: "BudgetAllocations")
             }
             appendRecord(stampedRev(buildCKRecord(fresh: freshRecord, systemFieldsData: systemFields)), database: dest.database)
             fanOutProjections(of: freshRecord, isPersonal: (alloc.sharedGroupId ?? "").isEmpty)
@@ -2507,11 +2530,11 @@ final class SyncEngine {
         // Allocation deletes
         if canPushDeletes {
         for pending in allocRepo.fetchPendingDeletes() {
-            let groupId = DBHelper.shared.fetchSingleString(
+            let groupId = db.fetchSingleString(
                 "SELECT shared_group_id FROM BudgetAllocations WHERE id = ?;",
                 intBinding: pending.localId
             )
-            let createdBy = DBHelper.shared.fetchSingleString(
+            let createdBy = db.fetchSingleString(
                 "SELECT created_by_uid FROM BudgetAllocations WHERE id = ?;", intBinding: pending.localId)
             guard mayPushDeleteForGroupRecord(sharedGroupId: groupId, createdByUid: createdBy) else {
                 logWarning("[Sync] Skipping delete of allocation \(pending.localId): group record not owned by current user")
@@ -2537,7 +2560,7 @@ final class SyncEngine {
         // cascade and fail ALL other shared records in the same batch.
         var groupMemberRecords: [CKRecord] = []
         var groupMemberGroupIds: [String] = [] // Track which group IDs correspond to each record
-        let groupRepo = BudgetGroupRepository()
+        let groupRepo = BudgetGroupRepository(db: db)
         let allGroups = groupRepo.fetchAllGroups()
         if let currentUser = AuthenticationManager.shared.currentUser {
             let currentUid = currentUser.uid
@@ -2690,7 +2713,7 @@ final class SyncEngine {
         // calls don't re-trigger handleLocalDataChange → another push cycle.
         SyncChangeTracker.shared.isSuppressed = true
 
-        cloudKitOps.saveRecords(batch, database: database, savePolicy: .ifServerRecordUnchanged) { [weak self] recordID, result in
+        cloudKitOps.saveRecords(batch, database: database, savePolicy: .ifServerRecordUnchanged) { [weak self, db] recordID, result in
             let name = recordID.recordName
             switch result {
             case .success(let savedRecord):
@@ -2703,20 +2726,20 @@ final class SyncEngine {
                 if let assignment = self?.pendingCKIdAssignments.removeValue(forKey: name) {
                     switch assignment.type {
                     case "transaction":
-                        TransactionRepository().setCKRecordId(for: assignment.localId, ckRecordName: name)
+                        TransactionRepository(db: db).setCKRecordId(for: assignment.localId, ckRecordName: name)
                     case "creditCard":
-                        CreditCardRepository().setCKRecordId(for: assignment.localId, ckRecordName: name)
+                        CreditCardRepository(db: db).setCKRecordId(for: assignment.localId, ckRecordName: name)
                         // Re-queue all statements for this CC so they are re-pushed on the
                         // next sync cycle with creditCardCKRecordName now filled in.
                         // Without this, statements pushed in the same batch as a new CC lack
                         // creditCardCKRecordName (the CC's ck_record_id wasn't stored yet when
                         // the statement CKRecord was being built), causing cross-device remapping
                         // to fail and statements to be inserted with the wrong local creditCardId.
-                        StatementRepository().markStatementsPending(forCardId: assignment.localId)
+                        StatementRepository(db: db).markStatementsPending(forCardId: assignment.localId)
                     case "statement":
-                        StatementRepository().setCKRecordId(for: assignment.localId, ckRecordName: name)
+                        StatementRepository(db: db).setCKRecordId(for: assignment.localId, ckRecordName: name)
                     case "allocation":
-                        BudgetAllocationRepository().setCKRecordId(for: assignment.localId, ckRecordName: name)
+                        BudgetAllocationRepository(db: db).setCKRecordId(for: assignment.localId, ckRecordName: name)
                     default:
                         break
                     }
@@ -2728,15 +2751,15 @@ final class SyncEngine {
                 // on the next cycle instead of being silently marked synced and lost.
                 let pushedUpdatedAt = savedRecord["updatedAt"] as? Date
                 if name.hasPrefix("transaction-") {
-                    TransactionRepository().markAsSynced(ckRecordName: name, pushedUpdatedAt: pushedUpdatedAt)
+                    TransactionRepository(db: db).markAsSynced(ckRecordName: name, pushedUpdatedAt: pushedUpdatedAt)
                 } else if name.hasPrefix("budget-") {
-                    BudgetRepository().markAsSynced(ckRecordName: name, pushedUpdatedAt: pushedUpdatedAt)
+                    BudgetRepository(db: db).markAsSynced(ckRecordName: name, pushedUpdatedAt: pushedUpdatedAt)
                 } else if name.hasPrefix("creditCard-") {
-                    CreditCardRepository().markAsSynced(ckRecordName: name, pushedUpdatedAt: pushedUpdatedAt)
+                    CreditCardRepository(db: db).markAsSynced(ckRecordName: name, pushedUpdatedAt: pushedUpdatedAt)
                 } else if name.hasPrefix("statement-") {
-                    StatementRepository().markAsSynced(ckRecordName: name, pushedUpdatedAt: pushedUpdatedAt)
+                    StatementRepository(db: db).markAsSynced(ckRecordName: name, pushedUpdatedAt: pushedUpdatedAt)
                 } else if name.hasPrefix("allocation-") {
-                    BudgetAllocationRepository().markAsSynced(ckRecordName: name, pushedUpdatedAt: pushedUpdatedAt)
+                    BudgetAllocationRepository(db: db).markAsSynced(ckRecordName: name, pushedUpdatedAt: pushedUpdatedAt)
                 }
             case .failure(let error):
                 batchFailureCount += 1
@@ -2910,7 +2933,7 @@ final class SyncEngine {
                 switch result {
                 case .success:
                     logWarning("[Sync] ✓ Deleted record \(name) from CloudKit")
-                    if !isOrphan { Self.hardDeleteLocal(recordName: name) }
+                    if !isOrphan { self?.hardDeleteLocal(recordName: name) }
                 case .failure(let error):
                     if let ckError = error as? CKError {
                         switch ckError.code {
@@ -2919,7 +2942,7 @@ final class SyncEngine {
                                 logWarning("[Sync] Orphan record \(name) not found in private zone — skipping local delete (record lives in group zone)")
                             } else {
                                 logWarning("[Sync] Record \(name) already deleted from CloudKit — hard-deleting locally")
-                                Self.hardDeleteLocal(recordName: name)
+                                self?.hardDeleteLocal(recordName: name)
                             }
                         case .permissionFailure:
                             // Member doesn't have permission to delete this record from the shared
@@ -2933,7 +2956,7 @@ final class SyncEngine {
                         case .userDeletedZone, .zoneNotFound:
                             // Zone no longer exists — record is effectively gone; clean up locally.
                             logWarning("[Sync] ⚠️ Zone gone for \(name) — removing locally")
-                            if !isOrphan { Self.hardDeleteLocal(recordName: name) }
+                            if !isOrphan { self?.hardDeleteLocal(recordName: name) }
                         case .quotaExceeded:
                             let retryAfter = ckError.retryAfterSeconds ?? 300
                             self?.pushThrottledUntil = Date().addingTimeInterval(retryAfter)
@@ -2966,7 +2989,7 @@ final class SyncEngine {
         pushDeleteBatch(index: 0)
     }
 
-    private static func hardDeleteLocal(recordName name: String) {
+    private func hardDeleteLocal(recordName name: String) {
         if name.hasPrefix("transaction-") {
             // For installment/recurring instances (parent_transaction_id IS NOT NULL),
             // leave a tombstone row (is_deleted=1, ck_record_id=NULL) instead of a full DELETE.
@@ -2974,29 +2997,29 @@ final class SyncEngine {
             // dashboard refresh — the tombstone's anchor is visible to fetchDeletedChildAnchors().
             // ck_record_id is cleared so repairCorruptedPendingDeletes (which requires IS NOT NULL)
             // will never re-queue it, and processDeletedRecord's deleteFromCloud won't match it.
-            let isInstance = DBHelper.shared.fetchSingleInt(
+            let isInstance = db.fetchSingleInt(
                 "SELECT 1 FROM Transactions WHERE ck_record_id = ? AND parent_transaction_id IS NOT NULL;",
                 textBinding: name
             ) != nil
             if isInstance {
-                DBHelper.shared.executeSyncUpdate(
+                db.executeSyncUpdate(
                     "UPDATE Transactions SET is_deleted = 1, sync_status = 'synced', ck_record_id = NULL WHERE ck_record_id = ?;",
                     textBindings: [name]
                 )
                 TransactionRepository.invalidateCache()
             } else {
-                TransactionRepository().hardDeleteByCKRecordName(name)
+                TransactionRepository(db: db).hardDeleteByCKRecordName(name)
             }
         } else if name.hasPrefix("budget-") {
-            BudgetRepository().hardDeleteByCKRecordName(name)
+            BudgetRepository(db: db).hardDeleteByCKRecordName(name)
         } else if name.hasPrefix("creditCard-") {
-            CreditCardRepository().hardDeleteByCKRecordName(name)
+            CreditCardRepository(db: db).hardDeleteByCKRecordName(name)
         } else if name.hasPrefix("statement-") {
             // Statement rows are already deleted in pushLocalChanges (on the sync queue)
             // before the CK push begins. This is a no-op safety net.
-            StatementRepository().hardDeleteByCKRecordName(name)
+            StatementRepository(db: db).hardDeleteByCKRecordName(name)
         } else if name.hasPrefix("allocation-") {
-            BudgetAllocationRepository().hardDeleteByCKRecordName(name)
+            BudgetAllocationRepository(db: db).hardDeleteByCKRecordName(name)
         }
     }
 
@@ -3027,7 +3050,7 @@ final class SyncEngine {
            let table = tableForRecordName(record.recordID.recordName),
            (record["createdByUid"] as? String) == AuthenticationManager.shared.currentUser?.uid,
            isProjection(recordName: record.recordID.recordName, table: table, zoneID: record.recordID.zoneID),
-           DBHelper.shared.fetchSingleInt(
+           db.fetchSingleInt(
                "SELECT COUNT(*) FROM \(table) WHERE ck_record_id = ?;",
                textBinding: record.recordID.recordName
            ) ?? 0 > 0
@@ -3037,7 +3060,7 @@ final class SyncEngine {
 
         if zoneName.hasPrefix("Group-"), record["sharedGroupId"] == nil {
             let groupId = String(zoneName.dropFirst("Group-".count))
-            let group = BudgetGroupRepository().fetchGroup(byId: groupId)
+            let group = BudgetGroupRepository(db: db).fetchGroup(byId: groupId)
             if group == nil || !group!.isDeleted {
                 record["sharedGroupId"] = groupId as CKRecordValue
             }
@@ -3057,19 +3080,19 @@ final class SyncEngine {
             if transaction.creditCardId != nil {
                 logWarning("[StmtSync] Incoming CC transaction: id=\(transaction.id ?? -1), title=\(transaction.title), creditCardId=\(transaction.creditCardId ?? -1), statementId=\(transaction.statementId ?? -1)")
             }
-            ConflictResolver.shared.resolveTransaction(remote: transaction, ckRecord: record)
+            resolver.resolveTransaction(remote: transaction, ckRecord: record)
             // Persist statement override flag from cloud
             if (record["isStatementOverridden"] as? Int) == 1,
-               let localId = TransactionRepository().fetchTransaction(byCKRecordName: record.recordID.recordName)?.id {
-                DBHelper.shared.setStatementOverridden(transactionId: localId, overridden: true)
+               let localId = TransactionRepository(db: db).fetchTransaction(byCKRecordName: record.recordID.recordName)?.id {
+                db.setStatementOverridden(transactionId: localId, overridden: true)
             }
         case "Budget":
             guard let budget = BudgetModel.fromCKRecord(record) else { return }
-            ConflictResolver.shared.resolveBudget(remote: budget, ckRecord: record)
+            resolver.resolveBudget(remote: budget, ckRecord: record)
         case "CreditCard":
             guard let card = CreditCard.fromCKRecord(record) else { return }
             logWarning("[StmtSync] Incoming CreditCard: name=\(card.name), ckLocalId=\(card.id ?? -1), ckName=\(record.recordID.recordName)")
-            ConflictResolver.shared.resolveCreditCard(remote: card, ckRecord: record)
+            resolver.resolveCreditCard(remote: card, ckRecord: record)
         case "CreditCardStatement":
             guard let stmt = CreditCardStatement.fromCKRecord(record) else {
                 logWarning("[StmtSync] Failed to parse CreditCardStatement from \(record.recordID.recordName)")
@@ -3077,10 +3100,10 @@ final class SyncEngine {
             }
             let hasCKCardName = record["creditCardCKRecordName"] as? String
             logWarning("[StmtSync] Incoming statement: ckName=\(record.recordID.recordName), creditCardId=\(stmt.creditCardId), creditCardCKRecordName=\(hasCKCardName ?? "nil"), closingDate=\(stmt.closingDate)")
-            ConflictResolver.shared.resolveCreditCardStatement(remote: stmt, ckRecord: record)
+            resolver.resolveCreditCardStatement(remote: stmt, ckRecord: record)
         case "BudgetAllocation":
             guard let alloc = BudgetAllocationModel.fromCKRecord(record) else { return }
-            ConflictResolver.shared.resolveBudgetAllocation(remote: alloc, ckRecord: record)
+            resolver.resolveBudgetAllocation(remote: alloc, ckRecord: record)
         case "GroupActivity":
             processGroupActivity(record)
         case "GroupMember":
@@ -3155,15 +3178,15 @@ final class SyncEngine {
     private func processDeletedRecord(recordID: CKRecord.ID, recordType: String) {
         switch recordType {
         case "Transaction":
-            TransactionRepository().deleteFromCloud(ckRecordName: recordID.recordName)
+            TransactionRepository(db: db).deleteFromCloud(ckRecordName: recordID.recordName)
         case "Budget":
-            BudgetRepository().deleteFromCloud(ckRecordName: recordID.recordName)
+            BudgetRepository(db: db).deleteFromCloud(ckRecordName: recordID.recordName)
         case "CreditCard":
-            CreditCardRepository().deleteFromCloud(ckRecordName: recordID.recordName)
+            CreditCardRepository(db: db).deleteFromCloud(ckRecordName: recordID.recordName)
         case "CreditCardStatement":
-            StatementRepository().deleteFromCloud(ckRecordName: recordID.recordName)
+            StatementRepository(db: db).deleteFromCloud(ckRecordName: recordID.recordName)
         case "BudgetAllocation":
-            BudgetAllocationRepository().deleteFromCloud(ckRecordName: recordID.recordName)
+            BudgetAllocationRepository(db: db).deleteFromCloud(ckRecordName: recordID.recordName)
         default:
             break
         }
@@ -3186,7 +3209,7 @@ final class SyncEngine {
         let tables = ["Transactions", "Budgets", "CreditCards", "CreditCardStatements", "BudgetAllocations"]
 
         // Safety: count total local synced records across all tables.
-        let totalLocalSynced = tables.reduce(0) { $0 + DBHelper.shared.fetchAllCKRecordNames(table: $1).count }
+        let totalLocalSynced = tables.reduce(0) { $0 + db.fetchAllCKRecordNames(table: $1).count }
 
         // Guard against partial CloudKit fetches (network issues, zone unavailability, schema errors).
         // If CK returned significantly fewer records than we have locally, the pull was likely incomplete —
@@ -3195,7 +3218,7 @@ final class SyncEngine {
         // delete more than 30% of local records in a single cleanup pass.
         if totalLocalSynced > 0 {
             let orphanCandidates = tables.reduce(0) { count, table in
-                let localNames = DBHelper.shared.fetchAllCKRecordNames(table: table)
+                let localNames = db.fetchAllCKRecordNames(table: table)
                 return count + localNames.filter { !pulledCKRecordNames.contains($0) }.count
             }
             let orphanRatio = Double(orphanCandidates) / Double(totalLocalSynced)
@@ -3207,12 +3230,12 @@ final class SyncEngine {
 
         var totalOrphans = 0
         for table in tables {
-            let localNames = DBHelper.shared.fetchAllCKRecordNames(table: table)
+            let localNames = db.fetchAllCKRecordNames(table: table)
             let orphans = localNames.filter { !pulledCKRecordNames.contains($0) }
             logWarning("[Sync] Orphan check \(table): \(localNames.count) local record(s) with ck_record_id, \(orphans.count) orphan(s)")
             if !orphans.isEmpty {
                 logWarning("[Sync] Cleaning up \(orphans.count) orphaned record(s) from \(table): \(orphans.prefix(10))")
-                DBHelper.shared.deleteOrphanedRecords(table: table, ckRecordNames: orphans)
+                db.deleteOrphanedRecords(table: table, ckRecordNames: orphans)
                 totalOrphans += orphans.count
             }
         }
@@ -3245,7 +3268,7 @@ final class SyncEngine {
             permissions = role == .owner ? .fullAccess : .memberDefault
         }
 
-        let repo = BudgetGroupRepository()
+        let repo = BudgetGroupRepository(db: db)
 
         // Handle removal flag
         if isRemoved {
@@ -3258,7 +3281,7 @@ final class SyncEngine {
 
                 // The group's zone is gone, so its projections can never be withdrawn from it.
                 // Forget them, or every subsequent push retries a delete that cannot succeed.
-                DBHelper.shared.deleteProjectionState(zoneName: "Group-\(groupId)")
+                db.deleteProjectionState(zoneName: "Group-\(groupId)")
                 DispatchQueue.main.async {
                     NotificationCenter.default.post(name: .budgetGroupDataChanged, object: nil)
                 }
@@ -3390,12 +3413,12 @@ final class SyncEngine {
     /// the change token flow entirely — handles cases where fetchDatabaseChanges doesn't
     /// report CKShare-based zones.
     private func discoverGroupsFromAllZones(completion: @escaping () -> Void) {
-        let repo = BudgetGroupRepository()
+        let repo = BudgetGroupRepository(db: db)
         let existingGroups = repo.fetchAllGroups()
 
         // Include soft-deleted group IDs so they aren't "rediscovered" during sync.
         // Only acceptInvitation should restore a deleted group.
-        let allGroupRows = DBHelper.shared.fetchBudgetGroupRows(
+        let allGroupRows = db.fetchBudgetGroupRows(
             "SELECT id, name, owner_id, owner_name, owner_email, currency, ck_record_id, ck_share_url, ck_zone_owner, created_at, updated_at, is_deleted FROM BudgetGroups"
         )
         let allLocalGroupIds = Set(allGroupRows.map { $0.id })
@@ -3411,7 +3434,7 @@ final class SyncEngine {
 
         var allZoneNames: [String] = []
 
-        cloudKitOps.fetchAllZones(database: .private) { [weak self] result in
+        cloudKitOps.fetchAllZones(database: .private) { [weak self, db] result in
             if case .success(let zoneIDs) = result {
                 for zoneID in zoneIDs {
                     allZoneNames.append(zoneID.zoneName)
@@ -3471,7 +3494,7 @@ final class SyncEngine {
 
                 // For owned groups, ensure pending invitations in the public DB have the share URL
                 // Re-fetch groups from DB to get the latest ckShareUrl (may have been updated by prior sync)
-                let freshGroups = BudgetGroupRepository().fetchAllGroups()
+                let freshGroups = BudgetGroupRepository(db: db).fetchAllGroups()
                 for group in freshGroups where group.isOwner {
                     let hasZone = foundGroupZoneIds.contains(group.id)
                     logWarning("[Sync] Owner group '\(group.name)': hasZone=\(hasZone), ckShareUrl=\(group.ckShareUrl ?? "nil"), ckRecordId=\(group.ckRecordId ?? "nil")")
@@ -3541,7 +3564,7 @@ final class SyncEngine {
         var sharedUnfetchedZoneIDs: [CKRecordZone.ID] = []
         var foundSharedGroupIds: Set<String> = []
 
-        cloudKitOps.fetchAllZones(database: .shared) { [weak self] result in
+        cloudKitOps.fetchAllZones(database: .shared) { [weak self, db] result in
             if case .success(let zoneIDs) = result {
                 for zoneID in zoneIDs {
                     logWarning("[Sync] Shared DB zone found: \(zoneID.zoneName) (owner: \(zoneID.ownerName))")
@@ -3549,7 +3572,7 @@ final class SyncEngine {
                     let groupId = String(zoneID.zoneName.dropFirst("Group-".count))
                     foundSharedGroupIds.insert(groupId)
                     // Backfill: store zone owner name for existing groups that don't have it yet
-                    BudgetGroupRepository().updateZoneOwner(groupId: groupId, zoneOwner: zoneID.ownerName)
+                    BudgetGroupRepository(db: db).updateZoneOwner(groupId: groupId, zoneOwner: zoneID.ownerName)
                     if !existingGroupIds.contains(groupId) {
                         sharedGroupZoneIDs.append(zoneID)
                         logWarning("[Sync] Discovered missing shared group zone: \(zoneID.zoneName)")
@@ -3565,8 +3588,8 @@ final class SyncEngine {
                 // or placeholder groups that need their real data fetched.
                 // This handles the case where the initial fetch after CKShare acceptance
                 // only returned the share metadata due to CloudKit propagation delay.
-                let repo = BudgetGroupRepository()
-                let txRepo = TransactionRepository()
+                let repo = BudgetGroupRepository(db: db)
+                let txRepo = TransactionRepository(db: db)
                 let placeholderNames: Set<String> = ["Group", "Shared Group"]
                 for groupId in foundSharedGroupIds {
                     if let group = repo.fetchGroup(byId: groupId),
@@ -3635,7 +3658,7 @@ final class SyncEngine {
     /// `sharedDatabase`, which fails unconditionally with "Only shared zones can be accessed in the
     /// shared DB" — so this repair never actually ran a single time since it was written.
     private func discoverMembersFromSharedDB(completion: @escaping () -> Void) {
-        let repo = BudgetGroupRepository()
+        let repo = BudgetGroupRepository(db: db)
         let ownedGroups = repo.fetchAllGroups().filter { $0.isOwner && !$0.isDeleted }
 
         guard !ownedGroups.isEmpty else {
@@ -3733,7 +3756,7 @@ final class SyncEngine {
                             } else {
                                 logWarning("[Sync] Group '\(group.name)' repaired (no share URL returned)")
                             }
-                            BudgetGroupRepository().updateGroup(updated)
+                            BudgetGroupRepository(db: self.db).updateGroup(updated)
                         case .failure(let error):
                             logError("[Sync] Failed to save BudgetGroup record for repair: \(error.localizedDescription)")
                         }
@@ -3763,7 +3786,7 @@ final class SyncEngine {
         sharedZoneGroupIds: Set<String>,
         completion: @escaping () -> Void
     ) {
-        let repo = BudgetGroupRepository()
+        let repo = BudgetGroupRepository(db: db)
         let activeGroups = repo.fetchAllGroups()
 
         // Find member groups (not owner) that have no shared zone access
@@ -3821,7 +3844,7 @@ final class SyncEngine {
             ORDER BY created_at DESC LIMIT 1
             """
         // Use raw SQL fetch since we just need one string
-        let invitations = DBHelper.shared.fetchGroupInvitationRows(
+        let invitations = db.fetchGroupInvitationRows(
             "SELECT id, group_id, group_name, inviter_name, inviter_email, invitee_email, status, ck_share_url, created_at, responded_at FROM GroupInvitations WHERE group_id = ? AND ck_share_url IS NOT NULL AND ck_share_url != ''",
             textBindings: [groupId]
         )
@@ -3861,7 +3884,7 @@ final class SyncEngine {
     }
 
     private func attemptShareRepair(url: URL, group: BudgetGroup, completion: @escaping () -> Void) {
-        CloudKitManager.shared.container.fetchShareMetadata(with: url) { [weak self] metadata, error in
+        CloudKitManager.shared.container.fetchShareMetadata(with: url) { [weak self, db] metadata, error in
             guard let metadata = metadata else {
                 logError("[Sync] CKShare metadata fetch failed for group '\(group.name)': \(error?.localizedDescription ?? "unknown")")
                 completion()
@@ -3875,7 +3898,7 @@ final class SyncEngine {
                     let ownerName = share.recordID.zoneID.ownerName
                     logWarning("[Sync] CKShare accepted for group '\(group.name)' — zone owner: \(ownerName)")
 
-                    let repo = BudgetGroupRepository()
+                    let repo = BudgetGroupRepository(db: db)
                     repo.updateZoneOwner(groupId: group.id, zoneOwner: ownerName)
 
                     // Also store the share URL locally
@@ -3953,7 +3976,7 @@ final class SyncEngine {
                     var updated = group
                     updated.ckShareUrl = url
                     updated.ckRecordId = recordID.recordName
-                    BudgetGroupRepository().updateGroup(updated)
+                    BudgetGroupRepository(db: self.db).updateGroup(updated)
                     BudgetGroupService.shared.propagateShareUrl(groupId: group.id, newUrl: url)
                 } else {
                     logWarning("[Sync] CKShare saved for group '\(group.name)' but URL is nil (savedShareUrl=\(savedShareUrl ?? "nil"), newShare.url=\(newShare.url?.absoluteString ?? "nil"))")
@@ -4020,7 +4043,7 @@ final class SyncEngine {
     /// Creates a minimal BudgetGroup from zone info when the CKRecord isn't available.
     /// Uses zone ownership to determine if the current user is the owner or a member.
     private func createPlaceholderGroup(groupId: String, zoneID: CKRecordZone.ID) {
-        let repo = BudgetGroupRepository()
+        let repo = BudgetGroupRepository(db: db)
         guard repo.fetchGroup(byId: groupId) == nil else { return }
         guard let uid = AuthenticationManager.shared.currentUser?.uid else { return }
 
@@ -4090,7 +4113,7 @@ final class SyncEngine {
         }
         let groupId = String(recordName.dropFirst("budgetGroup-".count))
 
-        let repo = BudgetGroupRepository()
+        let repo = BudgetGroupRepository(db: db)
         let ownerEmail = record["ownerEmail"] as? String
             ?? (ownerId == AuthenticationManager.shared.currentUser?.uid
                 ? (AuthenticationManager.shared.currentUser?.email ?? "")
