@@ -20,7 +20,14 @@ extension BudgetAllocationModel: CKRecordConvertible {
         return toCKRecord(in: zoneID, storedRecordName: nil)
     }
 
-    func toCKRecord(in zoneID: CKRecordZone.ID, storedRecordName: String?) -> CKRecord {
+    /// - Parameter db: the database this row belongs to. Explicit for the same reason as
+    ///   `CKTransactionAdapter`: the adapter reads this row's identity columns, and defaulting to
+    ///   `.shared` would read the wrong database whenever the caller is operating on another one.
+    func toCKRecord(
+        in zoneID: CKRecordZone.ID,
+        storedRecordName: String?,
+        db: DBHelper = .shared
+    ) -> CKRecord {
         let recordName: String
         if let storedName = storedRecordName {
             recordName = storedName
@@ -42,6 +49,16 @@ extension BudgetAllocationModel: CKRecordConvertible {
         // time silently reverted the other device's newer edit.
         record["updatedAt"] = (updatedAt ?? record.creationDate ?? Date()) as CKRecordValue
         record["createdByUid"] = createdByUid as CKRecordValue?
+
+        // Stable identity, and the only cross-device link a recurring allocation instance has to
+        // its parent. `parentAllocationId` is a LOCAL autoincrement integer and had no remapping at
+        // all on the receiving side — it was written straight through, so an instance either dangled
+        // or silently pointed at an unrelated allocation.
+        if let allocId = id, let ids = db.uuidIdentity(table: "BudgetAllocations", localId: allocId) {
+            record["uuid"] = ids.uuid as CKRecordValue
+            record["parentAllocationUuid"] = ids.parentUuid as CKRecordValue?
+            record["schemaVersion"] = 1 as CKRecordValue
+        }
         return record
     }
 

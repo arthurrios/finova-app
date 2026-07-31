@@ -3353,6 +3353,32 @@ class DBHelper {
         return Int(sqlite3_column_int64(statement, 0))
     }
 
+    /// Ordered bindings, for a query whose placeholders interleave text and integers — the
+    /// `textBinding:`/`intBinding:` pair above cannot express that.
+    func fetchSingleString(_ query: String, orderedBindings: [Any?]) -> String? {
+        guard isInitialized else { return nil }
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK else { return nil }
+        defer { sqlite3_finalize(statement) }
+
+        for (index, binding) in orderedBindings.enumerated() {
+            let col = Int32(index + 1)
+            switch binding {
+            case let text as String:
+                sqlite3_bind_text(statement, col, text, -1, SQLITE_TRANSIENT)
+            case let intVal as Int:
+                sqlite3_bind_int64(statement, col, Int64(intVal))
+            default:
+                sqlite3_bind_null(statement, col)
+            }
+        }
+
+        guard sqlite3_step(statement) == SQLITE_ROW,
+              sqlite3_column_type(statement, 0) != SQLITE_NULL,
+              let cString = sqlite3_column_text(statement, 0) else { return nil }
+        return String(cString: cString)
+    }
+
     func fetchSingleInt(_ query: String, orderedBindings: [Any?]) -> Int? {
         guard isInitialized else { return nil }
         var statement: OpaquePointer?

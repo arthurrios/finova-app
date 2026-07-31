@@ -30,7 +30,14 @@ extension CreditCardStatement: CKRecordConvertible {
         return toCKRecord(in: zoneID, storedRecordName: nil)
     }
 
-    func toCKRecord(in zoneID: CKRecordZone.ID, storedRecordName: String?) -> CKRecord {
+    /// - Parameter db: the database this row belongs to. Explicit for the same reason as
+    ///   `CKTransactionAdapter`: the adapter reads this row's identity columns, and defaulting to
+    ///   `.shared` would read the wrong database whenever the caller is operating on another one.
+    func toCKRecord(
+        in zoneID: CKRecordZone.ID,
+        storedRecordName: String?,
+        db: DBHelper = .shared
+    ) -> CKRecord {
         let recordName: String
         if let storedName = storedRecordName {
             recordName = storedName
@@ -43,7 +50,7 @@ extension CreditCardStatement: CKRecordConvertible {
         record["localId"] = (id ?? 0) as CKRecordValue
         record["creditCardId"] = creditCardId as CKRecordValue
         // Store credit card's CK record name for cross-device ID remapping
-        if let cardCKName = CreditCardRepository().fetchCKRecordName(for: creditCardId) {
+        if let cardCKName = CreditCardRepository(db: db).fetchCKRecordName(for: creditCardId) {
             record["creditCardCKRecordName"] = cardCKName as CKRecordValue
         }
         record["closingDate"] = closingDate as CKRecordValue
@@ -56,6 +63,17 @@ extension CreditCardStatement: CKRecordConvertible {
         record["isDatesOverridden"] = (isDatesOverridden ? 1 : 0) as CKRecordValue
         record["updatedAt"] = updatedAt as CKRecordValue
         record["createdByUid"] = createdByUid as CKRecordValue?
+
+        // Stable, device-independent identity and relationship. `creditCardCKRecordName` above is
+        // nil until the card has been pushed, so a statement arriving before its card could not be
+        // linked and the sender's meaningless local integer stayed in the receiver's database. A
+        // uuid exists from row creation, so it is always available and always correct —
+        // `resolveUuidForeignKeys()` converts it to a local id on this or a later pass.
+        if let stmtId = id, let ids = db.uuidIdentity(table: "CreditCardStatements", localId: stmtId) {
+            record["uuid"] = ids.uuid as CKRecordValue
+            record["creditCardUuid"] = ids.creditCardUuid as CKRecordValue?
+            record["schemaVersion"] = 1 as CKRecordValue
+        }
         return record
     }
 

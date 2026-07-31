@@ -2296,6 +2296,28 @@ final class SyncEngine {
             let dest = destination(forGroupId: budget.sharedGroupId)
             let freshRecord = budget.toCKRecord(in: dest.zoneID)
             let budgetRecordName = freshRecord.recordID.recordName
+
+            // A group budget written by an older build is stored under the unqualified
+            // `budget-<monthDate>` — the personal budget's name. Group names now carry the group, so
+            // this row is effectively being renamed, and CKRecord names are immutable: withdraw the
+            // old record and let the new name be created. Only ever fires for group budgets, and
+            // only once per row.
+            let storedBudgetName = budgetRepo.fetchCKRecordName(
+                forMonthDate: budget.monthDate, sharedGroupId: budget.sharedGroupId
+            )
+            if let old = storedBudgetName, old != budgetRecordName {
+                logWarning("[Sync] Budget \(budget.monthDate) renamed \(old) → \(budgetRecordName); withdrawing old record")
+                appendOrphanDeleteID(
+                    CKRecord.ID(recordName: old, zoneID: dest.zoneID), database: dest.database
+                )
+                clearSystemFields(ckRecordName: old)
+                budgetRepo.clearCKRecordId(forMonthDate: budget.monthDate, sharedGroupId: budget.sharedGroupId)
+            }
+            budgetRepo.setCKRecordId(
+                forMonthDate: budget.monthDate, sharedGroupId: budget.sharedGroupId,
+                ckRecordName: budgetRecordName
+            )
+
             let systemFields = DBHelper.shared.fetchSystemFields(ckRecordName: budgetRecordName, table: "Budgets")
             appendRecord(stampedRev(buildCKRecord(fresh: freshRecord, systemFieldsData: systemFields)), database: dest.database)
             fanOutProjections(of: freshRecord, isPersonal: (budget.sharedGroupId ?? "").isEmpty)

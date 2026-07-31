@@ -281,6 +281,30 @@ final class BudgetRepository: BudgetRepositoryProtocol {
     )
   }
 
+  /// The stored CloudKit name for one scope's budget. Scoped, because a month can now hold a
+  /// personal budget and one per group, each with its own record.
+  func fetchCKRecordName(forMonthDate monthDate: Int, sharedGroupId: String?) -> String? {
+    db.fetchSingleString(
+      """
+      SELECT ck_record_id FROM Budgets
+       WHERE month_date = ? AND COALESCE(shared_group_id, '') = ?;
+      """,
+      orderedBindings: [monthDate, sharedGroupId ?? ""]
+    )
+  }
+
+  /// Drops a scope's stored CloudKit identity so the next push treats it as a new record. Used when
+  /// a group budget written under the old unqualified name is renamed.
+  func clearCKRecordId(forMonthDate monthDate: Int, sharedGroupId: String?) {
+    db.executeGroupWrite(
+      """
+      UPDATE Budgets SET ck_record_id = NULL
+       WHERE month_date = ? AND COALESCE(shared_group_id, '') = ?;
+      """,
+      orderedBindings: [monthDate, sharedGroupId ?? ""]
+    )
+  }
+
   /// The budget for a month in a specific scope. `nil` group means the personal budget.
   func fetchBudget(byMonthDate monthDate: Int, sharedGroupId: String?) -> BudgetModel? {
     guard let amount = db.fetchSingleInt(

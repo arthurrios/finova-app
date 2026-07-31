@@ -15,9 +15,28 @@ extension BudgetModel: CKRecordConvertible {
         )
     }
 
+    /// A budget's CloudKit name, which must be unique per SCOPE and not merely per month.
+    ///
+    /// The personal form is deliberately unchanged. Every budget already in CloudKit is stored as
+    /// `budget-<monthDate>`, and CKRecord names are immutable — a different name means delete +
+    /// create, which a device on an older build would receive as a deletion and faithfully apply.
+    ///
+    /// Group budgets get the group appended. CloudKit itself does not need this (names are unique
+    /// per zone, and the two live in different zones), but the local `ck_record_id` UNIQUE index is
+    /// zone-blind: with one name for both scopes, whichever row stored it second was rejected, left
+    /// with a NULL `ck_record_id`, and could never be matched by `markAsSynced` — so it was pushed
+    /// again on every sync cycle, forever.
+    ///
+    /// Scoping the local index instead would be worse: ~20 sites look budgets up by record name
+    /// alone, and `hardDeleteByCKRecordName` would then delete BOTH rows.
+    static func recordName(monthDate: Int, sharedGroupId: String?) -> String {
+        guard let groupId = sharedGroupId, !groupId.isEmpty else { return "budget-\(monthDate)" }
+        return "budget-\(monthDate)-\(groupId)"
+    }
+
     func toCKRecord(in zoneID: CKRecordZone.ID) -> CKRecord {
         let recordID = CKRecord.ID(
-            recordName: "budget-\(monthDate)",
+            recordName: Self.recordName(monthDate: monthDate, sharedGroupId: sharedGroupId),
             zoneID: zoneID
         )
         let record = CKRecord(recordType: Self.recordType, recordID: recordID)
