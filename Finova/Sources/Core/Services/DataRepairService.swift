@@ -69,6 +69,17 @@ enum DataRepairService {
         creditCardService.recalculateAllStatementTotals()
         creditCardService.repairBudgetMonthForOverriddenTransactions()
 
+        // Re-run the mirror-tag restore, bypassing its one-shot flag.
+        //
+        // Safe to repeat: it only ever un-tags rows THIS user authored, and a row already personal is
+        // a no-op. It is here because the one-shot flag lives in UserDefaults while the rows live in
+        // the database — so restoring a snapshot brings back tagged rows the flag says were already
+        // handled, and without this there would be no way to ask for it again.
+        let restored = MirrorTagRestore.restore(db: db, uid: uid)
+        if restored > 0 {
+            logWarning("[Repair] Re-ran mirror-tag restore — \(restored) row(s) returned to personal")
+        }
+
         // Normalisation, not new truth: rebuild the integer foreign keys from the uuid pointers.
         let relinked = db.resolveUuidForeignKeys()
 
@@ -87,7 +98,7 @@ enum DataRepairService {
             ran: true,
             summary: String(
                 format: "repair.summary".localized,
-                after.transactions, after.statements, relinked
+                after.transactions, after.statements, relinked + restored
             )
         )
     }
