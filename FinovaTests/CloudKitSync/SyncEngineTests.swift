@@ -235,29 +235,48 @@ final class SyncEngineTests: XCTestCase {
         XCTAssertEqual(savedRecord?["sharedGroupId"] as? String, "group-abc-123")
     }
 
-    /// KNOWN FAILING — the last one in this class, and a genuine question, not a stale expectation.
+    /// KNOWN FAILING, and the cause is test pollution rather than a production defect — but note the
+    /// diagnosis below took two wrong turns, so treat it as established only where it says so.
     ///
-    /// Symptom: after the FIRST `performSyncAndWait()`, `fetchAllTransactions()` returns empty, so the
-    /// test cannot find the row it just inserted and synced ("No transaction to delete" at the guard
-    /// below). The row is inserted personal, so the Stage 3f scoping of personal reads
-    /// (`shared_group_id IS NULL`) should not exclude it.
+    /// ESTABLISHED: the row is genuinely absent from the database after the first sync (the raw count
+    /// assertion below reads 0), and the outcome depends on whether the simulator was erased
+    /// beforehand. Erased → the whole class passes 19/19. Not erased → this test fails.
     ///
-    /// Two candidates, in order:
-    ///   1. The pull phase now runs where it previously never did (this class used to bail on the
-    ///      auth guard), and something in it removes or re-scopes the row — the orphan cleanup that
-    ///      follows a full refetch is the prime suspect, since the recovery fallback makes this a
-    ///      nil-token full fetch.
-    ///   2. `TransactionRepository`'s static cache: this test does not invalidate it between the
-    ///      sync and the read.
+    /// CAUSE: `SyncEngineTests` is the ONLY suite in CloudKitSync still using `DBHelper.shared`;
+    /// every other one got an isolated `DBHelper(path:)` in Stage 0. That file persists across test
+    /// RUNS, and `tearDown` soft-deletes budgets (`is_deleted = 1, sync_status = 'pendingDelete'`)
+    /// rather than removing them, so tombstones accumulate. A later run pushes those inherited
+    /// tombstones and `pushDeletes` hard-deletes the matching local rows — including this test's.
+    /// That is the same hydration-invariant hazard the engine guards against in production and which
+    /// a shared test database recreates artificially.
     ///
-    /// Worth resolving before trusting this class completely: if it is (1), it is a real defect in a
-    /// path no test could previously reach, which is exactly the kind of thing this work exists to
-    /// surface. Do NOT "fix" it by relaxing the assertion until (1) is ruled out.
+    /// FIX: give this class an isolated database, which means threading `db:` into `SyncEngine` the
+    /// way `ConflictResolver(db:)` and the repositories already are. Until then, the assertion below
+    /// is the one that matters: it distinguishes "row deleted" from "row hidden by a stale cache",
+    /// so a genuine over-eager orphan cleanup would still be caught rather than masked.
+    ///
+    /// I initially concluded the static `TransactionRepository` cache explained this. It does not —
+    /// the row is really gone. The cache invalidation below is still correct and still needed, it just
+    /// is not the cause.
     func testPush_DeletesSentAfterSaves() {
         // Insert and sync a transaction first
         let model = CloudKitSyncTestHelpers.makeTransactionModel(title: "To Delete", amount: 3000)
         try! txRepo.insertTransaction(model)
         performSyncAndWait()
+
+        // The sync wrote through DBHelper, so the repository's static cache is stale. Without this
+        // the read below returns the pre-sync snapshot.
+        TransactionRepository.invalidateCache()
+
+        // The row must still be in the database — a sync with nothing to reconcile must not remove
+        // what it just pushed. This is the assertion that would have caught an over-eager orphan
+        // cleanup, and it is why the guard below is not the only check here.
+        XCTAssertEqual(
+            DBHelper.shared.fetchSingleInt(
+                "SELECT COUNT(*) FROM Transactions WHERE (is_deleted IS NULL OR is_deleted = 0);"),
+            1,
+            "The synced transaction must survive its own sync cycle"
+        )
 
         // Now delete it locally
         let txs = txRepo.fetchAllTransactions()
