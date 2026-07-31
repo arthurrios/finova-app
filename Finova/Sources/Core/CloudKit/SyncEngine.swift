@@ -2182,6 +2182,13 @@ final class SyncEngine {
 
         // MARK: Transparent Mode projections
 
+        // Counted rather than logged per record: fanning a 1300-row ledger out would bury the push
+        // log in 1300 identical lines. The summary below is the only evidence this path ran at all,
+        // and it is the least-exercised path in the sync layer — it had NO success logging until a
+        // real user was about to turn it on for the first time.
+        var projectionsPublished: [String: Int] = [:]
+        var projectionsWithdrawn: [String: Int] = [:]
+
         // Every group the current user publishes their personal ledger into, resolved once for the
         // whole cycle. Groups whose destination isn't known yet are simply skipped — the next push
         // picks them up, which is safer than guessing a zone.
@@ -2236,6 +2243,7 @@ final class SyncEngine {
                     stale.zoneOwner == CKCurrentUserDefaultName ? .private : .shared
                 appendOrphanDeleteID(CKRecord.ID(recordName: name, zoneID: zoneID), database: database)
                 db.deleteProjectionState(recordName: name, zoneName: stale.zoneName)
+                projectionsWithdrawn[stale.zoneName, default: 0] += 1
             }
 
             for target in live {
@@ -2252,6 +2260,7 @@ final class SyncEngine {
                     stampedRev(buildCKRecord(fresh: projected, systemFieldsData: systemFields)),
                     database: target.dest.database
                 )
+                projectionsPublished[target.dest.zoneID.zoneName, default: 0] += 1
             }
         }
 
@@ -2618,6 +2627,29 @@ final class SyncEngine {
         let groupZoneRecords = privateRecords.filter { $0.recordID.zoneID.zoneName.hasPrefix("Group-") }
         let defaultZoneRecords = privateRecords.filter { !$0.recordID.zoneID.zoneName.hasPrefix("Group-") }
         logWarning("[Sync] Push: \(totalRecords) record(s) to save (\(defaultZoneRecords.count) private-default, \(groupZoneRecords.count) private-group, \(sharedRecords.count) shared, \(groupMemberRecords.count) groupMember), \(totalDeletes) to delete")
+
+        // Transparent Mode summary. The only evidence this path ran, and the only way to tell a
+        // projection fan-out apart from ordinary group records in the counts above — both land in
+        // `private-group`. Logged even when zero, because "published 0" and "did not run" are
+        // different diagnoses and the difference matters on a path this new.
+        if projectionTargets.isEmpty {
+            logWarning("[Transparency] No groups published to — no projections in this push")
+        } else {
+            let targets = projectionTargets
+                .map { "\($0.dest.zoneID.zoneName)(\($0.dest.database == .shared ? "shared" : "private"))" }
+                .joined(separator: ", ")
+            let published = projectionsPublished.isEmpty
+                ? "none"
+                : projectionsPublished.map { "\($0.key)=\($0.value)" }.sorted().joined(separator: ", ")
+            logWarning("""
+                [Transparency] Publishing to \(projectionTargets.count) group zone(s): \(targets)
+                  projections queued: \(published)
+                """)
+        }
+        if !projectionsWithdrawn.isEmpty {
+            let withdrawn = projectionsWithdrawn.map { "\($0.key)=\($0.value)" }.sorted().joined(separator: ", ")
+            logWarning("[Transparency] Withdrawing projections from no-longer-published zone(s): \(withdrawn)")
+        }
 
         postPhaseProgress(progress: 0.55, phaseKey: "sync.phase.preparingUpload", totalRecords: totalRecords)
 
