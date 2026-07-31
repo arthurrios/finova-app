@@ -106,6 +106,23 @@ enum DataRepairService {
         )
     }
 
+    /// Takes a restore point on demand, without repairing anything.
+    ///
+    /// The migrations and the repair action already snapshot before they touch data, but nothing
+    /// covered "I am about to test a new feature" — which is when the interesting damage happens.
+    /// Returns the filename so it can be reported, and nil if the copy failed.
+    ///
+    /// Note snapshots are marked excluded from iCloud backup: they are local recovery state, so a
+    /// lost device loses them. Pull the container if a snapshot needs to survive the device.
+    static func createBackup() -> String? {
+        guard let url = DBHelper.shared.snapshotDatabase(tag: "manual") else {
+            logError("[Repair] Backup failed")
+            return nil
+        }
+        logWarning("[Repair] Backup written: \(url.lastPathComponent)")
+        return url.lastPathComponent
+    }
+
     private struct Inventory: CustomStringConvertible {
         let transactions: Int
         let statements: Int

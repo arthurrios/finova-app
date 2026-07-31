@@ -115,6 +115,11 @@ final class SyncSettingsViewModel {
     }
   }
 
+  /// Takes a restore point now. Cheap, local, and the thing to press before trying anything new.
+  func createBackup() -> String? {
+    DataRepairService.createBackup()
+  }
+
   func recoverySync() {
     ensureCloudKitAvailable { [weak self] in
       guard let self = self else { return }

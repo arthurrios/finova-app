@@ -2452,6 +2452,31 @@ class DBHelper {
     /// `VACUUM INTO` writes a single consistent file with the WAL already checkpointed in. A plain
     /// file copy can capture the `.sqlite` without its `-wal` and silently lose the most recent
     /// commits — not acceptable before a destructive table rebuild on real financial data.
+    /// How many snapshots to keep. Each is a full copy of the database — roughly 6.5 MB against an
+    /// 11 MB database on a real ledger — so an unbounded directory quietly consumes the device.
+    /// Five is enough to step back through a testing session and still bounded at ~35 MB.
+    private static let snapshotsToKeep = 5
+
+    /// Deletes all but the newest `snapshotsToKeep` snapshots.
+    ///
+    /// Ordered by the timestamp in the FILENAME, not by modification date: `VACUUM INTO` writes and
+    /// the filesystem may report mtimes out of order for files created in the same second, and the
+    /// filename is the value the app itself chose.
+    private func pruneSnapshots(in dir: URL) {
+        let files = (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil))?
+            .filter { $0.lastPathComponent.hasPrefix("AppFinance-") && $0.pathExtension == "sqlite" } ?? []
+        guard files.count > Self.snapshotsToKeep else { return }
+
+        func timestamp(_ url: URL) -> Int {
+            Int(url.deletingPathExtension().lastPathComponent.split(separator: "-").last ?? "") ?? 0
+        }
+        let doomed = files.sorted { timestamp($0) > timestamp($1) }.dropFirst(Self.snapshotsToKeep)
+        for url in doomed {
+            try? FileManager.default.removeItem(at: url)
+            logWarning("[Migration] Pruned old snapshot: \(url.lastPathComponent)")
+        }
+    }
+
     @discardableResult
     func snapshotDatabase(tag: String) -> URL? {
         guard isInitialized else { return nil }
@@ -2475,6 +2500,7 @@ class DBHelper {
             var mutable = url
             try? mutable.setResourceValues(values)
             logWarning("[Migration] Snapshot written: \(url.lastPathComponent)")
+            pruneSnapshots(in: dir)
             return url
         } catch {
             logError("[Migration] Snapshot failed: \(error)")

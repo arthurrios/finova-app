@@ -121,6 +121,19 @@ extension SyncSettingsViewController: SyncSettingsViewDelegate {
     present(alert, animated: true)
   }
 
+  func didTapCreateBackup() {
+    let name = viewModel.createBackup()
+    let alert = UIAlertController(
+      title: name == nil
+        ? "syncSettings.backup.failed.title".localized
+        : "syncSettings.backup.done.title".localized,
+      message: name ?? "syncSettings.backup.failed.message".localized,
+      preferredStyle: .alert
+    )
+    alert.addAction(UIAlertAction(title: "alert.ok".localized, style: .default))
+    present(alert, animated: true)
+  }
+
   func didTapRepairData() {
     let alert = UIAlertController(
       title: "syncSettings.repairData.confirm.title".localized,
