@@ -9712,74 +9712,6 @@
         }
       }
     },
-    "settings.mirrorMode.noGroup": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No group selected"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nenhum grupo selecionado"
-          }
-        }
-      }
-    },
-    "settings.mirrorMode.selectGroup.message": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Choose which group to mirror your personal data to."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Escolha para qual grupo espelhar seus dados pessoais."
-          }
-        }
-      }
-    },
-    "settings.mirrorMode.selectGroup.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Select Group"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Selecionar Grupo"
-          }
-        }
-      }
-    },
-    "settings.mirrorMode.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mirror to Group"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Espelhar para Grupo"
-          }
-        }
-      }
-    },
     "settings.notifications.title": {
       "extractionState": "manual",
       "localizations": {
@@ -9844,23 +9776,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Financeiro"
-          }
-        }
-      }
-    },
-    "settings.section.mirrorMode": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mirror Mode"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Modo Espelho"
           }
         }
       }
@@ -9933,6 +9848,23 @@
         }
       }
     },
+    "settings.section.transparency": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Group Sharing"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compartilhamento com Grupo"
+          }
+        }
+      }
+    },
     "settings.sync.title": {
       "extractionState": "manual",
       "localizations": {
@@ -9963,6 +9895,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "Configurações"
+          }
+        }
+      }
+    },
+    "settings.transparency.noGroup": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not sharing with any group"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não compartilhando com nenhum grupo"
+          }
+        }
+      }
+    },
+    "settings.transparency.selectGroup.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The group will see a copy of your personal transactions, budgets and cards. Your own records stay yours, and you can stop sharing at any time."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O grupo verá uma cópia das suas transações, orçamentos e cartões pessoais. Seus registros continuam sendo seus, e você pode parar de compartilhar quando quiser."
+          }
+        }
+      }
+    },
+    "settings.transparency.selectGroup.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Share with which group?"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compartilhar com qual grupo?"
+          }
+        }
+      }
+    },
+    "settings.transparency.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Share my finances"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compartilhar minhas finanças"
           }
         }
       }

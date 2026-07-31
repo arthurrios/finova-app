@@ -113,28 +113,28 @@ final class SettingsView: UIView {
     let syncStatusDetailLabel = createDetailLabel(text: "")
     private let syncSettingsChevron = createChevronView()
 
-    // Mirror Mode Section
-    private let mirrorModeHeaderView = createSectionHeader(title: "settings.section.mirrorMode".localized)
+    // Group Sharing (Transparent Mode) Section
+    private let transparencyHeaderView = createSectionHeader(title: "settings.section.transparency".localized)
 
-    let mirrorModeContainer = createSettingContainer()
-    private let mirrorModeIconView = createIconView(imageName: "arrow.triangle.2.circlepath")
-    let mirrorModeLabel = createSettingLabel(text: "settings.mirrorMode.title".localized)
-    let mirrorModeSwitch: UISwitch = {
+    let transparencyContainer = createSettingContainer()
+    private let transparencyIconView = createIconView(imageName: "eye")
+    let transparencyLabel = createSettingLabel(text: "settings.transparency.title".localized)
+    let transparencySwitch: UISwitch = {
         let toggle = UISwitch()
         toggle.onTintColor = Colors.mainMagenta
         toggle.translatesAutoresizingMaskIntoConstraints = false
         return toggle
     }()
 
-    let mirrorGroupContainer: UIView = {
+    let transparencyGroupContainer: UIView = {
         let container = createSettingContainer()
         container.isUserInteractionEnabled = true
         container.isHidden = true
         return container
     }()
-    private let mirrorGroupIconView = createIconView(imageName: "person.2")
-    let mirrorGroupLabel = createSettingLabel(text: "settings.mirrorMode.noGroup".localized)
-    private let mirrorGroupChevron = createChevronView()
+    private let transparencyGroupIconView = createIconView(imageName: "person.2")
+    let transparencyGroupLabel = createSettingLabel(text: "settings.transparency.noGroup".localized)
+    private let transparencyGroupChevron = createChevronView()
 
     // Notifications Section
     private let notificationsHeaderView = createSectionHeader(title: "settings.section.notifications".localized)
@@ -216,12 +216,12 @@ final class SettingsView: UIView {
         setupSyncSettingsContainer()
         contentStackView.addArrangedSubview(syncSettingsContainer)
 
-        // Mirror Mode section
-        contentStackView.addArrangedSubview(mirrorModeHeaderView)
-        setupMirrorModeContainer()
-        contentStackView.addArrangedSubview(mirrorModeContainer)
-        setupMirrorGroupContainer()
-        contentStackView.addArrangedSubview(mirrorGroupContainer)
+        // Group Sharing section
+        contentStackView.addArrangedSubview(transparencyHeaderView)
+        setupTransparencyContainer()
+        contentStackView.addArrangedSubview(transparencyContainer)
+        setupTransparencyGroupContainer()
+        contentStackView.addArrangedSubview(transparencyGroupContainer)
 
         // Notifications section
         contentStackView.addArrangedSubview(notificationsHeaderView)
@@ -298,37 +298,37 @@ final class SettingsView: UIView {
         ])
     }
 
-    private func setupMirrorModeContainer() {
-        mirrorModeContainer.addSubview(mirrorModeIconView)
-        mirrorModeContainer.addSubview(mirrorModeLabel)
-        mirrorModeContainer.addSubview(mirrorModeSwitch)
+    private func setupTransparencyContainer() {
+        transparencyContainer.addSubview(transparencyIconView)
+        transparencyContainer.addSubview(transparencyLabel)
+        transparencyContainer.addSubview(transparencySwitch)
 
         NSLayoutConstraint.activate([
-            mirrorModeIconView.leadingAnchor.constraint(equalTo: mirrorModeContainer.leadingAnchor, constant: Metrics.spacing4),
-            mirrorModeIconView.centerYAnchor.constraint(equalTo: mirrorModeContainer.centerYAnchor),
+            transparencyIconView.leadingAnchor.constraint(equalTo: transparencyContainer.leadingAnchor, constant: Metrics.spacing4),
+            transparencyIconView.centerYAnchor.constraint(equalTo: transparencyContainer.centerYAnchor),
 
-            mirrorModeLabel.leadingAnchor.constraint(equalTo: mirrorModeIconView.trailingAnchor, constant: Metrics.spacing3),
-            mirrorModeLabel.centerYAnchor.constraint(equalTo: mirrorModeContainer.centerYAnchor),
+            transparencyLabel.leadingAnchor.constraint(equalTo: transparencyIconView.trailingAnchor, constant: Metrics.spacing3),
+            transparencyLabel.centerYAnchor.constraint(equalTo: transparencyContainer.centerYAnchor),
 
-            mirrorModeSwitch.trailingAnchor.constraint(equalTo: mirrorModeContainer.trailingAnchor, constant: -Metrics.spacing4),
-            mirrorModeSwitch.centerYAnchor.constraint(equalTo: mirrorModeContainer.centerYAnchor)
+            transparencySwitch.trailingAnchor.constraint(equalTo: transparencyContainer.trailingAnchor, constant: -Metrics.spacing4),
+            transparencySwitch.centerYAnchor.constraint(equalTo: transparencyContainer.centerYAnchor)
         ])
     }
 
-    private func setupMirrorGroupContainer() {
-        mirrorGroupContainer.addSubview(mirrorGroupIconView)
-        mirrorGroupContainer.addSubview(mirrorGroupLabel)
-        mirrorGroupContainer.addSubview(mirrorGroupChevron)
+    private func setupTransparencyGroupContainer() {
+        transparencyGroupContainer.addSubview(transparencyGroupIconView)
+        transparencyGroupContainer.addSubview(transparencyGroupLabel)
+        transparencyGroupContainer.addSubview(transparencyGroupChevron)
 
         NSLayoutConstraint.activate([
-            mirrorGroupIconView.leadingAnchor.constraint(equalTo: mirrorGroupContainer.leadingAnchor, constant: Metrics.spacing4),
-            mirrorGroupIconView.centerYAnchor.constraint(equalTo: mirrorGroupContainer.centerYAnchor),
+            transparencyGroupIconView.leadingAnchor.constraint(equalTo: transparencyGroupContainer.leadingAnchor, constant: Metrics.spacing4),
+            transparencyGroupIconView.centerYAnchor.constraint(equalTo: transparencyGroupContainer.centerYAnchor),
 
-            mirrorGroupLabel.leadingAnchor.constraint(equalTo: mirrorGroupIconView.trailingAnchor, constant: Metrics.spacing3),
-            mirrorGroupLabel.centerYAnchor.constraint(equalTo: mirrorGroupContainer.centerYAnchor),
+            transparencyGroupLabel.leadingAnchor.constraint(equalTo: transparencyGroupIconView.trailingAnchor, constant: Metrics.spacing3),
+            transparencyGroupLabel.centerYAnchor.constraint(equalTo: transparencyGroupContainer.centerYAnchor),
 
-            mirrorGroupChevron.trailingAnchor.constraint(equalTo: mirrorGroupContainer.trailingAnchor, constant: -Metrics.spacing4),
-            mirrorGroupChevron.centerYAnchor.constraint(equalTo: mirrorGroupContainer.centerYAnchor)
+            transparencyGroupChevron.trailingAnchor.constraint(equalTo: transparencyGroupContainer.trailingAnchor, constant: -Metrics.spacing4),
+            transparencyGroupChevron.centerYAnchor.constraint(equalTo: transparencyGroupContainer.centerYAnchor)
         ])
     }
 
@@ -456,10 +456,10 @@ final class SettingsView: UIView {
         let syncSettingsTap = UITapGestureRecognizer(target: self, action: #selector(syncSettingsTapped))
         syncSettingsContainer.addGestureRecognizer(syncSettingsTap)
 
-        mirrorModeSwitch.addTarget(self, action: #selector(mirrorModeToggled), for: .valueChanged)
+        transparencySwitch.addTarget(self, action: #selector(transparencyToggled), for: .valueChanged)
 
-        let mirrorGroupTap = UITapGestureRecognizer(target: self, action: #selector(mirrorGroupTapped))
-        mirrorGroupContainer.addGestureRecognizer(mirrorGroupTap)
+        let transparencyGroupTap = UITapGestureRecognizer(target: self, action: #selector(transparencyGroupTapped))
+        transparencyGroupContainer.addGestureRecognizer(transparencyGroupTap)
     }
 
     @objc
@@ -493,13 +493,13 @@ final class SettingsView: UIView {
     }
 
     @objc
-    private func mirrorModeToggled() {
-        delegate?.didToggleMirrorMode(mirrorModeSwitch.isOn)
+    private func transparencyToggled() {
+        delegate?.didToggleTransparency(transparencySwitch.isOn)
     }
 
     @objc
-    private func mirrorGroupTapped() {
-        delegate?.didTapMirrorGroupPicker()
+    private func transparencyGroupTapped() {
+        delegate?.didTapTransparencyGroupPicker()
     }
 }
 

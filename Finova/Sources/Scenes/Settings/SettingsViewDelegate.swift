@@ -12,6 +12,6 @@ protocol SettingsViewDelegate: AnyObject {
     func didTapNotifications()
     func didTapCurrency()
     func didTapSyncSettings()
-    func didToggleMirrorMode(_ isEnabled: Bool)
-    func didTapMirrorGroupPicker()
+    func didToggleTransparency(_ isEnabled: Bool)
+    func didTapTransparencyGroupPicker()
 }

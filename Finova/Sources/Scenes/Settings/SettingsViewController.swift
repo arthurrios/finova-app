@@ -73,11 +73,11 @@ extension SettingsViewController: SettingsViewDelegate {
         flowDelegate?.navigateToSyncSettings()
     }
 
-    func didToggleMirrorMode(_ isEnabled: Bool) {
-        viewModel.toggleMirrorMode(isEnabled)
+    func didToggleTransparency(_ isEnabled: Bool) {
+        viewModel.toggleTransparency(isEnabled)
     }
 
-    func didTapMirrorGroupPicker() {
+    func didTapTransparencyGroupPicker() {
         let groups = viewModel.availableGroups
         if !groups.isEmpty {
             showGroupSelectionSheet(groups: groups)
@@ -156,13 +156,13 @@ extension SettingsViewController: SettingsViewModelDelegate {
         }
     }
     
-    func didUpdateMirrorMode(isEnabled: Bool, groupName: String?) {
-        contentView.mirrorModeSwitch.isOn = isEnabled
-        contentView.mirrorGroupContainer.isHidden = !isEnabled
+    func didUpdateTransparency(isEnabled: Bool, groupName: String?) {
+        contentView.transparencySwitch.isOn = isEnabled
+        contentView.transparencyGroupContainer.isHidden = !isEnabled
         if let groupName = groupName {
-            contentView.mirrorGroupLabel.text = groupName
+            contentView.transparencyGroupLabel.text = groupName
         } else {
-            contentView.mirrorGroupLabel.text = "settings.mirrorMode.noGroup".localized
+            contentView.transparencyGroupLabel.text = "settings.transparency.noGroup".localized
         }
     }
 
@@ -219,19 +219,19 @@ extension SettingsViewController {
     }
 }
 
-// MARK: - Mirror Mode Group Selection
+// MARK: - Group Sharing — Group Selection
 extension SettingsViewController {
 
     private func showGroupSelectionSheet(groups: [BudgetGroup]) {
         let alert = UIAlertController(
-            title: "settings.mirrorMode.selectGroup.title".localized,
-            message: "settings.mirrorMode.selectGroup.message".localized,
+            title: "settings.transparency.selectGroup.title".localized,
+            message: "settings.transparency.selectGroup.message".localized,
             preferredStyle: .actionSheet
         )
 
         for group in groups {
             let action = UIAlertAction(title: group.name, style: .default) { [weak self] _ in
-                self?.viewModel.selectMirrorGroup(group)
+                self?.viewModel.selectTransparencyGroup(group)
             }
             if self.viewModel.isPublishing(to: group) {
                 action.setValue(true, forKey: "checked")
@@ -240,17 +240,17 @@ extension SettingsViewController {
         }
 
         alert.addAction(UIAlertAction(title: "alert.cancel".localized, style: .cancel) { [weak self] _ in
-            // If user cancels without selecting a group and mirror mode was just toggled on,
+            // If the user cancels without selecting a group and sharing was just toggled on,
             // revert the toggle since no group was selected
-            if !(self?.viewModel.isMirrorModeEnabled ?? false) {
-                self?.contentView.mirrorModeSwitch.isOn = false
-                self?.contentView.mirrorGroupContainer.isHidden = true
+            if !(self?.viewModel.isPublishingToAnyGroup ?? false) {
+                self?.contentView.transparencySwitch.isOn = false
+                self?.contentView.transparencyGroupContainer.isHidden = true
             }
         })
 
         if let popoverController = alert.popoverPresentationController {
-            popoverController.sourceView = contentView.mirrorGroupContainer
-            popoverController.sourceRect = contentView.mirrorGroupContainer.bounds
+            popoverController.sourceView = contentView.transparencyGroupContainer
+            popoverController.sourceRect = contentView.transparencyGroupContainer.bounds
         }
 
         present(alert, animated: true)

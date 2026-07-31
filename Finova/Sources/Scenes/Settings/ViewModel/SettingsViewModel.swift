@@ -86,16 +86,16 @@ final class SettingsViewModel {
 
   // MARK: - Transparent Mode
   //
-  // Replaces Mirror Mode. The view-layer names (`mirrorModeSwitch`, `didUpdateMirrorMode`) are
-  // kept for now to avoid churning the whole Settings view for a rename; the SEMANTICS are what
-  // changed. Mirror Mode moved your personal ledger into the group. Transparent Mode publishes a
-  // copy of it and leaves the originals personal, so turning it off simply withdraws the copies.
+  // Mirror Mode moved your personal ledger into the group, which by the app's own rule stopped
+  // those rows being personal. This publishes a COPY and leaves the originals alone, so turning it
+  // off simply withdraws the copies. The user-facing wording says so explicitly — someone deciding
+  // whether to enable it needs to know their own records are not going anywhere.
 
-  var isMirrorModeEnabled: Bool {
+  var isPublishingToAnyGroup: Bool {
     return !TransparencyManager.shared.publishedGroupIds().isEmpty
   }
 
-  var mirrorGroupName: String? {
+  var publishedGroupNames: String? {
     let names = TransparencyManager.shared.publishedGroupIds()
       .compactMap { BudgetGroupService.shared.fetchGroup(byId: $0)?.name }
     return names.isEmpty ? nil : names.joined(separator: ", ")
@@ -120,7 +120,7 @@ final class SettingsViewModel {
 
   private func configureInitialSettings() {
     updateBiometricUI()
-    updateMirrorModeUI()
+    updateTransparencyUI()
     delegate?.didUpdateAppVersion(version: appVersionString)
   }
 
@@ -147,28 +147,28 @@ final class SettingsViewModel {
   func refreshAllSettings() {
     updateBiometricUI()
     updateCurrencyUI()
-    updateMirrorModeUI()
+    updateTransparencyUI()
     delegate?.didUpdateAppVersion(version: appVersionString)
   }
 
-  // MARK: - Mirror Mode Management
+  // MARK: - Group Sharing Management
 
-  private func updateMirrorModeUI() {
-    delegate?.didUpdateMirrorMode(
-      isEnabled: isMirrorModeEnabled,
-      groupName: mirrorGroupName
+  private func updateTransparencyUI() {
+    delegate?.didUpdateTransparency(
+      isEnabled: isPublishingToAnyGroup,
+      groupName: publishedGroupNames
     )
   }
 
-  func toggleMirrorMode(_ enabled: Bool) {
+  func toggleTransparency(_ enabled: Bool) {
     if enabled {
       let groups = availableGroups
       if groups.isEmpty {
-        delegate?.didUpdateMirrorMode(isEnabled: false, groupName: nil)
+        delegate?.didUpdateTransparency(isEnabled: false, groupName: nil)
         return
       }
       if groups.count == 1, let group = groups.first {
-        selectMirrorGroup(group)
+        selectTransparencyGroup(group)
       } else {
         delegate?.didRequestGroupSelection(groups: groups)
       }
@@ -179,14 +179,14 @@ final class SettingsViewModel {
         TransparencyManager.shared.setPublishing(false, forGroup: groupId)
       }
       SyncEngine.shared.pushPendingChangesNow()
-      updateMirrorModeUI()
+      updateTransparencyUI()
     }
   }
 
-  func selectMirrorGroup(_ group: BudgetGroup) {
+  func selectTransparencyGroup(_ group: BudgetGroup) {
     TransparencyManager.shared.setPublishing(true, forGroup: group.id)
     SyncEngine.shared.pushPendingChangesNow()
-    updateMirrorModeUI()
+    updateTransparencyUI()
   }
 
   func isPublishing(to group: BudgetGroup) -> Bool {
