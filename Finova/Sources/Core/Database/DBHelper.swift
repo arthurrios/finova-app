@@ -4215,7 +4215,21 @@ class DBHelper {
         guard isInitialized else { return }
 
         fixOrphanedParentTransactionIds()
-        deduplicateRecurringTransactions()
+        // `deduplicateRecurringTransactions()` used to run here. It is the same class of defect as
+        // the content matcher removed from ConflictResolver in 1303467, and for the same reason: it
+        // groups by (user_id, title, budget_month_date) and keeps MIN(id), so two GENUINELY DISTINCT
+        // transactions sharing a title in a month are merged, and the survivor is chosen by a local
+        // row id that names a different row on every device.
+        //
+        // Measured on the reporter's database: 49 tombstoned rows had a live twin with a DIFFERENT
+        // AMOUNT — real, separate purchases deleted — and 56 of the tombstones were income, which is
+        // how it was noticed. It also marks losers `pendingDelete`, so it pushes those deletions to
+        // CloudKit and they are gone for every device.
+        //
+        // Duplicate instances are now prevented at the source rather than repaired after the fact:
+        // generated occurrences derive a UUIDv5 from (parent, month) and `idx_transactions_uuid` is
+        // UNIQUE, so a second generation of the same occurrence is rejected on insert. Nothing needs
+        // to guess from content afterwards, and nothing should.
 
         // Reset sync tokens so the next sync pushes the corrected data
         SyncStateManager.shared.resetAllTokens()
@@ -4376,6 +4390,17 @@ class DBHelper {
     /// Deduplicates ALL transactions: keeps the row with the lowest id
     /// per (title, amount, budget_month_date), soft-deletes the rest as pendingDelete.
     /// This handles duplicate recurring parents, instances, and normal transactions.
+    /// DEPRECATED and no longer called from any production path.
+    ///
+    /// Retained only because `TransactionRepository.fixAndDeduplicateAfterSync` still exposes it and
+    /// the two-device test harness drives that. Do NOT call it: it groups by
+    /// (user_id, title, budget_month_date) and keeps MIN(id), which merges genuinely distinct
+    /// transactions that happen to share a title in a month and picks the survivor by a local row id
+    /// that names a different row on every device. It deleted 49 real transactions from a live ledger.
+    ///
+    /// If duplicates need clearing, key on IDENTITY: `dedupeLegacyCKRecordIdsV4` for records sharing a
+    /// `ck_record_id`, or `DataRepairService.deduplicateAllocations` for the allocation invariant.
+    /// Never on content.
     func deduplicateRecurringTransactions() {
         guard isInitialized else { return }
         guard let uid = UIDUserDefaultsManager.shared.currentUserUID else { return }

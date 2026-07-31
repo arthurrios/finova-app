@@ -123,6 +123,44 @@ enum DataRepairService {
         )
     }
 
+    /// Consolidates duplicate rows and nothing else.
+    ///
+    /// Separate from `repairAll` because the nine credit-card repairs it runs REWRITE rows —
+    /// reassigning transactions between statements and months — and seven of the eight do not check
+    /// `is_statement_overridden`. A user who has corrected a statement assignment by hand can have
+    /// that correction silently undone. On the reporter's device 24 transactions carried an override.
+    ///
+    /// So when the need is "remove the duplicates", this does exactly that: the allocation invariant
+    /// (one per scope/month/category) and the uuid-keyed foreign-key rebuild, both of which key on
+    /// IDENTITY and cannot disagree with a manual edit.
+    @discardableResult
+    static func consolidateDuplicates() -> Result {
+        guard let uid = UIDUserDefaultsManager.shared.currentUserUID else {
+            return Result(ran: false, summary: "repair.notSignedIn".localized)
+        }
+        guard UserDefaults.standard.bool(forKey: "syncFullPullVerified_v2") else {
+            logWarning("[Repair] Refused — this device has not completed a verified full pull")
+            return Result(ran: false, summary: "repair.notHydrated".localized)
+        }
+
+        let db = DBHelper.shared
+        db.snapshotDatabase(tag: "pre-consolidate")
+
+        let merged = deduplicateAllocations(db: db, uid: uid)
+        let relinked = db.resolveUuidForeignKeys()
+        TransactionRepository.invalidateCache()
+        logWarning("[Repair] Consolidate only: \(merged) duplicate allocation(s), \(relinked) link(s) rebuilt")
+
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(name: .transactionDataChanged, object: nil)
+            NotificationCenter.default.post(name: .allocationDataChanged, object: nil)
+        }
+        return Result(
+            ran: true,
+            summary: String(format: "repair.consolidated".localized, merged)
+        )
+    }
+
     /// Takes a restore point on demand, without repairing anything.
     ///
     /// The migrations and the repair action already snapshot before they touch data, but nothing

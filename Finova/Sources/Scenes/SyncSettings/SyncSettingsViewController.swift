@@ -134,6 +134,25 @@ extension SyncSettingsViewController: SyncSettingsViewDelegate {
     present(alert, animated: true)
   }
 
+  func didTapConsolidateDuplicates() {
+    let alert = UIAlertController(
+      title: "syncSettings.consolidate.confirm.title".localized,
+      message: "syncSettings.consolidate.confirm.message".localized,
+      preferredStyle: .alert
+    )
+    alert.addAction(UIAlertAction(title: "alert.cancel".localized, style: .cancel))
+    alert.addAction(UIAlertAction(title: "syncSettings.consolidate.confirm.action".localized, style: .default) { [weak self] _ in
+      self?.viewModel.consolidateDuplicates { summary in
+        let done = UIAlertController(
+          title: "syncSettings.consolidate.done.title".localized,
+          message: summary, preferredStyle: .alert)
+        done.addAction(UIAlertAction(title: "alert.ok".localized, style: .default))
+        self?.present(done, animated: true)
+      }
+    })
+    present(alert, animated: true)
+  }
+
   func didTapRepairData() {
     let alert = UIAlertController(
       title: "syncSettings.repairData.confirm.title".localized,

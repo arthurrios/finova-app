@@ -120,6 +120,15 @@ final class SyncSettingsViewModel {
     DataRepairService.createBackup()
   }
 
+  /// Removes duplicate rows without running the credit-card repairs, which rewrite statement and
+  /// month assignments and would undo manual corrections.
+  func consolidateDuplicates(completion: @escaping (String) -> Void) {
+    DispatchQueue.global(qos: .userInitiated).async {
+      let result = DataRepairService.consolidateDuplicates()
+      DispatchQueue.main.async { completion(result.summary) }
+    }
+  }
+
   func recoverySync() {
     ensureCloudKitAvailable { [weak self] in
       guard let self = self else { return }

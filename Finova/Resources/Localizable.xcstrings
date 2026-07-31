@@ -9287,6 +9287,23 @@
         }
       }
     },
+    "repair.consolidated": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$d duplicate allocation(s) removed. No transactions were changed."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$d alocação(ões) duplicada(s) removida(s). Nenhuma transação foi alterada."
+          }
+        }
+      }
+    },
     "repair.notHydrated": {
       "extractionState": "manual",
       "localizations": {
@@ -10966,6 +10983,91 @@
           "stringUnit": {
             "state": "translated",
             "value": "Limpeza da Nuvem"
+          }
+        }
+      }
+    },
+    "syncSettings.consolidate.confirm.action": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remover"
+          }
+        }
+      }
+    },
+    "syncSettings.consolidate.confirm.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keeps one budget allocation per category each month and removes the extras. It does not change any transaction, so corrections you made by hand are left alone. A backup is saved first."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mantém uma alocação de orçamento por categoria em cada mês e remove as extras. Não altera nenhuma transação, então as correções que você fez manualmente são preservadas. Um backup é salvo antes."
+          }
+        }
+      }
+    },
+    "syncSettings.consolidate.confirm.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove duplicates?"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remover duplicados?"
+          }
+        }
+      }
+    },
+    "syncSettings.consolidate.done.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Duplicates removed"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Duplicados removidos"
+          }
+        }
+      }
+    },
+    "syncSettings.consolidate.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove duplicates"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remover duplicados"
           }
         }
       }
