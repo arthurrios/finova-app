@@ -84,19 +84,30 @@ final class SettingsViewModel {
     ("SAR", "Saudi Riyal")
   ]
 
-  // MARK: - Mirror Mode
+  // MARK: - Transparent Mode
+  //
+  // Replaces Mirror Mode. The view-layer names (`mirrorModeSwitch`, `didUpdateMirrorMode`) are
+  // kept for now to avoid churning the whole Settings view for a rename; the SEMANTICS are what
+  // changed. Mirror Mode moved your personal ledger into the group. Transparent Mode publishes a
+  // copy of it and leaves the originals personal, so turning it off simply withdraws the copies.
 
   var isMirrorModeEnabled: Bool {
-    return MirrorModeManager.shared.isEnabled
+    return !TransparencyManager.shared.publishedGroupIds().isEmpty
   }
 
   var mirrorGroupName: String? {
-    guard let groupId = MirrorModeManager.shared.linkedGroupId else { return nil }
-    return BudgetGroupService.shared.fetchGroup(byId: groupId)?.name
+    let names = TransparencyManager.shared.publishedGroupIds()
+      .compactMap { BudgetGroupService.shared.fetchGroup(byId: $0)?.name }
+    return names.isEmpty ? nil : names.joined(separator: ", ")
   }
 
+  /// Every group the user belongs to, not just the ones they own.
+  ///
+  /// Mirror Mode was owner-only, because moving your ledger into someone else's group would have
+  /// handed them your records. Publishing a copy carries no such risk, so any member may choose to
+  /// be transparent to their own group.
   var availableGroups: [BudgetGroup] {
-    return BudgetGroupService.shared.fetchAllGroups().filter { $0.isOwner }
+    return BudgetGroupService.shared.fetchAllGroups().filter { !$0.isDeleted }
   }
 
   // MARK: - Initialization
@@ -162,14 +173,24 @@ final class SettingsViewModel {
         delegate?.didRequestGroupSelection(groups: groups)
       }
     } else {
-      MirrorModeManager.shared.disableMirrorMode()
+      // Stop publishing everywhere. No financial row is touched: the next sync withdraws the
+      // projections from the group zones and the personal ledger is left exactly as it was.
+      for groupId in TransparencyManager.shared.publishedGroupIds() {
+        TransparencyManager.shared.setPublishing(false, forGroup: groupId)
+      }
+      SyncEngine.shared.pushPendingChangesNow()
       updateMirrorModeUI()
     }
   }
 
   func selectMirrorGroup(_ group: BudgetGroup) {
-    MirrorModeManager.shared.enableMirrorMode(groupId: group.id)
+    TransparencyManager.shared.setPublishing(true, forGroup: group.id)
+    SyncEngine.shared.pushPendingChangesNow()
     updateMirrorModeUI()
+  }
+
+  func isPublishing(to group: BudgetGroup) -> Bool {
+    TransparencyManager.shared.isPublishing(toGroup: group.id)
   }
 
   // MARK: - Currency Management

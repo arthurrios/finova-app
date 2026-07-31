@@ -1141,15 +1141,12 @@ final class DashboardViewController: UIViewController {
             "SELECT COUNT(*) FROM Transactions WHERE user_id = ? AND is_deleted = 1;",
             textBinding: uid) ?? 0
 
-        let mirrorEnabled = MirrorModeManager.shared.isEnabled
-        let mirrorGroup = MirrorModeManager.shared.linkedGroupId ?? "none"
         let groupTagged = db.fetchSingleInt(
             "SELECT COUNT(*) FROM Transactions WHERE user_id = ? AND shared_group_id IS NOT NULL AND shared_group_id != '' AND (is_deleted IS NULL OR is_deleted = 0);",
             textBinding: uid) ?? 0
 
         let localMsg = """
         User: \(uid.prefix(8))...
-        Mirror: \(mirrorEnabled) (group: \(mirrorGroup.prefix(8))...)
 
         --- LOCAL DB ---
         Total in DB: \(totalInDB)
@@ -1163,15 +1160,12 @@ final class DashboardViewController: UIViewController {
 
         logWarning("[SyncDiag] \(localMsg)")
 
-        // Find any group to query — mirror group (owner) or first joined group (member)
-        var diagGroupId: String? = mirrorGroup != "none" ? mirrorGroup : nil
+        // Find any group to query
+        var diagGroupId: String?
         var diagZoneOwner: String = CKCurrentUserDefaultName
-        if diagGroupId == nil {
-            // Check for member groups
-            if let firstGroup = BudgetGroupRepository().fetchAllGroups().first(where: { !$0.isDeleted }) {
-                diagGroupId = firstGroup.id
-                diagZoneOwner = firstGroup.ckZoneOwner ?? CKCurrentUserDefaultName
-            }
+        if let firstGroup = BudgetGroupRepository().fetchAllGroups().first(where: { !$0.isDeleted }) {
+            diagGroupId = firstGroup.id
+            diagZoneOwner = firstGroup.ckZoneOwner ?? CKCurrentUserDefaultName
         }
         if let gid = diagGroupId {
             let zoneID = CKRecordZone.ID(zoneName: "Group-\(gid)", ownerName: diagZoneOwner)

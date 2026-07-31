@@ -70,11 +70,6 @@ final class BudgetGroupsViewModel {
         // which the zone lingers and other devices resurrect the group.
         BudgetGroupService.shared.deleteGroup(id: group.id)
 
-        // Disable mirror mode if linked to this group
-        if MirrorModeManager.shared.isEnabled,
-           MirrorModeManager.shared.linkedGroupId == group.id {
-            MirrorModeManager.shared.disableMirrorMode()
-        }
 
         loadGroups()
         NotificationCenter.default.post(name: .budgetGroupDataChanged, object: nil)
@@ -91,11 +86,6 @@ final class BudgetGroupsViewModel {
         // Soft-delete the group locally so it disappears from this device
         repository.softDeleteGroup(id: group.id)
 
-        // Disable mirror mode if linked to this group
-        if MirrorModeManager.shared.isEnabled,
-           MirrorModeManager.shared.linkedGroupId == group.id {
-            MirrorModeManager.shared.disableMirrorMode()
-        }
 
         loadGroups()
         NotificationCenter.default.post(name: .budgetGroupDataChanged, object: nil)

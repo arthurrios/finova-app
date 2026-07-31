@@ -85,15 +85,12 @@ final class GroupDetailsViewModel {
         }
         // Clear the GroupMember push flag so it re-pushes if the user rejoins
         UserDefaults.standard.removeObject(forKey: "groupMemberPushed_\(group.id)")
+        // The zone becomes unreachable, so projections into it can never be withdrawn.
+        DBHelper.shared.deleteProjectionState(zoneName: "Group-\(group.id)")
 
         // Soft-delete the group locally so it disappears from this device
         repository.softDeleteGroup(id: group.id)
 
-        // Disable mirror mode if linked to this group
-        if MirrorModeManager.shared.isEnabled,
-           MirrorModeManager.shared.linkedGroupId == group.id {
-            MirrorModeManager.shared.disableMirrorMode()
-        }
 
         NotificationCenter.default.post(name: .budgetGroupDataChanged, object: nil)
     }
@@ -107,11 +104,6 @@ final class GroupDetailsViewModel {
         // which the zone lingers and other devices resurrect the group.
         BudgetGroupService.shared.deleteGroup(id: group.id)
 
-        // Disable mirror mode if linked to this group
-        if MirrorModeManager.shared.isEnabled,
-           MirrorModeManager.shared.linkedGroupId == group.id {
-            MirrorModeManager.shared.disableMirrorMode()
-        }
 
         NotificationCenter.default.post(name: .budgetGroupDataChanged, object: nil)
     }

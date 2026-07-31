@@ -128,16 +128,6 @@ class UIDUserDefaultsManager {
     UserDefaults.standard.set(offset, forKey: "balanceOffset_\(uid)")
     UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: "balanceOffset_\(uid)_localTs")
     pushBalanceOffsetToCloud(offset, key: "personal", uid: uid)
-    // Mirror mode: propagate personal → group only for owners.
-    // Members receive the group offset from the owner's shared zone;
-    // their personal offset must not overwrite the authoritative group value.
-    if MirrorModeManager.shared.isEnabled,
-       let groupId = MirrorModeManager.shared.linkedGroupId {
-      let group = BudgetGroupRepository().fetchGroup(byId: groupId)
-      if group?.isOwner != false {
-        setGroupBalanceOffset(offset, groupId: groupId)
-      }
-    }
   }
 
   func getGroupBalanceOffset(groupId: String) -> Int {
@@ -237,12 +227,6 @@ class UIDUserDefaultsManager {
     if UserDefaults.standard.object(forKey: "balanceOffset_\(uid)_localTs") != nil {
       pushBalanceOffsetToCloud(
         UserDefaults.standard.integer(forKey: "balanceOffset_\(uid)"), key: "personal", uid: uid)
-    }
-    if MirrorModeManager.shared.isEnabled, let groupId = MirrorModeManager.shared.linkedGroupId,
-       UserDefaults.standard.object(forKey: "balanceOffset_group_\(groupId)_localTs") != nil {
-      let offset = UserDefaults.standard.integer(forKey: "balanceOffset_group_\(groupId)")
-      pushBalanceOffsetToCloud(offset, key: "group-\(groupId)", uid: uid)
-      pushBalanceOffsetToGroupZone(offset, groupId: groupId, uid: uid)
     }
   }
 
@@ -408,48 +392,6 @@ class UIDUserDefaultsManager {
     }
 
     dispatchGroup.notify(queue: .main) { [weak self] in
-      // Mirror mode reconciliation: ensure personal and linked group offsets stay in sync
-      if MirrorModeManager.shared.isEnabled,
-         let mirrorGroupId = MirrorModeManager.shared.linkedGroupId,
-         let self = self {
-        let personalOffset = fetchedPersonalOffset ?? UserDefaults.standard.integer(forKey: "balanceOffset_\(uid)")
-        let personalDate = fetchedPersonalDate ?? .distantPast
-
-        let groupEntry = fetchedGroupOffsets.first(where: { $0.groupId == mirrorGroupId })
-        let groupOffset = groupEntry?.offset ?? UserDefaults.standard.integer(forKey: "balanceOffset_group_\(mirrorGroupId)")
-        let groupDate = groupEntry?.updatedAt ?? .distantPast
-
-        if personalOffset != groupOffset {
-          // For members, the group offset from the owner is always authoritative.
-          // Members must not overwrite the group offset with their personal offset.
-          let linkedGroup = BudgetGroupRepository().fetchGroup(byId: mirrorGroupId)
-          let sourceOffset: Int
-          if linkedGroup?.isOwner == false {
-            sourceOffset = groupOffset
-            logInfo("Mirror reconciliation (member): personal=\(personalOffset) group=\(groupOffset), using group = \(sourceOffset)")
-          } else {
-            // Owner: use the most recently updated value as source of truth
-            sourceOffset = personalDate >= groupDate ? personalOffset : groupOffset
-            logInfo("Mirror reconciliation: personal=\(personalOffset) group=\(groupOffset), using \(personalDate >= groupDate ? "personal" : "group") = \(sourceOffset)")
-          }
-
-          UserDefaults.standard.set(sourceOffset, forKey: "balanceOffset_\(uid)")
-          UserDefaults.standard.set(sourceOffset, forKey: "balanceOffset_group_\(mirrorGroupId)")
-
-          // Push corrected value to the stale side.
-          // For members, always push to "personal" so the stale CloudKit personal
-          // record is updated — otherwise the next fetch re-reads the old value.
-          if linkedGroup?.isOwner == false {
-            self.pushBalanceOffsetToCloud(sourceOffset, key: "personal", uid: uid)
-          } else if personalDate >= groupDate {
-            self.pushBalanceOffsetToCloud(sourceOffset, key: "group-\(mirrorGroupId)", uid: uid)
-          } else {
-            self.pushBalanceOffsetToCloud(sourceOffset, key: "personal", uid: uid)
-          }
-          didUpdate = true
-        }
-      }
-
       if didUpdate {
         NotificationCenter.default.post(name: .transactionDataChanged, object: nil)
       }

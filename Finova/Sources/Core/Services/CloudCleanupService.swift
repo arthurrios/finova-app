@@ -153,16 +153,6 @@ final class CloudCleanupService {
     }
 
     private func resolveDestination() -> Destination? {
-        // Mirror mode owner → group zone in private DB
-        if MirrorModeManager.shared.isEnabled,
-           let groupId = MirrorModeManager.shared.linkedGroupId
-        {
-            let zoneID = CKRecordZone.ID(
-                zoneName: "Group-\(groupId)", ownerName: CKCurrentUserDefaultName
-            )
-            return Destination(zoneID: zoneID, database: cloudKitManager.privateDatabase)
-        }
-
         // Check for a budget group
         let groups = BudgetGroupRepository().fetchAllGroups()
         if let group = groups.first {

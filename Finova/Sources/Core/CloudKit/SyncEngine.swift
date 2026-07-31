@@ -1267,9 +1267,7 @@ final class SyncEngine {
                                 self.isFullRefetch = false
                                 self.pulledCKRecordNames = []
                             }
-                            // Mirror mode: ensure all personal data is tagged with group ID before push
                             self.postPhaseProgress(progress: 0.50, phaseKey: "sync.phase.processing")
-                            MirrorModeManager.shared.reconcileMirrorData()
                             // One-time recovery: reset tokens if migration caused data loss
                             self.recoverFromGroupZoneMigration()
                             // One-time migration: move group-tagged records from private zone to group zones
@@ -1284,14 +1282,6 @@ final class SyncEngine {
                                     // Re-register group activity subscriptions for any newly discovered groups
                                     CloudKitManager.shared.setupGroupActivitySubscriptions()
 
-                                    // Re-run reconciliation to tag any transactions pulled during zone discovery
-                                    if MirrorModeManager.shared.isEnabled {
-                                        let changed = MirrorModeManager.shared.reconcileMirrorData()
-                                        if changed > 0 {
-                                            logWarning("[SyncLife] Post-push reconcile tagged \(changed) records — scheduling drain push")
-                                            self.needsPostSyncPush = true
-                                        }
-                                    }
                                     logWarning("[SyncLife] Starting postSyncActions.performPostSyncFetches")
                                     self.postSyncActions.performPostSyncFetches {
                                         logWarning("[SyncLife] postSyncActions completed — entering syncQueue for finishSync")
@@ -3001,17 +2991,6 @@ final class SyncEngine {
             }
         }
 
-        // Mirror mode: records from the private zone don't carry sharedGroupId in CloudKit.
-        // Without this, updateFromCloud(sharedGroupId: nil) clears shared_group_id on the
-        // local record, breaking the group view until reconcileMirrorData re-tags them.
-        // Inject the linked group ID so the local tag is preserved through the pull.
-        if !zoneName.hasPrefix("Group-"),
-           record["sharedGroupId"] == nil,
-           MirrorModeManager.shared.isEnabled,
-           let mirrorGroupId = MirrorModeManager.shared.linkedGroupId {
-            record["sharedGroupId"] = mirrorGroupId as CKRecordValue
-        }
-
         // Cross-device ID remapping: resolve local auto-increment IDs via CK record names
         // before parsing, so the parsed objects already have correct local IDs.
         remapCrossDeviceIDs(in: record)
@@ -3225,12 +3204,10 @@ final class SyncEngine {
                 repo.softDeleteGroup(id: groupId)
                 repo.removeMember(id: record.recordID.recordName.replacingOccurrences(of: "groupMember-", with: ""))
 
-                // Disable mirror mode if linked to this group
+                // The group's zone is gone, so its projections can never be withdrawn from it.
+                // Forget them, or every subsequent push retries a delete that cannot succeed.
+                DBHelper.shared.deleteProjectionState(zoneName: "Group-\(groupId)")
                 DispatchQueue.main.async {
-                    if MirrorModeManager.shared.isEnabled,
-                       MirrorModeManager.shared.linkedGroupId == groupId {
-                        MirrorModeManager.shared.disableMirrorMode()
-                    }
                     NotificationCenter.default.post(name: .budgetGroupDataChanged, object: nil)
                 }
             } else {
@@ -3333,17 +3310,6 @@ final class SyncEngine {
                 } else {
                     UserDefaults.standard.removeObject(forKey: "balanceOffset_\(uid)_localTs")
                 }
-                // Mirror mode: keep linked group offset in sync locally —
-                // but only for owners. Members receive the group offset from the
-                // owner's shared zone; their personal offset must not overwrite it.
-                if MirrorModeManager.shared.isEnabled,
-                   let groupId = MirrorModeManager.shared.linkedGroupId {
-                    let group = BudgetGroupRepository().fetchGroup(byId: groupId)
-                    if group?.isOwner != false {
-                        let effectiveOffset = UserDefaults.standard.integer(forKey: "balanceOffset_\(uid)")
-                        UserDefaults.standard.set(effectiveOffset, forKey: "balanceOffset_group_\(groupId)")
-                    }
-                }
             } else if key.hasPrefix("group-") {
                 let groupId = String(key.dropFirst("group-".count))
                 let current = UserDefaults.standard.integer(forKey: "balanceOffset_group_\(groupId)")
@@ -3360,12 +3326,6 @@ final class SyncEngine {
                     }
                 } else {
                     UserDefaults.standard.removeObject(forKey: "balanceOffset_group_\(groupId)_localTs")
-                }
-                // Mirror mode: keep personal offset in sync locally
-                if MirrorModeManager.shared.isEnabled,
-                   MirrorModeManager.shared.linkedGroupId == groupId {
-                    let effectiveOffset = UserDefaults.standard.integer(forKey: "balanceOffset_group_\(groupId)")
-                    UserDefaults.standard.set(effectiveOffset, forKey: "balanceOffset_\(uid)")
                 }
             }
             // Balance offset update notification is deferred to the end of

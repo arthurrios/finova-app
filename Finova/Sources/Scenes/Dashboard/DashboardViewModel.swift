@@ -333,7 +333,6 @@ final class DashboardViewModel {
 
       // Capture group ID before deletion (needed for activity log)
       let groupId = transactionRepo.fetchSharedGroupId(for: id)
-        ?? (MirrorModeManager.shared.isEnabled ? MirrorModeManager.shared.linkedGroupId : nil)
 
       // Handle simple transactions directly
       if transaction.isRecurring != true && transaction.parentTransactionId == nil
@@ -404,7 +403,6 @@ final class DashboardViewModel {
 
         // Capture group ID before deletion (needed for activity log)
         let groupId = self.transactionRepo.fetchSharedGroupId(for: transactionId)
-          ?? (MirrorModeManager.shared.isEnabled ? MirrorModeManager.shared.linkedGroupId : nil)
 
         // Use mode property to correctly identify transaction type
         // This is more reliable than looking up parent transactions

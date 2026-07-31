@@ -74,14 +74,10 @@ final class SplashViewController: UIViewController {
       }
       DBHelper.shared.backfillUserIds(uid: firebaseUser.uid)
 
-      // Reconcile mirror mode state from iCloud key-value store
-      MirrorModeManager.shared.reconcileCloudState()
-
       // One-time cleanup of ghost records inserted by CloudKit sync
       let didCleanup = Self.performCloudGhostCleanupIfNeeded()
 
       // One-time fix: tag credit cards + missed transactions with shared_group_id for mirror mode
-      Self.performMirrorModeCreditCardFixIfNeeded()
 
       // One-time: wipe local transactions and rebuild from CloudKit (fixes duplicates)
       let needsRebuild = Self.performTransactionRebuildIfNeeded()
@@ -600,61 +596,9 @@ extension SplashViewController {
       logWarning("[SyncRePush] Pushing personal balance offset to CloudKit: \(personalOffset)")
       UIDUserDefaultsManager.shared.setCurrentUserBalanceOffset(personalOffset)
     }
-    // Also push group offsets if mirror mode is active (owner only — members
-    // receive the group offset from the owner's shared zone, not their own)
-    if MirrorModeManager.shared.isEnabled,
-       let groupId = MirrorModeManager.shared.linkedGroupId {
-      let group = BudgetGroupRepository().fetchGroup(byId: groupId)
-      if group?.isOwner != false {
-        let groupOffset = UserDefaults.standard.integer(forKey: "balanceOffset_group_\(groupId)")
-        if groupOffset != 0 {
-          logWarning("[SyncRePush] Pushing group balance offset to CloudKit: \(groupOffset)")
-          UIDUserDefaultsManager.shared.setGroupBalanceOffset(groupOffset, groupId: groupId)
-        }
-      }
-    }
   }
 
 
-}
-
-// MARK: - One-Time Mirror Mode Credit Card Fix
-
-extension SplashViewController {
-  private static let mirrorCCFixKey = "hasPerformedMirrorCCFix_v1"
-
-  /// One-time: if mirror mode is active, tag credit cards and any missed transactions with shared_group_id.
-  static func performMirrorModeCreditCardFixIfNeeded() {
-    guard !UserDefaults.standard.bool(forKey: mirrorCCFixKey) else { return }
-    guard MirrorModeManager.shared.isEnabled,
-          let groupId = MirrorModeManager.shared.linkedGroupId,
-          let uid = UIDUserDefaultsManager.shared.currentUserUID
-    else {
-      // No mirror mode — mark as done so we don't check again
-      UserDefaults.standard.set(true, forKey: mirrorCCFixKey)
-      return
-    }
-
-    logWarning("[MirrorCCFix] Tagging untagged credit cards and transactions with group \(groupId)")
-
-    let db = DBHelper.shared
-
-    // Tag credit cards
-    db.executeSyncUpdate(
-      "UPDATE CreditCards SET shared_group_id = ?, sync_status = 'pending' WHERE user_id = ? AND shared_group_id IS NULL AND is_deleted = 0;",
-      textBindings: [groupId, uid]
-    )
-
-    // Tag any missed transactions (e.g. installment parents/children)
-    db.executeSyncUpdate(
-      "UPDATE Transactions SET shared_group_id = ?, sync_status = 'pending' WHERE user_id = ? AND shared_group_id IS NULL AND (is_deleted IS NULL OR is_deleted = 0);",
-      textBindings: [groupId, uid]
-    )
-
-    TransactionRepository.invalidateCache()
-    UserDefaults.standard.set(true, forKey: mirrorCCFixKey)
-    logWarning("[MirrorCCFix] Complete")
-  }
 }
 
 // MARK: - One-Time Cloud Ghost Cleanup

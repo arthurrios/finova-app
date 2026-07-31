@@ -211,9 +211,11 @@ final class RecurringTransactionManager {
           let insertedId = try transactionRepo.insertTransactionAndGetId(instanceModel)
           newInstances.append(instanceModel)
 
-          // Mirror mode: tag new instance with group ID
-          if MirrorModeManager.shared.isEnabled,
-             let groupId = MirrorModeManager.shared.linkedGroupId {
+          // An instance belongs to whatever ledger its SERIES belongs to. Mirror mode used to
+          // stamp the mirrored group here instead, so instances of a personal series were born
+          // tagged to a group the series itself was not in.
+          if let parentId = recurringTx.id,
+             let groupId = transactionRepo.fetchSharedGroupId(for: parentId) {
             transactionRepo.updateSharedGroupId(transactionId: insertedId, groupId: groupId)
           }
 
@@ -838,9 +840,9 @@ final class RecurringTransactionManager {
             newInstancesCreated += 1
             existingTitleAnchors.insert(key)
 
-            // Mirror mode: tag new instance with group ID
-            if MirrorModeManager.shared.isEnabled,
-               let groupId = MirrorModeManager.shared.linkedGroupId {
+            // Inherit the series' scope, not the device's mirror setting (see above).
+            if let parentId = template.id,
+               let groupId = self.transactionRepo.fetchSharedGroupId(for: parentId) {
               self.transactionRepo.updateSharedGroupId(transactionId: insertedId, groupId: groupId)
             }
 
@@ -857,11 +859,6 @@ final class RecurringTransactionManager {
       } // end inTransaction
 
       // Installment lazy generation removed — all installments are now created upfront at creation time
-
-      // Mirror mode: ensure all newly created instances are tagged with group ID
-      if newInstancesCreated > 0 {
-        MirrorModeManager.shared.reconcileMirrorData()
-      }
 
       return newInstancesCreated
   }

@@ -233,7 +233,7 @@ extension SettingsViewController {
             let action = UIAlertAction(title: group.name, style: .default) { [weak self] _ in
                 self?.viewModel.selectMirrorGroup(group)
             }
-            if group.id == MirrorModeManager.shared.linkedGroupId {
+            if self.viewModel.isPublishing(to: group) {
                 action.setValue(true, forKey: "checked")
             }
             alert.addAction(action)
@@ -242,7 +242,7 @@ extension SettingsViewController {
         alert.addAction(UIAlertAction(title: "alert.cancel".localized, style: .cancel) { [weak self] _ in
             // If user cancels without selecting a group and mirror mode was just toggled on,
             // revert the toggle since no group was selected
-            if !MirrorModeManager.shared.isEnabled {
+            if !(self?.viewModel.isMirrorModeEnabled ?? false) {
                 self?.contentView.mirrorModeSwitch.isOn = false
                 self?.contentView.mirrorGroupContainer.isHidden = true
             }

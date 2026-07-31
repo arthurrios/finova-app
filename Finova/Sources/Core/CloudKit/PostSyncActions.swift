@@ -46,30 +46,12 @@ final class RealPostSyncActions: PostSyncActions {
                 logWarning("[PostSync] Skipping repairCreditCardDataIntegrity — originalDevice=\(isOriginalDevice), hydrated=\(hydrated)")
             }
 
-            // Fix 2b: Ensure owner pushes personal offset to group zone after sync.
-            // Covers the case where offset was set before the group existed.
-            if MirrorModeManager.shared.isEnabled,
-               let groupId = MirrorModeManager.shared.linkedGroupId {
-                let offsetManager = UIDUserDefaultsManager.shared
-                let offset = offsetManager.getCurrentUserBalanceOffset()
-                if offset != 0 {
-                    let groupRepo = BudgetGroupRepository()
-                    if let linkedGroup = groupRepo.fetchGroup(byId: groupId), linkedGroup.isOwner {
-                        let groupOffset = offsetManager.getGroupBalanceOffset(groupId: groupId)
-                        if groupOffset != offset {
-                            logWarning("[PostSync] Owner offset mismatch — pushing personal (\(offset)) to group zone (was \(groupOffset))")
-                            offsetManager.setGroupBalanceOffset(offset, groupId: groupId)
-                        }
-                    }
-                }
-            }
-
             completion()
         }
     }
 
     /// Recovers budgets from CloudKit if they're completely missing locally.
-    /// Searches both the private zone and all group zones (mirror mode pushes to group zones).
+    /// Searches both the private zone and all group zones.
     private static func recoverMissingBudgets(completion: @escaping () -> Void) {
         let db = DBHelper.shared
         let budgetCount = db.fetchSingleInt("SELECT COUNT(*) FROM Budgets;") ?? 0
@@ -314,13 +296,6 @@ final class RealPostSyncActions: PostSyncActions {
         let service = CreditCardService()
         service.repairOrphanedCreditCardTransactions(userId: userId, transactionRepo: txRepo)
 
-        // === Step 3: Mirror mode re-reconciliation ===
-        // Only run if Step 1 actually fixed orphaned records (otherwise nothing changed).
-        if MirrorModeManager.shared.isEnabled && didRepairOrphans {
-            logWarning("[CCRepair] Mirror mode active — running post-repair reconciliation")
-            MirrorModeManager.shared.reconcileMirrorData()
-        }
-
         // === Step 4: Summary log ===
         TransactionRepository.invalidateCache()
         let personalCount = txRepo.fetchAllTransactions().count
@@ -502,19 +477,5 @@ final class RealPostSyncActions: PostSyncActions {
 
         logWarning("[BalanceDiff] offset=\(offset), income=\(totalIncome), expense=\(totalExpense), net=\(netBalance), totalTx=\(allTx.count), cashTx=\(cashTx.count)")
 
-        // Group balance if mirror mode
-        if MirrorModeManager.shared.isEnabled,
-           let groupId = MirrorModeManager.shared.linkedGroupId {
-            let groupOffset = UIDUserDefaultsManager.shared.getGroupBalanceOffset(groupId: groupId)
-            let groupTx = txRepo.fetchTransactionsForGroup(groupId: groupId)
-            let groupCash = groupTx.filter { $0.creditCardId == nil || $0.isCreditCardStatement == true }
-            let groupIncome = groupCash.filter { $0.type == .income }.reduce(0) { $0 + $1.amount }
-            let groupExpense = groupCash.filter { $0.type == .expense }.reduce(0) { $0 + $1.amount }
-            let groupNet = groupOffset + groupIncome - groupExpense
-            logWarning("[BalanceDiff] GROUP: offset=\(groupOffset), income=\(groupIncome), expense=\(groupExpense), net=\(groupNet), totalTx=\(groupTx.count), cashTx=\(groupCash.count)")
-            if netBalance != groupNet {
-                logWarning("[BalanceDiff] MISMATCH: personal=\(netBalance) vs group=\(groupNet), diff=\(netBalance - groupNet)")
-            }
-        }
     }
 }

@@ -20,7 +20,6 @@ final class BudgetRepository: BudgetRepositoryProtocol {
     // primary key (there could only be one row per month anyway); now that a month can hold a
     // personal budget and one per group, dropping the scope collapses them onto the same row.
     let scope = budget.sharedGroupId
-      ?? (MirrorModeManager.shared.isEnabled ? MirrorModeManager.shared.linkedGroupId : nil)
 
     try db.insertBudget(monthDate: budget.monthDate, amount: budget.amount, sharedGroupId: scope)
     markSyncPending(forMonthDate: budget.monthDate, sharedGroupId: scope)
@@ -33,11 +32,6 @@ final class BudgetRepository: BudgetRepositoryProtocol {
       "UPDATE Budgets SET sync_status = 'pending' WHERE month_date = ?;",
       intBindings: [budget.monthDate]
     )
-    if MirrorModeManager.shared.isEnabled,
-       let groupId = MirrorModeManager.shared.linkedGroupId {
-      updateSharedGroupId(monthDate: budget.monthDate, groupId: groupId)
-    }
-
     let groupId = db.fetchSingleString(
       "SELECT shared_group_id FROM Budgets WHERE month_date = ?;",
       intBinding: budget.monthDate

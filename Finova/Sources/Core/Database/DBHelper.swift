@@ -2605,8 +2605,8 @@ class DBHelper {
         sqlite3_bind_text(statement, 1, recordName, -1, SQLITE_TRANSIENT)
         sqlite3_bind_text(statement, 2, zoneName, -1, SQLITE_TRANSIENT)
         sqlite3_bind_text(statement, 3, zoneOwner, -1, SQLITE_TRANSIENT)
-        _ = data.withUnsafeBytes { raw in
-            sqlite3_bind_blob(statement, 4, raw.baseAddress, Int32(data.count), SQLITE_TRANSIENT)
+        data.withUnsafeBytes { raw in
+            _ = sqlite3_bind_blob(statement, 4, raw.baseAddress, Int32(data.count), SQLITE_TRANSIENT)
         }
         sqlite3_step(statement)
     }

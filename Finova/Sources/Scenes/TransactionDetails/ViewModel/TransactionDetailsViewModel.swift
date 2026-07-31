@@ -27,7 +27,6 @@ final class TransactionDetailsViewModel {
 
     // Capture group ID before deletion (needed for activity log)
     let groupId = getSharedGroupId()
-      ?? (MirrorModeManager.shared.isEnabled ? MirrorModeManager.shared.linkedGroupId : nil)
 
     do {
       try transactionRepository.deleteTransactionAndRelated(id: transactionId)
@@ -56,7 +55,6 @@ final class TransactionDetailsViewModel {
 
       // Capture group ID before deletion (needed for activity log)
       let groupId = getSharedGroupId()
-        ?? (MirrorModeManager.shared.isEnabled ? MirrorModeManager.shared.linkedGroupId : nil)
 
       // Handle simple transactions directly
       if transaction.isRecurring != true && transaction.parentTransactionId == nil
@@ -357,7 +355,6 @@ final class TransactionDetailsViewModel {
   func moveTransactionToPersonal() {
     guard let txId = transaction.id else { return }
     let groupId = getSharedGroupId()
-      ?? (MirrorModeManager.shared.isEnabled ? MirrorModeManager.shared.linkedGroupId : nil)
     if let groupId = groupId {
       GroupNotificationService.shared.logActivity(
         action: .transactionDeleted,

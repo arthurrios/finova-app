@@ -140,12 +140,6 @@ final class BudgetAllocationRepository: BudgetAllocationRepositoryProtocol {
             throw BudgetAllocationError.invalidAmount
         }
 
-        if MirrorModeManager.shared.isEnabled,
-           let groupId = MirrorModeManager.shared.linkedGroupId,
-           model.sharedGroupId == nil {
-            updateSharedGroupId(allocationId: newId, groupId: groupId)
-        }
-
         notifyAllocationDataChanged()
 
         return newId
