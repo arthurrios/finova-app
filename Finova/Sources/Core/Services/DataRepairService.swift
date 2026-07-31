@@ -75,7 +75,10 @@ enum DataRepairService {
         // a no-op. It is here because the one-shot flag lives in UserDefaults while the rows live in
         // the database — so restoring a snapshot brings back tagged rows the flag says were already
         // handled, and without this there would be no way to ask for it again.
-        let restored = MirrorTagRestore.restore(db: db, uid: uid)
+        // `includeUnknownAuthorship: true` ONLY here. The automatic pass cannot distinguish the
+        // user's own pre-authorship rows from a member's un-attributed one; the user can, and pressing
+        // this button is them saying so.
+        let restored = MirrorTagRestore.restore(db: db, uid: uid, includeUnknownAuthorship: true)
         if restored > 0 {
             logWarning("[Repair] Re-ran mirror-tag restore — \(restored) row(s) returned to personal")
         }

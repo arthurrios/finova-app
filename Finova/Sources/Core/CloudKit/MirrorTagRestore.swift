@@ -94,19 +94,48 @@ enum MirrorTagRestore {
     ///
     /// `created_by_uid = ?` is the entire safety story. See the note at the top of this file for
     /// why `user_id` would be catastrophic here, and why NULL means "leave it alone".
+    /// - Parameter includeUnknownAuthorship: also restore rows with NO recorded author.
+    ///
+    ///   Off by default, and that default is why the automatic pass leaves some ledgers empty.
+    ///   Authorship was only recorded from a certain build onward, so a user whose data predates it
+    ///   has group-tagged rows with `created_by_uid IS NULL` — indistinguishable, by that column
+    ///   alone, from another member's un-attributed record. The automatic pass cannot tell them
+    ///   apart, so it leaves them alone: a row left tagged is a cosmetic error, un-tagging someone
+    ///   else's row erases their contribution.
+    ///
+    ///   The user CAN tell them apart, which is why this is opt-in and reachable only from the
+    ///   explicit "Repair data" action. Even then it is narrowed to rows carrying this user's
+    ///   `user_id` in a group this user OWNS — a member's inbound record still gets `user_id` stamped
+    ///   with the receiver's uid, so that is not proof of authorship, but combined with ownership of
+    ///   the group it is the strongest signal available locally.
     @discardableResult
-    static func restore(db: DBHelper, uid: String) -> Int {
+    static func restore(db: DBHelper, uid: String, includeUnknownAuthorship: Bool = false) -> Int {
         var restored = 0
         for table in tables {
-            let sql = """
+            let authored = """
                 UPDATE \(table)
                 SET shared_group_id = NULL, sync_status = 'pending'
                 WHERE created_by_uid = ?
                   AND shared_group_id IS NOT NULL AND shared_group_id != '';
                 """
-            let changed = db.executeSyncUpdateCount(sql, textBindings: [uid])
+            let changed = db.executeSyncUpdateCount(authored, textBindings: [uid])
             restored += changed
-            logWarning("[MirrorRestore] \(table): restored \(changed) row(s) to personal")
+            logWarning("[MirrorRestore] \(table): restored \(changed) authored row(s) to personal")
+
+            guard includeUnknownAuthorship else { continue }
+            let unknown = """
+                UPDATE \(table)
+                SET shared_group_id = NULL, sync_status = 'pending'
+                WHERE created_by_uid IS NULL
+                  AND user_id = ?
+                  AND shared_group_id IS NOT NULL AND shared_group_id != ''
+                  AND shared_group_id IN (SELECT id FROM BudgetGroups WHERE owner_id = ?);
+                """
+            let unknownChanged = db.executeSyncUpdateCount(unknown, textBindings: [uid, uid])
+            restored += unknownChanged
+            if unknownChanged > 0 {
+                logWarning("[MirrorRestore] \(table): restored \(unknownChanged) row(s) with unknown authorship")
+            }
         }
         TransactionRepository.invalidateCache()
         return restored
