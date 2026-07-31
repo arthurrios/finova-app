@@ -75,7 +75,10 @@ extension Transaction: CKRecordConvertible {
             record["creditCardUuid"] = ids.creditCardUuid as CKRecordValue?
             record["statementUuid"] = ids.statementUuid as CKRecordValue?
             record["parentTransactionUuid"] = ids.parentUuid as CKRecordValue?
-            record["schemaVersion"] = 1 as CKRecordValue
+            // 2 = this device derives identities for the rows it GENERATES (recurring instances,
+            // installment children, statements), so a receiver can match them exactly by uuid
+            // and must NOT fall back to matching on title + amount + month.
+            record["schemaVersion"] = 2 as CKRecordValue
         }
 
         // Legacy cross-device remapping fields. Still written so a device on an older build keeps

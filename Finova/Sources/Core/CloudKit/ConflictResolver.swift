@@ -87,9 +87,38 @@ final class ConflictResolver {
         return remoteUpdatedAt >= localModDate
     }
 
+    // MARK: - Derived identity
+
+    /// Connects a locally generated row to the inbound record for the same logical row, BEFORE any
+    /// matching runs, by their shared uuid. Every resolver then finds it via the ordinary
+    /// match-by-record-name path, so nothing downstream needs to change.
+    ///
+    /// Without this, derived identity is inert: two devices compute the same uuid for the month they
+    /// both materialised, but neither row has a record name until it is pushed, so the receiver could
+    /// only recognise the pair by comparing content.
+    private func linkByDerivedIdentity(_ ckRecord: CKRecord, table: String) {
+        guard let uuid = ckRecord["uuid"] as? String else { return }
+        db.adoptCKRecordName(
+            table: table, uuid: uuid, ckRecordName: ckRecord.recordID.recordName)
+    }
+
+    /// Whether the sending device derives identities for the rows it generates.
+    ///
+    /// `schemaVersion >= 2` means its recurring instances, installment children and statements carry
+    /// a uuid computed from (parent + bucket), so `linkByDerivedIdentity` can connect them exactly.
+    /// The content-matching fallbacks are then not merely unnecessary but harmful — they merge
+    /// genuinely distinct records that happen to share a title, an amount and a month.
+    ///
+    /// Below 2 (or absent), the peer predates derived identity and its generated rows carry random
+    /// uuids, so the fallbacks are the only thing that prevents duplicates. They stay for those.
+    private func senderDerivesIdentity(_ ckRecord: CKRecord) -> Bool {
+        (ckRecord["schemaVersion"] as? Int ?? 0) >= 2
+    }
+
     // MARK: - Transaction
 
     func resolveTransaction(remote: Transaction, ckRecord: CKRecord) {
+        linkByDerivedIdentity(ckRecord, table: "Transactions")
         let repo = TransactionRepository(db: db)
         let recordName = ckRecord.recordID.recordName
         let sharedGroupId = ckRecord["sharedGroupId"] as? String
@@ -254,9 +283,16 @@ final class ConflictResolver {
             }
         }
 
-        // Step 4: General fallback — match any transaction by title + amount + budget_month_date
-        // This catches duplicate parents, normal transactions, and any other unmatched records
-        if let local = repo.fetchMatchingTransaction(
+        // Step 4: General fallback — match ANY transaction by title + amount + budget_month_date.
+        //
+        // Skipped entirely when the sender derives identities: `linkByDerivedIdentity` above has
+        // already connected anything that is genuinely the same row, so reaching here means the
+        // record really is new. Matching it by content merges distinct records — two coffees for the
+        // same amount in the same month become one, silently, and the user's ledger is short a
+        // purchase. Retained only for peers that predate derived identity, where it is the sole
+        // defence against duplicates.
+        if !senderDerivesIdentity(ckRecord),
+           let local = repo.fetchMatchingTransaction(
             title: remote.title, amount: remote.amount, budgetMonthDate: remote.budgetMonthDate
         ) {
             let localId = local.id ?? 0
@@ -365,6 +401,7 @@ final class ConflictResolver {
     // MARK: - Credit Card
 
     func resolveCreditCard(remote: CreditCard, ckRecord: CKRecord) {
+        linkByDerivedIdentity(ckRecord, table: "CreditCards")
         let repo = CreditCardRepository(db: db)
         let recordName = ckRecord.recordID.recordName
 
@@ -393,6 +430,7 @@ final class ConflictResolver {
     // MARK: - Credit Card Statement
 
     func resolveCreditCardStatement(remote: CreditCardStatement, ckRecord: CKRecord) {
+        linkByDerivedIdentity(ckRecord, table: "CreditCardStatements")
         let repo = StatementRepository(db: db)
         let recordName = ckRecord.recordID.recordName
 
@@ -464,6 +502,7 @@ final class ConflictResolver {
     // MARK: - Budget Allocation
 
     func resolveBudgetAllocation(remote: BudgetAllocationModel, ckRecord: CKRecord) {
+        linkByDerivedIdentity(ckRecord, table: "BudgetAllocations")
         let repo = BudgetAllocationRepository(db: db)
         let recordName = ckRecord.recordID.recordName
 

@@ -2760,6 +2760,39 @@ class DBHelper {
         return sqlite3_changes(db) > 0
     }
 
+    /// Links a local row to the inbound CloudKit record that represents the SAME logical row,
+    /// recognised by their shared uuid.
+    ///
+    /// This is what makes derived identity work at runtime. Two devices that materialise the same
+    /// month compute the same uuid, but a locally generated row has no `ck_record_id` until it is
+    /// pushed — so matching on record name alone cannot connect them, and the receiver inserts a
+    /// duplicate. Matching on uuid connects them; adopting the name means the local row becomes the
+    /// SAME CloudKit record rather than a second one.
+    ///
+    /// Two guards, both load-bearing:
+    ///   - only a row with NO record name is adopted; one that already has a different name is a
+    ///     different record and re-pointing it would strand its cloud copy;
+    ///   - only when no other row already holds that name, or the write violates the unique index.
+    ///
+    /// Returns true when the local row adopted the name.
+    @discardableResult
+    func adoptCKRecordName(table: String, uuid: String, ckRecordName: String) -> Bool {
+        guard isInitialized, Self.syncableTablesV1.contains(table), !uuid.isEmpty else { return false }
+        let sql = "UPDATE " + table + " SET ck_record_id = ? WHERE uuid = ? AND ck_record_id IS NULL"
+            + " AND NOT EXISTS (SELECT 1 FROM " + table + " WHERE ck_record_id = ?);"
+        do {
+            try executeGroupWriteChecked(sql, orderedBindings: [ckRecordName, uuid, ckRecordName])
+        } catch {
+            logError("[Identity] Could not adopt " + ckRecordName + " in " + table + ": \(error)")
+            return false
+        }
+        let adopted = sqlite3_changes(db) > 0
+        if adopted {
+            logWarning("[Identity] " + table + " row with uuid " + uuid + " adopted " + ckRecordName)
+        }
+        return adopted
+    }
+
     /// A row's stable identity and its uuid-valued foreign keys, for building a push record.
     func uuidIdentity(table: String, localId: Int)
         -> (uuid: String, creditCardUuid: String?, statementUuid: String?, parentUuid: String?)?

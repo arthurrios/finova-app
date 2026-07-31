@@ -57,7 +57,10 @@ extension BudgetAllocationModel: CKRecordConvertible {
         if let allocId = id, let ids = db.uuidIdentity(table: "BudgetAllocations", localId: allocId) {
             record["uuid"] = ids.uuid as CKRecordValue
             record["parentAllocationUuid"] = ids.parentUuid as CKRecordValue?
-            record["schemaVersion"] = 1 as CKRecordValue
+            // 2 = this device derives identities for the rows it GENERATES (recurring instances,
+            // installment children, statements), so a receiver can match them exactly by uuid
+            // and must NOT fall back to matching on title + amount + month.
+            record["schemaVersion"] = 2 as CKRecordValue
         }
         return record
     }
