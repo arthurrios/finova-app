@@ -76,6 +76,7 @@ class DBHelper {
             performUuidBackfillV1()
             rebuildBudgetsTableV2()
             createProjectionSyncStateV3()
+            dedupeLegacyCKRecordIdsV4()
             performSyncFixMigration()
             performParentIdFixMigration()
             performPendingModifiedAtMigration()
@@ -2646,6 +2647,94 @@ class DBHelper {
         )
     }
 
+    // MARK: - Legacy ck_record_id deduplication (schema v4)
+
+    /// Removes rows that share a `ck_record_id`, then creates the UNIQUE indexes that prevent it
+    /// recurring. Runs ONCE, gated on `PRAGMA user_version`.
+    ///
+    /// Two things were wrong with the version of this that lived in `migrateSyncColumnsV3`:
+    ///
+    /// 1. **It ran on every database open**, issuing a hard DELETE against financial tables at each
+    ///    cold start — for a condition its own UNIQUE index already makes impossible.
+    /// 2. **It kept the LOWEST local row id.** Local ids are assigned per device, so "lowest id" is a
+    ///    different row on each device. Two devices deduplicating the same pair of records therefore
+    ///    kept DIFFERENT survivors and pushed them over each other. The tie-break must be a value
+    ///    both devices can compute identically, which is what `(rev, rev_device)` is for: rev is a
+    ///    logical clock, and rev_device breaks exact ties the same way everywhere.
+    ///
+    /// Why it cannot simply be gated where it was: `migrateSyncColumnsV3` runs BEFORE
+    /// `rebuildBudgetsTableV2` (gated on `< 2`) and `createProjectionSyncStateV3` (gated on `< 3`),
+    /// so bumping `user_version` there would skip both on every existing install. Running here also
+    /// means `rev`/`rev_device` exist — `migrateRevColumns` adds them after V3.
+    private func dedupeLegacyCKRecordIdsV4() {
+        guard isInitialized, schemaUserVersion() < 4 else { return }
+
+        let tables = ["Transactions", "Budgets", "CreditCards", "CreditCardStatements", "BudgetAllocations"]
+        // Budgets is keyed by uuid since v2 and has no `id` column; rowid still works for ordering.
+        let idColumn = ["Budgets": "rowid"]
+
+        // Count first: on any database whose indexes already exist this is zero, and a no-op
+        // migration must not take a snapshot or open a write transaction.
+        var duplicateTotal = 0
+        for table in tables {
+            duplicateTotal += fetchSingleInt(
+                """
+                SELECT COALESCE(SUM(n - 1), 0) FROM (
+                    SELECT COUNT(*) AS n FROM \(table)
+                     WHERE ck_record_id IS NOT NULL
+                     GROUP BY ck_record_id HAVING COUNT(*) > 1
+                );
+                """
+            ) ?? 0
+        }
+
+        if duplicateTotal > 0 {
+            logWarning("[MigrateV4] \(duplicateTotal) duplicate ck_record_id row(s) to consolidate")
+            snapshotDatabase(tag: "pre-ckrecordid-dedupe-v4")
+
+            for table in tables {
+                let col = idColumn[table] ?? "id"
+                // Keep the highest (rev, rev_device) per ck_record_id; the id only breaks a total tie,
+                // and by then the rows are indistinguishable by any synced value.
+                let dedupe = """
+                    DELETE FROM \(table)
+                     WHERE ck_record_id IS NOT NULL
+                       AND \(col) NOT IN (
+                         SELECT keep FROM (
+                           SELECT \(col) AS keep, ROW_NUMBER() OVER (
+                                    PARTITION BY ck_record_id
+                                    ORDER BY COALESCE(rev, 0) DESC,
+                                             COALESCE(rev_device, '') DESC,
+                                             \(col) ASC
+                                  ) AS rn
+                             FROM \(table) WHERE ck_record_id IS NOT NULL
+                         ) WHERE rn = 1
+                       );
+                    """
+                if sqlite3_exec(db, dedupe, nil, nil, nil) == SQLITE_OK {
+                    let removed = sqlite3_changes(db)
+                    if removed > 0 {
+                        logWarning("[MigrateV4] \(table): removed \(removed) duplicate row(s)")
+                    }
+                } else {
+                    logError("[MigrateV4] \(table) dedupe failed: \(String(cString: sqlite3_errmsg(db)))")
+                }
+            }
+        }
+
+        // Created here rather than in V3 so they can never be attempted before the duplicates that
+        // would reject them have been removed.
+        for table in tables {
+            sqlite3_exec(db, """
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_\(table.lowercased())_ck_record_id
+                    ON \(table)(ck_record_id) WHERE ck_record_id IS NOT NULL;
+                """, nil, nil, nil)
+        }
+
+        setSchemaUserVersion(4)
+        logWarning("[MigrateV4] ck_record_id dedupe complete (schema v4)")
+    }
+
     /// A row's stable identity and its uuid-valued foreign keys, for building a push record.
     func uuidIdentity(table: String, localId: Int)
         -> (uuid: String, creditCardUuid: String?, statementUuid: String?, parentUuid: String?)?
@@ -2783,44 +2872,10 @@ class DBHelper {
         // Phase 4B: Add ck_parent_record_name for cross-device parent ID resolution
         try addColumnIfNotExists(table: "Transactions", column: "ck_parent_record_name", definition: "TEXT")
 
-        // Phase 3D: Add UNIQUE indexes on ck_record_id (with deduplication first)
-        let tables = ["Transactions", "Budgets", "CreditCards", "CreditCardStatements", "BudgetAllocations"]
-        let idColumn: [String: String] = [
-            "Transactions": "id",
-            "Budgets": "rowid",
-            "CreditCards": "id",
-            "CreditCardStatements": "id",
-            "BudgetAllocations": "id"
-        ]
-
-        for table in tables {
-            let col = idColumn[table] ?? "rowid"
-            // Deduplicate: keep row with lowest id per ck_record_id
-            let dedup = """
-                DELETE FROM \(table) WHERE \(col) NOT IN (
-                    SELECT MIN(\(col)) FROM \(table) GROUP BY ck_record_id
-                ) AND ck_record_id IS NOT NULL;
-                """
-            var dedupStmt: OpaquePointer?
-            if sqlite3_prepare_v2(db, dedup, -1, &dedupStmt, nil) == SQLITE_OK {
-                if sqlite3_step(dedupStmt) == SQLITE_DONE {
-                    let removed = sqlite3_changes(db)
-                    if removed > 0 {
-                        logWarning("[MigrateV3] Removed \(removed) duplicate rows from \(table)")
-                    }
-                }
-                sqlite3_finalize(dedupStmt)
-            }
-
-            // Create unique index
-            let indexName = "idx_\(table.lowercased())_ck_record_id"
-            let createIndex = "CREATE UNIQUE INDEX IF NOT EXISTS \(indexName) ON \(table)(ck_record_id) WHERE ck_record_id IS NOT NULL;"
-            var indexStmt: OpaquePointer?
-            if sqlite3_prepare_v2(db, createIndex, -1, &indexStmt, nil) == SQLITE_OK {
-                sqlite3_step(indexStmt)
-                sqlite3_finalize(indexStmt)
-            }
-        }
+        // The ck_record_id deduplication and its UNIQUE indexes used to live here, running a hard
+        // DELETE on EVERY database open. They moved to `dedupeLegacyCKRecordIdsV4()`, which runs once
+        // and picks a survivor both devices agree on. See that method for why it cannot be gated from
+        // inside this one.
     }
 
     private func createBudgetAllocationsTable() throws {
