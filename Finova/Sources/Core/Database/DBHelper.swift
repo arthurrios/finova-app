@@ -1917,6 +1917,48 @@ class DBHelper {
         return String(cString: sqlite3_column_text(statement, 0))
     }
 
+    /// A statement's transaction count and total, restricted to ONE ledger.
+    ///
+    /// The unscoped versions below count every transaction pointing at the statement, whatever
+    /// ledger it belongs to. In group context that made a statement report a count and total drawn
+    /// from the personal ledger while the transaction list beside it — which IS scoped — showed
+    /// nothing. Count, total and list have to read the same ledger or the screen contradicts itself.
+    private static let statementRowFilter = """
+        AND COALESCE(is_credit_card_statement, 0) = 0
+        AND (is_deleted IS NULL OR is_deleted = 0)
+        AND NOT (COALESCE(has_installments, 0) = 1 AND parent_transaction_id IS NULL)
+        AND NOT (COALESCE(is_recurring, 0) = 1 AND parent_transaction_id IS NULL)
+        """
+
+    func statementTotals(statementId: Int, scope: LedgerScope) -> (count: Int, total: Int) {
+        guard isInitialized else { return (0, 0) }
+        let scopePredicate: String
+        let scopeBinding: Any?
+        if let groupId = scope.groupId {
+            scopePredicate = "AND shared_group_id = ?"
+            scopeBinding = groupId
+        } else {
+            // Personal means untagged AND this user's — same definition the personal reads use.
+            scopePredicate = "AND shared_group_id IS NULL AND user_id = ?"
+            scopeBinding = scope.localUid
+        }
+        let sql = """
+            SELECT COUNT(*), COALESCE(SUM(amount), 0) FROM Transactions
+             WHERE statement_id = ? \(Self.statementRowFilter) \(scopePredicate);
+            """
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return (0, 0) }
+        defer { sqlite3_finalize(stmt) }
+        sqlite3_bind_int64(stmt, 1, Int64(statementId))
+        if let text = scopeBinding as? String {
+            sqlite3_bind_text(stmt, 2, text, -1, SQLITE_TRANSIENT)
+        } else {
+            sqlite3_bind_null(stmt, 2)
+        }
+        guard sqlite3_step(stmt) == SQLITE_ROW else { return (0, 0) }
+        return (Int(sqlite3_column_int64(stmt, 0)), Int(sqlite3_column_int64(stmt, 1)))
+    }
+
     func getTransactionCountForStatement(statementId: Int) throws -> Int {
         guard isInitialized else { return 0 }
         let query = """

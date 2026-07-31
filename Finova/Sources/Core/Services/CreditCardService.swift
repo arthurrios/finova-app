@@ -1538,7 +1538,11 @@ class CreditCardService {
 
     /// Generates synthetic statement transactions for a specific card.
     /// When `includeAllUsers` is true, uses DB queries (all users) instead of UID-isolated store.
-    func generateStatementTransactions(forCard card: CreditCard, includeAllUsers: Bool) -> [Transaction] {
+    /// - Parameter scope: the ledger being rendered. Count, total and the transaction list beside
+    ///   them must all come from it, or the screen contradicts itself — a statement reporting "4
+    ///   transactions" with an empty table and no total is what the unscoped version produced once
+    ///   the personal reads were narrowed.
+    func generateStatementTransactions(forCard card: CreditCard, in scope: LedgerScope) -> [Transaction] {
         guard let cardId = card.id else { return [] }
         var statementTransactions: [Transaction] = []
 
@@ -1550,18 +1554,12 @@ class CreditCardService {
             let realCount: Int
             let realTotal: Int
 
-            if includeAllUsers {
-                // Use DB directly — includes ALL users' transactions
-                realCount = (try? DBHelper.shared.getTransactionCountForStatement(statementId: stmtId)) ?? 0
-                realTotal = (try? DBHelper.shared.getTransactionSumForStatement(statementId: stmtId)) ?? 0
-            } else {
-                let allTransactions = TransactionRepository().fetchAllTransactions()
-                let stmtTransactions = allTransactions.filter {
-                    $0.statementId == stmtId && $0.isCreditCardStatement != true
-                }
-                realCount = stmtTransactions.count
-                realTotal = stmtTransactions.reduce(0) { $0 + $1.amount }
-            }
+            // One scoped query for both, so they can never disagree with each other or with the
+            // list. Previously the group branch read the database with no scope predicate at all
+            // while the personal branch went through the (scoped) repository.
+            let totals = DBHelper.shared.statementTotals(statementId: stmtId, scope: scope)
+            realCount = totals.count
+            realTotal = totals.total
 
             if realCount == 0 {
                 if stmtRepo.fetchCKRecordName(for: stmtId) == nil {

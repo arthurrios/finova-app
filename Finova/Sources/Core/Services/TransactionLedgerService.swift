@@ -59,7 +59,7 @@ final class TransactionLedgerService {
     for card in sharedCards {
       let statementTxs = creditCardService.generateStatementTransactions(
         forCard: card,
-        includeAllUsers: true
+        in: .group(groupId)
       )
       transactions.append(contentsOf: statementTxs)
     }

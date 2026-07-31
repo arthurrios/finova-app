@@ -56,7 +56,7 @@ final class DashboardViewModel {
     case .group(let group):
       let sharedCards = CreditCardRepository().fetchCardsForGroup(groupId: group.id)
       return sharedCards.flatMap {
-        creditCardService.generateStatementTransactions(forCard: $0, includeAllUsers: true)
+        creditCardService.generateStatementTransactions(forCard: $0, in: LedgerScope(currentContext))
       }
     }
   }
