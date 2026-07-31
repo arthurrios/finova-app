@@ -94,6 +94,15 @@ final class SyncSettingsViewModel {
     }
   }
 
+  /// Runs every repair pass, once, because the user asked. Nothing else may invoke these — see
+  /// DataRepairService for why running them automatically is what made two devices disagree.
+  func repairData(completion: @escaping (String) -> Void) {
+    DispatchQueue.global(qos: .userInitiated).async {
+      let result = DataRepairService.repairAll()
+      DispatchQueue.main.async { completion(result.summary) }
+    }
+  }
+
   func recoverySync() {
     ensureCloudKitAvailable { [weak self] in
       guard let self = self else { return }

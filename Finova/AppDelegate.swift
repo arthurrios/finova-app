@@ -361,11 +361,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
         let transactionRepo = TransactionRepository()
         let allTxs = transactionRepo.fetchAllTransactions()
         TransactionNotificationManager.shared.scheduleAllTransactionNotifications(transactions: allTxs)
-        // Recalculate all statement totals to fix any stale values from past deletes
-        let ccService = CreditCardService()
-        ccService.recalculateAllStatementTotals()
-        // Fix budget_month_date for transactions previously moved between statements
-        ccService.repairBudgetMonthForOverriddenTransactions()
+        // Statement-total recalculation and budget-month repair moved to the explicit
+        // "Repair data" action (DataRepairService) — both rewrite rows and mark them pending,
+        // which on launch meant every cold start queued a push the other device had to absorb.
         StatementNotificationManager.shared.scheduleAllStatementNotifications()
         self.monitorNegativeBalance()
       }

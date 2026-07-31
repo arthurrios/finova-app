@@ -16,6 +16,7 @@ protocol SyncSettingsViewDelegate: AnyObject {
   func didTapCloudCleanup()
   func didTapForceRePush()
   func didTapRecoverySync()
+  func didTapRepairData()
 }
 
 final class SyncSettingsView: UIView {
@@ -246,6 +247,16 @@ final class SyncSettingsView: UIView {
     return btn
   }()
 
+  private let repairDataContainer = createSettingContainer()
+  private let repairDataIconView = createIconView(imageName: "wrench.and.screwdriver", tintColor: Colors.gray600)
+  private let repairDataLabel = createSettingLabel(text: "syncSettings.repairData.title".localized)
+  private let repairDataButton: UIButton = {
+    let btn = UIButton(type: .custom)
+    btn.backgroundColor = .clear
+    btn.translatesAutoresizingMaskIntoConstraints = false
+    return btn
+  }()
+
   private let recoverySyncContainer = createSettingContainer()
   private let recoverySyncIconView = createIconView(imageName: "arrow.3.trianglepath", tintColor: Colors.mainRed)
   private let recoverySyncLabel: UILabel = {
@@ -277,6 +288,7 @@ final class SyncSettingsView: UIView {
     resetButton.addTarget(self, action: #selector(didTapResetSync), for: .touchUpInside)
     cloudCleanupButton.addTarget(self, action: #selector(didTapCloudCleanup), for: .touchUpInside)
     forceRePushButton.addTarget(self, action: #selector(didTapForceRePush), for: .touchUpInside)
+    repairDataButton.addTarget(self, action: #selector(didTapRepairData), for: .touchUpInside)
     recoverySyncButton.addTarget(self, action: #selector(didTapRecoverySync), for: .touchUpInside)
     uploadResumeButton.addTarget(self, action: #selector(didTapResumeUpload), for: .touchUpInside)
     syncEnabledSwitch.addTarget(self, action: #selector(syncEnabledToggled), for: .valueChanged)
@@ -324,6 +336,7 @@ final class SyncSettingsView: UIView {
     setupForceRePushContainer()
     contentStackView.addArrangedSubview(forceRePushContainer)
     setupRecoverySyncContainer()
+    contentStackView.addArrangedSubview(repairDataContainer)
     contentStackView.addArrangedSubview(recoverySyncContainer)
   }
 
@@ -448,6 +461,20 @@ final class SyncSettingsView: UIView {
   }
 
   private func setupRecoverySyncContainer() {
+    repairDataContainer.addSubview(repairDataIconView)
+    repairDataContainer.addSubview(repairDataLabel)
+    repairDataContainer.addSubview(repairDataButton)
+    NSLayoutConstraint.activate([
+      repairDataIconView.leadingAnchor.constraint(equalTo: repairDataContainer.leadingAnchor, constant: Metrics.spacing4),
+      repairDataIconView.centerYAnchor.constraint(equalTo: repairDataContainer.centerYAnchor),
+      repairDataLabel.leadingAnchor.constraint(equalTo: repairDataIconView.trailingAnchor, constant: Metrics.spacing3),
+      repairDataLabel.centerYAnchor.constraint(equalTo: repairDataContainer.centerYAnchor),
+      repairDataButton.topAnchor.constraint(equalTo: repairDataContainer.topAnchor),
+      repairDataButton.leadingAnchor.constraint(equalTo: repairDataContainer.leadingAnchor),
+      repairDataButton.trailingAnchor.constraint(equalTo: repairDataContainer.trailingAnchor),
+      repairDataButton.bottomAnchor.constraint(equalTo: repairDataContainer.bottomAnchor)
+    ])
+
     recoverySyncContainer.addSubview(recoverySyncIconView)
     recoverySyncContainer.addSubview(recoverySyncLabel)
     recoverySyncContainer.addSubview(recoverySyncButton)
@@ -698,6 +725,11 @@ final class SyncSettingsView: UIView {
   @objc
   private func didTapForceRePush() {
     delegate?.didTapForceRePush()
+  }
+
+  @objc
+  private func didTapRepairData() {
+    delegate?.didTapRepairData()
   }
 
   @objc

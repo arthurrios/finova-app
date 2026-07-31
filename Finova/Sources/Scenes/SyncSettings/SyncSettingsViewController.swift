@@ -108,6 +108,27 @@ extension SyncSettingsViewController: SyncSettingsViewDelegate {
     present(alert, animated: true)
   }
 
+  func didTapRepairData() {
+    let alert = UIAlertController(
+      title: "syncSettings.repairData.confirm.title".localized,
+      message: "syncSettings.repairData.confirm.message".localized,
+      preferredStyle: .alert
+    )
+    alert.addAction(UIAlertAction(title: "alert.cancel".localized, style: .cancel))
+    alert.addAction(UIAlertAction(title: "syncSettings.repairData.confirm.action".localized, style: .default) { [weak self] _ in
+      self?.viewModel.repairData { summary in
+        let done = UIAlertController(
+          title: "syncSettings.repairData.done.title".localized,
+          message: summary,
+          preferredStyle: .alert
+        )
+        done.addAction(UIAlertAction(title: "alert.ok".localized, style: .default))
+        self?.present(done, animated: true)
+      }
+    })
+    present(alert, animated: true)
+  }
+
   func didTapRecoverySync() {
     let alert = UIAlertController(
       title: "syncSettings.recoverySync.confirm.title".localized,

@@ -32,19 +32,10 @@ final class RealPostSyncActions: PostSyncActions {
         }
 
         group.notify(queue: DispatchQueue(label: "com.finova.postsync")) {
-            // Destructive CC repairs may run ONLY on a device that both (a) originally held the
-            // buggy data AND (b) has completed a verified full pull — the same gate
-            // DashboardViewModel already applies. The original-device flag alone is unreliable: a
-            // second device flips it true after its first large push (SyncEngine sets it whenever
-            // totalRecords > batchSize), at which point a half-hydrated device would "repair" clean
-            // cloud data and push the damage back up.
-            let isOriginalDevice = UserDefaults.standard.bool(forKey: "hasCompletedInitialCloudPush_v1")
-            let hydrated = UserDefaults.standard.bool(forKey: "syncFullPullVerified_v2")
-            if isOriginalDevice && hydrated {
-                Self.repairCreditCardDataIntegrity()
-            } else {
-                logWarning("[PostSync] Skipping repairCreditCardDataIntegrity — originalDevice=\(isOriginalDevice), hydrated=\(hydrated)")
-            }
+            // repairCreditCardDataIntegrity no longer runs inside the sync cycle. It rewrote rows
+            // and marked them pending, so each device pushed its own repair result and the next
+            // cycle had something new to reconcile — a loop that never settled. It is now part of
+            // the explicit "Repair data" action (DataRepairService).
 
             // Restore the rows Mirror Mode tagged. Hooked here rather than at launch because it
             // needs a verified full pull to know who authored what — and after a sync is the first
@@ -129,7 +120,11 @@ final class RealPostSyncActions: PostSyncActions {
         }
     }
 
-    /// Comprehensive credit card data integrity repair that runs after every sync.
+    /// Comprehensive credit card data integrity repair.
+    ///
+    /// No longer called from the sync cycle — see the note in `performPostSyncFetches`. Kept
+    /// because `DataRepairService` should absorb it into the manual "Repair data" action; it is
+    /// currently unreferenced.
     /// 1. Fixes orphaned creditCardId on statements and transactions (card ID changed after recovery)
     /// 2. Deletes orphaned statements that can't be fixed
     /// 3. Recreates missing statements from transactions

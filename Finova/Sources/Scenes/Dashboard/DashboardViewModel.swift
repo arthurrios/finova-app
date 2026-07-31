@@ -64,33 +64,9 @@ final class DashboardViewModel {
   func loadMonthlyCards() -> [MonthBudgetCardType] {
     switch currentContext {
     case .personal:
-      // Repair credit card transactions: fix orphans and reassign misplaced ones
-      logWarning("[CCRepair] loadMonthlyCards called, uid=\(AuthenticationManager.shared.currentUser?.uid ?? "nil")")
-      if let uid = AuthenticationManager.shared.currentUser?.uid {
-        // Destructive CC repairs may run ONLY on a device that both (a) originally held the
-        // buggy data AND (b) has completed a verified full pull. A freshly-synced device that
-        // "repairs" clean cloud data would push the damage back up. The original-device flag
-        // alone is unreliable (a 2nd device flips it true after its first large push), so we
-        // additionally require hydration. reassignMisplacedTransactions is included in the gate
-        // (it previously ran unconditionally and re-buckets/re-pushes transactions).
-        let isOriginalDevice = UserDefaults.standard.bool(forKey: "hasCompletedInitialCloudPush_v1")
-        let hydrated = UserDefaults.standard.bool(forKey: "syncFullPullVerified_v2")
-        if isOriginalDevice && hydrated {
-          creditCardService.repairCreditCardLinksFromParents(userId: uid, transactionRepo: transactionRepo)
-          // repairBTGStatementAssignments removed: it hardcoded one specific user's transaction
-          // amounts and deleted by hardcoded local row id — and local ids mean different rows on
-          // different devices, so it destroyed arbitrary records on any device but the one it was
-          // written against.
-          creditCardService.deduplicateAndFixCCInstallments(userId: uid, transactionRepo: transactionRepo)
-          creditCardService.repairInstallmentStatementLinks(userId: uid, transactionRepo: transactionRepo)
-          creditCardService.repairStaleStatementLinks(userId: uid, transactionRepo: transactionRepo)
-          creditCardService.repairOrphanedCreditCardTransactions(userId: uid, transactionRepo: transactionRepo)
-          creditCardService.consolidateDuplicateStatementsByMonth(userId: uid, transactionRepo: transactionRepo)
-          creditCardService.reassignMisplacedTransactions(userId: uid, transactionRepo: transactionRepo)
-        } else {
-          logWarning("[CCRepair] Skipping destructive repairs — original=\(isOriginalDevice), hydrated=\(hydrated)")
-        }
-      }
+      // Repair passes no longer run here. Rewriting financial rows on every dashboard load marked
+      // them pending, so two devices pushed their own repair results over each other's. They now
+      // live behind an explicit action in Sync Settings (DataRepairService).
 
       // Use the transaction ledger service for all calculations
       let monthlyData = transactionLedger.calculateMonthlyData(for: monthRange)

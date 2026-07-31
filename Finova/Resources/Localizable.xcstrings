@@ -9287,6 +9287,57 @@
         }
       }
     },
+    "repair.notHydrated": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This device is still downloading your data. Try again once syncing has finished."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este dispositivo ainda está baixando seus dados. Tente novamente quando a sincronização terminar."
+          }
+        }
+      }
+    },
+    "repair.notSignedIn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to repair your data."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entre na sua conta para reparar seus dados."
+          }
+        }
+      }
+    },
+    "repair.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$d transactions and %2$d statements checked. %3$d links restored."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$d transações e %2$d faturas verificadas. %3$d vínculos restaurados."
+          }
+        }
+      }
+    },
     "settings.biometric.enable.reason": {
       "extractionState": "manual",
       "localizations": {
@@ -11136,6 +11187,91 @@
           "stringUnit": {
             "state": "translated",
             "value": "Sincronização de Recuperação"
+          }
+        }
+      }
+    },
+    "syncSettings.repairData.confirm.action": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Repair"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reparar"
+          }
+        }
+      }
+    },
+    "syncSettings.repairData.confirm.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checks your transactions, cards and statements for broken links and fixes what it can. A backup is saved first. Nothing is deleted."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verifica suas transações, cartões e faturas em busca de vínculos quebrados e corrige o que for possível. Um backup é salvo antes. Nada é excluído."
+          }
+        }
+      }
+    },
+    "syncSettings.repairData.confirm.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Repair data?"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reparar dados?"
+          }
+        }
+      }
+    },
+    "syncSettings.repairData.done.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Repair complete"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reparo concluído"
+          }
+        }
+      }
+    },
+    "syncSettings.repairData.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Repair data"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reparar dados"
           }
         }
       }
