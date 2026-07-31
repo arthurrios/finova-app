@@ -234,6 +234,10 @@ final class DeviceSimulator {
     /// a `ck_record_id`, so pushing transactions first would ship them with a nil card reference —
     /// the same ordering constraint the real `pushLocalChanges` enforces.
     func pushAll() {
+        // Mirrors SyncEngine.pushLocalChanges: rows created since the last push need their uuid
+        // foreign keys filled in before they can carry their relationships over the wire.
+        activate()
+        db.deriveUuidForeignKeys()
         pushCards()
         pushTransactions()
         pushBudgets()

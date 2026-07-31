@@ -2328,6 +2328,42 @@ class DBHelper {
         logWarning("[UUID] Identity backfill complete — schema version 1")
     }
 
+    /// Fills in uuid foreign keys that are still NULL, from the local integer FK.
+    ///
+    /// The counterpart to `resolveUuidForeignKeys`, and the ONLY direction in which an integer is
+    /// allowed to inform a uuid. Needed because a row created locally after the one-time backfill
+    /// gets its `uuid` from the insert trigger but has no uuid FK — so it would be pushed with a
+    /// nil reference and the receiving device would have nothing to resolve.
+    ///
+    /// Deliberately only fills NULLs. It must never overwrite an existing uuid pointer: the local
+    /// integer is routinely rewritten by repair passes, and letting a scrambled integer clobber a
+    /// good uuid would destroy the very identity this design depends on. Call on the PUSH path only.
+    @discardableResult
+    func deriveUuidForeignKeys() -> Int {
+        guard isInitialized else { return 0 }
+        var changed = 0
+        for r in Self.uuidFKRules {
+            changed += executeSyncUpdateCount("""
+                UPDATE \(r.table)
+                   SET \(r.uuidCol) = (SELECT t.uuid FROM \(r.refTable) t WHERE t.id = \(r.table).\(r.intCol))
+                 WHERE \(r.uuidCol) IS NULL
+                   AND \(r.intCol) IS NOT NULL
+                   AND EXISTS (SELECT 1 FROM \(r.refTable) t WHERE t.id = \(r.table).\(r.intCol));
+                """)
+        }
+        if changed > 0 { logInfo("[UUID] Derived \(changed) uuid foreign key(s) from local ids") }
+        return changed
+    }
+
+    /// The uuid ↔ integer foreign key mapping, shared by derive and resolve so they cannot drift.
+    static let uuidFKRules: [(table: String, intCol: String, uuidCol: String, refTable: String)] = [
+        ("Transactions", "credit_card_id", "credit_card_uuid", "CreditCards"),
+        ("Transactions", "statement_id", "statement_uuid", "CreditCardStatements"),
+        ("Transactions", "parent_transaction_id", "parent_transaction_uuid", "Transactions"),
+        ("CreditCardStatements", "credit_card_id", "credit_card_uuid", "CreditCards"),
+        ("BudgetAllocations", "parent_allocation_id", "parent_allocation_uuid", "BudgetAllocations"),
+    ]
+
     /// Rebuilds local integer foreign keys from the authoritative uuid pointers.
     ///
     /// > **uuid is authoritative. The integer FK is a derived cache. Never the reverse on inbound sync.**
@@ -2340,14 +2376,7 @@ class DBHelper {
     func resolveUuidForeignKeys() -> Int {
         guard isInitialized else { return 0 }
         var changed = 0
-        let rules: [(table: String, intCol: String, uuidCol: String, refTable: String)] = [
-            ("Transactions", "credit_card_id", "credit_card_uuid", "CreditCards"),
-            ("Transactions", "statement_id", "statement_uuid", "CreditCardStatements"),
-            ("Transactions", "parent_transaction_id", "parent_transaction_uuid", "Transactions"),
-            ("CreditCardStatements", "credit_card_id", "credit_card_uuid", "CreditCards"),
-            ("BudgetAllocations", "parent_allocation_id", "parent_allocation_uuid", "BudgetAllocations"),
-        ]
-        for r in rules {
+        for r in Self.uuidFKRules {
             changed += executeSyncUpdateCount("""
                 UPDATE \(r.table)
                    SET \(r.intCol) = (SELECT t.id FROM \(r.refTable) t WHERE t.uuid = \(r.table).\(r.uuidCol))

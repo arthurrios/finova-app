@@ -24,6 +24,27 @@ final class SyncEngineTests: XCTestCase {
         userUID = "test_sync_engine_\(UUID().uuidString)"
         UIDUserDefaultsManager.shared.currentUserUID = userUID
 
+        // Necessary but NOT sufficient — see the note below. `getSyncEnabled()` reads a UserDefaults
+        // bool that defaults to FALSE in a fresh test environment, and every sync entry point bails
+        // out immediately when sync is disabled.
+        UserDefaultsManager.setSyncEnabled(true)
+
+        // KNOWN BROKEN: 18 of the 19 tests in this class currently fail, and have done since the
+        // `isUserAuthenticated` guard was added to SyncEngine (it predates the sync refactor —
+        // present in 0bcea64). Every sync entry point starts with
+        //
+        //     guard isUserAuthenticated else { completion?(); return }
+        //
+        // which reads `AuthenticationManager.shared.currentUser` — a live Firebase user that no
+        // test can produce. So the tests return before touching the mock and assert against a
+        // stale status, e.g. "Expected .error, got idle".
+        //
+        // Fixing this means making authentication injectable the way the database now is
+        // (`DBHelper(path:)`, `ConflictResolver(db:)`) — a small protocol around "is there a signed-in
+        // user" that production satisfies with AuthenticationManager and tests satisfy with a stub.
+        // Until then this class reports false failures, not real ones. ConvergenceTests is the suite
+        // that currently carries real signal.
+
         mockCloud = MockCloudStore()
         mockOps = MockCloudKitOperations(mockCloud: mockCloud)
         mockPostSync = MockPostSyncActions()

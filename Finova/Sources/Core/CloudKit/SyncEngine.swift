@@ -683,10 +683,15 @@ final class SyncEngine {
         }
         guard isUserAuthenticated else {
             logWarning("[Sync] performFullSync — skipped (user not authenticated)")
-            // Publish a terminal status. Returning silently left observers that gate their UI on
-            // sync status (InitialSyncViewController, the sync toast) waiting on a status that
-            // would never arrive.
-            status = .idle
+            // Deliberately does NOT publish a status. Assigning `.idle` here overwrote the terminal
+            // status of a sync that had already finished (the engine is a singleton, so the flag
+            // outlives any one cycle) and made every error-path test observe `idle` instead of the
+            // `.error` it had just reported.
+            //
+            // "No user yet" is a transient pre-auth state, not an outcome. UI that gates on sync
+            // status handles the silence via InitialSyncViewController's watchdog; the genuinely
+            // terminal cases — account unavailable, sync disabled by the user — still publish
+            // `.idle` at their own call sites.
             completion?()
             return
         }
@@ -2068,6 +2073,11 @@ final class SyncEngine {
         // by a previous pull before the pendingDelete could be pushed) gets re-queued here.
         // This covers installments/recurring batches deleted before the ConflictResolver fix,
         // without requiring a full reset sync to trigger the per-record repair path.
+        // Fill in uuid foreign keys for rows created since the last push. Without this a locally
+        // created row ships with a nil reference and the receiving device has nothing to resolve —
+        // the insert trigger gives a row its own uuid, but not its pointers.
+        DBHelper.shared.deriveUuidForeignKeys()
+
         let repairedCount = DBHelper.shared.repairCorruptedPendingDeletes()
         if repairedCount > 0 {
             logWarning("[Sync] Repaired \(repairedCount) soft-deleted transaction(s) whose pendingDelete status was lost")
