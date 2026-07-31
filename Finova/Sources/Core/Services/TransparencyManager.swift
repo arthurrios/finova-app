@@ -26,9 +26,11 @@ final class TransparencyManager {
     static let shared = TransparencyManager()
 
     private let repository: BudgetGroupRepository
+    private let db: DBHelper
 
     /// Injectable for two-device tests; production always uses `.shared`.
     init(db: DBHelper = .shared) {
+        self.db = db
         self.repository = BudgetGroupRepository(db: db)
     }
 
@@ -84,6 +86,39 @@ final class TransparencyManager {
         UserDefaults.standard.removeObject(forKey: "groupMemberPushed_\(groupId)")
 
         logWarning("[Transparency] \(publishing ? "ENABLED" : "DISABLED") publishing for group \(groupId)")
+        if publishing { queueExistingRecordsForPublication() }
         return true
+    }
+
+    /// Queues the personal ledger for publication after transparency is switched on.
+    ///
+    /// Projections are produced by the PUSH path, per record, from the pending queue — so a ledger
+    /// that is already fully synced generates nothing, and enabling transparency appears to do
+    /// nothing at all until the user happens to edit something. This marks the personal rows pending
+    /// so the next push fans them out.
+    ///
+    /// It sets `sync_status` ONLY. It deliberately does not touch `updated_at` or `rev`: those say
+    /// "the user changed this", and nothing here changes any value. Bumping them would make every row
+    /// look freshly edited to every other device and would win conflicts it has no business winning.
+    ///
+    /// Scoped to `shared_group_id IS NULL` — group records are already in a group zone and are not
+    /// projections of anything.
+    private func queueExistingRecordsForPublication() {
+        guard let uid = UIDUserDefaultsManager.shared.currentUserUID else { return }
+        let db = self.db
+        var queued = 0
+        for table in ["Transactions", "Budgets", "CreditCards", "BudgetAllocations"] {
+            queued += db.executeSyncUpdateCount(
+                """
+                UPDATE \(table) SET sync_status = 'pending'
+                 WHERE user_id = ? AND shared_group_id IS NULL
+                   AND (is_deleted IS NULL OR is_deleted = 0)
+                   AND COALESCE(sync_status, '') <> 'pendingDelete';
+                """,
+                textBindings: [uid]
+            )
+        }
+        TransactionRepository.invalidateCache()
+        logWarning("[Transparency] Queued \(queued) existing personal record(s) for publication")
     }
 }

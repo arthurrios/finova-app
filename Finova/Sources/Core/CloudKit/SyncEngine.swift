@@ -3106,17 +3106,30 @@ final class SyncEngine {
         // corruption, arriving by a different route. The personal-zone copy is the authoritative
         // one, so drop this.
         //
-        // Scoped to records I authored AND already hold as personal, so a record I genuinely moved
-        // into a group (local row tagged with that group) is unaffected, as is any other member's.
+        // Identified by NAME plus SCOPE, deliberately NOT by authorship.
+        //
+        // This guard used to also require `createdByUid == currentUser.uid`, and that condition
+        // destroyed data the first time Transparent Mode was enabled on real data. Authorship was
+        // only recorded from a certain build onward, so rows predating it have `created_by_uid IS
+        // NULL`; the adapter then writes no `createdByUid` at all, the comparison fails, and the
+        // record falls through to be treated as an ordinary group record — which re-tags the personal
+        // row with the group id and removes it from the personal ledger. Precisely the Mirror Mode
+        // corruption the whole design exists to prevent.
+        //
+        // The remaining two conditions are sufficient AND strictly stronger. Record names are
+        // `<type>-<uuid>`, unique per record identity, so a group-zone record can only share a name
+        // with a local row of mine if it IS a copy of that row. `isProjection` then confirms the local
+        // row's scope is not this zone's group, which distinguishes a projection from a record I
+        // genuinely moved into the group. Authorship added nothing and, when absent, broke it.
         if zoneName.hasPrefix("Group-"),
            let table = tableForRecordName(record.recordID.recordName),
-           (record["createdByUid"] as? String) == AuthenticationManager.shared.currentUser?.uid,
            isProjection(recordName: record.recordID.recordName, table: table, zoneID: record.recordID.zoneID),
            db.fetchSingleInt(
                "SELECT COUNT(*) FROM \(table) WHERE ck_record_id = ?;",
                textBinding: record.recordID.recordName
            ) ?? 0 > 0
         {
+            logWarning("[Transparency] Skipping own projection \(record.recordID.recordName) from \(zoneName)")
             return
         }
 

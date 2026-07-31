@@ -138,6 +138,47 @@ final class ProjectionStateTests: XCTestCase {
         )
     }
 
+    /// The projection-skip guard must NOT depend on authorship.
+    ///
+    /// It used to also require `createdByUid == currentUser.uid`, and that destroyed data the first
+    /// time Transparent Mode was enabled on real data. Rows predating authorship tracking have
+    /// `created_by_uid IS NULL`, the adapter then writes no `createdByUid` at all, the comparison
+    /// fails, and the record is processed as an ordinary GROUP record — which re-tags the personal row
+    /// and removes it from the personal ledger.
+    ///
+    /// Name plus scope is sufficient and stronger: record names are `<type>-<uuid>`, unique per record
+    /// identity, so a group-zone record sharing a name with a local row of mine IS a copy of it.
+    func testAProjectionIsRecognisedWithoutAnyAuthorship() {
+        let (_, name) = makePersonalTransaction(title: "NoAuthor")
+        // The state 822 of the reporter's rows were in.
+        try? db.executeGroupWriteChecked(
+            "UPDATE Transactions SET created_by_uid = NULL WHERE ck_record_id = ?;",
+            orderedBindings: [name])
+
+        XCTAssertTrue(
+            SyncEngine.isProjection(
+                recordName: name, table: "Transactions", zoneID: groupZone, db: db),
+            """
+            A group-zone copy of a personal row was not recognised as a projection once authorship was             absent. The pull path then applies it as a group record, re-tagging the personal row — the             exact corruption Transparent Mode exists to avoid, and it reached a real ledger.
+            """
+        )
+    }
+
+    /// And the discrimination that must survive: a row genuinely moved INTO the group is not a
+    /// projection, authorship or no authorship.
+    func testARowMovedIntoTheGroupIsStillNotAProjectionWithoutAuthorship() {
+        let (id, name) = makePersonalTransaction(title: "GenuinelyGrouped")
+        try? db.executeGroupWriteChecked(
+            "UPDATE Transactions SET shared_group_id = ?, created_by_uid = NULL WHERE id = ?;",
+            orderedBindings: [groupId, id])
+
+        XCTAssertFalse(
+            SyncEngine.isProjection(
+                recordName: name, table: "Transactions", zoneID: groupZone, db: db),
+            "Dropping the authorship condition must not make genuine group records look like copies"
+        )
+    }
+
     // MARK: - Sync state is kept apart
 
     /// The property that keeps the personal record safe: a projection's system fields and the
