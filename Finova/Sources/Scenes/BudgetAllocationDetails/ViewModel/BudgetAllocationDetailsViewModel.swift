@@ -33,6 +33,9 @@ final class BudgetAllocationDetailsViewModel {
     private(set) var allocation: BudgetAllocation?
     private(set) var unallocatedSpending: UnallocatedCategorySpending?
     let mode: AllocationDetailsMode
+    /// The ledger this detail screen belongs to. Defaults to the context the user was last in,
+    /// which is the one they navigated from; callers that know better should pass it explicitly.
+    let ledgerScope: LedgerScope
 
     /// Returns true if this is an unallocated category (no allocation set yet)
     var isUnallocatedMode: Bool {
@@ -47,7 +50,8 @@ final class BudgetAllocationDetailsViewModel {
         allocation: BudgetAllocation,
         transactionRepository: TransactionRepositoryProtocol = TransactionRepository(),
         allocationRepository: BudgetAllocationRepositoryProtocol = BudgetAllocationRepository(),
-        allocationService: BudgetAllocationService = BudgetAllocationService()
+        allocationService: BudgetAllocationService = BudgetAllocationService(),
+        ledgerScope: LedgerScope = .current
     ) {
         self.mode = .allocated(allocation)
         self.allocation = allocation
@@ -55,6 +59,7 @@ final class BudgetAllocationDetailsViewModel {
         self.transactionRepository = transactionRepository
         self.allocationRepository = allocationRepository
         self.allocationService = allocationService
+        self.ledgerScope = ledgerScope
     }
 
     /// Initializer for unallocated mode (category with spending but no allocation)
@@ -62,7 +67,8 @@ final class BudgetAllocationDetailsViewModel {
         unallocatedSpending: UnallocatedCategorySpending,
         transactionRepository: TransactionRepositoryProtocol = TransactionRepository(),
         allocationRepository: BudgetAllocationRepositoryProtocol = BudgetAllocationRepository(),
-        allocationService: BudgetAllocationService = BudgetAllocationService()
+        allocationService: BudgetAllocationService = BudgetAllocationService(),
+        ledgerScope: LedgerScope = .current
     ) {
         self.mode = .unallocated(unallocatedSpending)
         self.allocation = nil
@@ -70,6 +76,7 @@ final class BudgetAllocationDetailsViewModel {
         self.transactionRepository = transactionRepository
         self.allocationRepository = allocationRepository
         self.allocationService = allocationService
+        self.ledgerScope = ledgerScope
     }
 
     // MARK: - Computed Properties
@@ -363,7 +370,8 @@ final class BudgetAllocationDetailsViewModel {
 
         // Use the service to get allocations with usage calculated
         let allocations = allocationService.getAllocationsWithUsage(
-            forMonth: allocation.monthDate
+            forMonth: allocation.monthDate,
+            in: ledgerScope
         )
 
         if let updatedAllocation = allocations.first(where: { $0.dbId == dbId }) {

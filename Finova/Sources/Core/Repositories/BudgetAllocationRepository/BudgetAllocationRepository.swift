@@ -120,10 +120,17 @@ final class BudgetAllocationRepository: BudgetAllocationRepositoryProtocol {
     // MARK: - Insert
 
     func insertAllocation(_ model: BudgetAllocationModel) throws -> Int {
-        // Check for duplicate (same category and month)
+        // Check for duplicate (same category and month) WITHIN THE SAME SCOPE.
+        //
+        // Scope was missing from this predicate, so a group allocation was rejected as a duplicate
+        // of the user's personal one for the same category and month — and vice versa. They are
+        // separate records in separate ledgers; only a collision inside one ledger is a duplicate.
+        // (Same defect family as Budgets' global `month_date` primary key, fixed in Stage 2.)
         let allModels = db.fetchAllBudgetAllocations(userId: UIDUserDefaultsManager.shared.currentUserUID)
         if allModels.contains(where: {
-            $0.categoryKey == model.categoryKey && $0.monthDate == model.monthDate
+            $0.categoryKey == model.categoryKey
+                && $0.monthDate == model.monthDate
+                && ($0.sharedGroupId ?? "") == (model.sharedGroupId ?? "")
         }) {
             throw BudgetAllocationError.duplicateAllocation
         }

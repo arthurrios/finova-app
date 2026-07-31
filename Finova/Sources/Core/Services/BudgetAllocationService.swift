@@ -214,15 +214,25 @@ final class BudgetAllocationService {
     /// Also generates any missing recurring instances for the month.
     /// - Parameter monthAnchor: The month anchor timestamp
     /// - Returns: Array of allocations with usage amounts filled in
-    func getAllocationsWithUsage(forMonth monthAnchor: Int) -> [BudgetAllocation] {
-        // First, generate any missing recurring instances
+    /// - Parameters:
+    ///   - monthAnchor: The month anchor timestamp
+    ///   - scope: which ledger to read — the caller's own, or a group's
+    ///
+    /// Until this took a scope, every one of its twelve call sites read the user-scoped set, so a
+    /// group rendered the viewer's personal allocations (or nothing) regardless of context. The
+    /// group-aware repository and usage queries have existed all along with no callers; this is
+    /// what connects them.
+    func getAllocationsWithUsage(forMonth monthAnchor: Int, in scope: LedgerScope) -> [BudgetAllocation] {
+        // Generation stays deliberately user-scoped even in group scope: materialising instances
+        // from a group-scoped read would pull other members' recurring series into this ledger.
         generateRecurringInstancesIfNeeded(forMonth: monthAnchor)
 
         // P3: fetch the full allocation set ONCE and filter locally. This method previously did
         // three separate full-table scans per call (fetchAllocations(for:) + a debug-only
         // fetchAllAllocations + …); the carousel is paged so this runs per visible card, but the
         // redundant scans within a single call were pure waste.
-        let allAllocations = allocationRepo.fetchAllAllocations()
+        let allAllocations = scope.groupId.map { allocationRepo.fetchAllocationsForGroup(groupId: $0) }
+            ?? allocationRepo.fetchAllAllocations()
         var allocations = allAllocations.filter { $0.monthDate == monthAnchor }
 
         logDebug("BudgetAllocationService: All allocations in storage: \(allAllocations.count), for month \(monthAnchor): \(allocations.count)")
@@ -230,8 +240,10 @@ final class BudgetAllocationService {
             logDebug("BudgetAllocationService: Stored monthDates: \(allAllocations.map { $0.monthDate })")
         }
 
-        // Calculate usage by category from transactions
-        let usageByCategory = calculateUsageByCategory(forMonth: monthAnchor)
+        // Usage must come from the SAME scope as the allocations, or a group shows its own
+        // allocations spent down by the viewer's personal transactions.
+        let usageByCategory = scope.groupId.map { calculateUsageByCategory(forMonth: monthAnchor, groupId: $0) }
+            ?? calculateUsageByCategory(forMonth: monthAnchor)
 
         // Fill in usage amounts
         for i in allocations.indices {

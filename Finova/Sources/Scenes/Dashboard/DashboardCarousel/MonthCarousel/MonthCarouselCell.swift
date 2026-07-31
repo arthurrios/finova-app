@@ -95,6 +95,12 @@ class MonthCarouselCell: UICollectionViewCell {
     private(set) var currentMonthAnchor: Int = 0
     private let allocationService = BudgetAllocationService()
 
+    /// Which ledger this cell renders. Injected at configure time by the dashboard, alongside
+    /// `monthCard.dataContext`, so the cell reads allocations from the same scope it displays
+    /// transactions for. Cells are reused, so this must be set on every configure — the default is
+    /// personal, which is also the correct fallback for a cell that has not been configured yet.
+    var ledgerScope: LedgerScope = .personal
+
     /// Sets the month anchor for this cell (used for budget allocation operations)
     func setMonthAnchor(_ anchor: Int) {
         currentMonthAnchor = anchor
@@ -414,7 +420,7 @@ class MonthCarouselCell: UICollectionViewCell {
         guard isShowingBudgetView else { return }
 
         // Fetch fresh data and update the budget card
-        let allocations = allocationService.getAllocationsWithUsage(forMonth: currentMonthAnchor)
+        let allocations = allocationService.getAllocationsWithUsage(forMonth: currentMonthAnchor, in: ledgerScope)
         let unallocatedSpending = allocationService.getUnallocatedCategoriesWithSpending(forMonth: currentMonthAnchor)
         let summary = allocationService.getUnallocatedSummary(forMonth: currentMonthAnchor)
 
@@ -1381,7 +1387,7 @@ extension MonthCarouselCell: MonthCardFlipDelegate {
             }
 
             // Fetch real allocations and summary from the service
-            let allocations = allocationService.getAllocationsWithUsage(forMonth: currentMonthAnchor)
+            let allocations = allocationService.getAllocationsWithUsage(forMonth: currentMonthAnchor, in: ledgerScope)
             let summary = allocationService.getUnallocatedSummary(forMonth: currentMonthAnchor)
             logDebug("MonthCarouselCell: Fetched \(allocations.count) allocations for monthAnchor: \(currentMonthAnchor)")
             flipToBudgetView(allocations: allocations, summary: summary)

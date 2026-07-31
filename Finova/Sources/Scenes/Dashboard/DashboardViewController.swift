@@ -219,7 +219,7 @@ final class DashboardViewController: UIViewController {
         let monthAnchor = syncedViewModel.monthData[syncedViewModel.selectedIndex].date.monthAnchor
         if isGlobalBudgetViewActive {
             let allocationService = BudgetAllocationService()
-            let allocations = allocationService.getAllocationsWithUsage(forMonth: monthAnchor)
+            let allocations = allocationService.getAllocationsWithUsage(forMonth: monthAnchor, in: LedgerScope(viewModel.currentContext))
             let summary = allocationService.getUnallocatedSummary(forMonth: monthAnchor)
             cell.restoreBudgetViewState(allocations: allocations, summary: summary)
         }
@@ -291,7 +291,7 @@ final class DashboardViewController: UIViewController {
 
                 if shouldShowBudgetView {
                     let allocationService = BudgetAllocationService()
-                    let allocations = allocationService.getAllocationsWithUsage(forMonth: monthAnchor)
+                    let allocations = allocationService.getAllocationsWithUsage(forMonth: monthAnchor, in: LedgerScope(viewModel.currentContext))
                     let summary = allocationService.getUnallocatedSummary(forMonth: monthAnchor)
 
                     // Restore budget view if not already showing, then refresh
@@ -378,7 +378,7 @@ final class DashboardViewController: UIViewController {
                     if shouldShowBudgetView {
                         // Refresh budget view data
                         let allocationService = BudgetAllocationService()
-                        let allocations = allocationService.getAllocationsWithUsage(forMonth: monthAnchor)
+                        let allocations = allocationService.getAllocationsWithUsage(forMonth: monthAnchor, in: LedgerScope(viewModel.currentContext))
                         let summary = allocationService.getUnallocatedSummary(forMonth: monthAnchor)
 
                         if !cell.isShowingBudgetView {
@@ -457,7 +457,7 @@ final class DashboardViewController: UIViewController {
                 }
 
                 let monthAnchor = cell.currentMonthAnchor
-                let allocations = allocationService.getAllocationsWithUsage(forMonth: monthAnchor)
+                let allocations = allocationService.getAllocationsWithUsage(forMonth: monthAnchor, in: LedgerScope(viewModel.currentContext))
                 let summary = allocationService.getUnallocatedSummary(forMonth: monthAnchor)
 
                 if cell.isShowingBudgetView {
@@ -492,7 +492,7 @@ final class DashboardViewController: UIViewController {
 
             if isGlobalBudgetViewActive {
                 // Flip to budget view
-                let allocations = allocationService.getAllocationsWithUsage(forMonth: monthAnchor)
+                let allocations = allocationService.getAllocationsWithUsage(forMonth: monthAnchor, in: LedgerScope(viewModel.currentContext))
                 let summary = allocationService.getUnallocatedSummary(forMonth: monthAnchor)
                 cell.flipToBudgetView(allocations: allocations, summary: summary)
             } else {
@@ -1907,6 +1907,8 @@ extension DashboardViewController: UICollectionViewDataSource {
 
             cell.monthCard.ledgerService = viewModel.transactionLedger
             cell.monthCard.dataContext = viewModel.currentContext
+            // Same scope the card displays, so its budget view can't read a different ledger.
+            cell.ledgerScope = LedgerScope(viewModel.currentContext)
             cell.monthCard.refresh(with: model)
 
             cell.setFiltersWithoutApplying(globalFilters)
@@ -1915,7 +1917,7 @@ extension DashboardViewController: UICollectionViewDataSource {
             // Restore budget view state if global budget view is active
             if isGlobalBudgetViewActive {
                 let allocationService = BudgetAllocationService()
-                let allocations = allocationService.getAllocationsWithUsage(forMonth: monthAnchor)
+                let allocations = allocationService.getAllocationsWithUsage(forMonth: monthAnchor, in: LedgerScope(viewModel.currentContext))
                 let summary = allocationService.getUnallocatedSummary(forMonth: monthAnchor)
                 cell.restoreBudgetViewState(allocations: allocations, summary: summary)
             }
@@ -1955,7 +1957,7 @@ extension DashboardViewController: UICollectionViewDelegate {
         let monthAnchor = syncedViewModel.monthData[indexPath.item].date.monthAnchor
         if isGlobalBudgetViewActive && !monthCell.isShowingBudgetView {
             let allocationService = BudgetAllocationService()
-            let allocations = allocationService.getAllocationsWithUsage(forMonth: monthAnchor)
+            let allocations = allocationService.getAllocationsWithUsage(forMonth: monthAnchor, in: LedgerScope(viewModel.currentContext))
             let summary = allocationService.getUnallocatedSummary(forMonth: monthAnchor)
             monthCell.restoreBudgetViewState(allocations: allocations, summary: summary)
         } else if !isGlobalBudgetViewActive && monthCell.isShowingBudgetView {
@@ -2084,7 +2086,7 @@ extension DashboardViewController: UIScrollViewDelegate {
                     let monthAnchor = model.date.monthAnchor
                     if isGlobalBudgetViewActive && !firstCell.isShowingBudgetView {
                         let allocationService = BudgetAllocationService()
-                        let allocations = allocationService.getAllocationsWithUsage(forMonth: monthAnchor)
+                        let allocations = allocationService.getAllocationsWithUsage(forMonth: monthAnchor, in: LedgerScope(viewModel.currentContext))
                         let summary = allocationService.getUnallocatedSummary(forMonth: monthAnchor)
                         firstCell.restoreBudgetViewState(allocations: allocations, summary: summary)
                     } else if !isGlobalBudgetViewActive && firstCell.isShowingBudgetView {
