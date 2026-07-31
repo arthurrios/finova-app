@@ -3205,7 +3205,54 @@ final class SyncEngine {
         }
     }
 
+    /// Whether a deletion reported from `recordID.zoneID` refers to the local row that holds that
+    /// record name — or merely to a DIFFERENT COPY that happens to share it.
+    ///
+    /// CloudKit record names are unique per ZONE, not globally. The same name legitimately exists in
+    /// two zones at once, which is the property Transparent Mode is built on and the property a
+    /// record moving zones passes through. `processDeletedRecord` used to discard `recordID.zoneID`
+    /// and delete by name alone, so a deletion aimed at one copy destroyed the other. Two ways that
+    /// bites, both of them data loss:
+    ///
+    ///   1. A row restored from a group back to personal is pushed to the private zone, and its old
+    ///      group-zone copy is correctly withdrawn (`staleZoneCopy`). The push side already protects
+    ///      the local row via `orphanDeleteNames` — but when that withdrawal came back on a later
+    ///      fetch, the row now living in the private zone was deleted under the shared name. This is
+    ///      what emptied a restored personal ledger.
+    ///   2. Revoking Transparent Mode deletes a projection from a group zone. That deletion would
+    ///      take the author's personal row with it.
+    ///
+    /// So the zone has to be honoured: a deletion applies only when the local row's scope is the
+    /// scope that zone represents. Personal zone ↔ `shared_group_id IS NULL`; `Group-X` ↔ `X`.
+    static func deletionTargetsLocalRow(
+        recordID: CKRecord.ID, table: String, db: DBHelper
+    ) -> Bool {
+        let zoneName = recordID.zoneID.zoneName
+        let deletionScope: String? = zoneName.hasPrefix("Group-")
+            ? String(zoneName.dropFirst("Group-".count))
+            : nil
+
+        let local = db.rowScope(table: table, ckRecordName: recordID.recordName)
+        // No local row: nothing to protect, and the repositories are no-ops anyway. Let it through so
+        // tombstone bookkeeping still runs.
+        guard local.exists else { return true }
+
+        let applies = (local.sharedGroupId ?? "") == (deletionScope ?? "")
+        if !applies {
+            logWarning("""
+                [Sync] Ignoring deletion of \(recordID.recordName) from zone \(zoneName) — the local \
+                row's scope is \(local.sharedGroupId ?? "personal"), so that deletion refers to a \
+                different copy of the same record name, not to this row.
+                """)
+        }
+        return applies
+    }
+
     private func processDeletedRecord(recordID: CKRecord.ID, recordType: String) {
+        guard let table = Self.revTable(forRecordType: recordType),
+              Self.deletionTargetsLocalRow(recordID: recordID, table: table, db: db)
+        else { return }
+
         switch recordType {
         case "Transaction":
             TransactionRepository(db: db).deleteFromCloud(ckRecordName: recordID.recordName)

@@ -2793,6 +2793,23 @@ class DBHelper {
         return adopted
     }
 
+    /// The ledger scope of the local row carrying this CloudKit record name.
+    ///
+    /// `exists` distinguishes "no such row" from "a row whose scope is NULL" — the two need opposite
+    /// handling when deciding whether an inbound deletion applies, and a plain `String?` cannot say
+    /// which one it is.
+    func rowScope(table: String, ckRecordName: String) -> (exists: Bool, sharedGroupId: String?) {
+        guard isInitialized, Self.syncableTablesV1.contains(table) else { return (false, nil) }
+        let present = fetchSingleInt(
+            "SELECT COUNT(*) FROM " + table + " WHERE ck_record_id = ?;",
+            textBinding: ckRecordName) ?? 0
+        guard present > 0 else { return (false, nil) }
+        let scope = fetchSingleString(
+            "SELECT shared_group_id FROM " + table + " WHERE ck_record_id = ?;",
+            textBinding: ckRecordName)
+        return (true, (scope?.isEmpty ?? true) ? nil : scope)
+    }
+
     /// A row's stable identity and its uuid-valued foreign keys, for building a push record.
     func uuidIdentity(table: String, localId: Int)
         -> (uuid: String, creditCardUuid: String?, statementUuid: String?, parentUuid: String?)?
