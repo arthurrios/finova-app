@@ -2043,16 +2043,40 @@ final class SyncEngine {
         }
     }
 
-    /// Whether the `rev` / `revDevice` fields have been deployed to the PRODUCTION CloudKit schema.
-    /// MUST stay `false` until those fields are added to every synced record type via the CloudKit
-    /// Dashboard (Schema → Record Types → add `rev` INT64 + `revDevice` STRING, then Deploy to
-    /// Production). While `false`, we never write them onto pushed records — otherwise CloudKit
-    /// rejects EVERY save in production with "Cannot create or modify field … in production schema",
-    /// which aborts the whole push and silently breaks discovery, the balance-offset flush, and the
-    /// group refresh (they only run on push success). With the fields absent, `remoteShouldWin`
-    /// falls back to timestamp LWW — the exact behavior that predates the rev model. Flip to `true`
-    /// ONLY after the schema is live in production.
-    private static let revFieldsDeployedInSchema = false
+    /// Whether to stamp `rev` / `revDevice` onto pushed records.
+    ///
+    /// This used to be a hand-flipped constant that had to stay `false` until the fields were live in
+    /// the production CloudKit schema, because stamping a field the schema does not have makes
+    /// CloudKit reject EVERY save with "Cannot create or modify field … in production schema" — which
+    /// aborts the whole push and takes discovery, the balance-offset flush and the group refresh with
+    /// it, since those only run on push success. A constant made the deploy order load-bearing: flip
+    /// too early and sync stops, and the only symptom is one warning in the log.
+    ///
+    /// It is now self-correcting. Stamping is ON by default and turns itself OFF for good the first
+    /// time CloudKit rejects a save because of these specific fields, falling back to the timestamp
+    /// comparison that predates the rev model. So a build can ship before OR after the schema deploy:
+    /// too early costs one failed push cycle, which then retries without the fields.
+    ///
+    /// Clearing `revStampingUnsupported` (or reinstalling) re-arms it, which is what you want after
+    /// the schema does go live.
+    private static let revStampingUnsupportedKey = "revStampingUnsupported_v1"
+
+    private static var revStampingEnabled: Bool {
+        !UserDefaults.standard.bool(forKey: revStampingUnsupportedKey)
+    }
+
+    /// Called when CloudKit rejects a save because `rev`/`revDevice` are missing from the schema.
+    /// Latches off permanently rather than per-cycle: the schema will not appear mid-session, and
+    /// retrying every cycle would cost a failed push each time.
+    private static func disableRevStamping(reason: String) {
+        guard revStampingEnabled else { return }
+        UserDefaults.standard.set(true, forKey: revStampingUnsupportedKey)
+        logWarning("""
+            [Sync] ⚠️ rev/revDevice are not in the CloudKit schema — disabling version stamping and \
+            falling back to timestamp ordering. Deploy `rev` (INT64) and `revDevice` (STRING) to every \
+            synced record type, then clear \(revStampingUnsupportedKey) to re-enable. Reason: \(reason)
+            """)
+    }
 
     /// Stamps the deterministic version onto a record about to be pushed: bumps `rev` to
     /// (localRev + 1) — a logical clock, NOT wall time — and records this device as author. The
@@ -2064,9 +2088,9 @@ final class SyncEngine {
         let table = Self.revTable(forRecordType: record.recordType)
         let localRev = table.map { db.fetchRev(table: $0, ckRecordName: name).rev } ?? 0
         let newRev = localRev + 1
-        // Only stamp the CKRecord when the schema is deployed to production (see the flag's docs).
-        // Local rev tracking stays live regardless so it's already correct once the fields ship.
-        if Self.revFieldsDeployedInSchema {
+        // Local rev tracking stays live regardless of whether the fields can be pushed, so it is
+        // already correct the moment the schema does support them.
+        if Self.revStampingEnabled {
             record["rev"] = newRev as CKRecordValue
             record["revDevice"] = Self.revDeviceId as CKRecordValue
         }
@@ -2793,6 +2817,12 @@ final class SyncEngine {
                             if !hitSchemaError {
                                 hitSchemaError = true
                                 logWarning("[Sync] ⚠️ CloudKit schema error for record \(name): \(desc)")
+                            }
+                            // If it is the version fields specifically, we can recover on our own:
+                            // stop stamping them and retry. Everything else genuinely needs a deploy.
+                            if desc.contains("rev") {
+                                Self.disableRevStamping(reason: desc)
+                                self?.needsPostSyncPush = true
                             }
                         } else if desc.contains("record not found") {
                             // Stale recordChangeTag — clear stored system fields so next push creates a fresh record.
