@@ -33,6 +33,9 @@ final class RecurringTransactionManager {
   private let creditCardService: CreditCardService
   private let creditCardRepo: CreditCardRepository
   private let calendar: Calendar
+  /// Needed to derive generated rows' identities. Injectable for the same reason the repositories
+  /// are: a two-device test drives two databases.
+  private let db: DBHelper
 
   // MARK: - Concurrency Control
   // Static so ALL manager instances share one serial queue. Recurring generation,
@@ -57,11 +60,13 @@ final class RecurringTransactionManager {
   init(
     transactionRepo: TransactionRepository = TransactionRepository(),
     creditCardService: CreditCardService = CreditCardService(),
-    creditCardRepo: CreditCardRepository = CreditCardRepository()
+    creditCardRepo: CreditCardRepository = CreditCardRepository(),
+    db: DBHelper = .shared
   ) {
     self.transactionRepo = transactionRepo
     self.creditCardService = creditCardService
     self.creditCardRepo = creditCardRepo
+    self.db = db
 
     // Usar calendar com fuso horário UTC para consistência com monthAnchor
     var utcCalendar = Calendar(identifier: .gregorian)
@@ -210,6 +215,17 @@ final class RecurringTransactionManager {
         do {
           let insertedId = try transactionRepo.insertTransactionAndGetId(instanceModel)
           newInstances.append(instanceModel)
+
+          // Derived identity: both devices compute the same uuid for (series, month), so a month
+          // materialised independently on two devices is ONE row rather than two that
+          // ConflictResolver then has to guess are the same by title + amount + month.
+          if let parentId = recurringTx.id,
+             let parentUuid = db.uuidIdentity(table: "Transactions", localId: parentId)?.uuid {
+            db.assignDeterministicUuid(
+              table: "Transactions", localId: insertedId,
+              uuid: DeterministicIdentity.recurringInstance(
+                parentUuid: parentUuid, monthDate: targetAnchor))
+          }
 
           // An instance belongs to whatever ledger its SERIES belongs to. Mirror mode used to
           // stamp the mirrored group here instead, so instances of a personal series were born
@@ -839,6 +855,15 @@ final class RecurringTransactionManager {
             let insertedId = try self.transactionRepo.insertTransactionAndGetId(instanceModel)
             newInstancesCreated += 1
             existingTitleAnchors.insert(key)
+
+            // Derived identity for (series, month) — see the note at the other generation site.
+            if let parentId = template.id,
+               let parentUuid = self.db.uuidIdentity(table: "Transactions", localId: parentId)?.uuid {
+              self.db.assignDeterministicUuid(
+                table: "Transactions", localId: insertedId,
+                uuid: DeterministicIdentity.recurringInstance(
+                  parentUuid: parentUuid, monthDate: targetAnchor))
+            }
 
             // Inherit the series' scope, not the device's mirror setting (see above).
             if let parentId = template.id,

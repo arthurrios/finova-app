@@ -106,6 +106,8 @@ class CreditCardService {
         )
 
         guard let newId = stmtRepo.insertStatement(newStatement) else { return nil }
+        assignStatementIdentity(
+            statementId: newId, cardId: newStatement.creditCardId, closingDate: newStatement.closingDate)
 
         var created = newStatement
         created.id = newId
@@ -163,9 +165,27 @@ class CreditCardService {
             updatedAt: Date()
         )
         guard let newId = stmtRepo.insertStatement(newStmt) else { return nil }
+        assignStatementIdentity(
+            statementId: newId, cardId: newStmt.creditCardId, closingDate: newStmt.closingDate)
         var created = newStmt
         created.id = newId
         return created
+    }
+
+    /// Gives a newly created statement the identity every device derives for (card, month).
+    ///
+    /// Statements are created on demand — whichever device first books a transaction into a cycle
+    /// creates it — so two devices independently created two statements for the same cycle and
+    /// `ConflictResolver` had to match them on `creditCardId + closingDate`. Deriving the identity
+    /// also makes "one statement per (card, month)" true by construction rather than something a
+    /// repair pass has to enforce afterwards.
+    private func assignStatementIdentity(statementId: Int, cardId: Int, closingDate: Date) {
+        let db = DBHelper.shared
+        guard let cardUuid = db.uuidIdentity(table: "CreditCards", localId: cardId)?.uuid else { return }
+        db.assignDeterministicUuid(
+            table: "CreditCardStatements", localId: statementId,
+            uuid: DeterministicIdentity.statement(
+                cardUuid: cardUuid, statementMonth: closingDate.monthAnchor))
     }
 
     /// Finds an existing statement for a transaction on a given card/date.

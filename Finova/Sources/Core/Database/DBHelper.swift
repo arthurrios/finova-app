@@ -2735,6 +2735,31 @@ class DBHelper {
         logWarning("[MigrateV4] ck_record_id dedupe complete (schema v4)")
     }
 
+    /// Replaces a generated row's random insert-trigger uuid with a derived one, so every device
+    /// computes the same identity for the same logical row.
+    ///
+    /// **Refuses any row that already has a `ck_record_id`.** That row has been pushed, its CloudKit
+    /// name is `<type>-<uuid>`, and CKRecord names are immutable — changing the uuid would mean
+    /// delete plus create, which a device on an older build receives as a deletion and applies. The
+    /// guard is the whole safety story here, so it lives in the database layer where no call site can
+    /// forget it.
+    ///
+    /// Returns true when the identity was assigned.
+    @discardableResult
+    func assignDeterministicUuid(table: String, localId: Int, uuid: String) -> Bool {
+        guard isInitialized, Self.syncableTablesV1.contains(table) else { return false }
+        let idColumn = table == "Budgets" ? "rowid" : "id"
+        let sql = "UPDATE " + table + " SET uuid = ? WHERE " + idColumn
+            + " = ? AND ck_record_id IS NULL;"
+        do {
+            try executeGroupWriteChecked(sql, orderedBindings: [uuid, localId])
+        } catch {
+            logError("[Identity] Could not assign derived uuid to " + table + ": \(error)")
+            return false
+        }
+        return sqlite3_changes(db) > 0
+    }
+
     /// A row's stable identity and its uuid-valued foreign keys, for building a push record.
     func uuidIdentity(table: String, localId: Int)
         -> (uuid: String, creditCardUuid: String?, statementUuid: String?, parentUuid: String?)?

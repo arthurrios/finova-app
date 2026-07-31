@@ -340,6 +340,19 @@ final class BudgetAllocationService {
 
     // MARK: - Private Helpers
 
+    /// Gives a generated allocation instance the identity every device derives for (series, month),
+    /// replacing the random uuid the insert trigger assigned. Skipped silently when the parent has no
+    /// uuid yet — the instance keeps its random one and `ConflictResolver`'s content matcher still
+    /// covers it, exactly as before.
+    private func assignAllocationInstanceIdentity(instanceId: Int, parentId: Int, monthDate: Int) {
+        guard let parentUuid = DBHelper.shared.uuidIdentity(
+            table: "BudgetAllocations", localId: parentId)?.uuid else { return }
+        DBHelper.shared.assignDeterministicUuid(
+            table: "BudgetAllocations", localId: instanceId,
+            uuid: DeterministicIdentity.allocationInstance(
+                parentUuid: parentUuid, monthDate: monthDate))
+    }
+
     /// Calculates spending by category for a given month.
     /// Only counts expense transactions.
     private func calculateUsageByCategory(forMonth monthAnchor: Int) -> [String: Int] {
@@ -433,7 +446,12 @@ final class BudgetAllocationService {
                     parentAllocationId: parentId,
                     sharedGroupId: parent.sharedGroupId
                 )
-                _ = try? allocationRepo.insertAllocation(instance)
+                // Derived identity for (series, month): a month materialised independently on two
+                // devices becomes ONE row instead of two that then have to be matched by content.
+                if let newId = try? allocationRepo.insertAllocation(instance) {
+                    assignAllocationInstanceIdentity(
+                        instanceId: newId, parentId: parentId, monthDate: monthAnchor)
+                }
             } else {
                 logDebug("BudgetAllocationService: Instance already exists for \(parent.category.key) in month \(monthAnchor)")
             }
@@ -486,7 +504,9 @@ final class BudgetAllocationService {
                     parentAllocationId: parentId,
                     sharedGroupId: parent.sharedGroupId
                 )
-                if (try? allocationRepo.insertAllocation(instance)) != nil {
+                if let newId = try? allocationRepo.insertAllocation(instance) {
+                    assignAllocationInstanceIdentity(
+                        instanceId: newId, parentId: parentId, monthDate: anchor)
                     existingMonths.insert(anchor)
                 }
             }
