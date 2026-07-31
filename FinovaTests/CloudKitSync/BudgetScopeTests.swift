@@ -78,15 +78,18 @@ final class BudgetScopeTests: XCTestCase {
             """
         )
 
-        // NOTE: the unscoped list read `fetchBudgets()` still returns BOTH rows — it filters by
-        // user_id only. That is the F3 read-path gap and belongs to Stage 3 ("finish
-        // context-awareness"), not here. Scoping it now would empty the personal budget view for
-        // anyone whose rows are currently tagged by the old Mirror Mode, which is precisely the
-        // data Stage 3 un-tags.
-        let unscoped = deviceA.budgetRepo.fetchBudgets().filter { $0.monthDate == month }
+        // `fetchBudgets()` is the PERSONAL list read. Since Stage 3f it filters on
+        // `shared_group_id IS NULL`, so the group budget does not leak into the personal view.
+        let personalList = deviceA.budgetRepo.fetchBudgets().filter { $0.monthDate == month }
         XCTAssertEqual(
-            unscoped.count, 2,
-            "Both rows exist; the unscoped read returning both is the Stage 3 gap, documented above"
+            personalList.map(\.amount), [100_000],
+            "The personal budget list must show only the personal budget for that month"
+        )
+        XCTAssertEqual(
+            deviceA.db.fetchSingleInt("SELECT COUNT(*) FROM Budgets WHERE month_date = ?;",
+                                      intBinding: month),
+            2,
+            "Both budgets still exist — they belong to different ledgers, not to one row"
         )
     }
 

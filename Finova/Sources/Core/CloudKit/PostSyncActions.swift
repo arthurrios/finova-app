@@ -46,6 +46,11 @@ final class RealPostSyncActions: PostSyncActions {
                 logWarning("[PostSync] Skipping repairCreditCardDataIntegrity — originalDevice=\(isOriginalDevice), hydrated=\(hydrated)")
             }
 
+            // Restore the rows Mirror Mode tagged. Hooked here rather than at launch because it
+            // needs a verified full pull to know who authored what — and after a sync is the first
+            // moment that is true. Self-guarded and one-shot, so calling it every cycle is free.
+            MirrorTagRestore.runOnceIfNeeded()
+
             completion()
         }
     }

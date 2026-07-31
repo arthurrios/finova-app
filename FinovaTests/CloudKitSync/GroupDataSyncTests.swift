@@ -187,9 +187,19 @@ final class GroupDataSyncTests: XCTestCase {
         let otherGroupTxs = ownerDevice.transactionRepo.fetchTransactionsForGroup(groupId: "nonexistent-group")
         XCTAssertEqual(otherGroupTxs.count, 0, "Non-matching group should return no transactions")
 
-        // All transactions should still be visible via fetchAllTransactions
-        let allTxs = ownerDevice.transactionRepo.fetchAllTransactions()
-        XCTAssertEqual(allTxs.count, 2, "Both transactions should exist in the database")
+        // `fetchAllTransactions` is the PERSONAL ledger, so it returns only the untagged row.
+        // It used to filter on `user_id` alone and therefore returned group records too, which is
+        // why a group's spending was counted against personal budgets as well as the group's.
+        let personalTxs = ownerDevice.transactionRepo.fetchAllTransactions()
+        XCTAssertEqual(personalTxs.map(\.title), ["Personal Only"], "Personal scope excludes group rows")
+
+        // Neither row was deleted — the group one simply belongs to a different ledger.
+        XCTAssertEqual(
+            ownerDevice.db.fetchSingleInt(
+                "SELECT COUNT(*) FROM Transactions WHERE (is_deleted IS NULL OR is_deleted = 0);"),
+            2,
+            "Both transactions must still exist in the database"
+        )
     }
 
     // MARK: - Invitation Local Flow

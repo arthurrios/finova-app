@@ -129,14 +129,9 @@ final class LedgerScopeTests: XCTestCase {
         XCTAssertEqual(inGroup.first?.allocatedAmount, 20_000)
     }
 
-    /// The personal side of the read is NOT scoped yet, and that is deliberate.
-    ///
-    /// `fetchAllAllocations` filters on `user_id` only, so it still returns rows tagged to a group.
-    /// Narrowing it to `shared_group_id IS NULL` today would empty the personal view for every user
-    /// whose ledger the old Mirror Mode tagged — which is exactly the data the restore migration
-    /// un-tags. The two changes have to land together; this test pins the current behaviour so the
-    /// gap is visible rather than assumed fixed.
-    func testPersonalScopeStillIncludesGroupTaggedRows_pendingUntagMigration() {
+    /// Personal scope means `shared_group_id IS NULL`, not merely "this user's rows". Filtering on
+    /// `user_id` alone returned group-tagged rows too, so the personal view showed group records.
+    func testPersonalScopeExcludesGroupTaggedRows() {
         addAllocation(category: "market", amount: 50_000)
         addAllocation(category: "meals", amount: 20_000, sharedGroupId: "some-other-group")
 
@@ -146,10 +141,9 @@ final class LedgerScopeTests: XCTestCase {
             personal.contains { $0.category.key == "market" },
             "The personal allocation must be there"
         )
-        XCTAssertTrue(
+        XCTAssertFalse(
             personal.contains { $0.category.key == "meals" },
-            "Documents the remaining gap: personal reads are user-scoped, not personal-scoped. "
-                + "Tightening this is coupled to the un-tag migration, not to this change."
+            "An allocation tagged to a group belongs to that group's ledger, not the personal one"
         )
     }
 
@@ -170,9 +164,7 @@ final class LedgerScopeTests: XCTestCase {
         )
     }
 
-    /// The same deferral on the usage side: personal usage sums every transaction for the user,
-    /// including group-tagged ones. Pinned rather than asserted-away.
-    func testPersonalUsageStillCountsGroupSpending_pendingUntagMigration() {
+    func testPersonalUsageExcludesGroupSpending() {
         addAllocation(category: "market", amount: 100_000)
         addExpense(category: "market", amount: 3_000)
         addExpense(category: "market", amount: 7_000, sharedGroupId: groupId)
@@ -181,24 +173,9 @@ final class LedgerScopeTests: XCTestCase {
             .first { $0.category.key == "market" }
 
         XCTAssertEqual(
-            personal?.usedAmount, 10_000,
-            "Documents the remaining gap: personal usage is user-scoped. It tightens to 3_000 when "
-                + "the un-tag migration lands and personal reads exclude group-tagged rows."
+            personal?.usedAmount, 3_000,
+            "Group spending must not count against a personal allocation — it was double-counted, "
+                + "once in the group and once personally"
         )
-    }
-
-    /// Both ledgers can hold an allocation for the same category and month. They are separate
-    /// records and must not be merged or shadow one another.
-    func testSameCategoryInBothScopesStaysSeparate() {
-        addAllocation(category: "market", amount: 50_000)
-        addAllocation(category: "market", amount: 90_000, sharedGroupId: groupId)
-
-        let personal = service.getAllocationsWithUsage(forMonth: month, in: .personal)
-            .first { $0.category.key == "market" }
-        let inGroup = service.getAllocationsWithUsage(forMonth: month, in: .group(groupId))
-            .first { $0.category.key == "market" }
-
-        XCTAssertEqual(personal?.allocatedAmount, 50_000)
-        XCTAssertEqual(inGroup?.allocatedAmount, 90_000)
     }
 }

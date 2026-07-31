@@ -2892,12 +2892,20 @@ class DBHelper {
     func getTransactions(forUser uid: String) throws -> [Transaction] {
         guard isInitialized else { return [] }
 
+        // Personal scope means shared_group_id IS NULL. Filtering on `user_id` alone returned rows
+        // tagged to a group as well, so the personal view showed group records — and, symmetrically,
+        // a group's spending was double-counted against personal allocations. Restoring the rows
+        // Mirror Mode tagged (MirrorTagRestore) is what makes tightening this safe: without it, a
+        // mirrored user's personal view would go empty.
+
         let query = """
           SELECT id, title, category, type, amount, date, budget_month_date,
                  is_recurring, has_installments, parent_transaction_id,
                  installment_number, total_installments, original_amount,
                  credit_card_id, statement_id, is_credit_card_statement, created_by_uid
-          FROM Transactions WHERE user_id = ? AND (is_deleted IS NULL OR is_deleted = 0);
+          FROM Transactions
+          WHERE user_id = ? AND shared_group_id IS NULL
+            AND (is_deleted IS NULL OR is_deleted = 0);
           """
 
         return try executeTransactionQueryPublicText(query, textBindings: [uid])
@@ -2906,7 +2914,11 @@ class DBHelper {
     func getBudgets(forUser uid: String) throws -> [BudgetModel] {
         guard isInitialized else { return [] }
 
-        let query = "SELECT month_date, amount FROM Budgets WHERE user_id = ? AND (is_deleted IS NULL OR is_deleted = 0);"
+        let query = """
+            SELECT month_date, amount FROM Budgets
+            WHERE user_id = ? AND shared_group_id IS NULL
+              AND (is_deleted IS NULL OR is_deleted = 0);
+            """
         var statement: OpaquePointer?
         guard sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK else {
             let msg = String(cString: sqlite3_errmsg(db))
@@ -3488,7 +3500,9 @@ class DBHelper {
             query = """
                 SELECT id, month_date, category_key, allocated_amount, is_recurring,
                        parent_allocation_id, shared_group_id
-                FROM BudgetAllocations WHERE user_id = ? AND (is_deleted IS NULL OR is_deleted = 0);
+                FROM BudgetAllocations
+                WHERE user_id = ? AND shared_group_id IS NULL
+                  AND (is_deleted IS NULL OR is_deleted = 0);
                 """
         } else {
             query = """

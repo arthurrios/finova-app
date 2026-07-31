@@ -2147,6 +2147,24 @@ final class SyncEngine {
                 return (groupId, dest)
             }
 
+        /// `staleZoneCopy`, minus any zone this record is about to be projected into.
+        ///
+        /// A record moving from a group zone back to personal is exactly what the un-tag migration
+        /// produces, and `staleZoneCopy` correctly wants to remove the group-zone copy. But if the
+        /// author publishes to that same group, `fanOutProjections` is simultaneously saving a
+        /// projection there — the same (zone, recordName) would be queued for delete AND save in one
+        /// CKModifyRecordsOperation. The projection is the intended state, so the delete is dropped.
+        func staleZoneCopyOutsideProjections(
+            storedName: String?, table: String, newZoneID: CKRecordZone.ID, isPersonal: Bool
+        ) -> (id: CKRecord.ID, database: CKDatabase.Scope)? {
+            guard let stale = staleZoneCopy(
+                storedName: storedName, table: table, newZoneID: newZoneID
+            ) else { return nil }
+            guard isPersonal else { return stale }
+            let projectedZones = Set(projectionTargets.map(\.dest.zoneID.zoneName))
+            return projectedZones.contains(stale.id.zoneID.zoneName) ? nil : stale
+        }
+
         /// Publishes a personal record into every group the author has made transparent, and
         /// withdraws it from groups that are no longer transparent.
         ///
@@ -2237,7 +2255,9 @@ final class SyncEngine {
             fanOutProjections(of: freshRecord, isPersonal: (groupId ?? "").isEmpty)
             // Remove the copy in whatever zone this record used to live in (covers personal→group,
             // group→personal on un-mirror/leave, and group A→group B).
-            if let stale = staleZoneCopy(storedName: storedName, table: "Transactions", newZoneID: dest.zoneID) {
+            if let stale = staleZoneCopyOutsideProjections(
+                storedName: storedName, table: "Transactions", newZoneID: dest.zoneID, isPersonal: (groupId ?? "").isEmpty
+            ) {
                 appendOrphanDeleteID(stale.id, database: stale.database)
             }
         }
@@ -2279,7 +2299,9 @@ final class SyncEngine {
             let systemFields = DBHelper.shared.fetchSystemFields(ckRecordName: budgetRecordName, table: "Budgets")
             appendRecord(stampedRev(buildCKRecord(fresh: freshRecord, systemFieldsData: systemFields)), database: dest.database)
             fanOutProjections(of: freshRecord, isPersonal: (budget.sharedGroupId ?? "").isEmpty)
-            if let stale = staleZoneCopy(storedName: budgetRecordName, table: "Budgets", newZoneID: dest.zoneID) {
+            if let stale = staleZoneCopyOutsideProjections(
+                storedName: budgetRecordName, table: "Budgets", newZoneID: dest.zoneID, isPersonal: (budget.sharedGroupId ?? "").isEmpty
+            ) {
                 appendOrphanDeleteID(stale.id, database: stale.database)
             }
         }
@@ -2334,7 +2356,9 @@ final class SyncEngine {
             }
             appendRecord(stampedRev(buildCKRecord(fresh: freshRecord, systemFieldsData: systemFields)), database: dest.database)
             fanOutProjections(of: freshRecord, isPersonal: (groupId ?? "").isEmpty)
-            if let stale = staleZoneCopy(storedName: storedName, table: "CreditCards", newZoneID: dest.zoneID) {
+            if let stale = staleZoneCopyOutsideProjections(
+                storedName: storedName, table: "CreditCards", newZoneID: dest.zoneID, isPersonal: (groupId ?? "").isEmpty
+            ) {
                 appendOrphanDeleteID(stale.id, database: stale.database)
             }
         }
@@ -2386,7 +2410,9 @@ final class SyncEngine {
             }
             appendRecord(stampedRev(buildCKRecord(fresh: freshRecord, systemFieldsData: systemFields)), database: dest.database)
             fanOutProjections(of: freshRecord, isPersonal: (parentGroupId ?? "").isEmpty)
-            if let stale = staleZoneCopy(storedName: storedName, table: "CreditCardStatements", newZoneID: dest.zoneID) {
+            if let stale = staleZoneCopyOutsideProjections(
+                storedName: storedName, table: "CreditCardStatements", newZoneID: dest.zoneID, isPersonal: (parentGroupId ?? "").isEmpty
+            ) {
                 appendOrphanDeleteID(stale.id, database: stale.database)
             }
         }
@@ -2447,7 +2473,9 @@ final class SyncEngine {
             }
             appendRecord(stampedRev(buildCKRecord(fresh: freshRecord, systemFieldsData: systemFields)), database: dest.database)
             fanOutProjections(of: freshRecord, isPersonal: (alloc.sharedGroupId ?? "").isEmpty)
-            if let stale = staleZoneCopy(storedName: storedName, table: "BudgetAllocations", newZoneID: dest.zoneID) {
+            if let stale = staleZoneCopyOutsideProjections(
+                storedName: storedName, table: "BudgetAllocations", newZoneID: dest.zoneID, isPersonal: (alloc.sharedGroupId ?? "").isEmpty
+            ) {
                 appendOrphanDeleteID(stale.id, database: stale.database)
             }
         }
