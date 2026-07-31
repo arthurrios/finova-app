@@ -13,9 +13,23 @@ import XCTest
 // MARK: - MockCloudStore
 
 /// In-memory CKRecord storage simulating CloudKit.
+///
+/// Keyed by **zone AND record name**, because CloudKit record names are unique only within a zone.
+/// Keying by name alone collapsed a Transparent Mode projection onto the personal record it is a
+/// copy of — the two share a name by design — so the store could not represent the thing the
+/// feature exists to produce.
 final class MockCloudStore {
-    private var records: [String: CKRecord] = [:]
+    private var records: [Key: CKRecord] = [:]
     private var deletedRecordNames: Set<String> = []
+
+    private struct Key: Hashable {
+        let zoneName: String
+        let recordName: String
+        init(_ id: CKRecord.ID) {
+            zoneName = id.zoneID.zoneName
+            recordName = id.recordName
+        }
+    }
 
     private static let testZoneID = CKRecordZone.ID(
         zoneName: "TestZone",
@@ -24,8 +38,12 @@ final class MockCloudStore {
 
     static var zoneID: CKRecordZone.ID { testZoneID }
 
+    static func groupZoneID(_ groupId: String) -> CKRecordZone.ID {
+        CKRecordZone.ID(zoneName: "Group-\(groupId)", ownerName: CKCurrentUserDefaultName)
+    }
+
     func save(_ record: CKRecord) {
-        records[record.recordID.recordName] = record
+        records[Key(record.recordID)] = record
         deletedRecordNames.remove(record.recordID.recordName)
     }
 
@@ -35,9 +53,17 @@ final class MockCloudStore {
         }
     }
 
+    /// Deletes the record from every zone that holds it. Prefer `delete(recordID:)` when the zone
+    /// matters — withdrawing a projection must not remove the personal record.
     func delete(recordName: String) {
-        records.removeValue(forKey: recordName)
+        for key in records.keys where key.recordName == recordName {
+            records.removeValue(forKey: key)
+        }
         deletedRecordNames.insert(recordName)
+    }
+
+    func delete(recordID: CKRecord.ID) {
+        records.removeValue(forKey: Key(recordID))
     }
 
     /// Vends a COPY, never the stored instance.
@@ -60,8 +86,26 @@ final class MockCloudStore {
         records.values.filter { $0.recordType == recordType }.map(copy)
     }
 
+    /// Only the records in one zone — how a real device sees a group it belongs to.
+    func fetchAll(inZone zoneID: CKRecordZone.ID) -> [CKRecord] {
+        records
+            .filter { $0.key.zoneName == zoneID.zoneName }
+            .values.map(copy)
+    }
+
+    /// The first copy found under this name, in any zone. Callers that care which zone they get
+    /// should use `fetch(recordID:)`.
     func fetch(recordName: String) -> CKRecord? {
-        records[recordName].map(copy)
+        records.first { $0.key.recordName == recordName }.map { copy($0.value) }
+    }
+
+    func fetch(recordID: CKRecord.ID) -> CKRecord? {
+        records[Key(recordID)].map(copy)
+    }
+
+    /// Every zone currently holding a record under this name.
+    func zonesHolding(recordName: String) -> Set<String> {
+        Set(records.keys.filter { $0.recordName == recordName }.map(\.zoneName))
     }
 
     func fetchChanges(since date: Date?) -> [CKRecord] {

@@ -1870,7 +1870,42 @@ final class SyncEngine {
         let coder = NSKeyedArchiver(requiringSecureCoding: true)
         record.encodeSystemFields(with: coder)
         coder.finishEncoding()
+
+        let zoneID = record.recordID.zoneID
+        guard !isProjection(recordName: record.recordID.recordName, table: table, zoneID: zoneID) else {
+            DBHelper.shared.saveProjectionSystemFields(
+                coder.encodedData,
+                recordName: record.recordID.recordName,
+                zoneName: zoneID.zoneName,
+                zoneOwner: zoneID.ownerName
+            )
+            return
+        }
         DBHelper.shared.saveSystemFields(coder.encodedData, ckRecordName: record.recordID.recordName, table: table)
+    }
+
+    /// A group-zone record whose local row is NOT tagged to that group is a Transparent Mode
+    /// projection — a published copy of a personal row — rather than the row's own cloud copy.
+    ///
+    /// The distinction is load-bearing on the write side. `ck_system_fields` is a column on the
+    /// record's row, keyed by `ck_record_id` with no zone, so letting a projection save there would
+    /// overwrite the personal record's system fields; `lastSyncedZone` would then report the group
+    /// zone, `staleZoneCopy` would conclude the record had moved, and the personal copy would be
+    /// deleted. Projections therefore keep their sync state in `ProjectionSyncState`.
+    static func isProjection(
+        recordName: String, table: String, zoneID: CKRecordZone.ID, db: DBHelper
+    ) -> Bool {
+        guard zoneID.zoneName.hasPrefix("Group-") else { return false }
+        let groupId = String(zoneID.zoneName.dropFirst("Group-".count))
+        let localScope = db.fetchSingleString(
+            "SELECT shared_group_id FROM \(table) WHERE ck_record_id = ?;",
+            textBinding: recordName
+        )
+        return (localScope ?? "") != groupId
+    }
+
+    private func isProjection(recordName: String, table: String, zoneID: CKRecordZone.ID) -> Bool {
+        Self.isProjection(recordName: recordName, table: table, zoneID: zoneID, db: DBHelper.shared)
     }
 
     /// Decodes the zone a record was last successfully synced into, from its stored system fields.
@@ -2106,6 +2141,63 @@ final class SyncEngine {
             orphanDeleteNames.insert(id.recordName)
         }
 
+        // MARK: Transparent Mode projections
+
+        // Every group the current user publishes their personal ledger into, resolved once for the
+        // whole cycle. Groups whose destination isn't known yet are simply skipped — the next push
+        // picks them up, which is safer than guessing a zone.
+        let projectionTargets: [(groupId: String, dest: RecordDestination)] =
+            TransparencyManager.shared.publishedGroupIds().compactMap { groupId in
+                guard canResolveDestination(forGroupId: groupId) else {
+                    needsPostSyncPush = true
+                    return nil
+                }
+                let dest = destination(forGroupId: groupId)
+                guard dest.zoneID != CloudKitManager.privateZoneID else { return nil }
+                return (groupId, dest)
+            }
+
+        /// Publishes a personal record into every group the author has made transparent, and
+        /// withdraws it from groups that are no longer transparent.
+        ///
+        /// The projection reuses the personal record's name — CloudKit names are unique per zone —
+        /// so it needs no identity of its own and there is no second local row to keep in step.
+        /// Nothing here touches the personal row: that is the entire difference from Mirror Mode,
+        /// which moved the row and thereby stopped it being personal.
+        func fanOutProjections(of fresh: CKRecord, isPersonal: Bool) {
+            let name = fresh.recordID.recordName
+            let live = isPersonal ? projectionTargets : []
+            let liveZoneNames = Set(live.map(\.dest.zoneID.zoneName))
+
+            // Withdraw: a zone we projected into before but no longer publish to. This is what
+            // makes revoking transparency actually un-share the record, and it is the ONLY delete
+            // Transparent Mode ever issues — the personal row is never touched.
+            for stale in DBHelper.shared.projectionZones(recordName: name)
+            where !liveZoneNames.contains(stale.zoneName) {
+                let zoneID = CKRecordZone.ID(zoneName: stale.zoneName, ownerName: stale.zoneOwner)
+                let database: CKDatabase.Scope =
+                    stale.zoneOwner == CKCurrentUserDefaultName ? .private : .shared
+                appendOrphanDeleteID(CKRecord.ID(recordName: name, zoneID: zoneID), database: database)
+                DBHelper.shared.deleteProjectionState(recordName: name, zoneName: stale.zoneName)
+            }
+
+            for target in live {
+                guard let copy = fresh.copy() as? CKRecord else { continue }
+                let projected = CKRecord(recordType: copy.recordType, recordID:
+                    CKRecord.ID(recordName: name, zoneID: target.dest.zoneID))
+                for key in copy.allKeys() { projected[key] = copy[key] }
+                // Receivers tag by zone, but state it explicitly so the record is self-describing.
+                projected["sharedGroupId"] = target.groupId as CKRecordValue
+                let systemFields = DBHelper.shared.fetchProjectionSystemFields(
+                    recordName: name, zoneName: target.dest.zoneID.zoneName
+                )
+                appendRecord(
+                    stampedRev(buildCKRecord(fresh: projected, systemFieldsData: systemFields)),
+                    database: target.dest.database
+                )
+            }
+        }
+
         // Transactions — use stored ck_record_id to avoid creating duplicate CK records
         let txRepo = TransactionRepository()
         let cardRepo = CreditCardRepository()
@@ -2152,6 +2244,7 @@ final class SyncEngine {
                 DBHelper.shared.fetchSystemFields(ckRecordName: $0, table: "Transactions")
             }
             appendRecord(stampedRev(buildCKRecord(fresh: freshRecord, systemFieldsData: systemFields)), database: dest.database)
+            fanOutProjections(of: freshRecord, isPersonal: (groupId ?? "").isEmpty)
             // Remove the copy in whatever zone this record used to live in (covers personal→group,
             // group→personal on un-mirror/leave, and group A→group B).
             if let stale = staleZoneCopy(storedName: storedName, table: "Transactions", newZoneID: dest.zoneID) {
@@ -2195,6 +2288,7 @@ final class SyncEngine {
             let budgetRecordName = freshRecord.recordID.recordName
             let systemFields = DBHelper.shared.fetchSystemFields(ckRecordName: budgetRecordName, table: "Budgets")
             appendRecord(stampedRev(buildCKRecord(fresh: freshRecord, systemFieldsData: systemFields)), database: dest.database)
+            fanOutProjections(of: freshRecord, isPersonal: (budget.sharedGroupId ?? "").isEmpty)
             if let stale = staleZoneCopy(storedName: budgetRecordName, table: "Budgets", newZoneID: dest.zoneID) {
                 appendOrphanDeleteID(stale.id, database: stale.database)
             }
@@ -2249,6 +2343,7 @@ final class SyncEngine {
                 DBHelper.shared.fetchSystemFields(ckRecordName: $0, table: "CreditCards")
             }
             appendRecord(stampedRev(buildCKRecord(fresh: freshRecord, systemFieldsData: systemFields)), database: dest.database)
+            fanOutProjections(of: freshRecord, isPersonal: (groupId ?? "").isEmpty)
             if let stale = staleZoneCopy(storedName: storedName, table: "CreditCards", newZoneID: dest.zoneID) {
                 appendOrphanDeleteID(stale.id, database: stale.database)
             }
@@ -2300,6 +2395,7 @@ final class SyncEngine {
                 DBHelper.shared.fetchSystemFields(ckRecordName: $0, table: "CreditCardStatements")
             }
             appendRecord(stampedRev(buildCKRecord(fresh: freshRecord, systemFieldsData: systemFields)), database: dest.database)
+            fanOutProjections(of: freshRecord, isPersonal: (parentGroupId ?? "").isEmpty)
             if let stale = staleZoneCopy(storedName: storedName, table: "CreditCardStatements", newZoneID: dest.zoneID) {
                 appendOrphanDeleteID(stale.id, database: stale.database)
             }
@@ -2360,6 +2456,7 @@ final class SyncEngine {
                 DBHelper.shared.fetchSystemFields(ckRecordName: $0, table: "BudgetAllocations")
             }
             appendRecord(stampedRev(buildCKRecord(fresh: freshRecord, systemFieldsData: systemFields)), database: dest.database)
+            fanOutProjections(of: freshRecord, isPersonal: (alloc.sharedGroupId ?? "").isEmpty)
             if let stale = staleZoneCopy(storedName: storedName, table: "BudgetAllocations", newZoneID: dest.zoneID) {
                 appendOrphanDeleteID(stale.id, database: stale.database)
             }
@@ -2874,6 +2971,28 @@ final class SyncEngine {
         // Skip injection for soft-deleted groups — their data has been untagged
         // and should stay personal.
         let zoneName = record.recordID.zoneID.zoneName
+
+        // Transparent Mode: my own projection coming back to me.
+        //
+        // The publisher's other devices see the record in BOTH zones. Applying the group-zone copy
+        // would tag the personal row with the group id — which is exactly the Mirror Mode
+        // corruption, arriving by a different route. The personal-zone copy is the authoritative
+        // one, so drop this.
+        //
+        // Scoped to records I authored AND already hold as personal, so a record I genuinely moved
+        // into a group (local row tagged with that group) is unaffected, as is any other member's.
+        if zoneName.hasPrefix("Group-"),
+           let table = tableForRecordName(record.recordID.recordName),
+           (record["createdByUid"] as? String) == AuthenticationManager.shared.currentUser?.uid,
+           isProjection(recordName: record.recordID.recordName, table: table, zoneID: record.recordID.zoneID),
+           DBHelper.shared.fetchSingleInt(
+               "SELECT COUNT(*) FROM \(table) WHERE ck_record_id = ?;",
+               textBinding: record.recordID.recordName
+           ) ?? 0 > 0
+        {
+            return
+        }
+
         if zoneName.hasPrefix("Group-"), record["sharedGroupId"] == nil {
             let groupId = String(zoneName.dropFirst("Group-".count))
             let group = BudgetGroupRepository().fetchGroup(byId: groupId)

@@ -75,6 +75,7 @@ class DBHelper {
             isInitialized = true
             performUuidBackfillV1()
             rebuildBudgetsTableV2()
+            createProjectionSyncStateV3()
             performSyncFixMigration()
             performParentIdFixMigration()
             performPendingModifiedAtMigration()
@@ -2538,6 +2539,111 @@ class DBHelper {
 
         setSchemaUserVersion(2)
         logWarning("[Migration] Budgets rebuilt with uuid primary key and scoped natural key — \(copied) row(s) preserved")
+    }
+
+    // MARK: - Projection sync state (schema v3)
+
+    /// Transparent Mode publishes a personal row by writing a COPY of it into each group zone the
+    /// author publishes into. Because CloudKit record names are unique per *zone*, the projection
+    /// reuses the personal record's name and needs no separate identity.
+    ///
+    /// It does, however, need its own CloudKit sync state. `ck_system_fields` is a COLUMN on the
+    /// record's own row, keyed by `ck_record_id` with no zone — so a projection saving its system
+    /// fields there would overwrite the personal record's, and `lastSyncedZone` would then report
+    /// the group zone. `staleZoneCopy` would conclude the record had moved and delete the personal
+    /// copy: precisely the corruption Transparent Mode exists to remove.
+    ///
+    /// Hence a separate, zone-keyed store. It also records which zones a record is currently
+    /// projected into, which is what makes revocation possible — on each push the engine deletes
+    /// the projections whose zone is no longer published.
+    private func createProjectionSyncStateV3() {
+        guard isInitialized, schemaUserVersion() < 3 else { return }
+        sqlite3_exec(db, """
+            CREATE TABLE IF NOT EXISTS ProjectionSyncState (
+                record_name   TEXT NOT NULL,
+                zone_name     TEXT NOT NULL,
+                zone_owner    TEXT NOT NULL,
+                system_fields BLOB,
+                PRIMARY KEY (record_name, zone_name)
+            );
+            """, nil, nil, nil)
+        sqlite3_exec(db, """
+            CREATE INDEX IF NOT EXISTS idx_projection_zone ON ProjectionSyncState(zone_name);
+            """, nil, nil, nil)
+        setSchemaUserVersion(3)
+        logWarning("[Migration] ProjectionSyncState created (schema v3)")
+    }
+
+    func fetchProjectionSystemFields(recordName: String, zoneName: String) -> Data? {
+        guard isInitialized else { return nil }
+        let query = "SELECT system_fields FROM ProjectionSyncState WHERE record_name = ? AND zone_name = ?;"
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK else { return nil }
+        defer { sqlite3_finalize(statement) }
+        sqlite3_bind_text(statement, 1, recordName, -1, SQLITE_TRANSIENT)
+        sqlite3_bind_text(statement, 2, zoneName, -1, SQLITE_TRANSIENT)
+        guard sqlite3_step(statement) == SQLITE_ROW,
+              sqlite3_column_type(statement, 0) != SQLITE_NULL else { return nil }
+        let length = Int(sqlite3_column_bytes(statement, 0))
+        guard let bytes = sqlite3_column_blob(statement, 0), length > 0 else { return nil }
+        return Data(bytes: bytes, count: length)
+    }
+
+    func saveProjectionSystemFields(
+        _ data: Data, recordName: String, zoneName: String, zoneOwner: String
+    ) {
+        guard isInitialized else { return }
+        let query = """
+            INSERT INTO ProjectionSyncState (record_name, zone_name, zone_owner, system_fields)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(record_name, zone_name)
+            DO UPDATE SET system_fields = excluded.system_fields, zone_owner = excluded.zone_owner;
+            """
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK else { return }
+        defer { sqlite3_finalize(statement) }
+        sqlite3_bind_text(statement, 1, recordName, -1, SQLITE_TRANSIENT)
+        sqlite3_bind_text(statement, 2, zoneName, -1, SQLITE_TRANSIENT)
+        sqlite3_bind_text(statement, 3, zoneOwner, -1, SQLITE_TRANSIENT)
+        _ = data.withUnsafeBytes { raw in
+            sqlite3_bind_blob(statement, 4, raw.baseAddress, Int32(data.count), SQLITE_TRANSIENT)
+        }
+        sqlite3_step(statement)
+    }
+
+    /// Every zone a record is currently projected into, as (zoneName, zoneOwner).
+    func projectionZones(recordName: String) -> [(zoneName: String, zoneOwner: String)] {
+        guard isInitialized else { return [] }
+        let query = "SELECT zone_name, zone_owner FROM ProjectionSyncState WHERE record_name = ?;"
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK else { return [] }
+        defer { sqlite3_finalize(statement) }
+        sqlite3_bind_text(statement, 1, recordName, -1, SQLITE_TRANSIENT)
+        var result: [(zoneName: String, zoneOwner: String)] = []
+        while sqlite3_step(statement) == SQLITE_ROW {
+            guard let zone = sqlite3_column_text(statement, 0),
+                  let owner = sqlite3_column_text(statement, 1) else { continue }
+            result.append((String(cString: zone), String(cString: owner)))
+        }
+        return result
+    }
+
+    func deleteProjectionState(recordName: String, zoneName: String) {
+        guard isInitialized else { return }
+        try? executeGroupWriteChecked(
+            "DELETE FROM ProjectionSyncState WHERE record_name = ? AND zone_name = ?;",
+            orderedBindings: [recordName, zoneName]
+        )
+    }
+
+    /// Forgets every projection into `zoneName` — used when a group is deleted or left, so the
+    /// engine stops trying to revoke projections from a zone it can no longer reach.
+    func deleteProjectionState(zoneName: String) {
+        guard isInitialized else { return }
+        try? executeGroupWriteChecked(
+            "DELETE FROM ProjectionSyncState WHERE zone_name = ?;",
+            orderedBindings: [zoneName]
+        )
     }
 
     /// A row's stable identity and its uuid-valued foreign keys, for building a push record.
