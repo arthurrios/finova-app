@@ -2778,7 +2778,15 @@ class DBHelper {
     @discardableResult
     func adoptCKRecordName(table: String, uuid: String, ckRecordName: String) -> Bool {
         guard isInitialized, Self.syncableTablesV1.contains(table), !uuid.isEmpty else { return false }
+        // `is_deleted` is the third guard, and the one whose absence resurrected deleted rows.
+        //
+        // `SyncEngine.hardDeleteLocal` deliberately leaves a recurring/installment instance as a
+        // TOMBSTONE — `is_deleted = 1, ck_record_id = NULL` — whose entire job is to say "the user
+        // deleted this occurrence; do not recreate it". `ck_record_id IS NULL` is exactly the shape
+        // this adoption looks for, so without this clause a tombstone claimed the inbound record's
+        // name and the deleted occurrence came back as a ghost.
         let sql = "UPDATE " + table + " SET ck_record_id = ? WHERE uuid = ? AND ck_record_id IS NULL"
+            + " AND (is_deleted IS NULL OR is_deleted = 0)"
             + " AND NOT EXISTS (SELECT 1 FROM " + table + " WHERE ck_record_id = ?);"
         do {
             try executeGroupWriteChecked(sql, orderedBindings: [ckRecordName, uuid, ckRecordName])

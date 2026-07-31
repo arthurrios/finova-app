@@ -133,6 +133,46 @@ final class DerivedIdentityConvergenceTests: XCTestCase {
         XCTAssertEqual(deviceA.dataFingerprint(), deviceB.dataFingerprint(), "Devices must agree")
     }
 
+    // MARK: - Tombstones
+
+    /// A deleted occurrence must STAY deleted.
+    ///
+    /// `hardDeleteLocal` leaves recurring/installment instances as a tombstone —
+    /// `is_deleted = 1, ck_record_id = NULL` — whose whole purpose is to stop lazy generation
+    /// recreating a month the user deleted. That shape is also exactly what uuid adoption looks for,
+    /// so the adoption resurrected them: deleted occurrences reappeared as ghosts.
+    func testATombstoneDoesNotAdoptAnInboundRecordName() {
+        deviceA.activate()
+        let id = generateInstance(on: deviceA, title: "DeletedMonth")
+
+        // Exactly what hardDeleteLocal leaves for an instance.
+        try? deviceA.db.executeGroupWriteChecked(
+            """
+            UPDATE Transactions SET is_deleted = 1, sync_status = 'synced', ck_record_id = NULL
+             WHERE id = ?;
+            """,
+            orderedBindings: [id])
+        TransactionRepository.invalidateCache()
+
+        let adopted = deviceA.db.adoptCKRecordName(
+            table: "Transactions",
+            uuid: DeterministicIdentity.recurringInstance(parentUuid: parentUuid, monthDate: month),
+            ckRecordName: "transaction-INBOUND-COPY")
+
+        XCTAssertFalse(
+            adopted,
+            """
+            A tombstone adopted an inbound record name. It shares the uuid and has a NULL             ck_record_id — the exact shape adoption matches — so the occurrence the user deleted             comes back as a ghost.
+            """
+        )
+        XCTAssertEqual(
+            deviceA.db.fetchSingleInt(
+                "SELECT is_deleted FROM Transactions WHERE id = ?;", intBinding: id),
+            1,
+            "and it must remain a tombstone"
+        )
+    }
+
     // MARK: - Blast radius
 
     /// Genuinely different rows must stay different. Two distinct purchases that happen to share a
