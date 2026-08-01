@@ -26,6 +26,9 @@ enum EarlyPaymentError: Error, Equatable {
     case notAnInstallment
     case notAnEarlyPayment
     case missingUser
+    /// A settle write did not land. Fatal on purpose: an unsettled installment alongside a created
+    /// debit means the same money is charged twice.
+    case couldNotMarkSettled
 }
 
 /// Pays selected future installments ahead of schedule.
@@ -138,7 +141,9 @@ final class EarlyPaymentService {
             let ckRecordName = "transaction-\(UUID().uuidString)"
             transactionRepo.setCKRecordId(for: paymentId, ckRecordName: ckRecordName)
 
-            db.setEarlyPayment(transactionId: paymentId, isEarlyPayment: true)
+            guard db.setEarlyPayment(transactionId: paymentId, isEarlyPayment: true) else {
+                throw EarlyPaymentError.couldNotMarkSettled
+            }
 
             if let groupId = groupId {
                 transactionRepo.updateSharedGroupId(transactionId: paymentId, groupId: groupId)
@@ -163,8 +168,14 @@ final class EarlyPaymentService {
                 }
             }
 
+            // Any failure here rolls back the debit too. A debit standing beside installments that were
+            // never marked settled is the one outcome that costs the user real money.
             for installmentId in installmentIds {
-                db.setSettledBy(transactionId: installmentId, settledByTransactionId: paymentId)
+                guard db.setSettledBy(
+                    transactionId: installmentId, settledByTransactionId: paymentId)
+                else {
+                    throw EarlyPaymentError.couldNotMarkSettled
+                }
             }
         }
 

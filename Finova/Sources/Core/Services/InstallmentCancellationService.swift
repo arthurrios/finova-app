@@ -14,6 +14,9 @@ enum InstallmentCancellationError: Error, Equatable {
     case notACancellationRefund
     case missingUser
     case noStatementAvailable
+    /// A cancellation write did not land. Fatal on purpose: a credit standing beside installments that
+    /// were never marked cancelled lets the user cancel the same purchase again and be credited twice.
+    case couldNotMarkCancelled
 }
 
 /// Cancels the remainder of an installment purchase and credits it back on the next statement.
@@ -127,7 +130,9 @@ final class InstallmentCancellationService {
             let ckRecordName = "transaction-\(UUID().uuidString)"
             transactionRepo.setCKRecordId(for: refundId, ckRecordName: ckRecordName)
 
-            db.setCancellationRefund(transactionId: refundId, isRefund: true)
+            guard db.setCancellationRefund(transactionId: refundId, isRefund: true) else {
+                throw InstallmentCancellationError.couldNotMarkCancelled
+            }
 
             if let groupId = groupId {
                 transactionRepo.updateSharedGroupId(transactionId: refundId, groupId: groupId)
@@ -152,8 +157,13 @@ final class InstallmentCancellationService {
                 statementsToRecalculate.insert(stmtId)
             }
 
+            // Any failure here rolls the credit back with it — see `couldNotMarkCancelled`.
             for installmentId in installmentIds {
-                db.setCancelledBy(transactionId: installmentId, cancelledByTransactionId: refundId)
+                guard db.setCancelledBy(
+                    transactionId: installmentId, cancelledByTransactionId: refundId)
+                else {
+                    throw InstallmentCancellationError.couldNotMarkCancelled
+                }
             }
         }
 

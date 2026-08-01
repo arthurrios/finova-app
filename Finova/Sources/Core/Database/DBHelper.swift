@@ -1853,7 +1853,8 @@ class DBHelper {
     /// so writing only the integer meant the next sync recomputed `statement_id` from the STALE
     /// `statement_uuid` and silently put the transaction back where it was — a move that reverted the
     /// moment the user refreshed, and that never reached the other devices either, since the uuid they
-    /// read never changed.
+    /// read never changed. The uuid columns are the thing that has to change for a move to survive;
+    /// the integer alone is a local cache waiting to be overwritten.
     func updateTransactionCreditCardFields(transactionId: Int, creditCardId: Int, statementId: Int, isCreditCardStatement: Bool) throws {
         guard isInitialized else { return }
         let query = """
@@ -1944,10 +1945,19 @@ class DBHelper {
     /// Writes the uuid alongside the integer so the relationship is complete the moment it is made:
     /// `deriveUuidForeignKeys` would fill it in eventually, but only on a push, and a push that
     /// happened first would carry a nil pointer that the receiving device could never resolve.
+    /// - Returns: whether the pointer was actually written.
+    ///
+    /// The return value is load-bearing, not decoration. These columns are added by migration, and if
+    /// that migration has not run — an older schema, a failed upgrade — `sqlite3_prepare_v2` fails and
+    /// the write becomes a no-op. Silently. The caller would then create a debit for installments that
+    /// never got marked as settled, so the card keeps charging them AND the debit is charged: the user
+    /// is billed twice with nothing reporting an error. Callers must treat `false` as fatal for the
+    /// whole operation.
+    @discardableResult
     func setInstallmentPointer(
         _ pointer: InstallmentPointer, transactionId: Int, targetId: Int?
-    ) {
-        guard isInitialized else { return }
+    ) -> Bool {
+        guard isInitialized else { return false }
         let targetUuid = targetId.flatMap {
             fetchSingleString("SELECT uuid FROM Transactions WHERE id = ?;", intBinding: $0)
         }
@@ -1958,7 +1968,12 @@ class DBHelper {
              WHERE id = ?;
             """
         var stmt: OpaquePointer?
-        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return }
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
+            logError(
+                "[Installments] Could not prepare \(pointer.intColumn) write — schema is missing a "
+                    + "column: \(String(cString: sqlite3_errmsg(db)))")
+            return false
+        }
         defer { sqlite3_finalize(stmt) }
         if let targetId = targetId {
             sqlite3_bind_int64(stmt, 1, Int64(targetId))
@@ -1974,9 +1989,14 @@ class DBHelper {
         sqlite3_bind_int64(stmt, 3, now)
         sqlite3_bind_int64(stmt, 4, now)
         sqlite3_bind_int64(stmt, 5, Int64(transactionId))
-        sqlite3_step(stmt)
+        guard sqlite3_step(stmt) == SQLITE_DONE, sqlite3_changes(db) > 0 else {
+            logError(
+                "[Installments] \(pointer.intColumn) write matched no row for transaction \(transactionId)")
+            return false
+        }
         SyncChangeTracker.shared.markDirty()
         TransactionRepository.invalidateCache()
+        return true
     }
 
     func installmentPointerTarget(_ pointer: InstallmentPointer, transactionId: Int) -> Int? {
@@ -2035,15 +2055,24 @@ class DBHelper {
         return out
     }
 
+    /// - Returns: whether the flag was actually written. Verified for the same reason as
+    ///   `setInstallmentPointer`: without this flag the delete path cannot recognise the debit or
+    ///   credit, so removing it would never release the installments it superseded.
+    @discardableResult
     func setInstallmentPointerFlag(
         _ pointer: InstallmentPointer, transactionId: Int, isSet: Bool
-    ) {
-        guard isInitialized else { return }
-        executeSyncUpdate(
+    ) -> Bool {
+        guard isInitialized else { return false }
+        let changed = executeSyncUpdateCount(
             "UPDATE Transactions SET \(pointer.payerFlagColumn) = ? WHERE id = ?;",
             intBindings: [isSet ? 1 : 0, transactionId]
         )
         TransactionRepository.invalidateCache()
+        if changed == 0 {
+            logError(
+                "[Installments] Could not set \(pointer.payerFlagColumn) on transaction \(transactionId)")
+        }
+        return changed > 0
     }
 
     func hasInstallmentPointerFlag(_ pointer: InstallmentPointer, transactionId: Int) -> Bool {
@@ -2055,7 +2084,8 @@ class DBHelper {
 
     // MARK: Convenience wrappers
 
-    func setSettledBy(transactionId: Int, settledByTransactionId: Int?) {
+    @discardableResult
+    func setSettledBy(transactionId: Int, settledByTransactionId: Int?) -> Bool {
         setInstallmentPointer(.settledEarly, transactionId: transactionId, targetId: settledByTransactionId)
     }
 
@@ -2077,7 +2107,8 @@ class DBHelper {
         installmentIdsCarrying(.settledEarly)
     }
 
-    func setEarlyPayment(transactionId: Int, isEarlyPayment: Bool) {
+    @discardableResult
+    func setEarlyPayment(transactionId: Int, isEarlyPayment: Bool) -> Bool {
         setInstallmentPointerFlag(.settledEarly, transactionId: transactionId, isSet: isEarlyPayment)
     }
 
@@ -2085,7 +2116,8 @@ class DBHelper {
         hasInstallmentPointerFlag(.settledEarly, transactionId: transactionId)
     }
 
-    func setCancelledBy(transactionId: Int, cancelledByTransactionId: Int?) {
+    @discardableResult
+    func setCancelledBy(transactionId: Int, cancelledByTransactionId: Int?) -> Bool {
         setInstallmentPointer(.cancelled, transactionId: transactionId, targetId: cancelledByTransactionId)
     }
 
@@ -2098,7 +2130,8 @@ class DBHelper {
         installmentIds(.cancelled, pointingAt: refundId)
     }
 
-    func setCancellationRefund(transactionId: Int, isRefund: Bool) {
+    @discardableResult
+    func setCancellationRefund(transactionId: Int, isRefund: Bool) -> Bool {
         setInstallmentPointerFlag(.cancelled, transactionId: transactionId, isSet: isRefund)
     }
 

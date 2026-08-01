@@ -74,13 +74,19 @@ extension Transaction: CKRecordConvertible {
             // Version 1 introduced the early-payment pointer, version 2 the cancellation pointer.
             // The receiver gates each field on the version that introduced it, so a v1 peer's silence
             // about cancellation is read as "doesn't know", not "not cancelled".
-            record["earlyPaymentSchema"] = 2 as CKRecordValue
-            record["settledByTransactionUuid"] = db.settledByTransactionUuid(transactionId: txId) as CKRecordValue?
-            record["isEarlyPayment"] = (db.isEarlyPayment(transactionId: txId) ? 1 : 0) as CKRecordValue
-            record["cancelledByTransactionUuid"] =
-                db.installmentPointerUuid(.cancelled, transactionId: txId) as CKRecordValue?
-            record["isCancellationRefund"] =
-                (db.isCancellationRefund(transactionId: txId) ? 1 : 0) as CKRecordValue
+            //
+            // Withheld entirely until the production schema has them — see `CloudKitSchemaFlags`.
+            // An undeployed field makes the server reject the whole record and SyncEngine abandon
+            // every remaining batch, which breaks syncing for all data, not just this feature.
+            if CloudKitSchemaFlags.installmentPointerFieldsDeployed {
+                record["earlyPaymentSchema"] = 2 as CKRecordValue
+                record["settledByTransactionUuid"] = db.settledByTransactionUuid(transactionId: txId) as CKRecordValue?
+                record["isEarlyPayment"] = (db.isEarlyPayment(transactionId: txId) ? 1 : 0) as CKRecordValue
+                record["cancelledByTransactionUuid"] =
+                    db.installmentPointerUuid(.cancelled, transactionId: txId) as CKRecordValue?
+                record["isCancellationRefund"] =
+                    (db.isCancellationRefund(transactionId: txId) ? 1 : 0) as CKRecordValue
+            }
         }
 
         // Stable, device-independent identity and relationships.
