@@ -90,12 +90,33 @@ struct InstallmentSeriesLocator {
                 if statementsByCard[cardId] == nil {
                     statementsByCard[cardId] = statementRepo.fetchStatements(forCardId: cardId)
                 }
-                guard let stmt = statementsByCard[cardId]?.first(where: { $0.id == stmtId }) else { continue }
-                guard stmt.closingDate > now, !stmt.isPaid else { continue }
-                outstanding.append(
-                    EarlyPayableInstallment(
-                        transaction: child, installmentNumber: number, totalInstallments: total,
-                        amount: child.amount, dueDate: stmt.dueDate, statementId: stmtId))
+
+                if let stmt = statementsByCard[cardId]?.first(where: { $0.id == stmtId }) {
+                    guard stmt.closingDate > now, !stmt.isPaid else { continue }
+                    outstanding.append(
+                        EarlyPayableInstallment(
+                            transaction: child, installmentNumber: number, totalInstallments: total,
+                            amount: child.amount, dueDate: stmt.dueDate, statementId: stmtId))
+                } else {
+                    // The statement row this installment points at is gone or was never created —
+                    // which happens most often at the tail of a long series, where the last cycle is
+                    // furthest out. Previously this `continue`d, so a perfectly payable future
+                    // installment (e.g. #10 of 10, falling in January) simply never appeared in the
+                    // list, with nothing explaining its absence.
+                    //
+                    // The statement lookup only answers "has this cycle already been billed?", and the
+                    // installment's own date answers that just as well. The dangling statementId is
+                    // kept so the recalculation after payment still targets whatever it refers to.
+                    guard child.date > now else { continue }
+                    logWarning(
+                        "[Installments] Installment #\(number)/\(total) of '\(child.title)' points at "
+                            + "statement \(stmtId), which does not exist for card \(cardId). Offering it "
+                            + "by date (\(child.date)) instead of hiding it.")
+                    outstanding.append(
+                        EarlyPayableInstallment(
+                            transaction: child, installmentNumber: number, totalInstallments: total,
+                            amount: child.amount, dueDate: child.date, statementId: stmtId))
+                }
             } else {
                 guard child.date > now else { continue }
                 outstanding.append(

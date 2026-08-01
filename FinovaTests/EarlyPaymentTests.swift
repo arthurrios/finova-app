@@ -282,6 +282,44 @@ final class EarlyPaymentTests: XCTestCase {
             "Charging to the open statement has to attach the debit to a statement")
     }
 
+    /// Regression: the tail of a series whose statement row is missing.
+    ///
+    /// An installment pointing at a statement that no longer exists used to be skipped outright, so the
+    /// last installment of a long series — the one furthest out, e.g. #10 of 10 landing in January —
+    /// silently never appeared in the list. It is still unbilled and still payable; the statement
+    /// lookup only exists to decide whether the cycle has closed, which its own date answers too.
+    func testInstallmentWithAMissingStatementIsStillOffered() throws {
+        let uid = try XCTUnwrap(UIDUserDefaultsManager.shared.currentUserUID)
+        let card = try XCTUnwrap(makeCard(), "Could not create the card fixture")
+        let cardId = try XCTUnwrap(card.id)
+
+        let series = makeInstallmentSeries(title: "Fridge", totalAmount: 100000, installments: 10)
+        XCTAssertEqual(series.count, 10, "Fixture should have created 10 installments")
+
+        // Attach the LAST installment to a real statement, then delete that statement to reproduce the
+        // dangling pointer the tail of a long series ends up with.
+        let last = try XCTUnwrap(series.last)
+        let lastId = try XCTUnwrap(last.id)
+        let farFuture = Calendar.current.date(byAdding: .month, value: 10, to: Date())!
+        let doomed = try XCTUnwrap(
+            CreditCardService().getOrCreateStatement(
+                for: card, transactionDate: farFuture, userId: uid))
+        let doomedId = try XCTUnwrap(doomed.id)
+
+        try transactionRepo.updateCreditCardFields(
+            transactionId: lastId, creditCardId: cardId,
+            statementId: doomedId, isCreditCardStatement: false)
+        _ = StatementRepository().deleteStatement(statementId: doomedId)
+        TransactionRepository.invalidateCache()
+
+        let offered = payable(from: series)
+
+        XCTAssertTrue(
+            offered.contains { $0.id == lastId },
+            "The last installment is unbilled and still payable — a missing statement row must not "
+                + "hide it from the list")
+    }
+
     /// Regression: a card whose cycle closes TODAY.
     ///
     /// Date routing (`getOrCreateStatement`) resolves "today" to the cycle closing today, because for a
