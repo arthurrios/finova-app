@@ -273,6 +273,58 @@ final class InstallmentCancellationTests: XCTestCase {
             "A credit on the card reduces what the invoice charges")
     }
 
+    func testTheCreditLandsOnTheNextOPENStatement() throws {
+        // Same hazard as early payment: on a card closing today, date routing resolves to the cycle
+        // closing today — an invoice already issued, where the user would never see the refund.
+        let uid = try XCTUnwrap(UIDUserDefaultsManager.shared.currentUserUID)
+        let today = Calendar.current.component(.day, from: Date())
+
+        let repo = CreditCardRepository()
+        let cardId = try XCTUnwrap(
+            repo.insertCard(
+                CreditCard(
+                    name: "ClosesToday", lastFourDigits: "0002", cardBrand: .visa,
+                    closingDay: today, dueDay: min(today + 4, 28), creditLimit: 5_000_000,
+                    cardColor: .blue, userId: uid,
+                    isDeleted: false, isDefault: false, createdAt: Date(), updatedAt: Date())))
+        let card = try XCTUnwrap(repo.fetchCard(byId: cardId))
+
+        let closedToday = try XCTUnwrap(
+            CreditCardService().getOrCreateStatement(
+                for: card, transactionDate: Date(), userId: uid))
+        XCTAssertLessThanOrEqual(
+            closedToday.closingDate, Date(), "Precondition: that cycle should already be closed")
+
+        // Attach the series to the card so cancellation routes to a statement at all.
+        let series = makeSeries(title: "Camera", totalAmount: 50000, installments: 5)
+        let firstChildId = try XCTUnwrap(series.first?.id)
+        try transactionRepo.updateCreditCardFields(
+            transactionId: firstChildId, creditCardId: cardId,
+            statementId: try XCTUnwrap(closedToday.id), isCreditCardStatement: false)
+        TransactionRepository.invalidateCache()
+
+        let refreshed = try XCTUnwrap(
+            transactionRepo.fetchAllTransactions().first { $0.id == firstChildId })
+        let refundId = try service.cancelPurchase(for: refreshed)
+
+        TransactionRepository.invalidateCache()
+        let refund = try XCTUnwrap(
+            transactionRepo.fetchAllTransactions().first { $0.id == refundId })
+        let refundStatementId = try XCTUnwrap(
+            refund.statementId, "The credit should be attached to a statement")
+
+        XCTAssertNotEqual(
+            refundStatementId, closedToday.id,
+            "The refund must not land on the invoice that already closed")
+
+        let target = try XCTUnwrap(
+            StatementRepository().fetchStatements(forCardId: cardId)
+                .first { $0.id == refundStatementId })
+        XCTAssertGreaterThan(
+            target.closingDate, Date(),
+            "The refund has to land on a statement still open, or the user never gets it back")
+    }
+
     // MARK: - Reversing
 
     func testReleasingClearsTheCancellationPointers() throws {

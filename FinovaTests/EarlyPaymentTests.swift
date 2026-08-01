@@ -282,6 +282,44 @@ final class EarlyPaymentTests: XCTestCase {
             "Charging to the open statement has to attach the debit to a statement")
     }
 
+    /// The list must not depend on which installment the user opened.
+    ///
+    /// `parentTransactionId` is not stable — editing a series rebuilds its children, and the repair
+    /// passes exist because links get scrambled. When a series splits across two parent ids, filtering
+    /// on one returns only half, and which half depends on the entry point.
+    func testEveryInstallmentOffersTheSameListEvenWhenTheParentLinkHasSplit() throws {
+        let series = makeInstallmentSeries(title: "Split", totalAmount: 60000, installments: 6)
+        XCTAssertEqual(series.count, 6, "Fixture should have created 6 installments")
+
+        // Re-point the back half at a different parent, reproducing a drifted series.
+        let strayParent = try XCTUnwrap(series.first?.parentTransactionId) + 9999
+        for child in series.suffix(3) {
+            let childId = try XCTUnwrap(child.id)
+            try transactionRepo.updateTransactionParentId(
+                transactionId: childId, parentId: strayParent)
+        }
+        TransactionRepository.invalidateCache()
+
+        let refreshed = children(ofSeriesTitled: "Split")
+        XCTAssertEqual(refreshed.count, 6, "All six rows should still exist")
+
+        // Opening any installment must surface the same set.
+        let listsPerEntryPoint = refreshed.map { entry in
+            Set(service.payableInstallments(for: entry).compactMap { $0.installmentNumber })
+        }
+        let first = try XCTUnwrap(listsPerEntryPoint.first)
+
+        XCTAssertEqual(
+            first.count, 6,
+            "Every installment is in the future, so all six should be offered regardless of the split")
+        for (index, list) in listsPerEntryPoint.enumerated() {
+            XCTAssertEqual(
+                list, first,
+                "Installment #\(index + 1) offered a different list — the options must not depend on "
+                    + "which one the user opened")
+        }
+    }
+
     /// Regression: the tail of a series whose statement row is missing.
     ///
     /// An installment pointing at a statement that no longer exists used to be skipped outright, so the
