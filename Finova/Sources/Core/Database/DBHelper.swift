@@ -1845,9 +1845,26 @@ class DBHelper {
         }
     }
 
+    /// Re-points a transaction at a card and statement.
+    ///
+    /// Updates the uuid pointers in the same statement as the integers, and that is not optional.
+    /// `resolveUuidForeignKeys()` treats the uuid as authoritative and the integer as a derived cache,
+    /// so writing only the integer meant the next sync recomputed `statement_id` from the STALE
+    /// `statement_uuid` and silently put the transaction back where it was — a move that reverted the
+    /// moment the user refreshed, and that never reached the other devices either, since the uuid they
+    /// read never changed.
     func updateTransactionCreditCardFields(transactionId: Int, creditCardId: Int, statementId: Int, isCreditCardStatement: Bool) throws {
         guard isInitialized else { return }
-        let query = "UPDATE Transactions SET credit_card_id = ?, statement_id = ?, is_credit_card_statement = ?, sync_status = 'pending', ck_modified_at = ?, updated_at = ? WHERE id = ?;"
+        let query = """
+            UPDATE Transactions
+               SET credit_card_id = ?1,
+                   statement_id = ?2,
+                   credit_card_uuid = (SELECT uuid FROM CreditCards WHERE id = ?1),
+                   statement_uuid = (SELECT uuid FROM CreditCardStatements WHERE id = ?2),
+                   is_credit_card_statement = ?3,
+                   sync_status = 'pending', ck_modified_at = ?4, updated_at = ?5
+             WHERE id = ?6;
+            """
         var statement: OpaquePointer?
         guard sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK else {
             let msg = String(cString: sqlite3_errmsg(db))
