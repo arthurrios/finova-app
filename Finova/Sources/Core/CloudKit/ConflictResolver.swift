@@ -50,14 +50,26 @@ final class ConflictResolver {
         // on EVERY apply path, and because it is a uuid pointer with no integer counterpart on the
         // wire — `resolveUuidForeignKeys()` derives the local id afterwards, on this pass or a later
         // one if the debit itself hasn't arrived yet.
-        // Gated on the sender declaring the field: an absent pointer from a peer that HAS the field
-        // is a genuine clear (the early payment was reversed), while the same absence from a legacy
-        // peer means nothing at all and must leave the local pointer alone.
-        if table == "Transactions", (ckRecord["earlyPaymentSchema"] as? Int ?? 0) >= 1 {
-            db.applyInboundSettledPointer(
+        // Gated per field on the schema version that introduced it: an absent pointer from a peer that
+        // HAS the field is a genuine clear (the early payment was reversed, the cancellation undone),
+        // while the same absence from an older peer means nothing at all and must leave the local
+        // pointer alone. Version 1 = early payment, version 2 = cancellation.
+        if table == "Transactions" {
+            let senderSchema = ckRecord["earlyPaymentSchema"] as? Int ?? 0
+            db.applyInboundInstallmentPointers(
                 ckRecordName: ckRecord.recordID.recordName,
-                settledByUuid: ckRecord["settledByTransactionUuid"] as? String,
-                isEarlyPayment: (ckRecord["isEarlyPayment"] as? Int) == 1
+                settled: senderSchema >= 1
+                    ? (
+                        uuid: ckRecord["settledByTransactionUuid"] as? String,
+                        isPayer: (ckRecord["isEarlyPayment"] as? Int) == 1
+                    )
+                    : nil,
+                cancelled: senderSchema >= 2
+                    ? (
+                        uuid: ckRecord["cancelledByTransactionUuid"] as? String,
+                        isPayer: (ckRecord["isCancellationRefund"] as? Int) == 1
+                    )
+                    : nil
             )
         }
     }

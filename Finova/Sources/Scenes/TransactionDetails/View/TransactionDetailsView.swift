@@ -18,6 +18,10 @@ protocol TransactionDetailsViewDelegate: AnyObject {
   func didTapPayInstallmentsEarly()
   /// Undo an early payment, putting its installments back on their own statements.
   func didTapUndoEarlyPayment()
+  /// Cancel the remainder of this installment purchase, crediting it on the next statement.
+  func didTapCancelPurchase()
+  /// Undo a cancellation, removing the credit and un-cancelling the purchase.
+  func didTapUndoCancellation()
 }
 
 final class TransactionDetailsView: UIView {
@@ -467,6 +471,38 @@ final class TransactionDetailsView: UIView {
   private lazy var payEarlyRow = Self.makeActionRow(systemIcon: "calendar.badge.clock")
   private lazy var undoEarlyPaymentRow = Self.makeActionRow(
     systemIcon: "arrow.uturn.backward", tintColor: Colors.mainRed, labelColor: Colors.mainRed)
+  private lazy var cancelPurchaseRow = Self.makeActionRow(systemIcon: "xmark.circle")
+  private lazy var undoCancellationRow = Self.makeActionRow(
+    systemIcon: "arrow.uturn.backward", tintColor: Colors.mainRed, labelColor: Colors.mainRed)
+
+  // MARK: - Refunded Installments (for cancellation credits)
+  private let refundedInstallmentsHeaderView = CardHeader(
+    headerTitle: "cancellation.details.refunded.header".localized)
+
+  private lazy var refundedInstallmentsCard: UIStackView = {
+    let stack = UIStackView()
+    stack.axis = .vertical
+    stack.backgroundColor = Colors.gray100
+    stack.layer.borderWidth = 1
+    stack.layer.borderColor = Colors.gray300.cgColor
+    stack.layer.cornerRadius = CornerRadius.extraLarge
+    stack.layer.maskedCorners = [.layerMinXMaxYCorner, .layerMaxXMaxYCorner]
+    stack.clipsToBounds = true
+    stack.translatesAutoresizingMaskIntoConstraints = false
+    return stack
+  }()
+
+  /// Explains that the remaining installments keep being charged, so the credit above does not look
+  /// like free money.
+  private let cancellationNoteLabel: UILabel = {
+    let label = UILabel()
+    label.font = Fonts.textXS.font
+    label.textColor = Colors.gray500
+    label.numberOfLines = 0
+    label.text = "cancellation.details.note".localized
+    label.translatesAutoresizingMaskIntoConstraints = false
+    return label
+  }()
 
   // MARK: - Action Buttons (Bottom)
   private lazy var actionButtonsContainerView: UIView = {
@@ -587,6 +623,25 @@ final class TransactionDetailsView: UIView {
     undoEarlyPaymentRow.container.addGestureRecognizer(
       UITapGestureRecognizer(target: self, action: #selector(didTapUndoEarlyPayment)))
     tailStackView.addArrangedSubview(undoEarlyPaymentRow.container)
+
+    cancelPurchaseRow.container.isHidden = true
+    cancelPurchaseRow.container.addGestureRecognizer(
+      UITapGestureRecognizer(target: self, action: #selector(didTapCancelPurchase)))
+    tailStackView.addArrangedSubview(cancelPurchaseRow.container)
+
+    refundedInstallmentsHeaderView.isHidden = true
+    refundedInstallmentsCard.isHidden = true
+    cancellationNoteLabel.isHidden = true
+    tailStackView.addArrangedSubview(refundedInstallmentsHeaderView)
+    tailStackView.addArrangedSubview(refundedInstallmentsCard)
+    tailStackView.addArrangedSubview(cancellationNoteLabel)
+    tailStackView.setCustomSpacing(0, after: refundedInstallmentsHeaderView)
+    tailStackView.setCustomSpacing(Metrics.spacing2, after: refundedInstallmentsCard)
+
+    undoCancellationRow.container.isHidden = true
+    undoCancellationRow.container.addGestureRecognizer(
+      UITapGestureRecognizer(target: self, action: #selector(didTapUndoCancellation)))
+    tailStackView.addArrangedSubview(undoCancellationRow.container)
 
     // Add action buttons at bottom with gradient overlay
     addSubview(actionButtonsContainerView)
@@ -1017,6 +1072,8 @@ final class TransactionDetailsView: UIView {
     undoEarlyPaymentRow.container.isHidden = !isEarlyPayment
     undoEarlyPaymentRow.label.text = "earlyPayment.undo.title".localized
 
+    configureCancellationSections(with: viewModel)
+
     guard isEarlyPayment else { return }
 
     includedInstallmentsHeaderView.configure(
@@ -1037,6 +1094,49 @@ final class TransactionDetailsView: UIView {
         separator.translatesAutoresizingMaskIntoConstraints = false
         separator.heightAnchor.constraint(equalToConstant: 1).isActive = true
         includedInstallmentsCard.addArrangedSubview(separator)
+      }
+    }
+  }
+
+  /// The two faces of cancellation: the entry point on a purchase that still has installments to
+  /// bill, and the breakdown + undo on the credit that refunded them.
+  private func configureCancellationSections(with viewModel: TransactionDetailsViewModel) {
+    let canCancel = viewModel.canCancelPurchase()
+    cancelPurchaseRow.container.isHidden = !canCancel
+    cancelPurchaseRow.label.text = "cancellation.entry.title".localized
+    if canCancel {
+      cancelPurchaseRow.value.text = viewModel.getCancellationRefundAmount().currencyString
+    }
+
+    let refunded = viewModel.getRefundedInstallments()
+    let isRefund = viewModel.isCancellationRefund()
+
+    refundedInstallmentsHeaderView.isHidden = !isRefund
+    refundedInstallmentsCard.isHidden = !isRefund || refunded.isEmpty
+    cancellationNoteLabel.isHidden = !isRefund
+    undoCancellationRow.container.isHidden = !isRefund
+    undoCancellationRow.label.text = "cancellation.undo.title".localized
+
+    guard isRefund else { return }
+
+    refundedInstallmentsHeaderView.configure(
+      headerTitle: "cancellation.details.refunded.header".localized,
+      itemsQuantity: "\(refunded.count)"
+    )
+
+    refundedInstallmentsCard.arrangedSubviews.forEach {
+      refundedInstallmentsCard.removeArrangedSubview($0)
+      $0.removeFromSuperview()
+    }
+
+    for (index, installment) in refunded.enumerated() {
+      refundedInstallmentsCard.addArrangedSubview(includedInstallmentRow(for: installment))
+      if index < refunded.count - 1 {
+        let separator = UIView()
+        separator.backgroundColor = Colors.gray300
+        separator.translatesAutoresizingMaskIntoConstraints = false
+        separator.heightAnchor.constraint(equalToConstant: 1).isActive = true
+        refundedInstallmentsCard.addArrangedSubview(separator)
       }
     }
   }
@@ -1115,5 +1215,13 @@ final class TransactionDetailsView: UIView {
 
   @objc private func didTapUndoEarlyPayment() {
     delegate?.didTapUndoEarlyPayment()
+  }
+
+  @objc private func didTapCancelPurchase() {
+    delegate?.didTapCancelPurchase()
+  }
+
+  @objc private func didTapUndoCancellation() {
+    delegate?.didTapUndoCancellation()
   }
 }

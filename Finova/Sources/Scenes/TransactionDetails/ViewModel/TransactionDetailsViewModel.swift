@@ -297,6 +297,58 @@ final class TransactionDetailsViewModel {
     }
   }
 
+  // MARK: - Installment Purchase Cancellation
+
+  private let cancellationService = InstallmentCancellationService()
+
+  /// Whether the remainder of this purchase can still be cancelled.
+  func canCancelPurchase() -> Bool {
+    cancellationService.canCancel(transaction)
+  }
+
+  /// What would be credited back: the total of everything still to be billed.
+  func getCancellationRefundAmount() -> Int {
+    cancellationService.refundAmount(for: transaction)
+  }
+
+  func getRefundableInstallmentCount() -> Int {
+    cancellationService.refundableInstallments(for: transaction).count
+  }
+
+  /// True when this transaction is the credit produced by cancelling a purchase.
+  func isCancellationRefund() -> Bool {
+    cancellationService.isCancellationRefund(transaction)
+  }
+
+  /// The installments this credit refunds, in installment order.
+  func getRefundedInstallments() -> [Transaction] {
+    guard let id = transaction.id, isCancellationRefund() else { return [] }
+    return cancellationService.refundedInstallments(forRefund: id)
+  }
+
+  /// Whether the purchase this installment belongs to has already been cancelled.
+  func isPurchaseCancelled() -> Bool {
+    cancellationService.isCancelled(transaction)
+  }
+
+  func cancelPurchase() -> Result<Int, Error> {
+    do {
+      return .success(try cancellationService.cancelPurchase(for: transaction))
+    } catch {
+      return .failure(error)
+    }
+  }
+
+  func undoCancellation() -> Result<Void, Error> {
+    guard let id = transaction.id else { return .failure(TransactionError.transactionNotFound) }
+    do {
+      try cancellationService.undoCancellation(refundId: id)
+      return .success(())
+    } catch {
+      return .failure(error)
+    }
+  }
+
   func getTransactionType(for transactionToCheck: Transaction) -> TransactionComplexityType {
     guard let transactionId = transactionToCheck.id else { return .simple }
 

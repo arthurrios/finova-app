@@ -7,21 +7,6 @@
 
 import Foundation
 
-/// One future installment offered for early payment, with the billing context the user needs to
-/// recognise it.
-struct EarlyPayableInstallment {
-    let transaction: Transaction
-    let installmentNumber: Int
-    let totalInstallments: Int
-    let amount: Int
-    /// When the money would otherwise have left: the statement due date for a card installment,
-    /// the installment's own date otherwise.
-    let dueDate: Date
-    let statementId: Int?
-
-    var id: Int? { transaction.id }
-}
-
 /// Where the resulting debit is booked.
 enum EarlyPaymentDestination {
     /// A plain expense on the chosen date, with no card or statement link.
@@ -51,8 +36,8 @@ enum EarlyPaymentError: Error, Equatable {
 /// readable, and the whole thing can be undone by clearing the pointers.
 final class EarlyPaymentService {
     private let transactionRepo: TransactionRepository
-    private let statementRepo: StatementRepository
     private let creditCardService: CreditCardService
+    private let locator: InstallmentSeriesLocator
     private let db: DBHelper
 
     init(
@@ -62,8 +47,9 @@ final class EarlyPaymentService {
         db: DBHelper = .shared
     ) {
         self.transactionRepo = transactionRepo
-        self.statementRepo = statementRepo
         self.creditCardService = creditCardService
+        self.locator = InstallmentSeriesLocator(
+            transactionRepo: transactionRepo, statementRepo: statementRepo, db: db)
         self.db = db
     }
 
@@ -86,80 +72,17 @@ final class EarlyPaymentService {
 
     /// The installments of `transaction`'s series that can still be paid early, newest first.
     ///
-    /// Ordered last-installment-first to match how the operation is normally used (and how bank apps
-    /// present it): you bring the tail of the series forward, not the part that is about to be billed
-    /// anyway. Selection itself is unrestricted.
-    ///
-    /// Excluded: installments already settled by an earlier early payment, and installments whose
-    /// billing cycle has already closed — the money for those is either gone or on the invoice the
-    /// user is about to pay, so "paying early" is meaningless.
+    /// A cancelled purchase cannot also be anticipated: its remaining installments are already offset
+    /// by a refund, so paying them early would move money for a purchase that no longer stands.
     func payableInstallments(for transaction: Transaction) -> [EarlyPayableInstallment] {
-        guard let parentId = seriesParentId(of: transaction) else { return [] }
-
-        let all = transactionRepo.fetchAllTransactions()
-        let settled = db.settledInstallmentIds()
-        let now = Date()
-
-        // Cache statements per card — a 24-installment series would otherwise re-read the same
-        // card's statement list 24 times.
-        var statementsByCard: [Int: [CreditCardStatement]] = [:]
-
-        let children = all.filter { tx in
-            tx.parentTransactionId == parentId && tx.installmentNumber != nil
-                && tx.totalInstallments != nil
-        }
-
-        var payable: [EarlyPayableInstallment] = []
-        for child in children {
-            guard let childId = child.id,
-                  let number = child.installmentNumber,
-                  let total = child.totalInstallments,
-                  !settled.contains(childId)
-            else { continue }
-
-            if let cardId = child.creditCardId, let stmtId = child.statementId {
-                if statementsByCard[cardId] == nil {
-                    statementsByCard[cardId] = statementRepo.fetchStatements(forCardId: cardId)
-                }
-                guard let stmt = statementsByCard[cardId]?.first(where: { $0.id == stmtId }) else { continue }
-                guard stmt.closingDate > now, !stmt.isPaid else { continue }
-                payable.append(
-                    EarlyPayableInstallment(
-                        transaction: child, installmentNumber: number, totalInstallments: total,
-                        amount: child.amount, dueDate: stmt.dueDate, statementId: stmtId))
-            } else {
-                guard child.date > now else { continue }
-                payable.append(
-                    EarlyPayableInstallment(
-                        transaction: child, installmentNumber: number, totalInstallments: total,
-                        amount: child.amount, dueDate: child.date, statementId: nil))
-            }
-        }
-
-        return payable.sorted { $0.installmentNumber > $1.installmentNumber }
+        guard locator.cancellationRefundId(for: transaction) == nil else { return [] }
+        return locator.outstandingInstallments(for: transaction)
     }
 
     /// The card the series is charged to, if it is a credit-card series. Drives whether the
     /// "charge to the open statement" destination is offered at all.
     func card(for transaction: Transaction) -> CreditCard? {
-        if let cardId = transaction.creditCardId {
-            return CreditCardRepository().fetchCard(byId: cardId)
-        }
-        guard let parentId = seriesParentId(of: transaction) else { return nil }
-        let all = transactionRepo.fetchAllTransactions()
-        guard let cardId = all.first(where: {
-            ($0.id == parentId || $0.parentTransactionId == parentId) && $0.creditCardId != nil
-        })?.creditCardId else { return nil }
-        return CreditCardRepository().fetchCard(byId: cardId)
-    }
-
-    /// The parent that owns the series, whether `transaction` is the parent or one of its children.
-    private func seriesParentId(of transaction: Transaction) -> Int? {
-        if let parentId = transaction.parentTransactionId, parentId != transaction.id {
-            return parentId
-        }
-        if transaction.hasInstallments == true { return transaction.id }
-        return nil
+        locator.card(for: transaction)
     }
 
     // MARK: - Paying

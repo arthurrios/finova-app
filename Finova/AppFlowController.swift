@@ -653,6 +653,26 @@ extension AppFlowController: TransactionDetailsFlowDelegate {
             flowDelegate: self, transaction: transaction)
         navigationController?.pushViewController(viewController, animated: true)
     }
+
+    func didCancelInstallmentPurchase(refundId: Int) {
+        // Push the credit that was created so the user can see what was refunded and which
+        // installments it covers. The installment they came from stays behind them in the stack.
+        if let refund = TransactionRepository().fetchAllTransactions().first(where: {
+            $0.id == refundId
+        }) {
+            navigationController?.pushViewController(
+                viewControllersFactory.makeTransactionDetailsViewController(
+                    flowDelegate: self, transaction: refund),
+                animated: true)
+        }
+
+        DispatchQueue.main.async {
+            self.navigationController?.viewControllers
+                .compactMap { $0 as? DashboardViewController }
+                .last?
+                .refreshAfterTransactionAdd()
+        }
+    }
 }
 
 // MARK: - EarlyPaymentFlowDelegate

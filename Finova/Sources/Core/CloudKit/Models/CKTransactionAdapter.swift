@@ -70,9 +70,17 @@ extension Transaction: CKRecordConvertible {
             // Without it the receiver cannot tell "this device reversed the early payment" from
             // "this device is on an older build that has never heard of one", and would un-settle
             // installments every time a legacy peer re-pushed an untouched row.
-            record["earlyPaymentSchema"] = 1 as CKRecordValue
+            //
+            // Version 1 introduced the early-payment pointer, version 2 the cancellation pointer.
+            // The receiver gates each field on the version that introduced it, so a v1 peer's silence
+            // about cancellation is read as "doesn't know", not "not cancelled".
+            record["earlyPaymentSchema"] = 2 as CKRecordValue
             record["settledByTransactionUuid"] = db.settledByTransactionUuid(transactionId: txId) as CKRecordValue?
             record["isEarlyPayment"] = (db.isEarlyPayment(transactionId: txId) ? 1 : 0) as CKRecordValue
+            record["cancelledByTransactionUuid"] =
+                db.installmentPointerUuid(.cancelled, transactionId: txId) as CKRecordValue?
+            record["isCancellationRefund"] =
+                (db.isCancellationRefund(transactionId: txId) ? 1 : 0) as CKRecordValue
         }
 
         // Stable, device-independent identity and relationships.

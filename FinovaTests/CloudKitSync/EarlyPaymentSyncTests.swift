@@ -188,6 +188,79 @@ final class EarlyPaymentSyncTests: XCTestCase {
                 + "installment excluded from its totals forever")
     }
 
+    func testCancellationPointerResolvesToTheReceivingDevicesOwnRow() {
+        let pair = makeInstallmentPair(on: deviceA, fillerRows: 10)
+
+        let refundId = try! deviceA.transactionRepo.insertTransactionAndGetId(
+            CloudKitSyncTestHelpers.makeTransactionModel(
+                title: "Cancellation refund — Fridge", category: "creditCard", amount: 10000,
+                type: "income"))
+        deviceA.db.setCancellationRefund(transactionId: refundId, isRefund: true)
+        deviceA.db.setCancelledBy(transactionId: pair.child, cancelledByTransactionId: refundId)
+
+        deviceA.pushAll()
+        deviceB.activate()
+        deviceB.pullAll()
+        deviceB.db.resolveUuidForeignKeys()
+
+        guard let childOnB = transactionOnB(titled: "Fridge", amount: 10000),
+              let refundOnB = transactionOnB(titled: "Cancellation refund — Fridge", amount: 10000)
+        else {
+            return XCTFail("Device B did not receive the rows")
+        }
+
+        XCTAssertNotEqual(
+            refundId, refundOnB.id,
+            "Fixture is not exercising anything: both devices assigned the same id")
+        XCTAssertEqual(
+            deviceB.db.cancelledByTransactionId(transactionId: childOnB.id ?? 0), refundOnB.id,
+            "B's installment must point at B's OWN copy of the credit, not at A's local id")
+        XCTAssertTrue(
+            deviceB.db.isCancellationRefund(transactionId: refundOnB.id ?? 0),
+            "Without the flag, B cannot show what the credit covers or undo it")
+    }
+
+    func testPeerOnTheEarlyPaymentOnlySchemaDoesNotClearACancellation() {
+        // A peer on the version that shipped early payment (schema 1) sends the settled keys but knows
+        // nothing about cancellation. Reading that silence as "not cancelled" would un-cancel a
+        // purchase — and let the user cancel it a second time, crediting them twice.
+        deviceA.activate()
+        let pair = makeInstallmentPair(on: deviceA)
+        let refundId = try! deviceA.transactionRepo.insertTransactionAndGetId(
+            CloudKitSyncTestHelpers.makeTransactionModel(
+                title: "Cancellation refund — Fridge", category: "creditCard", amount: 10000,
+                type: "income"))
+        deviceA.db.setCancellationRefund(transactionId: refundId, isRefund: true)
+        deviceA.db.setCancelledBy(transactionId: pair.child, cancelledByTransactionId: refundId)
+
+        deviceA.pushAll()
+        guard let recordName = deviceA.transactionRepo.fetchCKRecordName(for: pair.child) else {
+            return XCTFail("The installment was never assigned a CK record name")
+        }
+
+        let v1Record = CKRecord(
+            recordType: "Transaction",
+            recordID: CKRecord.ID(recordName: recordName, zoneID: MockCloudStore.zoneID))
+        v1Record["title"] = "Fridge" as CKRecordValue
+        v1Record["amount"] = 10000 as CKRecordValue
+        v1Record["type"] = TransactionType.expense.rawValue as CKRecordValue
+        v1Record["category"] = TransactionCategory.market.rawValue as CKRecordValue
+        v1Record["date"] = Date() as CKRecordValue
+        v1Record["budgetMonthDate"] = Date().monthAnchor as CKRecordValue
+        // Declares early payment only — exactly what the previous release writes.
+        v1Record["earlyPaymentSchema"] = 1 as CKRecordValue
+        v1Record["isEarlyPayment"] = 0 as CKRecordValue
+
+        guard let remote = Transaction.fromCKRecord(v1Record) else {
+            return XCTFail("Could not build the v1 record fixture")
+        }
+        ConflictResolver(db: deviceA.db).resolveTransaction(remote: remote, ckRecord: v1Record)
+
+        XCTAssertEqual(
+            deviceA.db.cancelledByTransactionId(transactionId: pair.child), refundId,
+            "A schema-1 record must leave the cancellation pointer untouched")
+    }
+
     func testLegacyPeerWithoutTheFieldDoesNotClearALocalPointer() {
         // A peer on an older build sends no early-payment keys at all. Reading that absence as "not
         // settled" would silently un-settle installments every time such a peer re-pushed a row.

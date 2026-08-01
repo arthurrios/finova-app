@@ -49,8 +49,9 @@ final class StatementDetailsViewModel {
 
     var statementTotal: Int {
         // Signed by type, mirroring `DBHelper.signedAmount`: a credit on the card (a refund, a
-        // chargeback) reduces what this invoice charges rather than adding to it. Installments paid
-        // ahead drop out entirely — that money is charged on the early-payment debit instead.
+        // chargeback, or the estorno from a cancelled installment purchase) reduces what this
+        // invoice charges rather than adding to it. Installments paid ahead drop out entirely —
+        // that money is charged on the early-payment debit instead.
         transactions
             .filter { !($0.id.map(earlyPaidIds.contains) ?? false) }
             .reduce(0) { $1.type == .income ? $0 - $1.amount : $0 + $1.amount }

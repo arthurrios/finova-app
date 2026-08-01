@@ -105,6 +105,13 @@ final class TransactionRepository: TransactionRepositoryProtocol {
       EarlyPaymentService(transactionRepo: self).releaseInstallments(settledBy: id)
     }
 
+    // Same reasoning for a cancellation credit: deleting it while the installments still pointed at it
+    // would leave the purchase permanently flagged as cancelled with no refund backing it, and the
+    // user could never cancel it again.
+    if db.isCancellationRefund(transactionId: id) {
+      InstallmentCancellationService(transactionRepo: self).releaseInstallments(cancelledBy: id)
+    }
+
     // Cancel any scheduled notification for this transaction
     TransactionNotificationManager.shared.cancelNotification(for: id)
 

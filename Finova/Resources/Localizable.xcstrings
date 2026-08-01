@@ -3405,6 +3405,210 @@
         }
       }
     },
+    "cancellation.confirm.action": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel purchase"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancelar compra"
+          }
+        }
+      }
+    },
+    "cancellation.confirm.message.plural": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A credit of %2$@ will be added to your next statement, covering the %1$d installments still to be billed.\n\nThose installments keep being charged as scheduled, so the two cancel each other out."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um crédito de %2$@ será adicionado à sua próxima fatura, cobrindo as %1$d parcelas que ainda serão cobradas.\n\nEssas parcelas continuam sendo cobradas normalmente, então as duas se anulam."
+          }
+        }
+      }
+    },
+    "cancellation.confirm.message.singular": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A credit of %2$@ will be added to your next statement, covering the %1$d installment still to be billed.\n\nThe installment keeps being charged as scheduled, so the two cancel each other out."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um crédito de %2$@ será adicionado à sua próxima fatura, cobrindo a %1$d parcela que ainda será cobrada.\n\nA parcela continua sendo cobrada normalmente, então as duas se anulam."
+          }
+        }
+      }
+    },
+    "cancellation.confirm.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel this purchase?"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancelar esta compra?"
+          }
+        }
+      }
+    },
+    "cancellation.details.note": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "These installments keep being charged on their original statements. This credit covers their total, so the net effect over time is zero."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estas parcelas continuam sendo cobradas nas faturas originais. Este crédito cobre o total delas, então o efeito final é zero."
+          }
+        }
+      }
+    },
+    "cancellation.details.refunded.header": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installments refunded"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Parcelas estornadas"
+          }
+        }
+      }
+    },
+    "cancellation.entry.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel purchase"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancelar compra"
+          }
+        }
+      }
+    },
+    "cancellation.error.generic": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The purchase could not be cancelled. Nothing was changed."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível cancelar a compra. Nada foi alterado."
+          }
+        }
+      }
+    },
+    "cancellation.transaction.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancellation refund — %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estorno — %@"
+          }
+        }
+      }
+    },
+    "cancellation.undo.action": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Undo"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desfazer"
+          }
+        }
+      }
+    },
+    "cancellation.undo.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The credit will be removed and the purchase will no longer be marked as cancelled."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O crédito será removido e a compra deixará de ficar marcada como cancelada."
+          }
+        }
+      }
+    },
+    "cancellation.undo.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Undo cancellation"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desfazer cancelamento"
+          }
+        }
+      }
+    },
     "cardBrand.amex": {
       "extractionState": "manual",
       "localizations": {
