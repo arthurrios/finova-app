@@ -162,22 +162,24 @@ extension TransactionDetailsViewController: TransactionDetailsViewDelegate {
     present(alert, animated: true)
   }
 
-  func didTapDeleteInstallment(_ transaction: Transaction) {
-    // Get transaction type to determine deletion options
-    let transactionType = viewModel.getTransactionType(for: transaction)
+  func didTapPayInstallmentsEarly() {
+    flowDelegate?.payInstallmentsEarly(for: viewModel.transaction)
+  }
 
-    if transactionType == .simple {
-      // Handle simple transactions with basic confirmation
-      showConfirmation(
-        title: "transaction.delete.title".localized,
-        message: "delete.confirmation".localized,
-        okTitle: "alert.delete".localized
-      ) { [weak self] in
-        self?.deleteInstallmentTransaction(transaction)
+  func didTapUndoEarlyPayment() {
+    showConfirmation(
+      title: "earlyPayment.undo.title".localized,
+      message: "earlyPayment.undo.message".localized,
+      okTitle: "earlyPayment.undo.action".localized
+    ) { [weak self] in
+      guard let self = self else { return }
+      switch self.viewModel.undoEarlyPayment() {
+      case .success:
+        // The debit no longer exists, so this screen has nothing left to show.
+        self.flowDelegate?.didDeleteTransaction()
+      case .failure(let error):
+        self.showErrorAlert(message: error.localizedDescription)
       }
-    } else {
-      // Handle complex transactions with user choice (current/future/all)
-      showInstallmentDeletionOptions(transaction: transaction, transactionType: transactionType)
     }
   }
 
@@ -202,27 +204,6 @@ extension TransactionDetailsViewController: TransactionDetailsViewDelegate {
       cancelTitle: "",
       onOk: {}
     )
-  }
-
-  private func deleteInstallmentTransaction(_ transaction: Transaction) {
-    guard let transactionId = transaction.id else {
-      showErrorAlert(message: "Invalid transaction ID")
-      return
-    }
-
-    contentView.startDeleteLoading()
-    viewModel.deleteTransactionAsync { [weak self] result in
-      self?.contentView.stopDeleteLoading()
-      switch result {
-      case .success:
-        // Refresh the installments table
-        if let self = self {
-          self.contentView.configure(with: self.viewModel)
-        }
-      case .failure(let error):
-        self?.showErrorAlert(message: error.localizedDescription)
-      }
-    }
   }
 
   private func showInstallmentDeletionOptions(

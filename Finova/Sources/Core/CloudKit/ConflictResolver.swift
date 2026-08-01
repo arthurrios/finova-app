@@ -45,6 +45,21 @@ final class ConflictResolver {
             parentUuid: (ckRecord["parentTransactionUuid"] as? String)
                 ?? (ckRecord["parentAllocationUuid"] as? String)
         )
+
+        // Early-payment pointer. Applied here rather than in the row writers because it has to land
+        // on EVERY apply path, and because it is a uuid pointer with no integer counterpart on the
+        // wire — `resolveUuidForeignKeys()` derives the local id afterwards, on this pass or a later
+        // one if the debit itself hasn't arrived yet.
+        // Gated on the sender declaring the field: an absent pointer from a peer that HAS the field
+        // is a genuine clear (the early payment was reversed), while the same absence from a legacy
+        // peer means nothing at all and must leave the local pointer alone.
+        if table == "Transactions", (ckRecord["earlyPaymentSchema"] as? Int ?? 0) >= 1 {
+            db.applyInboundSettledPointer(
+                ckRecordName: ckRecord.recordID.recordName,
+                settledByUuid: ckRecord["settledByTransactionUuid"] as? String,
+                isEarlyPayment: (ckRecord["isEarlyPayment"] as? Int) == 1
+            )
+        }
     }
 
     private func storeSystemFields(from ckRecord: CKRecord, table: String) {

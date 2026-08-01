@@ -256,6 +256,47 @@ final class TransactionDetailsViewModel {
     }
   }
 
+  // MARK: - Early Installment Payment
+
+  private let earlyPaymentService = EarlyPaymentService()
+
+  /// How many installments of this series could still be brought forward. Zero hides the entry point.
+  func getPayableInstallmentCount() -> Int {
+    earlyPaymentService.payableInstallments(for: transaction).count
+  }
+
+  /// True when this transaction is itself the debit created by an early payment.
+  func isEarlyPayment() -> Bool {
+    earlyPaymentService.isEarlyPayment(transaction)
+  }
+
+  /// The installments this debit paid for, in installment order. Empty unless it is an early payment.
+  func getIncludedInstallments() -> [Transaction] {
+    guard let id = transaction.id, isEarlyPayment() else { return [] }
+    return earlyPaymentService.settledInstallments(forPayment: id)
+  }
+
+  /// Installments of this series that are still owed — everything not paid early.
+  func getOutstandingInstallments() -> [Transaction] {
+    getRelatedInstallments().excludingEarlyPaidInstallments()
+  }
+
+  func hasEarlyPaidInstallments() -> Bool {
+    getOutstandingInstallments().count != getRelatedInstallments().count
+  }
+
+  /// Undoes an early payment: the installments return to their own statements and the debit is
+  /// deleted. Reported as a `Result` so the screen can distinguish "done, pop back" from a failure.
+  func undoEarlyPayment() -> Result<Void, Error> {
+    guard let id = transaction.id else { return .failure(TransactionError.transactionNotFound) }
+    do {
+      try earlyPaymentService.cancelEarlyPayment(paymentId: id)
+      return .success(())
+    } catch {
+      return .failure(error)
+    }
+  }
+
   func getTransactionType(for transactionToCheck: Transaction) -> TransactionComplexityType {
     guard let transactionId = transactionToCheck.id else { return .simple }
 

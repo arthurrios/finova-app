@@ -27,6 +27,10 @@ protocol ViewControllersFactoryProtocol: AnyObject {
     flowDelegate: TransactionDetailsFlowDelegate,
     transaction: Transaction
   ) -> TransactionDetailsViewController
+  func makeEarlyPaymentViewController(
+    flowDelegate: EarlyPaymentFlowDelegate,
+    transaction: Transaction
+  ) -> EarlyPaymentViewController
   func makeNotificationSettingsViewController(
     flowDelegate: NotificationSettingsFlowDelegate
   ) -> NotificationSettingsViewController

@@ -35,13 +35,29 @@ final class StatementDetailsViewModel {
             return true
         }
         transactions.sort { $0.date > $1.date }
+        let settled = DBHelper.shared.settledInstallmentIds()
+        earlyPaidIds = Set(transactions.compactMap { $0.id }.filter(settled.contains))
         delegate?.didLoadTransactions(transactions)
     }
 
+    /// Ids of the rows in `transactions` that were paid ahead of schedule.
+    ///
+    /// They stay in the list — hiding them would make the statement look like it never carried the
+    /// installment — but they are shown struck through and excluded from the total, because that
+    /// money is charged on the early-payment debit instead.
+    private(set) var earlyPaidIds: Set<Int> = []
+
     var statementTotal: Int {
         // Signed by type, mirroring `DBHelper.signedAmount`: a credit on the card (a refund, a
-        // chargeback) reduces what this invoice charges rather than adding to it.
-        transactions.reduce(0) { $1.type == .income ? $0 - $1.amount : $0 + $1.amount }
+        // chargeback) reduces what this invoice charges rather than adding to it. Installments paid
+        // ahead drop out entirely — that money is charged on the early-payment debit instead.
+        transactions
+            .filter { !($0.id.map(earlyPaidIds.contains) ?? false) }
+            .reduce(0) { $1.type == .income ? $0 - $1.amount : $0 + $1.amount }
+    }
+
+    func isEarlyPaid(_ transaction: Transaction) -> Bool {
+        transaction.id.map(earlyPaidIds.contains) ?? false
     }
 
     var periodText: String {

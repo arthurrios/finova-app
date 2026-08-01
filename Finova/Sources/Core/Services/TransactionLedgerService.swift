@@ -39,7 +39,7 @@ final class TransactionLedgerService {
        Date().timeIntervalSince(cachedAllTransactionsTime) < cacheValidityDuration {
       return cached
     }
-    var transactions = transactionRepo.fetchAllTransactions()
+    var transactions = transactionRepo.fetchAllTransactions().excludingEarlyPaidInstallments()
     if let uid = AuthenticationManager.shared.currentUser?.uid {
       let statementTxs = creditCardService.generateStatementTransactions(userId: uid)
       transactions.append(contentsOf: statementTxs)
@@ -54,6 +54,7 @@ final class TransactionLedgerService {
   /// Fetches transactions for group context — includes ALL members' transactions
   private func fetchGroupTransactionsIncludingStatements(groupId: String) -> [Transaction] {
     var transactions = transactionRepo.fetchTransactionsForGroup(groupId: groupId)
+      .excludingEarlyPaidInstallments()
 
     let sharedCards = CreditCardRepository().fetchCardsForGroup(groupId: groupId)
     for card in sharedCards {
@@ -347,7 +348,7 @@ final class TransactionLedgerService {
   // MARK: - Transaction Filtering
 
   func getTransactionsForMonth(_ monthAnchor: Int) -> [Transaction] {
-    let allTransactions = transactionRepo.fetchAllTransactions()
+    let allTransactions = transactionRepo.fetchAllTransactions().excludingEarlyPaidInstallments()
     return
       allTransactions
       .filter { transaction in
@@ -359,7 +360,7 @@ final class TransactionLedgerService {
   }
 
   func getTransactionsForDateRange(from startDate: Date, to endDate: Date) -> [Transaction] {
-    let allTransactions = transactionRepo.fetchAllTransactions()
+    let allTransactions = transactionRepo.fetchAllTransactions().excludingEarlyPaidInstallments()
     let startAnchor = startDate.monthAnchor
     let endAnchor = endDate.monthAnchor
 

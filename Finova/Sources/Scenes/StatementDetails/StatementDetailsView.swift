@@ -16,6 +16,7 @@ final class StatementDetailsView: UIView {
     weak var delegate: StatementDetailsViewDelegate?
 
     private var transactions: [Transaction] = []
+    private var earlyPaidIds: Set<Int> = []
 
     // MARK: - Header
     private let headerContainerView: UIView = {
@@ -357,6 +358,7 @@ final class StatementDetailsView: UIView {
 
         // Transactions
         transactions = viewModel.transactions
+        earlyPaidIds = viewModel.earlyPaidIds
 
         transactionsHeaderView.configure(
             headerTitle: "allocation.details.transactions.header".localized,
@@ -444,6 +446,14 @@ extension StatementDetailsView: UITableViewDataSource, UITableViewDelegate {
         )
 
         cell.configure(with: configuration)
+
+        // An installment paid ahead of schedule stays listed so the statement's history reads
+        // correctly, but it is dimmed to show it is no longer part of what this invoice charges.
+        let isEarlyPaid = transaction.id.map(earlyPaidIds.contains) ?? false
+        cell.contentView.alpha = isEarlyPaid ? 0.45 : 1.0
+        cell.accessibilityLabel = isEarlyPaid
+            ? "\(transaction.title), \("earlyPayment.badge.settled".localized)"
+            : nil
 
         cell.onDelete = { [weak self] completion in
             self?.delegate?.didRequestDeleteTransaction(transaction, completion: completion)

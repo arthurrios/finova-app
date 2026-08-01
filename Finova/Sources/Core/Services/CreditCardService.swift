@@ -370,6 +370,7 @@ class CreditCardService {
 
         // Use the same source as the ViewModel
         let allSecureTransactions = TransactionRepository().fetchAllTransactions()
+        let settledInstallmentIds = DBHelper.shared.settledInstallmentIds()
 
         for card in cards {
             let statements = stmtRepo.fetchStatements(forCardId: card.id!)
@@ -426,10 +427,14 @@ class CreditCardService {
 
             for stmt in statements {
                 // Count and sum from the secure store (consistent with what StatementDetailsViewModel shows)
+                // Installments paid early are excluded: their amount has already been charged on the
+                // early-payment debit, so counting them here would bill the user twice for the same
+                // installment. Mirrors `DBHelper.statementRowFilter`, which the scoped overload uses.
                 let stmtTransactions = allSecureTransactions.filter {
                     $0.statementId == stmt.id && $0.isCreditCardStatement != true
                     && !($0.hasInstallments == true && $0.parentTransactionId == nil)
                     && !($0.isRecurring == true && $0.parentTransactionId == nil)
+                    && !($0.id.map(settledInstallmentIds.contains) ?? false)
                 }
 
                 let realCount = stmtTransactions.count

@@ -96,6 +96,15 @@ final class TransactionRepository: TransactionRepositoryProtocol {
   private func deleteRow(id: Int) throws {
     logDebug("TransactionRepository: Deleting transaction with id \(id)")
 
+    // If this row is an early-payment debit, put the installments it covered back on their own
+    // statements FIRST. Deleting it while their `settled_by_transaction_id` still pointed here would
+    // erase the amount from the ledger entirely — the installments stay excluded from every total,
+    // and nothing charges for them any more. Done here rather than in each caller so removal by any
+    // route (details screen, statement list, swipe-to-delete, cleanup option) is covered.
+    if db.isEarlyPayment(transactionId: id) {
+      EarlyPaymentService(transactionRepo: self).releaseInstallments(settledBy: id)
+    }
+
     // Cancel any scheduled notification for this transaction
     TransactionNotificationManager.shared.cancelNotification(for: id)
 

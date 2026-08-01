@@ -97,6 +97,13 @@ final class PaymentMethodOptionView: UIView {
 
     @objc private func tapped() { onTap?() }
 
+    /// For options whose subtitle is only known after construction — a card's name and last four
+    /// digits, for instance, which depend on which series the screen was opened for.
+    func setSubtitle(_ subtitle: String) {
+        subtitleLabel.text = subtitle
+        subtitleLabel.isHidden = subtitle.isEmpty
+    }
+
     func setSelected(_ selected: Bool) {
         isSelectedOption = selected
         radioFill.isHidden = !selected

@@ -61,6 +61,18 @@ extension Transaction: CKRecordConvertible {
         record["isCreditCardStatement"] = ((isCreditCardStatement ?? false) ? 1 : 0) as CKRecordValue
         if let txId = id {
             record["isStatementOverridden"] = (db.isStatementOverridden(transactionId: txId) ? 1 : 0) as CKRecordValue
+            // Early installment payment. Only the UUID travels — the local integer is another
+            // device's autoincrement id and would point at an unrelated row there, the same reason
+            // `parentTransactionUuid` exists. `settledByTransactionUuid` is written even when nil so
+            // reversing an early payment propagates as a cleared pointer rather than a stale one.
+            //
+            // `earlyPaymentSchema` is what makes an absent pointer readable as a deliberate clear.
+            // Without it the receiver cannot tell "this device reversed the early payment" from
+            // "this device is on an older build that has never heard of one", and would un-settle
+            // installments every time a legacy peer re-pushed an untouched row.
+            record["earlyPaymentSchema"] = 1 as CKRecordValue
+            record["settledByTransactionUuid"] = db.settledByTransactionUuid(transactionId: txId) as CKRecordValue?
+            record["isEarlyPayment"] = (db.isEarlyPayment(transactionId: txId) ? 1 : 0) as CKRecordValue
         }
 
         // Stable, device-independent identity and relationships.

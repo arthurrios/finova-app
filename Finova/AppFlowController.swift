@@ -647,6 +647,48 @@ extension AppFlowController: TransactionDetailsFlowDelegate {
             flowDelegate: self, statement: statement, card: card)
         navigationController?.pushViewController(viewController, animated: true)
     }
+
+    func payInstallmentsEarly(for transaction: Transaction) {
+        let viewController = viewControllersFactory.makeEarlyPaymentViewController(
+            flowDelegate: self, transaction: transaction)
+        navigationController?.pushViewController(viewController, animated: true)
+    }
+}
+
+// MARK: - EarlyPaymentFlowDelegate
+
+extension AppFlowController: EarlyPaymentFlowDelegate {
+    func dismissEarlyPayment() {
+        navigationController?.popViewController(animated: true)
+    }
+
+    func didCompleteEarlyPayment(paymentId: Int) {
+        guard let navigationController = navigationController else { return }
+
+        // Replace the selection screen with the debit that was just created, rather than pushing on
+        // top of it: going "back" from the result should return to the transaction the user started
+        // from, not to a selection list whose installments are now settled.
+        var stack = navigationController.viewControllers
+        if stack.last is EarlyPaymentViewController { stack.removeLast() }
+
+        if let payment = TransactionRepository().fetchAllTransactions().first(where: {
+            $0.id == paymentId
+        }) {
+            stack.append(
+                viewControllersFactory.makeTransactionDetailsViewController(
+                    flowDelegate: self, transaction: payment))
+        }
+
+        navigationController.setViewControllers(stack, animated: true)
+
+        // The dashboard behind this stack is showing pre-payment balances.
+        DispatchQueue.main.async {
+            navigationController.viewControllers
+                .compactMap { $0 as? DashboardViewController }
+                .last?
+                .refreshAfterTransactionAdd()
+        }
+    }
 }
 
 // MARK: - BudgetAllocationDetailsFlowDelegate

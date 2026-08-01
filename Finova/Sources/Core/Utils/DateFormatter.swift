@@ -76,6 +76,16 @@ extension DateFormatter {
     return formatter
   }()
 
+  /// Compact month + two-digit year, e.g. "Jan/27". Used where a list row has to name a billing
+  /// month without crowding out the amount beside it.
+  static let monthYearShortFormatter: DateFormatter = {
+    let formatter = DateFormatter()
+    formatter.dateFormat = "MMM/yy"
+    formatter.locale = Locale.current
+    formatter.timeZone = TimeZone.current
+    return formatter
+  }()
+
   static let debugTimestampFormatter: DateFormatter = {
     let formatter = DateFormatter()
     formatter.dateFormat = "yyyy-MM-dd HH:mm"

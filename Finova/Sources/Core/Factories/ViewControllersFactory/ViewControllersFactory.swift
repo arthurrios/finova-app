@@ -107,6 +107,20 @@ final class ViewControllersFactory: ViewControllersFactoryProtocol {
         return viewController
     }
     
+    func makeEarlyPaymentViewController(
+        flowDelegate: EarlyPaymentFlowDelegate,
+        transaction: Transaction
+    ) -> EarlyPaymentViewController {
+        let contentView = EarlyPaymentView()
+        let viewModel = EarlyPaymentViewModel(transaction: transaction)
+        let viewController = EarlyPaymentViewController(
+            contentView: contentView,
+            viewModel: viewModel,
+            flowDelegate: flowDelegate
+        )
+        return viewController
+    }
+
     func makeNotificationSettingsViewController(
         flowDelegate: NotificationSettingsFlowDelegate
     ) -> NotificationSettingsViewController {

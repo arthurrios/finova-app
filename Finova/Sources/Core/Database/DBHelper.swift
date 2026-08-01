@@ -72,6 +72,7 @@ class DBHelper {
             try migrateCreatedByUidColumns()
             try migrateRevColumns()
             try migrateUuidColumnsV1()
+            try migrateEarlyPaymentColumns()
             isInitialized = true
             performUuidBackfillV1()
             rebuildBudgetsTableV2()
@@ -1902,6 +1903,152 @@ class DBHelper {
         return val == 1
     }
 
+    // MARK: - Early Installment Payment
+
+    /// Points an installment at the debit that paid it early, or clears the pointer when `nil`.
+    ///
+    /// Writes the uuid alongside the integer so the relationship is complete the moment it is made:
+    /// `deriveUuidForeignKeys` would fill it in eventually, but only on a push, and a push that
+    /// happened first would carry a nil pointer that the receiving device could never resolve.
+    func setSettledBy(transactionId: Int, settledByTransactionId: Int?) {
+        guard isInitialized else { return }
+        let payerUuid = settledByTransactionId.flatMap {
+            fetchSingleString("SELECT uuid FROM Transactions WHERE id = ?;", intBinding: $0)
+        }
+        let sql = """
+            UPDATE Transactions
+               SET settled_by_transaction_id = ?, settled_by_transaction_uuid = ?,
+                   sync_status = 'pending', ck_modified_at = ?, updated_at = ?
+             WHERE id = ?;
+            """
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return }
+        defer { sqlite3_finalize(stmt) }
+        if let payerId = settledByTransactionId {
+            sqlite3_bind_int64(stmt, 1, Int64(payerId))
+        } else {
+            sqlite3_bind_null(stmt, 1)
+        }
+        if let payerUuid = payerUuid {
+            sqlite3_bind_text(stmt, 2, payerUuid, -1, SQLITE_TRANSIENT)
+        } else {
+            sqlite3_bind_null(stmt, 2)
+        }
+        let now = Int64(Date().timeIntervalSince1970)
+        sqlite3_bind_int64(stmt, 3, now)
+        sqlite3_bind_int64(stmt, 4, now)
+        sqlite3_bind_int64(stmt, 5, Int64(transactionId))
+        sqlite3_step(stmt)
+        SyncChangeTracker.shared.markDirty()
+        TransactionRepository.invalidateCache()
+    }
+
+    /// The id of the debit that settled this installment early, if any.
+    func settledByTransactionId(transactionId: Int) -> Int? {
+        guard isInitialized else { return nil }
+        let val = fetchSingleInt(
+            "SELECT settled_by_transaction_id FROM Transactions WHERE id = ?;",
+            intBinding: transactionId)
+        return (val ?? 0) > 0 ? val : nil
+    }
+
+    /// The uuid pointer as stored, used when building a push record.
+    func settledByTransactionUuid(transactionId: Int) -> String? {
+        guard isInitialized else { return nil }
+        return fetchSingleString(
+            "SELECT settled_by_transaction_uuid FROM Transactions WHERE id = ?;",
+            intBinding: transactionId)
+    }
+
+    /// Ids of every installment currently settled by `paymentId`, in installment order.
+    func installmentIdsSettled(by paymentId: Int) -> [Int] {
+        guard isInitialized else { return [] }
+        var stmt: OpaquePointer?
+        let sql = """
+            SELECT id FROM Transactions
+             WHERE settled_by_transaction_id = ?
+               AND (is_deleted IS NULL OR is_deleted = 0)
+             ORDER BY COALESCE(installment_number, 0) ASC, id ASC;
+            """
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return [] }
+        defer { sqlite3_finalize(stmt) }
+        sqlite3_bind_int64(stmt, 1, Int64(paymentId))
+        var out: [Int] = []
+        while sqlite3_step(stmt) == SQLITE_ROW { out.append(Int(sqlite3_column_int64(stmt, 0))) }
+        return out
+    }
+
+    /// Every installment currently settled by an early payment.
+    ///
+    /// Returned as a set rather than a field on `Transaction` deliberately: the aggregations that
+    /// need it (month usage, allocation spend) work over whole arrays and only ever ask "is this one
+    /// settled?", and one indexed query answers that for the entire ledger. Threading another column
+    /// through the three positional row readers and every SELECT list would be a far larger change
+    /// with a real chance of shifting an existing column index.
+    func settledInstallmentIds() -> Set<Int> {
+        guard isInitialized else { return [] }
+        var stmt: OpaquePointer?
+        let sql = """
+            SELECT id FROM Transactions
+             WHERE settled_by_transaction_id IS NOT NULL
+               AND (is_deleted IS NULL OR is_deleted = 0);
+            """
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return [] }
+        defer { sqlite3_finalize(stmt) }
+        var out: Set<Int> = []
+        while sqlite3_step(stmt) == SQLITE_ROW { out.insert(Int(sqlite3_column_int64(stmt, 0))) }
+        return out
+    }
+
+    func setEarlyPayment(transactionId: Int, isEarlyPayment: Bool) {
+        guard isInitialized else { return }
+        executeSyncUpdate(
+            "UPDATE Transactions SET is_early_payment = ? WHERE id = ?;",
+            intBindings: [isEarlyPayment ? 1 : 0, transactionId]
+        )
+        TransactionRepository.invalidateCache()
+    }
+
+    func isEarlyPayment(transactionId: Int) -> Bool {
+        guard isInitialized else { return false }
+        return fetchSingleInt(
+            "SELECT is_early_payment FROM Transactions WHERE id = ?;",
+            intBinding: transactionId) == 1
+    }
+
+    /// Applies the settled pointer carried by an inbound record.
+    ///
+    /// Only the uuid is written — never an integer id from another device. `resolveUuidForeignKeys()`
+    /// turns it into the local id on this or a later pass, so a debit that arrives after the
+    /// installments it settles still links up. An absent field clears the pointer, because
+    /// "no longer settled" (the user reversed the early payment) has to be able to travel too.
+    func applyInboundSettledPointer(
+        ckRecordName: String, settledByUuid: String?, isEarlyPayment: Bool
+    ) {
+        guard isInitialized else { return }
+        let sql = """
+            UPDATE Transactions
+               SET settled_by_transaction_uuid = ?1,
+                   settled_by_transaction_id = CASE WHEN ?1 IS NULL THEN NULL
+                                                    ELSE settled_by_transaction_id END,
+                   is_early_payment = ?2
+             WHERE ck_record_id = ?3;
+            """
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return }
+        defer { sqlite3_finalize(stmt) }
+        if let settledByUuid = settledByUuid {
+            sqlite3_bind_text(stmt, 1, settledByUuid, -1, SQLITE_TRANSIENT)
+        } else {
+            sqlite3_bind_null(stmt, 1)
+        }
+        sqlite3_bind_int64(stmt, 2, isEarlyPayment ? 1 : 0)
+        sqlite3_bind_text(stmt, 3, ckRecordName, -1, SQLITE_TRANSIENT)
+        sqlite3_step(stmt)
+        SyncChangeTracker.shared.markDirty()
+        TransactionRepository.invalidateCache()
+    }
+
     func clearTransactionCreditCardFields(transactionId: Int) throws {
         guard isInitialized else { return }
         let query = "UPDATE Transactions SET credit_card_id = NULL, statement_id = NULL, is_credit_card_statement = 0, sync_status = 'pending', ck_modified_at = ?, updated_at = ? WHERE id = ?;"
@@ -1954,6 +2101,7 @@ class DBHelper {
         AND (is_deleted IS NULL OR is_deleted = 0)
         AND NOT (COALESCE(has_installments, 0) = 1 AND parent_transaction_id IS NULL)
         AND NOT (COALESCE(is_recurring, 0) = 1 AND parent_transaction_id IS NULL)
+        AND settled_by_transaction_id IS NULL
         """
 
     func statementTotals(statementId: Int, scope: LedgerScope) -> (count: Int, total: Int) {
@@ -1985,6 +2133,13 @@ class DBHelper {
         return (Int(sqlite3_column_int64(stmt, 0)), Int(sqlite3_column_int64(stmt, 1)))
     }
 
+    /// How many rows still POINT AT this statement — deliberately including installments paid early.
+    ///
+    /// This is the count `recalculateStatementTotal` uses to decide a statement is empty and can be
+    /// deleted. Excluding early-paid installments here would delete the statement out from under
+    /// rows that still reference it: reversing the early payment would then have nowhere to put them.
+    /// Use `statementTotals` for anything the user sees — that one excludes them, as the money has
+    /// already been charged elsewhere.
     func getTransactionCountForStatement(statementId: Int) throws -> Int {
         guard isInitialized else { return 0 }
         let query = """
@@ -2011,7 +2166,8 @@ class DBHelper {
             WHERE statement_id = ? AND is_credit_card_statement = 0
             AND (is_deleted IS NULL OR is_deleted = 0)
             AND NOT (COALESCE(has_installments, 0) = 1 AND parent_transaction_id IS NULL)
-            AND NOT (COALESCE(is_recurring, 0) = 1 AND parent_transaction_id IS NULL);
+            AND NOT (COALESCE(is_recurring, 0) = 1 AND parent_transaction_id IS NULL)
+            AND settled_by_transaction_id IS NULL;
             """
         var statement: OpaquePointer?
         guard sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK else {
@@ -2184,6 +2340,35 @@ class DBHelper {
 
     private func migrateBudgetGroupsAddZoneOwner() throws {
         try addColumnIfNotExists(table: "BudgetGroups", column: "ck_zone_owner", definition: "TEXT")
+    }
+
+    /// Columns backing early installment payment ("antecipação").
+    ///
+    /// `settled_by_transaction_id` points a future installment at the single debit that paid it
+    /// ahead of schedule. The installment row is deliberately KEPT — deleting it would lose the
+    /// series' shape, and `updateAllInstallmentTransactions` would resurrect it on the next edit
+    /// anyway — so instead it stops counting toward statement totals and month usage while staying
+    /// visible and reversible.
+    ///
+    /// `settled_by_transaction_uuid` is the pointer that actually crosses the wire; the integer is
+    /// a local cache rebuilt from it by `resolveUuidForeignKeys()`. A foreign device's autoincrement
+    /// id means nothing here, exactly as with `parent_transaction_id`.
+    ///
+    /// Runs after `migrateUuidColumnsV1` so `uuidFKRules` can reference both columns.
+    private func migrateEarlyPaymentColumns() throws {
+        try addColumnIfNotExists(
+            table: "Transactions", column: "settled_by_transaction_id", definition: "INTEGER")
+        try addColumnIfNotExists(
+            table: "Transactions", column: "settled_by_transaction_uuid", definition: "TEXT")
+        // Marks the debit itself, so its details screen can find the installments it covers and the
+        // delete path knows to un-settle them. A separate flag rather than inferring from "some row
+        // points at me": the debit must still be recognisable after the last pointer is cleared.
+        try addColumnIfNotExists(
+            table: "Transactions", column: "is_early_payment", definition: "INTEGER DEFAULT 0")
+        sqlite3_exec(
+            db,
+            "CREATE INDEX IF NOT EXISTS idx_tx_settled_by ON Transactions(settled_by_transaction_id);",
+            nil, nil, nil)
     }
 
     /// Deterministic per-record version for conflict resolution. `rev` is a logical clock
@@ -2439,6 +2624,7 @@ class DBHelper {
         ("Transactions", "credit_card_id", "credit_card_uuid", "CreditCards"),
         ("Transactions", "statement_id", "statement_uuid", "CreditCardStatements"),
         ("Transactions", "parent_transaction_id", "parent_transaction_uuid", "Transactions"),
+        ("Transactions", "settled_by_transaction_id", "settled_by_transaction_uuid", "Transactions"),
         ("CreditCardStatements", "credit_card_id", "credit_card_uuid", "CreditCards"),
         ("BudgetAllocations", "parent_allocation_id", "parent_allocation_uuid", "BudgetAllocations"),
     ]
