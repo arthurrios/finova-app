@@ -80,6 +80,20 @@ final class EarlyPaymentViewModel {
         return "\(card.name) ****\(card.lastFourDigits)"
     }
 
+    /// The statement the charge would actually land on, named by its due month.
+    ///
+    /// Shown because "the card's open statement" is ambiguous around a closing date — the user needs
+    /// to see which invoice this ends up on before confirming.
+    var targetStatementLabel: String? {
+        guard let card = card,
+              let uid = UIDUserDefaultsManager.shared.currentUserUID
+                ?? AuthenticationManager.shared.currentUser?.uid,
+              let statement = CreditCardService().nextOpenStatement(
+                for: card, userId: uid, asOf: paymentDate)
+        else { return nil }
+        return DateFormatter.monthYearShortFormatter.string(from: statement.dueDate)
+    }
+
     /// Earliest date the payment may be dated. Backdating an early payment into a closed month would
     /// rewrite a balance the user has already reconciled, so the picker starts today.
     var minimumPaymentDate: Date { Calendar.current.startOfDay(for: Date()) }

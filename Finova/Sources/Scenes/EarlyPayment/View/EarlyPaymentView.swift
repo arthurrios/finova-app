@@ -451,7 +451,11 @@ final class EarlyPaymentView: UIView {
         standaloneOption.isHidden = !showsDestination
 
         if let card = viewModel.card {
-            openStatementOption.setSubtitle("\(card.name) ****\(card.lastFourDigits)")
+            let cardLabel = "\(card.name) ****\(card.lastFourDigits)"
+            // Naming the invoice removes the ambiguity around a closing date — "open statement" alone
+            // does not tell the user whether this lands on the one closing today or the next.
+            openStatementOption.setSubtitle(
+                viewModel.targetStatementLabel.map { "\(cardLabel) · \($0)" } ?? cardLabel)
         }
         openStatementOption.setSelected(viewModel.chargeToOpenStatement)
         standaloneOption.setSelected(!viewModel.chargeToOpenStatement)

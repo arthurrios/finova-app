@@ -70,8 +70,11 @@ extension EarlyPaymentViewController: EarlyPaymentViewDelegate {
 
         let destinationText: String
         if case .openStatement(let card) = viewModel.destination {
+            // Names the invoice rather than just the card, so the user can see which statement this
+            // lands on before confirming.
+            let target = viewModel.targetStatementLabel.map { "\(card.name) · \($0)" } ?? card.name
             destinationText = String(
-                format: "earlyPayment.confirm.destination.statement".localized, card.name)
+                format: "earlyPayment.confirm.destination.statement".localized, target)
         } else {
             destinationText = "earlyPayment.confirm.destination.standalone".localized
         }

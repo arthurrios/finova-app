@@ -282,6 +282,45 @@ final class EarlyPaymentTests: XCTestCase {
             "Charging to the open statement has to attach the debit to a statement")
     }
 
+    /// Regression: a card whose cycle closes TODAY.
+    ///
+    /// Date routing (`getOrCreateStatement`) resolves "today" to the cycle closing today, because for a
+    /// purchase that is correct. For an early payment it is not: the invoice has already been issued,
+    /// so the user would never be billed for the anticipation and the money would vanish from view.
+    func testEarlyPaymentSkipsAStatementThatClosesToday() throws {
+        let uid = try XCTUnwrap(UIDUserDefaultsManager.shared.currentUserUID)
+        let today = Calendar.current.component(.day, from: Date())
+
+        let repo = CreditCardRepository()
+        let cardId = try XCTUnwrap(
+            repo.insertCard(
+                CreditCard(
+                    name: "ClosesToday", lastFourDigits: "0001", cardBrand: .visa,
+                    closingDay: today, dueDay: min(today + 4, 28), creditLimit: 5_000_000,
+                    cardColor: .blue, userId: uid,
+                    isDeleted: false, isDefault: false, createdAt: Date(), updatedAt: Date())))
+        let card = try XCTUnwrap(repo.fetchCard(byId: cardId))
+
+        let closingToday = try XCTUnwrap(
+            CreditCardService().getOrCreateStatement(
+                for: card, transactionDate: Date(), userId: uid),
+            "Precondition: date routing should produce the cycle closing today")
+        XCTAssertLessThanOrEqual(
+            closingToday.closingDate, Date(),
+            "Precondition: that statement should already be closed")
+
+        let target = try XCTUnwrap(
+            CreditCardService().nextOpenStatement(for: card, userId: uid),
+            "There should always be a next open statement to route to")
+
+        XCTAssertNotEqual(
+            target.id, closingToday.id,
+            "An early payment must not land on the invoice that just closed")
+        XCTAssertGreaterThan(
+            target.closingDate, Date(),
+            "The target statement has to still be open for the user to be billed on it")
+    }
+
     func testAnticipatedInstallmentLeavesItsOwnStatementTotal() throws {
         // The statement link is made explicitly here rather than by creating the series through
         // AddTransactionModalViewModel: that path only attaches statements when a Firebase session is

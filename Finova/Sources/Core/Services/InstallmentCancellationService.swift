@@ -102,8 +102,7 @@ final class InstallmentCancellationService {
         // in that ledger accounting for it.
         let groupId = installmentIds.compactMap { db.getSharedGroupId(transactionId: $0) }.first
 
-        // Dated to land on the next statement the user will be billed for — the same routing a purchase
-        // made today would take. Without a card there is no statement, so it falls to today.
+        // Without a card there is no statement to credit, so the refund simply falls on today.
         let refundDate = Date()
 
         let model = TransactionModel(
@@ -142,8 +141,10 @@ final class InstallmentCancellationService {
                 guard let uid = Self.currentUserId() else {
                     throw InstallmentCancellationError.missingUser
                 }
-                guard let statement = creditCardService.getOrCreateStatement(
-                    for: card, transactionDate: refundDate, userId: uid),
+                // The next OPEN statement — a credit attached to an invoice that has already closed is
+                // money the user never sees returned.
+                guard let statement = creditCardService.nextOpenStatement(
+                    for: card, userId: uid, asOf: refundDate),
                     let stmtId = statement.id
                 else {
                     throw InstallmentCancellationError.noStatementAvailable

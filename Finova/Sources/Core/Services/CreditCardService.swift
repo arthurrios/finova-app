@@ -188,6 +188,37 @@ class CreditCardService {
                 cardUuid: cardUuid, statementMonth: closingDate.monthAnchor))
     }
 
+    /// The earliest statement that is still open as of `date` — the next invoice the user will be
+    /// billed for.
+    ///
+    /// Distinct from `getOrCreateStatement(transactionDate:)`, which routes by the card's closing day
+    /// and is right for a *purchase*: a purchase made on the closing day belongs to the cycle that is
+    /// closing. Money the user is choosing to move — an early payment, or the credit from a cancelled
+    /// purchase — must land somewhere they can still be billed for it. On a card closing the 1st, on
+    /// the 1st, date routing returns the statement closing that same day, so the amount would be
+    /// attached to an invoice already issued and the user would never see it.
+    ///
+    /// Creates the following cycle only when every existing statement has already closed.
+    func nextOpenStatement(for card: CreditCard, userId: String, asOf date: Date = Date())
+        -> CreditCardStatement?
+    {
+        guard let cardId = card.id else { return nil }
+        let statements = stmtRepo.fetchStatements(forCardId: cardId)
+
+        if let open = statements
+            .filter({ $0.closingDate > date && !$0.isPaid })
+            .min(by: { $0.closingDate < $1.closingDate })
+        {
+            return open
+        }
+
+        if let latest = statements.max(by: { $0.closingDate < $1.closingDate }) {
+            return nextStatement(after: latest, for: card, userId: userId)
+        }
+
+        return getOrCreateStatement(for: card, transactionDate: date, userId: userId)
+    }
+
     /// Finds an existing statement for a transaction on a given card/date.
     /// Unlike `getOrCreateStatement`, this never creates a new statement.
     /// Uses the same current-rules lookup order minus the create step.

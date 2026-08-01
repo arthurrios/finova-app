@@ -154,8 +154,11 @@ final class EarlyPaymentService {
             // fail just because the auth session isn't live.
             if let card = destination.card, let cardId = card.id {
                 guard let uid = Self.currentUserId() else { throw EarlyPaymentError.missingUser }
-                if let statement = creditCardService.getOrCreateStatement(
-                    for: card, transactionDate: paymentDate, userId: uid),
+                // The NEXT OPEN statement, not the one date routing picks. On a card closing today,
+                // date routing returns the cycle closing today — an invoice already issued, where the
+                // user would never be billed for the anticipation.
+                if let statement = creditCardService.nextOpenStatement(
+                    for: card, userId: uid, asOf: paymentDate),
                     let stmtId = statement.id
                 {
                     try transactionRepo.updateCreditCardFields(
