@@ -772,10 +772,19 @@ final class TransactionRepository: TransactionRepositoryProtocol {
     }
   }
 
+  /// Removes a recurring transaction together with every occurrence of its series.
+  ///
+  /// This used to delete only the row it was handed, on the grounds that removing the rest would be
+  /// destructive. But it is the branch `deleteTransactionAndRelated` routes recurring transactions
+  /// to — the plain "Delete" on the transaction details, statement and allocation screens — so the
+  /// user asked to delete a recurring transaction, was given no choice of scope, and got one month
+  /// removed with the rest of the series silently left behind. Callers that genuinely want a single
+  /// occurrence have `deleteTransactionWithOption(id:option: .currentSelection)` for exactly that.
+  ///
+  /// Aligned with release/v1.6.0 and the installment-payment branch, where the same method already
+  /// removes the whole series.
   private func deleteRecurringTransactionAndInstances(transactionId: Int) throws {
-    // For recurring transactions, only delete the current instance
-    // Do not delete all future instances as that would be destructive
-    try delete(id: transactionId)
+    try deleteAllRecurringTransactionOccurrences(transactionId: transactionId)
   }
 
   /// Every row of `transaction`'s recurring series, resilient to a parent that has gone missing.

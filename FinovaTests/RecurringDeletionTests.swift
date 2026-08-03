@@ -174,6 +174,28 @@ final class RecurringDeletionTests: XCTestCase {
             survivors.isEmpty, "\"All occurrences\" left ids \(survivors) behind")
     }
 
+    // MARK: - Plain delete
+
+    func testDeleteAndRelatedRemovesTheWholeRecurringSeries() throws {
+        // `deleteTransactionAndRelated` is what the details screen's plain Delete calls, and what the
+        // statement and allocation screens call. The user is given no choice of scope there, so
+        // removing one month and leaving the rest is not a safer answer — it is a wrong one. Callers
+        // that want a single occurrence use `.currentSelection` instead.
+        let (parent, series) = try makeRecurringSeries(title: "Spotify")
+        try XCTSkipIf(series.isEmpty, "Fixture materialised no instances")
+
+        let everything = series.compactMap { $0.id } + [parent.id].compactMap { $0 }
+        let anyInstanceId = try XCTUnwrap(series.first?.id)
+
+        try transactionRepo.deleteTransactionAndRelated(id: anyInstanceId)
+
+        let survivors = stillPresent(everything)
+        XCTAssertTrue(
+            survivors.isEmpty,
+            "deleteTransactionAndRelated left \(survivors.count) row(s) of the series behind: "
+                + "ids \(survivors)")
+    }
+
     // MARK: - Delete just this one
 
     func testDeletingOnlyThisOccurrenceLeavesTheRestAlone() throws {
