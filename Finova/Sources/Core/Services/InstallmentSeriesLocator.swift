@@ -63,15 +63,6 @@ struct InstallmentSeriesLocator {
     /// they are neither payable again nor refundable — and installments whose billing cycle has
     /// already closed, where the charge has left or is on the invoice now due.
     func outstandingInstallments(for transaction: Transaction) -> [EarlyPayableInstallment] {
-        // A purchase only materialises its first few installments; the rest are generated as the user
-        // browses forward. Both callers reason about the whole remaining series, and a row that does
-        // not exist can be neither offered nor refunded — so bring the series into being first, or a
-        // 10x purchase would quietly present three installments as though that were all of them.
-        if let parentId = seriesParentId(of: transaction) {
-            RecurringTransactionManager(transactionRepo: transactionRepo)
-                .materializeInstallmentSeries(parentId: parentId)
-        }
-
         let children = seriesChildren(of: transaction)
         guard !children.isEmpty else { return [] }
 

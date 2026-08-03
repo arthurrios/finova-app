@@ -59,19 +59,6 @@ final class EarlyPaymentTests: XCTestCase {
             return []
         }
         TransactionRepository.invalidateCache()
-
-        // A purchase only materialises its first three installments; the rest are generated as the
-        // user browses forward. These tests assert over the WHOLE series, so the fixture brings it
-        // into being up front — the same thing `InstallmentSeriesLocator` does before offering the
-        // list, just done here so the assertions below describe rows and not a generation side effect.
-        if let parentId = transactionRepo.fetchAllTransactions()
-            .first(where: { $0.hasInstallments == true && $0.title.hasPrefix(title) })?.id
-        {
-            RecurringTransactionManager(transactionRepo: transactionRepo)
-                .materializeInstallmentSeries(parentId: parentId)
-            TransactionRepository.invalidateCache()
-        }
-
         return children(ofSeriesTitled: title)
     }
 

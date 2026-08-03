@@ -327,9 +327,14 @@ final class AddTransactionModalViewModel {
 
       let parentId = try transactionRepo.insertTransactionAndGetId(parentModel)
 
-      // LAZY GENERATION: Only create immediate installments (first 3 months)
-      // Additional installments will be generated lazily when the user navigates to those months
-      let immediateInstallmentCount = min(3, totalInstallments)
+      // UPFRONT GENERATION: create ALL installments at once.
+      //
+      // Previously only the first three existed and the rest appeared as the user browsed forward.
+      // That is invisible while you are only ever looking at one month, but anything that reasons
+      // about the series as a whole sees a purchase that is three months long: early payment would
+      // offer three of ten and present that as everything, and cancelling would refund to match.
+      // A row that does not exist cannot be offered, counted or refunded.
+      let immediateInstallmentCount = totalInstallments
 
       var allInstallments: [TransactionModel] = []
 
@@ -437,8 +442,8 @@ final class AddTransactionModalViewModel {
 
         let parentId = try self.transactionRepo.insertTransactionAndGetId(parentModel)
 
-        // Create immediate installments (first 3 months)
-        let immediateInstallmentCount = min(3, totalInstallments)
+        // UPFRONT GENERATION: create ALL installments at once — see the sync path above.
+        let immediateInstallmentCount = totalInstallments
         var allInstallments: [TransactionModel] = []
 
         for installmentNumber in 1...immediateInstallmentCount {
