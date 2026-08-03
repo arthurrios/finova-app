@@ -926,7 +926,10 @@ extension BudgetAllocationDetailsView: UITableViewDataSource, UITableViewDelegat
             totalInstallments: transaction.totalInstallments,
             isCreditCardStatement: false,
             statementTransactionCount: nil,
-            creditCardId: transaction.creditCardId
+            creditCardId: transaction.creditCardId,
+            isSettledEarly: transaction.id.map {
+                DBHelper.shared.settledByTransactionId(transactionId: $0) != nil
+            } ?? false
         )
 
         cell.configure(with: configuration)

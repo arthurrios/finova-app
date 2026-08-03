@@ -41,6 +41,7 @@ class DBHelper {
             try migrateCreditCardColumns()
             try migrateCreditCardsTable()
             try migrateCreditCardStatementsTable()
+            try migrateEarlyPaymentColumns()
             isInitialized = true
             //            print("✅ Database initialized successfully")
         } catch {
@@ -1189,8 +1190,305 @@ class DBHelper {
         }
     }
 
+    /// Columns backing early installment payment ("antecipação") and purchase cancellation.
+    ///
+    /// `settled_by_transaction_id` points a future installment at the single debit that paid it
+    /// ahead of schedule. The installment row is deliberately KEPT — deleting it would lose the
+    /// series' shape, and `updateAllInstallmentTransactions` would resurrect it on the next edit
+    /// anyway — so instead it stops counting toward statement totals and month usage while staying
+    /// visible and reversible.
+    ///
+    /// `cancelled_by_transaction_id` points a remaining installment at the credit that refunded it.
+    /// Unlike a settled one, a cancelled installment KEEPS COUNTING: the card goes on charging it
+    /// and the refund arrives up front as one credit, so the two cancel out over the life of the
+    /// series. The pointer exists to show what a refund covers and — the part that matters
+    /// financially — to stop the same series being cancelled twice, which would credit the user the
+    /// remaining balance a second time.
+    ///
+    /// The `is_early_payment` / `is_cancellation_refund` flags mark the transaction on the other end.
+    /// Separate flags rather than inferring from "some row points at me": the debit or credit must
+    /// still be recognisable after the last pointer is cleared.
+    private func migrateEarlyPaymentColumns() throws {
+        let checkQuery = "PRAGMA table_info(Transactions);"
+        var statement: OpaquePointer?
+
+        guard sqlite3_prepare_v2(db, checkQuery, -1, &statement, nil) == SQLITE_OK else {
+            let msg = String(cString: sqlite3_errmsg(db))
+            throw DBError.prepareFailed(message: msg)
+        }
+        defer { sqlite3_finalize(statement) }
+
+        var existingColumns: Set<String> = []
+        while sqlite3_step(statement) == SQLITE_ROW {
+            existingColumns.insert(String(cString: sqlite3_column_text(statement, 1)))
+        }
+
+        let earlyPaymentColumns: [String: String] = [
+            "settled_by_transaction_id":
+                "ALTER TABLE Transactions ADD COLUMN settled_by_transaction_id INTEGER;",
+            "is_early_payment":
+                "ALTER TABLE Transactions ADD COLUMN is_early_payment INTEGER DEFAULT 0;",
+            "cancelled_by_transaction_id":
+                "ALTER TABLE Transactions ADD COLUMN cancelled_by_transaction_id INTEGER;",
+            "is_cancellation_refund":
+                "ALTER TABLE Transactions ADD COLUMN is_cancellation_refund INTEGER DEFAULT 0;",
+        ]
+
+        for (column, alterQuery) in earlyPaymentColumns where !existingColumns.contains(column) {
+            var alterStatement: OpaquePointer?
+            guard sqlite3_prepare_v2(db, alterQuery, -1, &alterStatement, nil) == SQLITE_OK else {
+                let msg = String(cString: sqlite3_errmsg(db))
+                throw DBError.prepareFailed(message: msg)
+            }
+            defer { sqlite3_finalize(alterStatement) }
+            guard sqlite3_step(alterStatement) == SQLITE_DONE else {
+                let msg = String(cString: sqlite3_errmsg(db))
+                throw DBError.stepFailed(message: msg)
+            }
+        }
+
+        sqlite3_exec(
+            db,
+            "CREATE INDEX IF NOT EXISTS idx_tx_settled_by ON Transactions(settled_by_transaction_id);",
+            nil, nil, nil)
+        sqlite3_exec(
+            db,
+            "CREATE INDEX IF NOT EXISTS idx_tx_cancelled_by ON Transactions(cancelled_by_transaction_id);",
+            nil, nil, nil)
+    }
+
+    /// Runs `body` inside one SQLite transaction, rolling back if it throws.
+    ///
+    /// Added for early payment, where a half-applied result — the debit created but some installments
+    /// left unsettled — would double-charge the user for real money. Nested calls are not supported:
+    /// SQLite has no nested BEGIN, so the inner one would fail and the outer COMMIT would land early.
+    func inTransaction(_ body: () throws -> Void) throws {
+        guard isInitialized else { return }
+        guard sqlite3_exec(db, "BEGIN;", nil, nil, nil) == SQLITE_OK else {
+            throw DBError.stepFailed(message: String(cString: sqlite3_errmsg(db)))
+        }
+        do {
+            try body()
+        } catch {
+            sqlite3_exec(db, "ROLLBACK;", nil, nil, nil)
+            throw error
+        }
+        guard sqlite3_exec(db, "COMMIT;", nil, nil, nil) == SQLITE_OK else {
+            let msg = String(cString: sqlite3_errmsg(db))
+            sqlite3_exec(db, "ROLLBACK;", nil, nil, nil)
+            throw DBError.stepFailed(message: msg)
+        }
+    }
+
+    // MARK: - Installment Series Pointers
+
+    /// The two ways an installment can be superseded, each an integer column pointing at the
+    /// transaction responsible.
+    ///
+    /// They differ in one respect that matters: a `settled` installment stops counting toward totals
+    /// (its money was charged early, on the debit), while a `cancelled` one keeps counting (the card
+    /// goes on charging it and a single credit offsets the whole remainder). Only the pointer
+    /// mechanics are shared, which is what this enum abstracts.
+    enum InstallmentPointer {
+        case settledEarly
+        case cancelled
+
+        var intColumn: String {
+            switch self {
+            case .settledEarly: return "settled_by_transaction_id"
+            case .cancelled: return "cancelled_by_transaction_id"
+            }
+        }
+
+        /// Flag marking the transaction on the OTHER end of the pointer.
+        var payerFlagColumn: String {
+            switch self {
+            case .settledEarly: return "is_early_payment"
+            case .cancelled: return "is_cancellation_refund"
+            }
+        }
+    }
+
+    /// Points an installment at the transaction that superseded it, or clears it when `nil`.
+    ///
+    /// - Returns: whether the pointer was actually written.
+    ///
+    /// The return value is load-bearing, not decoration. These columns are added by migration, and if
+    /// that migration has not run — an older schema, a failed upgrade — `sqlite3_prepare_v2` fails and
+    /// the write becomes a no-op. Silently. The caller would then create a debit for installments that
+    /// never got marked as settled, so the card keeps charging them AND the debit is charged: the user
+    /// is billed twice with nothing reporting an error. Callers must treat `false` as fatal for the
+    /// whole operation.
+    @discardableResult
+    func setInstallmentPointer(
+        _ pointer: InstallmentPointer, transactionId: Int, targetId: Int?
+    ) -> Bool {
+        guard isInitialized else { return false }
+        let sql = "UPDATE Transactions SET \(pointer.intColumn) = ? WHERE id = ?;"
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
+            print(
+                "[Installments] Could not prepare \(pointer.intColumn) write — schema is missing a "
+                    + "column: \(String(cString: sqlite3_errmsg(db)))")
+            return false
+        }
+        defer { sqlite3_finalize(stmt) }
+        if let targetId = targetId {
+            sqlite3_bind_int64(stmt, 1, Int64(targetId))
+        } else {
+            sqlite3_bind_null(stmt, 1)
+        }
+        sqlite3_bind_int64(stmt, 2, Int64(transactionId))
+        guard sqlite3_step(stmt) == SQLITE_DONE, sqlite3_changes(db) > 0 else {
+            print(
+                "[Installments] \(pointer.intColumn) write matched no row for transaction \(transactionId)")
+            return false
+        }
+        TransactionRepository.invalidateCache()
+        return true
+    }
+
+    func installmentPointerTarget(_ pointer: InstallmentPointer, transactionId: Int) -> Int? {
+        guard isInitialized else { return nil }
+        let sql = "SELECT \(pointer.intColumn) FROM Transactions WHERE id = ?;"
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return nil }
+        defer { sqlite3_finalize(stmt) }
+        sqlite3_bind_int64(stmt, 1, Int64(transactionId))
+        guard sqlite3_step(stmt) == SQLITE_ROW,
+              sqlite3_column_type(stmt, 0) != SQLITE_NULL
+        else { return nil }
+        let val = Int(sqlite3_column_int64(stmt, 0))
+        return val > 0 ? val : nil
+    }
+
+    /// Ids of every installment pointing at `targetId`, in installment order.
+    func installmentIds(_ pointer: InstallmentPointer, pointingAt targetId: Int) -> [Int] {
+        guard isInitialized else { return [] }
+        var stmt: OpaquePointer?
+        let sql = """
+            SELECT id FROM Transactions
+             WHERE \(pointer.intColumn) = ?
+             ORDER BY COALESCE(installment_number, 0) ASC, id ASC;
+            """
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return [] }
+        defer { sqlite3_finalize(stmt) }
+        sqlite3_bind_int64(stmt, 1, Int64(targetId))
+        var out: [Int] = []
+        while sqlite3_step(stmt) == SQLITE_ROW { out.append(Int(sqlite3_column_int64(stmt, 0))) }
+        return out
+    }
+
+    /// Every installment currently carrying `pointer`.
+    ///
+    /// Returned as a set rather than a field on `Transaction` deliberately: the aggregations that
+    /// need it (month usage, allocation spend) work over whole arrays and only ever ask "is this one
+    /// settled?", and one indexed query answers that for the entire ledger. Threading another column
+    /// through the positional row readers and every SELECT list would be a far larger change with a
+    /// real chance of shifting an existing column index.
+    func installmentIdsCarrying(_ pointer: InstallmentPointer) -> Set<Int> {
+        guard isInitialized else { return [] }
+        var stmt: OpaquePointer?
+        let sql = "SELECT id FROM Transactions WHERE \(pointer.intColumn) IS NOT NULL;"
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return [] }
+        defer { sqlite3_finalize(stmt) }
+        var out: Set<Int> = []
+        while sqlite3_step(stmt) == SQLITE_ROW { out.insert(Int(sqlite3_column_int64(stmt, 0))) }
+        return out
+    }
+
+    /// - Returns: whether the flag was actually written. Verified for the same reason as
+    ///   `setInstallmentPointer`: without this flag the delete path cannot recognise the debit or
+    ///   credit, so removing it would never release the installments it superseded.
+    @discardableResult
+    func setInstallmentPointerFlag(
+        _ pointer: InstallmentPointer, transactionId: Int, isSet: Bool
+    ) -> Bool {
+        guard isInitialized else { return false }
+        let sql = "UPDATE Transactions SET \(pointer.payerFlagColumn) = ? WHERE id = ?;"
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
+            print("[Installments] Could not prepare \(pointer.payerFlagColumn) write")
+            return false
+        }
+        defer { sqlite3_finalize(stmt) }
+        sqlite3_bind_int(stmt, 1, isSet ? 1 : 0)
+        sqlite3_bind_int64(stmt, 2, Int64(transactionId))
+        guard sqlite3_step(stmt) == SQLITE_DONE, sqlite3_changes(db) > 0 else {
+            print(
+                "[Installments] Could not set \(pointer.payerFlagColumn) on transaction \(transactionId)")
+            return false
+        }
+        TransactionRepository.invalidateCache()
+        return true
+    }
+
+    func hasInstallmentPointerFlag(_ pointer: InstallmentPointer, transactionId: Int) -> Bool {
+        guard isInitialized else { return false }
+        let sql = "SELECT \(pointer.payerFlagColumn) FROM Transactions WHERE id = ?;"
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return false }
+        defer { sqlite3_finalize(stmt) }
+        sqlite3_bind_int64(stmt, 1, Int64(transactionId))
+        guard sqlite3_step(stmt) == SQLITE_ROW else { return false }
+        return sqlite3_column_int(stmt, 0) == 1
+    }
+
+    // MARK: Convenience wrappers
+
+    @discardableResult
+    func setSettledBy(transactionId: Int, settledByTransactionId: Int?) -> Bool {
+        setInstallmentPointer(.settledEarly, transactionId: transactionId, targetId: settledByTransactionId)
+    }
+
+    /// The id of the debit that settled this installment early, if any.
+    func settledByTransactionId(transactionId: Int) -> Int? {
+        installmentPointerTarget(.settledEarly, transactionId: transactionId)
+    }
+
+    func installmentIdsSettled(by paymentId: Int) -> [Int] {
+        installmentIds(.settledEarly, pointingAt: paymentId)
+    }
+
+    /// Every installment currently settled by an early payment — the set the ledger excludes.
+    func settledInstallmentIds() -> Set<Int> {
+        installmentIdsCarrying(.settledEarly)
+    }
+
+    @discardableResult
+    func setEarlyPayment(transactionId: Int, isEarlyPayment: Bool) -> Bool {
+        setInstallmentPointerFlag(.settledEarly, transactionId: transactionId, isSet: isEarlyPayment)
+    }
+
+    func isEarlyPayment(transactionId: Int) -> Bool {
+        hasInstallmentPointerFlag(.settledEarly, transactionId: transactionId)
+    }
+
+    @discardableResult
+    func setCancelledBy(transactionId: Int, cancelledByTransactionId: Int?) -> Bool {
+        setInstallmentPointer(.cancelled, transactionId: transactionId, targetId: cancelledByTransactionId)
+    }
+
+    /// The id of the credit that refunded this installment, if its purchase was cancelled.
+    func cancelledByTransactionId(transactionId: Int) -> Int? {
+        installmentPointerTarget(.cancelled, transactionId: transactionId)
+    }
+
+    func installmentIdsCancelled(by refundId: Int) -> [Int] {
+        installmentIds(.cancelled, pointingAt: refundId)
+    }
+
+    @discardableResult
+    func setCancellationRefund(transactionId: Int, isRefund: Bool) -> Bool {
+        setInstallmentPointerFlag(.cancelled, transactionId: transactionId, isSet: isRefund)
+    }
+
+    func isCancellationRefund(transactionId: Int) -> Bool {
+        hasInstallmentPointerFlag(.cancelled, transactionId: transactionId)
+    }
+
     // MARK: - Credit Card CRUD
-    
+
     func insertCreditCard(
         name: String, lastFourDigits: String, cardBrand: String,
         closingDay: Int, dueDay: Int, creditLimit: Int?,
@@ -1561,6 +1859,12 @@ class DBHelper {
         }
     }
 
+    /// How many rows still POINT AT this statement — deliberately including installments paid early.
+    ///
+    /// This is the count `recalculateStatementTotal` uses to decide a statement is empty and can be
+    /// deleted. Excluding early-paid installments here would delete the statement out from under rows
+    /// that still reference it: reversing the early payment would then have nowhere to put them.
+    /// `getTransactionSumForStatement` is the one the user sees, and that one does exclude them.
     func getTransactionCountForStatement(statementId: Int) throws -> Int {
         guard isInitialized else { return 0 }
         let query = "SELECT COUNT(*) FROM Transactions WHERE statement_id = ? AND is_credit_card_statement = 0;"
@@ -1584,9 +1888,15 @@ class DBHelper {
     /// `type` is stored as `TransactionType.key` — "income" / "expense".
     private static let signedAmount = "CASE WHEN type = 'income' THEN -amount ELSE amount END"
 
+    /// What this invoice actually charges. Installments paid ahead drop out — that money is charged
+    /// on the early-payment debit instead, and counting it here would bill the user twice.
     func getTransactionSumForStatement(statementId: Int) throws -> Int {
         guard isInitialized else { return 0 }
-        let query = "SELECT COALESCE(SUM(\(Self.signedAmount)), 0) FROM Transactions WHERE statement_id = ? AND is_credit_card_statement = 0;"
+        let query = """
+            SELECT COALESCE(SUM(\(Self.signedAmount)), 0) FROM Transactions
+             WHERE statement_id = ? AND is_credit_card_statement = 0
+               AND settled_by_transaction_id IS NULL;
+            """
         var statement: OpaquePointer?
         guard sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK else {
             let msg = String(cString: sqlite3_errmsg(db))

@@ -195,11 +195,17 @@ final class BudgetAllocationService {
     ///   - monthAnchor: The month anchor timestamp
     /// - Returns: Array of transactions sorted by date descending
     func getTransactions(forCategory category: TransactionCategory, monthAnchor: Int) -> [Transaction] {
-        return transactionRepo.fetchAllTransactions().filter { transaction in
-            transaction.category == category &&
-            transaction.budgetMonthDate == monthAnchor &&
-            transaction.type == .expense
-        }.sorted { $0.date > $1.date }
+        // Installments paid early stay in the list — dimmed by the cell, see
+        // `TransactionCellConfiguration.isSettledEarly`. They stop consuming this month's allocation
+        // through `calculateUsageByCategory`, which is where the exclusion belongs; the
+        // early-payment debit spends against the Credit Card category in the month it was paid.
+        return transactionRepo.fetchAllTransactions()
+            .filter { transaction in
+                transaction.category == category &&
+                transaction.budgetMonthDate == monthAnchor &&
+                transaction.type == .expense
+            }
+            .sorted { $0.date > $1.date }
     }
 
     /// Gets all available categories that don't have an allocation for the given month.
@@ -251,6 +257,7 @@ final class BudgetAllocationService {
     /// Only counts expense transactions.
     private func calculateUsageByCategory(forMonth monthAnchor: Int) -> [String: Int] {
         let transactions = transactionRepo.fetchAllTransactions()
+            .excludingEarlyPaidInstallments()
             .filter { $0.budgetMonthDate == monthAnchor && $0.type == .expense }
 
         var usage: [String: Int] = [:]

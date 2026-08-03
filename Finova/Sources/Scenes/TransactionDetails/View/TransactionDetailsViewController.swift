@@ -100,6 +100,70 @@ extension TransactionDetailsViewController: TransactionDetailsViewDelegate {
     flowDelegate?.dismissTransactionDetails()
   }
 
+  func didTapPayInstallmentsEarly() {
+    flowDelegate?.payInstallmentsEarly(for: viewModel.transaction)
+  }
+
+  func didTapUndoEarlyPayment() {
+    showConfirmation(
+      title: "earlyPayment.undo.title".localized,
+      message: "earlyPayment.undo.message".localized,
+      okTitle: "earlyPayment.undo.action".localized
+    ) { [weak self] in
+      guard let self = self else { return }
+      switch self.viewModel.undoEarlyPayment() {
+      case .success:
+        // The debit no longer exists, so this screen has nothing left to show.
+        self.flowDelegate?.didDeleteTransaction()
+      case .failure(let error):
+        self.showErrorAlert(message: error.localizedDescription)
+      }
+    }
+  }
+
+  func didTapCancelPurchase() {
+    let count = viewModel.getRefundableInstallmentCount()
+    let amount = viewModel.getCancellationRefundAmount()
+
+    // The message states the net effect explicitly. "You get R$ X back" on its own would read as a
+    // windfall, when in fact the remaining installments keep being charged and the two offset.
+    showConfirmation(
+      title: "cancellation.confirm.title".localized,
+      message: String(
+        format: count == 1
+          ? "cancellation.confirm.message.singular".localized
+          : "cancellation.confirm.message.plural".localized,
+        count, amount.currencyString),
+      okTitle: "cancellation.confirm.action".localized
+    ) { [weak self] in
+      guard let self = self else { return }
+      switch self.viewModel.cancelPurchase() {
+      case .success(let refundId):
+        self.flowDelegate?.didCancelInstallmentPurchase(refundId: refundId)
+      case .failure(let error):
+        self.showErrorAlert(message: "cancellation.error.generic".localized)
+        logError("Cancelling installment purchase failed: \(error)")
+      }
+    }
+  }
+
+  func didTapUndoCancellation() {
+    showConfirmation(
+      title: "cancellation.undo.title".localized,
+      message: "cancellation.undo.message".localized,
+      okTitle: "cancellation.undo.action".localized
+    ) { [weak self] in
+      guard let self = self else { return }
+      switch self.viewModel.undoCancellation() {
+      case .success:
+        // The credit is gone, so this screen has nothing left to show.
+        self.flowDelegate?.didDeleteTransaction()
+      case .failure(let error):
+        self.showErrorAlert(message: error.localizedDescription)
+      }
+    }
+  }
+
   func didTapDeleteInstallment(_ transaction: Transaction) {
     // Get transaction type to determine deletion options
     let transactionType = viewModel.getTransactionType(for: transaction)

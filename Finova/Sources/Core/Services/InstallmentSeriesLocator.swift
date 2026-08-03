@@ -1,0 +1,226 @@
+//
+//  InstallmentSeriesLocator.swift
+//  Finova
+//
+//  Shared reads over an installment series, used by both early payment and cancellation.
+//
+
+import Foundation
+
+/// One future installment of a series, with the billing context needed to name it.
+struct EarlyPayableInstallment {
+    let transaction: Transaction
+    let installmentNumber: Int
+    let totalInstallments: Int
+    let amount: Int
+    /// When the money would otherwise leave: the statement due date for a card installment, the
+    /// installment's own date otherwise.
+    let dueDate: Date
+    let statementId: Int?
+
+    var id: Int? { transaction.id }
+}
+
+/// Answers "which installments of this series are still ahead of us, and what card is it on?".
+///
+/// Extracted so early payment and cancellation cannot drift apart on the definition of *outstanding*.
+/// Both operations act on exactly the same set — the difference is only what they do with it — and two
+/// copies of this filter would eventually disagree about whether an installment in the currently-open
+/// statement counts.
+struct InstallmentSeriesLocator {
+    private let transactionRepo: TransactionRepository
+    private let statementRepo: StatementRepository
+    private let cardRepo: CreditCardRepository
+    private let db: DBHelper
+
+    init(
+        transactionRepo: TransactionRepository = TransactionRepository(),
+        statementRepo: StatementRepository = StatementRepository(),
+        cardRepo: CreditCardRepository = CreditCardRepository(),
+        db: DBHelper = .shared
+    ) {
+        self.transactionRepo = transactionRepo
+        self.statementRepo = statementRepo
+        self.cardRepo = cardRepo
+        self.db = db
+    }
+
+    /// The parent that owns the series, whether `transaction` is the parent or one of its children.
+    func seriesParentId(of transaction: Transaction) -> Int? {
+        if let parentId = transaction.parentTransactionId, parentId != transaction.id {
+            return parentId
+        }
+        if transaction.hasInstallments == true { return transaction.id }
+        return nil
+    }
+
+    /// Installments of `transaction`'s series that have not been billed yet, newest first.
+    ///
+    /// Ordered last-installment-first to match how these operations are normally used (and how bank
+    /// apps present them): you act on the tail of the series, not the part about to be billed anyway.
+    ///
+    /// Excluded: installments already settled by an early payment — that money has been charged, so
+    /// they are neither payable again nor refundable — and installments whose billing cycle has
+    /// already closed, where the charge has left or is on the invoice now due.
+    func outstandingInstallments(for transaction: Transaction) -> [EarlyPayableInstallment] {
+        // A purchase only materialises its first few installments; the rest are generated as the user
+        // browses forward. Both callers reason about the whole remaining series, and a row that does
+        // not exist can be neither offered nor refunded — so bring the series into being first, or a
+        // 10x purchase would quietly present three installments as though that were all of them.
+        if let parentId = seriesParentId(of: transaction) {
+            RecurringTransactionManager(transactionRepo: transactionRepo)
+                .materializeInstallmentSeries(parentId: parentId)
+        }
+
+        let children = seriesChildren(of: transaction)
+        guard !children.isEmpty else { return [] }
+
+        let settled = db.settledInstallmentIds()
+        let now = Date()
+
+        // Cache statements per card — a 24-installment series would otherwise re-read the same card's
+        // statement list 24 times.
+        var statementsByCard: [Int: [CreditCardStatement]] = [:]
+
+        var outstanding: [EarlyPayableInstallment] = []
+        for child in children {
+            guard let childId = child.id,
+                  let number = child.installmentNumber,
+                  let total = child.totalInstallments,
+                  !settled.contains(childId)
+            else { continue }
+
+            if let cardId = child.creditCardId, let stmtId = child.statementId {
+                if statementsByCard[cardId] == nil {
+                    statementsByCard[cardId] = statementRepo.fetchStatements(forCardId: cardId)
+                }
+
+                if let stmt = statementsByCard[cardId]?.first(where: { $0.id == stmtId }) {
+                    guard stmt.closingDate > now, !stmt.isPaid else { continue }
+                    outstanding.append(
+                        EarlyPayableInstallment(
+                            transaction: child, installmentNumber: number, totalInstallments: total,
+                            amount: child.amount, dueDate: stmt.dueDate, statementId: stmtId))
+                } else {
+                    // The statement row this installment points at is gone or was never created —
+                    // which happens most often at the tail of a long series, where the last cycle is
+                    // furthest out. Previously this `continue`d, so a perfectly payable future
+                    // installment (e.g. #10 of 10, falling in January) simply never appeared in the
+                    // list, with nothing explaining its absence.
+                    //
+                    // The statement lookup only answers "has this cycle already been billed?", and the
+                    // installment's own date answers that just as well. The dangling statementId is
+                    // kept so the recalculation after payment still targets whatever it refers to.
+                    guard child.date > now else { continue }
+                    logWarning(
+                        "[Installments] Installment #\(number)/\(total) of '\(child.title)' points at "
+                            + "statement \(stmtId), which does not exist for card \(cardId). Offering it "
+                            + "by date (\(child.date)) instead of hiding it.")
+                    outstanding.append(
+                        EarlyPayableInstallment(
+                            transaction: child, installmentNumber: number, totalInstallments: total,
+                            amount: child.amount, dueDate: child.date, statementId: stmtId))
+                }
+            } else {
+                guard child.date > now else { continue }
+                outstanding.append(
+                    EarlyPayableInstallment(
+                        transaction: child, installmentNumber: number, totalInstallments: total,
+                        amount: child.amount, dueDate: child.date, statementId: nil))
+            }
+        }
+
+        return outstanding.sorted { $0.installmentNumber > $1.installmentNumber }
+    }
+
+    /// The card the series is charged to, or nil for a series with no card.
+    func card(for transaction: Transaction) -> CreditCard? {
+        if let cardId = transaction.creditCardId {
+            return cardRepo.fetchCard(byId: cardId)
+        }
+        guard let parentId = seriesParentId(of: transaction) else { return nil }
+        let all = transactionRepo.fetchAllTransactions()
+        guard let cardId = all.first(where: {
+            ($0.id == parentId || $0.parentTransactionId == parentId) && $0.creditCardId != nil
+        })?.creditCardId else { return nil }
+        return cardRepo.fetchCard(byId: cardId)
+    }
+
+    /// Every installment of the series, billed or not, in installment order.
+    func allInstallments(for transaction: Transaction) -> [Transaction] {
+        seriesChildren(of: transaction)
+    }
+
+    /// The series' installments, resilient to a drifted parent pointer.
+    ///
+    /// `parentTransactionId` is not reliably stable — editing a series rebuilds its children, and the
+    /// repair passes in `CreditCardService` exist precisely because links get scrambled. When a series
+    /// has split across two parent ids, filtering on one of them returns only half of it, and *which*
+    /// half depends on which installment the user happened to open. The list would then change
+    /// depending on where you entered from, which is indefensible for something the user is about to
+    /// pay money against.
+    ///
+    /// So the parent lookup is checked against the count the series itself declares
+    /// (`totalInstallments`), and only when it comes up short do we fall back to matching siblings on
+    /// title + installment count + card. `TransactionDetailsViewModel.getRelatedInstallments` has a
+    /// similar fallback, but only fires when the parent lookup returns *nothing* — a partial split
+    /// slips straight past it.
+    private func seriesChildren(of transaction: Transaction) -> [Transaction] {
+        let all = transactionRepo.fetchAllTransactions()
+
+        var children: [Transaction] = []
+        if let parentId = seriesParentId(of: transaction) {
+            children = all.filter {
+                $0.parentTransactionId == parentId && $0.installmentNumber != nil
+                    && $0.totalInstallments != nil
+            }
+        }
+
+        // How many the series should have. Taken from a child rather than the transaction in hand,
+        // since the parent placeholder carries the count too but the children are the authority.
+        let expected = children.first?.totalInstallments ?? transaction.totalInstallments
+        guard let expected = expected else { return deduplicatedByNumber(children) }
+
+        guard children.count < expected else { return deduplicatedByNumber(children) }
+
+        // Match on the children's own title: an installment parent is stored with a
+        // " - Installment Parent" suffix, so the opened transaction's title is not always the series'.
+        let title = children.first?.title ?? transaction.title
+        let cardId = children.first?.creditCardId ?? transaction.creditCardId
+        let siblings = all.filter {
+            $0.installmentNumber != nil && $0.totalInstallments == expected
+                && $0.title == title && $0.creditCardId == cardId
+        }
+
+        return deduplicatedByNumber(children + siblings)
+    }
+
+    /// One row per installment number, keeping the lowest id.
+    ///
+    /// Broadening the search can pull the same row in twice, and duplicate installment rows exist in
+    /// real data anyway (the credit-card repair passes log them). Paying or refunding the same
+    /// installment twice because it appeared twice in the list is not an acceptable failure.
+    private func deduplicatedByNumber(_ transactions: [Transaction]) -> [Transaction] {
+        var byNumber: [Int: Transaction] = [:]
+        for tx in transactions {
+            guard let number = tx.installmentNumber else { continue }
+            if let existing = byNumber[number] {
+                if (tx.id ?? Int.max) < (existing.id ?? Int.max) { byNumber[number] = tx }
+            } else {
+                byNumber[number] = tx
+            }
+        }
+        return byNumber.values.sorted { ($0.installmentNumber ?? 0) < ($1.installmentNumber ?? 0) }
+    }
+
+    /// The credit that cancelled this series, if any installment of it carries a cancellation pointer.
+    ///
+    /// Checked across the whole series rather than the one transaction in hand: cancellation applies to
+    /// the purchase, and the user may be looking at an already-billed installment that carries no
+    /// pointer itself.
+    func cancellationRefundId(for transaction: Transaction) -> Int? {
+        allInstallments(for: transaction)
+            .compactMap { $0.id.flatMap { db.cancelledByTransactionId(transactionId: $0) } }
+            .first
+    }
+}

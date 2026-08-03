@@ -20,6 +20,13 @@ struct TransactionCellConfiguration {
   let isCreditCardStatement: Bool
   let statementTransactionCount: Int?
   let creditCardId: Int?
+  /// An installment already paid ahead of schedule.
+  ///
+  /// It stays in every list it belongs to — hiding it would make the month look like the purchase
+  /// never had an installment there — but it is dimmed, because it no longer counts toward that
+  /// month's totals. Carried on the configuration rather than applied ad-hoc by each table so the
+  /// dashboard, allocation details and statement details cannot drift apart on how it looks.
+  var isSettledEarly: Bool = false
 }
 
 public final class TransactionCell: UITableViewCell {
@@ -351,6 +358,13 @@ public final class TransactionCell: UITableViewCell {
   func configure(with configuration: TransactionCellConfiguration) {
     self.titleLabel.text = configuration.title
     self.dateLabel.text = DateFormatter.fullDateFormatter.string(from: configuration.date)
+
+    // Dimmed, and reset explicitly on the other branch — cells are reused, so a settled row would
+    // otherwise leave the next transaction that lands in this cell looking settled too.
+    self.contentView.alpha = configuration.isSettledEarly ? 0.45 : 1.0
+    self.accessibilityLabel = configuration.isSettledEarly
+      ? "\(configuration.title), \("earlyPayment.badge.settled".localized)"
+      : nil
 
     let symbolFont = Fonts.textXS.font
     self.valueLabel.attributedText = configuration.value.currencyAttributedString(

@@ -275,6 +275,88 @@ class CreditCardService {
         }
     }
 
+    /// The statement for the billing cycle after `current`, creating it if it does not exist yet.
+    func nextStatement(after current: CreditCardStatement, for card: CreditCard, userId: String) -> CreditCardStatement? {
+        guard let cardId = card.id else { return nil }
+        let calendar = Calendar.current
+
+        let currentMonth = calendar.component(.month, from: current.closingDate)
+        let currentYear = calendar.component(.year, from: current.closingDate)
+        var nextMonth = currentMonth + 1
+        var nextYear = currentYear
+        if nextMonth > 12 { nextMonth = 1; nextYear += 1 }
+
+        let nextClosingDay = min(card.closingDay, daysInMonth(month: nextMonth, year: nextYear))
+        let nextClosingDate = calendar.date(from: DateComponents(year: nextYear, month: nextMonth, day: nextClosingDay))!
+        let nextDueDate = calculateDueDate(closingDate: nextClosingDate, card: card)
+
+        let statements = stmtRepo.fetchStatements(forCardId: cardId)
+
+        if let existingId = stmtRepo.findStatement(creditCardId: cardId, closingDate: nextClosingDate),
+           let exact = statements.first(where: { $0.id == existingId }) {
+            return exact
+        }
+
+        // A statement that kept old dates after the card's closing day changed still IS that month's
+        // invoice, so reuse it rather than creating a second one for the same cycle.
+        if let sameMonth = statements
+            .filter({ calendar.isDate($0.closingDate, equalTo: nextClosingDate, toGranularity: .month) })
+            .sorted(by: { ($0.id ?? Int.max) < ($1.id ?? Int.max) })
+            .first {
+            return sameMonth
+        }
+
+        let newStmt = CreditCardStatement(
+            id: nil,
+            creditCardId: cardId,
+            closingDate: nextClosingDate,
+            dueDate: nextDueDate,
+            totalAmount: 0,
+            isPaid: false,
+            paidDate: nil,
+            paidAmount: nil,
+            isDatesOverridden: false,
+            userId: userId,
+            createdAt: Date(),
+            updatedAt: Date()
+        )
+        guard let newId = stmtRepo.insertStatement(newStmt) else { return nil }
+        var created = newStmt
+        created.id = newId
+        return created
+    }
+
+    /// The earliest statement that is still open as of `date` — the next invoice the user will be
+    /// billed for.
+    ///
+    /// Distinct from `getOrCreateStatement(transactionDate:)`, which routes by the card's closing day
+    /// and is right for a *purchase*: a purchase made on the closing day belongs to the cycle that is
+    /// closing. Money the user is choosing to move — an early payment, or the credit from a cancelled
+    /// purchase — must land somewhere they can still be billed for it. On a card closing the 1st, on
+    /// the 1st, date routing returns the statement closing that same day, so the amount would be
+    /// attached to an invoice already issued and the user would never see it.
+    ///
+    /// Creates the following cycle only when every existing statement has already closed.
+    func nextOpenStatement(for card: CreditCard, userId: String, asOf date: Date = Date())
+        -> CreditCardStatement?
+    {
+        guard let cardId = card.id else { return nil }
+        let statements = stmtRepo.fetchStatements(forCardId: cardId)
+
+        if let open = statements
+            .filter({ $0.closingDate > date && !$0.isPaid })
+            .min(by: { $0.closingDate < $1.closingDate })
+        {
+            return open
+        }
+
+        if let latest = statements.max(by: { $0.closingDate < $1.closingDate }) {
+            return nextStatement(after: latest, for: card, userId: userId)
+        }
+
+        return getOrCreateStatement(for: card, transactionDate: date, userId: userId)
+    }
+
     private func daysInMonth(month: Int, year: Int) -> Int {
         let calendar = Calendar.current
         let components = DateComponents(year: year, month: month)

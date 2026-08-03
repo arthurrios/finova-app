@@ -28,7 +28,7 @@ final class TransactionLedgerService {
 
   /// Fetches all transactions including synthetic CC statement transactions for balance calculations
   private func fetchAllTransactionsIncludingStatements() -> [Transaction] {
-    var transactions = transactionRepo.fetchAllTransactions()
+    var transactions = transactionRepo.fetchAllTransactions().excludingEarlyPaidInstallments()
     if let uid = AuthenticationManager.shared.currentUser?.uid {
       let statementTxs = creditCardService.generateStatementTransactions(userId: uid)
       transactions.append(contentsOf: statementTxs)
@@ -175,6 +175,13 @@ final class TransactionLedgerService {
 
   // MARK: - Transaction Filtering
 
+  /// Rows to LIST for a month — early-paid installments included.
+  ///
+  /// Lists show them (dimmed, via `TransactionCellConfiguration.isSettledEarly`) because hiding a row
+  /// makes the month look like the purchase never had an installment there. It is the aggregations
+  /// that must leave them out, and those filter separately —
+  /// `fetchAllTransactionsIncludingStatements` for balances, `calculateUsageByCategory` for
+  /// allocation spend, and the statement SQL for invoices.
   func getTransactionsForMonth(_ monthAnchor: Int) -> [Transaction] {
     let allTransactions = transactionRepo.fetchAllTransactions()
     return
@@ -187,6 +194,8 @@ final class TransactionLedgerService {
       .sorted { $0.date > $1.date }
   }
 
+  /// Rows to LIST across a range — early-paid installments included, for the reason on
+  /// `getTransactionsForMonth`.
   func getTransactionsForDateRange(from startDate: Date, to endDate: Date) -> [Transaction] {
     let allTransactions = transactionRepo.fetchAllTransactions()
     let startAnchor = startDate.monthAnchor

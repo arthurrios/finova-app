@@ -16,6 +16,7 @@ final class StatementDetailsView: UIView {
     weak var delegate: StatementDetailsViewDelegate?
 
     private var transactions: [Transaction] = []
+    private var earlyPaidIds: Set<Int> = []
 
     // MARK: - Header
     private let headerContainerView: UIView = {
@@ -357,6 +358,7 @@ final class StatementDetailsView: UIView {
 
         // Transactions
         transactions = viewModel.transactions
+        earlyPaidIds = viewModel.earlyPaidIds
 
         transactionsHeaderView.configure(
             headerTitle: "allocation.details.transactions.header".localized,
@@ -440,7 +442,10 @@ extension StatementDetailsView: UITableViewDataSource, UITableViewDelegate {
             totalInstallments: transaction.totalInstallments,
             isCreditCardStatement: false,
             statementTransactionCount: nil,
-            creditCardId: transaction.creditCardId
+            creditCardId: transaction.creditCardId,
+            // An installment paid ahead of schedule stays listed so the statement's history reads
+            // correctly, but it is dimmed to show it is no longer part of what this invoice charges.
+            isSettledEarly: transaction.id.map(earlyPaidIds.contains) ?? false
         )
 
         cell.configure(with: configuration)

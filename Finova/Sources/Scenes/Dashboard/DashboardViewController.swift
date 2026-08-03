@@ -1803,7 +1803,11 @@ extension DashboardViewController: UITableViewDataSource, UITableViewDelegate {
             totalInstallments: tx.totalInstallments,
             isCreditCardStatement: tx.isCreditCardStatement ?? false,
             statementTransactionCount: txCount,
-            creditCardId: tx.creditCardId
+            creditCardId: tx.creditCardId,
+            // A primary-key lookup per visible cell. Only the cells on screen are configured, and the
+            // column is indexed, so this is cheaper than threading a settled-id set through the
+            // carousel's data plumbing — and it cannot go stale between a reload and a scroll.
+            isSettledEarly: tx.id.map { DBHelper.shared.settledByTransactionId(transactionId: $0) != nil } ?? false
         )
         cell.configure(with: configuration)
 

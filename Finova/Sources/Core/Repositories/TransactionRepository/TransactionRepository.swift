@@ -99,8 +99,7 @@ final class TransactionRepository: TransactionRepositoryProtocol {
     let doomed = Set(ids)
 
     for id in ids {
-      logDebug("TransactionRepository: Deleting transaction with id \(id)")
-      try db.deleteTransaction(id: id)
+      try deleteRow(id: id)
     }
 
     // 🔒 One pass over SecureLocalDataManager for the whole batch.
@@ -119,6 +118,33 @@ final class TransactionRepository: TransactionRepositoryProtocol {
 
     // Notify that data has changed (for cache invalidation)
     NotificationCenter.default.post(name: .transactionDataChanged, object: nil)
+  }
+
+  /// Removes one row and the bookkeeping that belongs to it alone. Callers are responsible for the
+  /// shared aftermath — see `deleteBatch`.
+  private func deleteRow(id: Int) throws {
+    logDebug("TransactionRepository: Deleting transaction with id \(id)")
+
+    // If this row is an early-payment debit, put the installments it covered back on their own
+    // statements FIRST. Deleting it while their `settled_by_transaction_id` still pointed here would
+    // erase the amount from the ledger entirely — the installments stay excluded from every total,
+    // and nothing charges for them any more. Done here rather than in each caller so removal by any
+    // route (details screen, statement list, swipe-to-delete, cleanup option) is covered.
+    if db.isEarlyPayment(transactionId: id) {
+      EarlyPaymentService(transactionRepo: self).releaseInstallments(settledBy: id)
+    }
+
+    // Same reasoning for a cancellation credit: deleting it while the installments still pointed at it
+    // would leave the purchase permanently flagged as cancelled with no refund backing it, and the
+    // user could never cancel it again.
+    if db.isCancellationRefund(transactionId: id) {
+      InstallmentCancellationService(transactionRepo: self).releaseInstallments(cancelledBy: id)
+    }
+
+    UNUserNotificationCenter.current().removePendingNotificationRequests(
+      withIdentifiers: ["transaction_\(id)"])
+
+    try db.deleteTransaction(id: id)
   }
 
   func fetchAllTransactions() -> [Transaction] {
@@ -967,6 +993,15 @@ final class TransactionRepository: TransactionRepositoryProtocol {
 
   // MARK: - Notification Management
 
+  /// Reconciles the reminder for a transaction whose state changed outside the normal write paths.
+  ///
+  /// Early payment and cancellation change what a row MEANS without editing the row itself, so they
+  /// have no other way in. Without this an installment paid ahead would go on reminding the user to
+  /// pay it, and reversing the payment would leave it with no reminder at all.
+  func reconcileNotification(transactionId: Int) {
+    rescheduleNotificationForTransaction(transactionId: transactionId)
+  }
+
   /// Reschedules notification for a specific transaction after it has been updated
   private func rescheduleNotificationForTransaction(transactionId: Int?) {
     guard let transactionId = transactionId else { return }
@@ -990,6 +1025,10 @@ final class TransactionRepository: TransactionRepositoryProtocol {
   /// Schedules a notification for a single transaction (reused from AppDelegate logic)
   private func scheduleNotificationForTransaction(_ tx: Transaction) {
     guard let transactionId = tx.id else { return }
+
+    // An installment paid ahead of schedule gets no reminder — the money already left the account on
+    // the early-payment debit, and reminding the user to pay it again is worse than saying nothing.
+    guard DBHelper.shared.settledByTransactionId(transactionId: transactionId) == nil else { return }
 
     let id = "transaction_\(transactionId)"
     let now = Date()
