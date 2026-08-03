@@ -57,14 +57,28 @@ final class EarlyPaymentSyncTests: XCTestCase {
         return (parentId, childId)
     }
 
+    /// Pushes `device`'s autoincrement ahead with rows that exist ONLY on it.
+    ///
+    /// Filling on the sender does not separate the two devices: the receiver pulls those rows too, so
+    /// its counter advances in step and the ids can land identically — which made the divergence
+    /// assertions below pass or fail on the luck of the pull order. Rows that never leave the
+    /// receiver are what actually offsets it, so every pulled row is guaranteed a different local id
+    /// than the sender gave it.
+    private func offsetLocalIds(on device: DeviceSimulator, by count: Int) {
+        for i in 0..<count {
+            try! device.transactionRepo.insertTransaction(
+                CloudKitSyncTestHelpers.makeTransactionModel(
+                    title: "LocalOnly\(i)", amount: 700 + i))
+        }
+    }
+
     private func transactionOnB(titled title: String, amount: Int) -> Transaction? {
         deviceB.transactionRepo.fetchAllTransactions()
             .first { $0.title == title && $0.amount == amount }
     }
 
     func testSettledPointerResolvesToTheReceivingDevicesOwnRow() {
-        // Ten filler rows on A guarantee A's payment id is nowhere near B's id for the same row.
-        let pair = makeInstallmentPair(on: deviceA, fillerRows: 10)
+        let pair = makeInstallmentPair(on: deviceA)
 
         let paymentId = try! deviceA.transactionRepo.insertTransactionAndGetId(
             CloudKitSyncTestHelpers.makeTransactionModel(
@@ -74,6 +88,8 @@ final class EarlyPaymentSyncTests: XCTestCase {
 
         deviceA.pushAll()
         deviceB.activate()
+        // B's ids start ten ahead of A's, so a leaked integer cannot be right by coincidence.
+        offsetLocalIds(on: deviceB, by: 10)
         deviceB.pullAll()
         deviceB.db.resolveUuidForeignKeys()
 
@@ -189,7 +205,7 @@ final class EarlyPaymentSyncTests: XCTestCase {
     }
 
     func testCancellationPointerResolvesToTheReceivingDevicesOwnRow() {
-        let pair = makeInstallmentPair(on: deviceA, fillerRows: 10)
+        let pair = makeInstallmentPair(on: deviceA)
 
         let refundId = try! deviceA.transactionRepo.insertTransactionAndGetId(
             CloudKitSyncTestHelpers.makeTransactionModel(
@@ -200,6 +216,8 @@ final class EarlyPaymentSyncTests: XCTestCase {
 
         deviceA.pushAll()
         deviceB.activate()
+        // B's ids start ten ahead of A's, so a leaked integer cannot be right by coincidence.
+        offsetLocalIds(on: deviceB, by: 10)
         deviceB.pullAll()
         deviceB.db.resolveUuidForeignKeys()
 
