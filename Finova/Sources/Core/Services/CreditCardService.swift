@@ -433,7 +433,11 @@ class CreditCardService {
                 }
 
                 let realCount = stmtTransactions.count
-                let realTotal = stmtTransactions.reduce(0) { $0 + $1.amount }
+                // Signed by type, mirroring `DBHelper.signedAmount`: a credit on the card reduces
+                // what the invoice charges.
+                let realTotal = stmtTransactions.reduce(0) {
+                    $1.type == .income ? $0 - $1.amount : $0 + $1.amount
+                }
 
                 // Clean up stale statements with no transactions.
                 // Skip cloud-synced statements — recalculateStatementTotal already guards

@@ -1940,6 +1940,15 @@ class DBHelper {
     /// ledger it belongs to. In group context that made a statement report a count and total drawn
     /// from the personal ledger while the transaction list beside it — which IS scoped — showed
     /// nothing. Count, total and list have to read the same ledger or the screen contradicts itself.
+    /// A statement row's contribution to the invoice total, signed by its type.
+    ///
+    /// A credit on a card — a refund, a chargeback, an estorno — reduces what is owed. Summing
+    /// `amount` alone made an income row INCREASE the invoice, which is backwards: a R$ 300 refund
+    /// made the statement read R$ 300 higher.
+    ///
+    /// `type` is stored as `TransactionType.key` — "income" / "expense".
+    private static let signedAmount = "CASE WHEN type = 'income' THEN -amount ELSE amount END"
+
     private static let statementRowFilter = """
         AND COALESCE(is_credit_card_statement, 0) = 0
         AND (is_deleted IS NULL OR is_deleted = 0)
@@ -1960,7 +1969,7 @@ class DBHelper {
             scopeBinding = scope.localUid
         }
         let sql = """
-            SELECT COUNT(*), COALESCE(SUM(amount), 0) FROM Transactions
+            SELECT COUNT(*), COALESCE(SUM(\(Self.signedAmount)), 0) FROM Transactions
              WHERE statement_id = ? \(Self.statementRowFilter) \(scopePredicate);
             """
         var stmt: OpaquePointer?
@@ -1998,7 +2007,7 @@ class DBHelper {
     func getTransactionSumForStatement(statementId: Int) throws -> Int {
         guard isInitialized else { return 0 }
         let query = """
-            SELECT COALESCE(SUM(amount), 0) FROM Transactions
+            SELECT COALESCE(SUM(\(Self.signedAmount)), 0) FROM Transactions
             WHERE statement_id = ? AND is_credit_card_statement = 0
             AND (is_deleted IS NULL OR is_deleted = 0)
             AND NOT (COALESCE(has_installments, 0) = 1 AND parent_transaction_id IS NULL)
