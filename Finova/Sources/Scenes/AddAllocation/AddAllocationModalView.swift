@@ -193,6 +193,9 @@ final class AddAllocationModalView: UIView {
         stack.alignment = .center
         stack.distribution = .equalSpacing
         stack.isHidden = true
+        // Never let this row be compressed away into the row above it.
+        stack.setContentCompressionResistancePriority(.required, for: .vertical)
+        stack.setContentHuggingPriority(.required, for: .vertical)
         return stack
     }()
 
@@ -212,6 +215,9 @@ final class AddAllocationModalView: UIView {
         button.setTitleColor(Colors.mainMagenta, for: .normal)
         button.showsMenuAsPrimaryAction = true
         button.setContentHuggingPriority(.required, for: .horizontal)
+        button.setContentCompressionResistancePriority(.required, for: .vertical)
+        // Comfortable tap target for a menu trigger.
+        button.heightAnchor.constraint(greaterThanOrEqualToConstant: 32).isActive = true
         return button
     }()
 

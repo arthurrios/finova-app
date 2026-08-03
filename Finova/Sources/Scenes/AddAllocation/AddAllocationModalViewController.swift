@@ -99,10 +99,15 @@ final class AddAllocationModalViewController: UIViewController {
             contentView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
         ])
 
-        // Height constraint for the modal
+        // PREFERRED (not fixed) height. This must YIELD to the content: the recurrence duration
+        // row and its "Until <month>" caption appear/disappear, so the sheet has to grow. At the
+        // old priority of 999 it outranked contentStackView's vertical compression resistance
+        // (751), so the extra rows were squashed into the row above — the duration control ended
+        // up underneath the switch and untappable. Sitting below 751 lets tall content win, while
+        // the >= 320 / <= 0.6 clamps below still bound the sheet.
         let heightConstraint = contentView.heightAnchor.constraint(
             equalTo: view.heightAnchor, multiplier: 0.42)
-        heightConstraint.priority = UILayoutPriority(999)
+        heightConstraint.priority = UILayoutPriority(700)
         heightConstraint.isActive = true
 
         // Minimum and maximum height
