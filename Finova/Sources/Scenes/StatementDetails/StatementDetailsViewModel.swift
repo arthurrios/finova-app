@@ -34,7 +34,9 @@ final class StatementDetailsViewModel {
     }
 
     var statementTotal: Int {
-        transactions.reduce(0) { $0 + $1.amount }
+        // Signed by type, mirroring `DBHelper.signedAmount`: a credit on the card (a refund, a
+        // chargeback) reduces what this invoice charges rather than adding to it.
+        transactions.reduce(0) { $1.type == .income ? $0 - $1.amount : $0 + $1.amount }
     }
 
     var periodText: String {
