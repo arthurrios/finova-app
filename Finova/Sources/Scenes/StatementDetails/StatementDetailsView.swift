@@ -442,18 +442,13 @@ extension StatementDetailsView: UITableViewDataSource, UITableViewDelegate {
             totalInstallments: transaction.totalInstallments,
             isCreditCardStatement: false,
             statementTransactionCount: nil,
-            creditCardId: transaction.creditCardId
+            creditCardId: transaction.creditCardId,
+            // An installment paid ahead of schedule stays listed so the statement's history reads
+            // correctly, but it is dimmed to show it is no longer part of what this invoice charges.
+            isSettledEarly: transaction.id.map(earlyPaidIds.contains) ?? false
         )
 
         cell.configure(with: configuration)
-
-        // An installment paid ahead of schedule stays listed so the statement's history reads
-        // correctly, but it is dimmed to show it is no longer part of what this invoice charges.
-        let isEarlyPaid = transaction.id.map(earlyPaidIds.contains) ?? false
-        cell.contentView.alpha = isEarlyPaid ? 0.45 : 1.0
-        cell.accessibilityLabel = isEarlyPaid
-            ? "\(transaction.title), \("earlyPayment.badge.settled".localized)"
-            : nil
 
         cell.onDelete = { [weak self] completion in
             self?.delegate?.didRequestDeleteTransaction(transaction, completion: completion)

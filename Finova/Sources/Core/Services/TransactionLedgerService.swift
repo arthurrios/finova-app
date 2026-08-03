@@ -347,8 +347,15 @@ final class TransactionLedgerService {
 
   // MARK: - Transaction Filtering
 
+  /// Rows to LIST for a month — early-paid installments included.
+  ///
+  /// Lists show them (dimmed, via `TransactionCellConfiguration.isSettledEarly`) because hiding a row
+  /// makes the month look like the purchase never had an installment there. It is the aggregations
+  /// that must leave them out, and those filter separately —
+  /// `fetchAllTransactionsIncludingStatements` for balances, `calculateUsageByCategory` for
+  /// allocation spend, and the statement SQL for invoices.
   func getTransactionsForMonth(_ monthAnchor: Int) -> [Transaction] {
-    let allTransactions = transactionRepo.fetchAllTransactions().excludingEarlyPaidInstallments()
+    let allTransactions = transactionRepo.fetchAllTransactions()
     return
       allTransactions
       .filter { transaction in
@@ -359,8 +366,10 @@ final class TransactionLedgerService {
       .sorted { $0.date != $1.date ? $0.date > $1.date : ($0.id ?? 0) > ($1.id ?? 0) }
   }
 
+  /// Rows to LIST across a range — early-paid installments included, for the reason on
+  /// `getTransactionsForMonth`.
   func getTransactionsForDateRange(from startDate: Date, to endDate: Date) -> [Transaction] {
-    let allTransactions = transactionRepo.fetchAllTransactions().excludingEarlyPaidInstallments()
+    let allTransactions = transactionRepo.fetchAllTransactions()
     let startAnchor = startDate.monthAnchor
     let endAnchor = endDate.monthAnchor
 
