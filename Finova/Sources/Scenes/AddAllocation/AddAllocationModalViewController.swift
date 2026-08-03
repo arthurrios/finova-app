@@ -97,10 +97,14 @@ final class AddAllocationModalViewController: UIViewController {
             contentView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
         ])
 
-        // Height constraint for the modal
+        // PREFERRED (not fixed) height. At priority 999 this outranked the content stack's
+        // vertical compression resistance (751), so any content taller than 0.42 of the screen was
+        // squashed — rows collapsed onto each other and ended up overlapping/untappable rather
+        // than the sheet growing. Sitting below 751 lets tall content win; the >= 320 and <= 0.6
+        // clamps below still bound the sheet, and short content is unaffected.
         let heightConstraint = contentView.heightAnchor.constraint(
             equalTo: view.heightAnchor, multiplier: 0.42)
-        heightConstraint.priority = UILayoutPriority(999)
+        heightConstraint.priority = UILayoutPriority(700)
         heightConstraint.isActive = true
 
         // Minimum and maximum height
