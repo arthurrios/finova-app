@@ -80,26 +80,42 @@ final class TransactionRepository: TransactionRepositoryProtocol {
   }
 
   func delete(id: Int) throws {
+    try deleteBatch(ids: [id])
+  }
+
+  /// Deletes several transactions as one unit.
+  ///
+  /// Series deletions ("this and remaining", "all occurrences") remove tens of rows at once, and the
+  /// per-row cost here is not small: every single delete reloaded the ENTIRE secure store, filtered
+  /// it, wrote it all back, invalidated the cache and broadcast `transactionDataChanged`. A 36-month
+  /// series meant 36 full load/filter/save cycles and 36 UI refreshes, each re-reading the whole
+  /// ledger, with the screen showing a half-deleted series in between.
+  ///
+  /// The secure store is now read once, stripped of every doomed id, and written once.
+  func deleteBatch(ids: [Int]) throws {
+    guard !ids.isEmpty else { return }
     Self.invalidateCache()
-    logDebug("TransactionRepository: Deleting transaction with id \(id)")
 
-    // Delete from SQLite
-    try db.deleteTransaction(id: id)
+    let doomed = Set(ids)
 
-    // 🔒 Also delete from SecureLocalDataManager
-    var secureTransactions = SecureLocalDataManager.shared.loadTransactions()
-    let countBefore = secureTransactions.count
-
-    // Explicitly unwrap optional ID for comparison
-    secureTransactions.removeAll { transaction in
-      guard let transactionId = transaction.id else { return false }
-      return transactionId == id
+    for id in ids {
+      logDebug("TransactionRepository: Deleting transaction with id \(id)")
+      try db.deleteTransaction(id: id)
     }
 
-    let countAfter = secureTransactions.count
-    logDebug("TransactionRepository: Removed \(countBefore - countAfter) transactions from SecureLocalDataManager")
-
+    // 🔒 One pass over SecureLocalDataManager for the whole batch.
+    var secureTransactions = SecureLocalDataManager.shared.loadTransactions()
+    let countBefore = secureTransactions.count
+    secureTransactions.removeAll { transaction in
+      guard let transactionId = transaction.id else { return false }
+      return doomed.contains(transactionId)
+    }
+    logDebug(
+      "TransactionRepository: Removed \(countBefore - secureTransactions.count) transactions from SecureLocalDataManager"
+    )
     SecureLocalDataManager.shared.saveTransactions(secureTransactions)
+
+    Self.invalidateCache()
 
     // Notify that data has changed (for cache invalidation)
     NotificationCenter.default.post(name: .transactionDataChanged, object: nil)
@@ -762,6 +778,45 @@ final class TransactionRepository: TransactionRepositoryProtocol {
     try delete(id: transactionId)
   }
 
+  /// Every row of `transaction`'s recurring series, resilient to a parent that has gone missing.
+  ///
+  /// A series is normally found through `parentTransactionId`. But instances are regenerated (their
+  /// ids change) and parents get deleted, leaving siblings that point at an id nothing else shares.
+  /// Filtering on that id then matches only the row the user opened, so "this and remaining" removed
+  /// exactly one occurrence and looked like it had done nothing.
+  ///
+  /// The broadened match is deliberately narrow: same title, amount AND category, and recurring. For a
+  /// delete, matching too much is far worse than matching too little, so it only kicks in when the
+  /// parent row genuinely is not there.
+  private func recurringSeriesMembers(of transaction: Transaction, in all: [Transaction])
+    -> [Transaction]
+  {
+    let groupId = transaction.parentTransactionId ?? transaction.id
+    let byParent = all.filter { tx in
+      guard let txId = tx.id else { return false }
+      return txId == groupId || tx.parentTransactionId == groupId
+    }
+
+    let parentExists = all.contains { $0.id == groupId }
+    guard !parentExists else { return byParent }
+
+    let siblings = all.filter { tx in
+      tx.mode == .recurring && tx.title == transaction.title
+        && tx.amount == transaction.amount && tx.category == transaction.category
+    }
+
+    var byId: [Int: Transaction] = [:]
+    for tx in byParent + siblings {
+      if let id = tx.id { byId[id] = tx }
+    }
+
+    logDebug(
+      "TransactionRepository: recurring parent \(groupId.map(String.init) ?? "nil") is missing — "
+        + "resolved \(byId.count) series row(s) by title+amount+category instead of \(byParent.count)")
+
+    return Array(byId.values)
+  }
+
   private func deleteAllRecurringTransactionOccurrences(transactionId: Int) throws {
     // Find all transactions with the same recurring group
     let allTransactions = fetchAllTransactions()
@@ -777,19 +832,11 @@ final class TransactionRepository: TransactionRepositoryProtocol {
     logDebug("TransactionRepository: Deleting all recurring occurrences for transaction \(transactionId), recurringGroupId: \(String(describing: recurringGroupId))")
 
     // Find all related transactions in this recurring group
-    let relatedTransactions = allTransactions.filter { transaction in
-      guard let txId = transaction.id else { return false }
-      return txId == recurringGroupId || transaction.parentTransactionId == recurringGroupId
-    }
+    let relatedTransactions = recurringSeriesMembers(of: current, in: allTransactions)
 
     logDebug("TransactionRepository: Found \(relatedTransactions.count) transactions to delete")
 
-    // Delete all related transactions
-    for relatedTransaction in relatedTransactions {
-      if let id = relatedTransaction.id {
-        try delete(id: id)
-      }
-    }
+    try deleteBatch(ids: relatedTransactions.compactMap { $0.id })
   }
 
   private func deleteFutureRecurringInstances(transactionId: Int) throws {
@@ -808,26 +855,23 @@ final class TransactionRepository: TransactionRepositoryProtocol {
     logDebug("TransactionRepository: Deleting future recurring instances for transaction \(transactionId), recurringGroupId: \(String(describing: recurringGroupId)), currentDate: \(currentDate)")
 
     // Find all related transactions in this recurring group that are in the future (including current)
-    let relatedTransactions = allTransactions.filter { transaction in
-      guard let txId = transaction.id else { return false }
-      let isInGroup = txId == recurringGroupId || transaction.parentTransactionId == recurringGroupId
-      // Include current transaction and all future ones (>= instead of >)
-      let isFutureOrCurrent = transaction.date >= currentDate
-      return isInGroup && isFutureOrCurrent
-    }
+    let relatedTransactions = recurringSeriesMembers(of: current, in: allTransactions)
+      .filter { $0.date >= currentDate }
 
     logDebug("TransactionRepository: Found \(relatedTransactions.count) future transactions to delete")
 
-    // Delete all future related transactions (including current)
-    for relatedTransaction in relatedTransactions {
-      if let id = relatedTransaction.id {
-        try delete(id: id)
-      }
-    }
+    try deleteBatch(ids: relatedTransactions.compactMap { $0.id })
 
-    // IMPORTANT: Stop the parent from generating new future instances
-    // Set isRecurring = false on the parent so no new instances are created
-    if let parentId = recurringGroupId {
+    // IMPORTANT: stop EVERY parent the deleted rows belonged to from generating new future
+    // instances, not just the group id the opened instance pointed at. Future months are generated
+    // lazily from the parent, so any parent left with is_recurring = 1 recreates the months that were
+    // just deleted — which is what made this look like nothing had been deleted. A drifted series has
+    // more than one parent, so stopping only one leaves the rest generating.
+    let parentIds = Set(
+      relatedTransactions.compactMap { $0.parentTransactionId ?? $0.id }
+        + [recurringGroupId].compactMap { $0 })
+
+    for parentId in parentIds {
       let remainingInstances = fetchTransactionInstancesForRecurring(parentId)
 
       if remainingInstances.isEmpty {
@@ -837,7 +881,7 @@ final class TransactionRepository: TransactionRepositoryProtocol {
           logDebug("TransactionRepository: Deleting orphaned parent \(parentId)")
           try delete(id: parentId)
         }
-      } else {
+      } else if fetchAllTransactions().contains(where: { $0.id == parentId }) {
         // Past instances still exist - just stop future generation by setting isRecurring = false
         logDebug("TransactionRepository: Stopping future recurrence for parent \(parentId)")
         try updateIsRecurring(transactionId: parentId, isRecurring: false)
@@ -871,12 +915,7 @@ final class TransactionRepository: TransactionRepositoryProtocol {
 
     logDebug("TransactionRepository: Found \(relatedTransactions.count) future installments to delete")
 
-    // Delete all future related transactions (including current)
-    for relatedTransaction in relatedTransactions {
-      if let id = relatedTransaction.id {
-        try delete(id: id)
-      }
-    }
+    try deleteBatch(ids: relatedTransactions.compactMap { $0.id })
   }
 
   private func deleteInstallmentTransactionAndSiblings(parentId: Int) throws {
@@ -891,13 +930,9 @@ final class TransactionRepository: TransactionRepositoryProtocol {
 
     logDebug("TransactionRepository: Found \(installments.count) installments to delete")
 
-    for installment in installments {
-      if let installmentId = installment.id {
-        try delete(id: installmentId)
-      }
-    }
-
-    try delete(id: parentId)
+    // Children and the parent placeholder go together, in one batch — a partial series deletion
+    // leaves orphaned children pointing at a parent that no longer exists.
+    try deleteBatch(ids: installments.compactMap { $0.id } + [parentId])
   }
 
   func fetchInstallmentTransactions(parentId: Int) -> [Transaction] {
