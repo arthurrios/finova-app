@@ -349,7 +349,12 @@ struct BudgetDonutChartView: View {
                             Image(uiImage: icon)
                                 .resizable()
                                 .renderingMode(.template)
-                                .foregroundColor(colorForAllocation(allocation))
+                                // Full-strength magenta, NOT `colorForAllocation`. That ramp scales
+                                // brightness from 0.35 to 1.0 by slice size, which is meaningful on the
+                                // ring - bigger reads brighter - but in the centre it only makes a small
+                                // category's icon nearly invisible against the dark card. Here the icon
+                                // just names the category; its brightness carries no information.
+                                .foregroundColor(Color(Colors.mainMagenta))
                                 .frame(width: 24, height: 24)
                         }
                         centerLabel(allocation.category.displayName)
