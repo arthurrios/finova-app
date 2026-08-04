@@ -94,6 +94,9 @@ struct AllocationBalanceProjection: Equatable {
 
     /// Money the month held on to: budget earmarked but not spent, plus cap never earmarked.
     ///
+    /// A *realised* figure, so the card only surfaces it once the month has closed. Mid-month an
+    /// unspent allocation is money still earmarked for spending, not money kept.
+    ///
     /// Deliberately excludes savings and investment allocations that were funded - that money was
     /// debited to a fund, so it left the account and is not "saved" in this card's sense.
     var totalSaved: Int { unspentAllocations + unallocatedHeadroom }
@@ -120,20 +123,21 @@ struct AllocationBalanceProjection: Equatable {
     /// How far the allocations exceed the balance, or zero when they don't.
     var shortfall: Int { isOverCommitted ? abs(projected) : 0 }
 
-    /// Normalised widths for the two-segment bar: `totalSaved` against `overspent`. Sums to 1, or
-    /// is all-zero when neither has happened.
+    /// Normalised widths for the two-segment bar: of the money actually spent, how much stayed
+    /// inside its allocation against how much broke out of it. Sums to 1, or is all-zero before
+    /// anything has been spent.
     ///
-    /// Tense-independent on purpose - "came in under" versus "went over" reads the same whether the
-    /// month is still running or already closed. Normalised over the two together rather than over
-    /// `base`, because both are usually a small fraction of a balance: dividing by the balance
-    /// renders a sliver that says nothing either way.
-    var barShares: (saved: CGFloat, overspent: CGFloat) {
-        let total = totalSaved + overspent
+    /// Tense-independent, and deliberately built from *spent* money rather than from `totalSaved`.
+    /// An open month cannot have saved anything yet - an unspent allocation is money the user plans
+    /// to spend, so counting it as kept would show a figure that erodes as the month fills in.
+    /// Plan adherence is true at every point in the month, and stays true once it closes.
+    var barShares: (withinPlan: CGFloat, beyondPlan: CGFloat) {
+        let total = usedWithinAllocations + overspent
         guard total > 0 else { return (0, 0) }
         let divisor = CGFloat(total)
         return (
-            saved: CGFloat(totalSaved) / divisor,
-            overspent: CGFloat(overspent) / divisor
+            withinPlan: CGFloat(usedWithinAllocations) / divisor,
+            beyondPlan: CGFloat(overspent) / divisor
         )
     }
 }

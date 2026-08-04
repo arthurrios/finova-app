@@ -471,49 +471,56 @@ final class BudgetCardLayoutTests: XCTestCase {
         label(BudgetCard.marginLabelIdentifier, in: card)
     }
 
-    /// Row 4 is the net of the two quantities the bar compares. Never phrased as spendable money.
-    ///
-    /// Fixture: allocations leave 80.000 unspent, and the cap leaves 250.000 unallocated, so
-    /// `totalSaved` is 330.000 before any off-plan spending.
-    func testNetIsGreenWhenSavingAndRedWhenOverspending() {
-        let saving = makeCard(unallocatedSpending: 0)
-        XCTAssertEqual(marginLabel(in: saving)?.textColor, Colors.brightGreen)
+    /// While a month is open the value reports plan adherence, never "saved" - an unspent
+    /// allocation is money earmarked for spending, so calling it kept produces a figure that erodes.
+    func testOpenMonthReportsPlanAdherenceNotSaving() {
+        let clean = makeCard(unallocatedSpending: 0)
+        XCTAssertEqual(marginLabel(in: clean)?.text, "budget.plan.within.label".localized)
+        XCTAssertEqual(marginLabel(in: clean)?.textColor, Colors.brightGreen)
+
+        let leaking = makeCard(unallocatedSpending: 41_280)
         XCTAssertEqual(
-            marginLabel(in: saving)?.text,
+            marginLabel(in: leaking)?.text,
+            "budget.plan.over.format".localized(41_280.compactCurrencyString))
+        XCTAssertEqual(marginLabel(in: leaking)?.textColor, Colors.brightRed)
+    }
+
+    /// The bug this fixed: a future month full of untouched allocations used to advertise them as
+    /// saved. Adherence must not inflate just because the plan has not been spent against yet.
+    func testFutureMonthDoesNotAdvertiseUntouchedAllocationsAsSaved() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone.current
+        let future = calendar.date(byAdding: .month, value: 1, to: Date())!
+
+        let card = makeCard(
+            anchor: future.monthAnchor,
+            allocations: [
+                BudgetAllocation(dbId: 1, monthDate: 0, category: .market,
+                                 allocatedAmount: 350_000, usedAmount: 0),
+            ],
+            unallocatedSpending: 0)
+
+        XCTAssertEqual(
+            marginLabel(in: card)?.text, "budget.plan.within.label".localized,
+            "an untouched plan reports adherence, not a saved amount")
+    }
+
+    /// Once the month closes, the unspent budget really was kept - so it becomes the outcome.
+    func testClosedMonthReportsTheRealisedOutcome() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone.current
+        let past = calendar.date(byAdding: .month, value: -3, to: Date())!
+
+        let card = makeCard(anchor: past.monthAnchor, unallocatedSpending: 0)
+
+        // Fixture: 80.000 unspent + 250.000 headroom, nothing overspent.
+        XCTAssertEqual(
+            marginLabel(in: card)?.text,
             "budget.net.saved.format".localized(330_000.compactCurrencyString))
-
-        // 400.000 spent off-plan swamps the 330.000 saved.
-        let overspending = makeCard(unallocatedSpending: 400_000)
-        XCTAssertEqual(marginLabel(in: overspending)?.textColor, Colors.brightRed)
-        XCTAssertEqual(
-            marginLabel(in: overspending)?.text,
-            "budget.net.overspent.format".localized(70_000.compactCurrencyString))
+        XCTAssertEqual(marginLabel(in: card)?.textColor, Colors.brightGreen)
     }
 
-    /// Funding an investments allocation debits the account, so it must *lower* the net - the money
-    /// left, exactly like any other spend. Savings categories get no special treatment.
-    func testFundingASavingsAllocationLowersTheNet() {
-        let unfunded = makeCard(allocations: [
-            BudgetAllocation(
-                dbId: 1, monthDate: 0, category: .investments,
-                allocatedAmount: 170_000, usedAmount: 0),
-        ])
-        let funded = makeCard(allocations: [
-            BudgetAllocation(
-                dbId: 1, monthDate: 0, category: .investments,
-                allocatedAmount: 170_000, usedAmount: 170_000),
-        ])
-
-        // Unfunded: 170.000 still unspent, plus 250.000 headroom. Funded: headroom only.
-        XCTAssertEqual(
-            marginLabel(in: unfunded)?.text,
-            "budget.net.saved.format".localized(420_000.compactCurrencyString))
-        XCTAssertEqual(
-            marginLabel(in: funded)?.text,
-            "budget.net.saved.format".localized(250_000.compactCurrencyString))
-    }
-
-    func testNetMasksWithHideValues() {
+    func testPlanOutcomeMasksWithHideValues() {
         let previous = UserDefaultsManager.getHideValues()
         UserDefaultsManager.setHideValues(true)
         defer { UserDefaultsManager.setHideValues(previous) }

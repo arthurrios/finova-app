@@ -794,12 +794,13 @@ final class BudgetCard: UIView {
             ? "budget.projection.budgetUsed.label".localized
             : "budget.projection.afterBudget.label".localized
 
-        // Saved against overspent. Proportions, not amounts, so the bar survives value-hiding;
-        // when neither has happened both shares are zero and the bare grey track shows through.
+        // Of what was spent, how much stayed inside its allocation. Proportions, not amounts, so
+        // the bar survives value-hiding; before anything is spent both shares are zero and the
+        // bare grey track shows through.
         let shares = projection.barShares
         projectionBar.setSegments([
-            SegmentedBarView.Segment(share: shares.saved, color: Colors.brightGreen),
-            SegmentedBarView.Segment(share: shares.overspent, color: Colors.brightRed),
+            SegmentedBarView.Segment(share: shares.withinPlan, color: Colors.brightGreen),
+            SegmentedBarView.Segment(share: shares.beyondPlan, color: Colors.brightRed),
         ])
         guard !isValuesHidden else {
             projectionValueLabel.text = hiddenValueString
@@ -819,8 +820,8 @@ final class BudgetCard: UIView {
                 : Colors.brightGreen
         }
 
-        // Net of the two quantities the bar compares.
-        let net = renderNetSaved(projection)
+        // The figure under the bar: plan adherence while open, realised outcome once closed.
+        let net = renderPlanOutcome(projection)
 
         var spokenParts = [
             projectionTextLabel.text,
@@ -829,14 +830,14 @@ final class BudgetCard: UIView {
         ].compactMap { $0 }
 
         // The bar carries no visible legend at this width, so spell its two sides out here.
-        if projection.totalSaved > 0 {
+        if projection.tense == .actual, projection.totalSaved > 0 {
             spokenParts.append(
                 "budget.net.saved.format".localized(
                     projection.totalSaved.compactCurrencyString))
         }
         if projection.overspent > 0 {
             spokenParts.append(
-                "budget.net.overspent.format".localized(
+                "budget.plan.over.format".localized(
                     projection.overspent.compactCurrencyString))
         }
 
@@ -849,21 +850,33 @@ final class BudgetCard: UIView {
         projectionBlock.accessibilityLabel = spokenParts.joined(separator: ", ")
     }
 
-    /// Renders the month's net saving and returns the spoken form.
+    /// Renders the figure under the bar and returns the spoken form.
     ///
-    /// `saved - overspent`. Deliberately never phrased as money available to spend: a budgeting app
-    /// should reward coming in under plan and warn on going over, not advertise headroom.
+    /// Tense-aware because "saved" is a realised quantity. While a month is open, an unspent
+    /// allocation is money still earmarked for spending, so reporting it as kept would show a
+    /// number that erodes as the month fills in - the open month reports plan adherence instead.
+    /// Once the month closes, the unspent budget really was kept and becomes the outcome.
     @discardableResult
-    private func renderNetSaved(_ projection: AllocationBalanceProjection) -> String? {
-        let net = projection.netSaved
-        let isOverspending = net < 0
-        let format = isOverspending
-            ? "budget.net.overspent.format"
-            : "budget.net.saved.format"
-        let text = format.localized(abs(net).compactCurrencyString)
+    private func renderPlanOutcome(_ projection: AllocationBalanceProjection) -> String? {
+        let text: String
+        let isBad: Bool
+
+        switch projection.tense {
+        case .projected:
+            isBad = projection.overspent > 0
+            text = isBad
+                ? "budget.plan.over.format".localized(projection.overspent.compactCurrencyString)
+                : "budget.plan.within.label".localized
+
+        case .actual:
+            let net = projection.netSaved
+            isBad = net < 0
+            let format = isBad ? "budget.net.overspent.format" : "budget.net.saved.format"
+            text = format.localized(abs(net).compactCurrencyString)
+        }
 
         marginLabel.text = text
-        marginLabel.textColor = isOverspending ? Colors.brightRed : Colors.brightGreen
+        marginLabel.textColor = isBad ? Colors.brightRed : Colors.brightGreen
         return text
     }
 
