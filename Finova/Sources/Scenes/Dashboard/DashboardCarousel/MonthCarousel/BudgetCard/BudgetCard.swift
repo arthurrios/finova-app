@@ -10,6 +10,15 @@ import SwiftUI
 
 final class BudgetCard: UIView {
 
+    /// Accessibility identifiers for the two projection corner blocks. Named so layout tests can
+    /// single them out from the header and footer stacks, which are also direct `UIStackView`
+    /// subviews of this card.
+    static let balanceBlockIdentifier = "budgetCard.balanceBlock"
+    static let projectionBlockIdentifier = "budgetCard.projectionBlock"
+    static let unallocatedValueIdentifier = "budgetCard.unallocatedValue"
+    static let usedValueIdentifier = "budgetCard.usedValue"
+    static let marginLabelIdentifier = "budgetCard.margin"
+
     // MARK: - Properties
 
     private var allocations: [BudgetAllocation] = []
@@ -20,6 +29,21 @@ final class BudgetCard: UIView {
     private var chartHostingController: UIViewController?
     private var currentMonthAnchor: Int = 0
     private var isValuesHidden: Bool = false
+    private var projection: AllocationBalanceProjection?
+    private var balanceBasis: BalanceBasis?
+    private var currentUsedValue: Int?
+    private var currentBudgetLimit: Int?
+
+    /// Which balance the leading block is showing, and the day it is anchored to.
+    ///
+    /// Both numbers on this card are end-of-period figures, so the caption has to name the day
+    /// or "Balance" is ambiguous - the transaction face has the same problem and solves it the
+    /// same way, with "Balance on the 31st".
+    private struct BalanceBasis {
+        let amount: Int
+        /// Day of the displayed month the amount refers to.
+        let dayOfMonth: Int
+    }
 
     // MARK: - UI Components
 
@@ -133,7 +157,7 @@ final class BudgetCard: UIView {
         return stack
     }()
 
-    private lazy var remainingStackView: UIStackView = {
+    private lazy var unallocatedStackView: UIStackView = {
         let stack = UIStackView()
         stack.axis = .vertical
         stack.spacing = Metrics.spacing2
@@ -141,22 +165,22 @@ final class BudgetCard: UIView {
         return stack
     }()
 
-    private lazy var remainingTextLabel: UILabel = {
+    private lazy var unallocatedTextLabel: UILabel = {
         let label = UILabel()
         label.font = Fonts.textXS.font
-        label.text = "budget.remaining.label".localized
         label.textColor = Colors.gray400
         return label
     }()
 
-    private lazy var remainingValueLabel: UILabel = {
+    private lazy var unallocatedValueLabel: UILabel = {
         let label = UILabel()
         label.font = Fonts.textSM.font
         label.textColor = Colors.gray100
+        label.accessibilityIdentifier = BudgetCard.unallocatedValueIdentifier
         return label
     }()
 
-    private lazy var savedStackView: UIStackView = {
+    private lazy var usedStackView: UIStackView = {
         let stack = UIStackView()
         stack.axis = .vertical
         stack.spacing = Metrics.spacing2
@@ -164,18 +188,108 @@ final class BudgetCard: UIView {
         return stack
     }()
 
-    private lazy var savedTextLabel: UILabel = {
+    private lazy var usedTextLabel: UILabel = {
         let label = UILabel()
         label.font = Fonts.textXS.font
-        label.text = "budget.saved.label".localized
+        // Same word the transaction face uses for the same quantity.
+        label.text = "monthCard.usedBudget".localized
         label.textColor = Colors.gray400
         return label
     }()
 
-    private lazy var savedValueLabel: UILabel = {
+    private lazy var usedValueLabel: UILabel = {
         let label = UILabel()
         label.font = Fonts.textSM.font
         label.textColor = Colors.gray100
+        label.accessibilityIdentifier = BudgetCard.usedValueIdentifier
+        return label
+    }()
+
+    // Projection blocks - occupy the empty top corners either side of the donut.
+    // The donut is a circle inscribed in a 170pt square, so its top corners are dead space.
+    private lazy var balanceBlock: UIStackView = {
+        let stack = UIStackView()
+        stack.axis = .vertical
+        stack.spacing = Metrics.spacing1
+        stack.alignment = .leading
+        stack.isUserInteractionEnabled = false
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        stack.isHidden = true
+        // Backstop: nothing may bleed over the donut even if a future label is added.
+        stack.clipsToBounds = true
+        stack.accessibilityIdentifier = BudgetCard.balanceBlockIdentifier
+        return stack
+    }()
+
+    private lazy var balanceTextLabel: UILabel = {
+        let label = UILabel()
+        label.font = Fonts.title2XS.font
+        label.textColor = Colors.gray400
+        return label
+    }()
+
+    private lazy var balanceValueLabel: UILabel = {
+        let label = UILabel()
+        label.font = Fonts.textSMBold.font
+        label.textColor = Colors.gray100
+        label.numberOfLines = 1
+        label.adjustsFontSizeToFitWidth = true
+        label.minimumScaleFactor = 0.7
+        return label
+    }()
+
+    private lazy var projectionBlock: UIStackView = {
+        let stack = UIStackView()
+        stack.axis = .vertical
+        stack.spacing = Metrics.spacing1
+        stack.alignment = .trailing
+        stack.isUserInteractionEnabled = false
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        stack.isHidden = true
+        // Backstop: nothing may bleed over the donut even if a future label is added.
+        stack.clipsToBounds = true
+        stack.accessibilityIdentifier = BudgetCard.projectionBlockIdentifier
+        return stack
+    }()
+
+    private lazy var projectionTextLabel: UILabel = {
+        let label = UILabel()
+        label.font = Fonts.title2XS.font
+        label.textColor = Colors.gray400
+        label.textAlignment = .right
+        return label
+    }()
+
+    private lazy var projectionValueLabel: UILabel = {
+        let label = UILabel()
+        label.font = Fonts.textSMBold.font
+        label.textColor = Colors.gray100
+        label.textAlignment = .right
+        label.numberOfLines = 1
+        label.adjustsFontSizeToFitWidth = true
+        label.minimumScaleFactor = 0.7
+        return label
+    }()
+
+    private lazy var projectionBar: SegmentedBarView = {
+        let bar = SegmentedBarView()
+        bar.trackTintColor = Colors.gray600
+        bar.cornerRadius = 2.0
+        bar.translatesAutoresizingMaskIntoConstraints = false
+        return bar
+    }()
+
+    /// Net saved for the month - "R$3.9k saved" in green, "R$420 overspent" in red. Sits under the
+    /// bar, which shows the same two quantities as proportions.
+    private lazy var marginLabel: UILabel = {
+        let label = UILabel()
+        label.font = Fonts.title2XS.font
+        label.textColor = Colors.gray400
+        label.textAlignment = .right
+        label.numberOfLines = 1
+        label.adjustsFontSizeToFitWidth = true
+        label.minimumScaleFactor = 0.7
+        label.accessibilityIdentifier = BudgetCard.marginLabelIdentifier
         return label
     }()
 
@@ -267,20 +381,34 @@ final class BudgetCard: UIView {
         headerHorizontalStackView.setCustomSpacing(Metrics.spacing3, after: flipBackButton)
 
         // Footer setup - two columns: Remaining (potential savings), Saved (actual performance)
-        remainingStackView.addArrangedSubview(remainingTextLabel)
-        remainingStackView.addArrangedSubview(remainingValueLabel)
+        unallocatedStackView.addArrangedSubview(unallocatedTextLabel)
+        unallocatedStackView.addArrangedSubview(unallocatedValueLabel)
 
-        savedStackView.addArrangedSubview(savedTextLabel)
-        savedStackView.addArrangedSubview(savedValueLabel)
+        usedStackView.addArrangedSubview(usedTextLabel)
+        usedStackView.addArrangedSubview(usedValueLabel)
 
-        footerStackView.addArrangedSubview(remainingStackView)
-        footerStackView.addArrangedSubview(savedStackView)
+        footerStackView.addArrangedSubview(unallocatedStackView)
+        footerStackView.addArrangedSubview(usedStackView)
+
+        // Projection blocks setup - two corner columns flanking the donut
+        balanceBlock.addArrangedSubview(balanceTextLabel)
+        balanceBlock.addArrangedSubview(balanceValueLabel)
+
+        projectionBlock.addArrangedSubview(projectionTextLabel)
+        projectionBlock.addArrangedSubview(projectionValueLabel)
+        projectionBlock.addArrangedSubview(projectionBar)
+        projectionBlock.addArrangedSubview(marginLabel)
+        projectionBlock.setCustomSpacing(Metrics.spacing2, after: projectionValueLabel)
 
         addSubview(headerHorizontalStackView)
         addSubview(headerSeparator)
         addSubview(chartContainerView)
         addSubview(footerStackView)
         addSubview(progressBar)
+
+        // Added last so they sit above the chart in z-order
+        addSubview(balanceBlock)
+        addSubview(projectionBlock)
 
         // No budget state setup
         noBudgetStackView.addArrangedSubview(noBudgetIconView)
@@ -345,6 +473,46 @@ final class BudgetCard: UIView {
 
             // Set budget button needs explicit width to prevent compression
             defineBudgetButton.widthAnchor.constraint(greaterThanOrEqualToConstant: 140),
+
+            // Projection blocks - top corners, flanking the donut.
+            //
+            // The card has no external height constraint: its height is its own fitting size,
+            // fixed by the required chain top -> header -> separator -> chart -> progressBar ->
+            // bottom. These blocks must not join that chain, so they declare ONLY a top anchor
+            // plus constant width/height. No bottom anchor, no relation to progressBar, and no
+            // relation to chartContainerView (whose width == height, so a horizontal squeeze
+            // there would make the chart shorter and shrink the card).
+            //
+            // The constant heights are load-bearing rather than defensive: Fonts.font returns a
+            // UIFontMetrics-scaled font, so a content-sized block would grow with Dynamic Type.
+            balanceBlock.topAnchor.constraint(
+                equalTo: headerSeparator.bottomAnchor, constant: Metrics.spacing3),
+            balanceBlock.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Metrics.spacing6),
+            // 72pt: at the narrowest card (343pt) this leaves ~5pt of clearance to the inscribed
+            // donut, the same margin the previous 64pt/58pt block had. The trailing block afforded
+            // it by losing a row - 3 rows fit in 45pt where 4 needed 58.
+            balanceBlock.widthAnchor.constraint(equalToConstant: 72),
+            balanceBlock.heightAnchor.constraint(equalToConstant: 32),
+
+            projectionBlock.topAnchor.constraint(
+                equalTo: headerSeparator.bottomAnchor, constant: Metrics.spacing3),
+            projectionBlock.trailingAnchor.constraint(
+                equalTo: trailingAnchor, constant: -Metrics.spacing6),
+            projectionBlock.widthAnchor.constraint(equalToConstant: 64),
+            projectionBlock.heightAnchor.constraint(equalToConstant: 58),
+
+            projectionBar.heightAnchor.constraint(equalToConstant: 4),
+            projectionBar.widthAnchor.constraint(equalTo: projectionBlock.widthAnchor),
+
+            // Each label is pinned to its block's width. Without this the stacks' .leading /
+            // .trailing alignment leaves the opposite edge free, so a label wider than the block
+            // expands outwards past the block's bounds and over the donut. Pinning the width also
+            // gives adjustsFontSizeToFitWidth a real width to shrink into.
+            balanceTextLabel.widthAnchor.constraint(equalTo: balanceBlock.widthAnchor),
+            balanceValueLabel.widthAnchor.constraint(equalTo: balanceBlock.widthAnchor),
+            projectionTextLabel.widthAnchor.constraint(equalTo: projectionBlock.widthAnchor),
+            projectionValueLabel.widthAnchor.constraint(equalTo: projectionBlock.widthAnchor),
+            marginLabel.widthAnchor.constraint(equalTo: projectionBlock.widthAnchor),
         ])
     }
 
@@ -410,12 +578,16 @@ final class BudgetCard: UIView {
     }
 
     private func updateValuesDisplay() {
+        // Ahead of the guard: the projection blocks have their own data and must still mask when
+        // there is no unallocated summary, or they'd freeze at their pre-mask text.
+        renderProjection()
+
         guard let summary = unallocatedSummary else { return }
         if isValuesHidden {
-            remainingValueLabel.text = hiddenValueString
-            remainingValueLabel.textColor = Colors.gray100
-            savedValueLabel.text = hiddenValueString
-            savedValueLabel.textColor = Colors.gray100
+            unallocatedValueLabel.text = hiddenValueString
+            unallocatedValueLabel.textColor = Colors.gray100
+            usedValueLabel.text = hiddenValueString
+            usedValueLabel.textColor = Colors.gray100
         } else {
             showBudgetMetrics(unallocatedSummary: summary)
         }
@@ -433,12 +605,36 @@ final class BudgetCard: UIView {
         allocations: [BudgetAllocation],
         unallocatedSummary: UnallocatedBudgetSummary,
         unallocatedSpending: [UnallocatedCategorySpending],
-        monthAnchor: Int
+        monthAnchor: Int,
+        monthData: MonthBudgetCardType? = nil
     ) {
         self.allocations = allocations
         self.unallocatedSummary = unallocatedSummary
         self.unallocatedSpending = unallocatedSpending
         self.currentMonthAnchor = monthAnchor
+
+        // Retained so `updateValuesDisplay()` can refresh the spend gauge and the footer without
+        // `monthData` in scope.
+        self.currentUsedValue = monthData?.usedValue
+        self.currentBudgetLimit = monthData?.budgetLimit
+
+        // The closing balance is meaningful for any month, so the leading block follows only the
+        // ledger row's availability. A nil row hides it rather than rendering a zero, which would
+        // read as a real balance of nothing.
+        self.balanceBasis = monthData.flatMap { balanceBasis(for: $0, monthAnchor: monthAnchor) }
+
+        // The trailing block reports a forecast while the month is open and what the allocations
+        // actually consumed once it has closed - `base - unspentAllocations` would be a
+        // counterfactual on a closed month.
+        self.projection = balanceBasis.map {
+            AllocationBalanceProjection(
+                base: $0.amount,
+                allocations: allocations,
+                unallocatedSpending: unallocatedSummary.totalUsedInUnallocatedCategories,
+                unallocatedHeadroom: unallocatedSummary.unallocatedAmount,
+                tense: isPastMonth ? .actual : .projected
+            )
+        }
 
         // Header - matching MonthBudgetCard format with "/ " prefix on year
         monthLabel.text = month
@@ -473,40 +669,219 @@ final class BudgetCard: UIView {
         footerStackView.isHidden = false
         progressBar.isHidden = false
 
-        // Footer values - two columns:
-        // 1. Remaining: unallocated budget (potential savings if not used)
-        let unallocatedAmount = unallocatedSummary.unallocatedAmount
-        if unallocatedAmount >= 0 {
-            remainingValueLabel.text = unallocatedAmount.currencyString
-            remainingValueLabel.textColor = Colors.gray100
+        // Footer slot 1 - Unallocated: budget cap not yet earmarked to any category. A plan-
+        // structure number, deliberately not "left to spend": framing leftover budget as available
+        // to spend nudges the opposite of what a budgeting app is for. Amber when negative, which is
+        // the card's only warning that more has been allocated than the cap allows.
+        let unallocated = unallocatedSummary.unallocatedAmount
+        unallocatedTextLabel.text = "budget.unallocated".localized
+        if unallocated >= 0 {
+            unallocatedValueLabel.text = unallocated.currencyString
+            unallocatedValueLabel.textColor = Colors.gray100
         } else {
-            // Over-allocated: show negative in amber/warning color
-            remainingValueLabel.text = "-" + abs(unallocatedAmount).currencyString
-            remainingValueLabel.textColor = Colors.warningAmber
+            unallocatedValueLabel.text = "-" + abs(unallocated).currencyString
+            unallocatedValueLabel.textColor = Colors.warningAmber
         }
 
-        // 2. Saved: net savings from actual spending (allocated remaining - unallocated spending)
-        // Positive = under budget (money saved), Negative = over budget (overspent)
-        let allocatedRemaining = allocations.reduce(0) { $0 + $1.remainingAmount }
-        let netSaved = allocatedRemaining - unallocatedSummary.totalUsedInUnallocatedCategories
+        // Footer slot 2 - Used: everything spent this month, planned or not. Names the progress
+        // bar's numerator directly above it, so the bar stops being an unlabelled graphic.
+        usedValueLabel.text = (currentUsedValue ?? 0).currencyString
+        usedValueLabel.textColor = Colors.gray100
 
-        if netSaved >= 0 {
-            savedValueLabel.text = netSaved.currencyString
-            savedValueLabel.textColor = Colors.brightGreen
-        } else {
-            savedValueLabel.text = "-" + abs(netSaved).currencyString
-            savedValueLabel.textColor = Colors.brightRed
-        }
+        updateSpendGauge()
 
-        // Progress bar shows allocation progress
-        let allocatedPercent = unallocatedSummary.totalBudget > 0
-            ? Float(unallocatedSummary.totalAllocated) / Float(unallocatedSummary.totalBudget)
-            : 0
-        progressBar.setProgress(min(allocatedPercent, 1.0), animated: true)
-        progressBar.progressTintColor = Colors.mainMagenta
+        // Projected end-of-month balance in the top corners
+        renderProjection()
 
         // Embed donut chart
         embedChart()
+    }
+
+    private var isPastMonth: Bool {
+        DateUtils.isPastMonth(date: Date.fromMonthAnchor(currentMonthAnchor))
+    }
+
+    /// The bottom bar is a spend gauge: how far through the month's budget the user actually is.
+    ///
+    /// It used to plot `totalAllocated / totalBudget` - allocation *coverage* - while the
+    /// transaction face plots `usedValue / budgetLimit` through an identical 8pt magenta bar in the
+    /// identical position. Flipping the card silently changed the bar's meaning, and a nearly-full
+    /// bar read as "budget nearly spent" when it meant "budget nearly finished being planned".
+    ///
+    /// The denominator is `monthData.budgetLimit`, not `unallocatedSummary.totalBudget`: the
+    /// summary is personal-scoped today while `usedValue` is scope-aware, so pairing them would
+    /// render group spend over a personal budget - a meaningless ratio carrying status colours.
+    private func updateSpendGauge() {
+        guard let used = currentUsedValue, let limit = currentBudgetLimit, limit > 0 else {
+            // Mirrors the transaction face, which hides its bar when no limit is set. The bar keeps
+            // its required 8pt height, so the card's height chain is untouched.
+            progressBar.isHidden = true
+            return
+        }
+
+        progressBar.isHidden = false
+        let rawFraction = Float(used) / Float(limit)
+        progressBar.setProgress(min(max(rawFraction, 0), 1), animated: true)
+
+        // Thresholds copied from MonthBudgetCard so both faces read alike. Set synchronously - a
+        // deferred write can land after the next configure and paint a stale status colour, and
+        // this card reconfigures on cell reuse and on .allocationDataChanged.
+        if rawFraction > 1.0 {
+            progressBar.progressTintColor = Colors.mainRed
+        } else if rawFraction >= 0.75 {
+            progressBar.progressTintColor = Colors.warningAmber
+        } else {
+            progressBar.progressTintColor = Colors.mainMagenta
+        }
+    }
+
+    /// Resolves which balance to project from: always the month's closing balance.
+    ///
+    /// `BalanceDisplayMode` is deliberately not consulted. Its only writer - the balance toggle in
+    /// `MonthBudgetCard` - is commented out, so `getBalanceDisplayMode()` can never return anything
+    /// but `.final`; branching on it would be dead code pretending to be a feature. If that toggle
+    /// is ever revived, this is the single place that has to learn about it.
+    private func balanceBasis(
+        for monthData: MonthBudgetCardType,
+        monthAnchor: Int
+    ) -> BalanceBasis? {
+        guard let amount = monthData.finalBalance else { return nil }
+
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone.current
+        let monthDate = Date.fromMonthAnchor(monthAnchor)
+        // `.count`, not `.upperBound` - the range is 1..<32 for a 31-day month.
+        let lastDay = calendar.range(of: .day, in: .month, for: monthDate)?.count ?? 31
+
+        return BalanceBasis(amount: amount, dayOfMonth: lastDay)
+    }
+
+    /// Renders the two corner blocks. Single formatting site for both the normal and masked paths.
+    ///
+    /// The blocks hide independently: the leading one needs only a ledger row, the trailing one
+    /// needs an open month. Cells are reused, so every path must set `isHidden` explicitly.
+    private func renderProjection() {
+        // Leading block - the month's closing balance. Name the day, or "Balance" is ambiguous:
+        // every figure on this card is end-of-period, not "right now".
+        if let basis = balanceBasis {
+            balanceBlock.isHidden = false
+            balanceTextLabel.text = "budget.projection.byDay.format".localized(
+                shortMonthDayString(day: basis.dayOfMonth))
+            if isValuesHidden {
+                balanceValueLabel.text = hiddenValueString
+                balanceValueLabel.textColor = Colors.gray100
+            } else {
+                // Compact notation is mandatory: the blocks are 72pt wide, and a full
+                // "R$ 12.345,67" cannot fit at any acceptable minimumScaleFactor.
+                balanceValueLabel.text = signedCompactString(basis.amount)
+                balanceValueLabel.textColor = basis.amount < 0 ? Colors.brightRed : Colors.gray100
+            }
+        } else {
+            balanceBlock.isHidden = true
+        }
+
+        // Trailing block - the projection. Absent on closed months.
+        guard let projection else {
+            projectionBlock.isHidden = true
+            return
+        }
+        projectionBlock.isHidden = false
+
+        // A closed month holds what the allocations actually consumed - a spend figure, not a
+        // second balance - so it gets its own caption.
+        let isActual = projection.tense == .actual
+        projectionTextLabel.text = isActual
+            ? "budget.projection.budgetUsed.label".localized
+            : "budget.projection.afterBudget.label".localized
+
+        // Saved against overspent. Proportions, not amounts, so the bar survives value-hiding;
+        // when neither has happened both shares are zero and the bare grey track shows through.
+        let shares = projection.barShares
+        projectionBar.setSegments([
+            SegmentedBarView.Segment(share: shares.saved, color: Colors.brightGreen),
+            SegmentedBarView.Segment(share: shares.overspent, color: Colors.brightRed),
+        ])
+        guard !isValuesHidden else {
+            projectionValueLabel.text = hiddenValueString
+            projectionValueLabel.textColor = Colors.gray100
+            marginLabel.text = hiddenValueString
+            marginLabel.textColor = Colors.gray400
+            return
+        }
+
+        let headline = projection.headlineAmount
+        projectionValueLabel.text = signedCompactString(headline)
+        if isActual {
+            projectionValueLabel.textColor = Colors.gray100
+        } else {
+            projectionValueLabel.textColor = projection.isOverCommitted
+                ? Colors.brightRed
+                : Colors.brightGreen
+        }
+
+        // Net of the two quantities the bar compares.
+        let net = renderNetSaved(projection)
+
+        var spokenParts = [
+            projectionTextLabel.text,
+            projectionValueLabel.text,
+            net,
+        ].compactMap { $0 }
+
+        // The bar carries no visible legend at this width, so spell its two sides out here.
+        if projection.totalSaved > 0 {
+            spokenParts.append(
+                "budget.net.saved.format".localized(
+                    projection.totalSaved.compactCurrencyString))
+        }
+        if projection.overspent > 0 {
+            spokenParts.append(
+                "budget.net.overspent.format".localized(
+                    projection.overspent.compactCurrencyString))
+        }
+
+        if projection.isOverCommitted {
+            spokenParts.append(
+                "budget.projection.overcommitted.format".localized(
+                    projection.shortfall.compactCurrencyString))
+        }
+        projectionBlock.isAccessibilityElement = true
+        projectionBlock.accessibilityLabel = spokenParts.joined(separator: ", ")
+    }
+
+    /// Renders the month's net saving and returns the spoken form.
+    ///
+    /// `saved - overspent`. Deliberately never phrased as money available to spend: a budgeting app
+    /// should reward coming in under plan and warn on going over, not advertise headroom.
+    @discardableResult
+    private func renderNetSaved(_ projection: AllocationBalanceProjection) -> String? {
+        let net = projection.netSaved
+        let isOverspending = net < 0
+        let format = isOverspending
+            ? "budget.net.overspent.format"
+            : "budget.net.saved.format"
+        let text = format.localized(abs(net).compactCurrencyString)
+
+        marginLabel.text = text
+        marginLabel.textColor = isOverspending ? Colors.brightRed : Colors.brightGreen
+        return text
+    }
+
+    /// "Aug 31" - abbreviated month plus the localized day, short enough for a 72pt block.
+    private func shortMonthDayString(day: Int) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = .autoupdatingCurrent
+        formatter.setLocalizedDateFormatFromTemplate("MMM")
+        let month = formatter.string(from: Date.fromMonthAnchor(currentMonthAnchor))
+        return "\(month) \(day.localizedDayOfMonth)"
+    }
+
+    /// `compactCurrencyString` has no notion of sign, so negatives are prefixed here - matching
+    /// how the footer labels already render an over-allocated Remaining value.
+    private func signedCompactString(_ amount: Int) -> String {
+        amount < 0
+            ? "-" + abs(amount).compactCurrencyString
+            : amount.compactCurrencyString
     }
 
     private func showNoBudgetState() {
@@ -514,6 +889,11 @@ final class BudgetCard: UIView {
         chartContainerView.isHidden = true
         footerStackView.isHidden = true
         progressBar.isHidden = true
+
+        // Hide the projection blocks too - they'd float over the "define budget" empty state,
+        // which is anchored to the same headerSeparator.bottom region.
+        balanceBlock.isHidden = true
+        projectionBlock.isHidden = true
 
         // Remove existing chart
         chartHostingController?.view.removeFromSuperview()

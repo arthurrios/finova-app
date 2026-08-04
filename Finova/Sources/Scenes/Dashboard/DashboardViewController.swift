@@ -1388,6 +1388,12 @@ extension DashboardViewController: UICollectionViewDataSource {
             cell.setMonthAnchor(monthAnchor)
 
             cell.monthCard.ledgerService = viewModel.transactionLedger
+            // Read the balance live from the synced month data rather than handing over a
+            // snapshot: this array is the only cumulative source of finalBalance, and it is
+            // refreshed on paths that deliberately skip monthCard.refresh(with:).
+            cell.monthDataProvider = { [weak self] anchor in
+                self?.syncedViewModel.monthData.first { $0.date.monthAnchor == anchor }
+            }
             cell.monthCard.refresh(with: model)
 
             cell.setFiltersWithoutApplying(globalFilters)
