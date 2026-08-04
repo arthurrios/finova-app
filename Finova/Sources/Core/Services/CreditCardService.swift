@@ -34,24 +34,39 @@ class CreditCardService {
     }
 
     /// Calculates due date from a closing date.
+    ///
+    /// This is a *payment* date, so it is business-day adjusted using the global default rule - a
+    /// statement is shared by many transactions with potentially different per-transaction rules, so
+    /// the per-transaction one is meaningless here.
+    ///
+    /// `calculateClosingDate` is deliberately NOT adjusted: the closing day is an internal billing
+    /// boundary, and shifting it would reroute purchases between cycles and break the exact-match
+    /// statement lookup and consecutive-cycle chaining that depend on it.
+    ///
+    /// Only new statements get this. Stored due dates are never rewritten, so changing the default
+    /// later cannot mass-move existing installments.
     func calculateDueDate(closingDate: Date, card: CreditCard) -> Date {
         let calendar = Calendar.current
         let closingDay = calendar.component(.day, from: closingDate)
         let closingMonth = calendar.component(.month, from: closingDate)
         let closingYear = calendar.component(.year, from: closingDate)
 
+        let raw: Date
         if card.dueDay > closingDay {
             // Due date same month as closing
             let dueDay = min(card.dueDay, daysInMonth(month: closingMonth, year: closingYear))
-            return calendar.date(from: DateComponents(year: closingYear, month: closingMonth, day: dueDay))!
+            raw = calendar.date(from: DateComponents(year: closingYear, month: closingMonth, day: dueDay))!
         } else {
             // Due date next month after closing
             var dueMonth = closingMonth + 1
             var dueYear = closingYear
             if dueMonth > 12 { dueMonth = 1; dueYear += 1 }
             let dueDay = min(card.dueDay, daysInMonth(month: dueMonth, year: dueYear))
-            return calendar.date(from: DateComponents(year: dueYear, month: dueMonth, day: dueDay))!
+            raw = calendar.date(from: DateComponents(year: dueYear, month: dueMonth, day: dueDay))!
         }
+
+        return BusinessDayAdjuster.adjust(
+            raw, rule: UserDefaultsManager.getDefaultBusinessDayRule(), calendar: calendar)
     }
 
     /// Gets or creates a statement for a transaction on a given card/date.

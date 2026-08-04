@@ -45,14 +45,20 @@ final class AddTransactionModalViewModel {
     categoryKey: String,
     typeRaw: String,
     isRecurring: Bool? = nil,
-    creditCardId: Int? = nil
+    creditCardId: Int? = nil,
+    businessDayRule: BusinessDayRule = .exact
   ) -> Result<Void, Error> {
 
     guard let date = DateFormatter.fullDateFormatter.date(from: dateString) else {
       return .failure(TransactionError.invalidDateFormat)
     }
 
-    let timestamp = Int(date.timeIntervalSince1970)
+    // `date` is the canonical value the user picked; `effectiveDate` is it passed through the rule.
+    // The month anchor below is always derived from `date`, never from `effectiveDate`, so a shift
+    // across a month boundary still counts in the month the user chose.
+    let effectiveDate = BusinessDayAdjuster.adjust(
+      date, rule: businessDayRule, calendar: calendar)
+    let timestamp = Int(effectiveDate.timeIntervalSince1970)
 
     guard
       let category = TransactionCategory.allCases
@@ -68,7 +74,9 @@ final class AddTransactionModalViewModel {
       return .failure(TransactionError.invalidType)
     }
 
-    let anchor = date.monthAnchor
+    // A series counts in the month it is scheduled for (one occurrence per month); a one-off counts
+    // in the month it actually lands, where there is no such invariant to protect.
+    let anchor = (isRecurring == true) ? date.monthAnchor : effectiveDate.monthAnchor
 
     if let isRecurring = isRecurring, isRecurring {
 
@@ -79,7 +87,10 @@ final class AddTransactionModalViewModel {
         type: type.key,
         dateTimestamp: timestamp,
         budgetMonthDate: anchor,
-        isRecurring: true
+        isRecurring: true,
+        businessDayRule: businessDayRule,
+        unadjustedDateTimestamp: Int(date.timeIntervalSince1970),
+        seriesPeriod: date.monthAnchor
       )
 
       do {
@@ -153,7 +164,10 @@ final class AddTransactionModalViewModel {
         dateTimestamp: timestamp,
         budgetMonthDate: anchor,
         isRecurring: false,
-        creditCardId: creditCardId
+        creditCardId: creditCardId,
+        businessDayRule: businessDayRule,
+        unadjustedDateTimestamp: Int(date.timeIntervalSince1970),
+        seriesPeriod: date.monthAnchor
       )
 
       do {
@@ -210,6 +224,7 @@ final class AddTransactionModalViewModel {
     categoryKey: String,
     typeRaw: String,
     creditCardId: Int? = nil,
+    businessDayRule: BusinessDayRule = .exact,
     completion: @escaping (Result<Void, Error>) -> Void
   ) {
     guard let date = DateFormatter.fullDateFormatter.date(from: dateString) else {
@@ -233,8 +248,10 @@ final class AddTransactionModalViewModel {
       return
     }
 
-    let timestamp = Int(date.timeIntervalSince1970)
-    let anchor = date.monthAnchor
+    // Anchor from the picked date, timestamp from the adjusted one - see `addTransaction`.
+    let effectiveDate = BusinessDayAdjuster.adjust(date, rule: businessDayRule, calendar: calendar)
+    let timestamp = Int(effectiveDate.timeIntervalSince1970)
+    let anchor = effectiveDate.monthAnchor
 
     let model = TransactionModel(
       title: title,
@@ -244,7 +261,10 @@ final class AddTransactionModalViewModel {
       dateTimestamp: timestamp,
       budgetMonthDate: anchor,
       isRecurring: true,
-      creditCardId: creditCardId
+      creditCardId: creditCardId,
+      businessDayRule: businessDayRule,
+      unadjustedDateTimestamp: Int(date.timeIntervalSince1970),
+      seriesPeriod: date.monthAnchor
     )
 
     do {
@@ -430,10 +450,12 @@ final class AddTransactionModalViewModel {
         let targetYear = calendar.component(.year, from: targetDate)
         let targetMonth = calendar.component(.month, from: targetDate)
 
-        let installmentDate = generateValidDateForMonth(
-          originalDate: startDate,
+        let installment = OccurrenceDateCalculator.occurrencePair(
+          from: startDate,
           targetMonth: targetMonth,
-          targetYear: targetYear
+          targetYear: targetYear,
+          rule: data.businessDayRule,
+          calendar: calendar
         )
 
         let installmentAmount =
@@ -444,12 +466,15 @@ final class AddTransactionModalViewModel {
           category: category.key,
           amount: installmentAmount,
           type: type.key,
-          dateTimestamp: Int(installmentDate.timeIntervalSince1970),
-          budgetMonthDate: installmentDate.monthAnchor,
+          dateTimestamp: Int(installment.adjusted.timeIntervalSince1970),
+          budgetMonthDate: installment.unadjusted.monthAnchor,
           parentTransactionId: parentId,
           originalAmount: data.totalAmount,
           installmentNumber: installmentNumber,
-          totalInstallments: totalInstallments
+          totalInstallments: totalInstallments,
+          businessDayRule: data.businessDayRule,
+          unadjustedDateTimestamp: Int(installment.unadjusted.timeIntervalSince1970),
+          seriesPeriod: installment.unadjusted.monthAnchor
         )
 
         let installmentId = try transactionRepo.insertTransactionAndGetId(installmentModel)
@@ -466,7 +491,7 @@ final class AddTransactionModalViewModel {
             if let prev = previousStatement {
               statement = creditCardService.nextStatement(after: prev, for: card, userId: uid)
             } else {
-              statement = creditCardService.getOrCreateStatement(for: card, transactionDate: installmentDate, userId: uid)
+              statement = creditCardService.getOrCreateStatement(for: card, transactionDate: installment.unadjusted, userId: uid)
             }
             if let statement = statement {
               try transactionRepo.updateCreditCardFields(
@@ -594,10 +619,12 @@ final class AddTransactionModalViewModel {
           let targetYear = self.calendar.component(.year, from: targetDate)
           let targetMonth = self.calendar.component(.month, from: targetDate)
 
-          let installmentDate = self.generateValidDateForMonth(
-            originalDate: startDate,
+          let installment = OccurrenceDateCalculator.occurrencePair(
+            from: startDate,
             targetMonth: targetMonth,
-            targetYear: targetYear
+            targetYear: targetYear,
+            rule: data.businessDayRule,
+            calendar: self.calendar
           )
 
           let installmentAmount =
@@ -608,12 +635,15 @@ final class AddTransactionModalViewModel {
             category: category.key,
             amount: installmentAmount,
             type: type.key,
-            dateTimestamp: Int(installmentDate.timeIntervalSince1970),
-            budgetMonthDate: installmentDate.monthAnchor,
+            dateTimestamp: Int(installment.adjusted.timeIntervalSince1970),
+            budgetMonthDate: installment.unadjusted.monthAnchor,
             parentTransactionId: parentId,
             originalAmount: data.totalAmount,
             installmentNumber: installmentNumber,
-            totalInstallments: totalInstallments
+            totalInstallments: totalInstallments,
+            businessDayRule: data.businessDayRule,
+            unadjustedDateTimestamp: Int(installment.unadjusted.timeIntervalSince1970),
+            seriesPeriod: installment.unadjusted.monthAnchor
           )
 
           let insertedInstallmentId = try self.transactionRepo.insertTransactionAndGetId(installmentModel)
@@ -631,7 +661,7 @@ final class AddTransactionModalViewModel {
             if let prev = previousStatement {
               statement = self.creditCardService.nextStatement(after: prev, for: card, userId: uid)
             } else {
-              statement = self.creditCardService.getOrCreateStatement(for: card, transactionDate: installmentDate, userId: uid)
+              statement = self.creditCardService.getOrCreateStatement(for: card, transactionDate: installment.unadjusted, userId: uid)
             }
             if let statement = statement {
               try self.transactionRepo.updateCreditCardFields(
@@ -676,55 +706,7 @@ final class AddTransactionModalViewModel {
 
   // MARK: - Helper Methods
 
-  /// Gera uma data válida para o mês especificado, lidando com dias que não existem
-  /// - Parameters:
-  ///   - originalDate: Data original da transação
-  ///   - targetMonth: Mês para o qual gerar a data
-  ///   - targetYear: Ano para o qual gerar a data
-  /// - Returns: Data válida para o mês especificado
-  private func generateValidDateForMonth(
-    originalDate: Date,
-    targetMonth: Int,
-    targetYear: Int
-  ) -> Date {
-    let originalDay = calendar.component(.day, from: originalDate)
-
-    // Calcular o último dia do mês específico primeiro
-    let lastDayOfMonth: Int
-
-    switch targetMonth {
-    case 2:  // Fevereiro
-      let isLeapYear = (targetYear % 4 == 0 && targetYear % 100 != 0) || (targetYear % 400 == 0)
-      lastDayOfMonth = isLeapYear ? 29 : 28
-    case 4, 6, 9, 11:  // Abril, Junho, Setembro, Novembro
-      lastDayOfMonth = 30
-    default:  // Janeiro, Março, Maio, Julho, Agosto, Outubro, Dezembro
-      lastDayOfMonth = 31
-    }
-
-    // Determinar o dia a usar
-    let dayToUse = min(originalDay, lastDayOfMonth)
-
-    // Criar a data com o dia determinado
-    var dateComponents = DateComponents()
-    dateComponents.year = targetYear
-    dateComponents.month = targetMonth
-    dateComponents.day = dayToUse
-    dateComponents.hour = 12  // Usar meio-dia para evitar problemas de fuso horário
-    dateComponents.minute = 0
-    dateComponents.second = 0
-
-    // Criar a data
-    guard let validDate = calendar.date(from: dateComponents) else {
-      logError("Failed to create date for \(dayToUse)/\(targetMonth)/\(targetYear), using fallback")
-      // Fallback: usar o primeiro dia do mês
-      dateComponents.day = 1
-      let fallbackDate = calendar.date(from: dateComponents) ?? Date()
-      return fallbackDate
-    }
-
-    return validDate
-  }
+  // Occurrence dates come from `OccurrenceDateCalculator`, which this file used to duplicate.
 
   // MARK: - Update Transaction Methods
 
@@ -736,7 +718,8 @@ final class AddTransactionModalViewModel {
     categoryKey: String,
     typeRaw: String,
     isRecurring: Bool = false,
-    creditCardId: Int? = nil
+    creditCardId: Int? = nil,
+    businessDayRule: BusinessDayRule = .exact
   ) -> Result<Void, Error> {
 
     guard
@@ -794,14 +777,17 @@ final class AddTransactionModalViewModel {
         }
       }
 
+      let effectiveDate = BusinessDayAdjuster.adjust(
+        dateObj, rule: businessDayRule, calendar: calendar)
+
       let updatedTransaction = TransactionModel(
         id: id,
         title: title,
         category: transactionCategory.key,
         amount: amount,
         type: String(describing: transactionType),
-        dateTimestamp: Int(dateObj.timeIntervalSince1970),
-        budgetMonthDate: dateObj.monthAnchor,
+        dateTimestamp: Int(effectiveDate.timeIntervalSince1970),
+        budgetMonthDate: isRecurring ? dateObj.monthAnchor : effectiveDate.monthAnchor,
         isRecurring: isRecurring,
         hasInstallments: false,
         parentTransactionId: nil,
@@ -810,9 +796,14 @@ final class AddTransactionModalViewModel {
         totalInstallments: nil,
         creditCardId: newCreditCardId,
         statementId: newStatementId,
-        isCreditCardStatement: newCreditCardId != nil ? false : nil
+        isCreditCardStatement: newCreditCardId != nil ? false : nil,
+        businessDayRule: businessDayRule,
+        unadjustedDateTimestamp: Int(dateObj.timeIntervalSince1970),
+        seriesPeriod: dateObj.monthAnchor
       )
 
+      // Carries the business-day columns itself; a second write here would leave the row stuck
+      // `pending` (see the note in `DBHelper.updateTransaction`).
       try transactionRepo.updateTransaction(updatedTransaction)
 
       // Log group activity if transaction belongs to a group (or mirror mode)
@@ -1044,7 +1035,12 @@ final class AddTransactionModalViewModel {
         installmentNumber: nil,
         totalInstallments: data.installments,
         creditCardId: data.creditCardId,
-        isCreditCardStatement: data.creditCardId != nil ? false : nil
+        isCreditCardStatement: data.creditCardId != nil ? false : nil,
+        // This model IS the template `updateAllInstallmentTransactions` rebuilds every child from,
+        // so the rule has to be on it or the rebuilt series comes back `.exact`.
+        businessDayRule: data.businessDayRule,
+        unadjustedDateTimestamp: Int(dateObj.timeIntervalSince1970),
+        seriesPeriod: dateObj.monthAnchor
       )
 
       do {
@@ -1084,7 +1080,8 @@ final class AddTransactionModalViewModel {
     dateString: String,
     categoryKey: String,
     typeRaw: String,
-    creditCardId: Int? = nil
+    creditCardId: Int? = nil,
+    businessDayRule: BusinessDayRule = .exact
   ) -> Result<Void, Error> {
 
     guard
@@ -1117,8 +1114,11 @@ final class AddTransactionModalViewModel {
         category: transactionCategory,
         type: transactionType,
         amount: amount,
-        date: dateObj
+        date: BusinessDayAdjuster.adjust(dateObj, rule: businessDayRule, calendar: calendar)
       )
+      DBHelper.shared.setBusinessDayRule(
+        transactionId: id, rule: businessDayRule,
+        unadjustedDateTimestamp: Int(dateObj.timeIntervalSince1970))
 
       // Handle credit card statement assignment
       let creditCardChanged = creditCardId != originalCreditCardId
@@ -1281,7 +1281,8 @@ final class AddTransactionModalViewModel {
     dateString: String,
     categoryKey: String,
     typeRaw: String,
-    editOption: RecurringEditOption
+    editOption: RecurringEditOption,
+    businessDayRule: BusinessDayRule = .exact
   ) -> Result<Void, Error> {
 
     guard
@@ -1345,7 +1346,10 @@ final class AddTransactionModalViewModel {
         parentTransactionId: parentTransactionId,
         originalAmount: amount,
         installmentNumber: nil,
-        totalInstallments: nil
+        totalInstallments: nil,
+        businessDayRule: businessDayRule,
+        unadjustedDateTimestamp: Int(dateObj.timeIntervalSince1970),
+        seriesPeriod: dateObj.monthAnchor
       )
 
       // Use the recurring transaction manager to handle the edit with the specified option
@@ -1383,6 +1387,7 @@ final class AddTransactionModalViewModel {
     typeRaw: String,
     creditCardId: Int? = nil,
     editOption: RecurringEditOption,
+    businessDayRule: BusinessDayRule = .exact,
     completion: @escaping (Result<Void, Error>) -> Void
   ) {
     guard
@@ -1459,7 +1464,10 @@ final class AddTransactionModalViewModel {
         originalAmount: amount,
         installmentNumber: nil,
         totalInstallments: nil,
-        creditCardId: creditCardId
+        creditCardId: creditCardId,
+        businessDayRule: businessDayRule,
+        unadjustedDateTimestamp: Int(dateObj.timeIntervalSince1970),
+        seriesPeriod: dateObj.monthAnchor
       )
 
       // Use async editing method

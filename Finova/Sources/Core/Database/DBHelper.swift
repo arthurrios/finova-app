@@ -73,6 +73,7 @@ class DBHelper {
             try migrateRevColumns()
             try migrateUuidColumnsV1()
             try migrateEarlyPaymentColumns()
+            try migrateBusinessDayColumns()
             isInitialized = true
             performUuidBackfillV1()
             rebuildBudgetsTableV2()
@@ -482,8 +483,11 @@ class DBHelper {
               user_id,
               ck_modified_at,
               updated_at,
-              created_by_uid
-              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+              created_by_uid,
+              business_day_rule,
+              unadjusted_date,
+              series_period
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
       """
         
         var statement: OpaquePointer?
@@ -572,6 +576,20 @@ class DBHelper {
             sqlite3_bind_null(statement, 19)
         }
 
+        // Bound here rather than at each call site so every batch insert - the 36-row recurring
+        // horizon, an installment series, a rebuilt series - carries them without knowing they exist.
+        sqlite3_bind_text(
+            statement, 20, transaction.data.businessDayRule.rawValue, -1, SQLITE_TRANSIENT)
+        // Falls back to the row's own date, so the column is never null for a row we wrote and
+        // regeneration always has an anchor to re-derive from.
+        sqlite3_bind_int64(
+            statement, 21,
+            Int64(transaction.data.unadjustedDateTimestamp ?? transaction.data.dateTimestamp))
+        // Defaults to the accounting month, which is correct for everything that never shifts.
+        sqlite3_bind_int64(
+            statement, 22,
+            Int64(transaction.data.seriesPeriod ?? transaction.data.budgetMonthDate))
+
         guard sqlite3_step(statement) == SQLITE_DONE else {
             let msg = String(cString: sqlite3_errmsg(db))
             throw DBError.stepFailed(message: msg)
@@ -605,7 +623,10 @@ class DBHelper {
         credit_card_id,
         statement_id,
         is_credit_card_statement,
-        created_by_uid
+        created_by_uid,
+        business_day_rule,
+        COALESCE(unadjusted_date, date),
+        COALESCE(series_period, budget_month_date)
       FROM Transactions
       WHERE (is_deleted IS NULL OR is_deleted = 0);
       """
@@ -681,6 +702,13 @@ class DBHelper {
             let createdByUid: String? = sqlite3_column_type(statement, 16) == SQLITE_NULL
                 ? nil : String(cString: sqlite3_column_text(statement, 16))
 
+            let businessDayRule = BusinessDayRule.fromStored(
+                sqlite3_column_type(statement, 17) == SQLITE_NULL
+                    ? nil : String(cString: sqlite3_column_text(statement, 17)))
+            // Already COALESCEd to `date` in the query, so this is never null for an existing row.
+            let unadjustedDate = Int(sqlite3_column_int64(statement, 18))
+            let seriesPeriod = Int(sqlite3_column_int64(statement, 19))
+
             // Default empty type to "expense" to handle corrupt data
             let sanitizedTypeKey = typeKey.isEmpty ? "expense" : typeKey
 
@@ -700,6 +728,9 @@ class DBHelper {
                 statementId: statementId,
                 isCreditCardStatement: isCreditCardStatement,
                 createdByUid: createdByUid,
+                businessDayRule: businessDayRule,
+                unadjustedDateTimestamp: unadjustedDate,
+                seriesPeriod: seriesPeriod,
                 category: catKey,
                 type: sanitizedTypeKey
             )
@@ -816,6 +847,7 @@ class DBHelper {
         }
 
         let columnCount = sqlite3_column_count(statement)
+        let columns = columnIndices(statement)
         var results: [Transaction] = []
 
         while sqlite3_step(statement) == SQLITE_ROW {
@@ -826,6 +858,9 @@ class DBHelper {
             let amount = Int(sqlite3_column_int64(statement, 4))
             let ts = Int(sqlite3_column_int64(statement, 5))
             let monthAnchor = Int(sqlite3_column_int64(statement, 6))
+
+            let businessDay = readBusinessDayColumns(
+                statement, columns, dateTimestamp: ts, budgetMonthDate: monthAnchor)
 
             let isRecurring: Bool? =
             sqlite3_column_type(statement, 7) == SQLITE_NULL
@@ -858,11 +893,19 @@ class DBHelper {
             let createdByUid: String? = columnCount > 16 && sqlite3_column_type(statement, 16) != SQLITE_NULL
             ? String(cString: sqlite3_column_text(statement, 16)) : nil
 
-            // Optional 18th column: `updated_at`. Only callers that need the real last-edit time
-            // select it (notably fetchPendingSync, which feeds the CloudKit push) — everything else
-            // keeps its existing 17-column shape and leaves this nil.
-            let updatedAt: Date? = columnCount > 17 && sqlite3_column_type(statement, 17) != SQLITE_NULL
-            ? Date(timeIntervalSince1970: TimeInterval(sqlite3_column_int64(statement, 17))) : nil
+            // Optional column: `updated_at`. Only callers that need the real last-edit time select it
+            // (notably fetchPendingSync, which feeds the CloudKit push); everything else leaves it nil.
+            //
+            // Looked up BY NAME. It used to be "whatever sits at index 17", which silently meant
+            // something else the moment another optional column was appended to a query — a TEXT rule
+            // read through `column_int64` would have produced a 1970 timestamp and pushed that to
+            // CloudKit as the row's last-edit time.
+            let updatedAt: Date? = {
+                guard let index = columns["updated_at"],
+                    sqlite3_column_type(statement, index) != SQLITE_NULL
+                else { return nil }
+                return Date(timeIntervalSince1970: TimeInterval(sqlite3_column_int64(statement, index)))
+            }()
 
             let dbData = DBTransactionData(
                 id: id, title: title, amount: amount, dateTimestamp: ts, budgetMonthDate: monthAnchor,
@@ -874,6 +917,9 @@ class DBHelper {
                 isCreditCardStatement: isCreditCardStatement,
                 updatedAt: updatedAt,
                 createdByUid: createdByUid,
+                businessDayRule: businessDay.rule,
+                unadjustedDateTimestamp: businessDay.unadjusted,
+                seriesPeriod: businessDay.seriesPeriod,
                 category: catKey, type: typeKey
             )
 
@@ -1033,12 +1079,22 @@ class DBHelper {
             return
         }
         
+        // The business-day columns are written HERE, in the same statement as the rest of the row.
+        //
+        // They used to be applied by a second `setBusinessDayRule` call straight after this one, on
+        // the theory that an inbound apply must not clobber them. That theory was wrong: inbound rows
+        // go through `TransactionRepository.updateFromCloud`, never here — this is the local-edit path
+        // only. The second write stamped a NEW `updated_at` immediately after this one, and
+        // `markAsSynced` refuses to clear `pending` when the row's `updated_at` is newer than the
+        // snapshot that was pushed. Editing a recurring series left every occurrence stuck pending and
+        // being re-pushed forever.
         let updateQuery = """
           UPDATE Transactions SET
             title = ?, category = ?, type = ?, amount = ?, date = ?,
             budget_month_date = ?, is_recurring = ?, has_installments = ?,
             total_installments = ?, original_amount = ?,
             credit_card_id = ?, statement_id = ?, is_credit_card_statement = ?,
+            business_day_rule = ?, unadjusted_date = ?, series_period = ?,
             sync_status = 'pending', ck_modified_at = ?, updated_at = ?
           WHERE id = ?;
       """
@@ -1091,10 +1147,20 @@ class DBHelper {
             sqlite3_bind_null(statement, 13)
         }
 
+        sqlite3_bind_text(
+            statement, 14, transaction.data.businessDayRule.rawValue, -1, SQLITE_TRANSIENT)
+        sqlite3_bind_int64(
+            statement, 15,
+            Int64(transaction.data.unadjustedDateTimestamp ?? transaction.data.dateTimestamp))
+
+        sqlite3_bind_int64(
+            statement, 16,
+            Int64(transaction.data.seriesPeriod ?? transaction.data.budgetMonthDate))
+
         let now = Int64(Date().timeIntervalSince1970)
-        sqlite3_bind_int64(statement, 14, now)
-        sqlite3_bind_int64(statement, 15, now)
-        sqlite3_bind_int64(statement, 16, Int64(transaction.data.id!))
+        sqlite3_bind_int64(statement, 17, now)
+        sqlite3_bind_int64(statement, 18, now)
+        sqlite3_bind_int64(statement, 19, Int64(transaction.data.id!))
 
         guard sqlite3_step(statement) == SQLITE_DONE else {
             let msg = String(cString: sqlite3_errmsg(db))
@@ -2190,6 +2256,65 @@ class DBHelper {
         TransactionRepository.invalidateCache()
     }
 
+    // MARK: - Business day
+
+    /// Sets a row's business-day rule and the date the rule was applied to. A local edit, so it marks
+    /// the row pending.
+    func setBusinessDayRule(
+        transactionId: Int, rule: BusinessDayRule, unadjustedDateTimestamp: Int
+    ) {
+        guard isInitialized else { return }
+        let now = Int(Date().timeIntervalSince1970)
+        executeSyncUpdate(
+            """
+            UPDATE Transactions
+               SET business_day_rule = ?, unadjusted_date = ?, sync_status = 'pending',
+                   ck_modified_at = ?, updated_at = ?
+             WHERE id = ?;
+            """,
+            textBindings: [rule.rawValue],
+            intBindings: [unadjustedDateTimestamp, now, now, transactionId]
+        )
+    }
+
+    /// Applies a rule that arrived from a peer.
+    ///
+    /// Deliberately does NOT mark the row pending: it already matches the server, and flagging it
+    /// would push our own copy straight back. Same reasoning as `applyInboundPointer`.
+    ///
+    /// The caller must only reach here when the sender actually knew about these fields - see
+    /// `businessDaySchema` in `CKTransactionAdapter`. An older peer omits them because it has never
+    /// heard of them, which is not the same as "this row is `.exact`".
+    func applyInboundBusinessDayRule(
+        ckRecordName: String, rule: BusinessDayRule, unadjustedDate: Date?, seriesPeriod: Int?
+    ) {
+        guard isInitialized else { return }
+        let sql = """
+            UPDATE Transactions
+               SET business_day_rule = ?1,
+                   unadjusted_date = COALESCE(?2, unadjusted_date),
+                   series_period = COALESCE(?4, series_period)
+             WHERE ck_record_id = ?3;
+            """
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return }
+        defer { sqlite3_finalize(stmt) }
+        sqlite3_bind_text(stmt, 1, rule.rawValue, -1, SQLITE_TRANSIENT)
+        if let unadjustedDate {
+            sqlite3_bind_int64(stmt, 2, Int64(unadjustedDate.timeIntervalSince1970))
+        } else {
+            sqlite3_bind_null(stmt, 2)
+        }
+        sqlite3_bind_text(stmt, 3, ckRecordName, -1, SQLITE_TRANSIENT)
+        if let seriesPeriod {
+            sqlite3_bind_int64(stmt, 4, Int64(seriesPeriod))
+        } else {
+            sqlite3_bind_null(stmt, 4)
+        }
+        sqlite3_step(stmt)
+        TransactionRepository.invalidateCache()
+    }
+
     func clearTransactionCreditCardFields(transactionId: Int) throws {
         guard isInitialized else { return }
         let query = "UPDATE Transactions SET credit_card_id = NULL, statement_id = NULL, is_credit_card_statement = 0, sync_status = 'pending', ck_modified_at = ?, updated_at = ? WHERE id = ?;"
@@ -2530,6 +2655,39 @@ class DBHelper {
             db,
             "CREATE INDEX IF NOT EXISTS idx_tx_cancelled_by ON Transactions(cancelled_by_transaction_id);",
             nil, nil, nil)
+    }
+
+    /// Business-day adjustment: which rule this row was created with, and the date before the rule
+    /// moved it.
+    ///
+    /// Both nullable with no default and **no backfill**. A mass `UPDATE` would mark every existing
+    /// row `pending` and trigger a full CloudKit re-push for a feature that, until the user opts in,
+    /// changes nothing: a `NULL` rule reads as `.exact` through `BusinessDayRule.fromStored`, and a
+    /// `NULL unadjusted_date` reads as the row's own `date`. No existing date is ever rewritten.
+    ///
+    /// No index either - neither column is ever a query predicate.
+    private func migrateBusinessDayColumns() throws {
+        try addColumnIfNotExists(
+            table: "Transactions", column: "business_day_rule", definition: "TEXT")
+        try addColumnIfNotExists(
+            table: "Transactions", column: "unadjusted_date", definition: "INTEGER")
+
+        // Which occurrence of its series a row IS - the month anchor it was scheduled for.
+        //
+        // This exists because `budget_month_date` was doing two incompatible jobs: identifying the
+        // occurrence, and deciding which budget it counts against. Those are the same value only
+        // while nothing moves a date across a month boundary. A business-day rule does exactly that,
+        // and then:
+        //   - anchoring identity to the scheduled month makes the row count in the wrong budget;
+        //   - anchoring it to the landing month empties the scheduled month's slot, so the generator
+        //     sees a missing occurrence and creates a duplicate.
+        // Splitting them lets `budget_month_date` follow the date the money actually moves while
+        // identity stays put. Two rows sharing a `budget_month_date` is now legal.
+        //
+        // Nullable with no backfill: every reader takes `COALESCE(series_period, budget_month_date)`,
+        // which is exactly right for existing rows because nothing has ever shifted them.
+        try addColumnIfNotExists(
+            table: "Transactions", column: "series_period", definition: "INTEGER")
     }
 
     /// Deterministic per-record version for conflict resolution. `rev` is a logical clock
@@ -3482,7 +3640,8 @@ class DBHelper {
           SELECT id, title, category, type, amount, date, budget_month_date,
                  is_recurring, has_installments, parent_transaction_id,
                  installment_number, total_installments, original_amount,
-                 credit_card_id, statement_id, is_credit_card_statement, created_by_uid
+                 credit_card_id, statement_id, is_credit_card_statement, created_by_uid,
+                 business_day_rule, unadjusted_date, series_period
           FROM Transactions
           WHERE user_id = ? AND shared_group_id IS NULL
             AND (is_deleted IS NULL OR is_deleted = 0);
@@ -3547,6 +3706,7 @@ class DBHelper {
         }
 
         let columnCount = sqlite3_column_count(statement)
+        let columns = columnIndices(statement)
         var results: [Transaction] = []
 
         while sqlite3_step(statement) == SQLITE_ROW {
@@ -3557,6 +3717,9 @@ class DBHelper {
             let amount = Int(sqlite3_column_int64(statement, 4))
             let ts = Int(sqlite3_column_int64(statement, 5))
             let monthAnchor = Int(sqlite3_column_int64(statement, 6))
+
+            let businessDay = readBusinessDayColumns(
+                statement, columns, dateTimestamp: ts, budgetMonthDate: monthAnchor)
 
             let isRecurring: Bool? =
             sqlite3_column_type(statement, 7) == SQLITE_NULL
@@ -3589,11 +3752,19 @@ class DBHelper {
             let createdByUid: String? = columnCount > 16 && sqlite3_column_type(statement, 16) != SQLITE_NULL
             ? String(cString: sqlite3_column_text(statement, 16)) : nil
 
-            // Optional 18th column: `updated_at`. Only callers that need the real last-edit time
-            // select it (notably fetchPendingSync, which feeds the CloudKit push) — everything else
-            // keeps its existing 17-column shape and leaves this nil.
-            let updatedAt: Date? = columnCount > 17 && sqlite3_column_type(statement, 17) != SQLITE_NULL
-            ? Date(timeIntervalSince1970: TimeInterval(sqlite3_column_int64(statement, 17))) : nil
+            // Optional column: `updated_at`. Only callers that need the real last-edit time select it
+            // (notably fetchPendingSync, which feeds the CloudKit push); everything else leaves it nil.
+            //
+            // Looked up BY NAME. It used to be "whatever sits at index 17", which silently meant
+            // something else the moment another optional column was appended to a query — a TEXT rule
+            // read through `column_int64` would have produced a 1970 timestamp and pushed that to
+            // CloudKit as the row's last-edit time.
+            let updatedAt: Date? = {
+                guard let index = columns["updated_at"],
+                    sqlite3_column_type(statement, index) != SQLITE_NULL
+                else { return nil }
+                return Date(timeIntervalSince1970: TimeInterval(sqlite3_column_int64(statement, index)))
+            }()
 
             let dbData = DBTransactionData(
                 id: id, title: title, amount: amount, dateTimestamp: ts, budgetMonthDate: monthAnchor,
@@ -3605,6 +3776,9 @@ class DBHelper {
                 isCreditCardStatement: isCreditCardStatement,
                 updatedAt: updatedAt,
                 createdByUid: createdByUid,
+                businessDayRule: businessDay.rule,
+                unadjustedDateTimestamp: businessDay.unadjusted,
+                seriesPeriod: businessDay.seriesPeriod,
                 category: catKey, type: typeKey
             )
 
@@ -3644,6 +3818,7 @@ class DBHelper {
         }
 
         let columnCount = sqlite3_column_count(statement)
+        let columns = columnIndices(statement)
         var results: [Transaction] = []
 
         while sqlite3_step(statement) == SQLITE_ROW {
@@ -3654,6 +3829,9 @@ class DBHelper {
             let amount = Int(sqlite3_column_int64(statement, 4))
             let ts = Int(sqlite3_column_int64(statement, 5))
             let monthAnchor = Int(sqlite3_column_int64(statement, 6))
+
+            let businessDay = readBusinessDayColumns(
+                statement, columns, dateTimestamp: ts, budgetMonthDate: monthAnchor)
 
             let isRecurring: Bool? =
             sqlite3_column_type(statement, 7) == SQLITE_NULL
@@ -3686,11 +3864,19 @@ class DBHelper {
             let createdByUid: String? = columnCount > 16 && sqlite3_column_type(statement, 16) != SQLITE_NULL
             ? String(cString: sqlite3_column_text(statement, 16)) : nil
 
-            // Optional 18th column: `updated_at`. Only callers that need the real last-edit time
-            // select it (notably fetchPendingSync, which feeds the CloudKit push) — everything else
-            // keeps its existing 17-column shape and leaves this nil.
-            let updatedAt: Date? = columnCount > 17 && sqlite3_column_type(statement, 17) != SQLITE_NULL
-            ? Date(timeIntervalSince1970: TimeInterval(sqlite3_column_int64(statement, 17))) : nil
+            // Optional column: `updated_at`. Only callers that need the real last-edit time select it
+            // (notably fetchPendingSync, which feeds the CloudKit push); everything else leaves it nil.
+            //
+            // Looked up BY NAME. It used to be "whatever sits at index 17", which silently meant
+            // something else the moment another optional column was appended to a query — a TEXT rule
+            // read through `column_int64` would have produced a 1970 timestamp and pushed that to
+            // CloudKit as the row's last-edit time.
+            let updatedAt: Date? = {
+                guard let index = columns["updated_at"],
+                    sqlite3_column_type(statement, index) != SQLITE_NULL
+                else { return nil }
+                return Date(timeIntervalSince1970: TimeInterval(sqlite3_column_int64(statement, index)))
+            }()
 
             let dbData = DBTransactionData(
                 id: id, title: title, amount: amount, dateTimestamp: ts, budgetMonthDate: monthAnchor,
@@ -3702,6 +3888,9 @@ class DBHelper {
                 isCreditCardStatement: isCreditCardStatement,
                 updatedAt: updatedAt,
                 createdByUid: createdByUid,
+                businessDayRule: businessDay.rule,
+                unadjustedDateTimestamp: businessDay.unadjusted,
+                seriesPeriod: businessDay.seriesPeriod,
                 category: catKey, type: typeKey
             )
 
@@ -4022,6 +4211,119 @@ class DBHelper {
 
     /// Returns rows as (Int, Int) pairs from a query that selects two integer columns.
     /// Used by lazy generation to collect (parentId, budgetMonthDate) for soft-deleted instances.
+    /// Read-only dump of every live recurring occurrence, for diagnosing why a repair matched nothing.
+    ///
+    /// Prints the four columns that decide an occurrence's fate - the date it shows, the month it
+    /// counts in, the slot it occupies, and whether a rule is attached - because a mismatch between
+    /// any of them is invisible from the UI.
+    func logRecurringOccurrenceDiagnostics(limit: Int = 60) {
+        guard isInitialized else { return }
+        let query = """
+            SELECT id, parent_transaction_id, title, date, budget_month_date, series_period,
+                   business_day_rule, unadjusted_date,
+                   CASE WHEN ck_record_id IS NULL THEN 0 ELSE 1 END
+              FROM Transactions
+             WHERE parent_transaction_id IS NOT NULL
+               AND (is_deleted IS NULL OR is_deleted = 0)
+             ORDER BY parent_transaction_id, budget_month_date, id
+             LIMIT ?;
+            """
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, query, -1, &stmt, nil) == SQLITE_OK else { return }
+        defer { sqlite3_finalize(stmt) }
+        sqlite3_bind_int64(stmt, 1, Int64(limit))
+
+        let fmt = DateFormatter()
+        fmt.dateFormat = "yyyy-MM-dd"
+        fmt.timeZone = TimeZone.current
+        func day(_ ts: Int) -> String {
+            fmt.string(from: Date(timeIntervalSince1970: TimeInterval(ts)))
+        }
+
+        var rows = 0
+        logWarning("[SeriesDiag] id | parent | date | budgetMonth | seriesPeriod | rule | unadjusted | synced")
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            rows += 1
+            let id = Int(sqlite3_column_int64(stmt, 0))
+            let parent = Int(sqlite3_column_int64(stmt, 1))
+            let title = String(cString: sqlite3_column_text(stmt, 2))
+            let date = Int(sqlite3_column_int64(stmt, 3))
+            let budgetMonth = Int(sqlite3_column_int64(stmt, 4))
+            let slot: String = sqlite3_column_type(stmt, 5) == SQLITE_NULL
+                ? "NULL" : day(Int(sqlite3_column_int64(stmt, 5)))
+            let rule: String = sqlite3_column_type(stmt, 6) == SQLITE_NULL
+                ? "NULL" : String(cString: sqlite3_column_text(stmt, 6))
+            let unadjusted: String = sqlite3_column_type(stmt, 7) == SQLITE_NULL
+                ? "NULL" : day(Int(sqlite3_column_int64(stmt, 7)))
+            let synced = sqlite3_column_int(stmt, 8) == 1
+            logWarning(
+                "[SeriesDiag] \(id) | \(parent) | \(day(date)) | \(day(budgetMonth)) | \(slot) "
+                    + "| \(rule) | \(unadjusted) | \(synced) | \(title)")
+        }
+        logWarning("[SeriesDiag] \(rows) recurring occurrence(s) listed")
+    }
+
+    /// Puts series occurrences back in the month they are scheduled for.
+    ///
+    /// A build in between counted them where the adjusted date landed, which made a month whose 1st
+    /// fell on a weekend show two occurrences and the next show none. `series_period` already records
+    /// the month each one is for, so the repair is just to copy it across.
+    ///
+    /// - Returns: how many rows moved.
+    @discardableResult
+    func repairSeriesAccountingMonths() -> Int {
+        guard isInitialized else { return 0 }
+        let now = Int(Date().timeIntervalSince1970)
+        // Marks the rows pending on purpose: this changes which budget they feed, so peers need it.
+        // One statement, so `updated_at` is stamped once and `markAsSynced` can settle them.
+        return executeSyncUpdateCount(
+            """
+            UPDATE Transactions
+               SET budget_month_date = series_period,
+                   sync_status = 'pending', ck_modified_at = ?, updated_at = ?
+             WHERE parent_transaction_id IS NOT NULL
+               AND id != parent_transaction_id
+               AND series_period IS NOT NULL
+               AND budget_month_date != series_period
+               AND (is_deleted IS NULL OR is_deleted = 0);
+            """,
+            intBindings: [now, now])
+    }
+
+    /// Every live recurring occurrence, as (parent, slot, id, whether CloudKit knows it).
+    ///
+    /// Excludes the series parent itself (`id = parent_transaction_id`) and installment children,
+    /// which are keyed by `installment_number` rather than by month.
+    func fetchRecurringOccurrenceSlots() -> [(parentId: Int, slot: Int, id: Int, isSynced: Bool)] {
+        guard isInitialized else { return [] }
+        let query = """
+            SELECT parent_transaction_id,
+                   COALESCE(series_period, budget_month_date),
+                   id,
+                   CASE WHEN ck_record_id IS NULL THEN 0 ELSE 1 END
+              FROM Transactions
+             WHERE parent_transaction_id IS NOT NULL
+               AND id != parent_transaction_id
+               AND installment_number IS NULL
+               AND (is_deleted IS NULL OR is_deleted = 0)
+             ORDER BY parent_transaction_id, 2, id;
+            """
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK else { return [] }
+        defer { sqlite3_finalize(statement) }
+
+        var rows: [(parentId: Int, slot: Int, id: Int, isSynced: Bool)] = []
+        while sqlite3_step(statement) == SQLITE_ROW {
+            rows.append((
+                parentId: Int(sqlite3_column_int64(statement, 0)),
+                slot: Int(sqlite3_column_int64(statement, 1)),
+                id: Int(sqlite3_column_int64(statement, 2)),
+                isSynced: sqlite3_column_int(statement, 3) == 1
+            ))
+        }
+        return rows
+    }
+
     func fetchIntIntPairs(_ query: String) -> [(Int, Int)] {
         guard isInitialized else { return [] }
         var statement: OpaquePointer?
@@ -5013,6 +5315,55 @@ class DBHelper {
         }
         sqlite3_bind_text(statement, 3, ckRecordName, -1, SQLITE_TRANSIENT)
         sqlite3_step(statement)
+    }
+
+    /// Maps a prepared statement's column names to their indices.
+    ///
+    /// The transaction sync readers are positional, and their trailing columns are *optional* -
+    /// `created_by_uid` at 16 and `updated_at` at 17 are only present for the callers that select
+    /// them. Appending a new column positionally would therefore mean a different thing per query.
+    /// Reading the business-day columns by name instead makes them independent of position: a query
+    /// that does not select them simply has no entry, and the row falls back to `.exact`.
+    private func columnIndices(_ statement: OpaquePointer?) -> [String: Int32] {
+        var map: [String: Int32] = [:]
+        for index in 0..<sqlite3_column_count(statement) {
+            guard let name = sqlite3_column_name(statement, index) else { continue }
+            map[String(cString: name)] = index
+        }
+        return map
+    }
+
+    /// The two business-day columns from wherever they happen to sit, or their defaults when the
+    /// query did not ask for them.
+    private func readBusinessDayColumns(
+        _ statement: OpaquePointer?, _ columns: [String: Int32], dateTimestamp: Int,
+        budgetMonthDate: Int
+    ) -> (rule: BusinessDayRule, unadjusted: Int, seriesPeriod: Int) {
+        let rule: BusinessDayRule = {
+            guard let index = columns["business_day_rule"],
+                sqlite3_column_type(statement, index) != SQLITE_NULL,
+                let text = sqlite3_column_text(statement, index)
+            else { return .exact }
+            return BusinessDayRule.fromStored(String(cString: text))
+        }()
+
+        let unadjusted: Int = {
+            guard let index = columns["unadjusted_date"],
+                sqlite3_column_type(statement, index) != SQLITE_NULL
+            else { return dateTimestamp }
+            return Int(sqlite3_column_int64(statement, index))
+        }()
+
+        // Falls back to the accounting month: for every row written before this column existed, and
+        // for every row that never shifts, the two are the same value.
+        let seriesPeriod: Int = {
+            guard let index = columns["series_period"],
+                sqlite3_column_type(statement, index) != SQLITE_NULL
+            else { return budgetMonthDate }
+            return Int(sqlite3_column_int64(statement, index))
+        }()
+
+        return (rule, unadjusted, seriesPeriod)
     }
 
     private func addColumnIfNotExists(table: String, column: String, definition: String) throws {

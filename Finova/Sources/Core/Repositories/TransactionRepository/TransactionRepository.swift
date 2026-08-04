@@ -302,7 +302,12 @@ final class TransactionRepository: TransactionRepositoryProtocol {
     templateTransaction: TransactionModel, existingTransaction: Transaction
   ) throws {
     let calendar = Calendar.current
-    let newDate = Date(timeIntervalSince1970: TimeInterval(templateTransaction.data.dateTimestamp))
+    // The template's UNADJUSTED date. Rebuilding from the stored (already shifted) one would move the
+    // whole series a few days further on every edit that touches the amount or the count.
+    let newDate = Date(
+      timeIntervalSince1970: TimeInterval(
+        templateTransaction.data.unadjustedDateTimestamp
+          ?? templateTransaction.data.dateTimestamp))
     let newTotalAmount = templateTransaction.data.amount
     let newNumberOfInstallments = templateTransaction.data.totalInstallments ?? 1
 
@@ -385,7 +390,19 @@ final class TransactionRepository: TransactionRepositoryProtocol {
 
     do {
       for i in 0..<newNumberOfInstallments {
-        let installmentDate = calendar.date(byAdding: .month, value: i, to: startDate) ?? startDate
+        // Through `OccurrenceDateCalculator` rather than raw `byAdding: .month`, so a rebuilt series
+        // lands on the same dates a freshly created one would: same day clamping for months that are
+        // too short, and the same noon anchoring that keeps a date from drifting across midnight.
+        let targetDate = calendar.date(byAdding: .month, value: i, to: startDate) ?? startDate
+        // The template's rule is carried into every rebuilt child. Without this a rebuild - changing
+        // the amount, say - would silently reset the whole series to `.exact`.
+        let installment = OccurrenceDateCalculator.occurrencePair(
+          from: startDate,
+          targetMonth: calendar.component(.month, from: targetDate),
+          targetYear: calendar.component(.year, from: targetDate),
+          rule: templateTransaction.data.businessDayRule,
+          calendar: calendar
+        )
         let installmentAmount = i == 0 ? baseAmount + remainder : baseAmount
 
         let installmentModel = TransactionModel(
@@ -394,14 +411,17 @@ final class TransactionRepository: TransactionRepositoryProtocol {
           category: templateTransaction.data.category,
           amount: installmentAmount,
           type: templateTransaction.data.type,
-          dateTimestamp: Int(installmentDate.timeIntervalSince1970),
-          budgetMonthDate: installmentDate.monthAnchor,
+          dateTimestamp: Int(installment.adjusted.timeIntervalSince1970),
+          budgetMonthDate: installment.unadjusted.monthAnchor,
           isRecurring: false,
           hasInstallments: false,
           parentTransactionId: mainInstallmentTransactionId,
           originalAmount: newTotalAmount,
           installmentNumber: i + 1,
-          totalInstallments: newNumberOfInstallments
+          totalInstallments: newNumberOfInstallments,
+          businessDayRule: templateTransaction.data.businessDayRule,
+          unadjustedDateTimestamp: Int(installment.unadjusted.timeIntervalSince1970),
+          seriesPeriod: installment.unadjusted.monthAnchor
         )
 
         let insertedId = try insertTransactionAndGetId(installmentModel)
@@ -412,7 +432,7 @@ final class TransactionRepository: TransactionRepositoryProtocol {
           if let prev = previousStatement {
             statement = creditCardService.nextStatement(after: prev, for: card, userId: uid)
           } else {
-            statement = creditCardService.getOrCreateStatement(for: card, transactionDate: installmentDate, userId: uid)
+            statement = creditCardService.getOrCreateStatement(for: card, transactionDate: installment.unadjusted, userId: uid)
           }
           if let statement = statement, let stmtId = statement.id {
             try updateCreditCardFields(
@@ -539,8 +559,9 @@ final class TransactionRepository: TransactionRepositoryProtocol {
       // doesn't immediately recreate it.
       if isRecurringTransaction {
         let parentId = transaction.parentTransactionId ?? id
+        // The occurrence SLOT, matching what regeneration checks against.
         RecurringTransactionManager.trackDeletedInstance(
-          parentId: parentId, monthAnchor: transaction.budgetMonthDate)
+          parentId: parentId, monthAnchor: transaction.seriesPeriod)
       }
 
     case .futureOnly:
@@ -805,7 +826,8 @@ final class TransactionRepository: TransactionRepositoryProtocol {
                is_recurring, has_installments, parent_transaction_id,
                installment_number, total_installments, original_amount,
                credit_card_id, statement_id, is_credit_card_statement, created_by_uid,
-               updated_at
+               updated_at,
+               business_day_rule, unadjusted_date, series_period
         FROM Transactions WHERE sync_status = 'pending' AND user_id = ? AND (is_deleted IS NULL OR is_deleted = 0);
         """
       return (try? db.executeTransactionQueryPublicText(query, textBindings: [uid])) ?? []
@@ -815,7 +837,8 @@ final class TransactionRepository: TransactionRepositoryProtocol {
              is_recurring, has_installments, parent_transaction_id,
              installment_number, total_installments, original_amount,
              credit_card_id, statement_id, is_credit_card_statement, created_by_uid,
-             updated_at
+             updated_at,
+             business_day_rule, unadjusted_date, series_period
       FROM Transactions WHERE sync_status = 'pending' AND (is_deleted IS NULL OR is_deleted = 0);
       """
     return (try? db.executeTransactionQueryPublic(query)) ?? []
@@ -1072,7 +1095,8 @@ final class TransactionRepository: TransactionRepositoryProtocol {
       SELECT id, title, category, type, amount, date, budget_month_date,
              is_recurring, has_installments, parent_transaction_id,
              installment_number, total_installments, original_amount,
-             credit_card_id, statement_id, is_credit_card_statement, created_by_uid
+             credit_card_id, statement_id, is_credit_card_statement, created_by_uid,
+      business_day_rule, unadjusted_date, series_period
       FROM Transactions WHERE id = ?;
       """
     return (try? db.executeTransactionQueryPublic(query, bindValues: [id]))?.first
@@ -1090,7 +1114,8 @@ final class TransactionRepository: TransactionRepositoryProtocol {
       SELECT id, title, category, type, amount, date, budget_month_date,
              is_recurring, has_installments, parent_transaction_id,
              installment_number, total_installments, original_amount,
-             credit_card_id, statement_id, is_credit_card_statement, created_by_uid
+             credit_card_id, statement_id, is_credit_card_statement, created_by_uid,
+      business_day_rule, unadjusted_date, series_period
       FROM Transactions
       WHERE title = ? AND amount = ? AND budget_month_date = ?
         AND parent_transaction_id IS NOT NULL AND is_deleted = 0
@@ -1108,7 +1133,8 @@ final class TransactionRepository: TransactionRepositoryProtocol {
       SELECT id, title, category, type, amount, date, budget_month_date,
              is_recurring, has_installments, parent_transaction_id,
              installment_number, total_installments, original_amount,
-             credit_card_id, statement_id, is_credit_card_statement, created_by_uid
+             credit_card_id, statement_id, is_credit_card_statement, created_by_uid,
+      business_day_rule, unadjusted_date, series_period
       FROM Transactions
       WHERE title = ? AND amount = ? AND budget_month_date = ?
         AND (is_deleted IS NULL OR is_deleted = 0)
@@ -1124,7 +1150,8 @@ final class TransactionRepository: TransactionRepositoryProtocol {
       SELECT id, title, category, type, amount, date, budget_month_date,
              is_recurring, has_installments, parent_transaction_id,
              installment_number, total_installments, original_amount,
-             credit_card_id, statement_id, is_credit_card_statement, created_by_uid
+             credit_card_id, statement_id, is_credit_card_statement, created_by_uid,
+      business_day_rule, unadjusted_date, series_period
       FROM Transactions
       WHERE parent_transaction_id = ? AND budget_month_date = ? AND is_deleted = 0
       LIMIT 1;
@@ -1137,7 +1164,8 @@ final class TransactionRepository: TransactionRepositoryProtocol {
       SELECT id, title, category, type, amount, date, budget_month_date,
              is_recurring, has_installments, parent_transaction_id,
              installment_number, total_installments, original_amount,
-             credit_card_id, statement_id, is_credit_card_statement, created_by_uid
+             credit_card_id, statement_id, is_credit_card_statement, created_by_uid,
+      business_day_rule, unadjusted_date, series_period
       FROM Transactions WHERE ck_record_id = ? AND (is_deleted IS NULL OR is_deleted = 0);
       """
     return (try? db.executeTransactionQueryPublicText(query, textBindings: [recordName]))?.first
@@ -1148,7 +1176,10 @@ final class TransactionRepository: TransactionRepositoryProtocol {
   /// Used by lazy generation to prevent recreating instances the user intentionally deleted.
   func fetchDeletedChildAnchors() -> [Int: Set<Int>] {
     let pairs = db.fetchIntIntPairs(
-      "SELECT parent_transaction_id, budget_month_date FROM Transactions WHERE is_deleted = 1 AND parent_transaction_id IS NOT NULL;"
+      // The tombstone's SLOT, not its accounting month: regeneration asks "is this occurrence
+      // missing?", and a deleted occurrence whose date had been shifted into another month would
+      // otherwise look like a different one and be recreated.
+      "SELECT parent_transaction_id, COALESCE(series_period, budget_month_date) FROM Transactions WHERE is_deleted = 1 AND parent_transaction_id IS NOT NULL;"
     )
     var result: [Int: Set<Int>] = [:]
     for (parentId, anchor) in pairs {
@@ -1205,7 +1236,8 @@ final class TransactionRepository: TransactionRepositoryProtocol {
       SELECT id, title, category, type, amount, date, budget_month_date,
              is_recurring, has_installments, parent_transaction_id,
              installment_number, total_installments, original_amount,
-             credit_card_id, statement_id, is_credit_card_statement, created_by_uid
+             credit_card_id, statement_id, is_credit_card_statement, created_by_uid,
+      business_day_rule, unadjusted_date, series_period
       FROM Transactions WHERE shared_group_id = ? AND (is_deleted IS NULL OR is_deleted = 0);
       """
     return (try? db.executeTransactionQueryPublicText(query, textBindings: [groupId])) ?? []

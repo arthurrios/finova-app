@@ -50,15 +50,19 @@ enum CloudKitSchemaFlags {
     /// not happened - tags stop travelling, nothing else changes.
     static let allocationTagBookDeployed = true
 
-    /// Whether `businessDaySchema`, `businessDayRule` and `unadjustedDate` exist on the `Transaction`
-    /// record in the production schema.
+    /// Whether `businessDaySchema`, `businessDayRule`, `unadjustedDate` and `seriesPeriod` exist on
+    /// the `Transaction` record in the production schema.
     ///
     /// Fields on an existing record type, so the warning above applies in full: these travel in
     /// `pushBatches`, and one undeployed field stops every remaining save batch.
     ///
-    /// While `false`, business-day adjustment works correctly on the device that sets it - `date`
-    /// already carries the adjusted value and syncs normally - but the *rule* does not travel. A
-    /// second device shows the right dates for occurrences that already exist, and generates any
-    /// further months unadjusted until this is on. That self-heals once both devices have the field.
-    static let businessDayFieldsDeployed = false
+    /// **`seriesPeriod` is the one that must not be missing.** It is which occurrence of a series a
+    /// row is, as distinct from which month it counts in - the two diverge whenever a business-day
+    /// rule moves a date across a month boundary. If it does not travel, a device that shifted an
+    /// occurrence into the previous month and a peer reading only `budgetMonthDate` disagree about
+    /// which occurrence the row is, the peer sees its slot as empty, and regeneration produces a
+    /// duplicate. The other three are merely degraded without it; this one corrupts.
+    ///
+    /// Deployed to the production schema on 2026-08-04.
+    static let businessDayFieldsDeployed = true
 }

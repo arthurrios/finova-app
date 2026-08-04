@@ -89,6 +89,22 @@ extension Transaction: CKRecordConvertible {
             }
         }
 
+        // Business-day adjustment. `businessDaySchema` plays the same role as `earlyPaymentSchema`:
+        // it tells the receiver that this sender KNOWS about the rule, so an absent value means
+        // `.exact` rather than "an older build that has never heard of one". Without it a legacy peer
+        // re-pushing an untouched row would reset the rule on every device that has it.
+        //
+        // `date` is deliberately NOT gated - it already carries the adjusted value, so an older
+        // client shows the right day even while the rule itself cannot travel.
+        if CloudKitSchemaFlags.businessDayFieldsDeployed {
+            record["businessDaySchema"] = 1 as CKRecordValue
+            record["businessDayRule"] = businessDayRule.rawValue as CKRecordValue
+            record["seriesPeriod"] = seriesPeriod as CKRecordValue
+            record["unadjustedDate"] =
+                Date(timeIntervalSince1970: TimeInterval(unadjustedDateTimestamp ?? dateTimestamp))
+                as CKRecordValue
+        }
+
         // Stable, device-independent identity and relationships.
         //
         // These are what let the receiving device resolve a reference REGARDLESS of arrival order.

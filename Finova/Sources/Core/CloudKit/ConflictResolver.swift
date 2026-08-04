@@ -71,6 +71,19 @@ final class ConflictResolver {
                     )
                     : nil
             )
+
+            // Same gating for the business-day rule, and for the same reason: silence from a peer
+            // that HAS the field means `.exact`, silence from an older one means "don't know" and
+            // must leave the local rule alone. `DBHelper.updateTransaction` deliberately does not
+            // touch these columns either, so an ordinary row apply cannot clobber them.
+            if (ckRecord["businessDaySchema"] as? Int ?? 0) >= 1 {
+                db.applyInboundBusinessDayRule(
+                    ckRecordName: ckRecord.recordID.recordName,
+                    rule: BusinessDayRule.fromStored(ckRecord["businessDayRule"] as? String),
+                    unadjustedDate: ckRecord["unadjustedDate"] as? Date,
+                    seriesPeriod: ckRecord["seriesPeriod"] as? Int
+                )
+            }
         }
     }
 
