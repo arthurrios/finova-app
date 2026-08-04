@@ -89,7 +89,13 @@ final class BudgetGroupsViewController: UIViewController {
         let createAction = UIAlertAction(title: "budgetGroups.create.button".localized, style: .default) { [weak self, weak alert] _ in
             guard let name = alert?.textFields?.first?.text?.trimmingCharacters(in: .whitespacesAndNewlines),
                   !name.isEmpty else { return }
-            self?.viewModel.createGroup(name: name)
+            guard let self else { return }
+            // Creating a group is a CloudKit round-trip; without this the sheet closed onto an
+            // unchanged list and the group appeared seconds later with no explanation.
+            LoadingManager.shared.showLoading(on: self)
+            self.viewModel.createGroup(name: name) { _ in
+                LoadingManager.shared.hideLoading()
+            }
         }
 
         alert.addAction(createAction)

@@ -150,6 +150,33 @@ final class StatementDetailsViewModel {
         }
     }
 
+    /// Async variants of the two deletes above.
+    ///
+    /// Both are batch operations - "all occurrences" removes tens of rows, each with its own
+    /// statement recalculation and CloudKit soft-delete - so running them inline blocked the main
+    /// thread for the whole series and let the caller navigate away mid-delete.
+    func deleteTransactionAsync(
+        _ transaction: Transaction, completion: @escaping (Result<Void, Error>) -> Void
+    ) {
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self else { return }
+            let result = self.deleteTransaction(transaction)
+            DispatchQueue.main.async { completion(result) }
+        }
+    }
+
+    func deleteTransactionWithOptionAsync(
+        transactionId: Int,
+        option: RecurringCleanupOption,
+        completion: @escaping (Result<Void, Error>) -> Void
+    ) {
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self else { return }
+            let result = self.deleteTransactionWithOption(transactionId: transactionId, option: option)
+            DispatchQueue.main.async { completion(result) }
+        }
+    }
+
     func deleteTransactionWithOption(
         transactionId: Int,
         option: RecurringCleanupOption

@@ -152,16 +152,22 @@ extension StatementDetailsViewController: StatementDetailsViewDelegate {
     }
 
     private func performTransactionDelete(transaction: Transaction) {
-        let result = viewModel.deleteTransaction(transaction)
+        // The swipe action's completion, the reload and the navigation all wait for the delete to
+        // finish - previously the row animated away while the rows behind it were still being written.
+        LoadingManager.shared.showLoading(on: self)
+        viewModel.deleteTransactionAsync(transaction) { [weak self] result in
+            guard let self else { return }
+            LoadingManager.shared.hideLoading()
 
-        switch result {
-        case .success:
-            pendingDeleteCompletion?(true)
-            pendingDeleteCompletion = nil
-            handleSuccessfulDeletion()
-        case .failure:
-            pendingDeleteCompletion?(false)
-            pendingDeleteCompletion = nil
+            switch result {
+            case .success:
+                self.pendingDeleteCompletion?(true)
+                self.pendingDeleteCompletion = nil
+                self.handleSuccessfulDeletion()
+            case .failure:
+                self.pendingDeleteCompletion?(false)
+                self.pendingDeleteCompletion = nil
+            }
         }
     }
 
@@ -175,17 +181,22 @@ extension StatementDetailsViewController: StatementDetailsViewDelegate {
             return
         }
 
-        let result = viewModel.deleteTransactionWithOption(
-            transactionId: transactionId, option: option)
+        LoadingManager.shared.showLoading(on: self)
+        viewModel.deleteTransactionWithOptionAsync(
+            transactionId: transactionId, option: option
+        ) { [weak self] result in
+            guard let self else { return }
+            LoadingManager.shared.hideLoading()
 
-        switch result {
-        case .success:
-            pendingDeleteCompletion?(true)
-            pendingDeleteCompletion = nil
-            handleSuccessfulDeletion()
-        case .failure:
-            pendingDeleteCompletion?(false)
-            pendingDeleteCompletion = nil
+            switch result {
+            case .success:
+                self.pendingDeleteCompletion?(true)
+                self.pendingDeleteCompletion = nil
+                self.handleSuccessfulDeletion()
+            case .failure:
+                self.pendingDeleteCompletion?(false)
+                self.pendingDeleteCompletion = nil
+            }
         }
     }
 

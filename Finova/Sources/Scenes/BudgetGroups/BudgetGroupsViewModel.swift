@@ -46,14 +46,18 @@ final class BudgetGroupsViewModel {
         onGroupsUpdated?()
     }
 
-    func createGroup(name: String) {
+    /// `completion` fires after the CloudKit round-trip AND the reload, so the caller can keep a
+    /// loading state up for the whole thing rather than dismissing while the group is still being made.
+    func createGroup(name: String, completion: ((Bool) -> Void)? = nil) {
         groupService.createGroup(name: name) { [weak self] result in
             DispatchQueue.main.async {
                 switch result {
                 case .success:
                     self?.loadGroups()
+                    completion?(true)
                 case .failure(let error):
                     self?.onError?(error.localizedDescription)
+                    completion?(false)
                 }
             }
         }

@@ -198,18 +198,24 @@ extension BudgetAllocationDetailsViewController: BudgetAllocationDetailsViewDele
     }
 
     private func performTransactionDelete(transaction: Transaction) {
-        let result = viewModel.deleteTransaction(transaction)
+        // The refresh and the flow callback wait for the whole delete - previously the row animated
+        // away while the rest of the series was still being written.
+        LoadingManager.shared.showLoading(on: self)
+        viewModel.deleteTransactionAsync(transaction) { [weak self] result in
+            guard let self else { return }
+            LoadingManager.shared.hideLoading()
 
-        switch result {
-        case .success:
-            pendingDeleteCompletion?(true)
-            pendingDeleteCompletion = nil
-            mainView.refreshTransactions(with: viewModel)
-            flowDelegate?.didUpdateAllocation()
-        case .failure(let error):
-            pendingDeleteCompletion?(false)
-            pendingDeleteCompletion = nil
-            showErrorAlert(error)
+            switch result {
+            case .success:
+                self.pendingDeleteCompletion?(true)
+                self.pendingDeleteCompletion = nil
+                self.mainView.refreshTransactions(with: self.viewModel)
+                self.flowDelegate?.didUpdateAllocation()
+            case .failure(let error):
+                self.pendingDeleteCompletion?(false)
+                self.pendingDeleteCompletion = nil
+                self.showErrorAlert(error)
+            }
         }
     }
 
@@ -228,21 +234,25 @@ extension BudgetAllocationDetailsViewController: BudgetAllocationDetailsViewDele
             return
         }
 
-        let result = viewModel.deleteTransactionWithOption(
+        LoadingManager.shared.showLoading(on: self)
+        viewModel.deleteTransactionWithOptionAsync(
             transactionId: transactionId,
             option: option
-        )
+        ) { [weak self] result in
+            guard let self else { return }
+            LoadingManager.shared.hideLoading()
 
-        switch result {
-        case .success:
-            pendingDeleteCompletion?(true)
-            pendingDeleteCompletion = nil
-            mainView.refreshTransactions(with: viewModel)
-            flowDelegate?.didUpdateAllocation()
-        case .failure(let error):
-            pendingDeleteCompletion?(false)
-            pendingDeleteCompletion = nil
-            showErrorAlert(error)
+            switch result {
+            case .success:
+                self.pendingDeleteCompletion?(true)
+                self.pendingDeleteCompletion = nil
+                self.mainView.refreshTransactions(with: self.viewModel)
+                self.flowDelegate?.didUpdateAllocation()
+            case .failure(let error):
+                self.pendingDeleteCompletion?(false)
+                self.pendingDeleteCompletion = nil
+                self.showErrorAlert(error)
+            }
         }
     }
 
