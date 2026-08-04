@@ -141,21 +141,35 @@ struct AllocationBalanceProjection: Equatable {
     /// How far the allocations exceed the balance, or zero when they don't.
     var shortfall: Int { isOverCommitted ? abs(projected) : 0 }
 
-    /// Normalised widths for the two-segment bar: of the money actually spent, how much stayed
-    /// inside its allocation against how much broke out of it. Sums to 1, or is all-zero before
-    /// anything has been spent.
+    /// Normalised widths for the three-segment bar, comparing the block's three quantities against each
+    /// other. Sums to 1 whenever any of them is non-zero, and is all-zero otherwise so the bare track
+    /// shows through.
     ///
-    /// Tense-independent, and deliberately built from *spent* money rather than from `totalSaved`.
-    /// An open month cannot have saved anything yet - an unspent allocation is money the user plans
-    /// to spend, so counting it as kept would show a figure that erodes as the month fills in.
-    /// Plan adherence is true at every point in the month, and stays true once it closes.
-    var barShares: (withinPlan: CGFloat, beyondPlan: CGFloat) {
-        let total = usedWithinAllocations + overspent
-        guard total > 0 else { return (0, 0) }
+    /// - `projected`: what the balance is left with once the plan plays out. **Not** the saved amount -
+    ///   savings have already come out of it - which is why it takes the outgoing colour and not green.
+    /// - `saved`: `totalSaved`, money still sitting in the account: budget earmarked but not spent, plus
+    ///   the cap never earmarked at all.
+    /// - `overspent`: what broke out of the plan - category overruns plus spending with no plan behind it.
+    ///
+    /// Two earlier versions of this bar got the question wrong, so both are worth naming. It first
+    /// plotted plan *adherence* - of money spent, how much stayed inside its allocation - which came out
+    /// almost entirely green on any well-behaved month and so read as "all of this is saved". It then
+    /// plotted `projected` in green against the outgoing remainder, which put the biggest slice in the
+    /// colour meaning "saved" while the actual saved figure went unshown.
+    ///
+    /// A comparison, not a partition: `projected` and `saved` both derive from `unspentAllocations`, so
+    /// they do not add up to `base` and are not meant to.
+    var barShares: (projected: CGFloat, saved: CGFloat, overspent: CGFloat) {
+        // A negative projection has no width. The shortfall is named in the block's caption instead.
+        let survives = max(0, projected)
+        let total = survives + totalSaved + overspent
+        guard total > 0 else { return (0, 0, 0) }
+
         let divisor = CGFloat(total)
         return (
-            withinPlan: CGFloat(usedWithinAllocations) / divisor,
-            beyondPlan: CGFloat(overspent) / divisor
+            projected: CGFloat(survives) / divisor,
+            saved: CGFloat(totalSaved) / divisor,
+            overspent: CGFloat(overspent) / divisor
         )
     }
 }

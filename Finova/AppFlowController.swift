@@ -552,6 +552,54 @@ extension AppFlowController: BudgetsFlowDelegate {
     func navBackToDashboard() {
         navigationController?.popViewController(animated: true)
     }
+
+    func navigateToAllocationTags() {
+        let viewController = viewControllersFactory.makeAllocationTagsViewController(flowDelegate: self)
+        navigationController?.pushViewController(viewController, animated: true)
+    }
+}
+
+// MARK: - Allocation Tags Flow
+extension AppFlowController {
+    /// Reached from the `+` chip at the end of the dashboard's tag strip. Uses the same prompt as the
+    /// Tags list and lands in the same place - the edit screen - because a tag with no linked categories
+    /// changes nothing on the card the user just tapped from.
+    func presentCreateAllocationTag() {
+        guard let presenter = navigationController?.topViewController else { return }
+        AllocationTagCreationPrompt.present(from: presenter) { [weak self] tag in
+            self?.navigateToAllocationTagEdit(tag: tag)
+        }
+    }
+}
+
+extension AppFlowController: AllocationTagsFlowDelegate {
+    func dismissAllocationTags() {
+        navigationController?.popViewController(animated: true)
+    }
+
+    func navigateToAllocationTagEdit(tag: AllocationTag) {
+        let viewController = viewControllersFactory.makeAllocationTagEditViewController(
+            flowDelegate: self, tag: tag)
+        navigationController?.pushViewController(viewController, animated: true)
+    }
+}
+
+extension AppFlowController: AllocationTagEditFlowDelegate {
+    func dismissAllocationTagEdit() {
+        navigationController?.popViewController(animated: true)
+    }
+
+    func navigateToAllocationTagCategories(tag: AllocationTag) {
+        let viewController = viewControllersFactory.makeAllocationTagCategoriesViewController(
+            flowDelegate: self, tag: tag)
+        navigationController?.pushViewController(viewController, animated: true)
+    }
+}
+
+extension AppFlowController: AllocationTagCategoriesFlowDelegate {
+    func dismissAllocationTagCategories() {
+        navigationController?.popViewController(animated: true)
+    }
 }
 
 // MARK: - Add Transaction Modal Flow

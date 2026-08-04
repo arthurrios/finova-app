@@ -31,6 +31,8 @@ final class BudgetCard: UIView {
     private var currentMonthAnchor: Int = 0
     private var isValuesHidden: Bool = false
     private var projection: AllocationBalanceProjection?
+    private var tagBreakdown: AllocationTagBreakdown = .empty
+    private var selectedTagId: String?
     private var balanceBasis: BalanceBasis?
     private var currentUsedValue: Int?
     private var currentBudgetLimit: Int?
@@ -595,12 +597,27 @@ final class BudgetCard: UIView {
         unallocatedSummary: UnallocatedBudgetSummary,
         unallocatedSpending: [UnallocatedCategorySpending],
         monthAnchor: Int,
-        monthData: MonthBudgetCardType? = nil
+        monthData: MonthBudgetCardType? = nil,
+        tagBreakdown: AllocationTagBreakdown = .empty
     ) {
         self.allocations = allocations
         self.unallocatedSummary = unallocatedSummary
         self.unallocatedSpending = unallocatedSpending
         self.currentMonthAnchor = monthAnchor
+
+        // Always hand the donut a populated breakdown, even when there are no tags: it drives slice
+        // order from it, so leaving it empty would mean a second rendering path to keep in step. A
+        // caller that passes none - the layout tests - gets a tagless one built from the same values.
+        self.tagBreakdown =
+            tagBreakdown.segments.isEmpty
+            ? AllocationTagBreakdown(
+                allocations: allocations,
+                unallocatedSpending: unallocatedSpending,
+                unallocatedHeadroom: unallocatedSummary.unallocatedAmount,
+                totalBudget: unallocatedSummary.totalBudget,
+                tags: [],
+                categoryTagIds: [:])
+            : tagBreakdown
 
         // Retained so `updateValuesDisplay()` can refresh the spend gauge and the footer without
         // `monthData` in scope.
@@ -809,13 +826,19 @@ final class BudgetCard: UIView {
 
         projectionTextLabel.text = caption
 
-        // Of what was spent, how much stayed inside its allocation. Proportions, not amounts, so
-        // the bar survives value-hiding; before anything is spent both shares are zero and the
-        // bare grey track shows through.
+        // Three quantities, compared: what the balance ends up with, what is being saved, what broke out
+        // of the plan. Proportions, not amounts, so the bar survives value-hiding; with nothing to
+        // divide every share is zero and the bare grey track shows through.
+        //
+        // The projected slice is magenta, not green. It is what remains *after* savings come out of it,
+        // so it is not the saved figure, and green here would claim the whole balance is being kept -
+        // which is exactly what the two earlier versions of this bar wrongly said. Magenta matches the
+        // spend gauge along the card's bottom edge, which plots the same idea.
         let shares = projection.barShares
         projectionBar.setSegments([
-            SegmentedBarView.Segment(share: shares.withinPlan, color: Colors.brightGreen),
-            SegmentedBarView.Segment(share: shares.beyondPlan, color: Colors.brightRed),
+            SegmentedBarView.Segment(share: shares.projected, color: Colors.mainMagenta),
+            SegmentedBarView.Segment(share: shares.saved, color: Colors.brightGreen),
+            SegmentedBarView.Segment(share: shares.overspent, color: Colors.brightRed),
         ])
 
         guard !isValuesHidden else {
@@ -839,11 +862,12 @@ final class BudgetCard: UIView {
 
         var spokenParts = [caption, valueText]
 
-        // The bar carries no visible legend at this width, so spell its two sides out here.
-        if projection.usedWithinAllocations > 0 {
+        // The bar carries no visible legend at this width, so name its green and red sides. The magenta
+        // side is the headline immediately above, so repeating it would only pad.
+        if projection.totalSaved > 0 {
             spokenParts.append(
-                "budget.plan.within.label".localized + " "
-                    + projection.usedWithinAllocations.compactCurrencyString)
+                "budget.projection.saved.format".localized(
+                    projection.totalSaved.compactCurrencyString))
         }
         if projection.overspent > 0 {
             spokenParts.append(
@@ -896,6 +920,45 @@ final class BudgetCard: UIView {
         noBudgetStateView.isHidden = false
     }
 
+    @available(iOS 17.0, *)
+    private func makeChartView() -> BudgetDonutChartView {
+        BudgetDonutChartView(
+            allocations: allocations,
+            totalBudget: unallocatedSummary?.totalBudget ?? 0,
+            unallocatedAmount: unallocatedSummary?.unallocatedAmount ?? 0,
+            unallocatedSpending: unallocatedSpending,
+            breakdown: tagBreakdown,
+            selectedTagId: selectedTagId,
+            isValuesHidden: isValuesHidden,
+            onSegmentTapped: { [weak self] category in
+                self?.delegate?.didSelectAllocationCategory(category)
+            },
+            onUnallocatedSpendingTapped: { [weak self] spending in
+                self?.delegate?.didTapUnallocatedSpending(spending)
+            },
+            onTagSelected: { [weak self] tagId in
+                self?.delegate?.didSelectAllocationTag(tagId)
+            }
+        )
+    }
+
+    /// Applies a tag selection without tearing the chart down.
+    ///
+    /// Mutates `rootView` rather than calling `embedChart()`: re-embedding replaces the
+    /// `UIHostingController` on every chip tap, which flickers the donut and throws away the SwiftUI
+    /// `@State` holding the drilled-in slice.
+    func setSelectedTag(_ tagId: String?) {
+        guard selectedTagId != tagId else { return }
+        selectedTagId = tagId
+
+        guard #available(iOS 17.0, *) else { return }
+        if let hosting = chartHostingController as? UIHostingController<BudgetDonutChartView> {
+            hosting.rootView = makeChartView()
+        } else {
+            embedChart()
+        }
+    }
+
     private func embedChart() {
         // Remove existing chart if any
         chartHostingController?.view.removeFromSuperview()
@@ -903,21 +966,7 @@ final class BudgetCard: UIView {
 
         guard #available(iOS 17.0, *) else { return }
 
-        let chartView = BudgetDonutChartView(
-            allocations: allocations,
-            totalBudget: unallocatedSummary?.totalBudget ?? 0,
-            unallocatedAmount: unallocatedSummary?.unallocatedAmount ?? 0,
-            unallocatedSpending: unallocatedSpending,
-            isValuesHidden: isValuesHidden,
-            onSegmentTapped: { [weak self] category in
-                self?.delegate?.didSelectAllocationCategory(category)
-            },
-            onUnallocatedSpendingTapped: { [weak self] spending in
-                self?.delegate?.didTapUnallocatedSpending(spending)
-            }
-        )
-
-        let hostingController = UIHostingController(rootView: chartView)
+        let hostingController = UIHostingController(rootView: makeChartView())
         hostingController.view.backgroundColor = .clear
         hostingController.view.translatesAutoresizingMaskIntoConstraints = false
 
