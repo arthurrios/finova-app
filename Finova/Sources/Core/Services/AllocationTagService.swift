@@ -155,13 +155,33 @@ final class AllocationTagService {
     }
 
     /// Single write path: persist, refresh the cache from what was actually stored (so callers see the
-    /// sanitised truth rather than their own optimistic copy), then notify.
+    /// sanitised truth rather than their own optimistic copy), notify, then send it up.
     private func commit(_ book: AllocationTagBook) {
         store.save(book)
         cached = nil
         cachedUid = nil
         _ = self.book
 
+        NotificationCenter.default.post(name: .allocationTagsChanged, object: nil)
+
+        // Fire and forget: the book is already saved locally, so a failed push costs nothing but a delay
+        // until the next sync. Bursts of edits coalesce inside the syncer rather than racing each other.
+        cloudSync?.push()
+    }
+
+    // MARK: - Cloud
+
+    /// Injected rather than constructed here so the service stays testable without CloudKit, and so a
+    /// build with no cloud configured simply has no syncer.
+    weak var cloudSync: AllocationTagBookSync?
+
+    /// Replaces the local book with one that arrived from CloudKit. Bypasses `commit`, which would stamp
+    /// a new `updatedAt` and push it straight back.
+    func adoptFromCloud(_ book: AllocationTagBook) {
+        store.adopt(book)
+        cached = nil
+        cachedUid = nil
+        _ = self.book
         NotificationCenter.default.post(name: .allocationTagsChanged, object: nil)
     }
 }

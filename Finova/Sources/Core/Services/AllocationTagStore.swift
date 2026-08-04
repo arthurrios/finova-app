@@ -19,6 +19,17 @@ protocol AllocationTagStoring: AnyObject {
     func load() -> AllocationTagBook
     /// A no-op when the loaded book could not be trusted; see `UserDefaultsAllocationTagStore`.
     func save(_ book: AllocationTagBook)
+
+    /// Writes a book that came from somewhere else, keeping the `updatedAt` it arrived with.
+    ///
+    /// Separate from `save` because `save` stamps `Date()` - correct for a local edit, and wrong for a
+    /// cloud one: re-stamping would make every pulled book look newer than the peer that wrote it, so
+    /// two devices would ping-pong, each adopting the other and then claiming to be the later writer.
+    func adopt(_ book: AllocationTagBook)
+
+    /// The archived `CKRecord` for the book, so a push can carry the server's change tag without
+    /// fetching first. Nil until the record has been seen once.
+    var cloudSystemFields: Data? { get set }
 }
 
 // MARK: - UserDefaults implementation
@@ -80,6 +91,16 @@ final class UserDefaultsAllocationTagStore: AllocationTagStoring {
     }
 
     func save(_ book: AllocationTagBook) {
+        var toStore = book
+        toStore.updatedAt = Date()
+        write(toStore)
+    }
+
+    func adopt(_ book: AllocationTagBook) {
+        write(book)
+    }
+
+    private func write(_ book: AllocationTagBook) {
         guard !isReadOnly else {
             logWarning("[AllocationTags] Refusing to write over a book that could not be read")
             return
@@ -89,20 +110,39 @@ final class UserDefaultsAllocationTagStore: AllocationTagStoring {
             return
         }
 
-        var toStore = book.sanitized()
-        toStore.updatedAt = Date()
-
         do {
-            defaults.set(try JSONEncoder().encode(toStore), forKey: key)
+            defaults.set(try JSONEncoder().encode(book.sanitized()), forKey: key)
         } catch {
             logError("[AllocationTags] Failed to encode tag book: \(error)")
         }
     }
 
+    /// Keyed per uid like the book itself: the change tag belongs to that account's record, and reusing
+    /// one account's tag against another's record is exactly the kind of cross-copy mix-up that has
+    /// caused data loss here before.
+    var cloudSystemFields: Data? {
+        get {
+            guard let uid = uidProvider(), !uid.isEmpty else { return nil }
+            return defaults.data(forKey: Self.systemFieldsKeyPrefix + uid)
+        }
+        set {
+            guard let uid = uidProvider(), !uid.isEmpty else { return }
+            let key = Self.systemFieldsKeyPrefix + uid
+            if let newValue {
+                defaults.set(newValue, forKey: key)
+            } else {
+                defaults.removeObject(forKey: key)
+            }
+        }
+    }
+
+    private static let systemFieldsKeyPrefix = "allocationTagBookCKFields_v1_"
+
     /// Exposed for the sign-out path only. Not part of `AllocationTagStoring`: deleting a user's
     /// groupings is a decision the account lifecycle makes, not something tag callers should reach for.
     func removeBook(forUid uid: String) {
         defaults.removeObject(forKey: Self.keyPrefix + uid)
+        defaults.removeObject(forKey: Self.systemFieldsKeyPrefix + uid)
     }
 
     private func storageKey() -> String? {
