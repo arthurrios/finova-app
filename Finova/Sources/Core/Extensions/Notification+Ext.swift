@@ -25,4 +25,5 @@ extension Notification.Name {
   static let syncPhaseProgressDidChange = Notification.Name("syncPhaseProgressDidChange")
   static let syncRequiresLoadingScreen = Notification.Name("syncRequiresLoadingScreen")
   static let localSyncableDataDidChange = Notification.Name("localSyncableDataDidChange")
+  static let allocationTagsChanged = Notification.Name("allocationTagsChanged")
 }
