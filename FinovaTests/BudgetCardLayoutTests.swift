@@ -201,8 +201,8 @@ final class BudgetCardLayoutTests: XCTestCase {
                 let name = projectionBlock.accessibilityIdentifier ?? "?"
 
                 let clearance = distance(from: center, to: projectionBlock.frame) - radius
-                XCTAssertGreaterThan(
-                    clearance, 0,
+                XCTAssertGreaterThanOrEqual(
+                    clearance, 4,
                     "block \(name) at \(projectionBlock.frame) overlaps the donut (r=\(radius)) at \(width)")
 
                 // The container clearing the donut is not enough: with .leading/.trailing stack
@@ -506,7 +506,7 @@ final class BudgetCardLayoutTests: XCTestCase {
         let closedBlock = block(BudgetCard.projectionBlockIdentifier, in: closed)!
 
         XCTAssertEqual(openBlock.bounds.height, 45, accuracy: 0.5, "3 rows")
-        XCTAssertEqual(closedBlock.bounds.height, 58, accuracy: 0.5, "4 rows")
+        XCTAssertEqual(closedBlock.bounds.height, 60, accuracy: 0.5, "4 rows at 12pt")
         XCTAssertEqual(open.bounds.height, expectedHeight, accuracy: 0.5)
         XCTAssertEqual(closed.bounds.height, expectedHeight, accuracy: 0.5)
     }
@@ -578,10 +578,86 @@ final class BudgetCardLayoutTests: XCTestCase {
         XCTAssertEqual(headlineValue(in: overspent)?.textColor, Colors.brightRed)
     }
 
-    // MARK: - Allocations header overspend
+    /// The line was bumped 10pt -> 12pt; the block grew to match, so it must still fit inside.
+    func testOutcomeLineFitsInsideTheBlock() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone.current
+        let past = calendar.date(byAdding: .month, value: -3, to: Date())!.monthAnchor
+
+        let card = makeCard(anchor: past)
+        let block = block(BudgetCard.projectionBlockIdentifier, in: card)!
+        let line = marginLabel(in: card)!
+
+        XCTAssertEqual(line.font.pointSize, 12, accuracy: 0.01)
+        XCTAssertTrue(
+            block.bounds.insetBy(dx: -0.5, dy: -0.5).contains(line.frame),
+            "outcome line \(line.frame) is clipped by block \(block.bounds)")
+    }
+
+    // MARK: - Allocations header saved / overspent
 
     private func headerOverspend(in cell: MonthCarouselCell) -> UILabel? {
         label(MonthCarouselCell.overspentTotalIdentifier, in: cell)
+    }
+
+    private func headerSaved(in cell: MonthCarouselCell) -> UILabel? {
+        label(MonthCarouselCell.savedTotalIdentifier, in: cell)
+    }
+
+    /// Both header figures are totals of what the list shows, so they add up from the rows: the
+    /// green arrows on one side, the red arrows plus greyed rows on the other.
+    func testHeaderShowsSavedAndOverspentAsListTotals() {
+        let cell = MonthCarouselCell()
+        cell.restoreBudgetViewState(
+            allocations: [
+                BudgetAllocation(dbId: 1, monthDate: 0, category: .meals,
+                                 allocatedAmount: 50_000, usedAmount: 53_060),   // 3.060 over
+                BudgetAllocation(dbId: 2, monthDate: 0, category: .transportation,
+                                 allocatedAmount: 30_000, usedAmount: 10_000),   // 20.000 under
+            ],
+            summary: UnallocatedBudgetSummary(
+                monthDate: 0, totalBudget: 350_000, totalAllocated: 80_000,
+                totalUsedInUnallocatedCategories: 0))
+
+        XCTAssertEqual(headerSaved(in: cell)?.text, "+" + 20_000.currencyString)
+        XCTAssertEqual(headerSaved(in: cell)?.textColor, Colors.mainGreen)
+        XCTAssertEqual(headerOverspend(in: cell)?.text, "-" + 3_060.currencyString)
+        XCTAssertEqual(headerOverspend(in: cell)?.textColor, Colors.mainRed)
+    }
+
+    /// The header total is the rows, not the card's `totalSaved` - that also counts unallocated
+    /// headroom, which has no row to add up.
+    func testHeaderSavedExcludesUnallocatedHeadroom() {
+        let cell = MonthCarouselCell()
+        let allocations = [
+            BudgetAllocation(dbId: 1, monthDate: 0, category: .meals,
+                             allocatedAmount: 50_000, usedAmount: 20_000),
+        ]
+        cell.restoreBudgetViewState(
+            allocations: allocations,
+            summary: UnallocatedBudgetSummary(
+                monthDate: 0, totalBudget: 350_000, totalAllocated: 50_000,
+                totalUsedInUnallocatedCategories: 0))
+
+        // 300.000 of headroom exists but must not appear here.
+        XCTAssertEqual(headerSaved(in: cell)?.text, "+" + 30_000.currencyString)
+        XCTAssertEqual(
+            AllocationBalanceProjection.unspent(allocations: allocations), 30_000)
+    }
+
+    func testHeaderSavedHidesWhenEveryAllocationIsFullyUsed() {
+        let cell = MonthCarouselCell()
+        cell.restoreBudgetViewState(
+            allocations: [
+                BudgetAllocation(dbId: 1, monthDate: 0, category: .meals,
+                                 allocatedAmount: 50_000, usedAmount: 50_000),
+            ],
+            summary: UnallocatedBudgetSummary(
+                monthDate: 0, totalBudget: 350_000, totalAllocated: 50_000,
+                totalUsedInUnallocatedCategories: 0))
+
+        XCTAssertTrue(headerSaved(in: cell)?.isHidden ?? false)
+        XCTAssertNil(headerSaved(in: cell)?.text)
     }
 
     /// An amount here is legitimate because both its terms are rows in the list below: category
