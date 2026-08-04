@@ -803,8 +803,15 @@ final class BudgetCard: UIView {
         }
         projectionBlock.isHidden = false
 
+        // The two corner blocks bracket one outcome rather than reporting two unrelated balances:
+        // the leading one is the balance if nothing more is drawn from the plan, this one is the
+        // balance if all of it is. The truth lands between, and the gap closes on its own - as the
+        // month fills in, `unspentAllocations` falls to zero and the two converge on the real
+        // closing balance. There is no room for a connector between them with the donut in the way,
+        // so the caption carries the assumption instead of describing the result.
+        //
         // A closed month holds what the allocations actually consumed - a spend figure, not a
-        // second balance - so it gets its own caption.
+        // second balance - so it keeps its own caption.
         let isActual = projection.tense == .actual
         projectionTextLabel.text = isActual
             ? "budget.projection.budgetUsed.label".localized
