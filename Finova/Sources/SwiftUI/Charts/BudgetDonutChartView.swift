@@ -18,11 +18,18 @@ struct BudgetDonutChartView: View {
     /// Slice order and, when tags exist, the inner ring. Always built by the caller from the same
     /// values as the properties above, so it is never out of step with them.
     var breakdown: AllocationTagBreakdown = .empty
+    var selectedTagId: String?
     var isValuesHidden: Bool = false
     var onSegmentTapped: ((TransactionCategory) -> Void)?
     var onUnallocatedSpendingTapped: ((UnallocatedCategorySpending) -> Void)?
+    /// `nil` clears the tag filter.
+    var onTagSelected: ((String?) -> Void)?
 
     @State private var rawSelectedValue: Int?
+    /// The plot rect, captured so a tap's radius can be measured. `chartAngleSelection` yields only a
+    /// scalar on the angular axis and so cannot tell the two rings apart; the radius is what does.
+    @State private var plotRect: CGRect = .zero
+    @State private var lastTapLocation: CGPoint?
     /// The selected slice's `AllocationTagBreakdown.Segment.id`, or nil.
     ///
     /// Replaced the old integer index, which walked `allocations` in array order and used -1 as a
@@ -139,12 +146,21 @@ struct BudgetDonutChartView: View {
     }
 
     private func opacity(for segment: AllocationTagBreakdown.Segment) -> Double {
-        guard let selectedSegmentID else { return baseOpacity(for: segment) }
-        if segment.id == selectedSegmentID {
-            // Headroom brightens on selection; the other kinds are already at their base.
-            return segment.kind == .headroom ? 1.0 : baseOpacity(for: segment)
+        // A drilled-in slice takes precedence over a selected tag, so tapping a member of the selected
+        // tag still reads as a selection rather than being flattened by it.
+        if let selectedSegmentID {
+            if segment.id == selectedSegmentID {
+                // Headroom brightens on selection; the other kinds are already at their base.
+                return segment.kind == .headroom ? 1.0 : baseOpacity(for: segment)
+            }
+            return 0.35
         }
-        return 0.35
+        if let selectedTagId {
+            // Headroom belongs to no tag, so it is always dimmed while one is selected.
+            guard segment.kind != .headroom else { return 0.35 }
+            return segment.tagId == selectedTagId ? baseOpacity(for: segment) : 0.28
+        }
+        return baseOpacity(for: segment)
     }
 
     /// Geometry of the category ring.
@@ -214,30 +230,68 @@ struct BudgetDonutChartView: View {
                         .frame(width: centerSize, height: centerSize)
                         .position(x: frame.midX, y: frame.midY)
                 }
+                .onAppear { plotRect = frame }
+                .onChange(of: frame) { _, newValue in plotRect = newValue }
             }
         }
+        // `simultaneousGesture`, so this coexists with Charts' own selection recogniser rather than
+        // replacing it: the angle comes from Charts and only the radius comes from here.
+        .simultaneousGesture(
+            SpatialTapGesture(coordinateSpace: .local)
+                .onEnded { event in lastTapLocation = event.location }
+        )
         .onChange(of: rawSelectedValue) { _, newValue in
             withAnimation(.easeInOut(duration: 0.15)) {
                 guard let value = newValue else {
                     selectedSegmentID = nil
                     return
                 }
-                guard let segment = segment(atAngularValue: value) else {
-                    selectedSegmentID = nil
-                    return
-                }
-                selectedSegmentID = segment.id
-                switch segment.kind {
-                case .allocated(let key):
-                    if let allocation = allocationsByCategoryKey[key] {
-                        onSegmentTapped?(allocation.category)
-                    }
-                case .offPlan, .headroom:
-                    // Off-plan and headroom slices only update the centre readout, as before.
-                    break
-                }
+                handleSelection(angularValue: value)
             }
         }
+    }
+
+    private func handleSelection(angularValue: Int) {
+        // Without a tap location there is no radius, so fall back to the outer ring - which is what the
+        // chart did before the tag ring existed.
+        let hit: Hit
+        if let tap = lastTapLocation, plotRect != .zero, hasTags {
+            hit = Self.resolve(
+                tap: tap, plot: plotRect, rawAngleValue: angularValue,
+                breakdown: breakdownForHitTesting)
+        } else if let segment = segment(atAngularValue: angularValue) {
+            hit = .segment(segment.id)
+        } else {
+            hit = .none
+        }
+
+        switch hit {
+        case .tag(let tagId):
+            // Tap-again clears, matching the chip strip.
+            selectedSegmentID = nil
+            onTagSelected?(selectedTagId == tagId ? nil : tagId)
+
+        case .segment(let segmentID):
+            guard let segment = segments.first(where: { $0.id == segmentID }) else { return }
+            // While a tag is selected its non-members are dimmed and out of scope, so a tap on one is
+            // ignored rather than silently drilling into something the user cannot see.
+            if let selectedTagId, segment.tagId != selectedTagId { return }
+            selectedSegmentID = segment.id
+            if case .allocated(let key) = segment.kind,
+                let allocation = allocationsByCategoryKey[key]
+            {
+                onSegmentTapped?(allocation.category)
+            }
+
+        case .none:
+            selectedSegmentID = nil
+        }
+    }
+
+    /// The breakdown `resolve` should walk. Uses the caller's when it has segments, and otherwise the
+    /// tagless one built here, so hit-testing can never disagree with what was drawn.
+    private var breakdownForHitTesting: AllocationTagBreakdown {
+        breakdown.segments.isEmpty ? .empty : breakdown
     }
 
     // MARK: - Tag ring
@@ -277,6 +331,7 @@ struct BudgetDonutChartView: View {
                     path.closeSubpath()
                 }
                 .fill(Color(arc.tag.color.arc))
+                .opacity(selectedTagId == nil || selectedTagId == arc.id ? 1.0 : 0.35)
             }
         }
     }
@@ -318,6 +373,30 @@ struct BudgetDonutChartView: View {
                         .foregroundColor(Color(Colors.gray400))
                     centerLabel("budget.unallocated".localized)
                     centerValue(effectiveUnallocatedAmount)
+                }
+            } else if let arc = selectedArc {
+                if let icon = arc.tag.icon.image {
+                    Image(uiImage: icon)
+                        .resizable()
+                        .renderingMode(.template)
+                        .foregroundColor(Color(arc.tag.color.arc))
+                        .frame(width: 24, height: 24)
+                }
+                centerLabel(arc.tag.name)
+                centerValue(arc.bucket.allocated)
+                // The share is a proportion, not an amount, so it survives value-hiding - the same rule
+                // the projection bar follows. Omitted entirely when there is no budget to be a share of,
+                // rather than printing a meaningless 0%.
+                if totalBudget > 0 {
+                    Text(
+                        String(
+                            format: "budget.tag.shareOfBudget".localized,
+                            Int((arc.bucket.share * 100).rounded()))
+                    )
+                    .font(.system(size: 9))
+                    .foregroundColor(Color(Colors.gray400))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
                 }
             } else if !hasContent {
                 // No allocations or spending - show 0% allocated
@@ -366,6 +445,11 @@ struct BudgetDonutChartView: View {
         return segments.first { $0.id == selectedSegmentID }
     }
 
+    private var selectedArc: AllocationTagBreakdown.TagArc? {
+        guard let selectedTagId else { return nil }
+        return breakdown.arc(id: selectedTagId)
+    }
+
     /// Walks the drawn order accumulating amounts, so the slice returned is the one under the finger
     /// even though that order is no longer the order of the `allocations` array.
     private func segment(atAngularValue value: Int) -> AllocationTagBreakdown.Segment? {
@@ -375,5 +459,56 @@ struct BudgetDonutChartView: View {
             if value <= cumulative { return segment }
         }
         return nil
+    }
+
+    /// What a tap landed on.
+    enum Hit: Equatable {
+        case tag(String)
+        case segment(String)
+        case none
+    }
+
+    /// Radius band a tap must fall in to count as the tag ring: the drawn 55...62pt band widened 4pt
+    /// each way for fingers, still strictly inside the category ring's 66pt inner edge.
+    static let tagBandInnerRadius: CGFloat = 51
+    static let tagBandOuterRadius: CGFloat = 66
+
+    /// Resolves a tap into a ring and a slice. Static and pure so it is testable without SwiftUI.
+    ///
+    /// - Parameters:
+    ///   - tap: point in the plot's coordinate space.
+    ///   - plot: the plot rect, as `.chartBackground` reports it.
+    ///   - rawAngleValue: the value `chartAngleSelection` produced for the same tap.
+    static func resolve(
+        tap: CGPoint,
+        plot: CGRect,
+        rawAngleValue: Int,
+        breakdown: AllocationTagBreakdown
+    ) -> Hit {
+        guard plot.width > 0, plot.height > 0 else { return .none }
+
+        let plotRadius = min(plot.width, plot.height) / 2
+        let scale = plotRadius / 85.0
+        let radius = hypot(tap.x - plot.midX, tap.y - plot.midY)
+
+        // The centre hole. Today a tap here still selects whichever slice shares its angle, which is a
+        // small pre-existing wart; ignoring it is deliberate, not a regression.
+        if radius < tagBandInnerRadius * scale { return .none }
+
+        if radius <= tagBandOuterRadius * scale {
+            guard breakdown.angularTotal > 0 else { return .none }
+            let fraction = Double(rawAngleValue) / Double(breakdown.angularTotal)
+            let arc = breakdown.tagArcs.first {
+                $0.startFraction <= fraction && fraction < $0.endFraction
+            }
+            return arc.map { .tag($0.id) } ?? .none
+        }
+
+        var cumulative = 0
+        for segment in breakdown.segments {
+            cumulative += segment.amount
+            if rawAngleValue <= cumulative { return .segment(segment.id) }
+        }
+        return .none
     }
 }

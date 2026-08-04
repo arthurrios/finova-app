@@ -31,6 +31,7 @@ final class BudgetCard: UIView {
     private var isValuesHidden: Bool = false
     private var projection: AllocationBalanceProjection?
     private var tagBreakdown: AllocationTagBreakdown = .empty
+    private var selectedTagId: String?
     private var balanceBasis: BalanceBasis?
     private var currentUsedValue: Int?
     private var currentBudgetLimit: Int?
@@ -914,14 +915,35 @@ final class BudgetCard: UIView {
             unallocatedAmount: unallocatedSummary?.unallocatedAmount ?? 0,
             unallocatedSpending: unallocatedSpending,
             breakdown: tagBreakdown,
+            selectedTagId: selectedTagId,
             isValuesHidden: isValuesHidden,
             onSegmentTapped: { [weak self] category in
                 self?.delegate?.didSelectAllocationCategory(category)
             },
             onUnallocatedSpendingTapped: { [weak self] spending in
                 self?.delegate?.didTapUnallocatedSpending(spending)
+            },
+            onTagSelected: { [weak self] tagId in
+                self?.delegate?.didSelectAllocationTag(tagId)
             }
         )
+    }
+
+    /// Applies a tag selection without tearing the chart down.
+    ///
+    /// Mutates `rootView` rather than calling `embedChart()`: re-embedding replaces the
+    /// `UIHostingController` on every chip tap, which flickers the donut and throws away the SwiftUI
+    /// `@State` holding the drilled-in slice.
+    func setSelectedTag(_ tagId: String?) {
+        guard selectedTagId != tagId else { return }
+        selectedTagId = tagId
+
+        guard #available(iOS 17.0, *) else { return }
+        if let hosting = chartHostingController as? UIHostingController<BudgetDonutChartView> {
+            hosting.rootView = makeChartView()
+        } else {
+            embedChart()
+        }
     }
 
     private func embedChart() {
