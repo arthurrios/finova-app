@@ -471,44 +471,51 @@ final class BudgetCardLayoutTests: XCTestCase {
         label(BudgetCard.headlineValueIdentifier, in: card)
     }
 
-    private func marginLabel(in card: BudgetCard) -> UILabel? {
-        label(BudgetCard.marginLabelIdentifier, in: card)
-    }
-
-    /// Mid-month the overspend belongs in the allocations header, not under the bar - there it
-    /// would flag money the user may still absorb before the month ends.
-    func testOutcomeLineOnlyAppearsOnClosedMonths() {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone.current
-        let past = calendar.date(byAdding: .month, value: -3, to: Date())!.monthAnchor
-        let future = calendar.date(byAdding: .month, value: 1, to: Date())!.monthAnchor
-
-        XCTAssertTrue(marginLabel(in: makeCard())?.isHidden ?? false, "current month")
-        XCTAssertTrue(marginLabel(in: makeCard(anchor: future))?.isHidden ?? false, "future month")
-
-        let closed = makeCard(anchor: past, unallocatedSpending: 0)
-        XCTAssertFalse(marginLabel(in: closed)?.isHidden ?? true)
-        XCTAssertEqual(
-            marginLabel(in: closed)?.text,
-            "budget.net.saved.format".localized(330_000.compactCurrencyString))
-    }
-
-    /// Dropping the third line shortens the block, which must not disturb the card's own height.
-    func testBlockHeightFollowsTheTenseWithoutMovingTheCard() {
+    /// A closed month leads with its verdict. The old headline was `usedWithinAllocations` under
+    /// the caption "Budget used" - capped per category, so it excluded overruns and off-plan
+    /// spending, and it disagreed with the footer's `Used` on the same card.
+    func testClosedMonthLeadsWithTheVerdictNotACappedSpendFigure() {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone.current
         let past = calendar.date(byAdding: .month, value: -3, to: Date())!.monthAnchor
 
-        let open = makeCard()
-        let closed = makeCard(anchor: past)
+        let saved = makeCard(anchor: past, unallocatedSpending: 0)
+        let caption = block(BudgetCard.projectionBlockIdentifier, in: saved)?
+            .subviews.compactMap { ($0 as? UILabel)?.text }.first
 
-        let openBlock = block(BudgetCard.projectionBlockIdentifier, in: open)!
-        let closedBlock = block(BudgetCard.projectionBlockIdentifier, in: closed)!
+        XCTAssertEqual(caption, "budget.projection.saved.label".localized)
+        // Fixture: 80.000 unspent + 250.000 headroom, nothing overspent. Unsigned - the caption
+        // carries the direction.
+        XCTAssertEqual(headlineValue(in: saved)?.text, 330_000.compactCurrencyString)
+        XCTAssertEqual(headlineValue(in: saved)?.text?.hasPrefix("-"), false)
+    }
 
-        XCTAssertEqual(openBlock.bounds.height, 45, accuracy: 0.5, "3 rows")
-        XCTAssertEqual(closedBlock.bounds.height, 60, accuracy: 0.5, "4 rows at 12pt")
-        XCTAssertEqual(open.bounds.height, expectedHeight, accuracy: 0.5)
-        XCTAssertEqual(closed.bounds.height, expectedHeight, accuracy: 0.5)
+    func testClosedMonthCaptionFlipsWhenTheMonthOverspent() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone.current
+        let past = calendar.date(byAdding: .month, value: -3, to: Date())!.monthAnchor
+
+        let overspent = makeCard(anchor: past, unallocatedSpending: 400_000)
+        let caption = block(BudgetCard.projectionBlockIdentifier, in: overspent)?
+            .subviews.compactMap { ($0 as? UILabel)?.text }.first
+
+        XCTAssertEqual(caption, "budget.projection.overspent.label".localized)
+        XCTAssertEqual(headlineValue(in: overspent)?.text, 70_000.compactCurrencyString)
+        XCTAssertEqual(headlineValue(in: overspent)?.textColor, Colors.brightRed)
+    }
+
+    /// The block is 3 rows in both tenses now, so its height no longer varies by month.
+    func testBlockHeightIsConstantAcrossTenses() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone.current
+        let past = calendar.date(byAdding: .month, value: -3, to: Date())!.monthAnchor
+
+        let openBlock = block(BudgetCard.projectionBlockIdentifier, in: makeCard())!
+        let closedBlock = block(BudgetCard.projectionBlockIdentifier, in: makeCard(anchor: past))!
+
+        XCTAssertEqual(openBlock.bounds.height, 45, accuracy: 0.5)
+        XCTAssertEqual(closedBlock.bounds.height, 45, accuracy: 0.5)
+        XCTAssertEqual(openBlock.bounds.width, 72, accuracy: 0.5)
     }
 
     // MARK: - Headline colour
@@ -521,9 +528,6 @@ final class BudgetCardLayoutTests: XCTestCase {
         XCTAssertEqual(
             headlineValue(in: leakingButAhead)?.textColor, Colors.brightGreen,
             "overspending alone must not turn the headline red while the net is positive")
-        XCTAssertEqual(
-            marginLabel(in: leakingButAhead)?.textColor, Colors.brightRed,
-            "the detail line still reports the leak")
 
         // 400.000 off-plan finally drags the net under.
         let netNegative = makeCard(unallocatedSpending: 400_000)
@@ -578,21 +582,6 @@ final class BudgetCardLayoutTests: XCTestCase {
         XCTAssertEqual(headlineValue(in: overspent)?.textColor, Colors.brightRed)
     }
 
-    /// The line was bumped 10pt -> 12pt; the block grew to match, so it must still fit inside.
-    func testOutcomeLineFitsInsideTheBlock() {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone.current
-        let past = calendar.date(byAdding: .month, value: -3, to: Date())!.monthAnchor
-
-        let card = makeCard(anchor: past)
-        let block = block(BudgetCard.projectionBlockIdentifier, in: card)!
-        let line = marginLabel(in: card)!
-
-        XCTAssertEqual(line.font.pointSize, 12, accuracy: 0.01)
-        XCTAssertTrue(
-            block.bounds.insetBy(dx: -0.5, dy: -0.5).contains(line.frame),
-            "outcome line \(line.frame) is clipped by block \(block.bounds)")
-    }
 
     // MARK: - Past months
 
@@ -608,11 +597,11 @@ final class BudgetCardLayoutTests: XCTestCase {
             [BudgetCard.balanceBlockIdentifier, BudgetCard.projectionBlockIdentifier],
             "a closed month still reports its outcome — both blocks stay")
 
-        // Trailing caption switches from a forecast to a record.
+        // Trailing caption switches from a forecast to a verdict.
         let caption = block(BudgetCard.projectionBlockIdentifier, in: card)?
             .subviews.compactMap { ($0 as? UILabel)?.text }.first
-        XCTAssertEqual(caption, "budget.projection.budgetUsed.label".localized)
-
+        XCTAssertNotEqual(caption, "budget.projection.afterBudget.label".localized)
+        XCTAssertEqual(caption, "budget.projection.saved.label".localized)
     }
 
     // MARK: - Visibility rules
