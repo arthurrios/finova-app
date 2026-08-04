@@ -30,6 +30,7 @@ final class BudgetCard: UIView {
     private var currentMonthAnchor: Int = 0
     private var isValuesHidden: Bool = false
     private var projection: AllocationBalanceProjection?
+    private var tagBreakdown: AllocationTagBreakdown = .empty
     private var balanceBasis: BalanceBasis?
     private var currentUsedValue: Int?
     private var currentBudgetLimit: Int?
@@ -593,12 +594,27 @@ final class BudgetCard: UIView {
         unallocatedSummary: UnallocatedBudgetSummary,
         unallocatedSpending: [UnallocatedCategorySpending],
         monthAnchor: Int,
-        monthData: MonthBudgetCardType? = nil
+        monthData: MonthBudgetCardType? = nil,
+        tagBreakdown: AllocationTagBreakdown = .empty
     ) {
         self.allocations = allocations
         self.unallocatedSummary = unallocatedSummary
         self.unallocatedSpending = unallocatedSpending
         self.currentMonthAnchor = monthAnchor
+
+        // Always hand the donut a populated breakdown, even when there are no tags: it drives slice
+        // order from it, so leaving it empty would mean a second rendering path to keep in step. A
+        // caller that passes none - the layout tests - gets a tagless one built from the same values.
+        self.tagBreakdown =
+            tagBreakdown.segments.isEmpty
+            ? AllocationTagBreakdown(
+                allocations: allocations,
+                unallocatedSpending: unallocatedSpending,
+                unallocatedHeadroom: unallocatedSummary.unallocatedAmount,
+                totalBudget: unallocatedSummary.totalBudget,
+                tags: [],
+                categoryTagIds: [:])
+            : tagBreakdown
 
         // Retained so `updateValuesDisplay()` can refresh the spend gauge and the footer without
         // `monthData` in scope.
@@ -890,18 +906,14 @@ final class BudgetCard: UIView {
         noBudgetStateView.isHidden = false
     }
 
-    private func embedChart() {
-        // Remove existing chart if any
-        chartHostingController?.view.removeFromSuperview()
-        chartHostingController = nil
-
-        guard #available(iOS 17.0, *) else { return }
-
-        let chartView = BudgetDonutChartView(
+    @available(iOS 17.0, *)
+    private func makeChartView() -> BudgetDonutChartView {
+        BudgetDonutChartView(
             allocations: allocations,
             totalBudget: unallocatedSummary?.totalBudget ?? 0,
             unallocatedAmount: unallocatedSummary?.unallocatedAmount ?? 0,
             unallocatedSpending: unallocatedSpending,
+            breakdown: tagBreakdown,
             isValuesHidden: isValuesHidden,
             onSegmentTapped: { [weak self] category in
                 self?.delegate?.didSelectAllocationCategory(category)
@@ -910,8 +922,16 @@ final class BudgetCard: UIView {
                 self?.delegate?.didTapUnallocatedSpending(spending)
             }
         )
+    }
 
-        let hostingController = UIHostingController(rootView: chartView)
+    private func embedChart() {
+        // Remove existing chart if any
+        chartHostingController?.view.removeFromSuperview()
+        chartHostingController = nil
+
+        guard #available(iOS 17.0, *) else { return }
+
+        let hostingController = UIHostingController(rootView: makeChartView())
         hostingController.view.backgroundColor = .clear
         hostingController.view.translatesAutoresizingMaskIntoConstraints = false
 

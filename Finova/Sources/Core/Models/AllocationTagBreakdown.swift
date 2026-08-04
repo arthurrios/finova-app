@@ -256,6 +256,12 @@ struct AllocationTagBreakdown: Equatable {
 
     /// Allocated members first by amount desc, then off-plan members by amount desc. Category key
     /// breaks ties so the order is stable across launches.
+    ///
+    /// Note this *sorts* rather than preserving caller order, which changes the donut even for a user
+    /// with no tags: `MonthCarouselCell` sorts its allocations amount-desc for the list but hands the
+    /// card the unsorted array, so slices were previously drawn in whatever order the service returned
+    /// - roughly creation order - and disagreed with the list directly beneath them. Sorting here makes
+    /// the two agree. Deliberate, and the only visible change for someone who never makes a tag.
     private static func sortedSegments(
         allocations: [BudgetAllocation],
         spending: [UnallocatedCategorySpending],
