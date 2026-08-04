@@ -2969,13 +2969,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "After budget"
+            "value": "If fully used"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Após orçar"
+            "value": "Se usar tudo"
           }
         }
       }
