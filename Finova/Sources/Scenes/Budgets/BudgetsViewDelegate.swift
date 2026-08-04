@@ -10,4 +10,5 @@ import Foundation
 public protocol BudgetsViewDelegate: AnyObject {
     func didTapAddBudgetButton(monthYearDate: String, budgetAmount: Int)
     func didTapBackButton()
+    func didTapManageTags()
 }

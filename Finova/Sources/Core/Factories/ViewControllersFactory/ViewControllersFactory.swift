@@ -180,6 +180,28 @@ final class ViewControllersFactory: ViewControllersFactoryProtocol {
         return viewController
     }
 
+    func makeAllocationTagsViewController(flowDelegate: AllocationTagsFlowDelegate) -> AllocationTagsViewController {
+        let contentView = AllocationTagsView()
+        let viewModel = AllocationTagsViewModel()
+        let viewController = AllocationTagsViewController(
+            contentView: contentView, viewModel: viewModel, flowDelegate: flowDelegate)
+        return viewController
+    }
+
+    func makeAllocationTagEditViewController(flowDelegate: AllocationTagEditFlowDelegate, tag: AllocationTag) -> AllocationTagEditViewController {
+        let contentView = AllocationTagEditView()
+        let viewController = AllocationTagEditViewController(
+            contentView: contentView, tag: tag, flowDelegate: flowDelegate)
+        return viewController
+    }
+
+    func makeAllocationTagCategoriesViewController(flowDelegate: AllocationTagCategoriesFlowDelegate, tag: AllocationTag) -> AllocationTagCategoriesViewController {
+        let contentView = AllocationTagCategoriesView()
+        let viewController = AllocationTagCategoriesViewController(
+            contentView: contentView, tag: tag, flowDelegate: flowDelegate)
+        return viewController
+    }
+
     func makeGroupDetailsViewController(flowDelegate: GroupDetailsFlowDelegate, group: BudgetGroup) -> GroupDetailsViewController {
         let contentView = GroupDetailsView()
         let viewModel = GroupDetailsViewModel(group: group)

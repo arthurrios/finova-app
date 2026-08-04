@@ -60,10 +60,13 @@ enum AllocationTagPalette {
     /// which owns the category ramp sitting 3pt outside the tag ring.
     ///
     /// One adjacency worth knowing about rather than pretending away: `rose` (351) is close in hue to
-    /// `Colors.brightRed` (0) and `orange` (27) to `Colors.warningAmber` (38). Neither reserved colour
-    /// is ever drawn on the tag ring - amber is the footer's over-allocation value and red lives in
-    /// the projection block - so they cannot appear side by side with a tag arc.
-    static let assignmentOrder: [Int] = [5, 4, 3, 2, 0, 1, 6, 7]
+    /// `Colors.brightRed` (0), `lime`'s ink tone reads as a green, and `orange` (27) is near
+    /// `Colors.warningAmber` (38). None of those reserved colours is ever drawn on the tag ring - amber
+    /// is the footer's over-allocation value and red/green live in the projection block - but on the
+    /// light tag list a crimson or olive row still *reads* faintly like a status. Order within the
+    /// first four is unconstrained by the 60-degree rule, so indigo and teal go first and the two
+    /// status-adjacent tones come third and fourth.
+    static let assignmentOrder: [Int] = [5, 2, 3, 4, 0, 1, 6, 7]
 
     /// Clamps any stored index onto the table, so a corrupt or downgraded value degrades to a
     /// wrong-but-valid colour instead of trapping.
