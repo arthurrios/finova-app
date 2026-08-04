@@ -2742,6 +2742,40 @@
         }
       }
     },
+    "budget.plan.over.format": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ over plan"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ fora do plano"
+          }
+        }
+      }
+    },
+    "budget.plan.within.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All within plan"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tudo no plano"
+          }
+        }
+      }
+    },
     "budget.projection.afterBudget.label": {
       "extractionState": "manual",
       "localizations": {

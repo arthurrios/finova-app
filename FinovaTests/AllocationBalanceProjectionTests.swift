@@ -29,21 +29,21 @@ final class AllocationBalanceProjectionTests: XCTestCase {
     }
 
     /// The two bar segments must always describe a whole, or nothing at all - the bar fills the
-    /// width whenever anything was saved or overspent, so the comparison stays readable.
+    /// width once anything has been spent, so the comparison stays readable.
     private func assertSharesNormalised(
         _ projection: AllocationBalanceProjection,
         line: UInt = #line
     ) {
         let shares = projection.barShares
-        let sum = shares.saved + shares.overspent
+        let sum = shares.withinPlan + shares.beyondPlan
         if sum == 0 {
-            XCTAssertEqual(shares.saved, 0, line: line)
-            XCTAssertEqual(shares.overspent, 0, line: line)
+            XCTAssertEqual(shares.withinPlan, 0, line: line)
+            XCTAssertEqual(shares.beyondPlan, 0, line: line)
         } else {
             XCTAssertEqual(sum, 1.0, accuracy: 0.0001, line: line)
         }
-        XCTAssertGreaterThanOrEqual(shares.saved, 0, line: line)
-        XCTAssertGreaterThanOrEqual(shares.overspent, 0, line: line)
+        XCTAssertGreaterThanOrEqual(shares.withinPlan, 0, line: line)
+        XCTAssertGreaterThanOrEqual(shares.beyondPlan, 0, line: line)
     }
 
     // MARK: - Projection arithmetic
@@ -286,40 +286,63 @@ final class AllocationBalanceProjectionTests: XCTestCase {
 
     // MARK: - Bar
 
-    func testBarComparesSavedAgainstOverspent() {
+    /// The bar compares *spent* money, not saved money: an open month cannot have saved anything,
+    /// so a bar built from `totalSaved` would erode as the month filled in.
+    func testBarComparesSpendingInsideThePlanAgainstSpendingOutsideIt() {
         let projection = AllocationBalanceProjection(
             base: 400_000,
-            allocations: [allocation(.meals, allocated: 100_000, used: 25_000)],  // 75.000 saved
+            allocations: [allocation(.meals, allocated: 100_000, used: 75_000)],
             unallocatedSpending: 25_000,
             tense: .projected)
 
-        XCTAssertEqual(projection.barShares.saved, 0.75, accuracy: 0.0001)
-        XCTAssertEqual(projection.barShares.overspent, 0.25, accuracy: 0.0001)
+        XCTAssertEqual(projection.usedWithinAllocations, 75_000)
+        XCTAssertEqual(projection.overspent, 25_000)
+        XCTAssertEqual(projection.barShares.withinPlan, 0.75, accuracy: 0.0001)
+        XCTAssertEqual(projection.barShares.beyondPlan, 0.25, accuracy: 0.0001)
         assertSharesNormalised(projection)
     }
 
-    func testBarIsAllGreenWithNoOverspending() {
+    func testBarIsAllGreenWhenEverySpendStayedInsideItsAllocation() {
+        let projection = AllocationBalanceProjection(
+            base: 400_000,
+            allocations: [allocation(.meals, allocated: 100_000, used: 60_000)],
+            tense: .projected)
+
+        XCTAssertEqual(projection.barShares.withinPlan, 1.0, accuracy: 0.0001)
+        XCTAssertEqual(projection.barShares.beyondPlan, 0)
+    }
+
+    func testBarIsEmptyBeforeAnythingIsSpent() {
+        // A future month with allocations but no transactions yet: nothing to compare.
         let projection = AllocationBalanceProjection(
             base: 400_000,
             allocations: [allocation(.meals, allocated: 100_000, used: 0)],
+            unallocatedHeadroom: 73_500,
             tense: .projected)
 
-        XCTAssertEqual(projection.barShares.saved, 1.0, accuracy: 0.0001)
-        XCTAssertEqual(projection.barShares.overspent, 0)
+        XCTAssertEqual(projection.barShares.withinPlan, 0)
+        XCTAssertEqual(projection.barShares.beyondPlan, 0)
+        assertSharesNormalised(projection)
     }
 
-    func testBarIsAllRedWhenNothingWasSaved() {
-        let projection = AllocationBalanceProjection(
-            base: 400_000,
-            allocations: [allocation(.meals, allocated: 50_000, used: 70_000)],
+    /// Regression for the real complaint: a future month's unspent allocations must not inflate the
+    /// bar, because that money is earmarked for spending, not kept.
+    func testUnspentAllocationsDoNotInflateTheBar() {
+        // R$3.5k of allocations untouched, R$735 unallocated - nothing spent at all.
+        let untouched = AllocationBalanceProjection(
+            base: 4_290_000,
+            allocations: [allocation(.market, allocated: 350_000, used: 0)],
+            unallocatedHeadroom: 73_500,
             tense: .projected)
 
-        XCTAssertEqual(projection.barShares.saved, 0)
-        XCTAssertEqual(projection.barShares.overspent, 1.0, accuracy: 0.0001)
+        XCTAssertEqual(
+            untouched.barShares.withinPlan, 0,
+            "a plan nobody has spent against yet says nothing about adherence")
+        XCTAssertGreaterThan(
+            untouched.totalSaved, 0,
+            "totalSaved still tracks it - the card just does not surface it while the month is open")
     }
 
-    /// The comparison reads the same whether the month is running or closed, so the bar must not
-    /// depend on tense - only the block's headline does.
     func testBarIsTenseIndependent() {
         let allocations = [
             allocation(.meals, allocated: 100_000, used: 25_000),
@@ -331,21 +354,8 @@ final class AllocationBalanceProjectionTests: XCTestCase {
         let actual = AllocationBalanceProjection(
             base: 400_000, allocations: allocations, tense: .actual)
 
-        XCTAssertEqual(projected.barShares.saved, actual.barShares.saved, accuracy: 0.0001)
-        XCTAssertEqual(projected.barShares.overspent, actual.barShares.overspent, accuracy: 0.0001)
-    }
-
-    func testBarFillsTheWidthEvenWhenAmountsAreTinyNextToTheBalance() {
-        // A large balance with small commitments used to render a meaningless sliver when the bar
-        // was normalised over `base`.
-        let projection = AllocationBalanceProjection(
-            base: 4_220_000,
-            allocations: [allocation(.meals, allocated: 410_000, used: 0)],
-            unallocatedSpending: 20_000,
-            tense: .projected)
-
-        assertSharesNormalised(projection)
-        XCTAssertGreaterThan(projection.barShares.saved, 0.9)
+        XCTAssertEqual(projected.barShares.withinPlan, actual.barShares.withinPlan, accuracy: 0.0001)
+        XCTAssertEqual(projected.barShares.beyondPlan, actual.barShares.beyondPlan, accuracy: 0.0001)
     }
 
     // MARK: - Closed-month headline

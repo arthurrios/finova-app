@@ -57,7 +57,8 @@ final class BudgetCardSnapshotTests: XCTestCase {
         monthAnchor: Int,
         allocations: [BudgetAllocation],
         usedValue: Int = 150_000,
-        budgetLimit: Int? = 350_000
+        budgetLimit: Int? = 350_000,
+        unallocatedSpending: Int = 18_000
     ) {
         let card = BudgetCard()
         card.translatesAutoresizingMaskIntoConstraints = false
@@ -87,7 +88,7 @@ final class BudgetCardSnapshotTests: XCTestCase {
                 monthDate: 0,
                 totalBudget: 350_000,
                 totalAllocated: 243_000,
-                totalUsedInUnallocatedCategories: 18_000
+                totalUsedInUnallocatedCategories: unallocatedSpending
             ),
             unallocatedSpending: [],
             monthAnchor: monthAnchor,
@@ -131,6 +132,13 @@ final class BudgetCardSnapshotTests: XCTestCase {
         Int(Date().timeIntervalSince1970)
     }
 
+    private var futureMonthAnchor: Int {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone.current
+        let future = calendar.date(byAdding: .month, value: 1, to: Date()) ?? Date()
+        return Int(future.timeIntervalSince1970)
+    }
+
     private var pastMonthAnchor: Int {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone.current
@@ -153,6 +161,18 @@ final class BudgetCardSnapshotTests: XCTestCase {
         render(
             name: "past-month", finalBalance: 512_000,
             monthAnchor: pastMonthAnchor, allocations: allocations())
+
+        // Future month with an untouched plan: must report adherence, not a saved amount.
+        render(
+            name: "future-untouched", finalBalance: 429_000,
+            monthAnchor: futureMonthAnchor,
+            allocations: [
+                BudgetAllocation(dbId: 1, monthDate: 0, category: .market,
+                                 allocatedAmount: 200_000, usedAmount: 0),
+                BudgetAllocation(dbId: 2, monthDate: 0, category: .meals,
+                                 allocatedAmount: 150_000, usedAmount: 0),
+            ],
+            usedValue: 0, unallocatedSpending: 0)
 
         // Balance unavailable: corner blocks absent, footer still populated.
         render(
