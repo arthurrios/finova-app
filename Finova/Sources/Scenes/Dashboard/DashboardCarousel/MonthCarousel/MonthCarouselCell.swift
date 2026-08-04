@@ -77,6 +77,8 @@ class MonthCarouselCell: UICollectionViewCell {
     var onDefineBudgetTapped: ((Int) -> Void)?
     var onBudgetViewStateChanged: ((Int, Bool) -> Void)?  // (monthAnchor, isShowingBudgetView)
     var onBalanceVisibilityToggled: ((Bool) -> Void)?
+    var onManageTagsTapped: (() -> Void)?
+    var onCreateTagTapped: (() -> Void)?
 
     // MARK: - Properties
 
@@ -381,6 +383,30 @@ class MonthCarouselCell: UICollectionViewCell {
         return label
     }()
 
+    /// Groups the title and its count pill so the header's `.equalSpacing` puts the pair at the leading
+    /// edge and the Tags button at the trailing one. Without the group, three arranged subviews spread
+    /// evenly and the count pill drifts to the middle of the row.
+    private lazy var allocationsHeaderLeadingStack: UIStackView = {
+        let stack = UIStackView()
+        stack.axis = .horizontal
+        stack.alignment = .center
+        stack.spacing = Metrics.spacing2
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        return stack
+    }()
+
+    /// Reaches tag management from the dashboard, so it does not require going through the gear and the
+    /// Budgets screen. Also the only entry point when a month has no tags at all, since the strip - and
+    /// with it the `+` chip - collapses to nothing in that case.
+    private let allocationsTagsButton: UIButton = {
+        let button = UIButton(type: .system)
+        button.setTitle("budgets.tags.manage".localized, for: .normal)
+        button.titleLabel?.font = Fonts.titleXS.font
+        button.setTitleColor(Colors.mainMagenta, for: .normal)
+        button.translatesAutoresizingMaskIntoConstraints = false
+        return button
+    }()
+
     lazy var allocationsTableView: UITableView = {
         let tableView = UITableView()
         tableView.backgroundColor = Colors.gray100
@@ -460,6 +486,10 @@ class MonthCarouselCell: UICollectionViewCell {
             name: .allocationTagsChanged,
             object: nil
         )
+    }
+
+    @objc private func manageTagsTapped() {
+        onManageTagsTapped?()
     }
 
     @objc private func handleAllocationTagsChanged() {
@@ -639,9 +669,13 @@ class MonthCarouselCell: UICollectionViewCell {
 
         // Allocations table components
         contentView.addSubview(allocationsTableHeaderView)
-        allocationsTableHeaderView.addArrangedSubview(allocationsHeaderTitleLabel)
-        allocationsTableHeaderView.addArrangedSubview(allocationsNumberContainerView)
+        allocationsHeaderLeadingStack.addArrangedSubview(allocationsHeaderTitleLabel)
+        allocationsHeaderLeadingStack.addArrangedSubview(allocationsNumberContainerView)
+        allocationsTableHeaderView.addArrangedSubview(allocationsHeaderLeadingStack)
+        allocationsTableHeaderView.addArrangedSubview(allocationsTagsButton)
         allocationsNumberContainerView.addArrangedSubview(allocationsNumberLabel)
+        allocationsTagsButton.addTarget(
+            self, action: #selector(manageTagsTapped), for: .touchUpInside)
         contentView.addSubview(allocationTagStripView)
         contentView.addSubview(allocationsTableView)
         contentView.addSubview(allocationsEmptyStateView)
@@ -1528,6 +1562,10 @@ extension MonthCarouselCell: MonthCardFlipDelegate {
 extension MonthCarouselCell: AllocationTagStripViewDelegate {
     func didSelectTag(_ tagId: String?) {
         applySelectedTag(tagId)
+    }
+
+    func didTapCreateTag() {
+        onCreateTagTapped?()
     }
 }
 

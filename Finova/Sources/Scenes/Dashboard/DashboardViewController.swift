@@ -1874,6 +1874,12 @@ extension DashboardViewController: UICollectionViewDataSource {
             cell.onBalanceVisibilityToggled = { [weak self] isHidden in
                 self?.updateAllMonthCardsBalanceVisibility(isHidden)
             }
+            cell.onManageTagsTapped = { [weak self] in
+                self?.flowDelegate?.navigateToAllocationTags()
+            }
+            cell.onCreateTagTapped = { [weak self] in
+                self?.flowDelegate?.presentCreateAllocationTag()
+            }
 
             cell.transactionTableView.dataSource = self
             cell.transactionTableView.delegate = self

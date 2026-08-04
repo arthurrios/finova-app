@@ -560,6 +560,18 @@ extension AppFlowController: BudgetsFlowDelegate {
 }
 
 // MARK: - Allocation Tags Flow
+extension AppFlowController {
+    /// Reached from the `+` chip at the end of the dashboard's tag strip. Uses the same prompt as the
+    /// Tags list and lands in the same place - the edit screen - because a tag with no linked categories
+    /// changes nothing on the card the user just tapped from.
+    func presentCreateAllocationTag() {
+        guard let presenter = navigationController?.topViewController else { return }
+        AllocationTagCreationPrompt.present(from: presenter) { [weak self] tag in
+            self?.navigateToAllocationTagEdit(tag: tag)
+        }
+    }
+}
+
 extension AppFlowController: AllocationTagsFlowDelegate {
     func dismissAllocationTags() {
         navigationController?.popViewController(animated: true)

@@ -10,6 +10,7 @@ import UIKit
 protocol AllocationTagStripViewDelegate: AnyObject {
     /// `nil` clears the filter.
     func didSelectTag(_ tagId: String?)
+    func didTapCreateTag()
 }
 
 /// The per-tag subtotals under the budget card, doubling as the filter control for the list below.
@@ -153,6 +154,10 @@ final class AllocationTagStripView: UIView {
             chipsStackView.addArrangedSubview(chip.button)
         }
 
+        // Trailing, after Untagged: creating a tag is the least frequent thing done here, so it goes
+        // last, past the figures the strip exists to show.
+        chipsStackView.addArrangedSubview(makeAddChip())
+
         updateClearChip()
         refreshSelection()
         return true
@@ -208,6 +213,28 @@ final class AllocationTagStripView: UIView {
         return Chip(
             button: chip, dot: dot, nameLabel: nameLabel, amountLabel: amountLabel,
             inkColor: inkColor)
+    }
+
+    /// Magenta rather than a palette colour: this is an app action, not a tag, and `mainMagenta` is
+    /// what the app already uses for "add" affordances.
+    private func makeAddChip() -> UIButton {
+        let chip = UIButton(type: .system)
+        chip.translatesAutoresizingMaskIntoConstraints = false
+        chip.backgroundColor = Colors.lowMagenta
+        chip.layer.borderWidth = 1
+        chip.layer.borderColor = Colors.mainMagenta.cgColor
+        chip.layer.cornerRadius = Self.chipHeight / 2
+        chip.setImage(
+            UIImage(
+                systemName: "plus",
+                withConfiguration: UIImage.SymbolConfiguration(pointSize: 12, weight: .semibold)),
+            for: .normal)
+        chip.tintColor = Colors.mainMagenta
+        chip.accessibilityLabel = "allocationTags.create.title".localized
+        chip.heightAnchor.constraint(equalToConstant: Self.chipHeight).isActive = true
+        chip.widthAnchor.constraint(equalToConstant: Self.chipHeight).isActive = true
+        chip.addTarget(self, action: #selector(addTapped), for: .touchUpInside)
+        return chip
     }
 
     private func makeClearChip() -> UIButton {
@@ -325,5 +352,9 @@ final class AllocationTagStripView: UIView {
 
     @objc private func clearTapped() {
         delegate?.didSelectTag(nil)
+    }
+
+    @objc private func addTapped() {
+        delegate?.didTapCreateTag()
     }
 }

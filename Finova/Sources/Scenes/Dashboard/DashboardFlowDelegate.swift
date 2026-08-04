@@ -20,4 +20,8 @@ protocol DashboardFlowDelegate: AnyObject {
     func navigateToStatementDetails(card: CreditCard, statement: CreditCardStatement)
     func openAdjustBalanceModal(currentBalance: Int, context: DataContext)
     func navigateToSyncSettingsFromDashboard()
+    func navigateToAllocationTags()
+    /// Creates a tag from the dashboard and goes straight to linking its categories - the same flow the
+    /// Tags list uses, so the two entry points cannot drift apart.
+    func presentCreateAllocationTag()
 }
