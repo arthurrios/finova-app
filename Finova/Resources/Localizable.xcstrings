@@ -3473,6 +3473,23 @@
         }
       }
     },
+    "budget.projection.saved.format": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ saved"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ economizado"
+          }
+        }
+      }
+    },
     "budget.projection.saved.label": {
       "extractionState": "manual",
       "localizations": {

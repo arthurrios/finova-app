@@ -826,13 +826,19 @@ final class BudgetCard: UIView {
 
         projectionTextLabel.text = caption
 
-        // Of what was spent, how much stayed inside its allocation. Proportions, not amounts, so
-        // the bar survives value-hiding; before anything is spent both shares are zero and the
-        // bare grey track shows through.
+        // Three quantities, compared: what the balance ends up with, what is being saved, what broke out
+        // of the plan. Proportions, not amounts, so the bar survives value-hiding; with nothing to
+        // divide every share is zero and the bare grey track shows through.
+        //
+        // The projected slice is magenta, not green. It is what remains *after* savings come out of it,
+        // so it is not the saved figure, and green here would claim the whole balance is being kept -
+        // which is exactly what the two earlier versions of this bar wrongly said. Magenta matches the
+        // spend gauge along the card's bottom edge, which plots the same idea.
         let shares = projection.barShares
         projectionBar.setSegments([
-            SegmentedBarView.Segment(share: shares.withinPlan, color: Colors.brightGreen),
-            SegmentedBarView.Segment(share: shares.beyondPlan, color: Colors.brightRed),
+            SegmentedBarView.Segment(share: shares.projected, color: Colors.mainMagenta),
+            SegmentedBarView.Segment(share: shares.saved, color: Colors.brightGreen),
+            SegmentedBarView.Segment(share: shares.overspent, color: Colors.brightRed),
         ])
 
         guard !isValuesHidden else {
@@ -856,11 +862,12 @@ final class BudgetCard: UIView {
 
         var spokenParts = [caption, valueText]
 
-        // The bar carries no visible legend at this width, so spell its two sides out here.
-        if projection.usedWithinAllocations > 0 {
+        // The bar carries no visible legend at this width, so name its green and red sides. The magenta
+        // side is the headline immediately above, so repeating it would only pad.
+        if projection.totalSaved > 0 {
             spokenParts.append(
-                "budget.plan.within.label".localized + " "
-                    + projection.usedWithinAllocations.compactCurrencyString)
+                "budget.projection.saved.format".localized(
+                    projection.totalSaved.compactCurrencyString))
         }
         if projection.overspent > 0 {
             spokenParts.append(
