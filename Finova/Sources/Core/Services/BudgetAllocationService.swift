@@ -242,8 +242,7 @@ final class BudgetAllocationService {
 
         // Usage must come from the SAME scope as the allocations, or a group shows its own
         // allocations spent down by the viewer's personal transactions.
-        let usageByCategory = scope.groupId.map { calculateUsageByCategory(forMonth: monthAnchor, groupId: $0) }
-            ?? calculateUsageByCategory(forMonth: monthAnchor)
+        let usageByCategory = usage(forMonth: monthAnchor, in: scope)
 
         // Fill in usage amounts
         for i in allocations.indices {
@@ -255,21 +254,29 @@ final class BudgetAllocationService {
     }
 
     /// Calculates the unallocated budget summary for a month.
-    /// - Parameter monthAnchor: The month anchor timestamp
-    /// - Returns: Summary of unallocated budget and spending
-    func getUnallocatedSummary(forMonth monthAnchor: Int) -> UnallocatedBudgetSummary {
-        // Get total budget for the month
-        let budgets = budgetRepo.fetchBudgets()
+    /// - Parameters:
+    ///   - monthAnchor: The month anchor timestamp
+    ///   - scope: which ledger to read — the caller's own, or a group's
+    ///
+    /// Scope matters more here than anywhere else on this card: `BudgetCard.configure` gates its
+    /// entire face on `totalBudget > 0`, so reading the PERSONAL budget row while rendering a group
+    /// collapsed the card to the "define budget" empty state — donut, footer metrics and the
+    /// projection blocks all gone — for any group whose viewer had no personal budget that month.
+    func getUnallocatedSummary(forMonth monthAnchor: Int, in scope: LedgerScope) -> UnallocatedBudgetSummary {
+        // Get total budget for the month, from the scope being rendered
+        let budgets = scope.groupId.map { budgetRepo.fetchBudgetsForGroup(groupId: $0) }
+            ?? budgetRepo.fetchBudgets()
         let budget = budgets.first { $0.monthDate == monthAnchor }
         let totalBudget = budget?.amount ?? 0
 
         // Get total allocated
-        let allocations = allocationRepo.fetchAllocations(for: monthAnchor)
+        let allocations = allocations(forMonth: monthAnchor, in: scope)
         let totalAllocated = allocations.reduce(0) { $0 + $1.allocatedAmount }
 
-        // Calculate spending in categories WITHOUT allocations
+        // Calculate spending in categories WITHOUT allocations. Usage must come from the SAME
+        // scope as the allocations, or a group's unallocated spending is the viewer's own.
         let allocatedCategories = Set(allocations.map { $0.category.key })
-        let usageByCategory = calculateUsageByCategory(forMonth: monthAnchor)
+        let usageByCategory = usage(forMonth: monthAnchor, in: scope)
         let unallocatedUsage = usageByCategory
             .filter { !allocatedCategories.contains($0.key) }
             .reduce(0) { $0 + $1.value }
@@ -315,13 +322,15 @@ final class BudgetAllocationService {
 
     /// Gets categories that have spending but no allocation for the given month.
     /// Only returns categories with actual spending (amount > 0).
-    /// - Parameter monthAnchor: The month anchor timestamp
+    /// - Parameters:
+    ///   - monthAnchor: The month anchor timestamp
+    ///   - scope: which ledger to read — the caller's own, or a group's
     /// - Returns: Array of unallocated category spending, sorted by amount (highest first)
-    func getUnallocatedCategoriesWithSpending(forMonth monthAnchor: Int) -> [UnallocatedCategorySpending] {
-        let existingAllocations = allocationRepo.fetchAllocations(for: monthAnchor)
+    func getUnallocatedCategoriesWithSpending(forMonth monthAnchor: Int, in scope: LedgerScope) -> [UnallocatedCategorySpending] {
+        let existingAllocations = allocations(forMonth: monthAnchor, in: scope)
         let allocatedCategoryKeys = Set(existingAllocations.map { $0.category.key })
 
-        let usageByCategory = calculateUsageByCategory(forMonth: monthAnchor)
+        let usageByCategory = usage(forMonth: monthAnchor, in: scope)
 
         // Find categories with spending but no allocation
         var unallocatedSpending: [UnallocatedCategorySpending] = []
@@ -345,6 +354,20 @@ final class BudgetAllocationService {
     }
 
     // MARK: - Private Helpers
+
+    /// The allocations of one month in one scope. One place the group/personal split is made, so the
+    /// summary readers can't drift back apart from `getAllocationsWithUsage`.
+    private func allocations(forMonth monthAnchor: Int, in scope: LedgerScope) -> [BudgetAllocation] {
+        let all = scope.groupId.map { allocationRepo.fetchAllocationsForGroup(groupId: $0) }
+            ?? allocationRepo.fetchAllAllocations()
+        return all.filter { $0.monthDate == monthAnchor }
+    }
+
+    /// Spending by category for one month in one scope.
+    private func usage(forMonth monthAnchor: Int, in scope: LedgerScope) -> [String: Int] {
+        scope.groupId.map { calculateUsageByCategory(forMonth: monthAnchor, groupId: $0) }
+            ?? calculateUsageByCategory(forMonth: monthAnchor)
+    }
 
     /// Gives a generated allocation instance the identity every device derives for (series, month),
     /// replacing the random uuid the insert trigger assigned. Skipped silently when the parent has no

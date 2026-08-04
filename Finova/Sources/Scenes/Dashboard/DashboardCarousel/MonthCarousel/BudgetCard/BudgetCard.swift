@@ -18,6 +18,7 @@ final class BudgetCard: UIView {
     static let unallocatedValueIdentifier = "budgetCard.unallocatedValue"
     static let usedValueIdentifier = "budgetCard.usedValue"
     static let marginLabelIdentifier = "budgetCard.margin"
+    static let noBudgetStateIdentifier = "budgetCard.noBudgetState"
 
     // MARK: - Properties
 
@@ -308,6 +309,7 @@ final class BudgetCard: UIView {
         let view = UIView()
         view.translatesAutoresizingMaskIntoConstraints = false
         view.isHidden = true
+        view.accessibilityIdentifier = BudgetCard.noBudgetStateIdentifier
         return view
     }()
 
@@ -645,10 +647,14 @@ final class BudgetCard: UIView {
         isValuesHidden = UserDefaultsManager.getHideValues()
         updateHideValuesIcon()
 
-        // Check if budget is set
-        let hasBudget = unallocatedSummary.totalBudget > 0
+        // Check if there is anything to show. Allocations alone are enough: a ledger can hold real
+        // allocations with no budget total for the month (a group that never set one, or an
+        // allocation created before the budget), and gating purely on the total threw away the
+        // donut, the footer metrics and the projection blocks in favour of "define your budget".
+        // The donut already treats a zero total as "no remaining slice" rather than dividing by it.
+        let hasContent = unallocatedSummary.totalBudget > 0 || !allocations.isEmpty
 
-        if hasBudget {
+        if hasContent {
             // Show chart and metrics
             showBudgetMetrics(unallocatedSummary: unallocatedSummary)
             if isValuesHidden {

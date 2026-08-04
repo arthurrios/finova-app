@@ -434,8 +434,8 @@ class MonthCarouselCell: UICollectionViewCell {
 
         // Fetch fresh data and update the budget card
         let allocations = allocationService.getAllocationsWithUsage(forMonth: currentMonthAnchor, in: ledgerScope)
-        let unallocatedSpending = allocationService.getUnallocatedCategoriesWithSpending(forMonth: currentMonthAnchor)
-        let summary = allocationService.getUnallocatedSummary(forMonth: currentMonthAnchor)
+        let unallocatedSpending = allocationService.getUnallocatedCategoriesWithSpending(forMonth: currentMonthAnchor, in: ledgerScope)
+        let summary = allocationService.getUnallocatedSummary(forMonth: currentMonthAnchor, in: ledgerScope)
 
         // Sort allocations by allocated amount (highest first)
         currentAllocations = allocations.sorted { $0.allocatedAmount > $1.allocatedAmount }
@@ -1019,7 +1019,7 @@ class MonthCarouselCell: UICollectionViewCell {
         currentAllocations = allocations.sorted { $0.allocatedAmount > $1.allocatedAmount }
 
         // Fetch unallocated categories with spending
-        currentUnallocatedSpending = allocationService.getUnallocatedCategoriesWithSpending(forMonth: currentMonthAnchor)
+        currentUnallocatedSpending = allocationService.getUnallocatedCategoriesWithSpending(forMonth: currentMonthAnchor, in: ledgerScope)
 
         allocationsTableView.reloadData()
 
@@ -1113,7 +1113,7 @@ class MonthCarouselCell: UICollectionViewCell {
         currentAllocations = allocations.sorted { $0.allocatedAmount > $1.allocatedAmount }
 
         // Fetch unallocated categories with spending
-        currentUnallocatedSpending = allocationService.getUnallocatedCategoriesWithSpending(forMonth: currentMonthAnchor)
+        currentUnallocatedSpending = allocationService.getUnallocatedCategoriesWithSpending(forMonth: currentMonthAnchor, in: ledgerScope)
 
         // Reset scroll position and state before reloading
         allocationsTableView.setContentOffset(.zero, animated: false)
@@ -1164,7 +1164,7 @@ class MonthCarouselCell: UICollectionViewCell {
         currentAllocations = allocations.sorted { $0.allocatedAmount > $1.allocatedAmount }
 
         // Fetch unallocated categories with spending
-        currentUnallocatedSpending = allocationService.getUnallocatedCategoriesWithSpending(forMonth: currentMonthAnchor)
+        currentUnallocatedSpending = allocationService.getUnallocatedCategoriesWithSpending(forMonth: currentMonthAnchor, in: ledgerScope)
 
         // Reset scroll position and state before reloading
         allocationsTableView.setContentOffset(.zero, animated: false)
@@ -1405,7 +1405,7 @@ extension MonthCarouselCell: MonthCardFlipDelegate {
 
             // Fetch real allocations and summary from the service
             let allocations = allocationService.getAllocationsWithUsage(forMonth: currentMonthAnchor, in: ledgerScope)
-            let summary = allocationService.getUnallocatedSummary(forMonth: currentMonthAnchor)
+            let summary = allocationService.getUnallocatedSummary(forMonth: currentMonthAnchor, in: ledgerScope)
             logDebug("MonthCarouselCell: Fetched \(allocations.count) allocations for monthAnchor: \(currentMonthAnchor)")
             flipToBudgetView(allocations: allocations, summary: summary)
         } else {
