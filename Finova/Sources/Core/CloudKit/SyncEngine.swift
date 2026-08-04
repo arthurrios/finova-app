@@ -20,6 +20,17 @@ struct SyncPushProgress {
     let currentBatch: Int
     let totalBatches: Int
     let totalRecords: Int
+    /// Records finished so far, across every batch in this push.
+    ///
+    /// Batches are the unit the engine sends in, not a unit anyone watching cares about: a push of 50
+    /// transactions in one batch reported "1 of 1" and sat there. This counts what the user is
+    /// actually waiting for, and updates as each record lands rather than once per batch.
+    var processedRecords: Int = 0
+
+    var fraction: Float {
+        guard totalRecords > 0 else { return 0 }
+        return min(1, Float(processedRecords) / Float(totalRecords))
+    }
 }
 
 struct SyncPhaseProgress {
@@ -75,6 +86,11 @@ final class SyncEngine {
         needsPostSyncPush = true
     }
     private(set) var currentPushProgress: SyncPushProgress?
+    /// Records finished in the push currently running, and the total it is working through. Reset
+    /// when a push starts; read by the per-record handler, which runs on CloudKit's queue.
+    private let pushCountsLock = NSLock()
+    private var pushProcessedRecords = 0
+    private var pushTotalRecords = 0
     private var isInitialPush = false
     private var isLargeSyncCycle = false
     private var isRecoverySync = false
@@ -1911,6 +1927,34 @@ final class SyncEngine {
     }
 
     /// Encodes a CKRecord's system fields and stores them in the local DB.
+    /// Advances the record counter and republishes progress.
+    ///
+    /// Throttled to at most one notification every 100ms, plus always the final one: a 500-record
+    /// push would otherwise post 500 main-thread notifications and the label would be unreadable
+    /// anyway. The counter itself is exact; only how often observers hear about it is limited.
+    private func advancePushProgress(batchIndex: Int, batchCount: Int) {
+        pushCountsLock.lock()
+        pushProcessedRecords += 1
+        let processed = pushProcessedRecords
+        let total = pushTotalRecords
+        let isLast = processed >= total
+        let shouldPublish =
+            isLast || Date().timeIntervalSince(lastPushProgressPublish) >= 0.1
+        if shouldPublish { lastPushProgressPublish = Date() }
+        pushCountsLock.unlock()
+
+        guard shouldPublish, total > 0 else { return }
+        let progress = SyncPushProgress(
+            currentBatch: batchIndex + 1, totalBatches: batchCount, totalRecords: total,
+            processedRecords: min(processed, total))
+        currentPushProgress = progress
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(name: .syncPushProgressDidChange, object: progress)
+        }
+    }
+
+    private var lastPushProgressPublish = Date.distantPast
+
     private func storeSystemFields(from record: CKRecord) {
         guard let table = tableForRecordName(record.recordID.recordName) else { return }
         let coder = NSKeyedArchiver(requiringSecureCoding: true)
@@ -2699,7 +2743,13 @@ final class SyncEngine {
         // Track push progress for any multi-batch push
         let allBatchCount = privateBatches.count + sharedBatches.count
         if allBatchCount > 0 {
-            let progress = SyncPushProgress(currentBatch: 0, totalBatches: allBatchCount, totalRecords: totalRecords)
+            pushCountsLock.lock()
+            pushProcessedRecords = 0
+            pushTotalRecords = totalRecords
+            pushCountsLock.unlock()
+            let progress = SyncPushProgress(
+                currentBatch: 0, totalBatches: allBatchCount, totalRecords: totalRecords,
+                processedRecords: 0)
             currentPushProgress = progress
             DispatchQueue.main.async {
                 NotificationCenter.default.post(name: .syncPushProgressDidChange, object: progress)
@@ -2802,6 +2852,7 @@ final class SyncEngine {
 
         cloudKitOps.saveRecords(batch, database: database, savePolicy: .ifServerRecordUnchanged) { [weak self, db] recordID, result in
             let name = recordID.recordName
+            self?.advancePushProgress(batchIndex: index, batchCount: batches.count)
             switch result {
             case .success(let savedRecord):
                 batchSuccessCount += 1
@@ -2907,7 +2958,13 @@ final class SyncEngine {
             logWarning("[GROUPDIAG] [Push] Batch \(index + 1)/\(batches.count) result: \(batchSuccessCount) succeeded, \(batchFailureCount) failed")
 
             if let self = self {
-                let progress = SyncPushProgress(currentBatch: index + 1, totalBatches: batches.count, totalRecords: batches.reduce(0) { $0 + $1.count })
+                self.pushCountsLock.lock()
+                let processed = self.pushProcessedRecords
+                let total = max(self.pushTotalRecords, processed)
+                self.pushCountsLock.unlock()
+                let progress = SyncPushProgress(
+                    currentBatch: index + 1, totalBatches: batches.count, totalRecords: total,
+                    processedRecords: processed)
                 self.currentPushProgress = progress
                 DispatchQueue.main.async {
                     NotificationCenter.default.post(name: .syncPushProgressDidChange, object: progress)

@@ -52,6 +52,17 @@ final class SyncToastView: UIView {
         return label
     }()
 
+    private let progressBar: UIProgressView = {
+        let bar = UIProgressView(progressViewStyle: .default)
+        bar.translatesAutoresizingMaskIntoConstraints = false
+        bar.progressTintColor = Colors.mainMagenta
+        bar.trackTintColor = Colors.gray300
+        bar.layer.cornerRadius = 1
+        bar.clipsToBounds = true
+        bar.isHidden = true
+        return bar
+    }()
+
     private let contentStack: UIStackView = {
         let stack = UIStackView()
         stack.axis = .horizontal
@@ -96,8 +107,12 @@ final class SyncToastView: UIView {
 
         outerStack.addArrangedSubview(contentStack)
         outerStack.addArrangedSubview(batchLabel)
+        outerStack.addArrangedSubview(progressBar)
 
         NSLayoutConstraint.activate([
+            progressBar.heightAnchor.constraint(equalToConstant: 2),
+            progressBar.widthAnchor.constraint(equalToConstant: 96),
+
             backgroundView.topAnchor.constraint(equalTo: topAnchor),
             backgroundView.leadingAnchor.constraint(equalTo: leadingAnchor),
             backgroundView.trailingAnchor.constraint(equalTo: trailingAnchor),
@@ -147,13 +162,19 @@ final class SyncToastView: UIView {
         statusLabel.textColor = Colors.mainMagenta
         startSpinning()
 
-        batchLabel.text = String(format: "sync.toast.batchProgress".localized, progress.currentBatch, progress.totalBatches)
-        batchLabel.isHidden = false
+        // Just the bar. The old "1 of 1" counted batches, which is an implementation detail of how
+        // the engine chunks a push - a 50-record push sat on "1 of 1" and looked stuck. A count of
+        // records would be honest but noisy, so the fill does the job without a number to read.
+        batchLabel.isHidden = true
+        progressBar.setProgress(progress.fraction, animated: true)
+        progressBar.isHidden = progress.totalRecords == 0
     }
 
     func updateStatus(_ status: SyncStatusIndicator.Status, message: String? = nil) {
         stopSpinning()
         batchLabel.isHidden = true
+        progressBar.isHidden = true
+        progressBar.setProgress(0, animated: false)
 
         switch status {
         case .syncing:

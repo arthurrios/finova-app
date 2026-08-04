@@ -206,10 +206,13 @@ final class SyncSettingsViewModel {
     )
   }
 
+  /// The engine now counts records as each one resolves, so this reports the real figure.
+  ///
+  /// It used to estimate: completed batches x an average batch size. With one batch of fifty that
+  /// read 0 until the whole push finished and then jumped to fifty, which is also why the toast sat
+  /// on "1 of 1". The batch fields are still carried for anything that wants them.
   private func recordsCompletedForProgress(_ progress: SyncPushProgress) -> Int {
-    guard progress.totalBatches > 0 else { return 0 }
-    let recordsPerBatch = progress.totalRecords / progress.totalBatches
-    return min(progress.currentBatch * recordsPerBatch, progress.totalRecords)
+    min(progress.processedRecords, progress.totalRecords)
   }
 
   private func refreshUploadStatus() {
