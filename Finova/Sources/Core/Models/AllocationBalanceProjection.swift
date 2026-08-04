@@ -40,6 +40,14 @@ struct AllocationBalanceProjection: Equatable {
         return overruns + max(0, unallocatedSpending)
     }
 
+    /// Budget earmarked but not yet spent, clamped per category.
+    ///
+    /// Shared with `init` so the allocations header and the card agree. Like `overspent`, it is a
+    /// total of what the list already shows: the green arrows on its rows.
+    static func unspent(allocations: [BudgetAllocation]) -> Int {
+        allocations.reduce(0) { $0 + max(0, $1.remainingAmount) }
+    }
+
     /// Ledger closing balance for the month, in minor units.
     let base: Int
 
@@ -84,15 +92,12 @@ struct AllocationBalanceProjection: Equatable {
         // Only the *unspent* remainder is a future outflow. Money already spent is inside `base`,
         // so charging the full allocated amount would subtract it twice. A negative remainder means
         // the category is overspent - it clamps to zero here and is counted in `overspent` instead.
-        var unspent = 0
-        var used = 0
-
-        for allocation in allocations {
-            unspent += max(0, allocation.remainingAmount)
-            // Capped so an overspent category cannot report more used than it ever allocated; the
-            // excess is counted in `overspent` instead.
-            used += max(0, min(allocation.usedAmount, allocation.allocatedAmount))
+        // Capped so an overspent category cannot report more used than it ever allocated; the
+        // excess is counted in `overspent` instead.
+        let used = allocations.reduce(0) {
+            $0 + max(0, min($1.usedAmount, $1.allocatedAmount))
         }
+        let unspent = Self.unspent(allocations: allocations)
 
         self.base = base
         self.unspentAllocations = unspent

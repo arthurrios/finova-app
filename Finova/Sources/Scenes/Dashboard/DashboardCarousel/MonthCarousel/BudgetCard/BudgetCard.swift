@@ -41,7 +41,7 @@ final class BudgetCard: UIView {
     private var projectionBlockHeight: NSLayoutConstraint?
     private enum ProjectionBlockHeight {
         static let withoutOutcome: CGFloat = 45
-        static let withOutcome: CGFloat = 58
+        static let withOutcome: CGFloat = 60
     }
 
     /// Which balance the leading block is showing, and the day it is anchored to.
@@ -294,7 +294,7 @@ final class BudgetCard: UIView {
     /// bar, which shows the same two quantities as proportions.
     private lazy var marginLabel: UILabel = {
         let label = UILabel()
-        label.font = Fonts.title2XS.font
+        label.font = Fonts.titleXS.font
         label.textColor = Colors.gray400
         label.textAlignment = .right
         label.numberOfLines = 1
@@ -409,7 +409,6 @@ final class BudgetCard: UIView {
         projectionBlock.addArrangedSubview(projectionValueLabel)
         projectionBlock.addArrangedSubview(projectionBar)
         projectionBlock.addArrangedSubview(marginLabel)
-        projectionBlock.setCustomSpacing(Metrics.spacing2, after: projectionValueLabel)
 
         addSubview(headerHorizontalStackView)
         addSubview(headerSeparator)
