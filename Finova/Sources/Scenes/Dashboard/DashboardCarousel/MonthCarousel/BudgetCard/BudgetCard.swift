@@ -17,6 +17,7 @@ final class BudgetCard: UIView {
     static let projectionBlockIdentifier = "budgetCard.projectionBlock"
     static let unallocatedValueIdentifier = "budgetCard.unallocatedValue"
     static let usedValueIdentifier = "budgetCard.usedValue"
+    static let headlineValueIdentifier = "budgetCard.headlineValue"
     static let marginLabelIdentifier = "budgetCard.margin"
 
     // MARK: - Properties
@@ -33,6 +34,15 @@ final class BudgetCard: UIView {
     private var balanceBasis: BalanceBasis?
     private var currentUsedValue: Int?
     private var currentBudgetLimit: Int?
+
+    /// The trailing block loses its third line on an open month, so its height follows the tense.
+    /// 3 rows need 45pt, 4 need 58pt. Varying it is safe: the block declares only a top anchor, so
+    /// it is not part of the chain that fixes the card's own height.
+    private var projectionBlockHeight: NSLayoutConstraint?
+    private enum ProjectionBlockHeight {
+        static let withoutOutcome: CGFloat = 45
+        static let withOutcome: CGFloat = 58
+    }
 
     /// Which balance the leading block is showing, and the day it is anchored to.
     ///
@@ -262,6 +272,7 @@ final class BudgetCard: UIView {
 
     private lazy var projectionValueLabel: UILabel = {
         let label = UILabel()
+        label.accessibilityIdentifier = BudgetCard.headlineValueIdentifier
         label.font = Fonts.textSMBold.font
         label.textColor = Colors.gray100
         label.textAlignment = .right
@@ -499,7 +510,6 @@ final class BudgetCard: UIView {
             projectionBlock.trailingAnchor.constraint(
                 equalTo: trailingAnchor, constant: -Metrics.spacing6),
             projectionBlock.widthAnchor.constraint(equalToConstant: 64),
-            projectionBlock.heightAnchor.constraint(equalToConstant: 58),
 
             projectionBar.heightAnchor.constraint(equalToConstant: 4),
             projectionBar.widthAnchor.constraint(equalTo: projectionBlock.widthAnchor),
@@ -514,6 +524,13 @@ final class BudgetCard: UIView {
             projectionValueLabel.widthAnchor.constraint(equalTo: projectionBlock.widthAnchor),
             marginLabel.widthAnchor.constraint(equalTo: projectionBlock.widthAnchor),
         ])
+
+        // 64pt is the widest the block can be at its taller setting without touching the inscribed
+        // donut, so the width stays constant across tenses rather than resizing as months change.
+        let height = projectionBlock.heightAnchor.constraint(
+            equalToConstant: ProjectionBlockHeight.withOutcome)
+        height.isActive = true
+        projectionBlockHeight = height
     }
 
     override func layoutSubviews() {
@@ -810,23 +827,29 @@ final class BudgetCard: UIView {
             return
         }
 
-        let headline = projection.headlineAmount
-        projectionValueLabel.text = signedCompactString(headline)
-        if isActual {
-            projectionValueLabel.textColor = Colors.gray100
-        } else {
-            projectionValueLabel.textColor = projection.isOverCommitted
-                ? Colors.brightRed
-                : Colors.brightGreen
-        }
+        projectionValueLabel.text = signedCompactString(projection.headlineAmount)
 
-        // The figure under the bar: plan adherence while open, realised outcome once closed.
-        let net = renderPlanOutcome(projection)
+        // The figure under the bar is the month's realised outcome, so it only appears once the
+        // month has closed. Mid-month it would be reporting an overspend the user may yet absorb,
+        // and the allocations header carries that amount instead.
+        let outcome = renderPlanOutcome(projection)
+        marginLabel.isHidden = !isActual
+        projectionBlockHeight?.constant = isActual
+            ? ProjectionBlockHeight.withOutcome
+            : ProjectionBlockHeight.withoutOutcome
+
+        // Coloured by the month's final net - `totalSaved - overspent` - and deliberately not by
+        // whether anything happened to break its plan. A month can leak R$180 and still come out
+        // well ahead; only a net that actually lands negative is bad news. It is also not the sign
+        // of the headline's own digits, which is what it used to be.
+        projectionValueLabel.textColor = projection.netSaved < 0
+            ? Colors.brightRed
+            : Colors.brightGreen
 
         var spokenParts = [
             projectionTextLabel.text,
             projectionValueLabel.text,
-            net,
+            outcome.text,
         ].compactMap { $0 }
 
         // The bar carries no visible legend at this width, so spell its two sides out here.
@@ -850,34 +873,42 @@ final class BudgetCard: UIView {
         projectionBlock.accessibilityLabel = spokenParts.joined(separator: ", ")
     }
 
-    /// Renders the figure under the bar and returns the spoken form.
+    /// The block's single verdict: its wording, and whether the month has broken its plan.
+    /// Both the headline and the figure under the bar are coloured from this, so they cannot
+    /// contradict each other.
+    private struct PlanOutcome {
+        let text: String
+        let isOverPlan: Bool
+    }
+
+    /// Renders the figure under the bar and returns the verdict the headline also uses.
     ///
     /// Tense-aware because "saved" is a realised quantity. While a month is open, an unspent
     /// allocation is money still earmarked for spending, so reporting it as kept would show a
     /// number that erodes as the month fills in - the open month reports plan adherence instead.
     /// Once the month closes, the unspent budget really was kept and becomes the outcome.
-    @discardableResult
-    private func renderPlanOutcome(_ projection: AllocationBalanceProjection) -> String? {
+    private func renderPlanOutcome(_ projection: AllocationBalanceProjection) -> PlanOutcome {
         let text: String
-        let isBad: Bool
+        let isOverPlan: Bool
 
         switch projection.tense {
         case .projected:
-            isBad = projection.overspent > 0
-            text = isBad
+            // Hidden on open months; kept in sync so a flip to a closed month never shows stale text.
+            isOverPlan = projection.overspent > 0
+            text = isOverPlan
                 ? "budget.plan.over.format".localized(projection.overspent.compactCurrencyString)
                 : "budget.plan.within.label".localized
 
         case .actual:
             let net = projection.netSaved
-            isBad = net < 0
-            let format = isBad ? "budget.net.overspent.format" : "budget.net.saved.format"
+            isOverPlan = net < 0
+            let format = isOverPlan ? "budget.net.overspent.format" : "budget.net.saved.format"
             text = format.localized(abs(net).compactCurrencyString)
         }
 
         marginLabel.text = text
-        marginLabel.textColor = isBad ? Colors.brightRed : Colors.brightGreen
-        return text
+        marginLabel.textColor = isOverPlan ? Colors.brightRed : Colors.brightGreen
+        return PlanOutcome(text: text, isOverPlan: isOverPlan)
     }
 
     /// "Aug 31" - abbreviated month plus the localized day, short enough for a 72pt block.

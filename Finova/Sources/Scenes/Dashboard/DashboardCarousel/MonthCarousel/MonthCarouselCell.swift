@@ -66,6 +66,7 @@ struct TransactionFilters: Equatable {
 
 class MonthCarouselCell: UICollectionViewCell {
     static let reuseID = "MonthCarouselCell"
+    static let overspentTotalIdentifier = "allocationsHeader.overspentTotal"
 
     weak var searchDelegate: MonthCarouselCellDelegate?
 
@@ -105,6 +106,16 @@ class MonthCarouselCell: UICollectionViewCell {
     /// Live ledger row for the month this cell renders, or nil if unavailable.
     private var currentMonthData: MonthBudgetCardType? {
         monthDataProvider?(currentMonthAnchor)
+    }
+
+    /// Refreshes the overspend beside the row count, from the rows currently shown.
+    private func updateOverspentTotal() {
+        let offPlan = currentUnallocatedSpending.reduce(0) { $0 + $1.spentAmount }
+        let overspent = AllocationBalanceProjection.overspent(
+            allocations: currentAllocations, unallocatedSpending: offPlan)
+
+        overspentTotalLabel.text = overspent > 0 ? "-" + overspent.currencyString : nil
+        overspentTotalLabel.isHidden = overspent == 0
     }
 
     /// Sets the month anchor for this cell (used for budget allocation operations)
@@ -331,6 +342,34 @@ class MonthCarouselCell: UICollectionViewCell {
         return stackView
     }()
 
+    /// Money spent beyond the plan this month, shown beside the row count.
+    ///
+    /// An amount rather than a count, and safe to be one: both of its terms are visible in the rows
+    /// below - category overruns are the red arrows, unallocated spending is the greyed rows - so
+    /// someone adding up the list arrives at this number. The card's own saved figure could not
+    /// make that claim, which is why only the overspend lives here.
+    private let overspentTotalLabel: UILabel = {
+        let label = UILabel()
+        label.font = Fonts.titleXS.font
+        label.textColor = Colors.mainRed
+        label.textAlignment = .right
+        label.isHidden = true
+        label.accessibilityIdentifier = MonthCarouselCell.overspentTotalIdentifier
+        label.translatesAutoresizingMaskIntoConstraints = false
+        return label
+    }()
+
+    /// Groups the overspend and the count so they sit together at the trailing edge. Without this
+    /// the header's `.equalSpacing` distribution strands a third item in the middle.
+    private let allocationsHeaderTrailingGroup: UIStackView = {
+        let stack = UIStackView()
+        stack.axis = .horizontal
+        stack.spacing = Metrics.spacing2
+        stack.alignment = .center
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        return stack
+    }()
+
     private let allocationsNumberLabel: UILabel = {
         let label = UILabel()
         label.font = Fonts.titleXS.font
@@ -430,6 +469,7 @@ class MonthCarouselCell: UICollectionViewCell {
         // Total count includes both allocated and unallocated with spending
         let totalCount = allocations.count + unallocatedSpending.count
         allocationsNumberLabel.text = "\(totalCount)"
+        updateOverspentTotal()
         updateAllocationsTableHeight(count: totalCount)
 
         budgetCard.configure(
@@ -492,7 +532,9 @@ class MonthCarouselCell: UICollectionViewCell {
         // Allocations table components
         contentView.addSubview(allocationsTableHeaderView)
         allocationsTableHeaderView.addArrangedSubview(allocationsHeaderTitleLabel)
-        allocationsTableHeaderView.addArrangedSubview(allocationsNumberContainerView)
+        allocationsHeaderTrailingGroup.addArrangedSubview(overspentTotalLabel)
+        allocationsHeaderTrailingGroup.addArrangedSubview(allocationsNumberContainerView)
+        allocationsTableHeaderView.addArrangedSubview(allocationsHeaderTrailingGroup)
         allocationsNumberContainerView.addArrangedSubview(allocationsNumberLabel)
         contentView.addSubview(allocationsTableView)
         contentView.addSubview(allocationsEmptyStateView)
@@ -1003,6 +1045,7 @@ class MonthCarouselCell: UICollectionViewCell {
         // Total count includes both allocated and unallocated with spending
         let totalCount = allocations.count + currentUnallocatedSpending.count
         allocationsNumberLabel.text = "\(totalCount)"
+        updateOverspentTotal()
         updateAllocationsTableHeight(count: totalCount)
 
         budgetCard.configure(
@@ -1102,6 +1145,7 @@ class MonthCarouselCell: UICollectionViewCell {
         // Total count includes both allocated and unallocated with spending
         let totalCount = allocations.count + currentUnallocatedSpending.count
         allocationsNumberLabel.text = "\(totalCount)"
+        updateOverspentTotal()
         updateAllocationsTableHeight(count: totalCount)
 
         budgetCard.configure(
@@ -1153,6 +1197,7 @@ class MonthCarouselCell: UICollectionViewCell {
         // Total count includes both allocated and unallocated with spending
         let totalCount = allocations.count + currentUnallocatedSpending.count
         allocationsNumberLabel.text = "\(totalCount)"
+        updateOverspentTotal()
         updateAllocationsTableHeight(count: totalCount)
 
         budgetCard.configure(
