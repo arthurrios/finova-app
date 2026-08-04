@@ -60,33 +60,12 @@ final class AllocationTagsViewController: UIViewController {
     }
 
     private func showCreateTagAlert() {
-        let alert = UIAlertController(
-            title: "allocationTags.create.title".localized,
-            message: "allocationTags.create.message".localized,
-            preferredStyle: .alert)
-
-        alert.addTextField { textField in
-            textField.placeholder = "allocationTags.create.namePlaceholder".localized
-            textField.autocapitalizationType = .words
-        }
-
-        let createAction = UIAlertAction(
-            title: "allocationTags.create.button".localized, style: .default
-        ) { [weak self, weak alert] _ in
-            guard
-                let name = alert?.textFields?.first?.text?
-                    .trimmingCharacters(in: .whitespacesAndNewlines),
-                !name.isEmpty,
-                let tag = self?.viewModel.createTag(name: name)
-            else { return }
+        AllocationTagCreationPrompt.present(from: self) { [weak self] tag in
+            guard let self else { return }
+            self.viewModel.loadTags()
             // Straight into editing: a tag with no categories has no effect on anything.
-            self?.flowDelegate?.navigateToAllocationTagEdit(tag: tag)
+            self.flowDelegate?.navigateToAllocationTagEdit(tag: tag)
         }
-
-        alert.addAction(createAction)
-        alert.addAction(UIAlertAction(title: "alert.cancel".localized, style: .cancel))
-
-        present(alert, animated: true)
     }
 
     private func confirmDelete(at index: Int, completion: @escaping (Bool) -> Void) {

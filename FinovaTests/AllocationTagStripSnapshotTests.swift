@@ -59,8 +59,8 @@ final class AllocationTagStripSnapshotTests: XCTestCase {
     }
 
     /// Builds the header + strip + table stack the way `MonthCarouselCell` does, without the carousel.
-    private func render(_ name: String, selectedTagId: String?) {
-        let model = breakdown()
+    private func render(_ name: String, selectedTagId: String?, singleTag: Bool = false) {
+        let model = singleTag ? singleTagBreakdown() : breakdown()
 
         let header = UIStackView()
         header.axis = .horizontal
@@ -74,12 +74,18 @@ final class AllocationTagStripSnapshotTests: XCTestCase {
         header.distribution = .equalSpacing
         header.translatesAutoresizingMaskIntoConstraints = false
 
+        // Mirrors the cell: title + count grouped at the leading edge, Tags button at the trailing one.
+        let leading = UIStackView()
+        leading.axis = .horizontal
+        leading.alignment = .center
+        leading.spacing = Metrics.spacing2
+
         let title = UILabel()
         title.fontStyle = Fonts.title2XS
         title.textColor = Colors.gray500
         title.text = "budget.allocations.title".localized
         title.applyStyle()
-        header.addArrangedSubview(title)
+        leading.addArrangedSubview(title)
 
         let visibleAllocations =
             selectedTagId == nil
@@ -88,11 +94,33 @@ final class AllocationTagStripSnapshotTests: XCTestCase {
                 .sorted { $0.allocatedAmount > $1.allocatedAmount }
                 .filter { model.segment("alloc-\($0.category.key)", belongsTo: selectedTagId!) }
 
+        // The real count pill, not a bare label: re-parenting it into the leading group could have
+        // broken the circular background, whose radius is derived from its own bounds.
+        let countPill = UIStackView()
+        countPill.axis = .horizontal
+        countPill.distribution = .fillEqually
+        countPill.alignment = .center
+        countPill.backgroundColor = Colors.gray300
+        countPill.clipsToBounds = true
+        countPill.layoutMargins = UIEdgeInsets(
+            top: 0, left: Metrics.spacing2, bottom: 0, right: Metrics.spacing2)
+        countPill.isLayoutMarginsRelativeArrangement = true
+        countPill.heightAnchor.constraint(equalToConstant: 18).isActive = true
+
         let countLabel = UILabel()
         countLabel.font = Fonts.titleXS.font
         countLabel.textColor = Colors.gray600
+        countLabel.textAlignment = .center
         countLabel.text = "\(visibleAllocations.count)"
-        header.addArrangedSubview(countLabel)
+        countPill.addArrangedSubview(countLabel)
+        leading.addArrangedSubview(countPill)
+        header.addArrangedSubview(leading)
+
+        let tagsButton = UIButton(type: .system)
+        tagsButton.setTitle("budgets.tags.manage".localized, for: .normal)
+        tagsButton.titleLabel?.font = Fonts.titleXS.font
+        tagsButton.setTitleColor(Colors.mainMagenta, for: .normal)
+        header.addArrangedSubview(tagsButton)
 
         let strip = AllocationTagStripView()
         strip.translatesAutoresizingMaskIntoConstraints = false
@@ -152,6 +180,7 @@ final class AllocationTagStripSnapshotTests: XCTestCase {
         window.layoutIfNeeded()
         table.reloadData()
         window.layoutIfNeeded()
+        countPill.layer.cornerRadius = countPill.bounds.height / 2
         RunLoop.current.run(until: Date().addingTimeInterval(0.1))
 
         let size = CGSize(width: width, height: totalHeight + 40)
@@ -173,9 +202,23 @@ final class AllocationTagStripSnapshotTests: XCTestCase {
         print("SNAPSHOT_WRITTEN \(name)")
     }
 
+    /// One tag, so the Untagged chip and the trailing `+` both fit on screen without scrolling - the
+    /// three- and four-chip cases push the `+` past the right edge, which is why the header also carries
+    /// a Tags button.
+    private func singleTagBreakdown() -> AllocationTagBreakdown {
+        AllocationTagBreakdown(
+            allocations: allocations(),
+            unallocatedSpending: [],
+            unallocatedHeadroom: 100_000,
+            totalBudget: 1_000_000,
+            tags: [essentials],
+            categoryTagIds: [TransactionCategory.homeMaintenance.key: essentials.id])
+    }
+
     func testRenderStripStates() {
         render("unfiltered", selectedTagId: nil)
         render("filtered", selectedTagId: essentials.id)
+        render("single-tag", selectedTagId: nil, singleTag: true)
     }
 
     /// A month with no tags must produce no strip, so the caller collapses its height to zero and the
