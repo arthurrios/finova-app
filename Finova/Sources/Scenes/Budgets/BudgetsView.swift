@@ -115,6 +115,19 @@ final class BudgetsView: UIView {
     
     private let budgetsTableHeaderView = CardHeader(
         headerTitle: "budgets.table.header.title".localized)
+
+    /// Entry point to allocation tags. Overlaid on the header rather than added to its stack:
+    /// `CardHeader`'s stack is `.equalSpacing` and shared by several screens, so a third arranged
+    /// subview would redistribute the spacing everywhere it is used. The header's trailing side is
+    /// free here because no items-quantity pill is passed.
+    private let manageTagsButton: UIButton = {
+        let button = UIButton(type: .system)
+        button.setTitle("budgets.tags.manage".localized, for: .normal)
+        button.titleLabel?.font = Fonts.titleXS.font
+        button.setTitleColor(Colors.mainMagenta, for: .normal)
+        button.translatesAutoresizingMaskIntoConstraints = false
+        return button
+    }()
     
     let budgetsTableView: UITableView = {
         let tableView = UITableView()
@@ -207,6 +220,7 @@ final class BudgetsView: UIView {
         cardContentView.addSubview(addButton)
         
         addSubview(budgetsTableHeaderView)
+        budgetsTableHeaderView.addSubview(manageTagsButton)
         addSubview(budgetsTableView)
         
         addSubview(emptyStateView)
@@ -215,6 +229,7 @@ final class BudgetsView: UIView {
         
         backButton.addTarget(self, action: #selector(didTapBackButton), for: .touchUpInside)
         addButton.addTarget(self, action: #selector(didTapAddBudgetButton), for: .touchUpInside)
+        manageTagsButton.addTarget(self, action: #selector(didTapManageTags), for: .touchUpInside)
         
         setupConstraints()
     }
@@ -261,6 +276,10 @@ final class BudgetsView: UIView {
             budgetsTableHeaderView.leadingAnchor.constraint(equalTo: cardContentView.leadingAnchor),
             budgetsTableHeaderView.trailingAnchor.constraint(equalTo: cardContentView.trailingAnchor),
             
+            manageTagsButton.trailingAnchor.constraint(
+                equalTo: budgetsTableHeaderView.trailingAnchor, constant: -Metrics.spacing4),
+            manageTagsButton.centerYAnchor.constraint(equalTo: budgetsTableHeaderView.centerYAnchor),
+
             budgetsTableView.topAnchor.constraint(equalTo: budgetsTableHeaderView.bottomAnchor),
             budgetsTableView.leadingAnchor.constraint(equalTo: cardContentView.leadingAnchor),
             budgetsTableView.trailingAnchor.constraint(equalTo: cardContentView.trailingAnchor),
@@ -336,6 +355,11 @@ final class BudgetsView: UIView {
     @objc
     private func didTapBackButton() {
         delegate?.didTapBackButton()
+    }
+
+    @objc
+    private func didTapManageTags() {
+        delegate?.didTapManageTags()
     }
     
     @objc

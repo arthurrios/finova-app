@@ -397,6 +397,42 @@ extension AppFlowController: BudgetsFlowDelegate {
     func navBackToDashboard() {
         navigationController?.popViewController(animated: true)
     }
+
+    func navigateToAllocationTags() {
+        let viewController = viewControllersFactory.makeAllocationTagsViewController(flowDelegate: self)
+        navigationController?.pushViewController(viewController, animated: true)
+    }
+}
+
+// MARK: - Allocation Tags Flow
+extension AppFlowController: AllocationTagsFlowDelegate {
+    func dismissAllocationTags() {
+        navigationController?.popViewController(animated: true)
+    }
+
+    func navigateToAllocationTagEdit(tag: AllocationTag) {
+        let viewController = viewControllersFactory.makeAllocationTagEditViewController(
+            flowDelegate: self, tag: tag)
+        navigationController?.pushViewController(viewController, animated: true)
+    }
+}
+
+extension AppFlowController: AllocationTagEditFlowDelegate {
+    func dismissAllocationTagEdit() {
+        navigationController?.popViewController(animated: true)
+    }
+
+    func navigateToAllocationTagCategories(tag: AllocationTag) {
+        let viewController = viewControllersFactory.makeAllocationTagCategoriesViewController(
+            flowDelegate: self, tag: tag)
+        navigationController?.pushViewController(viewController, animated: true)
+    }
+}
+
+extension AppFlowController: AllocationTagCategoriesFlowDelegate {
+    func dismissAllocationTagCategories() {
+        navigationController?.popViewController(animated: true)
+    }
 }
 
 // MARK: - Add Transaction Modal Flow
