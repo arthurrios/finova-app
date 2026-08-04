@@ -1903,6 +1903,12 @@ extension DashboardViewController: UICollectionViewDataSource {
             cell.monthCard.dataContext = viewModel.currentContext
             // Same scope the card displays, so its budget view can't read a different ledger.
             cell.ledgerScope = LedgerScope(viewModel.currentContext)
+            // Read the balance live from the synced month data rather than handing over a
+            // snapshot: this array is the only cumulative, scope-aware source of finalBalance,
+            // and it is refreshed on paths that deliberately skip monthCard.refresh(with:).
+            cell.monthDataProvider = { [weak self] anchor in
+                self?.syncedViewModel.monthData.first { $0.date.monthAnchor == anchor }
+            }
             cell.monthCard.refresh(with: model)
 
             cell.setFiltersWithoutApplying(globalFilters)

@@ -101,6 +101,19 @@ class MonthCarouselCell: UICollectionViewCell {
     /// personal, which is also the correct fallback for a cell that has not been configured yet.
     var ledgerScope: LedgerScope = .personal
 
+    /// Resolves the displayed month's ledger row on demand, for the budget card's projected
+    /// balance. Deliberately pull-based rather than a stored snapshot: while the budget face is
+    /// showing, the dashboard refreshes its month data but skips `monthCard.refresh(with:)`, so
+    /// anything cached here — or read off `monthCard` — would be stale exactly when the
+    /// projection is on screen.
+    var monthDataProvider: ((Int) -> MonthBudgetCardType?)?
+
+    /// Live ledger row for the month this cell renders, or nil if unavailable. The budget card
+    /// picks which balance to project from, following the transaction face's display mode.
+    private var currentMonthData: MonthBudgetCardType? {
+        monthDataProvider?(currentMonthAnchor)
+    }
+
     /// Sets the month anchor for this cell (used for budget allocation operations)
     func setMonthAnchor(_ anchor: Int) {
         currentMonthAnchor = anchor
@@ -440,7 +453,8 @@ class MonthCarouselCell: UICollectionViewCell {
             allocations: allocations,
             unallocatedSummary: summary,
             unallocatedSpending: currentUnallocatedSpending,
-            monthAnchor: currentMonthAnchor
+            monthAnchor: currentMonthAnchor,
+            monthData: currentMonthData
         )
 
         // Show/hide empty state - show table if there are allocations OR unallocated spending
@@ -1020,7 +1034,8 @@ class MonthCarouselCell: UICollectionViewCell {
             allocations: allocations,
             unallocatedSummary: summary,
             unallocatedSpending: currentUnallocatedSpending,
-            monthAnchor: currentMonthAnchor
+            monthAnchor: currentMonthAnchor,
+            monthData: currentMonthData
         )
 
         // Show table if there are allocations OR unallocated spending
@@ -1118,7 +1133,8 @@ class MonthCarouselCell: UICollectionViewCell {
             allocations: allocations,
             unallocatedSummary: summary,
             unallocatedSpending: currentUnallocatedSpending,
-            monthAnchor: currentMonthAnchor
+            monthAnchor: currentMonthAnchor,
+            monthData: currentMonthData
         )
 
         // Show table if there are allocations OR unallocated spending
@@ -1168,7 +1184,8 @@ class MonthCarouselCell: UICollectionViewCell {
             allocations: allocations,
             unallocatedSummary: summary,
             unallocatedSpending: currentUnallocatedSpending,
-            monthAnchor: currentMonthAnchor
+            monthAnchor: currentMonthAnchor,
+            monthData: currentMonthData
         )
 
         // Update visibility based on content

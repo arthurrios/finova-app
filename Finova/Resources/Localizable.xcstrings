@@ -2861,6 +2861,40 @@
         }
       }
     },
+    "budget.net.overspent.format": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ overspent"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ excedido"
+          }
+        }
+      }
+    },
+    "budget.net.saved.format": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ saved"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ economizado"
+          }
+        }
+      }
+    },
     "budget.noBudget.message": {
       "extractionState": "manual",
       "localizations": {
@@ -2895,19 +2929,70 @@
         }
       }
     },
-    "budget.remaining.label": {
+    "budget.projection.afterBudget.label": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Remaining"
+            "value": "After budget"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Restante"
+            "value": "Após orçar"
+          }
+        }
+      }
+    },
+    "budget.projection.budgetUsed.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Budget used"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Orçamento usado"
+          }
+        }
+      }
+    },
+    "budget.projection.byDay.format": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "By %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Até %@"
+          }
+        }
+      }
+    },
+    "budget.projection.overcommitted.format": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ over"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ acima"
           }
         }
       }
@@ -2942,23 +3027,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "acima"
-          }
-        }
-      }
-    },
-    "budget.saved.label": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Saved"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Economizado"
           }
         }
       }

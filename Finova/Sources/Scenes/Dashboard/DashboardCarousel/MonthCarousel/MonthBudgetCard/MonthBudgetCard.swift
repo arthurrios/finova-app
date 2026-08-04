@@ -533,7 +533,7 @@ class MonthBudgetCard: UIView {
                 // Use day-specific format for final balance (last day of month)
                 var calendar = Calendar(identifier: .gregorian)
                 calendar.timeZone = TimeZone.current
-                let lastDay = calendar.range(of: .day, in: .month, for: data.date)?.upperBound ?? 31
+                let lastDay = calendar.range(of: .day, in: .month, for: data.date)?.count ?? 31
                 textKey = formatBalanceOnDayString(for: lastDay)
 
             case .current:
@@ -1017,7 +1017,7 @@ class MonthBudgetCard: UIView {
                 // Use day-specific format for final balance (last day of month)
                 var calendar = Calendar(identifier: .gregorian)
                 calendar.timeZone = TimeZone.current
-                let lastDay = calendar.range(of: .day, in: .month, for: data.date)?.upperBound ?? 31
+                let lastDay = calendar.range(of: .day, in: .month, for: data.date)?.count ?? 31
                 textKey = formatBalanceOnDayString(for: lastDay)
                 
             case .current:
@@ -1056,32 +1056,11 @@ class MonthBudgetCard: UIView {
     }
     
     private func formatBalanceOnDayString(for day: Int) -> String {
-        let currentLanguage = Locale.current.language.languageCode?.identifier ?? "en"
-        
-        if currentLanguage == "en" {
-            // English: Use ordinal suffixes (1st, 2nd, 3rd, etc.)
-            return String(format: "monthCard.balanceOnDay".localized, dayWithOrdinalSuffix(day))
-        } else {
-            // Other languages: Use plain number
-            return String(format: "monthCard.balanceOnDay".localized, String(day))
-        }
+        // Day formatting lives in Int.localizedDayOfMonth so the allocations face's
+        // "By Aug 31" caption resolves the same day this label does.
+        return String(format: "monthCard.balanceOnDay".localized, day.localizedDayOfMonth)
     }
-    
-    private func dayWithOrdinalSuffix(_ day: Int) -> String {
-        let suffix: String
-        if day >= 11 && day <= 13 {
-            suffix = "th"
-        } else {
-            switch day % 10 {
-            case 1: suffix = "st"
-            case 2: suffix = "nd"
-            case 3: suffix = "rd"
-            default: suffix = "th"
-            }
-        }
-        return "\(day)\(suffix)"
-    }
-    
+
     private func setupDaySliderForMonth(data: MonthBudgetCardType) {
         guard let slider = daySlider else { return }
         
@@ -1457,7 +1436,7 @@ class MonthBudgetCard: UIView {
             var calendar = Calendar(identifier: .gregorian)
             calendar.timeZone = TimeZone.current
             let monthDate = currentMonthData?.date ?? Date()
-            let lastDay = calendar.range(of: .day, in: .month, for: monthDate)?.upperBound ?? 31
+            let lastDay = calendar.range(of: .day, in: .month, for: monthDate)?.count ?? 31
             textKey = formatBalanceOnDayString(for: lastDay)
         case .current:
             // Use day-specific format for current balance (today)
