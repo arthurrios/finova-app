@@ -28,4 +28,18 @@ enum CloudKitSchemaFlags {
     /// Deployed to the production schema on 2026-08-01. Setting this back to `false` is the escape
     /// hatch if a field turns out to be missing: sync keeps working, only the pointers stop syncing.
     static let installmentPointerFieldsDeployed = true
+
+    /// Whether the `AllocationTagBook` record type - fields `payload`, `updatedAt`, `userId` - exists in
+    /// the production schema.
+    ///
+    /// **A whole record type, not just a field, so this is the stricter case of the warning above.**
+    /// While `false`, allocation tags work exactly as they do today: they persist locally per account and
+    /// simply do not travel between devices. Nothing else is affected, because the book is pushed and
+    /// pulled on its own path rather than in `pushBatches` - a schema rejection here cannot stop
+    /// transactions, budgets or allocations from syncing.
+    ///
+    /// To turn it on: CloudKit Dashboard → Development → the `AllocationTagBook` type appears once a
+    /// development build has written one → Deploy Schema Changes → Production, *then* flip this to
+    /// `true` and ship. In that order. Flipping first is what halts sync.
+    static let allocationTagBookDeployed = false
 }

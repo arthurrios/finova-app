@@ -140,6 +140,19 @@ final class SyncEngine {
     /// CK record names received during a full re-fetch, used for orphan cleanup.
     private var pulledCKRecordNames: Set<String> = []
 
+    /// The allocation tag book, synced as one record on its own path rather than as a table.
+    ///
+    /// Owned here because the engine lives for the app's lifetime, and held `weak` by
+    /// `AllocationTagService` so an edit can push without the service depending on CloudKit. Its pull and
+    /// push are invoked beside the batch engine, never inside it: `pushBatches` aborts every remaining
+    /// batch on a schema error, and the tag book must not be able to take transactions down with it.
+    private(set) lazy var allocationTagSync: AllocationTagBookSync = {
+        let sync = AllocationTagBookSync(
+            store: UserDefaultsAllocationTagStore(), operations: cloudKitOps)
+        AllocationTagService.shared.cloudSync = sync
+        return sync
+    }()
+
     private init() {
         self.injectedDB = nil
         self.cloudKitOps = RealCloudKitOperations()
@@ -157,6 +170,21 @@ final class SyncEngine {
         self.stateManager = stateManager
         self.postSyncActions = postSyncActions
         self.authProvider = authProvider
+    }
+
+    /// Pulls the tag book then pushes it, alongside the table cycle rather than inside it.
+    ///
+    /// Fired at a shallow point on purpose. The book shares no ids, no zone tokens and no
+    /// `clearSyncedLocalData()` interaction with the tables, so its ordering against them does not
+    /// matter - and hooking it here keeps it out of the nested pull/push chain, where a thrown error or
+    /// an un-called completion would strand the whole cycle.
+    ///
+    /// Results are dropped deliberately: the syncer logs its own failures, and nothing in the table
+    /// cycle depends on whether tags travelled.
+    private func syncAllocationTagBook() {
+        allocationTagSync.pull { [weak self] _ in
+            self?.allocationTagSync.push()
+        }
     }
 
     private func setupObservers() {
@@ -919,6 +947,8 @@ final class SyncEngine {
             return
         }
         logWarning("[SyncEngine] pushPendingChangesNow — called")
+        // The tag book has no pending rows for the batch engine to find, so it needs its own nudge here.
+        allocationTagSync.push()
         // UIApplication is main-thread-only, and this is now called from background write paths
         // (allocation create/edit, recurring generation). Hop to main to claim the background task.
         guard Thread.isMainThread else {
@@ -1282,6 +1312,7 @@ final class SyncEngine {
             switch result {
             case .success:
                 self.setupSubscriptionsIfNeeded()
+                self.syncAllocationTagBook()
                 self.fetchPrivateDatabaseChanges { result in
                     switch result {
                     case .success:
