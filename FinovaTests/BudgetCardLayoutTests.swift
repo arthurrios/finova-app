@@ -467,65 +467,163 @@ final class BudgetCardLayoutTests: XCTestCase {
 
     // MARK: - Budget margin
 
+    private func headlineValue(in card: BudgetCard) -> UILabel? {
+        label(BudgetCard.headlineValueIdentifier, in: card)
+    }
+
     private func marginLabel(in card: BudgetCard) -> UILabel? {
         label(BudgetCard.marginLabelIdentifier, in: card)
     }
 
-    /// While a month is open the value reports plan adherence, never "saved" - an unspent
-    /// allocation is money earmarked for spending, so calling it kept produces a figure that erodes.
-    func testOpenMonthReportsPlanAdherenceNotSaving() {
-        let clean = makeCard(unallocatedSpending: 0)
-        XCTAssertEqual(marginLabel(in: clean)?.text, "budget.plan.within.label".localized)
-        XCTAssertEqual(marginLabel(in: clean)?.textColor, Colors.brightGreen)
-
-        let leaking = makeCard(unallocatedSpending: 41_280)
-        XCTAssertEqual(
-            marginLabel(in: leaking)?.text,
-            "budget.plan.over.format".localized(41_280.compactCurrencyString))
-        XCTAssertEqual(marginLabel(in: leaking)?.textColor, Colors.brightRed)
-    }
-
-    /// The bug this fixed: a future month full of untouched allocations used to advertise them as
-    /// saved. Adherence must not inflate just because the plan has not been spent against yet.
-    func testFutureMonthDoesNotAdvertiseUntouchedAllocationsAsSaved() {
+    /// Mid-month the overspend belongs in the allocations header, not under the bar - there it
+    /// would flag money the user may still absorb before the month ends.
+    func testOutcomeLineOnlyAppearsOnClosedMonths() {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone.current
-        let future = calendar.date(byAdding: .month, value: 1, to: Date())!
+        let past = calendar.date(byAdding: .month, value: -3, to: Date())!.monthAnchor
+        let future = calendar.date(byAdding: .month, value: 1, to: Date())!.monthAnchor
 
-        let card = makeCard(
-            anchor: future.monthAnchor,
-            allocations: [
-                BudgetAllocation(dbId: 1, monthDate: 0, category: .market,
-                                 allocatedAmount: 350_000, usedAmount: 0),
-            ],
-            unallocatedSpending: 0)
+        XCTAssertTrue(marginLabel(in: makeCard())?.isHidden ?? false, "current month")
+        XCTAssertTrue(marginLabel(in: makeCard(anchor: future))?.isHidden ?? false, "future month")
 
+        let closed = makeCard(anchor: past, unallocatedSpending: 0)
+        XCTAssertFalse(marginLabel(in: closed)?.isHidden ?? true)
         XCTAssertEqual(
-            marginLabel(in: card)?.text, "budget.plan.within.label".localized,
-            "an untouched plan reports adherence, not a saved amount")
-    }
-
-    /// Once the month closes, the unspent budget really was kept - so it becomes the outcome.
-    func testClosedMonthReportsTheRealisedOutcome() {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone.current
-        let past = calendar.date(byAdding: .month, value: -3, to: Date())!
-
-        let card = makeCard(anchor: past.monthAnchor, unallocatedSpending: 0)
-
-        // Fixture: 80.000 unspent + 250.000 headroom, nothing overspent.
-        XCTAssertEqual(
-            marginLabel(in: card)?.text,
+            marginLabel(in: closed)?.text,
             "budget.net.saved.format".localized(330_000.compactCurrencyString))
-        XCTAssertEqual(marginLabel(in: card)?.textColor, Colors.brightGreen)
     }
 
-    func testPlanOutcomeMasksWithHideValues() {
-        let previous = UserDefaultsManager.getHideValues()
-        UserDefaultsManager.setHideValues(true)
-        defer { UserDefaultsManager.setHideValues(previous) }
+    /// Dropping the third line shortens the block, which must not disturb the card's own height.
+    func testBlockHeightFollowsTheTenseWithoutMovingTheCard() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone.current
+        let past = calendar.date(byAdding: .month, value: -3, to: Date())!.monthAnchor
 
-        XCTAssertEqual(marginLabel(in: makeCard())?.text, "••••••")
+        let open = makeCard()
+        let closed = makeCard(anchor: past)
+
+        let openBlock = block(BudgetCard.projectionBlockIdentifier, in: open)!
+        let closedBlock = block(BudgetCard.projectionBlockIdentifier, in: closed)!
+
+        XCTAssertEqual(openBlock.bounds.height, 45, accuracy: 0.5, "3 rows")
+        XCTAssertEqual(closedBlock.bounds.height, 58, accuracy: 0.5, "4 rows")
+        XCTAssertEqual(open.bounds.height, expectedHeight, accuracy: 0.5)
+        XCTAssertEqual(closed.bounds.height, expectedHeight, accuracy: 0.5)
+    }
+
+    // MARK: - Headline colour
+
+    /// The headline is coloured by the month's final net, not by whether anything broke its plan.
+    /// It used to take the sign of its own digits, which is a different thing again.
+    func testHeadlineFollowsTheFinalNetNotThePresenceOfOverspending() {
+        // Fixture nets +330.000 before any leak. A R$412,80 leak still leaves it far ahead.
+        let leakingButAhead = makeCard(unallocatedSpending: 41_280)
+        XCTAssertEqual(
+            headlineValue(in: leakingButAhead)?.textColor, Colors.brightGreen,
+            "overspending alone must not turn the headline red while the net is positive")
+        XCTAssertEqual(
+            marginLabel(in: leakingButAhead)?.textColor, Colors.brightRed,
+            "the detail line still reports the leak")
+
+        // 400.000 off-plan finally drags the net under.
+        let netNegative = makeCard(unallocatedSpending: 400_000)
+        XCTAssertEqual(headlineValue(in: netNegative)?.textColor, Colors.brightRed)
+    }
+
+    func testHeadlineIsGreenOnACleanMonth() {
+        XCTAssertEqual(
+            headlineValue(in: makeCard(unallocatedSpending: 0))?.textColor, Colors.brightGreen)
+    }
+
+    /// The colour must not track the sign of the digits shown. An over-committed month displays a
+    /// negative "After budget" yet can still be net positive, and vice versa.
+    func testHeadlineColourIsIndependentOfItsOwnSign() {
+        // base 1.000 against 100.000 of allocations -> After budget is deeply negative...
+        let overCommitted = makeCard(finalBalance: 1_000, unallocatedSpending: 0)
+
+        XCTAssertEqual(
+            headlineValue(in: overCommitted)?.text?.hasPrefix("-"), true,
+            "fixture must display a negative headline for this to mean anything")
+        XCTAssertEqual(
+            headlineValue(in: overCommitted)?.textColor, Colors.brightGreen,
+            "...but the month's net is still positive, so the headline stays green")
+    }
+
+    /// Closed months used to be forced grey, so a saving month and an overspending one looked alike.
+    func testClosedMonthsAreColouredBySavedOrOverspent() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone.current
+        let past = calendar.date(byAdding: .month, value: -3, to: Date())!.monthAnchor
+
+        let saved = makeCard(anchor: past, unallocatedSpending: 0)
+        XCTAssertEqual(headlineValue(in: saved)?.textColor, Colors.brightGreen)
+        XCTAssertNotEqual(headlineValue(in: saved)?.textColor, Colors.gray100)
+
+        let overspent = makeCard(anchor: past, unallocatedSpending: 400_000)
+        XCTAssertEqual(headlineValue(in: overspent)?.textColor, Colors.brightRed)
+    }
+
+    // MARK: - Allocations header overspend
+
+    private func headerOverspend(in cell: MonthCarouselCell) -> UILabel? {
+        label(MonthCarouselCell.overspentTotalIdentifier, in: cell)
+    }
+
+    /// An amount here is legitimate because both its terms are rows in the list below: category
+    /// overruns are the red arrows, unallocated spending is the greyed rows.
+    func testHeaderShowsOverrunsPlusOffPlanSpending() {
+        let cell = MonthCarouselCell()
+        cell.restoreBudgetViewState(
+            allocations: [
+                BudgetAllocation(dbId: 1, monthDate: 0, category: .meals,
+                                 allocatedAmount: 50_000, usedAmount: 53_060),   // 3.060 over
+                BudgetAllocation(dbId: 2, monthDate: 0, category: .transportation,
+                                 allocatedAmount: 30_000, usedAmount: 10_000),   // under
+            ],
+            summary: UnallocatedBudgetSummary(
+                monthDate: 0, totalBudget: 350_000, totalAllocated: 80_000,
+                totalUsedInUnallocatedCategories: 0))
+
+        XCTAssertEqual(headerOverspend(in: cell)?.text, "-" + 3_060.currencyString)
+        XCTAssertFalse(headerOverspend(in: cell)?.isHidden ?? true)
+        XCTAssertEqual(headerOverspend(in: cell)?.textColor, Colors.mainRed)
+    }
+
+    func testHeaderOverspendHidesWhenNothingBrokeThePlan() {
+        let cell = MonthCarouselCell()
+        cell.restoreBudgetViewState(
+            allocations: [
+                BudgetAllocation(dbId: 1, monthDate: 0, category: .meals,
+                                 allocatedAmount: 50_000, usedAmount: 20_000),
+            ],
+            summary: UnallocatedBudgetSummary(
+                monthDate: 0, totalBudget: 350_000, totalAllocated: 50_000,
+                totalUsedInUnallocatedCategories: 0))
+
+        XCTAssertTrue(headerOverspend(in: cell)?.isHidden ?? false)
+        XCTAssertNil(headerOverspend(in: cell)?.text)
+    }
+
+    /// The header and the card must not drift - both route through the same helper.
+    func testHeaderOverspendMatchesTheProjection() {
+        let allocations = [
+            BudgetAllocation(dbId: 1, monthDate: 0, category: .meals,
+                             allocatedAmount: 50_000, usedAmount: 53_060),
+        ]
+        let projection = AllocationBalanceProjection(
+            base: 400_000, allocations: allocations, unallocatedSpending: 0, tense: .projected)
+
+        XCTAssertEqual(
+            projection.overspent,
+            AllocationBalanceProjection.overspent(allocations: allocations, unallocatedSpending: 0))
+    }
+
+    private func label(_ identifier: String, in root: UIView) -> UILabel? {
+        for child in root.subviews {
+            if child.accessibilityIdentifier == identifier { return child as? UILabel }
+            if let found = label(identifier, in: child) { return found }
+        }
+        return nil
     }
 
     // MARK: - Past months

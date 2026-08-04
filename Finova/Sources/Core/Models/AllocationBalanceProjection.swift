@@ -26,6 +26,20 @@ struct AllocationBalanceProjection: Equatable {
         case actual
     }
 
+    /// Money spent beyond the plan, for callers that need the figure without a balance to project
+    /// from - the allocations header shows it next to the row count.
+    ///
+    /// Shared with `init` so the header and the card can never disagree about what "overspent"
+    /// means. Both terms are visible in the list: category overruns are its red arrows, and
+    /// unallocated spending is its greyed rows.
+    static func overspent(
+        allocations: [BudgetAllocation],
+        unallocatedSpending: Int
+    ) -> Int {
+        let overruns = allocations.reduce(0) { $0 + max(0, -$1.remainingAmount) }
+        return overruns + max(0, unallocatedSpending)
+    }
+
     /// Ledger closing balance for the month, in minor units.
     let base: Int
 
@@ -71,22 +85,20 @@ struct AllocationBalanceProjection: Equatable {
         // so charging the full allocated amount would subtract it twice. A negative remainder means
         // the category is overspent - it clamps to zero here and is counted in `overspent` instead.
         var unspent = 0
-        var overrun = 0
         var used = 0
 
         for allocation in allocations {
-            let remaining = allocation.remainingAmount
-            unspent += max(0, remaining)
-            overrun += max(0, -remaining)
+            unspent += max(0, allocation.remainingAmount)
             // Capped so an overspent category cannot report more used than it ever allocated; the
-            // excess is already counted in `overrun`.
+            // excess is counted in `overspent` instead.
             used += max(0, min(allocation.usedAmount, allocation.allocatedAmount))
         }
 
         self.base = base
         self.unspentAllocations = unspent
         self.unallocatedHeadroom = max(0, unallocatedHeadroom)
-        self.overspent = overrun + max(0, unallocatedSpending)
+        self.overspent = Self.overspent(
+            allocations: allocations, unallocatedSpending: unallocatedSpending)
         self.usedWithinAllocations = used
         self.projected = base - unspent
         self.tense = tense
