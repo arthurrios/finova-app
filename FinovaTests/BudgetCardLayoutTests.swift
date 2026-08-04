@@ -535,18 +535,33 @@ final class BudgetCardLayoutTests: XCTestCase {
             headlineValue(in: makeCard(unallocatedSpending: 0))?.textColor, Colors.brightGreen)
     }
 
-    /// The colour must not track the sign of the digits shown. An over-committed month displays a
-    /// negative "After budget" yet can still be net positive, and vice versa.
-    func testHeadlineColourIsIndependentOfItsOwnSign() {
-        // base 1.000 against 100.000 of allocations -> After budget is deeply negative...
-        let overCommitted = makeCard(finalBalance: 1_000, unallocatedSpending: 0)
+    /// A projected balance below zero is its own problem - the plan runs the account past zero -
+    /// so it reads red even when the month's net saving is comfortably positive.
+    func testNegativeProjectedBalanceIsAlwaysRed() {
+        // base 1.000 against 100.000 of allocations: After budget is deeply negative, yet the
+        // fixture's net is +330.000.
+        let card = makeCard(finalBalance: 1_000, unallocatedSpending: 0)
 
         XCTAssertEqual(
-            headlineValue(in: overCommitted)?.text?.hasPrefix("-"), true,
+            headlineValue(in: card)?.text?.hasPrefix("-"), true,
             "fixture must display a negative headline for this to mean anything")
-        XCTAssertEqual(
-            headlineValue(in: overCommitted)?.textColor, Colors.brightGreen,
-            "...but the month's net is still positive, so the headline stays green")
+        XCTAssertEqual(headlineValue(in: card)?.textColor, Colors.brightRed)
+    }
+
+    /// The two triggers are independent: either one alone turns the headline red.
+    func testEitherProblemAloneTurnsTheHeadlineRed() {
+        // Healthy balance, net dragged under by 400.000 off-plan.
+        let netOnly = makeCard(finalBalance: 4_290_000, unallocatedSpending: 400_000)
+        XCTAssertEqual(headlineValue(in: netOnly)?.text?.hasPrefix("-"), false)
+        XCTAssertEqual(headlineValue(in: netOnly)?.textColor, Colors.brightRed)
+
+        // Negative balance, net fine.
+        let balanceOnly = makeCard(finalBalance: 1_000, unallocatedSpending: 0)
+        XCTAssertEqual(headlineValue(in: balanceOnly)?.textColor, Colors.brightRed)
+
+        // Neither.
+        let healthy = makeCard(finalBalance: 4_290_000, unallocatedSpending: 0)
+        XCTAssertEqual(headlineValue(in: healthy)?.textColor, Colors.brightGreen)
     }
 
     /// Closed months used to be forced grey, so a saving month and an overspending one looked alike.

@@ -844,13 +844,17 @@ final class BudgetCard: UIView {
             ? ProjectionBlockHeight.withOutcome
             : ProjectionBlockHeight.withoutOutcome
 
-        // Coloured by the month's final net - `totalSaved - overspent` - and deliberately not by
-        // whether anything happened to break its plan. A month can leak R$180 and still come out
-        // well ahead; only a net that actually lands negative is bad news. It is also not the sign
-        // of the headline's own digits, which is what it used to be.
-        projectionValueLabel.textColor = projection.netSaved < 0
-            ? Colors.brightRed
-            : Colors.brightGreen
+        // Red on either of two independent problems, green only when neither holds:
+        //
+        //   net negative        the month let more slip than it kept
+        //   balance negative    the plan runs the account past zero
+        //
+        // Deliberately not "anything broke its plan" - a month can leak R$180 and still come out
+        // well ahead - and deliberately not the sign of the headline's own digits either, which is
+        // what it used to be. `isOverCommitted` is already "projected < 0 on an open month", and a
+        // closed month's headline is a spend figure that cannot go negative, so it never fires there.
+        let isBadNews = projection.netSaved < 0 || projection.isOverCommitted
+        projectionValueLabel.textColor = isBadNews ? Colors.brightRed : Colors.brightGreen
 
         var spokenParts = [
             projectionTextLabel.text,
