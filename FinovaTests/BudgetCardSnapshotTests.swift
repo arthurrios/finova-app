@@ -59,7 +59,8 @@ final class BudgetCardSnapshotTests: XCTestCase {
         usedValue: Int = 150_000,
         budgetLimit: Int? = 350_000,
         unallocatedSpending: Int = 18_000,
-        tagBreakdown: AllocationTagBreakdown = .empty
+        tagBreakdown: AllocationTagBreakdown = .empty,
+        selectedTagId: String? = nil
     ) {
         let card = BudgetCard()
         card.translatesAutoresizingMaskIntoConstraints = false
@@ -98,6 +99,7 @@ final class BudgetCardSnapshotTests: XCTestCase {
                 usedValue: usedValue, budgetLimit: budgetLimit),
             tagBreakdown: tagBreakdown
         )
+        card.setSelectedTag(selectedTagId)
 
         window.setNeedsLayout()
         window.layoutIfNeeded()
@@ -242,6 +244,13 @@ final class BudgetCardSnapshotTests: XCTestCase {
             name: "tags-two", finalBalance: 428_000,
             monthAnchor: currentMonthAnchor, allocations: allocations(),
             tagBreakdown: twoTagBreakdown())
+
+        // Essentials selected: its two slices stay lit, everything else dims, and the centre swaps to
+        // the tag's own name, subtotal and share.
+        render(
+            name: "tags-selected", finalBalance: 428_000,
+            monthAnchor: currentMonthAnchor, allocations: allocations(),
+            tagBreakdown: twoTagBreakdown(), selectedTagId: "t-essentials")
 
         // One tag covering everything: the ring should be a single near-complete arc.
         let all = AllocationTag(id: "t-all", name: "Everything", colorIndex: 3, sortOrder: 0)
