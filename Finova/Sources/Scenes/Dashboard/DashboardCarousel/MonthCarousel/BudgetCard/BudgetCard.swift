@@ -18,7 +18,6 @@ final class BudgetCard: UIView {
     static let unallocatedValueIdentifier = "budgetCard.unallocatedValue"
     static let usedValueIdentifier = "budgetCard.usedValue"
     static let headlineValueIdentifier = "budgetCard.headlineValue"
-    static let marginLabelIdentifier = "budgetCard.margin"
     static let noBudgetStateIdentifier = "budgetCard.noBudgetState"
 
     // MARK: - Properties
@@ -36,14 +35,6 @@ final class BudgetCard: UIView {
     private var currentUsedValue: Int?
     private var currentBudgetLimit: Int?
 
-    /// The trailing block loses its third line on an open month, so its height follows the tense.
-    /// 3 rows need 45pt, 4 need 58pt. Varying it is safe: the block declares only a top anchor, so
-    /// it is not part of the chain that fixes the card's own height.
-    private var projectionBlockHeight: NSLayoutConstraint?
-    private enum ProjectionBlockHeight {
-        static let withoutOutcome: CGFloat = 45
-        static let withOutcome: CGFloat = 60
-    }
 
     /// Which balance the leading block is showing, and the day it is anchored to.
     ///
@@ -291,20 +282,6 @@ final class BudgetCard: UIView {
         return bar
     }()
 
-    /// Net saved for the month - "R$3.9k saved" in green, "R$420 overspent" in red. Sits under the
-    /// bar, which shows the same two quantities as proportions.
-    private lazy var marginLabel: UILabel = {
-        let label = UILabel()
-        label.font = Fonts.titleXS.font
-        label.textColor = Colors.gray400
-        label.textAlignment = .right
-        label.numberOfLines = 1
-        label.adjustsFontSizeToFitWidth = true
-        label.minimumScaleFactor = 0.7
-        label.accessibilityIdentifier = BudgetCard.marginLabelIdentifier
-        return label
-    }()
-
     // Progress bar - edge to edge like MonthBudgetCard
     private lazy var progressBar: RoundedProgressBar = {
         let bar = RoundedProgressBar()
@@ -410,7 +387,6 @@ final class BudgetCard: UIView {
         projectionBlock.addArrangedSubview(projectionTextLabel)
         projectionBlock.addArrangedSubview(projectionValueLabel)
         projectionBlock.addArrangedSubview(projectionBar)
-        projectionBlock.addArrangedSubview(marginLabel)
 
         addSubview(headerHorizontalStackView)
         addSubview(headerSeparator)
@@ -510,7 +486,10 @@ final class BudgetCard: UIView {
                 equalTo: headerSeparator.bottomAnchor, constant: Metrics.spacing3),
             projectionBlock.trailingAnchor.constraint(
                 equalTo: trailingAnchor, constant: -Metrics.spacing6),
-            projectionBlock.widthAnchor.constraint(equalToConstant: 64),
+            // 3 rows in either tense now, so 72pt fits with ~5pt of donut clearance at the
+            // narrowest card - matching the leading block and easing the currency labels.
+            projectionBlock.widthAnchor.constraint(equalToConstant: 72),
+            projectionBlock.heightAnchor.constraint(equalToConstant: 45),
 
             projectionBar.heightAnchor.constraint(equalToConstant: 4),
             projectionBar.widthAnchor.constraint(equalTo: projectionBlock.widthAnchor),
@@ -523,15 +502,7 @@ final class BudgetCard: UIView {
             balanceValueLabel.widthAnchor.constraint(equalTo: balanceBlock.widthAnchor),
             projectionTextLabel.widthAnchor.constraint(equalTo: projectionBlock.widthAnchor),
             projectionValueLabel.widthAnchor.constraint(equalTo: projectionBlock.widthAnchor),
-            marginLabel.widthAnchor.constraint(equalTo: projectionBlock.widthAnchor),
         ])
-
-        // 64pt is the widest the block can be at its taller setting without touching the inscribed
-        // donut, so the width stays constant across tenses rather than resizing as months change.
-        let height = projectionBlock.heightAnchor.constraint(
-            equalToConstant: ProjectionBlockHeight.withOutcome)
-        height.isActive = true
-        projectionBlockHeight = height
     }
 
     override func layoutSubviews() {
@@ -809,19 +780,34 @@ final class BudgetCard: UIView {
         }
         projectionBlock.isHidden = false
 
-        // The two corner blocks bracket one outcome rather than reporting two unrelated balances:
-        // the leading one is the balance if nothing more is drawn from the plan, this one is the
-        // balance if all of it is. The truth lands between, and the gap closes on its own - as the
-        // month fills in, `unspentAllocations` falls to zero and the two converge on the real
-        // closing balance. There is no room for a connector between them with the donut in the way,
-        // so the caption carries the assumption instead of describing the result.
+        // Open month: the two corner blocks bracket one outcome rather than reporting two unrelated
+        // balances - the leading one is the balance if nothing more is drawn from the plan, this one
+        // if all of it is. The truth lands between, and the gap closes on its own as
+        // `unspentAllocations` falls to zero. No room for a connector with the donut between them,
+        // so the caption carries the assumption.
         //
-        // A closed month holds what the allocations actually consumed - a spend figure, not a
-        // second balance - so it keeps its own caption.
-        let isActual = projection.tense == .actual
-        projectionTextLabel.text = isActual
-            ? "budget.projection.budgetUsed.label".localized
-            : "budget.projection.afterBudget.label".localized
+        // Closed month: the verdict. This used to read "Budget used" over `usedWithinAllocations`,
+        // which was two lies at once - the figure is capped per category, so it excluded overruns
+        // and off-plan spending, and it disagreed with the footer's `Used` on the same card. The
+        // month's actual result was relegated to 12pt underneath. It leads now.
+        let caption: String
+        let valueText: String
+
+        switch projection.tense {
+        case .projected:
+            caption = "budget.projection.afterBudget.label".localized
+            valueText = signedCompactString(projection.projected)
+
+        case .actual:
+            let net = projection.netSaved
+            caption = (net < 0
+                ? "budget.projection.overspent.label"
+                : "budget.projection.saved.label").localized
+            // The caption carries the direction, so the amount is unsigned.
+            valueText = abs(net).compactCurrencyString
+        }
+
+        projectionTextLabel.text = caption
 
         // Of what was spent, how much stayed inside its allocation. Proportions, not amounts, so
         // the bar survives value-hiding; before anything is spent both shares are zero and the
@@ -831,24 +817,14 @@ final class BudgetCard: UIView {
             SegmentedBarView.Segment(share: shares.withinPlan, color: Colors.brightGreen),
             SegmentedBarView.Segment(share: shares.beyondPlan, color: Colors.brightRed),
         ])
+
         guard !isValuesHidden else {
             projectionValueLabel.text = hiddenValueString
             projectionValueLabel.textColor = Colors.gray100
-            marginLabel.text = hiddenValueString
-            marginLabel.textColor = Colors.gray400
             return
         }
 
-        projectionValueLabel.text = signedCompactString(projection.headlineAmount)
-
-        // The figure under the bar is the month's realised outcome, so it only appears once the
-        // month has closed. Mid-month it would be reporting an overspend the user may yet absorb,
-        // and the allocations header carries that amount instead.
-        let outcome = renderPlanOutcome(projection)
-        marginLabel.isHidden = !isActual
-        projectionBlockHeight?.constant = isActual
-            ? ProjectionBlockHeight.withOutcome
-            : ProjectionBlockHeight.withoutOutcome
+        projectionValueLabel.text = valueText
 
         // Red on either of two independent problems, green only when neither holds:
         //
@@ -856,75 +832,32 @@ final class BudgetCard: UIView {
         //   balance negative    the plan runs the account past zero
         //
         // Deliberately not "anything broke its plan" - a month can leak R$180 and still come out
-        // well ahead - and deliberately not the sign of the headline's own digits either, which is
-        // what it used to be. `isOverCommitted` is already "projected < 0 on an open month", and a
-        // closed month's headline is a spend figure that cannot go negative, so it never fires there.
+        // well ahead - and deliberately not the sign of the value's own digits either, which is what
+        // it used to be. `isOverCommitted` is already "projected < 0 on an open month".
         let isBadNews = projection.netSaved < 0 || projection.isOverCommitted
         projectionValueLabel.textColor = isBadNews ? Colors.brightRed : Colors.brightGreen
 
-        var spokenParts = [
-            projectionTextLabel.text,
-            projectionValueLabel.text,
-            outcome.text,
-        ].compactMap { $0 }
+        var spokenParts = [caption, valueText]
 
         // The bar carries no visible legend at this width, so spell its two sides out here.
-        if projection.tense == .actual, projection.totalSaved > 0 {
+        if projection.usedWithinAllocations > 0 {
             spokenParts.append(
-                "budget.net.saved.format".localized(
-                    projection.totalSaved.compactCurrencyString))
+                "budget.plan.within.label".localized + " "
+                    + projection.usedWithinAllocations.compactCurrencyString)
         }
         if projection.overspent > 0 {
             spokenParts.append(
                 "budget.plan.over.format".localized(
                     projection.overspent.compactCurrencyString))
         }
-
         if projection.isOverCommitted {
+            // The value turns red for this, but red alone cannot say by how much.
             spokenParts.append(
                 "budget.projection.overcommitted.format".localized(
                     projection.shortfall.compactCurrencyString))
         }
         projectionBlock.isAccessibilityElement = true
         projectionBlock.accessibilityLabel = spokenParts.joined(separator: ", ")
-    }
-
-    /// The block's single verdict: its wording, and whether the month has broken its plan.
-    /// Both the headline and the figure under the bar are coloured from this, so they cannot
-    /// contradict each other.
-    private struct PlanOutcome {
-        let text: String
-        let isOverPlan: Bool
-    }
-
-    /// Renders the figure under the bar and returns the verdict the headline also uses.
-    ///
-    /// Tense-aware because "saved" is a realised quantity. While a month is open, an unspent
-    /// allocation is money still earmarked for spending, so reporting it as kept would show a
-    /// number that erodes as the month fills in - the open month reports plan adherence instead.
-    /// Once the month closes, the unspent budget really was kept and becomes the outcome.
-    private func renderPlanOutcome(_ projection: AllocationBalanceProjection) -> PlanOutcome {
-        let text: String
-        let isOverPlan: Bool
-
-        switch projection.tense {
-        case .projected:
-            // Hidden on open months; kept in sync so a flip to a closed month never shows stale text.
-            isOverPlan = projection.overspent > 0
-            text = isOverPlan
-                ? "budget.plan.over.format".localized(projection.overspent.compactCurrencyString)
-                : "budget.plan.within.label".localized
-
-        case .actual:
-            let net = projection.netSaved
-            isOverPlan = net < 0
-            let format = isOverPlan ? "budget.net.overspent.format" : "budget.net.saved.format"
-            text = format.localized(abs(net).compactCurrencyString)
-        }
-
-        marginLabel.text = text
-        marginLabel.textColor = isOverPlan ? Colors.brightRed : Colors.brightGreen
-        return PlanOutcome(text: text, isOverPlan: isOverPlan)
     }
 
     /// "Aug 31" - abbreviated month plus the localized day, short enough for a 72pt block.

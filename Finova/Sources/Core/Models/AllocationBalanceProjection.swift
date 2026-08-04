@@ -127,13 +127,14 @@ struct AllocationBalanceProjection: Equatable {
 
     /// The figure the trailing block leads with.
     ///
-    /// - `.projected`: what survives once the plan is honoured.
-    /// - `.actual`: what the allocations actually consumed. The closing balance is already the
-    ///   leading block, so repeating it here would say nothing.
+    /// - `.projected`: what survives if the whole plan is spent.
+    /// - `.actual`: the month's verdict. It used to be `usedWithinAllocations`, captioned "Budget
+    ///   used" - untrue twice over, because that figure is capped per category and so excluded both
+    ///   overruns and off-plan spending, and it disagreed with the card's own `Used` footer.
     var headlineAmount: Int {
         switch tense {
         case .projected: return projected
-        case .actual: return usedWithinAllocations
+        case .actual: return netSaved
         }
     }
 

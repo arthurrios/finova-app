@@ -2861,40 +2861,6 @@
         }
       }
     },
-    "budget.net.overspent.format": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ overspent"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ excedido"
-          }
-        }
-      }
-    },
-    "budget.net.saved.format": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ saved"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ economizado"
-          }
-        }
-      }
-    },
     "budget.noBudget.message": {
       "extractionState": "manual",
       "localizations": {
@@ -2980,23 +2946,6 @@
         }
       }
     },
-    "budget.projection.budgetUsed.label": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Budget used"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Orçamento usado"
-          }
-        }
-      }
-    },
     "budget.projection.byDay.format": {
       "extractionState": "manual",
       "localizations": {
@@ -3027,6 +2976,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ acima"
+          }
+        }
+      }
+    },
+    "budget.projection.overspent.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Overspent"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Excedido"
+          }
+        }
+      }
+    },
+    "budget.projection.saved.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saved"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Economizado"
           }
         }
       }

@@ -371,8 +371,11 @@ final class AllocationBalanceProjectionTests: XCTestCase {
 
         XCTAssertEqual(actual.usedWithinAllocations, 85_000)
         XCTAssertEqual(
-            actual.headlineAmount, 85_000,
-            "a closed month leads with what the allocations consumed")
+            actual.headlineAmount, actual.netSaved,
+            "a closed month leads with its verdict, not a capped spend figure")
+        XCTAssertNotEqual(
+            actual.headlineAmount, actual.usedWithinAllocations,
+            "the old headline was capped per category and disagreed with the footer's Used")
     }
 
     func testOpenMonthLeadsWithTheProjection() {
@@ -392,7 +395,7 @@ final class AllocationBalanceProjectionTests: XCTestCase {
             tense: .actual)
 
         XCTAssertEqual(actual.usedWithinAllocations, 50_000)
-        XCTAssertEqual(actual.headlineAmount, 50_000)
         XCTAssertEqual(actual.overspent, 20_000)
+        XCTAssertEqual(actual.headlineAmount, actual.netSaved)
     }
 }
