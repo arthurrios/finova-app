@@ -58,7 +58,8 @@ final class BudgetCardSnapshotTests: XCTestCase {
         allocations: [BudgetAllocation],
         usedValue: Int = 150_000,
         budgetLimit: Int? = 350_000,
-        unallocatedSpending: Int = 18_000
+        unallocatedSpending: Int = 18_000,
+        tagBreakdown: AllocationTagBreakdown = .empty
     ) {
         let card = BudgetCard()
         card.translatesAutoresizingMaskIntoConstraints = false
@@ -94,7 +95,8 @@ final class BudgetCardSnapshotTests: XCTestCase {
             monthAnchor: monthAnchor,
             monthData: makeMonthData(
                 finalBalance, anchor: monthAnchor,
-                usedValue: usedValue, budgetLimit: budgetLimit)
+                usedValue: usedValue, budgetLimit: budgetLimit),
+            tagBreakdown: tagBreakdown
         )
 
         window.setNeedsLayout()
@@ -118,7 +120,11 @@ final class BudgetCardSnapshotTests: XCTestCase {
         attachment.lifetime = .keepAlways
         add(attachment)
 
-        let url = URL(fileURLWithPath: NSTemporaryDirectory())
+        // A host directory when one is given: tests run on a throwaway simulator clone whose sandbox
+        // goes away with it, so NSTemporaryDirectory() output is gone before it can be looked at.
+        let directory =
+            ProcessInfo.processInfo.environment["FINOVA_SNAPSHOT_DIR"] ?? NSTemporaryDirectory()
+        let url = URL(fileURLWithPath: directory)
             .appendingPathComponent("budgetcard-\(name).png")
         do {
             try data.write(to: url)
@@ -196,6 +202,60 @@ final class BudgetCardSnapshotTests: XCTestCase {
             name: "gauge-absent", finalBalance: 428_000,
             monthAnchor: currentMonthAnchor, allocations: allocations(),
             usedValue: 300_000, budgetLimit: nil)
+    }
+
+    // MARK: - Tag ring
+
+    /// Two tags over the four allocations, plus one category left untagged.
+    private func twoTagBreakdown() -> AllocationTagBreakdown {
+        let essentials = AllocationTag(
+            id: "t-essentials", name: "Essentials", colorIndex: 5, sortOrder: 0)
+        let wealth = AllocationTag(id: "t-wealth", name: "Wealth", colorIndex: 2, sortOrder: 1)
+
+        return AllocationTagBreakdown(
+            allocations: allocations(),
+            unallocatedSpending: [],
+            unallocatedHeadroom: 107_000,
+            totalBudget: 350_000,
+            tags: [essentials, wealth],
+            categoryTagIds: [
+                TransactionCategory.meals.key: essentials.id,
+                TransactionCategory.utilities.key: essentials.id,
+                TransactionCategory.savings.key: wealth.id,
+                // .transportation deliberately left untagged
+            ])
+    }
+
+    /// `tags-none` must be pixel-identical to `projected`: with no tags the category ring keeps its
+    /// original 85...55pt geometry and no ring is drawn.
+    ///
+    /// That equality covers geometry, not slice order. `AllocationTagBreakdown` sorts allocations
+    /// amount-desc, and this fixture deliberately passes them unsorted (transportation before savings),
+    /// so these renders differ from a pre-tag build's - by exactly that reordering. See the note on
+    /// `AllocationTagBreakdown.sortedSegments`.
+    func testRenderTagRingStates() {
+        render(
+            name: "tags-none", finalBalance: 428_000,
+            monthAnchor: currentMonthAnchor, allocations: allocations())
+
+        render(
+            name: "tags-two", finalBalance: 428_000,
+            monthAnchor: currentMonthAnchor, allocations: allocations(),
+            tagBreakdown: twoTagBreakdown())
+
+        // One tag covering everything: the ring should be a single near-complete arc.
+        let all = AllocationTag(id: "t-all", name: "Everything", colorIndex: 3, sortOrder: 0)
+        render(
+            name: "tags-one", finalBalance: 428_000,
+            monthAnchor: currentMonthAnchor, allocations: allocations(),
+            tagBreakdown: AllocationTagBreakdown(
+                allocations: allocations(),
+                unallocatedSpending: [],
+                unallocatedHeadroom: 107_000,
+                totalBudget: 350_000,
+                tags: [all],
+                categoryTagIds: Dictionary(
+                    uniqueKeysWithValues: allocations().map { ($0.category.key, all.id) })))
     }
 
     func testRenderHiddenValuesState() {
