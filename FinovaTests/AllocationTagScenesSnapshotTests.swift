@@ -139,6 +139,38 @@ final class AllocationTagScenesSnapshotTests: XCTestCase {
         XCTAssertFalse(AllocationTagEditView.iconAssetNames.isEmpty)
     }
 
+    /// The "shown in <language>" field, in both of its states. Driven directly rather than through
+    /// the controller: the controller hides it unless the phone is in a language the tag was not
+    /// authored in, which is not a condition a snapshot run can arrange.
+    func testRenderTagEditFormWithTranslationField() {
+        let service = makeService(
+            tagNames: ["Essentials"],
+            categoriesPerTag: [[.homeMaintenance, .utilities]])
+        guard let tag = service.tags.first else { return XCTFail("no tag") }
+
+        let view = AllocationTagEditView()
+        let controller = AllocationTagEditViewController(
+            contentView: view, tag: tag, tagService: service,
+            flowDelegate: StubFlowDelegate.shared)
+        controller.loadViewIfNeeded()
+        controller.view.frame = CGRect(origin: .zero, size: deviceSize)
+        controller.viewWillAppear(false)
+
+        // No override: the machine translation is the placeholder, in grey, so it is visibly not
+        // something the user wrote.
+        view.configureTranslation(
+            languageName: "Portuguese", automaticName: "Essenciais", override: nil)
+        render("edit-translation-automatic", view: controller.view)
+        XCTAssertTrue(view.resetTranslationButton.isHidden)
+
+        // Overridden: dark input text, and the revert affordance appears.
+        view.configureTranslation(
+            languageName: "Portuguese", automaticName: "Essenciais", override: "Básicos")
+        render("edit-translation-overridden", view: controller.view)
+        XCTAssertFalse(view.resetTranslationButton.isHidden)
+        XCTAssertEqual(view.translatedNameInput.textField.text, "Básicos")
+    }
+
     func testRenderCategoryLinking() {
         let service = makeService(
             tagNames: ["Essentials", "Wealth"],

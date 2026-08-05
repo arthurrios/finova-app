@@ -30,11 +30,19 @@ extension AllocationTag {
     ///     so tests stay hermetic.
     ///   - isEnabled: the user's preference. When off, machine translations are ignored - but see the
     ///     override tier below, which is not a machine translation.
+    ///   - ignoringOverride: skips tier 0. Only the tag edit screen wants this: it shows the
+    ///     automatic result as the field's placeholder, so it needs the answer that *would* apply if
+    ///     the override were cleared.
     func displayName(
         in language: Locale.Language,
         cache: TagTranslationCache = .shared,
-        isEnabled: Bool = UserDefaultsManager.isTagNameTranslationEnabled()
+        isEnabled: Bool = UserDefaultsManager.isTagNameTranslationEnabled(),
+        ignoringOverride: Bool = false
     ) -> String {
+        guard !ignoringOverride else {
+            guard isEnabled else { return name }
+            return Self.machineDisplayName(id: id, name: name, in: language, cache: cache)
+        }
         guard cache === TagTranslationCache.shared else {
             return Self.resolveDisplayName(
                 id: id, name: name, in: language, cache: cache, isEnabled: isEnabled)
@@ -83,7 +91,7 @@ extension AllocationTag {
         return machineDisplayName(id: id, name: name, in: language, cache: cache)
     }
 
-    private static func machineDisplayName(
+    fileprivate static func machineDisplayName(
         id: String, name: String, in language: Locale.Language, cache: TagTranslationCache
     ) -> String {
         // 1. Authored in the phone's language already: the typed text IS the right answer, and a stale
