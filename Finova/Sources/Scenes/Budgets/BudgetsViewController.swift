@@ -185,6 +185,10 @@ extension BudgetsViewController: BudgetsViewDelegate {
     func didTapBackButton() {
         flowDelegate?.navBackToDashboard()
     }
+
+    func didTapManageTags() {
+        flowDelegate?.navigateToAllocationTags()
+    }
 }
 
 extension BudgetsViewController: UITableViewDataSource, UITableViewDelegate, BudgetsCellDelegate {

@@ -77,6 +77,8 @@ class MonthCarouselCell: UICollectionViewCell {
     var onDefineBudgetTapped: ((Int) -> Void)?
     var onBudgetViewStateChanged: ((Int, Bool) -> Void)?  // (monthAnchor, isShowingBudgetView)
     var onBalanceVisibilityToggled: ((Bool) -> Void)?
+    var onManageTagsTapped: (() -> Void)?
+    var onCreateTagTapped: (() -> Void)?
 
     // MARK: - Properties
 
@@ -94,6 +96,24 @@ class MonthCarouselCell: UICollectionViewCell {
     private var currentUnallocatedSpending: [UnallocatedCategorySpending] = []
     private(set) var currentMonthAnchor: Int = 0
     private let allocationService = BudgetAllocationService()
+    private let tagService = AllocationTagService.shared
+
+    private var tagBreakdown: AllocationTagBreakdown = .empty
+    /// The tag the list and donut are filtered to, or nil. Cleared on reuse and clamped on every
+    /// rebuild - a tag with no members in the newly shown month would otherwise filter the list to
+    /// nothing with no chip left to clear it.
+    private var selectedTagId: String?
+
+    /// The rows the table actually shows. Precomputed rather than filtered inside the data source,
+    /// which runs per row per layout pass.
+    private var visibleAllocations: [BudgetAllocation] = []
+    private var visibleUnallocatedSpending: [UnallocatedCategorySpending] = []
+
+    /// Single source of truth for "how many rows are there", so the count badge, the table height and
+    /// `numberOfRowsInSection` can never disagree.
+    private var visibleRowCount: Int {
+        visibleAllocations.count + visibleUnallocatedSpending.count
+    }
 
     /// Resolves the displayed month's ledger row on demand, for the budget card's projected
     /// balance. Deliberately pull-based rather than a stored snapshot: while the budget face is
@@ -305,6 +325,22 @@ class MonthCarouselCell: UICollectionViewCell {
         return stackView
     }()
 
+    /// Per-tag subtotals and the list filter. A sibling between the header and the table, not part of
+    /// either: the header's 44pt height constraint is activated inline above with no stored reference,
+    /// so it can never be made taller.
+    private lazy var allocationTagStripView: AllocationTagStripView = {
+        let view = AllocationTagStripView()
+        view.delegate = self
+        view.isHidden = true
+        view.translatesAutoresizingMaskIntoConstraints = false
+        return view
+    }()
+
+    /// Stored, deliberately unlike the header's, because it has to collapse to zero when a month has no
+    /// tag arcs. `isHidden` alone leaves a view that owns a height constraint occupying its height, so
+    /// the table would simply sit 44pt lower behind an empty band.
+    private var tagStripHeightConstraint: NSLayoutConstraint?
+
     private let allocationsHeaderTitleLabel: UILabel = {
         let label = UILabel()
         label.fontStyle = Fonts.title2XS
@@ -338,6 +374,30 @@ class MonthCarouselCell: UICollectionViewCell {
         label.textAlignment = .center
         label.translatesAutoresizingMaskIntoConstraints = false
         return label
+    }()
+
+    /// Groups the title and its count pill so the header's `.equalSpacing` puts the pair at the leading
+    /// edge and the Tags button at the trailing one. Without the group, three arranged subviews spread
+    /// evenly and the count pill drifts to the middle of the row.
+    private lazy var allocationsHeaderLeadingStack: UIStackView = {
+        let stack = UIStackView()
+        stack.axis = .horizontal
+        stack.alignment = .center
+        stack.spacing = Metrics.spacing2
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        return stack
+    }()
+
+    /// Reaches tag management from the dashboard, so it does not require going through the gear and the
+    /// Budgets screen. Also the only entry point when a month has no tags at all, since the strip - and
+    /// with it the `+` chip - collapses to nothing in that case.
+    private let allocationsTagsButton: UIButton = {
+        let button = UIButton(type: .system)
+        button.setTitle("budgets.tags.manage".localized, for: .normal)
+        button.titleLabel?.font = Fonts.titleXS.font
+        button.setTitleColor(Colors.mainMagenta, for: .normal)
+        button.translatesAutoresizingMaskIntoConstraints = false
+        return button
     }()
 
     lazy var allocationsTableView: UITableView = {
@@ -411,41 +471,152 @@ class MonthCarouselCell: UICollectionViewCell {
             name: .allocationDataChanged,
             object: nil
         )
+        // Tag edits change the strip and the ring without touching a single allocation, so they need
+        // their own signal - `.allocationDataChanged` is never posted for them.
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleAllocationTagsChanged),
+            name: .allocationTagsChanged,
+            object: nil
+        )
     }
 
-    @objc private func handleAllocationDataChanged() {
-        // Only refresh if currently showing budget view
+    @objc private func manageTagsTapped() {
+        onManageTagsTapped?()
+    }
+
+    @objc private func handleAllocationTagsChanged() {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in self?.handleAllocationTagsChanged() }
+            return
+        }
         guard isShowingBudgetView else { return }
+        rebuildAllocationsUI()
+    }
 
-        // Fetch fresh data and update the budget card
-        let allocations = allocationService.getAllocationsWithUsage(forMonth: currentMonthAnchor)
-        let unallocatedSpending = allocationService.getUnallocatedCategoriesWithSpending(forMonth: currentMonthAnchor)
-        let summary = allocationService.getUnallocatedSummary(forMonth: currentMonthAnchor)
+    // MARK: - Allocations rebuild funnel
 
-        // Sort allocations by allocated amount (highest first)
-        currentAllocations = allocations.sorted { $0.allocatedAmount > $1.allocatedAmount }
-        currentUnallocatedSpending = unallocatedSpending
-        allocationsTableView.reloadData()
+    /// The one place the allocations side of this cell is rebuilt.
+    ///
+    /// Six paths used to each fetch, sort, reload, set the badge and reconfigure the card in their own
+    /// near-identical block. Anything added to that work had to be added six times, and the four blocks
+    /// that also flipped `isHidden` were one edit away from disagreeing about which views exist.
+    ///
+    /// Passing nil for any argument fetches it, so callers that already hold fresh data do not pay for
+    /// a second read.
+    private func rebuildAllocationsUI(
+        allocations: [BudgetAllocation]? = nil,
+        unallocatedSpending: [UnallocatedCategorySpending]? = nil,
+        summary: UnallocatedBudgetSummary? = nil
+    ) {
+        // No ledger scope on this branch: `LedgerScope` arrives with group sync in 1.6.0, and these
+        // service methods take no scope here. Everything is personal-scoped, which is what the rest of
+        // this file already assumes.
+        let resolvedAllocations =
+            allocations ?? allocationService.getAllocationsWithUsage(forMonth: currentMonthAnchor)
+        let resolvedSpending =
+            unallocatedSpending
+            ?? allocationService.getUnallocatedCategoriesWithSpending(forMonth: currentMonthAnchor)
+        let resolvedSummary =
+            summary ?? allocationService.getUnallocatedSummary(forMonth: currentMonthAnchor)
 
-        // Total count includes both allocated and unallocated with spending
-        let totalCount = allocations.count + unallocatedSpending.count
-        allocationsNumberLabel.text = "\(totalCount)"
-        updateAllocationsTableHeight(count: totalCount)
+        // Sorted for the list, as before. The card is handed the same sorted array now rather than the
+        // unsorted one, so the donut and the rows beneath it agree about order.
+        currentAllocations = resolvedAllocations.sorted { $0.allocatedAmount > $1.allocatedAmount }
+        currentUnallocatedSpending = resolvedSpending
+
+        let book = tagService.book
+        tagBreakdown = AllocationTagBreakdown(
+            allocations: currentAllocations,
+            unallocatedSpending: currentUnallocatedSpending,
+            unallocatedHeadroom: resolvedSummary.unallocatedAmount,
+            totalBudget: resolvedSummary.totalBudget,
+            tags: book.orderedTags,
+            categoryTagIds: book.categoryTagIds)
+
+        // A tag with no arc this month cannot be shown as selected, so it cannot be cleared either.
+        if let selectedTagId, tagBreakdown.arc(id: selectedTagId) == nil {
+            self.selectedTagId = nil
+        }
+
+        let hasStrip = allocationTagStripView.configure(
+            breakdown: tagBreakdown,
+            selectedTagId: selectedTagId,
+            isValuesHidden: UserDefaultsManager.getHideValues())
+        tagStripHeightConstraint?.constant = hasStrip ? AllocationTagStripView.preferredHeight : 0
 
         budgetCard.configure(
             month: monthCard.currentMonth,
             year: monthCard.currentYear,
-            allocations: allocations,
-            unallocatedSummary: summary,
+            allocations: currentAllocations,
+            unallocatedSummary: resolvedSummary,
             unallocatedSpending: currentUnallocatedSpending,
             monthAnchor: currentMonthAnchor,
-            monthData: currentMonthData
+            monthData: currentMonthData,
+            tagBreakdown: tagBreakdown
         )
+        budgetCard.setSelectedTag(selectedTagId)
 
-        // Show/hide empty state - show table if there are allocations OR unallocated spending
-        let hasContent = !allocations.isEmpty || !unallocatedSpending.isEmpty
-        allocationsTableView.isHidden = !hasContent
-        allocationsEmptyStateView.isHidden = hasContent
+        applyTagFilter()
+    }
+
+    /// Recomputes the visible rows from `selectedTagId` and brings the table, badge and empty state in
+    /// line. Split from `rebuildAllocationsUI` so a chip tap does not refetch anything.
+    private func applyTagFilter() {
+        if let selectedTagId {
+            visibleAllocations = currentAllocations.filter {
+                tagBreakdown.segment("alloc-\($0.category.key)", belongsTo: selectedTagId)
+            }
+            visibleUnallocatedSpending = currentUnallocatedSpending.filter {
+                tagBreakdown.segment("offplan-\($0.category.key)", belongsTo: selectedTagId)
+            }
+        } else {
+            visibleAllocations = currentAllocations
+            visibleUnallocatedSpending = currentUnallocatedSpending
+        }
+
+        allocationsTableView.reloadData()
+        // The honest reading of a number sitting beside a filtered list.
+        allocationsNumberLabel.text = "\(visibleRowCount)"
+        updateAllocationsTableHeight(count: visibleRowCount)
+        allocationTagStripView.setSelectedTag(selectedTagId)
+
+        // A filter that matches nothing shows the empty state with its own wording, rather than a
+        // zero-row table that looks like a loading bug.
+        allocationsEmptyStateDescriptionLabel.text =
+            selectedTagId == nil
+            ? "budget.allocations.emptyState.description".localized
+            : "budget.allocations.emptyState.filtered".localized
+
+        if isShowingBudgetView {
+            let hasContent = visibleRowCount > 0
+            allocationsTableView.isHidden = !hasContent
+            allocationsEmptyStateView.isHidden = hasContent
+        }
+    }
+
+    /// Declares the set of views that belong to the allocations face exactly once. Four paths write
+    /// these together, and missing one leaves a stray band floating over the transactions list.
+    private func setAllocationsViewsHidden(_ hidden: Bool, hasContent: Bool) {
+        allocationsTableHeaderView.isHidden = hidden
+        allocationTagStripView.isHidden = hidden || (tagStripHeightConstraint?.constant ?? 0) == 0
+        allocationsTableView.isHidden = hidden || !hasContent
+        allocationsEmptyStateView.isHidden = hidden || hasContent
+    }
+
+    @objc private func handleAllocationDataChanged() {
+        // This handler touches UIKit directly, and `.allocationDataChanged` is posted from
+        // background write/sync paths too — NotificationCenter delivers on the posting thread,
+        // so bounce to main before doing anything.
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in self?.handleAllocationDataChanged() }
+            return
+        }
+
+        // Only refresh if currently showing budget view
+        guard isShowingBudgetView else { return }
+
+        rebuildAllocationsUI()
     }
 
     private func setupViews() {
@@ -491,9 +662,14 @@ class MonthCarouselCell: UICollectionViewCell {
 
         // Allocations table components
         contentView.addSubview(allocationsTableHeaderView)
-        allocationsTableHeaderView.addArrangedSubview(allocationsHeaderTitleLabel)
-        allocationsTableHeaderView.addArrangedSubview(allocationsNumberContainerView)
+        allocationsHeaderLeadingStack.addArrangedSubview(allocationsHeaderTitleLabel)
+        allocationsHeaderLeadingStack.addArrangedSubview(allocationsNumberContainerView)
+        allocationsTableHeaderView.addArrangedSubview(allocationsHeaderLeadingStack)
+        allocationsTableHeaderView.addArrangedSubview(allocationsTagsButton)
         allocationsNumberContainerView.addArrangedSubview(allocationsNumberLabel)
+        allocationsTagsButton.addTarget(
+            self, action: #selector(manageTagsTapped), for: .touchUpInside)
+        contentView.addSubview(allocationTagStripView)
         contentView.addSubview(allocationsTableView)
         contentView.addSubview(allocationsEmptyStateView)
         allocationsEmptyStateView.addSubview(allocationsEmptyStateIconImageView)
@@ -575,11 +751,18 @@ class MonthCarouselCell: UICollectionViewCell {
             allocationsTableHeaderView.leadingAnchor.constraint(equalTo: monthCard.leadingAnchor),
             allocationsTableHeaderView.trailingAnchor.constraint(equalTo: monthCard.trailingAnchor),
 
-            allocationsTableView.topAnchor.constraint(equalTo: allocationsTableHeaderView.bottomAnchor),
+            // The strip sits between the header and both content views, so those two now hang off it
+            // rather than off the header. At zero height it is layout-neutral.
+            allocationTagStripView.topAnchor.constraint(
+                equalTo: allocationsTableHeaderView.bottomAnchor),
+            allocationTagStripView.leadingAnchor.constraint(equalTo: monthCard.leadingAnchor),
+            allocationTagStripView.trailingAnchor.constraint(equalTo: monthCard.trailingAnchor),
+
+            allocationsTableView.topAnchor.constraint(equalTo: allocationTagStripView.bottomAnchor),
             allocationsTableView.leadingAnchor.constraint(equalTo: monthCard.leadingAnchor),
             allocationsTableView.trailingAnchor.constraint(equalTo: monthCard.trailingAnchor),
 
-            allocationsEmptyStateView.topAnchor.constraint(equalTo: allocationsTableHeaderView.bottomAnchor),
+            allocationsEmptyStateView.topAnchor.constraint(equalTo: allocationTagStripView.bottomAnchor),
             allocationsEmptyStateView.leadingAnchor.constraint(equalTo: monthCard.leadingAnchor),
             allocationsEmptyStateView.trailingAnchor.constraint(equalTo: monthCard.trailingAnchor),
             allocationsEmptyStateView.heightAnchor.constraint(equalToConstant: Metrics.tableEmptyViewHeight),
@@ -596,6 +779,9 @@ class MonthCarouselCell: UICollectionViewCell {
                 equalTo: allocationsEmptyStateView.trailingAnchor, constant: -Metrics.spacing4),
             allocationsEmptyStateDescriptionLabel.centerYAnchor.constraint(equalTo: allocationsEmptyStateView.centerYAnchor),
         ])
+
+        tagStripHeightConstraint = allocationTagStripView.heightAnchor.constraint(equalToConstant: 0)
+        tagStripHeightConstraint?.isActive = true
     }
     
     func configure(with model: MonthBudgetCardType, transactions: [Transaction]) {
@@ -992,31 +1178,8 @@ class MonthCarouselCell: UICollectionViewCell {
         monthCard.setShowingBudgetView(true)
         onBudgetViewStateChanged?(currentMonthAnchor, true)
 
-        // Store allocations sorted by allocated amount (highest first)
-        currentAllocations = allocations.sorted { $0.allocatedAmount > $1.allocatedAmount }
-
-        // Fetch unallocated categories with spending
-        currentUnallocatedSpending = allocationService.getUnallocatedCategoriesWithSpending(forMonth: currentMonthAnchor)
-
-        allocationsTableView.reloadData()
-
-        // Total count includes both allocated and unallocated with spending
-        let totalCount = allocations.count + currentUnallocatedSpending.count
-        allocationsNumberLabel.text = "\(totalCount)"
-        updateAllocationsTableHeight(count: totalCount)
-
-        budgetCard.configure(
-            month: monthCard.currentMonth,
-            year: monthCard.currentYear,
-            allocations: allocations,
-            unallocatedSummary: summary,
-            unallocatedSpending: currentUnallocatedSpending,
-            monthAnchor: currentMonthAnchor,
-            monthData: currentMonthData
-        )
-
-        // Show table if there are allocations OR unallocated spending
-        let hasContent = !allocations.isEmpty || !currentUnallocatedSpending.isEmpty
+        rebuildAllocationsUI(allocations: allocations, summary: summary)
+        let hasContent = visibleRowCount > 0
 
         // Disable transaction table interaction BEFORE animation to prevent stale taps
         transactionTableView.isUserInteractionEnabled = false
@@ -1035,9 +1198,7 @@ class MonthCarouselCell: UICollectionViewCell {
             self.transactionTableView.isHidden = true
             self.emptyStateView.isHidden = true
             // Show allocations table components
-            self.allocationsTableHeaderView.isHidden = false
-            self.allocationsTableView.isHidden = !hasContent
-            self.allocationsEmptyStateView.isHidden = hasContent
+            self.setAllocationsViewsHidden(false, hasContent: hasContent)
         } completion: { _ in
             // Enable allocation table interaction after animation completes
             self.allocationsTableView.isUserInteractionEnabled = true
@@ -1070,9 +1231,7 @@ class MonthCarouselCell: UICollectionViewCell {
             self.transactionTableView.isHidden = !hasTransactions
             self.emptyStateView.isHidden = hasTransactions
             // Hide allocations table components
-            self.allocationsTableHeaderView.isHidden = true
-            self.allocationsTableView.isHidden = true
-            self.allocationsEmptyStateView.isHidden = true
+            self.setAllocationsViewsHidden(true, hasContent: false)
         } completion: { _ in
             // Enable transaction table interaction after animation completes
             self.transactionTableView.isUserInteractionEnabled = true
@@ -1086,36 +1245,12 @@ class MonthCarouselCell: UICollectionViewCell {
         isShowingBudgetView = true
         monthCard.setShowingBudgetView(true)
 
-        // Sort allocations by allocated amount (highest first)
-        currentAllocations = allocations.sorted { $0.allocatedAmount > $1.allocatedAmount }
-
-        // Fetch unallocated categories with spending
-        currentUnallocatedSpending = allocationService.getUnallocatedCategoriesWithSpending(forMonth: currentMonthAnchor)
-
         // Reset scroll position and state before reloading
         allocationsTableView.setContentOffset(.zero, animated: false)
         allocationsTableView.contentInset = .zero
         allocationsTableView.scrollIndicatorInsets = .zero
 
-        allocationsTableView.reloadData()
-
-        // Total count includes both allocated and unallocated with spending
-        let totalCount = allocations.count + currentUnallocatedSpending.count
-        allocationsNumberLabel.text = "\(totalCount)"
-        updateAllocationsTableHeight(count: totalCount)
-
-        budgetCard.configure(
-            month: monthCard.currentMonth,
-            year: monthCard.currentYear,
-            allocations: allocations,
-            unallocatedSummary: summary,
-            unallocatedSpending: currentUnallocatedSpending,
-            monthAnchor: currentMonthAnchor,
-            monthData: currentMonthData
-        )
-
-        // Show table if there are allocations OR unallocated spending
-        let hasContent = !allocations.isEmpty || !currentUnallocatedSpending.isEmpty
+        rebuildAllocationsUI(allocations: allocations, summary: summary)
 
         // Set state directly without animation
         monthCard.isHidden = true
@@ -1124,9 +1259,7 @@ class MonthCarouselCell: UICollectionViewCell {
         tableHeaderView.isHidden = true
         transactionTableView.isHidden = true
         emptyStateView.isHidden = true
-        allocationsTableHeaderView.isHidden = false
-        allocationsTableView.isHidden = !hasContent
-        allocationsEmptyStateView.isHidden = hasContent
+        setAllocationsViewsHidden(false, hasContent: visibleRowCount > 0)
 
         // Ensure correct user interaction state for budget view
         transactionTableView.isUserInteractionEnabled = false
@@ -1137,38 +1270,12 @@ class MonthCarouselCell: UICollectionViewCell {
     func refreshBudgetView(allocations: [BudgetAllocation], summary: UnallocatedBudgetSummary) {
         guard isShowingBudgetView else { return }
 
-        // Sort allocations by allocated amount (highest first)
-        currentAllocations = allocations.sorted { $0.allocatedAmount > $1.allocatedAmount }
-
-        // Fetch unallocated categories with spending
-        currentUnallocatedSpending = allocationService.getUnallocatedCategoriesWithSpending(forMonth: currentMonthAnchor)
-
         // Reset scroll position and state before reloading
         allocationsTableView.setContentOffset(.zero, animated: false)
         allocationsTableView.contentInset = .zero
         allocationsTableView.scrollIndicatorInsets = .zero
 
-        allocationsTableView.reloadData()
-
-        // Total count includes both allocated and unallocated with spending
-        let totalCount = allocations.count + currentUnallocatedSpending.count
-        allocationsNumberLabel.text = "\(totalCount)"
-        updateAllocationsTableHeight(count: totalCount)
-
-        budgetCard.configure(
-            month: monthCard.currentMonth,
-            year: monthCard.currentYear,
-            allocations: allocations,
-            unallocatedSummary: summary,
-            unallocatedSpending: currentUnallocatedSpending,
-            monthAnchor: currentMonthAnchor,
-            monthData: currentMonthData
-        )
-
-        // Update visibility based on content
-        let hasContent = !allocations.isEmpty || !currentUnallocatedSpending.isEmpty
-        allocationsTableView.isHidden = !hasContent
-        allocationsEmptyStateView.isHidden = hasContent
+        rebuildAllocationsUI(allocations: allocations, summary: summary)
 
         // Ensure correct user interaction state
         transactionTableView.isUserInteractionEnabled = false
@@ -1208,7 +1315,10 @@ class MonthCarouselCell: UICollectionViewCell {
         // Use budget card height (it sizes itself)
         let budgetCardHeight = budgetCard.bounds.height > 0 ? budgetCard.bounds.height : 220
         let spacingAfterCard = Metrics.spacing4
-        let tableHeaderHeight = Metrics.spacing11
+        // The chip strip sits between the header and the table, so its height is part of what the
+        // table does NOT get. Omitting it makes the table 44pt too tall - and the clamp below absorbs
+        // that on tall devices, so it passes casual testing and then clips rows on a small one.
+        let tableHeaderHeight = Metrics.spacing11 + (tagStripHeightConstraint?.constant ?? 0)
         let bottomPadding = Metrics.spacing4
 
         let fixedComponentsHeight = topPadding + budgetCardHeight + spacingAfterCard + tableHeaderHeight + bottomPadding
@@ -1232,9 +1342,11 @@ class MonthCarouselCell: UICollectionViewCell {
             updateTableHeight(txsCount: currentCount)
         }
 
-        // Update allocations table height when in budget view
-        if isShowingBudgetView && !currentAllocations.isEmpty {
-            updateAllocationsTableHeight(count: currentAllocations.count)
+        // Update allocations table height when in budget view. Uses `visibleRowCount`, which is what
+        // `numberOfRowsInSection` returns - this used to pass `currentAllocations.count`, dropping the
+        // unallocated-spending rows, so a month with only off-plan spend never recomputed at all.
+        if isShowingBudgetView && visibleRowCount > 0 {
+            updateAllocationsTableHeight(count: visibleRowCount)
         }
         
         transactionsNumberContainerView.layoutIfNeeded()
@@ -1259,6 +1371,8 @@ class MonthCarouselCell: UICollectionViewCell {
         allocationsTableHeaderView.layer.sublayers?.removeAll(where: { $0 is CAShapeLayer })
         allocationsTableHeaderView.layoutIfNeeded()
         addBordersExceptBottom(to: allocationsTableHeaderView, color: Colors.gray300)
+
+        // The strip draws its own side hairlines; nothing to do for it here.
     }
     
     override func prepareForReuse() {
@@ -1278,6 +1392,7 @@ class MonthCarouselCell: UICollectionViewCell {
         transactionTableView.alpha = 1
         emptyStateView.alpha = 1
         allocationsTableHeaderView.alpha = 1
+        allocationTagStripView.alpha = 1
         allocationsTableView.alpha = 1
         allocationsEmptyStateView.alpha = 1
 
@@ -1298,6 +1413,15 @@ class MonthCarouselCell: UICollectionViewCell {
         allocationsTableHeightConstraint = nil
         currentAllocations = []
         currentUnallocatedSpending = []
+
+        // Cells are reused, so a filter left set here would apply to a different month - and if that
+        // month has no such tag, to a list with no chip left to clear it. Same class of bug that
+        // `currentFilters.clear()` below guards for the transaction face.
+        selectedTagId = nil
+        tagBreakdown = .empty
+        visibleAllocations = []
+        visibleUnallocatedSpending = []
+        tagStripHeightConstraint?.constant = 0
 
         // Reset scroll state to default
         transactionTableView.isScrollEnabled = false
@@ -1322,9 +1446,7 @@ class MonthCarouselCell: UICollectionViewCell {
         // Hide both table and empty state during cell setup to prevent flashing
         transactionTableView.isHidden = true
         emptyStateView.isHidden = true
-        allocationsTableHeaderView.isHidden = true
-        allocationsTableView.isHidden = true
-        allocationsEmptyStateView.isHidden = true
+        setAllocationsViewsHidden(true, hasContent: false)
 
         clearSearch()
     }
@@ -1414,6 +1536,33 @@ extension MonthCarouselCell: MonthCardFlipDelegate {
     func didToggleBalanceVisibility(_ isHidden: Bool) {
         onBalanceVisibilityToggled?(isHidden)
     }
+
+    func didSelectAllocationTag(_ tagId: String?) {
+        applySelectedTag(tagId)
+    }
+}
+
+// MARK: - AllocationTagStripViewDelegate
+
+extension MonthCarouselCell: AllocationTagStripViewDelegate {
+    func didSelectTag(_ tagId: String?) {
+        applySelectedTag(tagId)
+    }
+
+    func didTapCreateTag() {
+        onCreateTagTapped?()
+    }
+}
+
+extension MonthCarouselCell {
+    /// One entry point for both the donut arc and the chip strip, so the two can never disagree about
+    /// what is selected. Deliberately does not refetch: only the filter changed.
+    private func applySelectedTag(_ tagId: String?) {
+        guard selectedTagId != tagId else { return }
+        selectedTagId = tagId
+        budgetCard.setSelectedTag(tagId)
+        applyTagFilter()
+    }
 }
 
 // MARK: - UITableViewDataSource & UITableViewDelegate for Allocations
@@ -1422,8 +1571,9 @@ extension MonthCarouselCell: UITableViewDataSource, UITableViewDelegate {
 
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
         if tableView === allocationsTableView {
-            // Total count: allocated items first, then unallocated items
-            return currentAllocations.count + currentUnallocatedSpending.count
+            // Total count: allocated items first, then unallocated items. `visible*` rather than
+            // `current*` so a tag filter narrows the list.
+            return visibleRowCount
         }
         return 0
     }
@@ -1438,17 +1588,17 @@ extension MonthCarouselCell: UITableViewDataSource, UITableViewDelegate {
             }
 
             // Check if this is an allocated or unallocated row
-            if indexPath.row < currentAllocations.count {
+            if indexPath.row < visibleAllocations.count {
                 // Allocated category
-                let allocation = currentAllocations[indexPath.row]
+                let allocation = visibleAllocations[indexPath.row]
                 cell.configure(with: allocation)
                 cell.setTapAction { [weak self] in
                     self?.didTapAllocation(allocation)
                 }
             } else {
                 // Unallocated category with spending
-                let unallocatedIndex = indexPath.row - currentAllocations.count
-                let unallocatedSpending = currentUnallocatedSpending[unallocatedIndex]
+                let unallocatedIndex = indexPath.row - visibleAllocations.count
+                let unallocatedSpending = visibleUnallocatedSpending[unallocatedIndex]
                 cell.configure(with: unallocatedSpending)
                 cell.setTapAction { [weak self] in
                     guard let self = self else { return }
