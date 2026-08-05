@@ -572,8 +572,9 @@ final class TagTranslationTests: XCTestCase {
         await coordinator.runPassNow()
         let afterFirstPass = passAttempts
 
-        // Let any observer-scheduled work run, plus the 500ms debounce it would sit behind.
-        try? await Task.sleep(for: .milliseconds(900))
+        // Well past the 500ms debounce an observer-scheduled pass would sit behind. A fixed wait is
+        // right for asserting something did NOT happen; the inverse test polls instead.
+        try? await Task.sleep(for: .milliseconds(1500))
 
         XCTAssertEqual(
             passAttempts, afterFirstPass,
@@ -599,10 +600,25 @@ final class TagTranslationTests: XCTestCase {
 
         makeTag("Wealth")
         NotificationCenter.default.post(name: .allocationTagsChanged, object: nil)
-        try? await Task.sleep(for: .milliseconds(900))
+
+        // Polled rather than slept: this asserts something DOES happen, and a fixed wait that is
+        // comfortable on an idle machine is not comfortable on one running four simulator clones.
+        await waitUntil { self.fake.translateCalls.count == 2 }
 
         XCTAssertGreaterThan(passAttempts, afterFirstPass)
         XCTAssertEqual(fake.translateCalls.count, 2)
+    }
+
+    /// Polls `condition` until it holds or the deadline passes. Fails nothing on its own — the caller
+    /// still asserts, so a timeout surfaces as that assertion's message rather than a bare "timed out".
+    private func waitUntil(
+        timeout: Duration = .seconds(5), _ condition: () -> Bool
+    ) async {
+        let deadline = ContinuousClock.now.advanced(by: timeout)
+        while ContinuousClock.now < deadline {
+            if condition() { return }
+            try? await Task.sleep(for: .milliseconds(25))
+        }
     }
 
     // MARK: - Encoding collisions

@@ -160,75 +160,79 @@ final class AllocationTagDisplayNameTests: XCTestCase {
 
     // MARK: - Memo
 
-    /// The memo only engages on the shared cache, so these drive that instance directly. The tests
-    /// above deliberately use an injected cache and bypass it.
+    /// A fresh resolver over the injected cache, never the shared pair. Driving the singletons made
+    /// these tests order-dependent — they passed alone and failed in the full suite, because any
+    /// other test touching the shared cache moved the generation underneath them — and worse, they
+    /// wrote into the developer's own UserDefaults under whatever uid happened to be signed in.
+    private func makeResolver() -> TagDisplayNameResolver { TagDisplayNameResolver() }
+
     func testTheMemoReturnsAFreshAnswerAfterAStore() {
-        let resolver = TagDisplayNameResolver.shared
-        let shared = TagTranslationCache.shared
-        let id = "memo-\(UUID().uuidString)"
-        defer { shared.forget(tagId: id) }
-
-        let first = resolver.displayName(
-            id: id, name: "Essentials", in: pt, cache: shared, isEnabled: true)
-        XCTAssertEqual(first, "Essentials")
-
-        shared.store("Essenciais", forTagId: id, name: "Essentials", language: "pt")
+        let resolver = makeResolver()
 
         XCTAssertEqual(
-            resolver.displayName(id: id, name: "Essentials", in: pt, cache: shared, isEnabled: true),
+            resolver.displayName(id: "t1", name: "Essentials", in: pt, cache: cache, isEnabled: true),
+            "Essentials")
+
+        cache.store("Essenciais", forTagId: "t1", name: "Essentials", language: "pt")
+
+        XCTAssertEqual(
+            resolver.displayName(id: "t1", name: "Essentials", in: pt, cache: cache, isEnabled: true),
             "Essenciais",
             "a store bumps the generation, which must discard the memo")
     }
 
-    func testTheMemoDoesNotServeOneLanguagesAnswerToAnother() {
-        let resolver = TagDisplayNameResolver.shared
-        let shared = TagTranslationCache.shared
-        let id = "memo-\(UUID().uuidString)"
-        defer { shared.forget(tagId: id) }
+    func testTheMemoIsInvalidatedByAnOverride() {
+        let resolver = makeResolver()
+        cache.store("Essenciais", forTagId: "t1", name: "Essentials", language: "pt")
+        XCTAssertEqual(
+            resolver.displayName(id: "t1", name: "Essentials", in: pt, cache: cache, isEnabled: true),
+            "Essenciais")
 
-        shared.store("Essenciais", forTagId: id, name: "Essentials", language: "pt")
+        cache.setOverride("Básicos", forTagId: "t1", language: "pt")
 
         XCTAssertEqual(
-            resolver.displayName(id: id, name: "Essentials", in: pt, cache: shared, isEnabled: true),
+            resolver.displayName(id: "t1", name: "Essentials", in: pt, cache: cache, isEnabled: true),
+            "Básicos")
+    }
+
+    func testTheMemoDoesNotServeOneLanguagesAnswerToAnother() {
+        let resolver = makeResolver()
+        cache.store("Essenciais", forTagId: "t1", name: "Essentials", language: "pt")
+
+        XCTAssertEqual(
+            resolver.displayName(id: "t1", name: "Essentials", in: pt, cache: cache, isEnabled: true),
             "Essenciais")
         XCTAssertEqual(
-            resolver.displayName(id: id, name: "Essentials", in: en, cache: shared, isEnabled: true),
+            resolver.displayName(id: "t1", name: "Essentials", in: en, cache: cache, isEnabled: true),
             "Essentials")
     }
 
     func testTheMemoDoesNotServeAnEnabledAnswerWhenDisabled() {
-        let resolver = TagDisplayNameResolver.shared
-        let shared = TagTranslationCache.shared
-        let id = "memo-\(UUID().uuidString)"
-        defer { shared.forget(tagId: id) }
-
-        shared.store("Essenciais", forTagId: id, name: "Essentials", language: "pt")
+        let resolver = makeResolver()
+        cache.store("Essenciais", forTagId: "t1", name: "Essentials", language: "pt")
 
         XCTAssertEqual(
-            resolver.displayName(id: id, name: "Essentials", in: pt, cache: shared, isEnabled: true),
+            resolver.displayName(id: "t1", name: "Essentials", in: pt, cache: cache, isEnabled: true),
             "Essenciais")
         XCTAssertEqual(
-            resolver.displayName(id: id, name: "Essentials", in: pt, cache: shared, isEnabled: false),
+            resolver.displayName(id: "t1", name: "Essentials", in: pt, cache: cache, isEnabled: false),
             "Essentials")
     }
 
     func testConcurrentResolutionIsSafeAndConsistent() {
-        let resolver = TagDisplayNameResolver.shared
-        let shared = TagTranslationCache.shared
-        let id = "memo-\(UUID().uuidString)"
-        defer { shared.forget(tagId: id) }
-        shared.store("Essenciais", forTagId: id, name: "Essentials", language: "pt")
+        let resolver = makeResolver()
+        cache.store("Essenciais", forTagId: "t1", name: "Essentials", language: "pt")
 
-        let results = NSMutableArray()
-        let guard_ = NSLock()
+        let lock = NSLock()
+        var results: Set<String> = []
         DispatchQueue.concurrentPerform(iterations: 200) { _ in
             let name = resolver.displayName(
-                id: id, name: "Essentials", in: pt, cache: shared, isEnabled: true)
-            guard_.lock()
-            results.add(name)
-            guard_.unlock()
+                id: "t1", name: "Essentials", in: pt, cache: cache, isEnabled: true)
+            lock.lock()
+            results.insert(name)
+            lock.unlock()
         }
 
-        XCTAssertEqual(Set(results.map { $0 as! String }), ["Essenciais"])
+        XCTAssertEqual(results, ["Essenciais"])
     }
 }
