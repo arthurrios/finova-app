@@ -147,6 +147,7 @@ final class SettingsViewModel {
   func refreshAllSettings() {
     updateBiometricUI()
     updateCurrencyUI()
+    updateTagTranslationUI()
     updateTransparencyUI()
     delegate?.didUpdateAppVersion(version: appVersionString)
   }
@@ -191,6 +192,20 @@ final class SettingsViewModel {
 
   func isPublishing(to group: BudgetGroup) -> Bool {
     TransparencyManager.shared.isPublishing(toGroup: group.id)
+  }
+
+  // MARK: - Tag Translation
+
+  /// Apple's Translation framework is iOS 18+, and the app's floor is 17.6.
+  var isTagTranslationSupported: Bool {
+    if #available(iOS 18.0, *) { return true }
+    return false
+  }
+
+  func updateTagTranslationUI() {
+    delegate?.didUpdateTagTranslation(
+      isEnabled: UserDefaultsManager.isTagNameTranslationEnabled(),
+      isSupported: isTagTranslationSupported)
   }
 
   // MARK: - Currency Management

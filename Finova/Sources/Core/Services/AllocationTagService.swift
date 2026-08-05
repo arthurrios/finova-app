@@ -83,6 +83,11 @@ final class AllocationTagService {
             sortOrder: current.tags.count
         )
         current.tags.append(tag)
+        // Recorded here, not later: "the phone's language" is only a sound guess at the moment of
+        // typing. Applied retroactively to an existing tag it is just the current language, which
+        // would wrongly mark the tag as needing nothing.
+        TagTranslationCache.shared.storeSourceLanguage(
+            TagLanguageDetector.detectAtAuthoring(trimmed), forTagId: tag.id, name: trimmed)
         commit(current)
         return tag
     }
@@ -105,6 +110,9 @@ final class AllocationTagService {
     /// Removes the tag and every category link pointing at it. Allocations and transactions are
     /// untouched - a tag is a lens over them, never their owner.
     func deleteTag(id tagId: String) {
+        // Cached translations are keyed by tag id; a deleted tag's entries would otherwise linger and
+        // could be handed to a new tag that reused the id.
+        TagTranslationCache.shared.forget(tagId: tagId)
         var current = book
         current.tags.removeAll { $0.id == tagId }
         current.categoryTagIds = current.categoryTagIds.filter { $0.value != tagId }

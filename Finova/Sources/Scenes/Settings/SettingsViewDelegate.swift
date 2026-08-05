@@ -11,6 +11,8 @@ protocol SettingsViewDelegate: AnyObject {
     func didTapDeleteAccount()
     func didTapNotifications()
     func didTapCurrency()
+    func didToggleTagTranslation(_ isEnabled: Bool)
+    func didTapDownloadTranslationLanguages()
     func didTapSyncSettings()
     func didToggleTransparency(_ isEnabled: Bool)
     func didTapTransparencyGroupPicker()

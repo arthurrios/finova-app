@@ -29,6 +29,7 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     self.window?.makeKeyAndVisible()
 
     setupSyncToastObserver()
+    AllocationTagTranslationCoordinator.shared.start()
   }
 
   func scene(_ scene: UIScene, openURLContexts URLContexts: Set<UIOpenURLContext>) {

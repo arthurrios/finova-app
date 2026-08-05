@@ -131,7 +131,7 @@ final class AllocationTagStripView: UIView {
 
         for arc in breakdown.tagArcs {
             let chip = makeChip(
-                title: arc.tag.name,
+                title: arc.tag.displayName,
                 amount: arc.bucket.allocated,
                 inkColor: arc.tag.color.ink,
                 isValuesHidden: isValuesHidden)
@@ -264,10 +264,10 @@ final class AllocationTagStripView: UIView {
         for arc: AllocationTagBreakdown.TagArc,
         isValuesHidden: Bool
     ) -> String {
-        guard !isValuesHidden else { return arc.tag.name }
+        guard !isValuesHidden else { return arc.tag.displayName }
         let share = Int((arc.bucket.share * 100).rounded())
         return [
-            arc.tag.name,
+            arc.tag.displayName,
             arc.bucket.allocated.compactCurrencyString,
             String(format: "budget.tag.shareOfBudget".localized, share),
         ].joined(separator: ", ")

@@ -46,7 +46,7 @@ final class AllocationTagCategoriesViewController: UIViewController {
         super.viewDidLoad()
         setupContentViewToBounds(contentView: contentView, respectingSafeArea: false)
         contentView.delegate = self
-        contentView.configure(tagName: tag.name)
+        contentView.configure(tagName: tag.displayName)
         contentView.tableView.delegate = self
         contentView.tableView.dataSource = self
         contentView.tableView.register(

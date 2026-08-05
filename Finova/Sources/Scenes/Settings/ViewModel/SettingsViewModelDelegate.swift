@@ -10,6 +10,7 @@ protocol SettingsViewModelDelegate: AnyObject {
   func didRequestOpenSettings(title: String, message: String)
   func didUpdateAppVersion(version: String)
   func didUpdateCurrency(displayText: String)
+  func didUpdateTagTranslation(isEnabled: Bool, isSupported: Bool)
   func didEncounterBiometricError(title: String, message: String)
   func didRequestReAuthentication()
   func didCompleteAccountDeletion()

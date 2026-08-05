@@ -100,6 +100,31 @@ final class SettingsView: UIView {
     let currencyValueLabel = createDetailLabel(text: "")
     private let currencyChevron = createChevronView()
 
+    private let translateTagsContainer = createSettingContainer()
+    private let translateTagsIconView = createIconView(imageName: "character.book.closed")
+    private let translateTagsLabel = createSettingLabel(text: "settings.translateTags.title".localized)
+    let translateTagsSwitch: UISwitch = {
+        let toggle = UISwitch()
+        toggle.translatesAutoresizingMaskIntoConstraints = false
+        toggle.onTintColor = Colors.mainMagenta
+        return toggle
+    }()
+    let translateTagsDetailLabel = createDetailLabel(text: "")
+
+    /// Hidden until a pass reports a pair the device has not downloaded. Shown here rather than
+    /// prompted automatically: the system download sheet belongs to a screen the user chose to be on.
+    let downloadLanguagesContainer: UIView = {
+        let container = createSettingContainer()
+        container.isUserInteractionEnabled = true
+        container.isHidden = true
+        return container
+    }()
+    private let downloadLanguagesIconView = createIconView(imageName: "arrow.down.circle")
+    private let downloadLanguagesLabel = createSettingLabel(
+        text: "settings.translateTags.download.title".localized)
+    let downloadLanguagesDetailLabel = createDetailLabel(text: "")
+    private let downloadLanguagesChevron = createChevronView()
+
     // Sharing Section
     private let sharingHeaderView = createSectionHeader(title: "settings.section.sharing".localized)
 
@@ -210,6 +235,10 @@ final class SettingsView: UIView {
         contentStackView.addArrangedSubview(preferencesHeaderView)
         setupCurrencyContainer()
         contentStackView.addArrangedSubview(currencyContainer)
+        setupTranslateTagsContainer()
+        contentStackView.addArrangedSubview(translateTagsContainer)
+        setupDownloadLanguagesContainer()
+        contentStackView.addArrangedSubview(downloadLanguagesContainer)
 
         // Sharing section
         contentStackView.addArrangedSubview(sharingHeaderView)
@@ -274,6 +303,48 @@ final class SettingsView: UIView {
 
             currencyValueLabel.trailingAnchor.constraint(equalTo: currencyChevron.leadingAnchor, constant: -Metrics.spacing2),
             currencyValueLabel.centerYAnchor.constraint(equalTo: currencyContainer.centerYAnchor)
+        ])
+    }
+
+    private func setupTranslateTagsContainer() {
+        translateTagsContainer.addSubview(translateTagsIconView)
+        translateTagsContainer.addSubview(translateTagsLabel)
+        translateTagsContainer.addSubview(translateTagsDetailLabel)
+        translateTagsContainer.addSubview(translateTagsSwitch)
+
+        NSLayoutConstraint.activate([
+            translateTagsIconView.leadingAnchor.constraint(equalTo: translateTagsContainer.leadingAnchor, constant: Metrics.spacing4),
+            translateTagsIconView.centerYAnchor.constraint(equalTo: translateTagsContainer.centerYAnchor),
+
+            translateTagsLabel.leadingAnchor.constraint(equalTo: translateTagsIconView.trailingAnchor, constant: Metrics.spacing3),
+            translateTagsLabel.centerYAnchor.constraint(equalTo: translateTagsContainer.centerYAnchor),
+
+            translateTagsSwitch.trailingAnchor.constraint(equalTo: translateTagsContainer.trailingAnchor, constant: -Metrics.spacing4),
+            translateTagsSwitch.centerYAnchor.constraint(equalTo: translateTagsContainer.centerYAnchor),
+
+            translateTagsDetailLabel.trailingAnchor.constraint(equalTo: translateTagsSwitch.leadingAnchor, constant: -Metrics.spacing2),
+            translateTagsDetailLabel.centerYAnchor.constraint(equalTo: translateTagsContainer.centerYAnchor)
+        ])
+    }
+
+    private func setupDownloadLanguagesContainer() {
+        downloadLanguagesContainer.addSubview(downloadLanguagesIconView)
+        downloadLanguagesContainer.addSubview(downloadLanguagesLabel)
+        downloadLanguagesContainer.addSubview(downloadLanguagesDetailLabel)
+        downloadLanguagesContainer.addSubview(downloadLanguagesChevron)
+
+        NSLayoutConstraint.activate([
+            downloadLanguagesIconView.leadingAnchor.constraint(equalTo: downloadLanguagesContainer.leadingAnchor, constant: Metrics.spacing4),
+            downloadLanguagesIconView.centerYAnchor.constraint(equalTo: downloadLanguagesContainer.centerYAnchor),
+
+            downloadLanguagesLabel.leadingAnchor.constraint(equalTo: downloadLanguagesIconView.trailingAnchor, constant: Metrics.spacing3),
+            downloadLanguagesLabel.centerYAnchor.constraint(equalTo: downloadLanguagesContainer.centerYAnchor),
+
+            downloadLanguagesChevron.trailingAnchor.constraint(equalTo: downloadLanguagesContainer.trailingAnchor, constant: -Metrics.spacing4),
+            downloadLanguagesChevron.centerYAnchor.constraint(equalTo: downloadLanguagesContainer.centerYAnchor),
+
+            downloadLanguagesDetailLabel.trailingAnchor.constraint(equalTo: downloadLanguagesChevron.leadingAnchor, constant: -Metrics.spacing2),
+            downloadLanguagesDetailLabel.centerYAnchor.constraint(equalTo: downloadLanguagesContainer.centerYAnchor)
         ])
     }
 
@@ -443,6 +514,10 @@ final class SettingsView: UIView {
 
     private func setupActions() {
         biometricSwitch.addTarget(self, action: #selector(biometricToggled), for: .valueChanged)
+        translateTagsSwitch.addTarget(self, action: #selector(translateTagsToggled), for: .valueChanged)
+
+        let downloadTap = UITapGestureRecognizer(target: self, action: #selector(downloadLanguagesTapped))
+        downloadLanguagesContainer.addGestureRecognizer(downloadTap)
 
         let currencyTap = UITapGestureRecognizer(target: self, action: #selector(currencyTapped))
         currencyContainer.addGestureRecognizer(currencyTap)
@@ -470,6 +545,16 @@ final class SettingsView: UIView {
     @objc
     private func currencyTapped() {
         delegate?.didTapCurrency()
+    }
+
+    @objc
+    private func downloadLanguagesTapped() {
+        delegate?.didTapDownloadTranslationLanguages()
+    }
+
+    @objc
+    private func translateTagsToggled() {
+        delegate?.didToggleTagTranslation(translateTagsSwitch.isOn)
     }
 
     @objc

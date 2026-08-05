@@ -133,7 +133,7 @@ final class AllocationTagCell: UITableViewCell {
         iconView.image = tag.icon.image
         iconView.tintColor = ink
 
-        nameLabel.text = tag.name
+        nameLabel.text = tag.displayName
 
         switch categoryCount {
         case 0:

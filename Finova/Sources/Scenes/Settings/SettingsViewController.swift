@@ -28,6 +28,9 @@ final class SettingsViewController: UIViewController {
     
     override func viewDidLoad() {
         super.viewDidLoad()
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(handleTranslationDownloadStateChanged),
+            name: .tagTranslationDownloadStateChanged, object: nil)
         setup()
     }
     
@@ -63,6 +66,49 @@ extension SettingsViewController: SettingsViewDelegate {
 
     func didTapCurrency() {
         showCurrencyPicker()
+    }
+
+    /// Redraws the download row when a poll reports the language has landed, so the user sees it
+    /// finish without having to navigate away and back.
+    @objc private func handleTranslationDownloadStateChanged() {
+        refreshDownloadLanguagesRow()
+    }
+
+    func didTapDownloadTranslationLanguages() {
+        let coordinator = AllocationTagTranslationCoordinator.shared
+        // Re-tappable if a download was dismissed: the only way back from a cancelled system sheet is
+        // to ask for it again, so this must never latch permanently.
+        guard !coordinator.isDownloadingLanguages else { return }  // sheet already up
+
+        refreshDownloadLanguagesRow(isDownloading: true)
+        coordinator.downloadMissingLanguages { [weak self] in
+            self?.refreshDownloadLanguagesRow(isDownloading: false)
+        }
+    }
+
+    /// Renders the row from the coordinator's state rather than from whatever this screen last set,
+    /// so leaving and returning mid-download shows the truth instead of a stale "Downloading…".
+    private func refreshDownloadLanguagesRow(isDownloading: Bool? = nil) {
+        let coordinator = AllocationTagTranslationCoordinator.shared
+        // "Downloading…" covers both the sheet being up AND the period after it closes while the
+        // system finishes in the background - the row must not vanish and leave the user guessing.
+        let downloading = (isDownloading ?? coordinator.isDownloadingLanguages)
+            || coordinator.hasDownloadInProgress
+        contentView.downloadLanguagesDetailLabel.text =
+            downloading ? "settings.translateTags.downloading".localized : ""
+        // Still tappable while downloading: re-tapping is harmless and is the only way to recover if
+        // the user dismissed the sheet before confirming.
+        contentView.downloadLanguagesContainer.isUserInteractionEnabled = true
+        contentView.downloadLanguagesContainer.isHidden =
+            !(coordinator.hasLanguagesToDownload || downloading)
+    }
+
+    func didToggleTagTranslation(_ isEnabled: Bool) {
+        UserDefaultsManager.setTagNameTranslationEnabled(isEnabled)
+        // Re-render immediately: turning it off must drop back to the typed names at once, not on the
+        // next tag edit.
+        NotificationCenter.default.post(name: .allocationTagsChanged, object: nil)
+        AllocationTagTranslationCoordinator.shared.reconcile()
     }
 
     func didTapNotifications() {
@@ -129,6 +175,23 @@ extension SettingsViewController: SettingsViewModelDelegate {
     func didUpdateCurrency(displayText: String) {
         logDebug("SettingsViewController.didUpdateCurrency: \(displayText)")
         contentView.currencyValueLabel.text = displayText
+    }
+
+    func didUpdateTagTranslation(isEnabled: Bool, isSupported: Bool) {
+        contentView.translateTagsSwitch.isOn = isEnabled && isSupported
+        contentView.translateTagsSwitch.isEnabled = isSupported
+        contentView.translateTagsDetailLabel.text =
+            isSupported ? "" : "settings.translateTags.unavailable".localized
+        guard isEnabled && isSupported else {
+            contentView.downloadLanguagesContainer.isHidden = true
+            return
+        }
+        refreshDownloadLanguagesRow()
+        // Ask the system whether the pair arrived while we were away. This is the only status Apple
+        // offers - there is no progress figure and no way to reopen its sheet.
+        AllocationTagTranslationCoordinator.shared.refreshDownloadState { [weak self] in
+            self?.refreshDownloadLanguagesRow()
+        }
     }
     
     func didEncounterBiometricError(title: String, message: String) {

@@ -387,7 +387,7 @@ struct BudgetDonutChartView: View {
                         .foregroundColor(Color(arc.tag.color.arc))
                         .frame(width: 24, height: 24)
                 }
-                centerLabel(arc.tag.name)
+                centerLabel(arc.tag.displayName)
                 centerValue(arc.bucket.allocated)
                 // The share is a proportion, not an amount, so it survives value-hiding - the same rule
                 // the projection bar follows. Omitted entirely when there is no budget to be a share of,
