@@ -127,4 +127,96 @@ enum TagLanguageDetector {
         }
         return detected
     }
+
+    // MARK: - Constrained resolution
+
+    /// The floor for a detection made against a short candidate list.
+    ///
+    /// Higher than `confidenceFloor` because it is guarding a much easier question. The unconstrained
+    /// recognizer spreads its probability mass over every language it knows; constrained to three, a
+    /// hypothesis clearing 0.65 is a stronger claim than one clearing 0.55 out of sixty.
+    static let constrainedConfidenceFloor = 0.65
+
+    /// Languages a tag on THIS device could plausibly have been typed in.
+    ///
+    /// The point of the list is its shortness. `NLLanguageRecognizer` softmaxes over ~60 languages, so
+    /// on a six-character string like "Casa" no single hypothesis gets anywhere near a usable
+    /// confidence - which is why detection on tag names failed so often. Constraining it collapses
+    /// that distribution onto the handful of languages the user actually plausibly types in.
+    ///
+    /// The target is excluded: a tag already in the phone's language needs no translation, so
+    /// "it might be Portuguese" is never a useful answer when Portuguese is where we are heading.
+    static func candidateSources(
+        target: String,
+        recordedSources: Set<String> = [],
+        bundleLocalizations: [String] = Bundle.main.localizations,
+        preferredLanguages: [String] = Locale.preferredLanguages
+    ) -> [String] {
+        let targetCode = normalized(target)
+        var seen = Set<String>()
+        var ordered: [String] = []
+
+        // Recorded sources first: they are observed fact about this user's own tags, where the other
+        // two are inference about what they are likely to type.
+        for raw in Array(recordedSources).sorted() + preferredLanguages + bundleLocalizations {
+            // Xcode synthesises a "Base" localization that is not a language.
+            guard raw != "Base" else { continue }
+            let code = normalized(raw)
+            guard !code.isEmpty, code != targetCode, seen.insert(code).inserted else { continue }
+            ordered.append(code)
+        }
+        return ordered
+    }
+
+    /// The language a tag name was written in, or `nil` when it genuinely cannot be established.
+    ///
+    /// `nil` is a supported answer and the caller must skip the tag. It used to mean "let the
+    /// framework detect it", which iOS 26's `TranslationSession(installedSource:target:)` cannot do -
+    /// the source is not optional. That is a better constraint than it looks: handed the wrong source
+    /// the framework does not fail, it translates "Wealth" as though it were Portuguese and returns
+    /// something confident and wrong. A list of plausible nonsense is a worse outcome than a list of
+    /// the names the user typed, which is always an acceptable answer here.
+    static func resolveSource(
+        for name: String,
+        target: String,
+        recorded: String?,
+        candidates: [String]
+    ) -> String? {
+        let targetCode = normalized(target)
+
+        // 1. Stamped at authoring, where the phone's language was a sound prior. Authoritative.
+        if let recorded {
+            let code = normalized(recorded)
+            return code == targetCode ? nil : code
+        }
+
+        // 2a. Only one language this could be. No recognizer call at all - and this is the common
+        //     case, not a shortcut: a monolingual English user on a Portuguese phone has exactly one
+        //     candidate, so their tags resolve without ever consulting a model.
+        guard let first = candidates.first else { return nil }
+        if candidates.count == 1 { return first }
+
+        // 2b. Few enough to be a real question. Beyond a handful the constraint stops helping and we
+        //     are back to guessing, so decline instead.
+        guard candidates.count <= 4 else { return nil }
+
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.count >= minimumLength else { return nil }
+
+        let recognizer = NLLanguageRecognizer()
+        recognizer.languageConstraints = candidates.map { NLLanguage($0) }
+        recognizer.processString(trimmed)
+        guard
+            let (language, confidence) = recognizer
+                .languageHypotheses(withMaximum: 1)
+                .max(by: { $0.value < $1.value }),
+            confidence >= constrainedConfidenceFloor,
+            language != .undetermined
+        else { return nil }
+
+        let code = normalized(language.rawValue)
+        // The constraint list already excludes the target, but a recognizer is not obliged to honour
+        // it, and a source equal to the target is rejected by the framework anyway.
+        return code == targetCode ? nil : code
+    }
 }
