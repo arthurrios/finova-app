@@ -42,6 +42,9 @@ final class RecurringTransactionManager {
   // the delete was invisible to whichever manager next ran lazy generation, and the occurrence the
   // user had just removed came straight back. The set belongs to the series, not to a manager.
   private static var deletedInstanceAnchors: [Int: Set<Int>] = [:]
+  /// The installment equivalent, keyed by installment number rather than month — see
+  /// `trackDeletedInstallments`.
+  private static var deletedInstallmentNumbers: [Int: Set<Int>] = [:]
   private static let deletedAnchorsLock = NSLock()
 
   init(
@@ -301,6 +304,7 @@ final class RecurringTransactionManager {
     deletedAnchorsLock.lock()
     defer { deletedAnchorsLock.unlock() }
     deletedInstanceAnchors.removeValue(forKey: parentId)
+    deletedInstallmentNumbers.removeValue(forKey: parentId)
   }
 
   /// Month anchors intentionally deleted for a parent, read by lazy generation so it won't recreate
@@ -309,6 +313,22 @@ final class RecurringTransactionManager {
     deletedAnchorsLock.lock()
     defer { deletedAnchorsLock.unlock() }
     return deletedInstanceAnchors[parentId] ?? []
+  }
+
+  /// Record installment occurrences the user removed one at a time.
+  ///
+  /// Kept separate from the recurring anchor set because installments are identified by number: a
+  /// card installment is re-anchored onto its statement's due date, so its month is not its identity.
+  static func trackDeletedInstallments(parentId: Int, numbers: Set<Int>) {
+    deletedAnchorsLock.lock()
+    defer { deletedAnchorsLock.unlock() }
+    deletedInstallmentNumbers[parentId, default: []].formUnion(numbers)
+  }
+
+  static func excludedInstallmentNumbers(for parentId: Int) -> Set<Int> {
+    deletedAnchorsLock.lock()
+    defer { deletedAnchorsLock.unlock() }
+    return deletedInstallmentNumbers[parentId] ?? []
   }
 
   func cleanupRecurringInstancesFromDate(
@@ -465,6 +485,7 @@ final class RecurringTransactionManager {
 
       // Collect instances to delete first to avoid partial states
       var instancesToDelete: [Int] = []
+      var numbersDeleted: Set<Int> = []
 
       for instance in installmentInstances {
         let shouldDelete: Bool
@@ -481,6 +502,7 @@ final class RecurringTransactionManager {
 
         if shouldDelete, let instanceId = instance.id {
           instancesToDelete.append(instanceId)
+          if let number = instance.installmentNumber { numbersDeleted.insert(number) }
         }
       }
 
@@ -495,10 +517,11 @@ final class RecurringTransactionManager {
         }
       }
 
-      // Track deleted anchors so lazy generation won't recreate them
-      if cleanupOption == .currentSelection && !instancesToDelete.isEmpty {
-        let selectedAnchor = selectedTransactionDate.monthAnchor
-        Self.trackDeletedInstance(parentId: parentTransactionId, monthAnchor: selectedAnchor)
+      // Track the deleted occurrences so lazy generation won't recreate them. Recorded by
+      // installment NUMBER, which is what generation matches on — the month a card installment sits
+      // in is its statement's due month, so it is not a stable identity for the occurrence.
+      if cleanupOption == .currentSelection && !numbersDeleted.isEmpty {
+        Self.trackDeletedInstallments(parentId: parentTransactionId, numbers: numbersDeleted)
       }
 
       if cleanupOption == .all {
@@ -828,12 +851,18 @@ final class RecurringTransactionManager {
 
       // Group transactions by parent ID for efficient instance lookup
       var instancesByParentId: [Int: Set<Int>] = [:]  // parentId -> Set of monthAnchors
+      // Installments are matched by their NUMBER, not by the month they sit in. A credit-card
+      // installment is re-anchored onto its statement's due date at creation, so its
+      // budgetMonthDate no longer equals "purchase month + N" — matching on the month would report
+      // every occurrence as missing and generate a second copy of the whole series.
+      // The number is the occurrence's real identity and never moves.
+      var installmentNumbersByParentId: [Int: Set<Int>] = [:]
       for tx in allTransactions {
         if let parentId = tx.parentTransactionId {
-          if instancesByParentId[parentId] == nil {
-            instancesByParentId[parentId] = []
+          instancesByParentId[parentId, default: []].insert(tx.budgetMonthDate)
+          if let number = tx.installmentNumber {
+            installmentNumbersByParentId[parentId, default: []].insert(number)
           }
-          instancesByParentId[parentId]?.insert(tx.budgetMonthDate)
         }
       }
 
@@ -921,12 +950,11 @@ final class RecurringTransactionManager {
           totalInstallments > 1
         else { continue }
 
-        let existingAnchors = instancesByParentId[parentId] ?? []
-
-        // Get anchors of intentionally deleted instances (from .currentSelection deletion)
-        self.operationLock.lock()
-        let excludedAnchors = Self.excludedAnchors(for: parentId)
-        self.operationLock.unlock()
+        // Which occurrences of this series already exist, by number. See the note on
+        // `installmentNumbersByParentId`: a card installment's month is its statement's due month,
+        // not "purchase month + N", so the month is not a usable identity here.
+        let existingNumbers = installmentNumbersByParentId[parentId] ?? []
+        let excludedNumbers = Self.excludedInstallmentNumbers(for: parentId)
 
         let parentDate = parent.date
         let originalAmount = parent.originalAmount ?? parent.amount
@@ -942,9 +970,12 @@ final class RecurringTransactionManager {
 
           let targetAnchor = targetDate.monthAnchor
 
-          // Only generate if this month is requested, doesn't exist yet, and wasn't intentionally deleted
-          guard monthAnchors.contains(targetAnchor), !existingAnchors.contains(targetAnchor),
-                !excludedAnchors.contains(targetAnchor) else {
+          // Only generate if this month is requested, and this occurrence neither already exists nor
+          // was intentionally removed by the user.
+          guard monthAnchors.contains(targetAnchor),
+            !existingNumbers.contains(installmentNumber),
+            !excludedNumbers.contains(installmentNumber)
+          else {
             continue
           }
 

@@ -603,9 +603,29 @@ final class TransactionRepository: TransactionRepositoryProtocol {
     let creditCardService = CreditCardService()
     let creditCardRepo = CreditCardRepository()
 
+    // Carried across iterations so installment N+1 is chained one billing cycle after N rather than
+    // re-derived from its own date — see the routing note in AddTransactionModalViewModel.
+    var previousStatement: CreditCardStatement?
+
     for i in 0..<newNumberOfInstallments {
       // Calculate date for this installment (add i months to start date)
       let installmentDate = calendar.date(byAdding: .month, value: i, to: startDate) ?? startDate
+
+      // Resolve the statement before inserting, so the row is written once with the date it will
+      // actually be charged on.
+      var statement: CreditCardStatement?
+      if let cardId = finalCreditCardId, let card = creditCardRepo.fetchCard(byId: cardId),
+        let uid = AuthenticationManager.shared.currentUser?.uid
+      {
+        if let previous = previousStatement {
+          statement = creditCardService.nextStatement(after: previous, for: card, userId: uid)
+        } else {
+          statement = creditCardService.getOrCreateStatement(
+            for: card, transactionDate: installmentDate, userId: uid)
+        }
+      }
+
+      let effectiveDate = statement?.dueDate ?? installmentDate
 
       // Save the new installment
       let installmentModel = TransactionModel(
@@ -614,8 +634,8 @@ final class TransactionRepository: TransactionRepositoryProtocol {
         category: templateTransaction.data.category,
         amount: individualAmount,
         type: templateTransaction.data.type,
-        dateTimestamp: Int(installmentDate.timeIntervalSince1970),
-        budgetMonthDate: installmentDate.monthAnchor,
+        dateTimestamp: Int(effectiveDate.timeIntervalSince1970),
+        budgetMonthDate: effectiveDate.monthAnchor,
         isRecurring: false,
         hasInstallments: true,
         parentTransactionId: mainInstallmentTransactionId,
@@ -628,17 +648,15 @@ final class TransactionRepository: TransactionRepositoryProtocol {
         let insertedId = try insertTransactionAndGetId(installmentModel)
 
         // Assign credit card statement if installments are on a card
-        if let cardId = finalCreditCardId, let card = creditCardRepo.fetchCard(byId: cardId) {
-          if let uid = AuthenticationManager.shared.currentUser?.uid,
-             let statement = creditCardService.getOrCreateStatement(for: card, transactionDate: installmentDate, userId: uid) {
-            try updateCreditCardFields(
-              transactionId: insertedId,
-              creditCardId: cardId,
-              statementId: statement.id!,
-              isCreditCardStatement: false
-            )
-            creditCardService.recalculateStatementTotal(statementId: statement.id!)
-          }
+        if let cardId = finalCreditCardId, let statement = statement, let statementId = statement.id {
+          try updateCreditCardFields(
+            transactionId: insertedId,
+            creditCardId: cardId,
+            statementId: statementId,
+            isCreditCardStatement: false
+          )
+          creditCardService.recalculateStatementTotal(statementId: statementId)
+          previousStatement = statement
         }
       } catch {
         logError("Failed to create installment \(i + 1): \(error)")

@@ -446,6 +446,10 @@ final class AddTransactionModalViewModel {
         let immediateInstallmentCount = totalInstallments
         var allInstallments: [TransactionModel] = []
 
+        // The statement installment N landed on, so N+1 can be chained one cycle after it rather
+        // than re-derived from its own date. See the routing comment below.
+        var previousStatement: CreditCardStatement?
+
         for installmentNumber in 1...immediateInstallmentCount {
           let targetDate =
             self.calendar.date(byAdding: .month, value: installmentNumber - 1, to: startDate)
@@ -462,13 +466,44 @@ final class AddTransactionModalViewModel {
           let installmentAmount =
             installmentNumber == 1 ? amountPerInstallment + remainder : amountPerInstallment
 
+          // Which invoice this installment is billed on.
+          //
+          // Only the FIRST installment is routed by date. The rest are chained one billing cycle
+          // after their predecessor, because date routing can put two installments on one invoice:
+          // on a card closing the 28th, a purchase on the 30th routes to the Feb-28 invoice, and
+          // installment 2's date clamps to Feb 28 — which is <= the closing day, so it routes to the
+          // *same* invoice, and March gets none.
+          var statement: CreditCardStatement?
+          let cardId = data.creditCardId
+          if let cardId = cardId, let card = self.creditCardRepo.fetchCard(byId: cardId) {
+            guard let uid = AuthenticationManager.shared.currentUser?.uid else { break }
+            if let previous = previousStatement {
+              // Deliberately no date-routing fallback: if the chain cannot be continued, leaving the
+              // installment unassigned is better than silently putting it on the wrong invoice.
+              statement = self.creditCardService.nextStatement(
+                after: previous, for: card, userId: uid)
+            } else {
+              statement = self.creditCardService.getOrCreateStatement(
+                for: card, transactionDate: installmentDate, userId: uid)
+            }
+          }
+
+          // An installment is charged when its invoice falls due, not on the purchase anniversary,
+          // so the statement's due date is the date it should show and be budgeted under. Resolved
+          // before the insert so the row is written once and `allInstallments` — which drives
+          // notification scheduling below — carries the date the user will actually be charged on.
+          //
+          // Moving the date is safe for lazy generation because that matches occurrences on
+          // `installmentNumber`, not on the month the row happens to sit in.
+          let effectiveDate = statement?.dueDate ?? installmentDate
+
           let installmentModel = TransactionModel(
             title: data.title,
             category: category.key,
             amount: installmentAmount,
             type: type.key,
-            dateTimestamp: Int(installmentDate.timeIntervalSince1970),
-            budgetMonthDate: installmentDate.monthAnchor,
+            dateTimestamp: Int(effectiveDate.timeIntervalSince1970),
+            budgetMonthDate: effectiveDate.monthAnchor,
             parentTransactionId: parentId,
             originalAmount: data.totalAmount,
             installmentNumber: installmentNumber,
@@ -478,18 +513,15 @@ final class AddTransactionModalViewModel {
           let insertedInstallmentId = try self.transactionRepo.insertTransactionAndGetId(installmentModel)
           allInstallments.append(installmentModel)
 
-          // Assign installment to correct credit card statement
-          if let cardId = data.creditCardId, let card = self.creditCardRepo.fetchCard(byId: cardId) {
-            guard let uid = AuthenticationManager.shared.currentUser?.uid else { break }
-            if let statement = self.creditCardService.getOrCreateStatement(for: card, transactionDate: installmentDate, userId: uid) {
-              try self.transactionRepo.updateCreditCardFields(
-                transactionId: insertedInstallmentId,
-                creditCardId: cardId,
-                statementId: statement.id!,
-                isCreditCardStatement: false
-              )
-              self.creditCardService.recalculateStatementTotal(statementId: statement.id!)
-            }
+          if let cardId = cardId, let statement = statement, let statementId = statement.id {
+            try self.transactionRepo.updateCreditCardFields(
+              transactionId: insertedInstallmentId,
+              creditCardId: cardId,
+              statementId: statementId,
+              isCreditCardStatement: false
+            )
+            self.creditCardService.recalculateStatementTotal(statementId: statementId)
+            previousStatement = statement
           }
         }
 
