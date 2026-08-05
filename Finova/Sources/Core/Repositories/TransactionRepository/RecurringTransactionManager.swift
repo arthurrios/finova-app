@@ -331,6 +331,19 @@ final class RecurringTransactionManager {
     return deletedInstallmentNumbers[parentId] ?? []
   }
 
+  /// Drops every exclusion, for when the rows they refer to are gone.
+  ///
+  /// Both sets are keyed by parent row id, which only identifies a series for as long as that series
+  /// exists. Wipe the transaction store and the next series to be created can be handed the same id,
+  /// inheriting exclusions that suppress occurrences the user never deleted. Called wherever the
+  /// store is emptied wholesale.
+  static func clearAllDeletedInstanceTracking() {
+    deletedAnchorsLock.lock()
+    defer { deletedAnchorsLock.unlock() }
+    deletedInstanceAnchors.removeAll()
+    deletedInstallmentNumbers.removeAll()
+  }
+
   func cleanupRecurringInstancesFromDate(
     parentTransactionId: Int,
     selectedTransactionDate: Date,

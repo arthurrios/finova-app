@@ -1070,7 +1070,10 @@ final class TransactionRepository: TransactionRepositoryProtocol {
 
   // MARK: - Test Helper Methods
   func clearAllTransactionsForTesting() {
-    let allTransactions = fetchAllTransactions()
+    // Deleted-occurrence exclusions are keyed by parent row id, so they outlive the rows they refer
+    // to. Emptying the store without clearing them lets the next series created under a reused id
+    // inherit them, and occurrences the user never deleted go silently ungenerated.
+    RecurringTransactionManager.clearAllDeletedInstanceTracking()
 
     // Delete in multiple passes to handle parent/child relationships
     for _ in 0..<10 {  // Try up to 10 times

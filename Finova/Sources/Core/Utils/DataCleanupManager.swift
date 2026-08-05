@@ -51,6 +51,10 @@ class DataCleanupManager {
         // Use batch delete for better performance
         try DBHelper.shared.deleteAllTransactions()
 
+        // The rows these exclusions point at are gone, and a later series handed a reused parent id
+        // would inherit them — suppressing occurrences the user never deleted.
+        RecurringTransactionManager.clearAllDeletedInstanceTracking()
+
         logInfo("Global transactions cleared from SQLite")
       }
     } catch {
