@@ -76,7 +76,6 @@ class MonthCarouselCell: UICollectionViewCell {
     var onBudgetsConfigTapped: ((Int) -> Void)?
     var onDefineBudgetTapped: ((Int) -> Void)?
     var onBudgetViewStateChanged: ((Int, Bool) -> Void)?  // (monthAnchor, isShowingBudgetView)
-    var onBalanceVisibilityToggled: ((Bool) -> Void)?
     var onManageTagsTapped: (() -> Void)?
     var onCreateTagTapped: (() -> Void)?
 
@@ -486,6 +485,25 @@ class MonthCarouselCell: UICollectionViewCell {
             name: .allocationTagsChanged,
             object: nil
         )
+        // The two cards observe the store themselves; this covers the rows and chips the cell owns.
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleValueVisibilityChanged),
+            name: .valueVisibilityDidChange,
+            object: nil
+        )
+    }
+
+    @objc private func handleValueVisibilityChanged() {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in self?.handleValueVisibilityChanged() }
+            return
+        }
+        // Fires for every cell, on- or off-screen. The old code walked `visibleCells` from the
+        // dashboard instead, which is why a recycled cell could come back showing real amounts.
+        allocationTagStripView.refreshValueVisibility(ValueVisibilityStore.shared.isHidden)
+        allocationsTableView.reloadData()
+        transactionTableView.reloadData()
     }
 
     @objc private func manageTagsTapped() {
@@ -549,7 +567,7 @@ class MonthCarouselCell: UICollectionViewCell {
         let hasStrip = allocationTagStripView.configure(
             breakdown: tagBreakdown,
             selectedTagId: selectedTagId,
-            isValuesHidden: UserDefaultsManager.getHideValues())
+            isValuesHidden: ValueVisibilityStore.shared.isHidden)
         tagStripHeightConstraint?.constant = hasStrip ? AllocationTagStripView.preferredHeight : 0
 
         budgetCard.configure(
@@ -1546,10 +1564,6 @@ extension MonthCarouselCell: MonthCardFlipDelegate {
 
     func didTapDefineBudget(forMonth monthAnchor: Int) {
         onDefineBudgetTapped?(monthAnchor)
-    }
-
-    func didToggleBalanceVisibility(_ isHidden: Bool) {
-        onBalanceVisibilityToggled?(isHidden)
     }
 
     func didSelectAllocationTag(_ tagId: String?) {

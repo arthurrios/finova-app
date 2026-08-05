@@ -26,4 +26,5 @@ extension Notification.Name {
   static let syncRequiresLoadingScreen = Notification.Name("syncRequiresLoadingScreen")
   static let localSyncableDataDidChange = Notification.Name("localSyncableDataDidChange")
   static let allocationTagsChanged = Notification.Name("allocationTagsChanged")
+  static let valueVisibilityDidChange = Notification.Name("valueVisibilityDidChange")
 }

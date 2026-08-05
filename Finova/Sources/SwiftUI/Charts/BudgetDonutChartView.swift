@@ -415,7 +415,7 @@ struct BudgetDonutChartView: View {
                     .foregroundColor(Color(Colors.gray500))
             } else {
                 // Show total budget
-                Text(isValuesHidden ? "••••••" : totalBudget.compactCurrencyString)
+                Text(isValuesHidden ? ValueMask.placeholder : totalBudget.compactCurrencyString)
                     .font(.system(size: 16, weight: .bold))
                     .foregroundColor(Color(Colors.gray100))
                     .lineLimit(1)
@@ -436,7 +436,7 @@ struct BudgetDonutChartView: View {
     }
 
     private func centerValue(_ amount: Int) -> some View {
-        Text(isValuesHidden ? "••••••" : amount.compactCurrencyString)
+        Text(isValuesHidden ? ValueMask.placeholder : amount.compactCurrencyString)
             .font(.system(size: 14, weight: .bold))
             .foregroundColor(Color(Colors.gray100))
             .lineLimit(1)

@@ -47,6 +47,22 @@ extension UIView {
         ])
     }
     
+    /// Applies the clear-glass treatment used by the 36x36 circular header buttons on iOS 26+.
+    ///
+    /// Every screen's `backButtonGlassContainer` grew its own byte-identical copy of this; the
+    /// hide-values button reuses it rather than adding a seventh.
+    func applyClearGlass(cornerRadius: CGFloat) {
+        guard #available(iOS 26.0, *) else { return }
+        let glassEffect = UIGlassEffect(style: .clear)
+        glassEffect.isInteractive = true
+        let glassView = UIVisualEffectView(effect: glassEffect)
+        glassView.translatesAutoresizingMaskIntoConstraints = false
+        insertSubview(glassView, at: 0)
+        glassView.pinToSuperview()
+        layer.cornerRadius = cornerRadius
+        clipsToBounds = true
+    }
+
     func superview<T: UIView>(of type: T.Type) -> T? {
         return next as? T ?? superview?.superview(of: T.self)
     }

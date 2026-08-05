@@ -7317,6 +7317,60 @@
         }
       }
     },
+    "hideValues.a11y.hide": {
+      "comment": "Accessibility label for the eye toggle while values are visible; tapping hides them.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide values"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ocultar valores"
+          }
+        }
+      }
+    },
+    "hideValues.a11y.show": {
+      "comment": "Accessibility label for the eye toggle while values are hidden; tapping reveals them.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show values"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar valores"
+          }
+        }
+      }
+    },
+    "hideValues.a11y.valueHidden": {
+      "comment": "What VoiceOver reads in place of a monetary amount while values are hidden.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Value hidden"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Valor oculto"
+          }
+        }
+      }
+    },
     "initialSync.error.generic": {
       "extractionState": "manual",
       "localizations": {

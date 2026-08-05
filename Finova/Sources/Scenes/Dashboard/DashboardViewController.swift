@@ -1871,9 +1871,6 @@ extension DashboardViewController: UICollectionViewDataSource {
                 // Flip all visible cells to match the global state
                 self.flipAllVisibleCellsToGlobalState()
             }
-            cell.onBalanceVisibilityToggled = { [weak self] isHidden in
-                self?.updateAllMonthCardsBalanceVisibility(isHidden)
-            }
             cell.onManageTagsTapped = { [weak self] in
                 self?.flowDelegate?.navigateToAllocationTags()
             }
@@ -2238,11 +2235,6 @@ extension DashboardViewController: MonthBudgetCardDelegate {
         flowDelegate?.navigateToBudgets(date: budgetDate)
     }
     
-    func didToggleBalanceVisibility(_ isHidden: Bool) {
-        // Update all month cards with the new visibility state
-        updateAllMonthCardsBalanceVisibility(isHidden)
-    }
-
     func didLongPressBalance() {
         if case .group(let group) = viewModel.currentContext, !group.isOwner {
             return
@@ -2259,25 +2251,6 @@ extension DashboardViewController: MonthBudgetCardDelegate {
         refreshAfterTransactionAdd()
     }
     
-    private func updateAllMonthCardsBalanceVisibility(_ isHidden: Bool) {
-        // Store the global visibility state first
-        UserDefaultsManager.setHideValues(isHidden)
-
-        // Update all visible month cards and budget cards immediately
-        for cell in contentView.monthCarousel.visibleCells {
-            if let monthCell = cell as? MonthCarouselCell {
-                monthCell.monthCard.updateBalanceVisibility(isHidden)
-                monthCell.budgetCard.updateBalanceVisibility(isHidden)
-            }
-        }
-
-        // Post a notification to update any other cards that might be cached
-        NotificationCenter.default.post(
-            name: NSNotification.Name("BalanceVisibilityChanged"),
-            object: nil,
-            userInfo: ["isHidden": isHidden]
-        )
-    }
 }
 
 // MARK: - Transaction Table View Management

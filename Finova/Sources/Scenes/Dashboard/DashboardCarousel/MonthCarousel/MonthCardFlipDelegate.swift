@@ -16,5 +16,4 @@ protocol MonthCardFlipDelegate: AnyObject {
     func didTapUnallocatedSpending(_ spending: UnallocatedCategorySpending)
     func didTapBudgetsConfig(forMonth monthAnchor: Int)
     func didTapDefineBudget(forMonth monthAnchor: Int)
-    func didToggleBalanceVisibility(_ isHidden: Bool)
 }
