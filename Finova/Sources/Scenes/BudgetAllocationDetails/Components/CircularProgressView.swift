@@ -155,8 +155,9 @@ final class CircularProgressView: UIView {
 
     /// Configure for unallocated mode - shows spent amount instead of percentage
     func configureForUnallocated(spentAmount: Int) {
-        // Show spent amount in compact format
-        percentageLabel.text = spentAmount.currencyString
+        // Show spent amount in compact format. Masked here too: this is the largest number on the
+        // screen, so leaving it visible while the summary rows masked read as a bug.
+        percentageLabel.text = spentAmount.maskedCurrencyString()
         percentageLabel.fontStyle = Fonts.titleSM  // Slightly smaller to fit currency
         percentageLabel.applyStyle()
         statusLabel.text = "allocation.details.unallocated.spent".localized

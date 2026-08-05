@@ -105,6 +105,20 @@ final class HideValuesButton: UIButton {
         onToggle?(ValueVisibilityStore.shared.isHidden)
     }
 
+    // MARK: - Hit testing
+
+    /// Claims every touch inside the button's bounds.
+    ///
+    /// The `.onHeader` style puts a `UIVisualEffectView` behind the icon, and an interactive
+    /// `UIGlassEffect` grabs touches for its own highlight — it wins the hit test against this
+    /// button, and clearing `isUserInteractionEnabled` on the effect view does not prevent it. The
+    /// header toggles were completely dead as a result. The button has no interactive children, so
+    /// short-circuiting the subview walk is both safe and the whole fix.
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        guard isUserInteractionEnabled, !isHidden, alpha > 0.01 else { return nil }
+        return bounds.contains(point) ? self : nil
+    }
+
     // MARK: - Appearance
 
     override func didMoveToWindow() {

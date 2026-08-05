@@ -16,6 +16,10 @@ enum BalanceDisplayMode: Equatable {
 }
 
 class MonthBudgetCard: UIView {
+    /// Test hooks, matching the convention `BudgetCard` already uses.
+    static let usedValueIdentifier = "monthBudgetCard.usedValue"
+    static let limitValueIdentifier = "monthBudgetCard.limitValue"
+
     weak var delegate: MonthBudgetCardDelegate?
     weak var flipDelegate: MonthCardFlipDelegate?
     var ledgerService: TransactionLedgerService?
@@ -311,6 +315,7 @@ class MonthBudgetCard: UIView {
         let label = UILabel()
         label.font = Fonts.textSM.font
         label.textColor = Colors.gray100
+        label.accessibilityIdentifier = MonthBudgetCard.usedValueIdentifier
         return label
     }()
     
@@ -326,6 +331,7 @@ class MonthBudgetCard: UIView {
         let label = UILabel()
         label.font = Fonts.textSM.font
         label.textColor = Colors.gray100
+        label.accessibilityIdentifier = MonthBudgetCard.limitValueIdentifier
         return label
     }()
     

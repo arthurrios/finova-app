@@ -8,6 +8,16 @@ import UIKit
 final class CreditCardsView: UIView {
     weak var delegate: CreditCardsViewDelegate?
 
+    /// Sits between the title and the add button. The card list is rebuilt rather than reloaded, so
+    /// the toggle hook re-runs whatever last populated it.
+    private var currentCards: [CreditCard] = []
+
+    private lazy var hideValuesButton: HideValuesButton = {
+        let button = HideValuesButton(style: .onHeader)
+        button.onToggle = { [weak self] _ in self?.refreshValueVisibility() }
+        return button
+    }()
+
     // MARK: - Header
     private let headerContainerView: UIView = {
         let view = UIView()
@@ -125,6 +135,7 @@ final class CreditCardsView: UIView {
         backButtonGlassContainer.addSubview(backButton)
         setupBackButtonGlassEffect()
         headerItemsView.addSubview(headerTitleLabel)
+        headerItemsView.addSubview(hideValuesButton)
         headerItemsView.addSubview(addButton)
 
         scrollView.addSubview(contentStackView)
@@ -175,6 +186,13 @@ final class CreditCardsView: UIView {
 
             headerTitleLabel.leadingAnchor.constraint(equalTo: backButtonGlassContainer.trailingAnchor, constant: Metrics.spacing4),
             headerTitleLabel.centerYAnchor.constraint(equalTo: backButtonGlassContainer.centerYAnchor),
+            headerTitleLabel.trailingAnchor.constraint(
+                lessThanOrEqualTo: hideValuesButton.leadingAnchor, constant: -Metrics.spacing3),
+
+            hideValuesButton.trailingAnchor.constraint(
+                equalTo: addButton.leadingAnchor, constant: -Metrics.spacing2),
+            hideValuesButton.centerYAnchor.constraint(
+                equalTo: backButtonGlassContainer.centerYAnchor),
 
             addButton.trailingAnchor.constraint(equalTo: headerItemsView.layoutMarginsGuide.trailingAnchor),
             addButton.centerYAnchor.constraint(equalTo: backButtonGlassContainer.centerYAnchor),
@@ -190,21 +208,7 @@ final class CreditCardsView: UIView {
     }
 
     private func setupBackButtonGlassEffect() {
-        if #available(iOS 26.0, *) {
-            let glassEffect = UIGlassEffect(style: .clear)
-            glassEffect.isInteractive = true
-            let glassView = UIVisualEffectView(effect: glassEffect)
-            glassView.translatesAutoresizingMaskIntoConstraints = false
-            backButtonGlassContainer.insertSubview(glassView, at: 0)
-            backButtonGlassContainer.layer.cornerRadius = 18
-            backButtonGlassContainer.clipsToBounds = true
-            NSLayoutConstraint.activate([
-                glassView.topAnchor.constraint(equalTo: backButtonGlassContainer.topAnchor),
-                glassView.leadingAnchor.constraint(equalTo: backButtonGlassContainer.leadingAnchor),
-                glassView.trailingAnchor.constraint(equalTo: backButtonGlassContainer.trailingAnchor),
-                glassView.bottomAnchor.constraint(equalTo: backButtonGlassContainer.bottomAnchor),
-            ])
-        }
+        backButtonGlassContainer.applyClearGlass(cornerRadius: 18)
     }
 
     private func setupActions() {
@@ -224,6 +228,7 @@ final class CreditCardsView: UIView {
     }
 
     func reloadCards(_ cards: [CreditCard]) {
+        currentCards = cards
         contentStackView.arrangedSubviews.forEach { view in
             if view !== emptyStateView {
                 contentStackView.removeArrangedSubview(view)
@@ -240,5 +245,11 @@ final class CreditCardsView: UIView {
             cell.onDelete = { [weak self] in self?.delegate?.didTapDeleteCard(card) }
             contentStackView.addArrangedSubview(cell)
         }
+    }
+
+    /// The credit limit sits inside a composed info string, so the cells are rebuilt rather than
+    /// having a single label patched.
+    private func refreshValueVisibility() {
+        reloadCards(currentCards)
     }
 }

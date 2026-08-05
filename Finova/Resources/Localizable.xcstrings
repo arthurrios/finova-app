@@ -1739,6 +1739,24 @@
         }
       }
     },
+    "allocation.details.warning.hidden": {
+      "comment": "Over-budget banner text while values are hidden. Replaces the message that names the overrun amount.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Over budget"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Acima do orçamento"
+          }
+        }
+      }
+    },
     "allocation.edit.amount.placeholder": {
       "extractionState": "manual",
       "localizations": {

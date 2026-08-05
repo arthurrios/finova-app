@@ -27,6 +27,11 @@ protocol TransactionDetailsViewDelegate: AnyObject {
 final class TransactionDetailsView: UIView {
   weak var delegate: TransactionDetailsViewDelegate?
 
+  /// Retained so a visibility toggle can re-run the configure-derived formatting.
+  private var currentViewModel: TransactionDetailsViewModel?
+  private var visibilityObservation: ValueVisibilityObservation?
+  let hideValuesButton = HideValuesButton(style: .onHeader)
+
   // MARK: - UI Components
   private lazy var scrollView: UIScrollView = {
     let scrollView = UIScrollView()
@@ -562,6 +567,7 @@ final class TransactionDetailsView: UIView {
     headerItemsView.addSubview(backButtonGlassContainer)
     backButtonGlassContainer.addSubview(backButton)
     setupBackButtonGlassEffect()
+    headerItemsView.addSubview(hideValuesButton)
     headerItemsView.addSubview(headerTextStackView)
 
     addSubview(scrollView)
@@ -693,9 +699,15 @@ final class TransactionDetailsView: UIView {
       backButton.trailingAnchor.constraint(equalTo: backButtonGlassContainer.trailingAnchor),
       backButton.bottomAnchor.constraint(equalTo: backButtonGlassContainer.bottomAnchor),
 
+      hideValuesButton.trailingAnchor.constraint(
+        equalTo: headerItemsView.layoutMarginsGuide.trailingAnchor),
+      hideValuesButton.centerYAnchor.constraint(equalTo: backButtonGlassContainer.centerYAnchor),
+
       headerTextStackView.leadingAnchor.constraint(
         equalTo: backButtonGlassContainer.trailingAnchor, constant: Metrics.spacing4),
       headerTextStackView.centerYAnchor.constraint(equalTo: backButtonGlassContainer.centerYAnchor),
+      headerTextStackView.trailingAnchor.constraint(
+        lessThanOrEqualTo: hideValuesButton.leadingAnchor, constant: -Metrics.spacing3),
 
       // Scroll view
       scrollView.topAnchor.constraint(equalTo: headerContainerView.bottomAnchor),
@@ -820,23 +832,7 @@ final class TransactionDetailsView: UIView {
   }
 
   private func setupBackButtonGlassEffect() {
-    if #available(iOS 26.0, *) {
-      let glassEffect = UIGlassEffect(style: .clear)
-      glassEffect.isInteractive = true
-      let glassView = UIVisualEffectView(effect: glassEffect)
-      glassView.translatesAutoresizingMaskIntoConstraints = false
-
-      backButtonGlassContainer.insertSubview(glassView, at: 0)
-      backButtonGlassContainer.layer.cornerRadius = 18
-      backButtonGlassContainer.clipsToBounds = true
-
-      NSLayoutConstraint.activate([
-        glassView.topAnchor.constraint(equalTo: backButtonGlassContainer.topAnchor),
-        glassView.leadingAnchor.constraint(equalTo: backButtonGlassContainer.leadingAnchor),
-        glassView.trailingAnchor.constraint(equalTo: backButtonGlassContainer.trailingAnchor),
-        glassView.bottomAnchor.constraint(equalTo: backButtonGlassContainer.bottomAnchor),
-      ])
-    }
+    backButtonGlassContainer.applyClearGlass(cornerRadius: 18)
   }
 
   private func createDetailRow(
@@ -937,6 +933,16 @@ final class TransactionDetailsView: UIView {
 
   // MARK: - Configuration
   func configure(with viewModel: TransactionDetailsViewModel) {
+    currentViewModel = viewModel
+    if visibilityObservation == nil {
+      visibilityObservation = ValueVisibilityStore.shared.observe { [weak self] _ in
+        guard let self, let viewModel = self.currentViewModel else { return }
+        // Re-runs the whole configure pass rather than patching individual labels: the masked
+        // amounts are spread across the hero row, the installment rows and the refund row.
+        self.configure(with: viewModel)
+      }
+    }
+
     // Remove amount from header subtitle - just use default subtitle
     headerSubtitleLabel.text = "transactionDetails.header.subtitle".localized
 
@@ -948,9 +954,12 @@ final class TransactionDetailsView: UIView {
 
     // Configure amount with currency attributed string (bold) like table cells
     let symbolFont = Fonts.textXS.font
-    amountLabel.attributedText = viewModel.transaction.amount.currencyAttributedString(
-      symbolFont: symbolFont, font: Fonts.titleMD)
-    amountLabel.accessibilityLabel = viewModel.getFormattedAmount()
+    let isValueHidden = ValueMask.isActive
+    amountLabel.attributedText = viewModel.transaction.amount.maskedCurrencyAttributedString(
+      symbolFont: symbolFont, font: Fonts.titleMD, hidden: isValueHidden)
+    amountLabel.accessibilityLabel = isValueHidden
+      ? ValueMask.accessibilityLabel
+      : viewModel.getFormattedAmount()
 
     // Configure transaction type icon like table cells
     if viewModel.transaction.type == .income {
@@ -1005,12 +1014,13 @@ final class TransactionDetailsView: UIView {
         // The purchase total stays the full amount — paying installments early changes WHEN the money
         // leaves, not what was bought. What is still owed goes in the separate "Remaining" row below.
         let totalValue = relatedInstallments.reduce(0) { $0 + $1.amount }
-        totalValueLabel.text = totalValue.currencyString
+        totalValueLabel.text = totalValue.maskedCurrencyString()
 
         // Remaining and "last installment" both read from the unsettled installments only: an
         // installment already paid early is neither still owed nor the series' last outstanding date.
         let outstanding = viewModel.getOutstandingInstallments()
-        remainingValueLabel?.text = outstanding.reduce(0) { $0 + $1.amount }.currencyString
+        remainingValueLabel?.text =
+          outstanding.reduce(0) { $0 + $1.amount }.maskedCurrencyString()
 
         let lastInstallment = (outstanding.isEmpty ? relatedInstallments : outstanding)
           .max { $0.date < $1.date }
@@ -1105,7 +1115,8 @@ final class TransactionDetailsView: UIView {
     cancelPurchaseRow.container.isHidden = !canCancel
     cancelPurchaseRow.label.text = "cancellation.entry.title".localized
     if canCancel {
-      cancelPurchaseRow.value.text = viewModel.getCancellationRefundAmount().currencyString
+      cancelPurchaseRow.value.text =
+        viewModel.getCancellationRefundAmount().maskedCurrencyString()
     }
 
     let refunded = viewModel.getRefundedInstallments()
@@ -1162,7 +1173,7 @@ final class TransactionDetailsView: UIView {
     amountLabel.font = Fonts.textSM.font
     amountLabel.textColor = Colors.gray500
     amountLabel.textAlignment = .right
-    amountLabel.text = transaction.amount.currencyString
+    amountLabel.text = transaction.amount.maskedCurrencyString()
     amountLabel.translatesAutoresizingMaskIntoConstraints = false
     amountLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
 

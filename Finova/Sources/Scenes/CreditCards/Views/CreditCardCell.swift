@@ -146,7 +146,8 @@ final class CreditCardCell: UIView {
         let dueText = String(format: "creditCards.cell.due".localized, "\(card.dueDay)")
         var info = "\(closesText) · \(dueText)"
         if let limit = card.creditLimit {
-            let limitText = String(format: "creditCards.cell.limit".localized, limit.currencyString)
+            let limitText = String(
+                format: "creditCards.cell.limit".localized, limit.maskedCurrencyString())
             info += " · \(limitText)"
         }
         infoLabel.text = info

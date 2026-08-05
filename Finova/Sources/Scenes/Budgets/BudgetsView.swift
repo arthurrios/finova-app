@@ -13,6 +13,13 @@ final class BudgetsView: UIView {
     
     private var tableHeightConstraint: NSLayoutConstraint?
     private var budgets: [DisplayBudgetModel] = []
+
+    private lazy var hideValuesButton: HideValuesButton = {
+        let button = HideValuesButton(style: .onHeader)
+        // BudgetsCell masks at render time, so the rows only need a reload.
+        button.onToggle = { [weak self] _ in self?.budgetsTableView.reloadData() }
+        return button
+    }()
     
     private let headerContainerView: UIView = {
         let view = UIView()
@@ -212,6 +219,7 @@ final class BudgetsView: UIView {
         headerItemsView.addSubview(backButtonGlassContainer)
         backButtonGlassContainer.addSubview(backButton)
         setupBackButtonGlassEffect()
+        headerItemsView.addSubview(hideValuesButton)
         headerItemsView.addSubview(headerTextStackView)
         
         addSubview(newBudgetCardHeaderView)
@@ -256,9 +264,16 @@ final class BudgetsView: UIView {
             backButton.trailingAnchor.constraint(equalTo: backButtonGlassContainer.trailingAnchor),
             backButton.bottomAnchor.constraint(equalTo: backButtonGlassContainer.bottomAnchor),
 
+            hideValuesButton.trailingAnchor.constraint(
+                equalTo: headerItemsView.layoutMarginsGuide.trailingAnchor),
+            hideValuesButton.centerYAnchor.constraint(
+                equalTo: backButtonGlassContainer.centerYAnchor),
+
             headerTextStackView.leadingAnchor.constraint(
                 equalTo: backButtonGlassContainer.trailingAnchor, constant: Metrics.spacing4),
             headerTextStackView.centerYAnchor.constraint(equalTo: backButtonGlassContainer.centerYAnchor),
+            headerTextStackView.trailingAnchor.constraint(
+                lessThanOrEqualTo: hideValuesButton.leadingAnchor, constant: -Metrics.spacing3),
             
             newBudgetCardHeaderView.topAnchor.constraint(
                 equalTo: headerContainerView.bottomAnchor, constant: Metrics.spacing4),
@@ -306,23 +321,7 @@ final class BudgetsView: UIView {
     }
 
     private func setupBackButtonGlassEffect() {
-        if #available(iOS 26.0, *) {
-            let glassEffect = UIGlassEffect(style: .clear)
-            glassEffect.isInteractive = true
-            let glassView = UIVisualEffectView(effect: glassEffect)
-            glassView.translatesAutoresizingMaskIntoConstraints = false
-
-            backButtonGlassContainer.insertSubview(glassView, at: 0)
-            backButtonGlassContainer.layer.cornerRadius = 18
-            backButtonGlassContainer.clipsToBounds = true
-
-            NSLayoutConstraint.activate([
-                glassView.topAnchor.constraint(equalTo: backButtonGlassContainer.topAnchor),
-                glassView.leadingAnchor.constraint(equalTo: backButtonGlassContainer.leadingAnchor),
-                glassView.trailingAnchor.constraint(equalTo: backButtonGlassContainer.trailingAnchor),
-                glassView.bottomAnchor.constraint(equalTo: backButtonGlassContainer.bottomAnchor),
-            ])
-        }
+        backButtonGlassContainer.applyClearGlass(cornerRadius: 18)
     }
 
     func updateUI(with budgets: [DisplayBudgetModel], selectedDate: Date?) {

@@ -57,6 +57,11 @@ extension UIView {
         glassEffect.isInteractive = true
         let glassView = UIVisualEffectView(effect: glassEffect)
         glassView.translatesAutoresizingMaskIntoConstraints = false
+        // Note for callers: an interactive `UIGlassEffect` claims touches, and clearing
+        // `isUserInteractionEnabled` on the effect view does not stop it. That is harmless when a
+        // separate control sits above the glass, as it does on every back button here — but a
+        // control that applies the glass to *itself* must override `hitTest`. See
+        // `HideValuesButton`.
         insertSubview(glassView, at: 0)
         glassView.pinToSuperview()
         layer.cornerRadius = cornerRadius
