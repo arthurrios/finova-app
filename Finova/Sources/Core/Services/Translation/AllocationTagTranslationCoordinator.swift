@@ -12,6 +12,12 @@ import UIKit
 /// `MonthCarouselCell` observes `.allocationTagsChanged` and rebuilds, so render → translate → notify
 /// → render. The two events that can genuinely change the answer are "the tag set changed" and "the
 /// app came forward, possibly in a new language", so those are the only triggers.
+///
+/// **A pass never puts anything on screen.** Apple's language-download sheet appears only when the
+/// user taps for it in Settings. The previous version let a pass raise it from any non-splash screen,
+/// so an unannounced system modal could land over whatever the user was looking at — and if they
+/// declined, the pair was never recorded as pending, so the Settings row that would have let them
+/// retry stayed hidden for the rest of the session.
 extension Notification.Name {
     /// A language download finished, or its state changed. Settings redraws its row on this.
     static let tagTranslationDownloadStateChanged = Notification.Name(
@@ -28,38 +34,57 @@ final class AllocationTagTranslationCoordinator {
     private let translator: TagNameTranslating
     private let language: () -> Locale.Language
     private let isEnabled: () -> Bool
+    /// How long to wait between probes for a started download. Injected only so tests do not sit
+    /// through the real schedule.
+    private let watchDelays: [Duration]
 
-    private var work: Task<Void, Never>?
-    private var downloadPoll: Task<Void, Never>?
+    private var pass: Task<Void, Never>?
     private var debounce: Task<Void, Never>?
-    private var isApplying = false
+    private var downloadTask: Task<Void, Never>?
+    private var downloadWatch: Task<Void, Never>?
     private var started = false
+    private var lastTarget: String?
 
-    /// Pairs the OS cannot do at all, and individual tags whose translation came back empty. Both are
-    /// in-memory only: a fresh launch is allowed to try again, but one pass must not retry them in a
-    /// loop. `failedTags` is keyed by name too, so a rename legitimately re-queues.
-    private var failedPairs = Set<String>()
-    private var failedTags = Set<String>()
-    /// Pairs the OS supports but has not downloaded. Recorded rather than prompted for - see below.
-    private(set) var pairsNeedingDownload = Set<String>()
+    /// Identifies notifications this coordinator posted itself, so its own write does not schedule
+    /// another pass. A flag set around the `post` does not work: `post` is synchronous but the
+    /// observer hops into a `Task`, so by the time the guard runs the flag is already back to false.
+    /// Comparing identity is independent of turn ordering.
+    private static let selfInflicted = NSObject()
+
+    /// Pairs this device cannot do at all, and individual tags whose translation came back missing.
+    /// All in-memory: a fresh launch is allowed to try again, but one session must not retry in a
+    /// loop. `failedTags` includes the name, so a rename legitimately re-queues.
+    private var unsupportedPairs = Set<TranslationPair>()
+    private var failedTags = Set<TagFingerprint>()
+    /// Tags whose source language could not be established. Recorded so the recognizer is not re-run
+    /// for them every pass; never persisted, because a persisted guess is what made tags permanently
+    /// un-translatable before.
+    private var unresolvedSourceTags = Set<TagFingerprint>()
+    private var pairFailureCounts: [TranslationPair: Int] = [:]
+    private static let maxFailuresPerPair = 3
+
+    /// Pairs the device has not downloaded. Recorded, never prompted for.
+    private(set) var pairsNeedingDownload = Set<TranslationPair>()
     /// Pairs whose download the user has started. They stay in `pairsNeedingDownload` - the download
     /// is NOT finished - but Settings shows them as in progress rather than as a fresh offer.
-    private(set) var pairsDownloading = Set<String>()
+    private(set) var pairsDownloading = Set<TranslationPair>()
 
     init(
         service: AllocationTagService = .shared,
         cache: TagTranslationCache = .shared,
         translator: TagNameTranslating? = nil,
         language: @escaping () -> Locale.Language = { Locale.current.language },
-        isEnabled: @escaping () -> Bool = { UserDefaultsManager.isTagNameTranslationEnabled() }
+        isEnabled: @escaping () -> Bool = { UserDefaultsManager.isTagNameTranslationEnabled() },
+        watchDelays: [Duration] = AllocationTagTranslationCoordinator.watchBackoff
     ) {
         self.service = service
         self.cache = cache
         self.language = language
         self.isEnabled = isEnabled
+        self.watchDelays = watchDelays
         if let translator {
             self.translator = translator
-        } else if #available(iOS 18.0, *) {
+        } else if #available(iOS 26.0, *) {
             self.translator = AppleTagNameTranslator()
         } else {
             self.translator = NoopTagNameTranslator()
@@ -75,16 +100,20 @@ final class AllocationTagTranslationCoordinator {
         NotificationCenter.default.addObserver(
             forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main
         ) { [weak self] _ in
-            Task { @MainActor in self?.reconcile() }
+            Task { @MainActor in
+                guard let self else { return }
+                self.resetIfTargetChanged()
+                // A download still running when the app went away needs picking back up.
+                if !self.pairsDownloading.isEmpty { self.startDownloadWatch() }
+                self.reconcile()
+            }
         }
         NotificationCenter.default.addObserver(
             forName: .allocationTagsChanged, object: nil, queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in
-                // Ignore the notification our own write produced.
-                guard let self, !self.isApplying else { return }
-                self.reconcile()
-            }
+        ) { [weak self] note in
+            // Ignore the notification our own write produced.
+            guard (note.object as AnyObject?) !== Self.selfInflicted else { return }
+            Task { @MainActor in self?.reconcile() }
         }
         NotificationCenter.default.addObserver(
             forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main
@@ -93,8 +122,8 @@ final class AllocationTagTranslationCoordinator {
         }
 
         // Deliberately no pass here. `start()` runs from `scene(willConnectTo:)`, while the splash is
-        // still up and the root view controller is about to be replaced - anything the host put on
-        // screen would be torn down with it. `didBecomeActive` covers the real first opportunity.
+        // still up and the root view controller is about to be replaced. `didBecomeActive` covers the
+        // real first opportunity.
     }
 
     /// Coalesces a burst of tag edits into one pass.
@@ -109,255 +138,305 @@ final class AllocationTagTranslationCoordinator {
 
     private func suspend() {
         debounce?.cancel()
-        work?.cancel()
-        if #available(iOS 18.0, *), let apple = translator as? AppleTagNameTranslator {
-            apple.detachHost()
-        }
+        pass?.cancel()
+        downloadWatch?.cancel()
+        downloadWatch = nil
+        // Deliberately NOT downloadTask: Apple's consent sheet backgrounds the app while it is up, so
+        // cancelling here would kill the very flow the user is looking at.
+    }
+
+    /// Drops state that belonged to a target language the phone is no longer in.
+    ///
+    /// Without this a pending `en>pt` recorded before a switch to Spanish would be probed as `en>es`,
+    /// and an answer about Spanish would clear or keep the Portuguese offer.
+    private func resetIfTargetChanged() {
+        let target = language().minimalIdentifier
+        guard lastTarget != target else { return }
+        lastTarget = target
+
+        pairsNeedingDownload = pairsNeedingDownload.filter { $0.target == target }
+        pairsDownloading = pairsDownloading.filter { $0.target == target }
+        unsupportedPairs = unsupportedPairs.filter { $0.target == target }
+        failedTags = failedTags.filter { $0.target == target }
+        unresolvedSourceTags = unresolvedSourceTags.filter { $0.target == target }
+        pairFailureCounts = pairFailureCounts.filter { $0.key.target == target }
+        downloadWatch?.cancel()
+        downloadWatch = nil
+        postDownloadStateChanged()
+    }
+
+    // MARK: - Settings surface
+
+    /// Whether Settings should offer the download row. Filtered by the current target as well as by
+    /// `resetIfTargetChanged`, so a missed reset can never light a row for a language the phone has
+    /// already left.
+    var hasLanguagesToDownload: Bool {
+        let target = language().minimalIdentifier
+        return pairsNeedingDownload.contains { $0.target == target }
+    }
+
+    /// True only while Apple's sheet is up. Derived rather than a flag with several assignment sites,
+    /// which is how the old one could latch on "Downloading…" forever.
+    var isDownloadingLanguages: Bool { downloadTask != nil }
+
+    /// A download has been started and has not yet been observed to land.
+    var hasDownloadInProgress: Bool {
+        let target = language().minimalIdentifier
+        return pairsDownloading.contains { $0.target == target }
+    }
+
+    private func postDownloadStateChanged() {
+        NotificationCenter.default.post(name: .tagTranslationDownloadStateChanged, object: nil)
     }
 
     /// Downloads every pair the last pass found missing, then re-runs.
     ///
-    /// Called from Settings, where the user tapped for it and the screen will still be there when the
-    /// system sheet appears.
-    func downloadMissingLanguages(completion: (() -> Void)? = nil) {
+    /// - Parameter presenter: the screen Apple's sheet appears over. Injected because the only caller
+    ///   is a Settings tap, and that is the screen the user chose to be on.
+    func downloadMissingLanguages(
+        from presenter: TranslationSheetPresenting, completion: (() -> Void)? = nil
+    ) {
+        guard downloadTask == nil else {
+            completion?()
+            return
+        }
+        resetIfTargetChanged()
+        let target = language().minimalIdentifier
         let pending = pairsNeedingDownload
+            .filter { $0.target == target }
+            .sorted { $0.source < $1.source }
         guard !pending.isEmpty else {
             completion?()
             return
         }
-        isDownloadingLanguages = true
-        Task { @MainActor in
+
+        downloadTask = Task { @MainActor [weak self] in
             defer {
-                isDownloadingLanguages = false
+                self?.downloadTask = nil
                 completion?()
-                reconcile()
+                self?.postDownloadStateChanged()
             }
             for pair in pending {
-                let parts = pair.split(separator: ">")
-                guard parts.count == 2 else { continue }
-                let rawSource = String(parts[0])
-                let source: String? = rawSource == "auto" ? nil : rawSource
-                let target = String(parts[1])
-                guard await translator.prepare(from: source, to: target) else { continue }
-
-                // The pair stays pending. `prepareTranslation()` returns when the download STARTS,
-                // not when it completes - retrying straight away made `translations(from:)` raise the
-                // sheet again with no presenter left, which cancelled instantly (NSCocoaError 3072).
-                // Only `availability` reporting `.installed` means it is actually usable.
-                pairsDownloading.insert(pair)
-                startDownloadPolling()
-
-                // Clear tags an earlier cancelled attempt blacklisted, so the pass will consider them
-                // again once the pair does arrive.
-                failedTags = failedTags.filter { !$0.hasSuffix("|\(target)") }
+                guard let self, !Task.isCancelled else { return }
+                switch await self.translator.requestDownload(pair: pair, from: presenter) {
+                case .started:
+                    // Stays in pairsNeedingDownload: prepareTranslation() returns when the download
+                    // STARTS. Only a translation actually succeeding proves the pair is usable.
+                    self.pairsDownloading.insert(pair)
+                    // An earlier cancelled attempt may have blacklisted these tags. Let them back in.
+                    self.failedTags = self.failedTags.filter { $0.target != pair.target }
+                    self.pairFailureCounts[pair] = nil
+                    self.postDownloadStateChanged()
+                    self.startDownloadWatch()
+                case .cancelled:
+                    // The offer stands - a decline is a legitimate choice, not a failure, and the row
+                    // must stay tappable. Returning rather than continuing, so a user who has just
+                    // said no is not immediately shown a second system sheet.
+                    self.pairsDownloading.remove(pair)
+                    return
+                case .unsupported:
+                    self.pairsNeedingDownload.remove(pair)
+                    self.pairsDownloading.remove(pair)
+                    self.unsupportedPairs.insert(pair)
+                case .failed:
+                    self.pairsDownloading.remove(pair)
+                }
             }
         }
     }
 
     /// Watches for a started download to actually land.
     ///
-    /// The Translation framework reports no progress and calls nothing back when a download finishes -
-    /// `availability` flipping to `.installed` is the only observable signal there is. So poll it,
-    /// but only while a download is genuinely outstanding, and stop as soon as it lands. Without this
-    /// the user had to leave Settings and return to discover the download had completed.
-    private func startDownloadPolling() {
-        guard downloadPoll == nil else { return }
-        downloadPoll = Task { @MainActor [weak self] in
-            defer { self?.downloadPoll = nil }
-            // Capped so a download that never arrives cannot poll forever; the Settings row stays
-            // tappable, so the user can always ask again.
-            for _ in 0..<100 {
-                try? await Task.sleep(for: .seconds(3))
+    /// **The probe is the work.** Apple reports no progress and calls nothing back when a download
+    /// finishes, and `LanguageAvailability.status` was observed on device still reporting
+    /// `.supported` long after a pair was installed - so it cannot gate anything. Rather than poll a
+    /// status that lies, this retries the real translation on a backoff: succeeding proves the pair
+    /// is installed *and* does the work, which is a fact rather than a claim.
+    private func startDownloadWatch() {
+        guard downloadWatch == nil else { return }
+        downloadWatch = Task { @MainActor [weak self] in
+            defer { self?.downloadWatch = nil }
+            for delay in self?.watchDelays ?? [] {
+                try? await Task.sleep(for: delay)
                 guard let self, !Task.isCancelled, !self.pairsDownloading.isEmpty else { return }
 
                 let before = self.pairsDownloading
-                await self.checkPendingPairs()
-                if self.pairsDownloading != before {
-                    NotificationCenter.default.post(
-                        name: .tagTranslationDownloadStateChanged, object: nil)
-                }
-                if self.pairsDownloading.isEmpty {
-                    logWarning("[TagTranslation] Download finished — translating")
-                    self.reconcile()
-                    return
-                }
+                await self.runPassNow(probingPendingPairs: true)
+                if self.pairsDownloading != before { self.postDownloadStateChanged() }
+                if self.pairsDownloading.isEmpty { return }
             }
-            logWarning("[TagTranslation] Stopped waiting for the download; ask again in Settings")
+            // Giving up watching is not a dead end: the Settings row stays tappable, so the user can
+            // always ask again.
+            logWarning("[TagTranslation] Stopped waiting for a language download")
+            self?.postDownloadStateChanged()
         }
     }
 
-    /// Removes any pending pair the system now reports as installed.
-    private func checkPendingPairs() async {
-        let target = language().minimalIdentifier
-        for pair in pairsNeedingDownload {
-            let parts = pair.split(separator: ">")
-            guard parts.count == 2 else { continue }
-            let rawSource = String(parts[0])
-            let source: String? = rawSource == "auto" ? nil : rawSource
-            if case .installed = await translator.availability(from: source, to: target) {
-                logWarning("[TagTranslation] \(pair) is now installed")
-                pairsNeedingDownload.remove(pair)
-                pairsDownloading.remove(pair)
-            }
-        }
-    }
+    /// Roughly four minutes, front-loaded: most downloads on Wi-Fi land in the first few probes, and
+    /// the tail is there for a slow connection rather than to keep hammering.
+    static let watchBackoff: [Duration] = [
+        .seconds(2), .seconds(4), .seconds(8), .seconds(15),
+        .seconds(30), .seconds(60), .seconds(60), .seconds(60),
+    ]
 
-    /// Re-asks the system whether the pending pairs have arrived.
-    ///
-    /// Apple exposes no progress for a language download and no way to re-open its sheet, so the only
-    /// honest status is "ask again". Called when Settings appears, which is exactly when the user
-    /// wants to know - and it also unsticks the row if they dismissed the sheet, rather than leaving
-    /// it disabled until the watchdog gives up.
+    /// Re-checks pending pairs when Settings appears, which is exactly when the user wants to know -
+    /// and is also what unsticks the row if they dismissed the sheet.
     func refreshDownloadState(completion: (() -> Void)? = nil) {
+        resetIfTargetChanged()
         guard !pairsNeedingDownload.isEmpty else {
-            isDownloadingLanguages = false
             completion?()
             return
         }
-        let target = language().minimalIdentifier
         Task { @MainActor in
-            for pair in pairsNeedingDownload {
-                let parts = pair.split(separator: ">")
-                guard parts.count == 2 else { continue }
-                let rawSource = String(parts[0])
-                let source: String? = rawSource == "auto" ? nil : rawSource
-                if case .installed = await translator.availability(from: source, to: target) {
-                    logWarning("[TagTranslation] \(pair) is now installed")
-                    pairsNeedingDownload.remove(pair)
-                    pairsDownloading.remove(pair)
-                }
-            }
-            // Whatever the answer, stop claiming a download is in flight: we have just checked, and a
-            // sheet the user dismissed is not coming back on its own.
-            isDownloadingLanguages = false
+            await runPassNow(probingPendingPairs: true)
+            postDownloadStateChanged()
             completion?()
-            if pairsNeedingDownload.isEmpty { reconcile() }
         }
     }
 
-    /// Runs a pass immediately and waits for it. Tests only - production goes through `reconcile()`.
-    func runPassNow() async {
-        runPass()
-        await work?.value
+    /// Runs a pass immediately and waits for it. Used by the download watch and by tests; everything
+    /// else goes through `reconcile()`.
+    func runPassNow(probingPendingPairs: Bool = false) async {
+        runPass(probingPendingPairs: probingPendingPairs)
+        await pass?.value
     }
-
-    /// Whether Settings should offer the download row.
-    var hasLanguagesToDownload: Bool { !pairsNeedingDownload.isEmpty }
-
-    /// True while the download sheet is up. Distinct from `pairsDownloading`, which outlives it: the
-    /// sheet closes as soon as the download starts.
-    private(set) var isDownloadingLanguages = false
-
-    /// A download has been started and the system has not yet reported the pair installed.
-    var hasDownloadInProgress: Bool { !pairsDownloading.isEmpty }
 
     // MARK: - The pass
 
-    private func runPass() {
-        guard isEnabled(), translator.isAvailable, work == nil else { return }
+    private func runPass(probingPendingPairs: Bool = false) {
+        guard isEnabled(), translator.isAvailable, pass == nil else { return }
+        resetIfTargetChanged()
 
         let target = language()
         let targetID = target.minimalIdentifier
-        var byPair: [String: [TagTranslationRequest]] = [:]
+        let recordedSources = Set(
+            service.tags
+                .compactMap { cache.sourceLanguage(forTagId: $0.id, name: $0.name) }
+                .map(TagLanguageDetector.normalized))
+        let candidates = TagLanguageDetector.candidateSources(
+            target: targetID, recordedSources: recordedSources)
+
+        var byPair: [TranslationPair: [TagTranslationRequest]] = [:]
 
         for tag in service.tags {
-            // A recorded source is one we trust: it was stamped when the tag was created, where the
-            // phone's language was a sound prior. Absent that, detect - and accept `nil`, meaning we
-            // genuinely do not know.
-            //
-            // Deliberately does NOT store a guess for pre-existing tags. Writing "probably the current
-            // language" would make the skip below fire on the very next pass and the tag would never
-            // be translated, which is precisely the bug this replaced.
-            let source = (cache.sourceLanguage(forTagId: tag.id, name: tag.name)
-                ?? TagLanguageDetector.detect(tag.name))
-                .map(TagLanguageDetector.normalized)
+            let fingerprint = TagFingerprint(tagId: tag.id, name: tag.name, target: targetID)
 
-            // Skip only on a KNOWN source that matches the target. An unknown source is sent to the
-            // framework to detect, not assumed to need nothing.
-            if let source,
-                Locale.Language(identifier: source).languageCode == target.languageCode { continue }
-            // Already cached.
+            // A name the user typed by hand IS the answer. Translating over it would be wasted work,
+            // and the cache refuses the write anyway.
+            if cache.override(forTagId: tag.id, language: targetID) != nil { continue }
+            if failedTags.contains(fingerprint) || unresolvedSourceTags.contains(fingerprint) {
+                continue
+            }
             guard tag.needsTranslation(for: target, cache: cache) else { continue }
 
-            let pair = "\(source ?? "auto")>\(targetID)"
-            if failedPairs.contains(pair) || pairsNeedingDownload.contains(pair) { continue }
-            if failedTags.contains("\(tag.id)|\(tag.name)|\(targetID)") { continue }
+            guard
+                let source = TagLanguageDetector.resolveSource(
+                    for: tag.name,
+                    target: targetID,
+                    recorded: cache.sourceLanguage(forTagId: tag.id, name: tag.name),
+                    candidates: candidates)
+            else {
+                // Not knowing is a real answer. Guessing produces a confident wrong translation,
+                // which is worse than showing what the user typed.
+                unresolvedSourceTags.insert(fingerprint)
+                continue
+            }
 
-            byPair[pair, default: []].append(
-                TagTranslationRequest(tagId: tag.id, text: tag.name, sourceLanguage: source))
+            let pair = TranslationPair(source: source, target: targetID)
+            if unsupportedPairs.contains(pair) { continue }
+            if pairFailureCounts[pair, default: 0] >= Self.maxFailuresPerPair { continue }
+            // A pair known to need a download is normally skipped, since attempting it just throws.
+            // The download watch passes `probingPendingPairs` to suppress that - otherwise the
+            // pending set hides the very pair the probe exists to re-test.
+            if !probingPendingPairs, pairsNeedingDownload.contains(pair) { continue }
+
+            byPair[pair, default: []].append(TagTranslationRequest(tagId: tag.id, text: tag.name))
         }
 
-        guard !byPair.isEmpty else {
-            logInfo("[TagTranslation] Nothing to translate into \(targetID) (\(service.tags.count) tag(s))")
-            return
-        }
-        logWarning(
-            "[TagTranslation] \(byPair.values.reduce(0) { $0 + $1.count }) tag(s) → \(targetID): "
-                + byPair.map { "\($0.key) x\($0.value.count)" }.joined(separator: ", "))
+        guard !byPair.isEmpty else { return }
 
-        work = Task { @MainActor [weak self] in
+        pass = Task { @MainActor [weak self] in
             guard let self else { return }
-            defer { self.work = nil }
+            defer { self.pass = nil }
 
             var wrote = false
             for (pair, requests) in byPair {
                 guard !Task.isCancelled else { break }
-                let rawSource = String(pair.split(separator: ">")[0])
-                let source: String? = rawSource == "auto" ? nil : rawSource
-
-                let needsUI: Bool
-                switch await translator.availability(from: source, to: targetID) {
-                case .unsupported:
-                    logWarning("[TagTranslation] \(pair) unsupported by this device")
-                    failedPairs.insert(pair)
-                    continue
-                case .installed:
-                    needsUI = false
-                case .needsDownload:
-                    // The pair is missing, so `translations(from:)` will raise Apple's own download
-                    // sheet. That is fine - as long as there is a real screen for it to appear over.
-                    // On the splash it is cancelled the moment the root controller is swapped, so
-                    // defer instead and let a later pass pick it up.
-                    guard translator.canPresentUI else {
-                        logWarning("[TagTranslation] \(pair) needs a download — waiting for a safe screen")
-                        pairsNeedingDownload.insert(pair)
-                        continue
-                    }
-                    logWarning("[TagTranslation] \(pair) needs a download — prompting")
-                    needsUI = true
-                }
-
-                let results = await translator.translate(
-                    requests, to: targetID, presentingUI: needsUI)
-                guard !Task.isCancelled else { break }
-
-                guard !results.isEmpty else {
-                    logWarning("[TagTranslation] \(pair) returned nothing for \(requests.map(\.text))")
-                    requests.forEach { failedTags.insert("\($0.tagId)|\($0.text)|\(targetID)") }
-                    continue
-                }
-
-                // It worked, so whatever `status` claims, this pair is usable.
-                pairsNeedingDownload.remove(pair)
-                pairsDownloading.remove(pair)
-                NotificationCenter.default.post(
-                    name: .tagTranslationDownloadStateChanged, object: nil)
-
-                for result in results {
-                    logWarning(
-                        "[TagTranslation] \"\(result.sourceText)\" → \"\(result.translatedText)\"")
-                    cache.store(
-                        result.translatedText, forTagId: result.tagId, name: result.sourceText,
-                        language: targetID)
+                let outcome = await self.translator.translate(requests, pair: pair)
+                if self.apply(outcome, pair: pair, requests: requests, target: targetID) {
                     wrote = true
                 }
             }
 
-            // One notification for the whole pass, and only if something actually landed.
+            // One notification for the whole pass, and only if something landed. Tagged so the
+            // observer above can tell it apart from a genuine tag edit.
             guard wrote else { return }
-            isApplying = true
-            NotificationCenter.default.post(name: .allocationTagsChanged, object: nil)
-            isApplying = false
+            NotificationCenter.default.post(name: .allocationTagsChanged, object: Self.selfInflicted)
+        }
+    }
+
+    /// Applies one pair's outcome. Returns whether anything was written.
+    private func apply(
+        _ outcome: TagTranslationOutcome,
+        pair: TranslationPair,
+        requests: [TagTranslationRequest],
+        target: String
+    ) -> Bool {
+        switch outcome {
+        case .translated(let results):
+            // It worked, so the pair is provably installed whatever any status might claim.
+            let wasPending = pairsNeedingDownload.remove(pair) != nil
+            let wasDownloading = pairsDownloading.remove(pair) != nil
+            if wasPending || wasDownloading { postDownloadStateChanged() }
+            pairFailureCounts[pair] = nil
+
+            // Only the tags actually missing from the response are blacklisted. A refusal is per-tag
+            // - a proper noun the framework declines - so blacklisting the whole batch on any gap,
+            // which an empty-array protocol forced, was always too broad.
+            let returned = Set(results.map(\.tagId))
+            for request in requests where !returned.contains(request.tagId) {
+                failedTags.insert(
+                    TagFingerprint(tagId: request.tagId, name: request.text, target: target))
+            }
+
+            var wrote = false
+            for result in results {
+                cache.store(
+                    result.translatedText, forTagId: result.tagId, name: result.sourceText,
+                    language: target)
+                wrote = true
+            }
+            if wrote { logDebug("[TagTranslation] \(pair) translated \(results.count) name(s)") }
+            return wrote
+
+        case .notInstalled:
+            // The only outcome that offers a download. Blacklists nothing: these tags are fine, the
+            // language simply is not here yet.
+            if pairsNeedingDownload.insert(pair).inserted {
+                logWarning("[TagTranslation] \(pair) needs a language download")
+                postDownloadStateChanged()
+            }
+            return false
+
+        case .unsupported:
+            logWarning("[TagTranslation] \(pair) is unsupported on this device")
+            unsupportedPairs.insert(pair)
+            pairsNeedingDownload.remove(pair)
+            pairsDownloading.remove(pair)
+            postDownloadStateChanged()
+            return false
+
+        case .cancelled:
+            // Says nothing about whether the work would have succeeded, so it must leave every set
+            // untouched. Treating this as a failure is what made backgrounding the app mid-pass
+            // blacklist the in-flight tags for the rest of the process.
+            return false
+
+        case .failed:
+            let count = pairFailureCounts[pair, default: 0] + 1
+            pairFailureCounts[pair] = count
+            logWarning("[TagTranslation] \(pair) failed (\(count)/\(Self.maxFailuresPerPair))")
+            return false
         }
     }
 }

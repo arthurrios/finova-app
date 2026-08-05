@@ -11,8 +11,6 @@ import NaturalLanguage
 struct TagTranslationRequest: Equatable {
     let tagId: String
     let text: String
-    /// `Locale.Language.minimalIdentifier`, or `nil` to let the framework detect it.
-    let sourceLanguage: String?
 }
 
 struct TagTranslationResult: Equatable {
@@ -23,14 +21,6 @@ struct TagTranslationResult: Equatable {
     let translatedText: String
 }
 
-enum TagTranslationAvailability {
-    case installed
-    /// The OS supports the pair but has not downloaded it. Needs the user's consent, so never done
-    /// silently.
-    case needsDownload
-    case unsupported
-}
-
 // MARK: - Seam
 
 /// The boundary between "which tags need translating" and "how translation happens".
@@ -39,35 +29,36 @@ enum TagTranslationAvailability {
 /// at all, so without a seam every test of the orchestration would need a physical device.
 @MainActor
 protocol TagNameTranslating: AnyObject {
-    /// `false` short-circuits everything - no host view is created, no work list built.
+    /// `false` short-circuits everything - no work list is even built.
     var isAvailable: Bool { get }
-    func availability(from source: String?, to target: String) async -> TagTranslationAvailability
-    /// One call, one source→target pair. Returns `[]` on any failure rather than throwing: a failed
-    /// translation is a cosmetic non-event, and the caller's response to every error is identical.
-    /// - Parameter presentingUI: when true the call runs from a presented modal, so the framework may
-    ///   raise its own download sheet and complete the download as part of the same operation. False
-    ///   uses the silent background host, which must never produce UI.
-    func translate(_ requests: [TagTranslationRequest], to target: String, presentingUI: Bool) async
-        -> [TagTranslationResult]
-    /// Whether a sheet can safely be shown right now - i.e. the app is active and the screen it would
-    /// appear over is not about to be replaced.
-    var canPresentUI: Bool { get }
-    /// Downloads a language pair, presenting the system's own consent UI.
+
+    /// One call, one pair. Reports why it ended rather than throwing, because the coordinator's
+    /// response genuinely differs per reason - see `TagTranslationOutcome`.
     ///
-    /// Separate from `translate` because it is the only part of this feature that puts something on
-    /// screen, so it must be driven by a deliberate user action rather than a background pass.
-    func prepare(from source: String?, to target: String) async -> Bool
+    /// **Cannot present anything.** On iOS 26 a directly-constructed `TranslationSession` has
+    /// `canRequestDownloads == false`, so a missing pair comes back as `.notInstalled` instead of
+    /// raising a sheet. "A background pass never puts UI on screen" used to be a boolean the caller
+    /// had to remember to pass; it is now a property of the API.
+    func translate(_ requests: [TagTranslationRequest], pair: TranslationPair) async
+        -> TagTranslationOutcome
+
+    /// Asks the system to download a pair, presenting Apple's own consent sheet from `presenter`.
+    ///
+    /// The presenter is injected because this only ever runs from a Settings tap, and the screen that
+    /// owns the tap is the screen the sheet belongs to. Returns when the download *starts*.
+    func requestDownload(pair: TranslationPair, from presenter: TranslationSheetPresenting) async
+        -> TagLanguageDownloadOutcome
 }
 
-/// Used below iOS 18 and in the Simulator. Makes "unavailable" a normal, silent state.
+/// Used below iOS 26 and in the Simulator. Makes "unavailable" a normal, silent state.
 @MainActor
 final class NoopTagNameTranslator: TagNameTranslating {
     var isAvailable: Bool { false }
-    func availability(from: String?, to: String) async -> TagTranslationAvailability { .unsupported }
-    func translate(_: [TagTranslationRequest], to: String, presentingUI: Bool) async
-        -> [TagTranslationResult] { [] }
-    var canPresentUI: Bool { false }
-    func prepare(from: String?, to: String) async -> Bool { false }
+    func translate(_: [TagTranslationRequest], pair: TranslationPair) async -> TagTranslationOutcome {
+        .unsupported
+    }
+    func requestDownload(pair: TranslationPair, from: TranslationSheetPresenting) async
+        -> TagLanguageDownloadOutcome { .unsupported }
 }
 
 // MARK: - Source language

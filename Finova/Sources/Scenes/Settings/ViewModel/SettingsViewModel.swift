@@ -196,9 +196,14 @@ final class SettingsViewModel {
 
   // MARK: - Tag Translation
 
-  /// Apple's Translation framework is iOS 18+, and the app's floor is 17.6.
+  /// iOS 26, not the framework's own 18.0 floor.
+  ///
+  /// 18 can translate, but only through a SwiftUI view held alive for the life of the app to vend a
+  /// session. 26 added `TranslationSession(installedSource:target:)`, which removes that machinery
+  /// and every failure mode that came with it. Below 26 the tag simply shows the name that was typed,
+  /// which is the same thing it does whenever a translation is unavailable for any other reason.
   var isTagTranslationSupported: Bool {
-    if #available(iOS 18.0, *) { return true }
+    if #available(iOS 26.0, *) { return true }
     return false
   }
 

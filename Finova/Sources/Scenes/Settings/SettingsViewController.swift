@@ -81,7 +81,9 @@ extension SettingsViewController: SettingsViewDelegate {
         guard !coordinator.isDownloadingLanguages else { return }  // sheet already up
 
         refreshDownloadLanguagesRow(isDownloading: true)
-        coordinator.downloadMissingLanguages { [weak self] in
+        // `self` is the presenter: Apple's sheet belongs to the screen the user tapped on, and
+        // handing it over beats the old approach of walking the window to guess one.
+        coordinator.downloadMissingLanguages(from: self) { [weak self] in
             self?.refreshDownloadLanguagesRow(isDownloading: false)
         }
     }
