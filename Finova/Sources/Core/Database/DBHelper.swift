@@ -1110,6 +1110,7 @@ class DBHelper {
             "credit_card_id": "ALTER TABLE Transactions ADD COLUMN credit_card_id INTEGER;",
             "statement_id": "ALTER TABLE Transactions ADD COLUMN statement_id INTEGER;",
             "is_credit_card_statement": "ALTER TABLE Transactions ADD COLUMN is_credit_card_statement INTEGER DEFAULT 0;",
+            "is_statement_overridden": "ALTER TABLE Transactions ADD COLUMN is_statement_overridden INTEGER DEFAULT 0;",
         ]
         
         for (column, alterQuery) in ccColumns {
@@ -1426,6 +1427,42 @@ class DBHelper {
     func hasInstallmentPointerFlag(_ pointer: InstallmentPointer, transactionId: Int) -> Bool {
         guard isInitialized else { return false }
         let sql = "SELECT \(pointer.payerFlagColumn) FROM Transactions WHERE id = ?;"
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return false }
+        defer { sqlite3_finalize(stmt) }
+        sqlite3_bind_int64(stmt, 1, Int64(transactionId))
+        guard sqlite3_step(stmt) == SQLITE_ROW else { return false }
+        return sqlite3_column_int(stmt, 0) == 1
+    }
+
+    // MARK: - Statement Override
+
+    /// Marks a transaction's statement as chosen by the user rather than derived from its date.
+    ///
+    /// `reassignCardTransactions` re-derives every card transaction's statement from the card's
+    /// current closing day, which would silently undo a manual move. This flag is the opt-out.
+    func setStatementOverridden(transactionId: Int, overridden: Bool) {
+        guard isInitialized else { return }
+        let sql = "UPDATE Transactions SET is_statement_overridden = ? WHERE id = ?;"
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
+            print("[CreditCard] Could not prepare is_statement_overridden write")
+            return
+        }
+        defer { sqlite3_finalize(stmt) }
+        sqlite3_bind_int(stmt, 1, overridden ? 1 : 0)
+        sqlite3_bind_int64(stmt, 2, Int64(transactionId))
+        guard sqlite3_step(stmt) == SQLITE_DONE else {
+            print(
+                "[CreditCard] Could not set is_statement_overridden on transaction \(transactionId)")
+            return
+        }
+        TransactionRepository.invalidateCache()
+    }
+
+    func isStatementOverridden(transactionId: Int) -> Bool {
+        guard isInitialized else { return false }
+        let sql = "SELECT is_statement_overridden FROM Transactions WHERE id = ?;"
         var stmt: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return false }
         defer { sqlite3_finalize(stmt) }
@@ -1840,6 +1877,52 @@ class DBHelper {
         guard sqlite3_step(statement) == SQLITE_DONE else {
             let msg = String(cString: sqlite3_errmsg(db))
             throw DBError.stepFailed(message: msg)
+        }
+    }
+
+    /// Moves both the transaction's own date and the budget month it counts toward.
+    ///
+    /// Used when an installment is re-anchored onto its statement's due date: the installment is
+    /// charged when the invoice falls due, not on the purchase anniversary, so both the date shown
+    /// in lists and the month it consumes budget in have to follow the statement.
+    func updateTransactionDateAndBudgetMonth(
+        transactionId: Int, newDateTimestamp: Int, newBudgetMonthDate: Int
+    ) {
+        guard isInitialized else { return }
+        let query = "UPDATE Transactions SET date = ?, budget_month_date = ? WHERE id = ?;"
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK else {
+            print("[CreditCard] Could not prepare date/budget_month_date write")
+            return
+        }
+        defer { sqlite3_finalize(statement) }
+        sqlite3_bind_int64(statement, 1, Int64(newDateTimestamp))
+        sqlite3_bind_int64(statement, 2, Int64(newBudgetMonthDate))
+        sqlite3_bind_int64(statement, 3, Int64(transactionId))
+        guard sqlite3_step(statement) == SQLITE_DONE else {
+            print("[CreditCard] Could not update date/budget_month_date on \(transactionId)")
+            return
+        }
+    }
+
+    /// Moves only the budget month, leaving the purchase date alone.
+    ///
+    /// This is the manual-move case: the user is saying which invoice the purchase belongs to, which
+    /// changes the month it is billed in, but the purchase itself still happened when it happened.
+    func updateTransactionBudgetMonthDate(transactionId: Int, newBudgetMonthDate: Int) {
+        guard isInitialized else { return }
+        let query = "UPDATE Transactions SET budget_month_date = ? WHERE id = ?;"
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK else {
+            print("[CreditCard] Could not prepare budget_month_date write")
+            return
+        }
+        defer { sqlite3_finalize(statement) }
+        sqlite3_bind_int64(statement, 1, Int64(newBudgetMonthDate))
+        sqlite3_bind_int64(statement, 2, Int64(transactionId))
+        guard sqlite3_step(statement) == SQLITE_DONE else {
+            print("[CreditCard] Could not update budget_month_date on \(transactionId)")
+            return
         }
     }
 

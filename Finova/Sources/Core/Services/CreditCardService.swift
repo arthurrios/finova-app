@@ -55,17 +55,41 @@ class CreditCardService {
     }
 
     /// Gets or creates a statement for a transaction on a given card/date.
+    ///
+    /// The billing cycle a transaction belongs to is decided solely by the card's *current* closing
+    /// day (`calculateClosingDate`): purchase day <= closingDay → this month's statement, otherwise
+    /// next month's. This matches how credit cards actually work and must never be overridden by
+    /// which existing (possibly stale) statement's date range happens to overlap the purchase date.
+    ///
+    /// Lookup order:
+    /// 1. An existing statement with an exact closing-date match under current rules.
+    /// 2. An existing statement in the same calendar month as the computed closing date — enforces
+    ///    "at most one statement per (card, month)" and reuses a statement that kept old dates after
+    ///    the card's closingDay/dueDay changed.
+    /// 3. Create a new statement under current card rules.
     func getOrCreateStatement(for card: CreditCard, transactionDate: Date, userId: String) -> CreditCardStatement? {
+        let statements = stmtRepo.fetchStatements(forCardId: card.id!)
+
         let closingDate = calculateClosingDate(card: card, transactionDate: transactionDate)
         let dueDate = calculateDueDate(closingDate: closingDate, card: card)
 
-        // Check if statement already exists
-        if let existingId = stmtRepo.findStatement(creditCardId: card.id!, closingDate: closingDate) {
-            let statements = stmtRepo.fetchStatements(forCardId: card.id!)
-            return statements.first(where: { $0.id == existingId })
+        // 1. Exact closing-date match under current rules
+        if let existingId = stmtRepo.findStatement(creditCardId: card.id!, closingDate: closingDate),
+           let exact = statements.first(where: { $0.id == existingId }) {
+            return exact
         }
 
-        // Create new statement
+        // 2. Same-month fallback. Lowest id wins so every caller converges on the same survivor
+        //    when duplicates already exist in the data.
+        let calendar = Calendar.current
+        if let sameMonth = statements
+            .filter({ calendar.isDate($0.closingDate, equalTo: closingDate, toGranularity: .month) })
+            .sorted(by: { ($0.id ?? Int.max) < ($1.id ?? Int.max) })
+            .first {
+            return sameMonth
+        }
+
+        // 3. Create new statement
         let newStatement = CreditCardStatement(
             id: nil,
             creditCardId: card.id!,
@@ -99,6 +123,54 @@ class CreditCardService {
             }
         } catch {
             logError("Failed to check statement transaction count: \(error)")
+        }
+    }
+
+    /// Moves a card transaction onto a different statement at the user's request.
+    ///
+    /// The move is flagged as an override so `reassignCardTransactions` — which re-derives every
+    /// card transaction's statement from the card's current closing day — cannot silently undo it.
+    ///
+    /// `budget_month_date` follows the target statement's due month so the expense counts against
+    /// the budget for the month it is actually billed; the purchase date itself is left alone,
+    /// because the purchase still happened when it happened.
+    func moveTransactionToStatement(
+        transactionId: Int,
+        creditCardId: Int,
+        toStatementId: Int,
+        fromStatementId: Int?,
+        transactionRepo: TransactionRepository
+    ) {
+        do {
+            try transactionRepo.updateCreditCardFields(
+                transactionId: transactionId,
+                creditCardId: creditCardId,
+                statementId: toStatementId,
+                isCreditCardStatement: false
+            )
+
+            DBHelper.shared.setStatementOverridden(transactionId: transactionId, overridden: true)
+
+            let targetStatements = stmtRepo.fetchStatements(forCardId: creditCardId)
+            if let targetStatement = targetStatements.first(where: { $0.id == toStatementId }) {
+                transactionRepo.updateBudgetMonthDate(
+                    transactionId: transactionId,
+                    newBudgetMonthDate: targetStatement.dueDate.monthAnchor
+                )
+            }
+
+            // The source statement is recalculated through `recalculateStatementTotal` so it is
+            // deleted if this was its last row; the target cannot be empty, so a plain total is enough.
+            stmtRepo.recalculateTotal(statementId: toStatementId)
+            if let fromId = fromStatementId, fromId != toStatementId {
+                recalculateStatementTotal(statementId: fromId)
+            }
+
+            NotificationCenter.default.post(name: .creditCardDataChanged, object: nil)
+            NotificationCenter.default.post(name: .transactionDataChanged, object: nil)
+        } catch {
+            logError(
+                "Failed to move transaction \(transactionId) to statement \(toStatementId): \(error)")
         }
     }
 
@@ -164,14 +236,18 @@ class CreditCardService {
         return statementTransactions
     }
 
-    /// Recalculates closing and due dates for all unpaid statements of a card,
-    /// then reassigns transactions to the correct statements based on the new dates.
-    /// Call this after editing a card's closingDay or dueDay.
+    /// Reshapes a card's FUTURE billing cycles after its closingDay or dueDay changed.
+    ///
+    /// Deliberately limited to statements that have not closed yet. An invoice the user has already
+    /// been billed for is a historical record: rewriting its dates, and then re-routing the
+    /// transactions on it, changes what the user was charged last month. Only cycles still ahead of
+    /// them can be reshaped, which is also all the card issuer would do.
     func recalculateStatementDatesForCard(_ card: CreditCard, userId: String? = nil, transactionRepo: TransactionRepository? = nil) {
         guard let cardId = card.id else { return }
         let statements = stmtRepo.fetchStatements(forCardId: cardId)
+        let now = Date()
 
-        for stmt in statements where !stmt.isPaid {
+        for stmt in statements where stmt.closingDate > now && !stmt.isPaid {
             // Recalculate closing date based on existing closing date's month
             let calendar = Calendar.current
             let month = calendar.component(.month, from: stmt.closingDate)
@@ -187,15 +263,39 @@ class CreditCardService {
 
         // Reassign transactions to correct statements based on new dates
         guard let userId = userId, let transactionRepo = transactionRepo else { return }
-        reassignCardTransactions(card: card, userId: userId, transactionRepo: transactionRepo)
+        reassignCardTransactions(
+            card: card, userId: userId, transactionRepo: transactionRepo, onlyFutureCycles: true)
     }
 
-    /// Reassigns all transactions for a card to their correct statements based on current card settings.
-    private func reassignCardTransactions(card: CreditCard, userId: String, transactionRepo: TransactionRepository) {
+    /// Reassigns transactions for a card to the statement its date routes to under current card settings.
+    ///
+    /// Three things are deliberately left alone:
+    /// - **Installments that already have a statement.** Their cycle was decided by consecutive
+    ///   chaining at creation (`nextStatement`), not by their date, so re-deriving from the date would
+    ///   scatter a series that is correctly sequenced — two installments onto one invoice and a month
+    ///   with none.
+    /// - **Transactions the user moved by hand** (`isStatementOverridden`), which this would silently undo.
+    /// - **Anything in a closed cycle**, when `onlyFutureCycles` is set: neither moved out of a
+    ///   statement that has closed nor pulled into one, so history stays put and no empty past
+    ///   statements get created.
+    private func reassignCardTransactions(
+        card: CreditCard, userId: String, transactionRepo: TransactionRepository,
+        onlyFutureCycles: Bool = false
+    ) {
         guard let cardId = card.id else { return }
         let allTransactions = transactionRepo.fetchAllTransactions()
         let cardTransactions = allTransactions.filter {
             $0.creditCardId == cardId && $0.isCreditCardStatement != true
+                && !($0.installmentNumber != nil && $0.statementId != nil)
+        }
+
+        let now = Date()
+        var closedStatementIds: Set<Int> = []
+        if onlyFutureCycles {
+            closedStatementIds = Set(
+                stmtRepo.fetchStatements(forCardId: cardId)
+                    .filter { $0.closingDate <= now }
+                    .compactMap { $0.id })
         }
 
         var affectedStatementIds = Set<Int>()
@@ -203,7 +303,20 @@ class CreditCardService {
         for tx in cardTransactions {
             guard let txId = tx.id else { continue }
 
+            if DBHelper.shared.isStatementOverridden(transactionId: txId) { continue }
+
+            if onlyFutureCycles, let stmtId = tx.statementId, closedStatementIds.contains(stmtId) {
+                continue
+            }
+
             let transactionDate = Date(timeIntervalSince1970: TimeInterval(tx.dateTimestamp))
+
+            if onlyFutureCycles,
+                calculateClosingDate(card: card, transactionDate: transactionDate) <= now
+            {
+                continue
+            }
+
             guard let correctStatement = getOrCreateStatement(for: card, transactionDate: transactionDate, userId: userId),
                   let correctStmtId = correctStatement.id else { continue }
 

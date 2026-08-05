@@ -194,16 +194,26 @@ final class BudgetAllocationDetailsViewModel {
     // MARK: - Transactions
 
     func getFilteredTransactions() -> [Transaction] {
-        let allTransactions = transactionRepository.fetchAllTransactions()
+        // `fetchTransactions()` rather than `fetchAllTransactions()`: installment and recurring
+        // parents are zero-amount template rows carrying the series' category and month, so the
+        // unfiltered fetch listed a bogus "<title> - Installment Parent · 0" entry in the purchase
+        // month. The explicit guard below repeats that exclusion, so a path that reintroduces a
+        // parent — the installment edit flow rebuilds them — cannot put one back on screen.
+        let transactions = transactionRepository.fetchTransactions()
 
         // Filter transactions by:
         // 1. Category matches allocation/spending category
         // 2. budgetMonthDate matches the month (same as how usage is calculated)
         // 3. Type is expense (allocations track expenses)
-        return allTransactions.filter { transaction in
-            transaction.category == category &&
-            transaction.type == .expense &&
-            transaction.budgetMonthDate == monthDate
+        return transactions.filter { transaction in
+            let isParentTemplate =
+                transaction.parentTransactionId == nil
+                && (transaction.hasInstallments == true || transaction.isRecurring == true)
+            if isParentTemplate { return false }
+
+            return transaction.category == category &&
+                transaction.type == .expense &&
+                transaction.budgetMonthDate == monthDate
         }.sorted { $0.date > $1.date } // Most recent first
     }
 

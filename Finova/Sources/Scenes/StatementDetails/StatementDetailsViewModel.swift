@@ -28,7 +28,14 @@ final class StatementDetailsViewModel {
     func loadTransactions() {
         guard let stmtId = statement.id else { return }
         let allTransactions = transactionRepo.fetchAllTransactions()
-        transactions = allTransactions.filter { $0.statementId == stmtId && $0.isCreditCardStatement != true }
+        transactions = allTransactions.filter { tx in
+            guard tx.statementId == stmtId && tx.isCreditCardStatement != true else { return false }
+            // Series templates carry no money of their own — the children hold the amounts, and they
+            // are listed separately — so a parent on this invoice is a duplicate line worth nothing.
+            if tx.hasInstallments == true && tx.parentTransactionId == nil { return false }
+            if tx.isRecurring == true && tx.parentTransactionId == nil { return false }
+            return true
+        }
         transactions.sort { $0.date > $1.date }
         let settled = DBHelper.shared.settledInstallmentIds()
         earlyPaidIds = Set(transactions.compactMap { $0.id }.filter(settled.contains))

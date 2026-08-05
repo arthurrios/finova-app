@@ -80,6 +80,75 @@ final class TransactionDetailsViewModel {
     return CreditCardRepository().fetchCard(byId: cardId)
   }
 
+  // MARK: - Statement Move
+
+  /// A real purchase on a card — not the synthetic row that represents the invoice itself.
+  func isCreditCardTransaction() -> Bool {
+    return transaction.creditCardId != nil && transaction.isCreditCardStatement != true
+  }
+
+  func getCurrentStatement() -> CreditCardStatement? {
+    guard let stmtId = transaction.statementId, let cardId = transaction.creditCardId else {
+      return nil
+    }
+    return StatementRepository().fetchStatements(forCardId: cardId).first(where: { $0.id == stmtId })
+  }
+
+  /// Month options for the move picker, offered as months rather than statements because the target
+  /// statement may not exist yet — it is created on demand when the user picks its month.
+  ///
+  /// Six months back through two forward: far enough to file a receipt found late, not so far that
+  /// the list stops being scannable.
+  func getMonthOptionsForMove() -> [(label: String, firstOfMonth: Date)] {
+    let calendar = Calendar.current
+    let formatter = DateFormatter.monthYearFormatter
+    var options: [(label: String, firstOfMonth: Date)] = []
+
+    for offset in -6...2 {
+      guard let refDate = calendar.date(byAdding: .month, value: offset, to: Date()) else { continue }
+      let components = calendar.dateComponents([.year, .month], from: refDate)
+      guard let firstOfMonth = calendar.date(from: components) else { continue }
+      options.append((label: formatter.string(from: firstOfMonth), firstOfMonth: firstOfMonth))
+    }
+
+    return options
+  }
+
+  /// Moves this transaction to the statement covering `firstOfMonth`, creating it if needed.
+  func moveToStatementForMonth(_ firstOfMonth: Date) {
+    guard let cardId = transaction.creditCardId,
+      let card = CreditCardRepository().fetchCard(byId: cardId),
+      let userId = AuthenticationManager.shared.currentUser?.uid
+    else { return }
+
+    let service = CreditCardService()
+    guard
+      let target = service.getOrCreateStatement(
+        for: card, transactionDate: firstOfMonth, userId: userId)
+    else { return }
+
+    moveToStatement(target)
+  }
+
+  func moveToStatement(_ targetStatement: CreditCardStatement) {
+    guard let txId = transaction.id,
+      let cardId = transaction.creditCardId,
+      let targetId = targetStatement.id
+    else { return }
+
+    let repo = transactionRepository as? TransactionRepository ?? TransactionRepository()
+    CreditCardService().moveTransactionToStatement(
+      transactionId: txId,
+      creditCardId: cardId,
+      toStatementId: targetId,
+      fromStatementId: transaction.statementId,
+      transactionRepo: repo
+    )
+
+    // Re-read so the screen shows the statement it now points at.
+    refreshTransaction()
+  }
+
   func getTransactionModeDescription() -> String {
     switch transaction.mode {
     case .normal:

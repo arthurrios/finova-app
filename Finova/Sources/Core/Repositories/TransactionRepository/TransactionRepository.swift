@@ -183,6 +183,68 @@ final class TransactionRepository: TransactionRepositoryProtocol {
     return fetchAllTransactions().filter { $0.parentTransactionId != nil }
   }
 
+  // MARK: - Date / Budget Month
+
+  /// Re-anchors a transaction onto a new date AND the budget month it counts toward.
+  ///
+  /// Mirrored into `SecureLocalDataManager` for the same reason `updateCreditCardFields` is: the
+  /// secure store is the source of truth this release reads statements and dashboard rows from, so a
+  /// DB-only write would leave the two disagreeing.
+  func updateDateAndBudgetMonth(transactionId: Int, newDateTimestamp: Int, newBudgetMonthDate: Int) {
+    Self.invalidateCache()
+    db.updateTransactionDateAndBudgetMonth(
+      transactionId: transactionId,
+      newDateTimestamp: newDateTimestamp,
+      newBudgetMonthDate: newBudgetMonthDate
+    )
+    mirrorToSecureStore(transactionId: transactionId) { existing in
+      (dateTimestamp: newDateTimestamp, budgetMonthDate: newBudgetMonthDate)
+    }
+  }
+
+  /// Moves only the budget month, leaving the transaction's own date alone.
+  func updateBudgetMonthDate(transactionId: Int, newBudgetMonthDate: Int) {
+    Self.invalidateCache()
+    db.updateTransactionBudgetMonthDate(
+      transactionId: transactionId,
+      newBudgetMonthDate: newBudgetMonthDate
+    )
+    mirrorToSecureStore(transactionId: transactionId) { existing in
+      (dateTimestamp: existing.dateTimestamp, budgetMonthDate: newBudgetMonthDate)
+    }
+  }
+
+  /// Rewrites just the date fields of one row in the secure store, leaving everything else as-is.
+  private func mirrorToSecureStore(
+    transactionId: Int,
+    newDates: (Transaction) -> (dateTimestamp: Int, budgetMonthDate: Int)
+  ) {
+    var secureTransactions = SecureLocalDataManager.shared.loadTransactions()
+    guard let index = secureTransactions.firstIndex(where: { $0.id == transactionId }) else { return }
+    let existing = secureTransactions[index]
+    let dates = newDates(existing)
+    let updatedData = UITransactionData(
+      id: existing.id,
+      title: existing.title,
+      amount: existing.amount,
+      dateTimestamp: dates.dateTimestamp,
+      budgetMonthDate: dates.budgetMonthDate,
+      isRecurring: existing.isRecurring,
+      hasInstallments: existing.hasInstallments,
+      parentTransactionId: existing.parentTransactionId,
+      installmentNumber: existing.installmentNumber,
+      totalInstallments: existing.totalInstallments,
+      originalAmount: existing.originalAmount,
+      creditCardId: existing.creditCardId,
+      statementId: existing.statementId,
+      isCreditCardStatement: existing.isCreditCardStatement,
+      category: existing.category,
+      type: existing.type
+    )
+    secureTransactions[index] = Transaction(data: updatedData)
+    SecureLocalDataManager.shared.saveTransactions(secureTransactions)
+  }
+
   // MARK: - Credit Card Fields
 
   func updateCreditCardFields(transactionId: Int, creditCardId: Int, statementId: Int, isCreditCardStatement: Bool) throws {
@@ -772,6 +834,16 @@ final class TransactionRepository: TransactionRepositoryProtocol {
       // Delete only the current transaction instance
       try delete(id: id)
 
+      // Record the month so lazy generation doesn't immediately put it back. Without this the row
+      // reappeared the next time the user browsed onto that month — the delete looked like it had
+      // silently failed. Recurring only: installments are all created upfront and are deleted by
+      // scope rather than by occurrence, so they never need an exclusion.
+      if isRecurringTransaction {
+        let parentId = transaction.parentTransactionId ?? id
+        RecurringTransactionManager.trackDeletedInstance(
+          parentId: parentId, monthAnchor: transaction.budgetMonthDate)
+      }
+
     case .futureOnly:
       // For recurring transactions, delete future instances only (including current)
       if isRecurringTransaction {
@@ -787,6 +859,10 @@ final class TransactionRepository: TransactionRepositoryProtocol {
     case .all:
       // Delete all related transactions
       if isRecurringTransaction {
+        // The series is going away entirely, so its per-month exclusions are dead weight — and a
+        // stale entry would suppress generation for a later series that reused the parent's row id.
+        RecurringTransactionManager.clearDeletedInstanceTracking(
+          for: transaction.parentTransactionId ?? id)
         try deleteAllRecurringTransactionOccurrences(transactionId: id)
       } else if transaction.mode == .installments {
         // For installment transactions, get the correct parent ID

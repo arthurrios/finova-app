@@ -100,6 +100,39 @@ extension TransactionDetailsViewController: TransactionDetailsViewDelegate {
     flowDelegate?.dismissTransactionDetails()
   }
 
+  func didTapMoveToStatement() {
+    let monthOptions = viewModel.getMonthOptionsForMove()
+    guard !monthOptions.isEmpty else { return }
+
+    let currentStatement = viewModel.getCurrentStatement()
+    let calendar = Calendar.current
+
+    let alert = UIAlertController(
+      title: "transactionDetails.moveToStatement.title".localized,
+      message: "transactionDetails.moveToStatement.message".localized,
+      preferredStyle: .actionSheet
+    )
+
+    for option in monthOptions {
+      // The month it is already on is not a move.
+      if let currentClosing = currentStatement?.closingDate,
+        calendar.isDate(option.firstOfMonth, equalTo: currentClosing, toGranularity: .month)
+      {
+        continue
+      }
+
+      alert.addAction(
+        UIAlertAction(title: option.label, style: .default) { [weak self] _ in
+          guard let self = self else { return }
+          self.viewModel.moveToStatementForMonth(option.firstOfMonth)
+          self.contentView.configure(with: self.viewModel)
+        })
+    }
+
+    alert.addAction(UIAlertAction(title: "alert.cancel".localized, style: .cancel))
+    present(alert, animated: true)
+  }
+
   func didTapPayInstallmentsEarly() {
     flowDelegate?.payInstallmentsEarly(for: viewModel.transaction)
   }

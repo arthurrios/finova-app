@@ -36,7 +36,13 @@ final class RecurringTransactionManager {
   // MARK: - Deleted Instance Tracking
   // Tracks instances deleted via .currentSelection to prevent lazy generation from recreating them.
   // Key: parentTransactionId, Value: set of month anchors that should NOT be regenerated.
-  private var deletedInstanceAnchors: [Int: Set<Int>] = [:]
+  //
+  // STATIC, and not per-instance: managers are created per view model — DashboardViewModel and
+  // AddTransactionModalViewModel each own one — so an anchor recorded by the manager that performed
+  // the delete was invisible to whichever manager next ran lazy generation, and the occurrence the
+  // user had just removed came straight back. The set belongs to the series, not to a manager.
+  private static var deletedInstanceAnchors: [Int: Set<Int>] = [:]
+  private static let deletedAnchorsLock = NSLock()
 
   init(
     transactionRepo: TransactionRepository = TransactionRepository(),
@@ -284,17 +290,25 @@ final class RecurringTransactionManager {
   }
 
   /// Record that a specific instance was intentionally deleted so lazy generation won't recreate it.
-  func trackDeletedInstance(parentId: Int, monthAnchor: Int) {
-    operationLock.lock()
-    defer { operationLock.unlock() }
+  static func trackDeletedInstance(parentId: Int, monthAnchor: Int) {
+    deletedAnchorsLock.lock()
+    defer { deletedAnchorsLock.unlock() }
     deletedInstanceAnchors[parentId, default: []].insert(monthAnchor)
   }
 
   /// Clear deletion tracking for a parent (called when the parent itself is deleted).
-  func clearDeletedInstanceTracking(for parentId: Int) {
-    operationLock.lock()
-    defer { operationLock.unlock() }
+  static func clearDeletedInstanceTracking(for parentId: Int) {
+    deletedAnchorsLock.lock()
+    defer { deletedAnchorsLock.unlock() }
     deletedInstanceAnchors.removeValue(forKey: parentId)
+  }
+
+  /// Month anchors intentionally deleted for a parent, read by lazy generation so it won't recreate
+  /// a month the user explicitly removed.
+  static func excludedAnchors(for parentId: Int) -> Set<Int> {
+    deletedAnchorsLock.lock()
+    defer { deletedAnchorsLock.unlock() }
+    return deletedInstanceAnchors[parentId] ?? []
   }
 
   func cleanupRecurringInstancesFromDate(
@@ -371,7 +385,7 @@ final class RecurringTransactionManager {
 
       // Track deleted anchors so lazy generation won't recreate them
       if cleanupOption == .currentSelection && !instancesToDelete.isEmpty {
-        self.trackDeletedInstance(parentId: parentTransactionId, monthAnchor: selectedAnchor)
+        Self.trackDeletedInstance(parentId: parentTransactionId, monthAnchor: selectedAnchor)
       }
 
       if cleanupOption == .all {
@@ -382,7 +396,7 @@ final class RecurringTransactionManager {
         } catch {
           logError("Error deleting parent recurring transaction \(parentTransactionId): \(error)")
         }
-        self.clearDeletedInstanceTracking(for: parentTransactionId)
+        Self.clearDeletedInstanceTracking(for: parentTransactionId)
       } else {
         // For non-"all" deletions, check if parent is now orphaned
         let remainingInstances = self.transactionRepo.fetchTransactionInstancesForRecurring(
@@ -396,7 +410,7 @@ final class RecurringTransactionManager {
           } catch {
             logError("Error deleting orphaned parent transaction \(parentTransactionId): \(error)")
           }
-          self.clearDeletedInstanceTracking(for: parentTransactionId)
+          Self.clearDeletedInstanceTracking(for: parentTransactionId)
         } else if cleanupOption == .futureOnly {
           // When deleting future instances, mark parent as no longer recurring
           // This prevents lazy generation from recreating deleted instances
@@ -406,7 +420,7 @@ final class RecurringTransactionManager {
           } catch {
             logError("Error updating isRecurring flag for parent \(parentTransactionId): \(error)")
           }
-          self.clearDeletedInstanceTracking(for: parentTransactionId)
+          Self.clearDeletedInstanceTracking(for: parentTransactionId)
         }
       }
     }
@@ -484,7 +498,7 @@ final class RecurringTransactionManager {
       // Track deleted anchors so lazy generation won't recreate them
       if cleanupOption == .currentSelection && !instancesToDelete.isEmpty {
         let selectedAnchor = selectedTransactionDate.monthAnchor
-        self.trackDeletedInstance(parentId: parentTransactionId, monthAnchor: selectedAnchor)
+        Self.trackDeletedInstance(parentId: parentTransactionId, monthAnchor: selectedAnchor)
       }
 
       if cleanupOption == .all {
@@ -495,7 +509,7 @@ final class RecurringTransactionManager {
         } catch {
           logError("Error deleting parent installment transaction: \(error)")
         }
-        self.clearDeletedInstanceTracking(for: parentTransactionId)
+        Self.clearDeletedInstanceTracking(for: parentTransactionId)
       } else if cleanupOption == .futureOnly {
         // For futureOnly, also delete the parent to prevent lazy regeneration
         // This is safe because the parent is just a hidden "Installment Parent" record
@@ -506,7 +520,7 @@ final class RecurringTransactionManager {
         } catch {
           logError("Error deleting parent installment transaction: \(error)")
         }
-        self.clearDeletedInstanceTracking(for: parentTransactionId)
+        Self.clearDeletedInstanceTracking(for: parentTransactionId)
       }
     }
   }
@@ -850,7 +864,7 @@ final class RecurringTransactionManager {
 
         // Get anchors of intentionally deleted instances (from .currentSelection deletion)
         self.operationLock.lock()
-        let excludedAnchors = self.deletedInstanceAnchors[recurringTxId] ?? []
+        let excludedAnchors = Self.excludedAnchors(for: recurringTxId)
         self.operationLock.unlock()
 
         // Only generate for months that don't have instances yet and weren't intentionally deleted
@@ -911,7 +925,7 @@ final class RecurringTransactionManager {
 
         // Get anchors of intentionally deleted instances (from .currentSelection deletion)
         self.operationLock.lock()
-        let excludedAnchors = self.deletedInstanceAnchors[parentId] ?? []
+        let excludedAnchors = Self.excludedAnchors(for: parentId)
         self.operationLock.unlock()
 
         let parentDate = parent.date

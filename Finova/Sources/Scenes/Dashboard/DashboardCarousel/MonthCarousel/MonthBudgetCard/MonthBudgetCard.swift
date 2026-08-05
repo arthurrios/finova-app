@@ -851,10 +851,13 @@ class MonthBudgetCard: UIView {
         UserDefaultsManager.setHideValues(isValuesHidden)
         updateHideValuesIcon()
         updateAvailableBudgetDisplay()
-        updateLimitSection(with: currentMonthData!)
-        
-        // Update used value directly
+
+        // Guarded rather than force-unwrapped: the toggle is reachable before configure(data:)
+        // has run — the header toggle is added at setup and a tap on a freshly dequeued cell
+        // arrives with no data yet — and the icon/UserDefaults side of the toggle above must
+        // still take effect in that case.
         if let data = currentMonthData {
+            updateLimitSection(with: data)
             usedBudgetValueLabel.text =
             isValuesHidden ? getHiddenValueString() : data.usedValue.currencyString
         }
@@ -934,15 +937,14 @@ class MonthBudgetCard: UIView {
         isValuesHidden = isHidden
         updateHideValuesIcon()
         
-        // Update used value directly
+        // Used value and limit section, both guarded: this is the fan-out from another card's
+        // toggle, so it reaches cells that have been dequeued but not yet configured.
         if let data = currentMonthData {
             usedBudgetValueLabel.text =
             isValuesHidden ? getHiddenValueString() : data.usedValue.currencyString
+            updateLimitSection(with: data)
         }
-        
-        // Update limit section
-        updateLimitSection(with: currentMonthData!)
-        
+
         // Update available budget display with visibility state
         updateAvailableBudgetDisplayWithVisibility()
         

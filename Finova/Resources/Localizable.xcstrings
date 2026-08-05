@@ -889,6 +889,23 @@
         }
       }
     },
+    "alert.error": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Error"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erro"
+          }
+        }
+      }
+    },
     "alert.error.defaultMessage": {
       "extractionState": "manual",
       "localizations": {
@@ -936,6 +953,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Digite uma data válida (00/00/0000)"
+          }
+        }
+      }
+    },
+    "alert.error.invalidInstallmentCount": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Please enter a number of installments between 2 and 120"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Informe um número de parcelas entre 2 e 120"
           }
         }
       }
@@ -8246,6 +8280,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "Última Atualização"
+          }
+        }
+      }
+    },
+    "transactionDetails.moveToStatement": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Statement"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fatura"
+          }
+        }
+      }
+    },
+    "transactionDetails.moveToStatement.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Select the statement to move this transaction to."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Selecione a fatura para mover esta transação."
+          }
+        }
+      }
+    },
+    "transactionDetails.moveToStatement.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move to Statement"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mover para Fatura"
           }
         }
       }

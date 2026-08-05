@@ -13,6 +13,8 @@ protocol TransactionDetailsViewDelegate: AnyObject {
   func didTapDelete()
   func didTapBack()
   func didTapDeleteInstallment(_ transaction: Transaction)
+  /// Choose which statement a card transaction belongs to.
+  func didTapMoveToStatement()
   /// Open the selection screen to bring future installments of this series forward.
   func didTapPayInstallmentsEarly()
   /// Undo an early payment, putting its installments back on their own statements.
@@ -391,6 +393,8 @@ final class TransactionDetailsView: UIView {
     return (container, label, value)
   }
 
+  /// Which invoice this card purchase is billed on, and the way to change it.
+  private lazy var moveToStatementRow = Self.makeActionRow(systemIcon: "doc.text")
   private lazy var payEarlyRow = Self.makeActionRow(systemIcon: "calendar.badge.clock")
   private lazy var undoEarlyPaymentRow = Self.makeActionRow(
     systemIcon: "arrow.uturn.backward", tintColor: Colors.mainRed, labelColor: Colors.mainRed)
@@ -521,6 +525,11 @@ final class TransactionDetailsView: UIView {
 
     // Add installments section (will be hidden by default)
     contentView.addSubview(tailStackView)
+
+    moveToStatementRow.container.isHidden = true
+    moveToStatementRow.container.addGestureRecognizer(
+      UITapGestureRecognizer(target: self, action: #selector(didTapMoveToStatement)))
+    tailStackView.addArrangedSubview(moveToStatementRow.container)
 
     payEarlyRow.container.isHidden = true
     payEarlyRow.container.addGestureRecognizer(
@@ -965,7 +974,21 @@ final class TransactionDetailsView: UIView {
     // Always hide installments section for now
     installmentsHeaderView.isHidden = true
 
+    configureStatementSection(with: viewModel)
     configureEarlyPaymentSections(with: viewModel)
+  }
+
+  /// The invoice a card purchase is billed on. Only shown for card transactions, and only once the
+  /// statement it points at can actually be resolved — with no statement there is nothing to name and
+  /// nothing to move away from.
+  private func configureStatementSection(with viewModel: TransactionDetailsViewModel) {
+    guard viewModel.isCreditCardTransaction(), let statement = viewModel.getCurrentStatement() else {
+      moveToStatementRow.container.isHidden = true
+      return
+    }
+    moveToStatementRow.container.isHidden = false
+    moveToStatementRow.label.text = "transactionDetails.moveToStatement".localized
+    moveToStatementRow.value.text = DateFormatter.monthYearFormatter.string(from: statement.dueDate)
   }
 
   /// The two faces of early payment on this screen: the entry point on an installment that still has
@@ -1091,6 +1114,10 @@ final class TransactionDetailsView: UIView {
   }
 
   // MARK: - Actions
+  @objc private func didTapMoveToStatement() {
+    delegate?.didTapMoveToStatement()
+  }
+
   @objc private func didTapPayInstallmentsEarly() {
     delegate?.didTapPayInstallmentsEarly()
   }
