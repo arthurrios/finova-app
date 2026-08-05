@@ -2744,6 +2744,23 @@
         }
       }
     },
+    "allocationTags.row.reorderHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Touch and hold, then drag to reorder"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toque e mantenha pressionado e arraste para reordenar"
+          }
+        }
+      }
+    },
     "allocationTags.subtitle": {
       "extractionState": "manual",
       "localizations": {

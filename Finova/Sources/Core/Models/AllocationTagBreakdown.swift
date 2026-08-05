@@ -166,18 +166,21 @@ struct AllocationTagBreakdown: Equatable {
         let offPlanTotal: Int = unallocatedSpending.reduce(0) { $0 + $1.spentAmount }
         let total: Int = allocatedTotal + offPlanTotal + effectiveHeadroom
 
-        // Tag order is total desc, then sortOrder, then id. The last two make it a *total* order:
-        // without them two equal-value tags could swap places between launches and the donut would
-        // visibly reshuffle for no reason.
+        // Tag order is the user's own, then id.
+        //
+        // This used to be total desc with `sortOrder` only as a tiebreaker, so the biggest slice read
+        // first. That is a reasonable default but it overrode the order the user set by dragging on the
+        // tags screen — two tags of different sizes would ignore the arrangement entirely, which made
+        // reordering look broken. An explicitly chosen order beats a derived one.
+        //
+        // `id` still breaks ties, so this remains a *total* order and the donut cannot reshuffle
+        // between launches. Categories WITHIN a tag stay amount desc (see `sortedSegments`) — those are
+        // enum cases with no user-defined order to respect.
         let liveTags = tags.filter { tag in
             !(allocationsByTag[tag.id] ?? []).isEmpty || !(spendingByTag[tag.id] ?? []).isEmpty
         }
         let orderedTags = liveTags.sorted { lhs, rhs in
-            let l = Self.angularAmount(allocationsByTag[lhs.id], spendingByTag[lhs.id])
-            let r = Self.angularAmount(allocationsByTag[rhs.id], spendingByTag[rhs.id])
-            if l != r { return l > r }
-            if lhs.sortOrder != rhs.sortOrder { return lhs.sortOrder < rhs.sortOrder }
-            return lhs.id < rhs.id
+            lhs.sortOrder == rhs.sortOrder ? lhs.id < rhs.id : lhs.sortOrder < rhs.sortOrder
         }
 
         var builtSegments: [Segment] = []

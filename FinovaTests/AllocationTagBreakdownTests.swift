@@ -144,10 +144,16 @@ final class AllocationTagBreakdownTests: XCTestCase {
 
     // MARK: - Segment order
 
-    func testTagsAreOrderedByTotalDescendingAndMembersStayContiguous() {
+    /// Arc order follows the user's arrangement, not the amounts.
+    ///
+    /// `wealth` holds the far bigger slice (investments, 560k) and still comes second, because
+    /// `essentials` sits above it on the tags screen. This used to be total-descending with `sortOrder`
+    /// only as a tiebreaker, which meant dragging a tag had no visible effect on the donut whenever the
+    /// two differed in size — i.e. almost always.
+    func testTagsFollowTheUserOrderAndMembersStayContiguous() {
         let breakdown = makeStandardBreakdown()
 
-        XCTAssertEqual(breakdown.tagArcs.map { $0.id }, [wealth.id, essentials.id])
+        XCTAssertEqual(breakdown.tagArcs.map { $0.id }, [essentials.id, wealth.id])
 
         // Every member of a tag must sit in one unbroken run, or the ring cannot span them.
         for arc in breakdown.tagArcs {
@@ -158,6 +164,53 @@ final class AllocationTagBreakdownTests: XCTestCase {
                 positions, Array(positions.first!...positions.last!),
                 "\(arc.tag.name) members are not contiguous")
         }
+    }
+
+    /// Reordering on the tags screen has to move the arcs, whatever the relative sizes are.
+    func testReorderingTagsReordersTheArcs() {
+        let promotedWealth = AllocationTag(
+            id: wealth.id, name: wealth.name, colorIndex: 1, sortOrder: 0)
+        let demotedEssentials = AllocationTag(
+            id: essentials.id, name: essentials.name, colorIndex: 0, sortOrder: 1)
+
+        let breakdown = AllocationTagBreakdown(
+            allocations: [
+                allocation(.investments, allocated: 560_000, used: 560_000),
+                allocation(.groceries, allocated: 60_000, used: 48_000),
+            ],
+            unallocatedSpending: [],
+            unallocatedHeadroom: 0,
+            totalBudget: 620_000,
+            tags: [demotedEssentials, promotedWealth],
+            categoryTagIds: [
+                TransactionCategory.investments.key: wealth.id,
+                TransactionCategory.groceries.key: essentials.id,
+            ])
+
+        XCTAssertEqual(breakdown.tagArcs.map { $0.id }, [wealth.id, essentials.id])
+    }
+
+    /// `id` still breaks ties, so two tags that somehow share a `sortOrder` cannot swap between
+    /// launches and make the donut visibly reshuffle for no reason.
+    func testEqualSortOrdersFallBackToAStableOrder() {
+        let a = AllocationTag(id: "t-aaa", name: "A", colorIndex: 0, sortOrder: 0)
+        let b = AllocationTag(id: "t-bbb", name: "B", colorIndex: 1, sortOrder: 0)
+
+        let breakdown = AllocationTagBreakdown(
+            allocations: [
+                allocation(.groceries, allocated: 10_000, used: 0),
+                allocation(.investments, allocated: 90_000, used: 0),
+            ],
+            unallocatedSpending: [],
+            unallocatedHeadroom: 0,
+            totalBudget: 100_000,
+            tags: [b, a],
+            categoryTagIds: [
+                TransactionCategory.groceries.key: a.id,
+                TransactionCategory.investments.key: b.id,
+            ])
+
+        XCTAssertEqual(breakdown.tagArcs.map { $0.id }, ["t-aaa", "t-bbb"])
     }
 
     func testHeadroomIsAlwaysTheLastSegment() {

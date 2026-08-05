@@ -52,6 +52,21 @@ final class AllocationTagCell: UITableViewCell {
         return label
     }()
 
+    /// The standard reorder grip, on the leading edge where a handle is expected.
+    ///
+    /// The drag actually works from anywhere on the row, so this is signage rather than a hit target -
+    /// long-pressing the grip and long-pressing the name do the same thing. Without it nothing on the
+    /// screen suggests the list can be rearranged at all.
+    private let reorderGripView: UIImageView = {
+        let imageView = UIImageView()
+        imageView.image = UIImage(systemName: "line.3.horizontal")
+        imageView.tintColor = Colors.gray400
+        imageView.contentMode = .scaleAspectFit
+        imageView.translatesAutoresizingMaskIntoConstraints = false
+        imageView.isAccessibilityElement = false
+        return imageView
+    }()
+
     private let chevronView: UIImageView = {
         let imageView = UIImageView()
         imageView.image = UIImage(systemName: "chevron.right")
@@ -60,6 +75,9 @@ final class AllocationTagCell: UITableViewCell {
         imageView.translatesAutoresizingMaskIntoConstraints = false
         return imageView
     }()
+
+    /// Zeroed when the grip is hidden, so a single-tag row is not left indented by an empty slot.
+    private var gripWidthConstraint: NSLayoutConstraint?
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
@@ -76,6 +94,7 @@ final class AllocationTagCell: UITableViewCell {
 
     private func setupView() {
         contentView.addSubview(containerView)
+        containerView.addSubview(reorderGripView)
         containerView.addSubview(iconContainer)
         iconContainer.addSubview(iconView)
         containerView.addSubview(nameLabel)
@@ -84,7 +103,11 @@ final class AllocationTagCell: UITableViewCell {
     }
 
     private func setupLayout() {
+        let gripWidth = reorderGripView.widthAnchor.constraint(equalToConstant: 14)
+        gripWidthConstraint = gripWidth
+
         NSLayoutConstraint.activate([
+            gripWidth,
             containerView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: Metrics.spacing1),
             containerView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
             containerView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
@@ -92,8 +115,13 @@ final class AllocationTagCell: UITableViewCell {
                 equalTo: contentView.bottomAnchor, constant: -Metrics.spacing1),
             containerView.heightAnchor.constraint(greaterThanOrEqualToConstant: 64),
 
+            reorderGripView.leadingAnchor.constraint(
+                equalTo: containerView.leadingAnchor, constant: Metrics.spacing3),
+            reorderGripView.centerYAnchor.constraint(equalTo: containerView.centerYAnchor),
+            reorderGripView.heightAnchor.constraint(equalToConstant: 14),
+
             iconContainer.leadingAnchor.constraint(
-                equalTo: containerView.leadingAnchor, constant: Metrics.spacing4),
+                equalTo: reorderGripView.trailingAnchor, constant: Metrics.spacing2),
             iconContainer.centerYAnchor.constraint(equalTo: containerView.centerYAnchor),
             iconContainer.widthAnchor.constraint(equalToConstant: 32),
             iconContainer.heightAnchor.constraint(equalToConstant: 32),
@@ -127,7 +155,14 @@ final class AllocationTagCell: UITableViewCell {
         iconContainer.layer.cornerRadius = iconContainer.bounds.height / 2
     }
 
-    func configure(with tag: AllocationTag, categoryCount: Int) {
+    /// - Parameter isReorderable: false when the list holds a single tag. Advertising a drag that
+    ///   cannot change anything is worse than showing nothing.
+    func configure(with tag: AllocationTag, categoryCount: Int, isReorderable: Bool = true) {
+        reorderGripView.isHidden = !isReorderable
+        gripWidthConstraint?.constant = isReorderable ? 14 : 0
+        accessibilityHint = isReorderable
+            ? "allocationTags.row.reorderHint".localized
+            : nil
         let ink = tag.color.ink
         iconContainer.backgroundColor = ink.withAlphaComponent(0.12)
         iconView.image = tag.icon.image
