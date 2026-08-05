@@ -58,7 +58,7 @@ extension CreditCardsViewController: CreditCardsViewDelegate {
             title: "creditCards.delete.title".localized,
             message: "creditCards.delete.message".localized,
             onOk: { [weak self] in
-                self?.viewModel.deleteCard(card)
+                self?.viewModel.deleteCard(card) { _ in }
             }
         )
     }

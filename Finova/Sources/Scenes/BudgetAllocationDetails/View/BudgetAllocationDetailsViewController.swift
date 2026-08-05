@@ -198,8 +198,13 @@ extension BudgetAllocationDetailsViewController: BudgetAllocationDetailsViewDele
     }
 
     private func performTransactionDelete(transaction: Transaction) {
-        let result = viewModel.deleteTransaction(transaction)
+        viewModel.deleteTransactionAsync(transaction) { [weak self] result in
+            self?.finishDelete(result)
+        }
+    }
 
+    /// Reports the outcome and refreshes, once the write has actually landed.
+    private func finishDelete(_ result: Result<Void, Error>) {
         switch result {
         case .success:
             pendingDeleteCompletion?(true)
@@ -228,21 +233,11 @@ extension BudgetAllocationDetailsViewController: BudgetAllocationDetailsViewDele
             return
         }
 
-        let result = viewModel.deleteTransactionWithOption(
+        viewModel.deleteTransactionWithOptionAsync(
             transactionId: transactionId,
             option: option
-        )
-
-        switch result {
-        case .success:
-            pendingDeleteCompletion?(true)
-            pendingDeleteCompletion = nil
-            mainView.refreshTransactions(with: viewModel)
-            flowDelegate?.didUpdateAllocation()
-        case .failure(let error):
-            pendingDeleteCompletion?(false)
-            pendingDeleteCompletion = nil
-            showErrorAlert(error)
+        ) { [weak self] result in
+            self?.finishDelete(result)
         }
     }
 

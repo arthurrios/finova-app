@@ -20,10 +20,20 @@ final class CreditCardsViewModel {
         delegate?.didLoadCards(cards)
     }
 
-    func deleteCard(_ card: CreditCard) {
-        guard let id = card.id else { return }
-        if cardRepo.deleteCard(id: id) {
-            loadCards()
+    /// Async because deleting a card is a batch: it walks every statement to cancel its
+    /// notifications and soft-deletes the card and its statements. Run inline that blocked the main
+    /// thread for the whole card and reloaded the list before the writes had landed.
+    func deleteCard(_ card: CreditCard, completion: @escaping (Bool) -> Void) {
+        guard let id = card.id else {
+            completion(false)
+            return
+        }
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let deleted = self?.cardRepo.deleteCard(id: id) ?? false
+            DispatchQueue.main.async {
+                if deleted { self?.loadCards() }
+                completion(deleted)
+            }
         }
     }
 }

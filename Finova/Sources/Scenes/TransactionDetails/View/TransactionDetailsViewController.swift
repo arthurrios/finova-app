@@ -217,11 +217,13 @@ extension TransactionDetailsViewController: TransactionDetailsViewDelegate {
   }
 
   private func deleteTransaction() {
-    switch viewModel.deleteTransaction() {
-    case .success:
-      flowDelegate?.didDeleteTransaction()
-    case .failure(let error):
-      showErrorAlert(message: error.localizedDescription)
+    viewModel.deleteTransactionAsync { [weak self] result in
+      switch result {
+      case .success:
+        self?.flowDelegate?.didDeleteTransaction()
+      case .failure(let error):
+        self?.showErrorAlert(message: error.localizedDescription)
+      }
     }
   }
 
@@ -306,14 +308,16 @@ extension TransactionDetailsViewController: TransactionDetailsViewDelegate {
     }
 
     // Use the new deletion method with specific cleanup option
-    switch viewModel.deleteTransactionWithOption(
-      transactionId: transactionId, option: cleanupOption)
-    {
-    case .success:
-      // Notify the flow delegate that the transaction was deleted
-      flowDelegate?.didDeleteTransaction()
-    case .failure(let error):
-      showErrorAlert(message: error.localizedDescription)
+    viewModel.deleteTransactionWithOptionAsync(
+      transactionId: transactionId, option: cleanupOption
+    ) { [weak self] result in
+      switch result {
+      case .success:
+        // Notify the flow delegate that the transaction was deleted
+        self?.flowDelegate?.didDeleteTransaction()
+      case .failure(let error):
+        self?.showErrorAlert(message: error.localizedDescription)
+      }
     }
   }
 

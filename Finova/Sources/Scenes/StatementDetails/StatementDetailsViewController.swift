@@ -152,8 +152,13 @@ extension StatementDetailsViewController: StatementDetailsViewDelegate {
     }
 
     private func performTransactionDelete(transaction: Transaction) {
-        let result = viewModel.deleteTransaction(transaction)
+        viewModel.deleteTransactionAsync(transaction) { [weak self] result in
+            self?.finishDelete(result)
+        }
+    }
 
+    /// Reports the outcome and navigates, once the write has actually landed.
+    private func finishDelete(_ result: Result<Void, Error>) {
         switch result {
         case .success:
             pendingDeleteCompletion?(true)
@@ -175,17 +180,10 @@ extension StatementDetailsViewController: StatementDetailsViewDelegate {
             return
         }
 
-        let result = viewModel.deleteTransactionWithOption(
-            transactionId: transactionId, option: option)
-
-        switch result {
-        case .success:
-            pendingDeleteCompletion?(true)
-            pendingDeleteCompletion = nil
-            handleSuccessfulDeletion()
-        case .failure:
-            pendingDeleteCompletion?(false)
-            pendingDeleteCompletion = nil
+        viewModel.deleteTransactionWithOptionAsync(
+            transactionId: transactionId, option: option
+        ) { [weak self] result in
+            self?.finishDelete(result)
         }
     }
 
