@@ -39,6 +39,14 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
       // 🔔 Check if this is first time opening app in new month and schedule notifications
       self?.checkAndScheduleMonthlyNotificationsOnFirstLaunch()
 
+      // 🔔 Refresh credit card statement reminders.
+      // `scheduleNotificationsOnLaunch()`, which used to be the only thing that scheduled them, is
+      // not reachable from the real launch path — it is called only from NotificationDebugManager
+      // and the tests. So on any launch that was not the first of the month, statement reminders
+      // were never (re)created: new statements got none, and paid or re-dated ones kept stale
+      // reminders. Statements close monthly, so this has to run on every launch, not once a month.
+      self?.refreshStatementNotifications()
+
       #if DEBUG
         // 🧪 Debug: Show data status on app launch (only in debug mode)
         DebugDataManager.shared.showDataStatus()
@@ -65,6 +73,10 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
 
     // Monitorar saldo negativo quando o app voltar ao foreground
     monitorNegativeBalance()
+
+    // Reagendar lembretes de fatura — `applicationWillEnterForeground` is not called on a cold
+    // launch, so this and the launch-time call are both needed to cover every way the app comes up.
+    refreshStatementNotifications()
 
     // Fetch any missed group activity notifications
     GroupNotificationManager.shared.fetchAndNotifyRecentActivities {}
@@ -367,6 +379,12 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     }
   }
 
+  /// Rebuilds every `statement_due_*` / `statement_pay_*` reminder from the current DB state.
+  private func refreshStatementNotifications() {
+    guard UserDefaultsManager.getUser()?.firebaseUID != nil else { return }
+    StatementNotificationManager.shared.rescheduleAllNotifications()
+  }
+
   private func rescheduleNearbyNotifications() {
     guard UserDefaultsManager.getUser()?.firebaseUID != nil else { return }
 
@@ -524,26 +542,11 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
 
         // Schedule monthly notifications without showing alert immediately
         // The alert will be shown when the dashboard appears
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {  // Delay to ensure app is fully loaded
-          let monthlyManager = MonthlyNotificationManager()
-          let success = monthlyManager.scheduleAllMonthlyNotifications(showAlert: false)
-
-          if success {
-            // Update the last scheduled month key since we just scheduled notifications
-            let currentDate = Date()
-            let calendar = Calendar.current
-            let currentMonth = calendar.component(.month, from: currentDate)
-            let currentYear = calendar.component(.year, from: currentDate)
-            let currentMonthKey = "\(currentYear)-\(currentMonth)"
-            UserDefaults.standard.set(currentMonthKey, forKey: "lastScheduledMonthKey")
-            // Mark that we should show the rescheduled alert on dashboard
-            UserDefaults.standard.set(true, forKey: "shouldShowNotificationSuccessAlert")
-            UserDefaults.standard.set("rescheduled", forKey: "notificationAlertType")
-          } else {
-            // Mark that we should show the failure alert on dashboard
-            UserDefaults.standard.set(true, forKey: "shouldShowNotificationSuccessAlert")
-            UserDefaults.standard.set("failure", forKey: "notificationAlertType")
-          }
+        // `scheduleAllMonthlyNotifications` blocks its caller on the notification centre and reads
+        // the whole ledger, so it must not run on the main queue. It records the scheduled month
+        // itself — see MonthlyNotificationManager.markCurrentMonthAsScheduled.
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 1.0) {
+          Self.rescheduleMonthlyNotificationsAndFlagAlert()
         }
 
       case "recurring_reminder", "installment_reminder":
@@ -552,19 +555,8 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
 
         // Schedule monthly notifications without showing alert immediately
         // The alert will be shown when the dashboard appears
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {  // Delay to ensure app is fully loaded
-          let monthlyManager = MonthlyNotificationManager()
-          let success = monthlyManager.scheduleAllMonthlyNotifications(showAlert: false)
-
-          if success {
-            // Mark that we should show the rescheduled alert on dashboard
-            UserDefaults.standard.set(true, forKey: "shouldShowNotificationSuccessAlert")
-            UserDefaults.standard.set("rescheduled", forKey: "notificationAlertType")
-          } else {
-            // Mark that we should show the failure alert on dashboard
-            UserDefaults.standard.set(true, forKey: "shouldShowNotificationSuccessAlert")
-            UserDefaults.standard.set("failure", forKey: "notificationAlertType")
-          }
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 1.0) {
+          Self.rescheduleMonthlyNotificationsAndFlagAlert()
         }
 
       case "app_update":
@@ -702,7 +694,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
   private func setupMonthlyNotificationSystem() {
     // Check if user is authenticated first
     guard let user = UserDefaultsManager.getUser(),
-      let firebaseUID = user.firebaseUID
+      user.firebaseUID != nil
     else {
       print("🔔 ❌ Cannot setup monthly notifications: User not authenticated")
       return
@@ -719,48 +711,47 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
   private func checkAndScheduleMonthlyNotificationsOnFirstLaunch() {
     // Check if user is authenticated first
     guard let user = UserDefaultsManager.getUser(),
-      let firebaseUID = user.firebaseUID
+      user.firebaseUID != nil
     else {
       print("🔔 ❌ Cannot check monthly notifications: User not authenticated")
       return
     }
 
-    let currentDate = Date()
-    let calendar = Calendar.current
-    let currentMonth = calendar.component(.month, from: currentDate)
-    let currentYear = calendar.component(.year, from: currentDate)
+    let monthlyManager = MonthlyNotificationManager()
+    let currentMonthKey = MonthlyNotificationManager.monthKey(for: Date())
 
-    // Create a key for the current month
-    let currentMonthKey = "\(currentYear)-\(currentMonth)"
-
-    // Check if we've already scheduled notifications for this month
-    let lastScheduledMonthKey = UserDefaults.standard.string(forKey: "lastScheduledMonthKey")
-
-    if lastScheduledMonthKey != currentMonthKey {
-      print("🔔 📅 First time opening app in month \(currentMonthKey) - scheduling notifications")
-
-      // Schedule monthly notifications without showing alert immediately
-      // The alert will be shown when the dashboard appears
-      DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {  // Delay to ensure app is fully loaded
-        let monthlyManager = MonthlyNotificationManager()
-        let success = monthlyManager.scheduleAllMonthlyNotifications(showAlert: false)
-
-        if success {
-          // Save that we've scheduled notifications for this month
-          UserDefaults.standard.set(currentMonthKey, forKey: "lastScheduledMonthKey")
-          // Mark that we should show the success alert on dashboard
-          UserDefaults.standard.set(true, forKey: "shouldShowNotificationSuccessAlert")
-          UserDefaults.standard.set("success", forKey: "notificationAlertType")
-          print("🔔 ✅ Monthly notifications scheduled for \(currentMonthKey)")
-        } else {
-          // Mark that we should show the failure alert on dashboard
-          UserDefaults.standard.set(true, forKey: "shouldShowNotificationSuccessAlert")
-          UserDefaults.standard.set("failure", forKey: "notificationAlertType")
-          print("🔔 ❌ Failed to schedule monthly notifications for \(currentMonthKey)")
-        }
-      }
-    } else {
+    guard !monthlyManager.areNotificationsScheduledForCurrentMonth() else {
       print("🔔 📅 Already scheduled notifications for month \(currentMonthKey)")
+      return
+    }
+
+    print("🔔 📅 First time opening app in month \(currentMonthKey) - scheduling notifications")
+
+    // Schedule monthly notifications without showing alert immediately.
+    // The alert will be shown when the dashboard appears.
+    // Runs off the main queue: the call blocks on the notification centre and reads the ledger.
+    DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 2.0) {
+      Self.rescheduleMonthlyNotificationsAndFlagAlert(successAlertType: "success")
+    }
+  }
+
+  /// Reschedules this month's notifications and leaves a flag for the dashboard to surface the
+  /// resulting alert. `MonthlyNotificationManager` records the month itself on success, which is
+  /// what retires the "notifications not configured" prompt for the same month.
+  private static func rescheduleMonthlyNotificationsAndFlagAlert(
+    successAlertType: String = "rescheduled"
+  ) {
+    let monthlyManager = MonthlyNotificationManager()
+    let success = monthlyManager.scheduleAllMonthlyNotifications(showAlert: false)
+
+    UserDefaults.standard.set(true, forKey: "shouldShowNotificationSuccessAlert")
+    UserDefaults.standard.set(
+      success ? successAlertType : "failure", forKey: "notificationAlertType")
+
+    if success {
+      print("🔔 ✅ Monthly notifications scheduled for \(MonthlyNotificationManager.monthKey(for: Date()))")
+    } else {
+      print("🔔 ❌ Failed to schedule monthly notifications")
     }
   }
 }

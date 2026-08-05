@@ -99,17 +99,21 @@ final class RecurringNotificationManager {
   // MARK: - Private
 
   private func scheduleMonthlyRecurringNotification(monthKey: String, instances: [TransactionModel]) {
-    guard let firstInstance = instances.first else { return }
+    // Fire on the EARLIEST still-upcoming occurrence of the month — see the matching comment in
+    // InstallmentNotificationManager for why `instances.first` was wrong.
+    let now = Date()
+    let upcomingDates = instances
+      .map { Date(timeIntervalSince1970: TimeInterval($0.data.dateTimestamp)) }
+      .compactMap { date -> Date? in
+        let fire = calendar.date(byAdding: .hour, value: 8, to: calendar.startOfDay(for: date))
+        return (fire ?? date) > now ? fire ?? date : nil
+      }
+      .sorted()
 
-    let date = Date(timeIntervalSince1970: TimeInterval(firstInstance.data.dateTimestamp))
+    guard let notificationDate = upcomingDates.first else { return }
 
-    let oneYearFromNow = Calendar.current.date(byAdding: .year, value: 1, to: Date()) ?? Date()
-    if date > oneYearFromNow { return }
-
-    var notificationDate = calendar.startOfDay(for: date)
-    notificationDate = calendar.date(byAdding: .hour, value: 8, to: notificationDate) ?? notificationDate
-
-    guard notificationDate > Date() else { return }
+    let oneYearFromNow = calendar.date(byAdding: .year, value: 1, to: now) ?? now
+    if notificationDate > oneYearFromNow { return }
 
     let timeInterval = notificationDate.timeIntervalSinceNow
     let thirtyDaysInSeconds: TimeInterval = 30 * 24 * 60 * 60

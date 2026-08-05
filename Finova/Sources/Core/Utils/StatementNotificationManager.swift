@@ -19,30 +19,45 @@ final class StatementNotificationManager {
     return cal
   }()
 
+  /// Serialises the coalesced full reschedules — see `rescheduleAllNotifications`.
+  private let rescheduleQueue = DispatchQueue(label: "com.finova.statementNotifications")
+  private var rescheduleWorkItem: DispatchWorkItem?
+
   private init() {}
 
   // MARK: - Bulk Scheduling
 
   /// Schedules due-soon and payment-due notifications for all unpaid statements.
+  ///
+  /// The stale-notification sweep and the re-scheduling MUST happen in this order and without
+  /// interleaving. They used to race: `getPendingNotificationRequests` is asynchronous, so its
+  /// removal block — carrying identifiers such as `statement_due_7` — landed *after* the loop below
+  /// had already re-added `statement_due_7`, deleting the notification that had just been created.
+  /// That is why statement reminders went missing for cards that already had them.
   func scheduleAllStatementNotifications() {
     guard NotificationPreferencesManager.shared.shouldShowNotification(type: .creditCardStatement) else { return }
 
     guard let user = UserDefaultsManager.getUser(),
           let firebaseUID = user.firebaseUID else { return }
 
-    let cardRepo = CreditCardRepository()
-    let statementRepo = StatementRepository()
-    let cards = cardRepo.fetchAllCards(userId: firebaseUID)
-    let now = Date()
-
-    // Remove old statement notifications first
     notificationCenter.getPendingNotificationRequests { [weak self] requests in
       guard let self = self else { return }
-      let statementIds = requests
+      let staleIds = requests
         .filter { $0.identifier.hasPrefix("statement_due_") || $0.identifier.hasPrefix("statement_pay_") }
         .map { $0.identifier }
-      self.notificationCenter.removePendingNotificationRequests(withIdentifiers: statementIds)
+      if !staleIds.isEmpty {
+        self.notificationCenter.removePendingNotificationRequests(withIdentifiers: staleIds)
+      }
+      self.scheduleUnpaidStatements(userId: firebaseUID)
     }
+  }
+
+  /// Reads every unpaid statement from the DB and schedules its notification pair.
+  private func scheduleUnpaidStatements(userId: String) {
+    let cardRepo = CreditCardRepository()
+    let statementRepo = StatementRepository()
+    let cards = cardRepo.fetchAllCards(userId: userId)
+    let now = Date()
 
     for card in cards where !card.isDeleted {
       guard let cardId = card.id else { continue }
@@ -65,9 +80,23 @@ final class StatementNotificationManager {
   }
 
   /// Reschedules all statement notifications (cancels existing, then re-fetches from DB).
+  ///
+  /// `scheduleAllStatementNotifications` already sweeps the stale requests inside the same
+  /// completion block, so it does the whole job. Calling `cancelAllStatementNotifications` first
+  /// added a *second* asynchronous removal that could land after the new requests were created.
+  ///
+  /// Coalesced, because callers arrive in bursts: deleting a series recalculates one statement per
+  /// affected month, and each recalculation asks for a reschedule. One full sweep covers them all.
   func rescheduleAllNotifications() {
-    cancelAllStatementNotifications()
-    scheduleAllStatementNotifications()
+    rescheduleQueue.async { [weak self] in
+      guard let self = self else { return }
+      self.rescheduleWorkItem?.cancel()
+      let item = DispatchWorkItem { [weak self] in
+        self?.scheduleAllStatementNotifications()
+      }
+      self.rescheduleWorkItem = item
+      self.rescheduleQueue.asyncAfter(deadline: .now() + 0.3, execute: item)
+    }
   }
 
   // MARK: - Cancel

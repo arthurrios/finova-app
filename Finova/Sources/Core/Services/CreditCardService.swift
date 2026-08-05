@@ -339,7 +339,14 @@ class CreditCardService {
         // cross-device credit card ID remapping hasn't resolved yet. Deleting or
         // recalculating them here would push a wrong totalAmount=0 to CloudKit and
         // permanently remove the statement from the cloud.
-        guard stmtRepo.fetchCKRecordName(for: statementId) == nil else { return }
+        //
+        // Their notifications still have to be refreshed, though: the body embeds the statement
+        // amount, so bailing out entirely left synced statements advertising a total that no longer
+        // matched the ledger. Rescheduling only reads from the DB — it writes nothing to CloudKit.
+        guard stmtRepo.fetchCKRecordName(for: statementId) == nil else {
+            StatementNotificationManager.shared.rescheduleAllNotifications()
+            return
+        }
 
         stmtRepo.recalculateTotal(statementId: statementId)
 

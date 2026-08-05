@@ -100,17 +100,22 @@ final class InstallmentNotificationManager {
   // MARK: - Private
 
   private func scheduleMonthlyInstallmentNotification(monthKey: String, installments: [TransactionModel]) {
-    guard let firstInstallment = installments.first else { return }
+    // Fire on the EARLIEST still-upcoming installment of the month. Reading `installments.first`
+    // instead meant an arbitrary member of the bucket decided the date — and if that one happened to
+    // be in the past, the whole month's reminder was dropped even with later installments pending.
+    let now = Date()
+    let upcomingDates = installments
+      .map { Date(timeIntervalSince1970: TimeInterval($0.data.dateTimestamp)) }
+      .compactMap { date -> Date? in
+        let fire = calendar.date(byAdding: .hour, value: 8, to: calendar.startOfDay(for: date))
+        return (fire ?? date) > now ? fire ?? date : nil
+      }
+      .sorted()
 
-    let date = Date(timeIntervalSince1970: TimeInterval(firstInstallment.data.dateTimestamp))
+    guard let notificationDate = upcomingDates.first else { return }
 
-    let oneYearFromNow = Calendar.current.date(byAdding: .year, value: 1, to: Date()) ?? Date()
-    if date > oneYearFromNow { return }
-
-    var notificationDate = calendar.startOfDay(for: date)
-    notificationDate = calendar.date(byAdding: .hour, value: 8, to: notificationDate) ?? notificationDate
-
-    guard notificationDate > Date() else { return }
+    let oneYearFromNow = calendar.date(byAdding: .year, value: 1, to: now) ?? now
+    if notificationDate > oneYearFromNow { return }
 
     let timeInterval = notificationDate.timeIntervalSinceNow
     let thirtyDaysInSeconds: TimeInterval = 30 * 24 * 60 * 60

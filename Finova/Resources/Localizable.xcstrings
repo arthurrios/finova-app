@@ -9185,6 +9185,23 @@
         }
       }
     },
+    "notification.negative.balance.body.tomorrow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "According to your monthly calculations, your balance goes negative tomorrow (%@). Check your transactions and adjust your budget."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "De acordo com os cálculos das transações do mês, seu saldo ficará negativo amanhã (%@). Verifique suas transações e ajuste seu orçamento."
+          }
+        }
+      }
+    },
     "notification.negative.balance.title": {
       "extractionState": "manual",
       "localizations": {
