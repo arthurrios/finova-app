@@ -11761,13 +11761,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The language is downloading in the background. You can leave this screen."
+            "value": "The language is downloading in the background. You can leave this screen or close the app."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "O idioma está sendo baixado em segundo plano. Você pode sair desta tela."
+            "value": "O idioma está sendo baixado em segundo plano. Você pode sair desta tela ou fechar o app."
           }
         }
       }
