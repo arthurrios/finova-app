@@ -11,6 +11,9 @@ final class SettingsViewController: UIViewController {
     let contentView: SettingsView
     private let viewModel: SettingsViewModel
     weak var flowDelegate: SettingsFlowDelegate?
+    /// What the download row is currently showing. Needed only to notice the transition into "done",
+    /// which is otherwise indistinguishable from "there was never anything to download".
+    private var lastDownloadState: SettingsView.TranslationDownloadState = .hidden
     
     init(contentView: SettingsView, viewModel: SettingsViewModel, flowDelegate: SettingsFlowDelegate) {
         self.contentView = contentView
@@ -68,7 +71,7 @@ extension SettingsViewController: SettingsViewDelegate {
         showCurrencyPicker()
     }
 
-    /// Redraws the download row when a poll reports the language has landed, so the user sees it
+    /// Redraws the download row when the watch reports the language has landed, so the user sees it
     /// finish without having to navigate away and back.
     @objc private func handleTranslationDownloadStateChanged() {
         refreshDownloadLanguagesRow()
@@ -80,29 +83,87 @@ extension SettingsViewController: SettingsViewDelegate {
         // to ask for it again, so this must never latch permanently.
         guard !coordinator.isDownloadingLanguages else { return }  // sheet already up
 
-        refreshDownloadLanguagesRow(isDownloading: true)
+        // Set before awaiting, so the row responds to the tap rather than to the sheet closing.
+        applyDownloadState(.downloading)
+        announce("settings.translateTags.download.a11y.started".localized)
         // `self` is the presenter: Apple's sheet belongs to the screen the user tapped on, and
         // handing it over beats the old approach of walking the window to guess one.
         coordinator.downloadMissingLanguages(from: self) { [weak self] in
-            self?.refreshDownloadLanguagesRow(isDownloading: false)
+            self?.refreshDownloadLanguagesRow()
         }
     }
 
     /// Renders the row from the coordinator's state rather than from whatever this screen last set,
     /// so leaving and returning mid-download shows the truth instead of a stale "Downloading…".
-    private func refreshDownloadLanguagesRow(isDownloading: Bool? = nil) {
+    private func refreshDownloadLanguagesRow() {
         let coordinator = AllocationTagTranslationCoordinator.shared
-        // "Downloading…" covers both the sheet being up AND the period after it closes while the
-        // system finishes in the background - the row must not vanish and leave the user guessing.
-        let downloading = (isDownloading ?? coordinator.isDownloadingLanguages)
-            || coordinator.hasDownloadInProgress
-        contentView.downloadLanguagesDetailLabel.text =
-            downloading ? "settings.translateTags.downloading".localized : ""
-        // Still tappable while downloading: re-tapping is harmless and is the only way to recover if
-        // the user dismissed the sheet before confirming.
-        contentView.downloadLanguagesContainer.isUserInteractionEnabled = true
-        contentView.downloadLanguagesContainer.isHidden =
-            !(coordinator.hasLanguagesToDownload || downloading)
+        guard viewModel.isTagTranslationSupported,
+            UserDefaultsManager.isTagNameTranslationEnabled()
+        else {
+            applyDownloadState(.hidden)
+            return
+        }
+
+        if coordinator.isDownloadingLanguages || coordinator.hasDownloadInProgress {
+            applyDownloadState(.downloading)
+        } else if coordinator.hasLanguagesToDownload {
+            applyDownloadState(.available(languageName: Self.targetLanguageName))
+        } else if lastDownloadState == .downloading {
+            // It was downloading a moment ago and now there is nothing pending, so it landed. Held
+            // briefly rather than just vanishing — otherwise the row disappears and the user never
+            // learns it worked.
+            applyDownloadState(.downloaded)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
+                guard self?.lastDownloadState == .downloaded else { return }
+                self?.refreshDownloadLanguagesRow()
+            }
+            announce("settings.translateTags.download.a11y.finished".localized)
+        } else {
+            applyDownloadState(.hidden)
+        }
+    }
+
+    private func applyDownloadState(_ state: SettingsView.TranslationDownloadState) {
+        lastDownloadState = state
+        contentView.applyDownloadState(state)
+        contentView.setTranslationFooter(Self.footerText(for: state))
+    }
+
+    /// The footer carries every word of the row's state, since the row itself is only an icon, a
+    /// title and a chevron.
+    private static func footerText(for state: SettingsView.TranslationDownloadState) -> String {
+        let base = "settings.translateTags.footer".localized
+        switch state {
+        case .available(let languageName):
+            // The language and the data-cost warning only earn their place while there is actually
+            // something to download; the rest of the time they are a caveat about nothing.
+            return base + "\n"
+                + String(
+                    format: "settings.translateTags.download.footer".localized, languageName)
+        case .downloading:
+            return "settings.translateTags.footer.downloading".localized
+        case .downloaded:
+            return "settings.translateTags.footer.downloaded".localized
+        case .stalled:
+            return "settings.translateTags.footer.failed".localized
+        case .hidden:
+            return base
+        }
+    }
+
+    /// The one language a download could ever be for: the phone's own.
+    private static var targetLanguageName: String {
+        let language = Locale.current.language.minimalIdentifier
+        return Locale.current.localizedString(forIdentifier: language)
+            ?? Locale.current.localizedString(forLanguageCode: language)
+            ?? language
+    }
+
+    /// `.announcement` rather than `.layoutChanged`: a download lands minutes later, and yanking
+    /// VoiceOver focus back to a Settings row at that point would be hostile.
+    private func announce(_ message: String) {
+        guard UIAccessibility.isVoiceOverRunning else { return }
+        UIAccessibility.post(notification: .announcement, argument: message)
     }
 
     func didToggleTagTranslation(_ isEnabled: Bool) {
@@ -111,6 +172,7 @@ extension SettingsViewController: SettingsViewDelegate {
         // next tag edit.
         NotificationCenter.default.post(name: .allocationTagsChanged, object: nil)
         AllocationTagTranslationCoordinator.shared.reconcile()
+        refreshDownloadLanguagesRow()
     }
 
     func didTapNotifications() {
@@ -180,17 +242,21 @@ extension SettingsViewController: SettingsViewModelDelegate {
     }
 
     func didUpdateTagTranslation(isEnabled: Bool, isSupported: Bool) {
-        contentView.translateTagsSwitch.isOn = isEnabled && isSupported
-        contentView.translateTagsSwitch.isEnabled = isSupported
-        contentView.translateTagsDetailLabel.text =
-            isSupported ? "" : "settings.translateTags.unavailable".localized
-        guard isEnabled && isSupported else {
-            contentView.downloadLanguagesContainer.isHidden = true
+        // Below iOS 26 the whole group goes away rather than showing a permanently disabled row: a
+        // user on an older phone can do nothing about it, and a row explaining that is clutter.
+        guard isSupported else {
+            contentView.setTranslationGroupHidden(true)
             return
         }
+        contentView.setTranslationGroupHidden(false)
+        contentView.translateTagsSwitch.isOn = isEnabled
+        contentView.translateTagsSwitch.isEnabled = true
+
         refreshDownloadLanguagesRow()
-        // Ask the system whether the pair arrived while we were away. This is the only status Apple
-        // offers - there is no progress figure and no way to reopen its sheet.
+        guard isEnabled else { return }
+        // Re-ask whether a pending pair arrived while we were away. A translation succeeding is the
+        // only trustworthy signal — Apple offers no progress figure, and its status was observed on
+        // device still reporting "supported" long after a language was installed.
         AllocationTagTranslationCoordinator.shared.refreshDownloadState { [weak self] in
             self?.refreshDownloadLanguagesRow()
         }

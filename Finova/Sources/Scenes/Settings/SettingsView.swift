@@ -100,7 +100,7 @@ final class SettingsView: UIView {
     let currencyValueLabel = createDetailLabel(text: "")
     private let currencyChevron = createChevronView()
 
-    private let translateTagsContainer = createSettingContainer()
+    let translateTagsContainer = createSettingContainer(growsWithText: true)
     private let translateTagsIconView = createIconView(imageName: "character.book.closed")
     private let translateTagsLabel = createSettingLabel(text: "settings.translateTags.title".localized)
     let translateTagsSwitch: UISwitch = {
@@ -109,12 +109,11 @@ final class SettingsView: UIView {
         toggle.onTintColor = Colors.mainMagenta
         return toggle
     }()
-    let translateTagsDetailLabel = createDetailLabel(text: "")
 
-    /// Hidden until a pass reports a pair the device has not downloaded. Shown here rather than
+    /// Hidden until a pass reports a pair the device has not downloaded. Offered here rather than
     /// prompted automatically: the system download sheet belongs to a screen the user chose to be on.
     let downloadLanguagesContainer: UIView = {
-        let container = createSettingContainer()
+        let container = createSettingContainer(growsWithText: true)
         container.isUserInteractionEnabled = true
         container.isHidden = true
         return container
@@ -122,8 +121,15 @@ final class SettingsView: UIView {
     private let downloadLanguagesIconView = createIconView(imageName: "arrow.down.circle")
     private let downloadLanguagesLabel = createSettingLabel(
         text: "settings.translateTags.download.title".localized)
-    let downloadLanguagesDetailLabel = createDetailLabel(text: "")
     private let downloadLanguagesChevron = createChevronView()
+
+    /// **No value label on this row.** "Download translation languages" is long enough that pairing it
+    /// with any right-hand value wraps the title onto two lines at the *default* text size, in a
+    /// column where every other row is a single 56pt line. The state lives in the footer instead,
+    /// where there is room for a sentence, and the icon carries it at a glance: a grey arrow to
+    /// offer, a spinning magenta one in progress, a green check when done, an amber triangle when it
+    /// stalled.
+    private let translateTagsFooterLabel = createSectionFooter()
 
     // Sharing Section
     private let sharingHeaderView = createSectionHeader(title: "settings.section.sharing".localized)
@@ -239,6 +245,7 @@ final class SettingsView: UIView {
         contentStackView.addArrangedSubview(translateTagsContainer)
         setupDownloadLanguagesContainer()
         contentStackView.addArrangedSubview(downloadLanguagesContainer)
+        contentStackView.addArrangedSubview(translateTagsFooterLabel)
 
         // Sharing section
         contentStackView.addArrangedSubview(sharingHeaderView)
@@ -307,9 +314,9 @@ final class SettingsView: UIView {
     }
 
     private func setupTranslateTagsContainer() {
+        translateTagsLabel.numberOfLines = 0
         translateTagsContainer.addSubview(translateTagsIconView)
         translateTagsContainer.addSubview(translateTagsLabel)
-        translateTagsContainer.addSubview(translateTagsDetailLabel)
         translateTagsContainer.addSubview(translateTagsSwitch)
 
         NSLayoutConstraint.activate([
@@ -318,20 +325,24 @@ final class SettingsView: UIView {
 
             translateTagsLabel.leadingAnchor.constraint(equalTo: translateTagsIconView.trailingAnchor, constant: Metrics.spacing3),
             translateTagsLabel.centerYAnchor.constraint(equalTo: translateTagsContainer.centerYAnchor),
+            translateTagsLabel.topAnchor.constraint(greaterThanOrEqualTo: translateTagsContainer.topAnchor, constant: Metrics.spacing2),
+            translateTagsLabel.trailingAnchor.constraint(lessThanOrEqualTo: translateTagsSwitch.leadingAnchor, constant: -Metrics.spacing2),
 
             translateTagsSwitch.trailingAnchor.constraint(equalTo: translateTagsContainer.trailingAnchor, constant: -Metrics.spacing4),
-            translateTagsSwitch.centerYAnchor.constraint(equalTo: translateTagsContainer.centerYAnchor),
-
-            translateTagsDetailLabel.trailingAnchor.constraint(equalTo: translateTagsSwitch.leadingAnchor, constant: -Metrics.spacing2),
-            translateTagsDetailLabel.centerYAnchor.constraint(equalTo: translateTagsContainer.centerYAnchor)
+            translateTagsSwitch.centerYAnchor.constraint(equalTo: translateTagsContainer.centerYAnchor)
         ])
     }
 
     private func setupDownloadLanguagesContainer() {
+        downloadLanguagesLabel.numberOfLines = 0
         downloadLanguagesContainer.addSubview(downloadLanguagesIconView)
         downloadLanguagesContainer.addSubview(downloadLanguagesLabel)
-        downloadLanguagesContainer.addSubview(downloadLanguagesDetailLabel)
         downloadLanguagesContainer.addSubview(downloadLanguagesChevron)
+
+        // The whole row reads as one element. Left as three, VoiceOver announces the chevron as an
+        // unlabelled image and separates the title from the state it is in.
+        downloadLanguagesContainer.isAccessibilityElement = true
+        downloadLanguagesContainer.accessibilityTraits = .button
 
         NSLayoutConstraint.activate([
             downloadLanguagesIconView.leadingAnchor.constraint(equalTo: downloadLanguagesContainer.leadingAnchor, constant: Metrics.spacing4),
@@ -339,13 +350,125 @@ final class SettingsView: UIView {
 
             downloadLanguagesLabel.leadingAnchor.constraint(equalTo: downloadLanguagesIconView.trailingAnchor, constant: Metrics.spacing3),
             downloadLanguagesLabel.centerYAnchor.constraint(equalTo: downloadLanguagesContainer.centerYAnchor),
+            downloadLanguagesLabel.topAnchor.constraint(greaterThanOrEqualTo: downloadLanguagesContainer.topAnchor, constant: Metrics.spacing2),
+            downloadLanguagesLabel.trailingAnchor.constraint(equalTo: downloadLanguagesChevron.leadingAnchor, constant: -Metrics.spacing2),
 
             downloadLanguagesChevron.trailingAnchor.constraint(equalTo: downloadLanguagesContainer.trailingAnchor, constant: -Metrics.spacing4),
-            downloadLanguagesChevron.centerYAnchor.constraint(equalTo: downloadLanguagesContainer.centerYAnchor),
-
-            downloadLanguagesDetailLabel.trailingAnchor.constraint(equalTo: downloadLanguagesChevron.leadingAnchor, constant: -Metrics.spacing2),
-            downloadLanguagesDetailLabel.centerYAnchor.constraint(equalTo: downloadLanguagesContainer.centerYAnchor)
+            downloadLanguagesChevron.centerYAnchor.constraint(equalTo: downloadLanguagesContainer.centerYAnchor)
         ])
+    }
+
+    // MARK: - Tag translation state
+
+    /// Everything the download row can be. The coordinator decides which one; this view only draws
+    /// it. Inferring the state here is how the row previously managed to disappear on a declined
+    /// download and never come back.
+    enum TranslationDownloadState: Equatable {
+        case hidden
+        case available(languageName: String)
+        case downloading
+        case downloaded
+        case stalled
+    }
+
+    /// The visible translation rows as one rect in this view's coordinate space, so a snapshot test
+    /// can crop to them. Nothing in the app uses this.
+    var translationGroupFrame: CGRect? {
+        let visible = [translateTagsContainer, downloadLanguagesContainer, translateTagsFooterLabel]
+            .filter { !$0.isHidden && $0.superview != nil }
+        guard let first = visible.first else { return nil }
+        return visible.dropFirst().reduce(convert(first.bounds, from: first)) { rect, view in
+            rect.union(convert(view.bounds, from: view))
+        }
+    }
+
+    func setTranslationFooter(_ text: String) {
+        translateTagsFooterLabel.text = text
+        translateTagsFooterLabel.isHidden = text.isEmpty
+    }
+
+    func setTranslationGroupHidden(_ hidden: Bool) {
+        translateTagsContainer.isHidden = hidden
+        if hidden {
+            downloadLanguagesContainer.isHidden = true
+            translateTagsFooterLabel.isHidden = true
+        }
+    }
+
+    func applyDownloadState(_ state: TranslationDownloadState) {
+        let wasHidden = downloadLanguagesContainer.isHidden
+        downloadLanguagesContainer.isHidden = state == .hidden
+        downloadLanguagesIconView.layer.removeAnimation(forKey: "rotationAnimation")
+
+        // Nothing visual says what the state IS except the icon; the words are in the footer. So the
+        // accessibility label has to carry it, because an icon's tint is not announced.
+        var spokenState: String?
+
+        switch state {
+        case .hidden:
+            break
+
+        case .available(let languageName):
+            downloadLanguagesIconView.image = UIImage(systemName: "arrow.down.circle")
+            downloadLanguagesIconView.tintColor = Colors.gray600
+            downloadLanguagesChevron.isHidden = false
+            downloadLanguagesContainer.isUserInteractionEnabled = true
+            downloadLanguagesContainer.accessibilityTraits = .button
+            downloadLanguagesContainer.accessibilityHint =
+                "settings.translateTags.download.a11y.hint".localized
+            spokenState = languageName
+
+        case .downloading:
+            downloadLanguagesIconView.image = UIImage(systemName: "arrow.triangle.2.circlepath")
+            downloadLanguagesIconView.tintColor = Colors.mainMagenta
+            downloadLanguagesChevron.isHidden = true
+            // Still tappable. Re-tapping is harmless, and it is the only way back if the user
+            // dismissed the system sheet before confirming.
+            downloadLanguagesContainer.isUserInteractionEnabled = true
+            downloadLanguagesContainer.accessibilityTraits = .button
+            downloadLanguagesContainer.accessibilityHint = nil
+            spokenState = "settings.translateTags.downloading".localized
+            startDownloadIconSpinning()
+
+        case .downloaded:
+            downloadLanguagesIconView.image = UIImage(systemName: "checkmark.circle.fill")
+            downloadLanguagesIconView.tintColor = Colors.mainGreen
+            downloadLanguagesChevron.isHidden = true
+            downloadLanguagesContainer.isUserInteractionEnabled = false
+            downloadLanguagesContainer.accessibilityTraits = [.button, .notEnabled]
+            downloadLanguagesContainer.accessibilityHint = nil
+            spokenState = "settings.translateTags.downloaded".localized
+
+        case .stalled:
+            downloadLanguagesIconView.image = UIImage(systemName: "exclamationmark.triangle")
+            downloadLanguagesIconView.tintColor = Colors.warningAmber
+            downloadLanguagesChevron.isHidden = false
+            downloadLanguagesContainer.isUserInteractionEnabled = true
+            downloadLanguagesContainer.accessibilityTraits = .button
+            downloadLanguagesContainer.accessibilityHint =
+                "settings.translateTags.download.a11y.hint".localized
+            spokenState = "settings.translateTags.retry".localized
+        }
+
+        downloadLanguagesContainer.accessibilityLabel = [downloadLanguagesLabel.text, spokenState]
+            .compactMap { $0?.isEmpty == false ? $0 : nil }
+            .joined(separator: ", ")
+
+        // The row appearing changes the element count, which VoiceOver has to be told about.
+        if wasHidden != downloadLanguagesContainer.isHidden {
+            UIAccessibility.post(notification: .layoutChanged, argument: nil)
+        }
+    }
+
+    private func startDownloadIconSpinning() {
+        // The same animation SyncStatusIndicator uses for "in progress", rather than dropping a
+        // UIActivityIndicatorView into a Settings row and inventing a second vocabulary for it.
+        let rotation = CABasicAnimation(keyPath: "transform.rotation.z")
+        rotation.toValue = NSNumber(value: Double.pi * 2)
+        rotation.duration = 1.5
+        rotation.repeatCount = .infinity
+        rotation.isCumulative = true
+        downloadLanguagesIconView.layer.add(rotation, forKey: "rotationAnimation")
     }
 
     private func setupSyncSettingsContainer() {
@@ -614,17 +737,38 @@ extension SettingsView {
         return container
     }
     
-    private static func createSettingContainer() -> UIView {
+    /// - Parameter growsWithText: pins the height at 56 when false, which is what every existing row
+    ///   does. True makes it a minimum instead, so a row whose labels wrap at accessibility text
+    ///   sizes can grow rather than clip.
+    private static func createSettingContainer(growsWithText: Bool = false) -> UIView {
         let container = UIView()
         container.backgroundColor = Colors.gray100
         container.layer.cornerRadius = CornerRadius.large
         container.translatesAutoresizingMaskIntoConstraints = false
-        
+
         NSLayoutConstraint.activate([
-            container.heightAnchor.constraint(equalToConstant: 56)
+            growsWithText
+                ? container.heightAnchor.constraint(greaterThanOrEqualToConstant: 56)
+                : container.heightAnchor.constraint(equalToConstant: 56)
         ])
-        
+
         return container
+    }
+
+    /// Explanatory text under a group of rows, the way iOS Settings does it.
+    ///
+    /// Deliberately not a subtitle inside the row: the copy has to be a sentence or two to set any
+    /// real expectation, and a `Fonts.textXS` fragment competing with a 51pt `UISwitch` for the same
+    /// edge truncates the moment it says anything useful. A footer has the full width, wraps, and can
+    /// speak for more than one row.
+    private static func createSectionFooter(text: String = "") -> UILabel {
+        let label = UILabel()
+        label.text = text
+        label.font = Fonts.textXS.font
+        label.textColor = Colors.gray500
+        label.numberOfLines = 0
+        label.translatesAutoresizingMaskIntoConstraints = false
+        return label
     }
     
     private static func createIconView(imageName: String, tintColor: UIColor = Colors.gray600) -> UIImageView {
