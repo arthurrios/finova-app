@@ -47,6 +47,12 @@ final class AllocationTagsViewController: UIViewController {
     private func setupTableView() {
         contentView.tableView.delegate = self
         contentView.tableView.dataSource = self
+        // Long-press-and-drag to reorder, without an edit mode. `dragInteractionEnabled` is what makes
+        // the lift happen outside `isEditing`; tap-to-edit and swipe-to-delete still work because
+        // UIKit tells the three gestures apart by press duration and direction.
+        contentView.tableView.dragInteractionEnabled = true
+        contentView.tableView.dragDelegate = self
+        contentView.tableView.dropDelegate = self
         contentView.tableView.register(
             AllocationTagCell.self, forCellReuseIdentifier: AllocationTagCell.identifier)
     }
@@ -103,6 +109,51 @@ extension AllocationTagsViewController: AllocationTagsViewDelegate {
     }
 }
 
+// MARK: - Drag to reorder
+
+extension AllocationTagsViewController: UITableViewDragDelegate, UITableViewDropDelegate {
+
+    func tableView(
+        _ tableView: UITableView, itemsForBeginning session: UIDragSession, at indexPath: IndexPath
+    ) -> [UIDragItem] {
+        guard viewModel.tags.indices.contains(indexPath.row) else { return [] }
+        // An empty provider on purpose: this drag never leaves the table, so there is nothing to
+        // serialise for another app. `localObject` carries the identity, and the source index path
+        // comes from the coordinator.
+        let item = UIDragItem(itemProvider: NSItemProvider())
+        item.localObject = viewModel.tags[indexPath.row].id
+        return [item]
+    }
+
+    func tableView(
+        _ tableView: UITableView,
+        dropSessionDidUpdate session: UIDropSession,
+        withDestinationIndexPath destinationIndexPath: IndexPath?
+    ) -> UITableViewDropProposal {
+        // Refuse anything that did not start here, so a drag from another app cannot land on the list.
+        guard session.localDragSession != nil else {
+            return UITableViewDropProposal(operation: .cancel)
+        }
+        return UITableViewDropProposal(operation: .move, intent: .insertAtDestinationIndexPath)
+    }
+
+    func tableView(_ tableView: UITableView, performDropWith coordinator: UITableViewDropCoordinator) {
+        guard let item = coordinator.items.first, let source = item.sourceIndexPath else { return }
+        // A drop past the last row reports no destination; treat it as "to the end".
+        let destination = coordinator.destinationIndexPath
+            ?? IndexPath(row: max(viewModel.tags.count - 1, 0), section: 0)
+        guard source != destination else { return }
+
+        viewModel.moveTag(from: source.row, to: destination.row)
+        tableView.moveRow(at: source, to: destination)
+        coordinator.drop(item.dragItem, toRowAt: destination)
+
+        // The donut and the chip strip order themselves by `sortOrder`, so they need telling. The
+        // service already posted `.allocationTagsChanged` from `reorder`, which is what redraws them -
+        // this only refreshes the visible rows, whose subtitles are unaffected by order.
+    }
+}
+
 // MARK: - UITableViewDataSource & UITableViewDelegate
 
 extension AllocationTagsViewController: UITableViewDataSource, UITableViewDelegate {
@@ -119,7 +170,10 @@ extension AllocationTagsViewController: UITableViewDataSource, UITableViewDelega
             return UITableViewCell()
         }
         let tag = viewModel.tags[indexPath.row]
-        cell.configure(with: tag, categoryCount: viewModel.categoryCount(for: tag))
+        cell.configure(
+            with: tag,
+            categoryCount: viewModel.categoryCount(for: tag),
+            isReorderable: viewModel.tags.count > 1)
         return cell
     }
 
