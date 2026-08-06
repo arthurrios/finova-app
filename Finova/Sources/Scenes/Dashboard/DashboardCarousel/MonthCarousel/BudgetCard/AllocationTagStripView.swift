@@ -135,7 +135,7 @@ final class AllocationTagStripView: UIView {
 
         for arc in breakdown.tagArcs {
             let chip = makeChip(
-                title: arc.tag.name,
+                title: arc.tag.displayName,
                 amount: arc.bucket.allocated,
                 inkColor: arc.tag.color.ink,
                 isValuesHidden: isValuesHidden)
@@ -277,10 +277,13 @@ final class AllocationTagStripView: UIView {
         for arc: AllocationTagBreakdown.TagArc,
         isValuesHidden: Bool
     ) -> String {
-        guard !isValuesHidden else { return arc.tag.name }
+        // Resolved once. It used to be read three times in this one method, and `displayName` walks
+        // the override and translation tiers on every call.
+        let title = arc.tag.displayName
+        guard !isValuesHidden else { return title }
         let share = Int((arc.bucket.share * 100).rounded())
         return [
-            arc.tag.name,
+            title,
             arc.bucket.allocated.compactCurrencyString,
             String(format: "budget.tag.shareOfBudget".localized, share),
         ].joined(separator: ", ")

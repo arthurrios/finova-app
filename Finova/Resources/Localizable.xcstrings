@@ -2080,6 +2080,76 @@
         }
       }
     },
+    "allocationTags.a11y.translatedFrom": {
+      "comment": "VoiceOver hint on a tag row whose name is machine-translated. %@ is the name the user typed.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Originally %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Originalmente %@"
+          }
+        }
+      }
+    },
+    "allocationTags.edit.input.translatedName": {
+      "comment": "Label above the override field. %@ is the phone's language, e.g. \"Portuguese\".",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shown in %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exibido em %@"
+          }
+        }
+      }
+    },
+    "allocationTags.edit.translation.note": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Translated automatically on your device. Type your own name to replace it."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Traduzido automaticamente no seu aparelho. Digite um nome próprio para substituir."
+          }
+        }
+      }
+    },
+    "allocationTags.edit.translation.reset": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use the automatic translation"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usar a tradução automática"
+          }
+        }
+      }
+    },
     "auth.dialog.accountFound.message": {
       "extractionState": "manual",
       "localizations": {
@@ -7673,6 +7743,23 @@
         }
       }
     },
+    "settings.section.sharing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sharing"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compartilhamento"
+          }
+        }
+      }
+    },
     "settings.title": {
       "extractionState": "manual",
       "localizations": {
@@ -7686,6 +7773,228 @@
           "stringUnit": {
             "state": "translated",
             "value": "Configurações"
+          }
+        }
+      }
+    },
+    "settings.translateTags.download.a11y.finished": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Language downloaded. Tag names are now translated."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Idioma baixado. Os nomes das etiquetas agora estão traduzidos."
+          }
+        }
+      }
+    },
+    "settings.translateTags.download.a11y.hint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Downloads the language so tag names can be translated. Your device will ask you to confirm."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Baixa o idioma para traduzir os nomes das etiquetas. Seu aparelho vai pedir confirmação."
+          }
+        }
+      }
+    },
+    "settings.translateTags.download.a11y.started": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Downloading the language. This continues in the background."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Baixando o idioma. O download continua em segundo plano."
+          }
+        }
+      }
+    },
+    "settings.translateTags.download.footer": {
+      "comment": "Appended to settings.translateTags.footer, on a new line, while a download is on offer. %@ is the phone's language.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ hasn't been downloaded yet. Downloading a language can take several minutes and use a lot of data."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ainda não foi baixado. Baixar um idioma pode levar alguns minutos e usar bastante dados."
+          }
+        }
+      }
+    },
+    "settings.translateTags.download.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Download translation languages"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Baixar idiomas de tradução"
+          }
+        }
+      }
+    },
+    "settings.translateTags.downloaded": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Downloaded"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Baixado"
+          }
+        }
+      }
+    },
+    "settings.translateTags.downloading": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Downloading…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Baixando…"
+          }
+        }
+      }
+    },
+    "settings.translateTags.footer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tag names are translated automatically on this device. The name you typed is always kept."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Os nomes das etiquetas são traduzidos automaticamente neste aparelho. O nome que você digitou é sempre mantido."
+          }
+        }
+      }
+    },
+    "settings.translateTags.footer.downloaded": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Language downloaded. Tag names are now translated."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Idioma baixado. Os nomes das etiquetas agora estão traduzidos."
+          }
+        }
+      }
+    },
+    "settings.translateTags.footer.downloading": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The language is downloading in the background. You can leave this screen or close the app."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O idioma está sendo baixado em segundo plano. Você pode sair desta tela ou fechar o app."
+          }
+        }
+      }
+    },
+    "settings.translateTags.footer.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The language didn't finish downloading. Check your connection and tap the row to try again."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O idioma não terminou de baixar. Verifique sua conexão e toque na linha para tentar de novo."
+          }
+        }
+      }
+    },
+    "settings.translateTags.retry": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tap to try again"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toque para tentar de novo"
+          }
+        }
+      }
+    },
+    "settings.translateTags.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Translate tag names"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Traduzir nomes das etiquetas"
           }
         }
       }

@@ -99,6 +99,70 @@ final class AllocationTagEditView: UIView {
     let nameInput = ValidatedInput(
         type: .name, placeholder: "allocationTags.create.namePlaceholder".localized)
 
+    /// A display name the user types to replace a bad machine translation.
+    ///
+    /// A plain `Input`, not a `ValidatedInput`: there is nothing to validate, and empty is a
+    /// meaningful value rather than an error - it means "use the automatic translation".
+    ///
+    /// The trick that makes this explain itself without extra chrome is the **placeholder**: it holds
+    /// the current machine translation, so an untouched field shows the automatic result in grey, and
+    /// a set override shows in normal dark input text. The difference between "what the machine did"
+    /// and "what I wrote" is visible without a word of instruction.
+    let translatedNameInput = Input(placeholder: "")
+
+    private let translatedNameLabel: UILabel = {
+        let label = UILabel()
+        label.font = Fonts.textSM.font
+        label.textColor = Colors.gray600
+        label.numberOfLines = 0
+        label.translatesAutoresizingMaskIntoConstraints = false
+        return label
+    }()
+
+    private let translationNoteLabel: UILabel = {
+        let label = UILabel()
+        label.text = "allocationTags.edit.translation.note".localized
+        label.font = Fonts.textXS.font
+        label.textColor = Colors.gray500
+        label.numberOfLines = 0
+        label.translatesAutoresizingMaskIntoConstraints = false
+        return label
+    }()
+
+    /// Only shown once an override exists. Clearing the field does the same thing, but that is
+    /// discoverable rather than obvious, and reverting a generated result should be easy to find.
+    let resetTranslationButton: UIButton = {
+        var configuration = UIButton.Configuration.plain()
+        // Set through the configuration, not `titleLabel.font`: a UIButton.Configuration rebuilds the
+        // title from its own attributes and silently discards a font assigned to the label, which
+        // renders this at the 17pt system default next to textXS body copy.
+        configuration.attributedTitle = AttributedString(
+            "allocationTags.edit.translation.reset".localized,
+            attributes: AttributeContainer([.font: Fonts.textXS.font]))
+        configuration.baseForegroundColor = Colors.mainMagenta
+        // Padding to a 44pt target: at textXS this is otherwise a sub-minimum tap area.
+        configuration.contentInsets = NSDirectionalEdgeInsets(
+            top: 12, leading: 0, bottom: 12, trailing: 0)
+        let button = UIButton(configuration: configuration)
+        button.titleLabel?.numberOfLines = 0
+        button.titleLabel?.lineBreakMode = .byWordWrapping
+        button.contentHorizontalAlignment = .trailing
+        button.translatesAutoresizingMaskIntoConstraints = false
+        button.isHidden = true
+        return button
+    }()
+
+    private lazy var translationSection: UIStackView = {
+        let stack = UIStackView(arrangedSubviews: [
+            translatedNameLabel, translatedNameInput, translationNoteLabel, resetTranslationButton,
+        ])
+        stack.axis = .vertical
+        stack.spacing = Metrics.spacing2
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        stack.isHidden = true
+        return stack
+    }()
+
     private let colorStackView: UIStackView = {
         let stack = UIStackView()
         stack.axis = .horizontal
@@ -222,6 +286,9 @@ final class AllocationTagEditView: UIView {
 
         let fieldsStack = UIStackView(arrangedSubviews: [
             labeledField(label: "allocationTags.edit.input.name".localized, field: nameInput),
+            // Right after Name: it is a naming concern, and the two fields only make sense read
+            // together - one is what you typed, the other is what gets shown.
+            translationSection,
             labeledField(label: "allocationTags.edit.input.color".localized, field: colorStackView),
             labeledField(label: "allocationTags.edit.input.icon".localized, field: iconScrollView),
             categoriesRow,
@@ -251,6 +318,10 @@ final class AllocationTagEditView: UIView {
         backButton.addTarget(self, action: #selector(backTapped), for: .touchUpInside)
         deleteButton.addTarget(self, action: #selector(deleteTapped), for: .touchUpInside)
         nameInput.textField.addTarget(self, action: #selector(nameChanged), for: .editingChanged)
+        translatedNameInput.textField.addTarget(
+            self, action: #selector(translatedNameChanged), for: .editingChanged)
+        resetTranslationButton.addTarget(
+            self, action: #selector(resetTranslationTapped), for: .touchUpInside)
     }
 
     private func setupLayout() {
@@ -300,6 +371,8 @@ final class AllocationTagEditView: UIView {
                 equalTo: scrollView.widthAnchor, constant: -Metrics.spacing8),
 
             nameInput.heightAnchor.constraint(greaterThanOrEqualToConstant: Metrics.inputHeight),
+            translatedNameInput.heightAnchor.constraint(
+                greaterThanOrEqualToConstant: Metrics.inputHeight),
 
             iconScrollView.heightAnchor.constraint(equalToConstant: 32),
             iconStackView.topAnchor.constraint(equalTo: iconScrollView.topAnchor),
@@ -428,10 +501,53 @@ final class AllocationTagEditView: UIView {
         categoryCountLabel.text = "\(count)"
     }
 
+    /// Shows or hides the "shown in <language>" field.
+    ///
+    /// - Parameters:
+    ///   - languageName: the phone's language, for the field's label.
+    ///   - automaticName: what the tag would be called with no override - the placeholder.
+    ///   - override: what the user typed, if anything.
+    func configureTranslation(languageName: String, automaticName: String, override: String?) {
+        translationSection.isHidden = false
+        translatedNameLabel.text = String(
+            format: "allocationTags.edit.input.translatedName".localized, languageName)
+        translatedNameInput.textField.placeholder = automaticName
+        translatedNameInput.textField.text = override
+        translatedNameInput.textField.accessibilityLabel = translatedNameLabel.text
+        resetTranslationButton.isHidden = (override ?? "").isEmpty
+    }
+
+    func hideTranslationField() {
+        translationSection.isHidden = true
+    }
+
+    var isTranslationFieldHidden: Bool { translationSection.isHidden }
+
+    /// Called as the user types, so the revert affordance appears the moment there is something to
+    /// revert rather than only after the edit is committed.
+    func refreshResetTranslationButton() {
+        let text = translatedNameInput.textField.text ?? ""
+        resetTranslationButton.isHidden = text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    func clearTranslationOverride() {
+        translatedNameInput.textField.text = ""
+        refreshResetTranslationButton()
+    }
+
     @objc private func backTapped() { delegate?.didTapBackButton() }
     @objc private func deleteTapped() { delegate?.didTapDeleteTag() }
     @objc private func categoriesTapped() { delegate?.didTapCategories() }
     @objc private func nameChanged() {
         delegate?.didChangeName(nameInput.textField.text ?? "")
+    }
+
+    @objc private func translatedNameChanged() {
+        refreshResetTranslationButton()
+    }
+
+    @objc private func resetTranslationTapped() {
+        clearTranslationOverride()
+        delegate?.didResetTranslationOverride()
     }
 }

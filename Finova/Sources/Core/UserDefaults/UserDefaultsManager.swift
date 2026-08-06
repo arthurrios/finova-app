@@ -14,6 +14,7 @@ class UserDefaultsManager {
   private static let biometricEnabledKey = "biometricEnabled"
   private static let hideValuesKey = "hideValues"
   private static let currencyCodeKey = "currencyCode"
+  private static let tagTranslationEnabledKey = "allocationTagTranslationEnabled"
 
   /// Special value indicating the app should use device locale currency
   static let currencyAutoValue = "auto"
@@ -97,6 +98,18 @@ class UserDefaultsManager {
   /// Returns true if using device locale for currency (auto mode)
   static func isUsingAutoCurrency() -> Bool {
     return getCurrencyCode() == currencyAutoValue
+  }
+
+  // MARK: - Tag Translation
+
+  /// Defaults to on: it degrades to the typed name whenever a translation is unavailable, so there is
+  /// nothing to protect the user from by starting it off.
+  static func isTagNameTranslationEnabled() -> Bool {
+    UserDefaults.standard.object(forKey: tagTranslationEnabledKey) as? Bool ?? true
+  }
+
+  static func setTagNameTranslationEnabled(_ enabled: Bool) {
+    UserDefaults.standard.set(enabled, forKey: tagTranslationEnabledKey)
   }
 
   // MARK: - Clear All Settings

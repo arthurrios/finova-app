@@ -168,7 +168,7 @@ final class AllocationTagCell: UITableViewCell {
         iconView.image = tag.icon.image
         iconView.tintColor = ink
 
-        nameLabel.text = tag.name
+        nameLabel.text = tag.displayName
 
         switch categoryCount {
         case 0:
@@ -179,5 +179,19 @@ final class AllocationTagCell: UITableViewCell {
             categoryCountLabel.text = String(
                 format: "allocationTags.row.categoryCount".localized, categoryCount)
         }
+
+        // The one place a machine-translated name is worth calling out. The dashboard chips read
+        // their own text so a user can find a filter by the word on screen, and repeating the
+        // provenance across a scrolling strip would be noise - but this is the "manage my tags"
+        // screen, it is one row per tag, and it is one tap from the place you can change it.
+        contentView.isAccessibilityElement = true
+        contentView.accessibilityTraits = .button
+        contentView.accessibilityLabel = [nameLabel.text, categoryCountLabel.text]
+            .compactMap { $0 }
+            .joined(separator: ", ")
+        contentView.accessibilityHint =
+            tag.displayName == tag.name
+            ? nil
+            : String(format: "allocationTags.a11y.translatedFrom".localized, tag.name)
     }
 }

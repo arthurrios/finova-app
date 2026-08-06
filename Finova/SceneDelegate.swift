@@ -25,6 +25,8 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     window.rootViewController = rootViewController
     self.window = window
     self.window?.makeKeyAndVisible()
+
+    AllocationTagTranslationCoordinator.shared.start()
   }
 
   func scene(_ scene: UIScene, openURLContexts URLContexts: Set<UIOpenURLContext>) {

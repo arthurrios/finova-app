@@ -167,7 +167,27 @@ final class SettingsViewModel {
   func refreshAllSettings() {
     updateBiometricUI()
     updateCurrencyUI()
+    updateTagTranslationUI()
     delegate?.didUpdateAppVersion(version: appVersionString)
+  }
+
+  // MARK: - Tag Translation
+
+  /// iOS 26, not the framework's own 18.0 floor.
+  ///
+  /// 18 can translate, but only through a SwiftUI view held alive for the life of the app to vend a
+  /// session. 26 added `TranslationSession(installedSource:target:)`, which removes that machinery
+  /// and every failure mode that came with it. Below 26 the tag simply shows the name that was typed,
+  /// which is the same thing it does whenever a translation is unavailable for any other reason.
+  var isTagTranslationSupported: Bool {
+    if #available(iOS 26.0, *) { return true }
+    return false
+  }
+
+  func updateTagTranslationUI() {
+    delegate?.didUpdateTagTranslation(
+      isEnabled: UserDefaultsManager.isTagNameTranslationEnabled(),
+      isSupported: isTagTranslationSupported)
   }
 
   // MARK: - Currency Management
