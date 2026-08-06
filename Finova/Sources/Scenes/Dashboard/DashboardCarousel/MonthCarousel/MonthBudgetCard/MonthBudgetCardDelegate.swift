@@ -10,6 +10,5 @@ import Foundation
 public protocol MonthBudgetCardDelegate: AnyObject {
   func didTapConfigButton()
   func didTapDefineBudgetButton(budgetDate: Date)
-  func didToggleBalanceVisibility(_ isHidden: Bool)
   func didLongPressBalance()
 }

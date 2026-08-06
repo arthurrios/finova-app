@@ -418,6 +418,38 @@ final class BudgetCardLayoutTests: XCTestCase {
         XCTAssertEqual(usedValue(in: card)?.text, "••••••")
     }
 
+    /// An over-allocated Remaining renders amber with a leading minus. Masked, it must do neither:
+    /// a warning-coloured `-••••••` still reports the thing the user asked to hide.
+    func testMaskedUnallocatedDropsItsWarningTreatment() {
+        let previous = UserDefaultsManager.getHideValues()
+        defer { UserDefaultsManager.setHideValues(previous) }
+
+        UserDefaultsManager.setHideValues(false)
+        let visible = makeCard(totalBudget: 50_000)
+        XCTAssertEqual(unallocatedValue(in: visible)?.textColor, Colors.warningAmber)
+        XCTAssertTrue(unallocatedValue(in: visible)?.text?.hasPrefix("-") ?? false)
+
+        UserDefaultsManager.setHideValues(true)
+        let hidden = makeCard(totalBudget: 50_000)
+        XCTAssertEqual(unallocatedValue(in: hidden)?.text, ValueMask.placeholder)
+        XCTAssertEqual(unallocatedValue(in: hidden)?.textColor, Colors.gray100)
+    }
+
+    /// The card re-renders from the store rather than from a mirrored copy, so a change reaches it
+    /// without any toggle, delegate or visible-cell walk.
+    func testCardMasksOnAStoreChangeAlone() {
+        let previous = UserDefaultsManager.getHideValues()
+        UserDefaultsManager.setHideValues(false)
+        defer { UserDefaultsManager.setHideValues(previous) }
+
+        let card = makeCard(usedValue: 259_600)
+        XCTAssertEqual(usedValue(in: card)?.text, 259_600.currencyString)
+
+        ValueVisibilityStore.shared.setHidden(true)
+
+        XCTAssertEqual(usedValue(in: card)?.text, ValueMask.placeholder)
+    }
+
     // MARK: - Spend gauge
 
     /// The bar is a spend gauge, not allocation coverage: an identical bar sits in the identical

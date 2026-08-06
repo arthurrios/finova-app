@@ -41,6 +41,9 @@ final class AllocationTagStripView: UIView {
 
     private var chipsByTagId: [String: Chip] = [:]
     private var selectedTagId: String?
+    /// Retained so a visibility toggle can re-render the chips without waiting for the next data
+    /// reload — which is how long the amounts used to stay on screen after the eye was tapped.
+    private var lastBreakdown: AllocationTagBreakdown = .empty
     /// Held so it can be inserted and removed as the filter toggles, without rebuilding every chip.
     private var clearChip: UIButton?
 
@@ -119,6 +122,7 @@ final class AllocationTagStripView: UIView {
         isValuesHidden: Bool
     ) -> Bool {
         self.selectedTagId = selectedTagId
+        self.lastBreakdown = breakdown
 
         chipsByTagId.removeAll()
         clearChip = nil
@@ -163,6 +167,15 @@ final class AllocationTagStripView: UIView {
         return true
     }
 
+    /// Re-renders the chip amounts for a visibility change, preserving the current selection.
+    ///
+    /// Rebuilding from the same breakdown is cheap and cannot change the strip's height, so callers
+    /// do not have to re-derive `tagStripHeightConstraint`.
+    func refreshValueVisibility(_ hidden: Bool) {
+        guard lastBreakdown.hasTags else { return }
+        configure(breakdown: lastBreakdown, selectedTagId: selectedTagId, isValuesHidden: hidden)
+    }
+
     private func makeChip(
         title: String,
         amount: Int,
@@ -192,7 +205,7 @@ final class AllocationTagStripView: UIView {
         nameLabel.textColor = Colors.gray600
 
         let amountLabel = UILabel()
-        amountLabel.text = isValuesHidden ? "••••" : amount.compactCurrencyString
+        amountLabel.text = amount.maskedCompactCurrencyString(hidden: isValuesHidden)
         amountLabel.font = Fonts.titleXS.font
         amountLabel.textColor = Colors.gray700
 

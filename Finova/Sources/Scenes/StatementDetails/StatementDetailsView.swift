@@ -18,6 +18,10 @@ final class StatementDetailsView: UIView {
     private var transactions: [Transaction] = []
     private var earlyPaidIds: Set<Int> = []
 
+    private var currentViewModel: StatementDetailsViewModel?
+    private var visibilityObservation: ValueVisibilityObservation?
+    private let hideValuesButton = HideValuesButton(style: .onHeader)
+
     // MARK: - Header
     private let headerContainerView: UIView = {
         let view = UIView()
@@ -57,6 +61,9 @@ final class StatementDetailsView: UIView {
         label.fontStyle = Fonts.titleSM
         label.textColor = Colors.gray700
         label.textAlignment = .left
+        // A long card name truncates rather than pushing past the hide-values button.
+        label.lineBreakMode = .byTruncatingTail
+        label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         label.translatesAutoresizingMaskIntoConstraints = false
         return label
     }()
@@ -187,6 +194,7 @@ final class StatementDetailsView: UIView {
         headerItemsView.addSubview(backButtonGlassContainer)
         backButtonGlassContainer.addSubview(backButton)
         setupBackButtonGlassEffect()
+        headerItemsView.addSubview(hideValuesButton)
         headerItemsView.addSubview(headerTitleLabel)
 
         // Scroll view - between header and footer
@@ -240,8 +248,20 @@ final class StatementDetailsView: UIView {
             backButton.trailingAnchor.constraint(equalTo: backButtonGlassContainer.trailingAnchor),
             backButton.bottomAnchor.constraint(equalTo: backButtonGlassContainer.bottomAnchor),
 
+            hideValuesButton.trailingAnchor.constraint(
+                equalTo: headerItemsView.layoutMarginsGuide.trailingAnchor),
+            // Centred on the back button, not on headerItemsView: this header is 12pt shorter than
+            // the others, so centring on the container would leave the two buttons misaligned.
+            hideValuesButton.centerYAnchor.constraint(
+                equalTo: backButtonGlassContainer.centerYAnchor),
+
             headerTitleLabel.leadingAnchor.constraint(equalTo: backButtonGlassContainer.trailingAnchor, constant: Metrics.spacing4),
             headerTitleLabel.centerYAnchor.constraint(equalTo: backButtonGlassContainer.centerYAnchor),
+            // This label had no trailing constraint at all, so it sized to its intrinsic content -
+            // and its text interpolates a user-entered card name, which will overrun a right-side
+            // button.
+            headerTitleLabel.trailingAnchor.constraint(
+                lessThanOrEqualTo: hideValuesButton.leadingAnchor, constant: -Metrics.spacing3),
 
             // Scroll view - between header and footer
             scrollView.topAnchor.constraint(equalTo: headerContainerView.bottomAnchor),
@@ -303,21 +323,7 @@ final class StatementDetailsView: UIView {
     }
 
     private func setupBackButtonGlassEffect() {
-        if #available(iOS 26.0, *) {
-            let glassEffect = UIGlassEffect(style: .clear)
-            glassEffect.isInteractive = true
-            let glassView = UIVisualEffectView(effect: glassEffect)
-            glassView.translatesAutoresizingMaskIntoConstraints = false
-            backButtonGlassContainer.insertSubview(glassView, at: 0)
-            backButtonGlassContainer.layer.cornerRadius = 18
-            backButtonGlassContainer.clipsToBounds = true
-            NSLayoutConstraint.activate([
-                glassView.topAnchor.constraint(equalTo: backButtonGlassContainer.topAnchor),
-                glassView.leadingAnchor.constraint(equalTo: backButtonGlassContainer.leadingAnchor),
-                glassView.trailingAnchor.constraint(equalTo: backButtonGlassContainer.trailingAnchor),
-                glassView.bottomAnchor.constraint(equalTo: backButtonGlassContainer.bottomAnchor),
-            ])
-        }
+        backButtonGlassContainer.applyClearGlass(cornerRadius: 18)
     }
 
     private func setupActions() {
@@ -332,6 +338,14 @@ final class StatementDetailsView: UIView {
 
     // MARK: - Configuration
     func configure(with viewModel: StatementDetailsViewModel) {
+        currentViewModel = viewModel
+        if visibilityObservation == nil {
+            visibilityObservation = ValueVisibilityStore.shared.observe { [weak self] _ in
+                guard let self, let viewModel = self.currentViewModel else { return }
+                self.configure(with: viewModel)
+            }
+        }
+
         headerTitleLabel.text = String(format: "statementDetails.header.title".localized, viewModel.card.name)
         headerTitleLabel.applyStyle()
 
@@ -339,8 +353,9 @@ final class StatementDetailsView: UIView {
         periodLabel.valueLabel.text = viewModel.periodText
         closingDateLabel.valueLabel.text = viewModel.closingDateText
         dueDateLabel.valueLabel.text = viewModel.dueDateText
-        totalLabel.valueLabel.attributedText = viewModel.statementTotal.currencyAttributedString(
-            symbolFont: Fonts.textXS.font, font: Fonts.titleMD)
+        totalLabel.valueLabel.attributedText = viewModel.statementTotal
+            .maskedCurrencyAttributedString(
+                symbolFont: Fonts.textXS.font, font: Fonts.titleMD)
 
         statusLabel.valueLabel.text = viewModel.statusText
         statusLabel.valueLabel.textColor = viewModel.statusColor

@@ -19,7 +19,7 @@ protocol BudgetAllocationDetailsViewDelegate: AnyObject {
 final class BudgetAllocationDetailsView: UIView {
 
     weak var delegate: BudgetAllocationDetailsViewDelegate?
-    private var isValuesHidden: Bool = false
+    private var visibilityObservation: ValueVisibilityObservation?
     private var currentViewModel: BudgetAllocationDetailsViewModel?
 
     // MARK: - UI Components
@@ -83,6 +83,8 @@ final class BudgetAllocationDetailsView: UIView {
             arrangedSubviews: [headerTitleLabel, headerSubtitleLabel])
         return stack
     }()
+
+    private let hideValuesButton = HideValuesButton(style: .onHeader)
 
     private let headerTitleLabel: UILabel = {
         let label = UILabel()
@@ -347,41 +349,54 @@ final class BudgetAllocationDetailsView: UIView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    // MARK: - Balance Visibility
+    // MARK: - Value Visibility
 
     private func setupNotificationObserver() {
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(handleBalanceVisibilityChanged),
-            name: NSNotification.Name("BalanceVisibilityChanged"),
-            object: nil
-        )
-    }
-
-    @objc private func handleBalanceVisibilityChanged(_ notification: Notification) {
-        guard let userInfo = notification.userInfo,
-              let isHidden = userInfo["isHidden"] as? Bool
-        else { return }
-
-        if isHidden != isValuesHidden {
-            isValuesHidden = isHidden
-            updateValuesDisplay()
+        // The token deregisters itself; the hand-rolled observer this replaces had no deinit.
+        visibilityObservation = ValueVisibilityStore.shared.observe { [weak self] _ in
+            self?.applyValueVisibility()
         }
     }
 
-    private func updateValuesDisplay() {
-        let hidden = "••••••"
-        if isValuesHidden {
-            allocatedValueLabel?.text = hidden
-            usedValueLabel?.text = hidden
-            remainingValueLabel?.text = hidden
-            remainingValueLabel?.textColor = Colors.gray700
-        } else if let viewModel = currentViewModel {
-            allocatedValueLabel?.text = viewModel.formattedAllocated
-            usedValueLabel?.text = viewModel.formattedUsed
-            remainingValueLabel?.text = viewModel.formattedRemaining
-            remainingValueLabel?.textColor = viewModel.status == .overBudget ? Colors.mainRed : Colors.gray700
+    /// The one place the masked labels on this screen are written.
+    ///
+    /// `configure`, `refreshTransactions` and the visibility observer each used to carry their own
+    /// copy of this block, complete with their own `"••••••"` literal.
+    private func applySummaryValues(from viewModel: BudgetAllocationDetailsViewModel) {
+        let hidden = ValueMask.isActive
+
+        allocatedValueLabel?.text = viewModel.formattedAllocated.maskedIfHidden(hidden)
+        usedValueLabel?.text = viewModel.formattedUsed.maskedIfHidden(hidden)
+        remainingValueLabel?.text = viewModel.formattedRemaining.maskedIfHidden(hidden)
+        // Colour stays neutral when masked: red bullets still report "over budget".
+        remainingValueLabel?.textColor =
+            (!hidden && viewModel.status == .overBudget) ? Colors.mainRed : Colors.gray700
+
+        // The ring shows a spent amount in unallocated mode, a percentage otherwise. A percentage
+        // is not a monetary value, so it stays visible.
+        if viewModel.isUnallocatedMode {
+            circularProgressView.configureForUnallocated(spentAmount: viewModel.usedAmount)
+        } else {
+            circularProgressView.configure(
+                percentage: viewModel.usagePercentage,
+                status: viewModel.status
+            )
         }
+
+        // The over-budget banner embeds the amount by which the category overran. Masking the
+        // summary and leaving that visible would leak the figure that was just hidden.
+        if let warningMessage = viewModel.overBudgetWarningMessage {
+            warningLabel.text = hidden
+                ? "allocation.details.warning.hidden".localized
+                : warningMessage
+        }
+    }
+
+    private func applyValueVisibility() {
+        guard let viewModel = currentViewModel else { return }
+        applySummaryValues(from: viewModel)
+        // The rows use the shared TransactionCell, which masks at render time.
+        transactionsTableView.reloadData()
     }
 
     // MARK: - Setup
@@ -395,6 +410,7 @@ final class BudgetAllocationDetailsView: UIView {
         headerItemsView.addSubview(backButtonGlassContainer)
         backButtonGlassContainer.addSubview(backButton)
         setupBackButtonGlassEffect()
+        headerItemsView.addSubview(hideValuesButton)
         headerItemsView.addSubview(headerTextStackView)
 
         // Scroll view
@@ -429,23 +445,7 @@ final class BudgetAllocationDetailsView: UIView {
     }
 
     private func setupBackButtonGlassEffect() {
-        if #available(iOS 26.0, *) {
-            let glassEffect = UIGlassEffect(style: .clear)
-            glassEffect.isInteractive = true
-            let glassView = UIVisualEffectView(effect: glassEffect)
-            glassView.translatesAutoresizingMaskIntoConstraints = false
-
-            backButtonGlassContainer.insertSubview(glassView, at: 0)
-            backButtonGlassContainer.layer.cornerRadius = 18
-            backButtonGlassContainer.clipsToBounds = true
-
-            NSLayoutConstraint.activate([
-                glassView.topAnchor.constraint(equalTo: backButtonGlassContainer.topAnchor),
-                glassView.leadingAnchor.constraint(equalTo: backButtonGlassContainer.leadingAnchor),
-                glassView.trailingAnchor.constraint(equalTo: backButtonGlassContainer.trailingAnchor),
-                glassView.bottomAnchor.constraint(equalTo: backButtonGlassContainer.bottomAnchor)
-            ])
-        }
+        backButtonGlassContainer.applyClearGlass(cornerRadius: 18)
     }
 
     private func setupSummaryContent() {
@@ -604,9 +604,18 @@ final class BudgetAllocationDetailsView: UIView {
             backButton.trailingAnchor.constraint(equalTo: backButtonGlassContainer.trailingAnchor),
             backButton.bottomAnchor.constraint(equalTo: backButtonGlassContainer.bottomAnchor),
 
+            hideValuesButton.trailingAnchor.constraint(
+                equalTo: headerItemsView.layoutMarginsGuide.trailingAnchor),
+            hideValuesButton.centerYAnchor.constraint(
+                equalTo: backButtonGlassContainer.centerYAnchor),
+
             headerTextStackView.leadingAnchor.constraint(
                 equalTo: backButtonGlassContainer.trailingAnchor, constant: Metrics.spacing4),
             headerTextStackView.centerYAnchor.constraint(equalTo: backButtonGlassContainer.centerYAnchor),
+            // The title is a category name, so it can be arbitrarily long. Without this it runs
+            // under the button.
+            headerTextStackView.trailingAnchor.constraint(
+                lessThanOrEqualTo: hideValuesButton.leadingAnchor, constant: -Metrics.spacing3),
 
             // Scroll view
             scrollView.topAnchor.constraint(equalTo: headerContainerView.bottomAnchor),
@@ -680,7 +689,6 @@ final class BudgetAllocationDetailsView: UIView {
 
     func configure(with viewModel: BudgetAllocationDetailsViewModel) {
         self.currentViewModel = viewModel
-        isValuesHidden = UserDefaultsManager.getHideValues()
 
         // Header - different title format for unallocated
         if viewModel.isUnallocatedMode {
@@ -698,41 +706,14 @@ final class BudgetAllocationDetailsView: UIView {
         // Configure buttons based on mode
         configureButtons(isUnallocatedMode: viewModel.isUnallocatedMode)
 
-        // Circular progress - for unallocated, show spent amount instead of percentage
-        if viewModel.isUnallocatedMode {
-            circularProgressView.configureForUnallocated(spentAmount: viewModel.usedAmount)
-        } else {
-            circularProgressView.configure(
-                percentage: viewModel.usagePercentage,
-                status: viewModel.status
-            )
-        }
-
-        // Summary values
-        if isValuesHidden {
-            let hidden = "••••••"
-            allocatedValueLabel.text = hidden
-            usedValueLabel.text = hidden
-            remainingValueLabel.text = hidden
-            remainingValueLabel.textColor = Colors.gray700
-        } else {
-            allocatedValueLabel.text = viewModel.formattedAllocated
-            usedValueLabel.text = viewModel.formattedUsed
-            remainingValueLabel.text = viewModel.formattedRemaining
-
-            if viewModel.status == .overBudget {
-                remainingValueLabel.textColor = Colors.mainRed
-            } else {
-                remainingValueLabel.textColor = Colors.gray700
-            }
-        }
+        // Circular progress and the masked summary values, in one place.
+        applySummaryValues(from: viewModel)
 
         // Recurring badge - always hidden in unallocated mode
         recurringBadge.isHidden = viewModel.isUnallocatedMode || !viewModel.isRecurring
 
-        // Warning banner
-        if let warningMessage = viewModel.overBudgetWarningMessage {
-            warningLabel.text = warningMessage
+        // Warning banner. Its text comes from `applySummaryValues`, which masks it.
+        if viewModel.overBudgetWarningMessage != nil {
             warningBanner.isHidden = false
             // Use amber for unallocated (informational), red for over budget
             if viewModel.isUnallocatedMode {
@@ -822,34 +803,10 @@ final class BudgetAllocationDetailsView: UIView {
         self.currentViewModel = viewModel
 
         // Refresh circular progress and summary values
-        circularProgressView.configure(
-            percentage: viewModel.usagePercentage,
-            status: viewModel.status
-        )
+        applySummaryValues(from: viewModel)
 
-        if isValuesHidden {
-            let hidden = "••••••"
-            usedValueLabel.text = hidden
-            remainingValueLabel.text = hidden
-            remainingValueLabel.textColor = Colors.gray700
-        } else {
-            usedValueLabel.text = viewModel.formattedUsed
-            remainingValueLabel.text = viewModel.formattedRemaining
-
-            if viewModel.status == .overBudget {
-                remainingValueLabel.textColor = Colors.mainRed
-            } else {
-                remainingValueLabel.textColor = Colors.gray700
-            }
-        }
-
-        // Warning banner
-        if let warningMessage = viewModel.overBudgetWarningMessage {
-            warningLabel.text = warningMessage
-            warningBanner.isHidden = false
-        } else {
-            warningBanner.isHidden = true
-        }
+        // Warning banner. Its text comes from `applySummaryValues`, which masks it.
+        warningBanner.isHidden = viewModel.overBudgetWarningMessage == nil
 
         updateSummaryContentHeight()
 

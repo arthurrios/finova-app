@@ -105,6 +105,8 @@ class UserDefaultsManager {
     UserDefaults.standard.removeObject(forKey: biometricEnabledKey)
     UserDefaults.standard.removeObject(forKey: currentMonthIndex)
     UserDefaults.standard.removeObject(forKey: balanceDisplayModeKey)
+    // hideValuesKey is intentionally left alone: clearing it would reveal the user's balances,
+    // and a settings reset should never fail open on a privacy setting.
   }
 
   // MARK: - UID-Based User Management

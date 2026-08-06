@@ -20,6 +20,10 @@ final class EarlyPaymentView: UIView {
     /// the existing row, so tapping a checkbox never rebuilds the list under the user's finger.
     private var rowsById: [Int: EarlyPaymentInstallmentRow] = [:]
 
+    private var currentViewModel: EarlyPaymentViewModel?
+    private var visibilityObservation: ValueVisibilityObservation?
+    private let hideValuesButton = HideValuesButton(style: .onHeader)
+
     // MARK: - Header
 
     private let headerContainerView: UIView = {
@@ -267,6 +271,7 @@ final class EarlyPaymentView: UIView {
         headerItemsView.addSubview(backButtonGlassContainer)
         backButtonGlassContainer.addSubview(backButton)
         setupBackButtonGlassEffect()
+        headerItemsView.addSubview(hideValuesButton)
         headerItemsView.addSubview(headerTitleLabel)
 
         addSubview(scrollView)
@@ -328,10 +333,15 @@ final class EarlyPaymentView: UIView {
             backButton.trailingAnchor.constraint(equalTo: backButtonGlassContainer.trailingAnchor),
             backButton.bottomAnchor.constraint(equalTo: backButtonGlassContainer.bottomAnchor),
 
+            hideValuesButton.trailingAnchor.constraint(
+                equalTo: headerItemsView.layoutMarginsGuide.trailingAnchor),
+            hideValuesButton.centerYAnchor.constraint(
+                equalTo: backButtonGlassContainer.centerYAnchor),
+
             headerTitleLabel.leadingAnchor.constraint(
                 equalTo: backButtonGlassContainer.trailingAnchor, constant: Metrics.spacing4),
             headerTitleLabel.trailingAnchor.constraint(
-                equalTo: headerItemsView.layoutMarginsGuide.trailingAnchor),
+                equalTo: hideValuesButton.leadingAnchor, constant: -Metrics.spacing3),
             headerTitleLabel.centerYAnchor.constraint(
                 equalTo: backButtonGlassContainer.centerYAnchor),
 
@@ -381,21 +391,7 @@ final class EarlyPaymentView: UIView {
     }
 
     private func setupBackButtonGlassEffect() {
-        if #available(iOS 26.0, *) {
-            let glassEffect = UIGlassEffect(style: .clear)
-            glassEffect.isInteractive = true
-            let glassView = UIVisualEffectView(effect: glassEffect)
-            glassView.translatesAutoresizingMaskIntoConstraints = false
-            backButtonGlassContainer.insertSubview(glassView, at: 0)
-            backButtonGlassContainer.layer.cornerRadius = 18
-            backButtonGlassContainer.clipsToBounds = true
-            NSLayoutConstraint.activate([
-                glassView.topAnchor.constraint(equalTo: backButtonGlassContainer.topAnchor),
-                glassView.leadingAnchor.constraint(equalTo: backButtonGlassContainer.leadingAnchor),
-                glassView.trailingAnchor.constraint(equalTo: backButtonGlassContainer.trailingAnchor),
-                glassView.bottomAnchor.constraint(equalTo: backButtonGlassContainer.bottomAnchor),
-            ])
-        }
+        backButtonGlassContainer.applyClearGlass(cornerRadius: 18)
     }
 
     private func setupActions() {
@@ -417,6 +413,15 @@ final class EarlyPaymentView: UIView {
     // MARK: - Configuration
 
     func configure(with viewModel: EarlyPaymentViewModel) {
+        currentViewModel = viewModel
+        if visibilityObservation == nil {
+            visibilityObservation = ValueVisibilityStore.shared.observe { [weak self] _ in
+                guard let self, let viewModel = self.currentViewModel else { return }
+                // The rows and the footer total both carry amounts.
+                self.refreshSelection(with: viewModel)
+            }
+        }
+
         introLabel.text = String(
             format: "earlyPayment.intro".localized, viewModel.seriesTitle)
 
@@ -473,9 +478,12 @@ final class EarlyPaymentView: UIView {
             isSelected: viewModel.allSelected
         )
 
-        totalValueLabel.attributedText = viewModel.selectedTotal.currencyAttributedString(
-            symbolFont: Fonts.textXS.font, font: Fonts.titleMD)
-        totalValueLabel.accessibilityLabel = viewModel.selectedTotal.currencyString
+        let isValueHidden = ValueMask.isActive
+        totalValueLabel.attributedText = viewModel.selectedTotal.maskedCurrencyAttributedString(
+            symbolFont: Fonts.textXS.font, font: Fonts.titleMD, hidden: isValueHidden)
+        totalValueLabel.accessibilityLabel = isValueHidden
+            ? ValueMask.accessibilityLabel
+            : viewModel.selectedTotal.currencyString
 
         selectedCountLabel.text = String(
             format: viewModel.selectedCount == 1

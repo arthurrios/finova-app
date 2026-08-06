@@ -55,6 +55,7 @@ final class AllocationCell: UITableViewCell {
         let label = UILabel()
         label.font = Fonts.textXS.font
         label.textColor = Colors.gray500
+        label.accessibilityIdentifier = "allocationCell.usage"
         return label
     }()
 
@@ -78,6 +79,7 @@ final class AllocationCell: UITableViewCell {
         let label = UILabel()
         label.font = Fonts.textSMBold.font
         label.textAlignment = .right
+        label.accessibilityIdentifier = "allocationCell.remaining"
         return label
     }()
 
@@ -152,8 +154,13 @@ final class AllocationCell: UITableViewCell {
         // Set category name
         categoryLabel.text = allocation.category.displayName
 
-        // Set spent / allocated below category name
-        usageLabel.text = "\(compactCurrency(allocation.usedAmount)) / \(compactCurrency(allocation.allocatedAmount))"
+        // Set spent / allocated below category name. Masked it collapses to one placeholder rather
+        // than "•••••• / ••••••", which reads as noise where a single mask reads as hidden.
+        if ValueMask.isActive {
+            usageLabel.text = ValueMask.placeholder
+        } else {
+            usageLabel.text = "\(compactCurrency(allocation.usedAmount)) / \(compactCurrency(allocation.allocatedAmount))"
+        }
 
         // Set remaining amount with arrow and color
         let remaining = allocation.remainingAmount
@@ -163,7 +170,8 @@ final class AllocationCell: UITableViewCell {
         let arrowName = isPositive ? "arrowUp" : "arrowDown"
         arrowImageView.image = UIImage(named: arrowName)?.withRenderingMode(.alwaysTemplate)
 
-        // Arrow color based on remaining (green for positive, red for negative)
+        // The arrow survives masking: direction is a status signal, not an amount, and without it a
+        // masked row says nothing at all about whether the category is over or under.
         arrowImageView.tintColor = isPositive ? Colors.mainGreen : Colors.mainRed
         // Value uses dark gray like transaction values
         remainingLabel.textColor = Colors.gray700
@@ -216,7 +224,7 @@ final class AllocationCell: UITableViewCell {
     // MARK: - Helpers
 
     private func compactCurrency(_ amount: Int) -> String {
-        return amount.compactCurrencyString
+        return amount.maskedCompactCurrencyString()
     }
 
     func setTapAction(_ action: @escaping () -> Void) {

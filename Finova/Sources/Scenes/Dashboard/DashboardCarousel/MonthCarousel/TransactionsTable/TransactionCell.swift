@@ -366,10 +366,18 @@ public final class TransactionCell: UITableViewCell {
       ? "\(configuration.title), \("earlyPayment.badge.settled".localized)"
       : nil
 
+    // This cell is shared by the dashboard, statement details and allocation details, so masking
+    // here covers all three. The visibility flag is read at render time rather than threaded
+    // through `TransactionCellConfiguration`, which would push it onto all three call sites.
     let symbolFont = Fonts.textXS.font
-    self.valueLabel.attributedText = configuration.value.currencyAttributedString(
-      symbolFont: symbolFont, font: Fonts.titleMD)
-    self.valueLabel.accessibilityLabel = configuration.value.currencyString
+    let isValueHidden = ValueMask.isActive
+    self.valueLabel.attributedText = configuration.value.maskedCurrencyAttributedString(
+      symbolFont: symbolFont, font: Fonts.titleMD, hidden: isValueHidden)
+    // Spoken, not bulleted: VoiceOver reading the real amount would defeat the feature, and reading
+    // six bullets aloud says nothing.
+    self.valueLabel.accessibilityLabel = isValueHidden
+      ? ValueMask.accessibilityLabel
+      : configuration.value.currencyString
 
     // Credit card statement uses special icon and compact title
     if configuration.isCreditCardStatement {

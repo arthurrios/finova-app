@@ -100,7 +100,7 @@ final class EarlyPaymentInstallmentRow: UIView {
     func configure(title: String, amount: Int?, isSelected: Bool) {
         titleLabel.text = title
         if let amount = amount {
-            amountLabel.text = amount.currencyString
+            amountLabel.text = amount.maskedCurrencyString()
             amountLabel.isHidden = false
         } else {
             amountLabel.isHidden = true

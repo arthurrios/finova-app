@@ -1552,6 +1552,23 @@
         }
       }
     },
+    "allocation.details.warning.hidden": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Over budget"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Acima do orçamento"
+          }
+        }
+      }
+    },
     "allocation.details.title.format": {
       "extractionState": "manual",
       "localizations": {
@@ -1667,6 +1684,24 @@
           "stringUnit": {
             "state": "translated",
             "value": "Este gasto não está sendo rastreado por nenhuma alocação de orçamento"
+          }
+        }
+      }
+    },
+    "allocation.details.warning.hidden": {
+      "comment": "Over-budget banner text while values are hidden. Replaces the message that names the overrun amount.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Over budget"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Acima do orçamento"
           }
         }
       }
@@ -4591,6 +4626,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "%d%%"
+          }
+        }
+      }
+    },
+    "hideValues.a11y.hide": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide values"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ocultar valores"
+          }
+        }
+      }
+    },
+    "hideValues.a11y.show": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show values"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar valores"
+          }
+        }
+      }
+    },
+    "hideValues.a11y.valueHidden": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Value hidden"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Valor oculto"
           }
         }
       }

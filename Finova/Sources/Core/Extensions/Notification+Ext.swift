@@ -15,4 +15,5 @@ extension Notification.Name {
   static let navigateToStatementDetails = Notification.Name("navigateToStatementDetails")
   static let allocationTagsChanged = Notification.Name("allocationTagsChanged")
   static let creditCardDataChanged = Notification.Name("creditCardDataChanged")
+  static let valueVisibilityDidChange = Notification.Name("valueVisibilityDidChange")
 }

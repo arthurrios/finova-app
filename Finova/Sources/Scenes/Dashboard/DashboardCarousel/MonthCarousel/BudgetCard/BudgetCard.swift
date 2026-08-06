@@ -28,7 +28,7 @@ final class BudgetCard: UIView {
     private let gradientLayer = Colors.gradientBlack
     private var chartHostingController: UIViewController?
     private var currentMonthAnchor: Int = 0
-    private var isValuesHidden: Bool = false
+    private var visibilityObservation: ValueVisibilityObservation?
     private var projection: AllocationBalanceProjection?
     private var tagBreakdown: AllocationTagBreakdown = .empty
     private var selectedTagId: String?
@@ -83,36 +83,7 @@ final class BudgetCard: UIView {
         return label
     }()
 
-    private lazy var hideValuesToggleContainer: UIView = {
-        let container = UIView()
-        container.backgroundColor = .clear
-        container.translatesAutoresizingMaskIntoConstraints = false
-        container.isUserInteractionEnabled = true
-
-        container.addSubview(hideValuesIcon)
-        NSLayoutConstraint.activate([
-            hideValuesIcon.centerXAnchor.constraint(equalTo: container.centerXAnchor),
-            hideValuesIcon.centerYAnchor.constraint(equalTo: container.centerYAnchor),
-            hideValuesIcon.widthAnchor.constraint(equalToConstant: 24),
-            hideValuesIcon.heightAnchor.constraint(equalToConstant: 24),
-
-            container.widthAnchor.constraint(equalToConstant: 36),
-            container.heightAnchor.constraint(equalToConstant: 36),
-        ])
-
-        let tap = UITapGestureRecognizer(target: self, action: #selector(toggleHideValues))
-        container.addGestureRecognizer(tap)
-
-        return container
-    }()
-
-    private let hideValuesIcon: UIImageView = {
-        let imageView = UIImageView()
-        imageView.contentMode = .scaleAspectFit
-        imageView.tintColor = Colors.gray100
-        imageView.translatesAutoresizingMaskIntoConstraints = false
-        return imageView
-    }()
+    private let hideValuesButton = HideValuesButton(style: .onCard)
 
     private lazy var flipBackButton: UIButton = {
         let button = UIButton(type: .system)
@@ -341,7 +312,11 @@ final class BudgetCard: UIView {
     override init(frame: CGRect) {
         super.init(frame: frame)
         setupUI()
-        setupNotificationObserver()
+        // The token deregisters itself on deinit, which the hand-rolled observer this replaces
+        // never did.
+        visibilityObservation = ValueVisibilityStore.shared.observe { [weak self] _ in
+            self?.updateValuesDisplay()
+        }
     }
 
     required init?(coder: NSCoder) {
@@ -364,10 +339,10 @@ final class BudgetCard: UIView {
 
         headerHorizontalStackView.addArrangedSubview(headerDateStackView)
         headerHorizontalStackView.addArrangedSubview(UIView()) // Spacer
-        headerHorizontalStackView.addArrangedSubview(hideValuesToggleContainer)
+        headerHorizontalStackView.addArrangedSubview(hideValuesButton)
         headerHorizontalStackView.addArrangedSubview(flipBackButton)
         headerHorizontalStackView.addArrangedSubview(configButton)
-        headerHorizontalStackView.setCustomSpacing(Metrics.spacing2, after: hideValuesToggleContainer)
+        headerHorizontalStackView.setCustomSpacing(Metrics.spacing2, after: hideValuesButton)
         headerHorizontalStackView.setCustomSpacing(Metrics.spacing3, after: flipBackButton)
 
         // Footer setup - two columns: Remaining (potential savings), Saved (actual performance)
@@ -522,69 +497,21 @@ final class BudgetCard: UIView {
         delegate?.didTapDefineBudget(forMonth: currentMonthAnchor)
     }
 
-    @objc private func toggleHideValues() {
-        isValuesHidden.toggle()
-        UserDefaultsManager.setHideValues(isValuesHidden)
-        updateHideValuesIcon()
-        updateValuesDisplay()
+    // MARK: - Value Visibility
 
-        // Notify delegate to update all other cards
-        delegate?.didToggleBalanceVisibility(isValuesHidden)
-    }
-
-    private func updateHideValuesIcon() {
-        let iconName = isValuesHidden ? "eye" : "eye-closed"
-        hideValuesIcon.image = UIImage(named: iconName)?.withRenderingMode(.alwaysTemplate)
-    }
-
-    // MARK: - Balance Visibility
-
-    private func setupNotificationObserver() {
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(handleBalanceVisibilityChanged),
-            name: NSNotification.Name("BalanceVisibilityChanged"),
-            object: nil
-        )
-    }
-
-    @objc private func handleBalanceVisibilityChanged(_ notification: Notification) {
-        guard let userInfo = notification.userInfo,
-              let isHidden = userInfo["isHidden"] as? Bool
-        else { return }
-
-        if isHidden != isValuesHidden {
-            isValuesHidden = isHidden
-            updateHideValuesIcon()
-            updateValuesDisplay()
-        }
-    }
-
-    func updateBalanceVisibility(_ isHidden: Bool) {
-        isValuesHidden = isHidden
-        updateHideValuesIcon()
-        updateValuesDisplay()
-    }
-
+    /// Re-renders every masked surface from the current data. `showBudgetMetrics` now masks inline,
+    /// so this is a plain "render again" — it no longer has to overwrite text that was just written
+    /// unmasked.
     private func updateValuesDisplay() {
         // Ahead of the guard: the projection blocks have their own data and must still mask when
         // there is no unallocated summary, or they'd freeze at their pre-mask text.
         renderProjection()
 
         guard let summary = unallocatedSummary else { return }
-        if isValuesHidden {
-            unallocatedValueLabel.text = hiddenValueString
-            unallocatedValueLabel.textColor = Colors.gray100
-            usedValueLabel.text = hiddenValueString
-            usedValueLabel.textColor = Colors.gray100
-        } else {
-            showBudgetMetrics(unallocatedSummary: summary)
-        }
+        showBudgetMetrics(unallocatedSummary: summary)
         // Re-embed chart to update center value visibility
         embedChart()
     }
-
-    private var hiddenValueString: String { "••••••" }
 
     // MARK: - Configuration
 
@@ -645,19 +572,16 @@ final class BudgetCard: UIView {
         monthLabel.applyStyle()
         yearLabel.text = "/ " + year
 
-        // Read initial hide values state
-        isValuesHidden = UserDefaultsManager.getHideValues()
-        updateHideValuesIcon()
+        // Check if there is anything to show. Allocations alone are enough: a month can hold real
+        // allocations with no budget total — an allocation created before the budget was set — and
+        // gating purely on the total threw away the donut, the footer metrics and the projection
+        // blocks in favour of "define your budget". The donut already treats a zero total as
+        // "no remaining slice" rather than dividing by it.
+        let hasContent = unallocatedSummary.totalBudget > 0 || !allocations.isEmpty
 
-        // Check if budget is set
-        let hasBudget = unallocatedSummary.totalBudget > 0
-
-        if hasBudget {
-            // Show chart and metrics
+        if hasContent {
+            // Show chart and metrics. Masking happens inside, so there is no second pass.
             showBudgetMetrics(unallocatedSummary: unallocatedSummary)
-            if isValuesHidden {
-                updateValuesDisplay()
-            }
         } else {
             // Show "define budget" state
             showNoBudgetState()
@@ -678,8 +602,14 @@ final class BudgetCard: UIView {
         // to spend nudges the opposite of what a budgeting app is for. Amber when negative, which is
         // the card's only warning that more has been allocated than the cap allows.
         let unallocated = unallocatedSummary.unallocatedAmount
+        let isHidden = ValueVisibilityStore.shared.isHidden
         unallocatedTextLabel.text = "budget.unallocated".localized
-        if unallocated >= 0 {
+        if isHidden {
+            // The amber-and-minus treatment is suppressed along with the digits: a warning-coloured
+            // "-••••••" still tells the reader they have over-allocated.
+            unallocatedValueLabel.text = ValueMask.placeholder
+            unallocatedValueLabel.textColor = Colors.gray100
+        } else if unallocated >= 0 {
             unallocatedValueLabel.text = unallocated.currencyString
             unallocatedValueLabel.textColor = Colors.gray100
         } else {
@@ -689,7 +619,7 @@ final class BudgetCard: UIView {
 
         // Footer slot 2 - Used: everything spent this month, planned or not. Names the progress
         // bar's numerator directly above it, so the bar stops being an unlabelled graphic.
-        usedValueLabel.text = (currentUsedValue ?? 0).currencyString
+        usedValueLabel.text = (currentUsedValue ?? 0).maskedCurrencyString(hidden: isHidden)
         usedValueLabel.textColor = Colors.gray100
 
         updateSpendGauge()
@@ -765,21 +695,20 @@ final class BudgetCard: UIView {
     /// The blocks hide independently: the leading one needs only a ledger row, the trailing one
     /// needs an open month. Cells are reused, so every path must set `isHidden` explicitly.
     private func renderProjection() {
+        let isHidden = ValueVisibilityStore.shared.isHidden
+
         // Leading block - the month's closing balance. Name the day, or "Balance" is ambiguous:
         // every figure on this card is end-of-period, not "right now".
         if let basis = balanceBasis {
             balanceBlock.isHidden = false
             balanceTextLabel.text = "budget.projection.byDay.format".localized(
                 shortMonthDayString(day: basis.dayOfMonth))
-            if isValuesHidden {
-                balanceValueLabel.text = hiddenValueString
-                balanceValueLabel.textColor = Colors.gray100
-            } else {
-                // Compact notation is mandatory: the blocks are 72pt wide, and a full
-                // "R$ 12.345,67" cannot fit at any acceptable minimumScaleFactor.
-                balanceValueLabel.text = signedCompactString(basis.amount)
-                balanceValueLabel.textColor = basis.amount < 0 ? Colors.brightRed : Colors.gray100
-            }
+            // Compact notation is mandatory: the blocks are 72pt wide, and a full
+            // "R$ 12.345,67" cannot fit at any acceptable minimumScaleFactor.
+            balanceValueLabel.text = basis.amount.maskedSignedCompactString(hidden: isHidden)
+            // Colour stays neutral when masked - red bullets would still say "overdrawn".
+            balanceValueLabel.textColor =
+                (!isHidden && basis.amount < 0) ? Colors.brightRed : Colors.gray100
         } else {
             balanceBlock.isHidden = true
         }
@@ -807,7 +736,7 @@ final class BudgetCard: UIView {
         switch projection.tense {
         case .projected:
             caption = "budget.projection.afterBudget.label".localized
-            valueText = signedCompactString(projection.projected)
+            valueText = projection.projected.maskedSignedCompactString(hidden: isHidden)
 
         case .actual:
             let net = projection.netSaved
@@ -815,7 +744,7 @@ final class BudgetCard: UIView {
                 ? "budget.projection.overspent.label"
                 : "budget.projection.saved.label").localized
             // The caption carries the direction, so the amount is unsigned.
-            valueText = abs(net).compactCurrencyString
+            valueText = abs(net).maskedCompactCurrencyString(hidden: isHidden)
         }
 
         projectionTextLabel.text = caption
@@ -835,9 +764,12 @@ final class BudgetCard: UIView {
             SegmentedBarView.Segment(share: shares.overspent, color: Colors.brightRed),
         ])
 
-        guard !isValuesHidden else {
-            projectionValueLabel.text = hiddenValueString
+        guard !isHidden else {
+            // Also skips the spoken breakdown below, which names the saved and overspent amounts.
+            projectionValueLabel.text = valueText
             projectionValueLabel.textColor = Colors.gray100
+            projectionBlock.isAccessibilityElement = true
+            projectionBlock.accessibilityLabel = "\(caption), \(ValueMask.accessibilityLabel)"
             return
         }
 
@@ -887,14 +819,6 @@ final class BudgetCard: UIView {
         return "\(month) \(day.localizedDayOfMonth)"
     }
 
-    /// `compactCurrencyString` has no notion of sign, so negatives are prefixed here - matching
-    /// how the footer labels already render an over-allocated Remaining value.
-    private func signedCompactString(_ amount: Int) -> String {
-        amount < 0
-            ? "-" + abs(amount).compactCurrencyString
-            : amount.compactCurrencyString
-    }
-
     private func showNoBudgetState() {
         // Hide chart and metrics
         chartContainerView.isHidden = true
@@ -923,7 +847,7 @@ final class BudgetCard: UIView {
             unallocatedSpending: unallocatedSpending,
             breakdown: tagBreakdown,
             selectedTagId: selectedTagId,
-            isValuesHidden: isValuesHidden,
+            isValuesHidden: ValueVisibilityStore.shared.isHidden,
             onSegmentTapped: { [weak self] category in
                 self?.delegate?.didSelectAllocationCategory(category)
             },
