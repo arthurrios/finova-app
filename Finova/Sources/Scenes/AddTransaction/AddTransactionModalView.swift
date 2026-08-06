@@ -249,9 +249,13 @@ final class AddTransactionModalView: UIView {
     return stackView
   }()
 
-  private lazy var horizontalInputsStackView = UIStackView(
-    axis: .horizontal, spacing: Metrics.spacing3, distribution: .fillEqually,
-    arrangedSubviews: [moneyTextField, dateTextField])
+  private lazy var horizontalInputsStackView: UIStackView = {
+    let stackView = UIStackView(
+      axis: .horizontal, spacing: Metrics.spacing3, distribution: .fillEqually,
+      arrangedSubviews: [moneyTextField, dateColumnStack])
+    stackView.alignment = .top
+    return stackView
+  }()
 
   private lazy var installmentsInputContainer: UIStackView = {
     let stackView = UIStackView(
@@ -346,6 +350,39 @@ final class AddTransactionModalView: UIView {
   private let dateTextField = Input(
     type: .date(style: .fullDate), placeholder: "00/00/0000", icon: UIImage(named: "calendar"))
 
+  /// The business-day rule for this transaction. Pre-filled from the global default for a new one,
+  /// and from the transaction itself when editing.
+  private(set) var selectedBusinessDayRule: BusinessDayRule =
+    UserDefaultsManager.getDefaultBusinessDayRule() {
+    didSet { updateBusinessDayUI() }
+  }
+
+  private lazy var businessDayRuleButton: UIButton = {
+    let button = UIButton(type: .system)
+    button.translatesAutoresizingMaskIntoConstraints = false
+    button.contentHorizontalAlignment = .leading
+    button.titleLabel?.font = Fonts.textXS.font
+    button.setTitleColor(Colors.gray500, for: .normal)
+    button.addTarget(self, action: #selector(businessDayRuleTapped), for: .touchUpInside)
+    return button
+  }()
+
+  /// Shows the date the transaction will actually land on, but only when the rule moves it. A rule
+  /// that silently changed the saved date with nothing on screen would look like a bug.
+  private lazy var effectiveDateHintLabel: UILabel = {
+    let label = UILabel()
+    label.translatesAutoresizingMaskIntoConstraints = false
+    label.font = Fonts.textXS.font
+    label.textColor = Colors.gray500
+    label.numberOfLines = 1
+    label.isHidden = true
+    return label
+  }()
+
+  private lazy var dateColumnStack = UIStackView(
+    axis: .vertical, spacing: Metrics.spacing1,
+    arrangedSubviews: [dateTextField, businessDayRuleButton, effectiveDateHintLabel])
+
   var incomeSelectorButton = TransactionTypeSelector()
 
   var expenseSelectorButton = TransactionTypeSelector(transactionType: .expense)
@@ -363,6 +400,9 @@ final class AddTransactionModalView: UIView {
   override init(frame: CGRect) {
     super.init(frame: frame)
     setupViews()
+    // `selectedBusinessDayRule`'s `didSet` only fires on a change, so the selector needs its title
+    // filling in once up front or it renders blank until the user touches something.
+    updateBusinessDayUI()
   }
 
   required init?(coder: NSCoder) {
@@ -430,6 +470,7 @@ final class AddTransactionModalView: UIView {
   }
 
   @objc private func dateDidChange() {
+    // Refreshes the business-day hint too — see `updateStatementInfoBanner`.
     updateStatementInfoBanner()
   }
 
@@ -618,6 +659,56 @@ final class AddTransactionModalView: UIView {
   }
 
   @objc
+  private func businessDayRuleTapped() {
+    delegate?.didRequestBusinessDayRulePicker(current: selectedBusinessDayRule) { [weak self] rule in
+      self?.selectedBusinessDayRule = rule
+    }
+  }
+
+  /// Keeps the selector title and the "effective date" hint in step with the rule, the picked date
+  /// and the payment method.
+  func updateBusinessDayUI() {
+    // A card purchase's effective date is the statement due date, which the card owns — so the rule
+    // has nothing to act on and the selector would be misleading.
+    let isCreditCard = getSelectedCreditCardId() != nil
+    businessDayRuleButton.isHidden = isCreditCard
+
+    if isCreditCard {
+      effectiveDateHintLabel.text = "addTransactionModal.businessDay.creditCardHint".localized
+      effectiveDateHintLabel.isHidden = false
+      return
+    }
+
+    businessDayRuleButton.setTitle("\(selectedBusinessDayRule.title) ▾", for: .normal)
+
+    guard selectedBusinessDayRule.shiftsDates, let picked = currentlyPickedDate() else {
+      effectiveDateHintLabel.isHidden = true
+      return
+    }
+
+    var calendar = Calendar.current
+    calendar.timeZone = .current
+    let adjusted = BusinessDayAdjuster.adjust(
+      picked, rule: selectedBusinessDayRule, calendar: calendar)
+
+    // Nothing to say when the picked date is already a business day.
+    guard adjusted != picked else {
+      effectiveDateHintLabel.isHidden = true
+      return
+    }
+
+    effectiveDateHintLabel.text = "addTransactionModal.businessDay.effective".localized(
+      DateFormatter.fullDateFormatter.string(from: adjusted))
+    effectiveDateHintLabel.isHidden = false
+  }
+
+  private func currentlyPickedDate() -> Date? {
+    if let value = dateTextField.dateValue { return value }
+    guard let text = dateTextField.textField.text, !text.isEmpty else { return nil }
+    return DateFormatter.fullDateFormatter.date(from: text)
+  }
+
+  @objc
   private func didTapSaveTransaction() {
     let basicInputs = [
       transactionTitleTextField, categoryPickerView, moneyTextField, dateTextField,
@@ -716,7 +807,7 @@ final class AddTransactionModalView: UIView {
           title: title, totalAmount: amount, date: date, category: categoryKey,
           transactionType: typeKey,
           installments: Int(installmentsInputWithSuffix.textField.text ?? "1") ?? 1,
-          creditCardId: getSelectedCreditCardId())
+          creditCardId: getSelectedCreditCardId(), businessDayRule: selectedBusinessDayRule)
         delegate?.updateInstallmentTransactionData(id: transactionId, installmentData)
       } else if editingTransaction.mode == .recurring {
         // For recurring transactions, show alert with options
@@ -724,7 +815,7 @@ final class AddTransactionModalView: UIView {
           transactionId: transactionId,
           transactionData: AddTransactionData(
             title: title, amount: amount, date: date, category: categoryKey,
-            transactionType: typeKey, creditCardId: getSelectedCreditCardId()),
+            transactionType: typeKey, creditCardId: getSelectedCreditCardId(), businessDayRule: selectedBusinessDayRule),
           installmentData: nil,
           mode: selectedMode
         )
@@ -734,7 +825,7 @@ final class AddTransactionModalView: UIView {
           id: transactionId,
           AddTransactionData(
             title: title, amount: amount, date: date, category: categoryKey,
-            transactionType: typeKey, creditCardId: getSelectedCreditCardId())
+            transactionType: typeKey, creditCardId: getSelectedCreditCardId(), businessDayRule: selectedBusinessDayRule)
         )
       }
     } else {
@@ -746,20 +837,23 @@ final class AddTransactionModalView: UIView {
         delegate?.sendTransactionData(
           AddTransactionData(
             title: title, amount: amount, date: date, category: categoryKey,
-            transactionType: typeKey, creditCardId: creditCardId)
+            transactionType: typeKey, creditCardId: creditCardId,
+            businessDayRule: selectedBusinessDayRule)
         )
       case .recurring:
         delegate?.sendRecurringTransactionData(
           AddTransactionData(
             title: title, amount: amount, date: date, category: categoryKey,
-            transactionType: typeKey, creditCardId: creditCardId)
+            transactionType: typeKey, creditCardId: creditCardId,
+            businessDayRule: selectedBusinessDayRule)
         )
       case .installments:
         let installmentsCount = Int(installmentsInputWithSuffix.textField.text ?? "1") ?? 1
         delegate?.sendInstallmentTransactionData(
           InstallmentTransactionData(
             title: title, totalAmount: amount, date: date, category: categoryKey,
-            transactionType: typeKey, installments: installmentsCount, creditCardId: creditCardId))
+            transactionType: typeKey, installments: installmentsCount, creditCardId: creditCardId,
+            businessDayRule: selectedBusinessDayRule))
       }
     }
   }
@@ -850,6 +944,10 @@ final class AddTransactionModalView: UIView {
   }
 
   private func updateStatementInfoBanner() {
+    // Every payment-method change funnels through here, so the business-day selector hides and shows
+    // with the card without each assignment site having to remember.
+    updateBusinessDayUI()
+
     guard let card = selectedCard else {
       statementInfoBanner.isHidden = true
       return
@@ -901,6 +999,10 @@ final class AddTransactionModalView: UIView {
     isEditMode = true
     editingTransaction = transaction
     currentEditMode = .edit(transaction: transaction)
+
+    // The row's own rule, not the global default: editing a transaction must not silently re-rule it
+    // to whatever the user has since chosen for new ones.
+    selectedBusinessDayRule = transaction.businessDayRule
 
     // Switch to simplified layout for edit mode
     contentStackView.removeFromSuperview()
@@ -968,8 +1070,10 @@ final class AddTransactionModalView: UIView {
     // Trigger currency formatting
     moneyTextField.textField.sendActions(for: .editingChanged)
 
-    // Populate date
-    let dateString = DateFormatter.fullDateFormatter.string(from: transaction.date)
+    // Populate date with the date the user originally PICKED, not the one a business-day rule moved
+    // it to. Showing the shifted date would re-adjust it on every save, walking the transaction a few
+    // days further each time. The shifted date is shown separately by the "effective" hint.
+    let dateString = DateFormatter.fullDateFormatter.string(from: transaction.unadjustedDate)
     dateTextField.text = dateString
 
     // Populate installment-specific fields for installment transactions

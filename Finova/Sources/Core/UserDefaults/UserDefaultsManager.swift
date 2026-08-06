@@ -15,6 +15,7 @@ class UserDefaultsManager {
   private static let hideValuesKey = "hideValues"
   private static let currencyCodeKey = "currencyCode"
   private static let tagTranslationEnabledKey = "allocationTagTranslationEnabled"
+  private static let defaultBusinessDayRuleKey = "defaultBusinessDayRule"
 
   /// Special value indicating the app should use device locale currency
   static let currencyAutoValue = "auto"
@@ -110,6 +111,18 @@ class UserDefaultsManager {
 
   static func setTagNameTranslationEnabled(_ enabled: Bool) {
     UserDefaults.standard.set(enabled, forKey: tagTranslationEnabledKey)
+  }
+
+  // MARK: - Business Day
+
+  /// The rule pre-filled for NEW transactions. Only a default: each transaction stores its own rule,
+  /// so changing this never rewrites anything that already exists.
+  static func setDefaultBusinessDayRule(_ rule: BusinessDayRule) {
+    UserDefaults.standard.set(rule.rawValue, forKey: defaultBusinessDayRuleKey)
+  }
+
+  static func getDefaultBusinessDayRule() -> BusinessDayRule {
+    BusinessDayRule.fromStored(UserDefaults.standard.string(forKey: defaultBusinessDayRuleKey))
   }
 
   // MARK: - Clear All Settings

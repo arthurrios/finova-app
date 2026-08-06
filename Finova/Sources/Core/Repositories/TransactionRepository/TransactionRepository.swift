@@ -607,12 +607,27 @@ final class TransactionRepository: TransactionRepositoryProtocol {
     // re-derived from its own date — see the routing note in AddTransactionModalViewModel.
     var previousStatement: CreditCardStatement?
 
+    // The rule the series was created with is carried into every rebuilt child: without this, a
+    // rebuild — changing the amount, say — would silently reset the whole series to `.exact`.
+    let seriesRule = templateTransaction.data.businessDayRule
+
     for i in 0..<newNumberOfInstallments {
-      // Calculate date for this installment (add i months to start date)
-      let installmentDate = calendar.date(byAdding: .month, value: i, to: startDate) ?? startDate
+      // Through `OccurrenceDateCalculator` rather than raw `byAdding: .month`, so a rebuilt series
+      // lands on the same dates a freshly created one would: the same day clamping for months that
+      // are too short, and the same noon anchoring that keeps a date from drifting across midnight.
+      // Raw month arithmetic here silently produced a different day for a series anchored on the
+      // 29th–31st, walking it further on every edit.
+      let targetDate = calendar.date(byAdding: .month, value: i, to: startDate) ?? startDate
+      let occurrence = OccurrenceDateCalculator.occurrencePair(
+        from: startDate,
+        targetMonth: calendar.component(.month, from: targetDate),
+        targetYear: calendar.component(.year, from: targetDate),
+        rule: seriesRule,
+        calendar: calendar
+      )
 
       // Resolve the statement before inserting, so the row is written once with the date it will
-      // actually be charged on.
+      // actually be charged on. Routed by the unadjusted date, as on the creation path.
       var statement: CreditCardStatement?
       if let cardId = finalCreditCardId, let card = creditCardRepo.fetchCard(byId: cardId),
         let uid = AuthenticationManager.shared.currentUser?.uid
@@ -621,11 +636,11 @@ final class TransactionRepository: TransactionRepositoryProtocol {
           statement = creditCardService.nextStatement(after: previous, for: card, userId: uid)
         } else {
           statement = creditCardService.getOrCreateStatement(
-            for: card, transactionDate: installmentDate, userId: uid)
+            for: card, transactionDate: occurrence.unadjusted, userId: uid)
         }
       }
 
-      let effectiveDate = statement?.dueDate ?? installmentDate
+      let effectiveDate = statement?.dueDate ?? occurrence.adjusted
 
       // Save the new installment
       let installmentModel = TransactionModel(
@@ -641,7 +656,10 @@ final class TransactionRepository: TransactionRepositoryProtocol {
         parentTransactionId: mainInstallmentTransactionId,
         originalAmount: nil,
         installmentNumber: i + 1,
-        totalInstallments: newNumberOfInstallments
+        totalInstallments: newNumberOfInstallments,
+        businessDayRule: seriesRule,
+        unadjustedDateTimestamp: Int(occurrence.unadjusted.timeIntervalSince1970),
+        seriesPeriod: occurrence.unadjusted.monthAnchor
       )
 
       do {

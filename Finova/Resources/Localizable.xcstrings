@@ -379,6 +379,57 @@
         }
       }
     },
+    "addTransactionModal.businessDay.creditCardHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Card purchases follow the statement due date"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compras no cartão seguem o vencimento da fatura"
+          }
+        }
+      }
+    },
+    "addTransactionModal.businessDay.effective": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Effective: %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Efetiva: %@"
+          }
+        }
+      }
+    },
+    "addTransactionModal.businessDay.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Business day"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dia útil"
+          }
+        }
+      }
+    },
     "addTransactionModal.button.save": {
       "extractionState": "manual",
       "localizations": {
@@ -3251,6 +3302,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "Orçamentos cadastrados"
+          }
+        }
+      }
+    },
+    "businessDayRule.exact.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exact date"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Data exata"
+          }
+        }
+      }
+    },
+    "businessDayRule.nextBusinessDay.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Next business day"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Próximo dia útil"
+          }
+        }
+      }
+    },
+    "businessDayRule.previousBusinessDay.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Previous business day"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dia útil anterior"
           }
         }
       }
@@ -7331,6 +7433,108 @@
           "stringUnit": {
             "state": "translated",
             "value": "Abrir Configurações"
+          }
+        }
+      }
+    },
+    "settings.businessDay.picker.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Applied to new transactions. Holidays: %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aplicada a novas transações. Feriados: %@"
+          }
+        }
+      }
+    },
+    "settings.businessDay.picker.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Default business day rule"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Regra de dia útil padrão"
+          }
+        }
+      }
+    },
+    "settings.businessDay.region.brazil": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brazil"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brasil"
+          }
+        }
+      }
+    },
+    "settings.businessDay.region.none": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Weekends only"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Somente fins de semana"
+          }
+        }
+      }
+    },
+    "settings.businessDay.region.unitedStates": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "United States"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estados Unidos"
+          }
+        }
+      }
+    },
+    "settings.businessDay.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Business day rule"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Regra de dia útil"
           }
         }
       }

@@ -57,11 +57,21 @@ struct Transaction: Codable {
     var creditCardId: Int? { data.creditCardId }
     var statementId: Int? { data.statementId }
     var isCreditCardStatement: Bool? { data.isCreditCardStatement }
-    
+    var businessDayRule: BusinessDayRule { data.businessDayRule }
+    var unadjustedDateTimestamp: Int? { data.unadjustedDateTimestamp }
+    /// The occurrence slot this row occupies, falling back to its accounting month.
+    var seriesPeriod: Int { data.seriesPeriod ?? data.budgetMonthDate }
+
+    /// The occurrence date before the business-day rule moved it, falling back to the stored date for
+    /// rows written before the column existed. Regeneration derives from this, never from `date`.
+    var unadjustedDate: Date {
+        Date(timeIntervalSince1970: TimeInterval(unadjustedDateTimestamp ?? dateTimestamp))
+    }
+
     init(data: UITransactionData) {
         self.data = data
     }
-    
+
     // Custom Codable implementation to serialize/deserialize correctly
     enum CodingKeys: String, CodingKey {
         case id, title, amount, dateTimestamp, budgetMonthDate
@@ -69,6 +79,7 @@ struct Transaction: Codable {
         case installmentNumber, totalInstallments, originalAmount
         case creditCardId, statementId, isCreditCardStatement
         case category, type
+        case businessDayRule, unadjustedDateTimestamp, seriesPeriod
     }
     
     init(from decoder: Decoder) throws {
@@ -88,6 +99,13 @@ struct Transaction: Codable {
         let creditCardId = try container.decodeIfPresent(Int.self, forKey: .creditCardId)
         let statementId = try container.decodeIfPresent(Int.self, forKey: .statementId)
         let isCreditCardStatement = try container.decodeIfPresent(Bool.self, forKey: .isCreditCardStatement)
+        // `decodeIfPresent` on all three: a payload written before these existed has none of the keys,
+        // and a rule string from a newer build naming a case we do not implement collapses to `.exact`.
+        let businessDayRule = BusinessDayRule.fromStored(
+            try container.decodeIfPresent(String.self, forKey: .businessDayRule))
+        let unadjustedDateTimestamp = try container.decodeIfPresent(
+            Int.self, forKey: .unadjustedDateTimestamp)
+        let seriesPeriod = try container.decodeIfPresent(Int.self, forKey: .seriesPeriod)
 
         // Decode category and type as strings, then convert to enums
         let categoryString = try container.decode(String.self, forKey: .category)
@@ -121,10 +139,13 @@ struct Transaction: Codable {
             creditCardId: creditCardId,
             statementId: statementId,
             isCreditCardStatement: isCreditCardStatement,
+            businessDayRule: businessDayRule,
+            unadjustedDateTimestamp: unadjustedDateTimestamp,
+            seriesPeriod: seriesPeriod,
             category: category,
             type: type
         )
-        
+
         self.data = uiData
     }
     
@@ -145,6 +166,10 @@ struct Transaction: Codable {
         try container.encodeIfPresent(data.creditCardId, forKey: .creditCardId)
         try container.encodeIfPresent(data.statementId, forKey: .statementId)
         try container.encodeIfPresent(data.isCreditCardStatement, forKey: .isCreditCardStatement)
+        try container.encode(data.businessDayRule.rawValue, forKey: .businessDayRule)
+        try container.encodeIfPresent(
+            data.unadjustedDateTimestamp, forKey: .unadjustedDateTimestamp)
+        try container.encodeIfPresent(data.seriesPeriod, forKey: .seriesPeriod)
 
         // Encode category and type as strings
         try container.encode(data.category.key, forKey: .category)
@@ -173,7 +198,11 @@ struct TransactionModel {
         totalInstallments: Int? = nil,
         creditCardId: Int? = nil,
         statementId: Int? = nil,
-        isCreditCardStatement: Bool? = nil
+        isCreditCardStatement: Bool? = nil,
+        // Appended, and defaulted, so the several dozen existing labelled call sites are unchanged.
+        businessDayRule: BusinessDayRule = .exact,
+        unadjustedDateTimestamp: Int? = nil,
+        seriesPeriod: Int? = nil
     ) {
         self.data = DBTransactionData(
             id: id,
@@ -190,6 +219,9 @@ struct TransactionModel {
             creditCardId: creditCardId,
             statementId: statementId,
             isCreditCardStatement: isCreditCardStatement,
+            businessDayRule: businessDayRule,
+            unadjustedDateTimestamp: unadjustedDateTimestamp,
+            seriesPeriod: seriesPeriod,
             category: category,
             type: type
         )
@@ -253,6 +285,9 @@ extension UITransactionData {
             creditCardId: db.creditCardId,
             statementId: db.statementId,
             isCreditCardStatement: db.isCreditCardStatement,
+            businessDayRule: db.businessDayRule,
+            unadjustedDateTimestamp: db.unadjustedDateTimestamp,
+            seriesPeriod: db.seriesPeriod,
             category: finalCategory,
             type: finalType
         )

@@ -177,16 +177,20 @@ final class RecurringTransactionManager {
 
       // Create instances for the effective start anchor and all future periods
       if targetAnchor >= effectiveStartAnchor {
-        let originalDate = Date(timeIntervalSince1970: TimeInterval(recurringTx.dateTimestamp))
+        // The series' canonical date, not its stored one — see `unadjustedDate`.
+        let originalDate = recurringTx.unadjustedDate
 
         // Generate a valid date for the target month
         let targetYear = calendar.component(.year, from: targetDate)
         let targetMonth = calendar.component(.month, from: targetDate)
-        let instanceDate = generateValidDateForMonth(
-          originalDate: originalDate,
+        let occurrence = OccurrenceDateCalculator.occurrencePair(
+          from: originalDate,
           targetMonth: targetMonth,
-          targetYear: targetYear
+          targetYear: targetYear,
+          rule: recurringTx.businessDayRule,
+          calendar: calendar
         )
+        let instanceDate = occurrence.adjusted
 
         // Create the instance, preserving credit card association from parent
         let instanceModel = TransactionModel(
@@ -194,10 +198,13 @@ final class RecurringTransactionManager {
           category: recurringTx.category.key,
           amount: recurringTx.amount,
           type: recurringTx.type.key,
-          dateTimestamp: Int(instanceDate.timeIntervalSince1970),
+          dateTimestamp: Int(occurrence.adjusted.timeIntervalSince1970),
           budgetMonthDate: targetAnchor,
           parentTransactionId: recurringTxId,
-          creditCardId: recurringTx.creditCardId
+          creditCardId: recurringTx.creditCardId,
+          businessDayRule: recurringTx.businessDayRule,
+          unadjustedDateTimestamp: Int(occurrence.unadjusted.timeIntervalSince1970),
+          seriesPeriod: targetAnchor
         )
 
         do {
@@ -633,8 +640,11 @@ final class RecurringTransactionManager {
     for instance in relatedInstances {
       guard let instanceId = instance.id else { continue }
 
-      let instanceDate = Date(timeIntervalSince1970: TimeInterval(instance.dateTimestamp))
-      let instanceMonthAnchor = instanceDate.monthAnchor
+      // The occurrence's own slot, read from the row rather than recomputed from its timestamp. Those
+      // agree only while nothing shifts a date across a month boundary; with a business-day rule in
+      // play, deriving it from the stored (already adjusted) date puts an occurrence in the wrong
+      // month and "this and future occurrences" then edits the wrong set.
+      let instanceMonthAnchor = instance.seriesPeriod
 
       let shouldUpdate: Bool
       switch editOption {
@@ -862,21 +872,36 @@ final class RecurringTransactionManager {
       // Build lookup tables ONCE
       let allTransactionIds = Set(allTransactions.compactMap { $0.id })
 
-      // Group transactions by parent ID for efficient instance lookup
-      var instancesByParentId: [Int: Set<Int>] = [:]  // parentId -> Set of monthAnchors
-      // Installments are matched by their NUMBER, not by the month they sit in. A credit-card
-      // installment is re-anchored onto its statement's due date at creation, so its
-      // budgetMonthDate no longer equals "purchase month + N" — matching on the month would report
-      // every occurrence as missing and generate a second copy of the whole series.
-      // The number is the occurrence's real identity and never moves.
+      // Which occurrences of each series already exist. Two maps, because the two kinds of series
+      // identify an occurrence differently:
+      //
+      //  - RECURRING by `seriesPeriod`, the month it was SCHEDULED for. Deliberately not
+      //    `budgetMonthDate`: a business-day rule can push the date into an adjacent month, and keying
+      //    on where it landed empties the scheduled month's slot — so the loop below sees a missing
+      //    occurrence and creates a duplicate, once per generation pass.
+      //  - INSTALLMENTS by `installmentNumber`. A card installment is additionally re-anchored onto
+      //    its statement's due date, so neither of its month fields is a stable identity; the ordinal
+      //    is, and it never moves.
+      var instancesByParentId: [Int: Set<Int>] = [:]  // parentId -> Set of occurrence slots
       var installmentNumbersByParentId: [Int: Set<Int>] = [:]
       for tx in allTransactions {
         if let parentId = tx.parentTransactionId {
-          instancesByParentId[parentId, default: []].insert(tx.budgetMonthDate)
+          instancesByParentId[parentId, default: []].insert(tx.seriesPeriod)
           if let number = tx.installmentNumber {
             installmentNumbersByParentId[parentId, default: []].insert(number)
           }
         }
+      }
+
+      // Existing (title, slot, DAY) triples, to catch duplicates even when parent_transaction_id is
+      // wrong. The day comes from the UNADJUSTED date: keyed on the shifted day instead, two
+      // same-title series anchored on (say) the 15th and 16th that both roll to the same Monday would
+      // collide, and the second would generate nothing at all — the exact failure the day component
+      // was added to prevent.
+      var existingTitleAnchors: Set<String> = []
+      for tx in allTransactions {
+        let txDay = self.calendar.component(.day, from: tx.unadjustedDate)
+        existingTitleAnchors.insert("\(tx.title)|\(tx.seriesPeriod)|\(txDay)")
       }
 
       // Filter recurring parents and installment parents
@@ -917,38 +942,60 @@ final class RecurringTransactionManager {
 
         guard !missingAnchors.isEmpty else { continue }
 
-        let originalDate = Date(timeIntervalSince1970: TimeInterval(recurringTx.dateTimestamp))
+        // The series' canonical date, NOT its stored one. Re-deriving the anchor day from a date the
+        // rule has already shifted would walk the series a little further every generation pass.
+        let originalDate = recurringTx.unadjustedDate
 
         for targetAnchor in missingAnchors {
           let targetDate = Date(timeIntervalSince1970: TimeInterval(targetAnchor))
           let targetYear = self.calendar.component(.year, from: targetDate)
           let targetMonth = self.calendar.component(.month, from: targetDate)
 
-          let instanceDate = self.generateValidDateForMonth(
-            originalDate: originalDate,
+          let occurrence = OccurrenceDateCalculator.occurrencePair(
+            from: originalDate,
             targetMonth: targetMonth,
-            targetYear: targetYear
+            targetYear: targetYear,
+            rule: recurringTx.businessDayRule,
+            calendar: self.calendar
           )
 
+          // Cross-check against the title/slot/day set, so a series whose parent link is wrong still
+          // cannot double up.
+          let dayKey = self.calendar.component(.day, from: occurrence.unadjusted)
+          let titleKey = "\(recurringTx.title)|\(targetAnchor)|\(dayKey)"
+          if existingTitleAnchors.contains(titleKey) { continue }
+          existingTitleAnchors.insert(titleKey)
+
+          // `budgetMonthDate` is where the money actually moves, so it follows the ADJUSTED date;
+          // `seriesPeriod` is which occurrence this is, so it stays on the scheduled month. They
+          // differ exactly when the rule crossed a month boundary, and that is the case this whole
+          // split exists for.
           let instanceModel = TransactionModel(
             title: recurringTx.title,
             category: recurringTx.category.key,
             amount: recurringTx.amount,
             type: recurringTx.type.key,
-            dateTimestamp: Int(instanceDate.timeIntervalSince1970),
+            dateTimestamp: Int(occurrence.adjusted.timeIntervalSince1970),
             budgetMonthDate: targetAnchor,
             parentTransactionId: recurringTxId,
-            creditCardId: recurringTx.creditCardId
+            creditCardId: recurringTx.creditCardId,
+            businessDayRule: recurringTx.businessDayRule,
+            unadjustedDateTimestamp: Int(occurrence.unadjusted.timeIntervalSince1970),
+            seriesPeriod: targetAnchor
           )
 
           do {
             let insertedId = try self.transactionRepo.insertTransactionAndGetId(instanceModel)
             newInstancesCreated += 1
 
-            // Assign to correct monthly statement if linked to a credit card
+            // Assign to correct monthly statement if linked to a credit card. Routed by the
+            // unadjusted date: which billing cycle an occurrence falls in is decided by when it was
+            // scheduled, not by a weekend shift moving it a day or two.
             if let cardId = recurringTx.creditCardId,
                let uid = AuthenticationManager.shared.currentUser?.uid {
-              self.assignToStatement(transactionId: insertedId, creditCardId: cardId, transactionDate: instanceDate, userId: uid)
+              self.assignToStatement(
+                transactionId: insertedId, creditCardId: cardId,
+                transactionDate: occurrence.unadjusted, userId: uid)
             }
           } catch {
             logError("Error creating recurring instance: \(error)")
@@ -995,10 +1042,12 @@ final class RecurringTransactionManager {
           let targetYear = self.calendar.component(.year, from: targetDate)
           let targetMonth = self.calendar.component(.month, from: targetDate)
 
-          let installmentDate = self.generateValidDateForMonth(
-            originalDate: parentDate,
+          let occurrence = OccurrenceDateCalculator.occurrencePair(
+            from: parentDate,
             targetMonth: targetMonth,
-            targetYear: targetYear
+            targetYear: targetYear,
+            rule: parent.businessDayRule,
+            calendar: self.calendar
           )
 
           let installmentAmount =
@@ -1009,12 +1058,15 @@ final class RecurringTransactionManager {
             category: parent.category.key,
             amount: installmentAmount,
             type: parent.type.key,
-            dateTimestamp: Int(installmentDate.timeIntervalSince1970),
+            dateTimestamp: Int(occurrence.adjusted.timeIntervalSince1970),
             budgetMonthDate: targetAnchor,
             parentTransactionId: parentId,
             originalAmount: originalAmount,
             installmentNumber: installmentNumber,
-            totalInstallments: totalInstallments
+            totalInstallments: totalInstallments,
+            businessDayRule: parent.businessDayRule,
+            unadjustedDateTimestamp: Int(occurrence.unadjusted.timeIntervalSince1970),
+            seriesPeriod: targetAnchor
           )
 
           do {
@@ -1066,51 +1118,6 @@ final class RecurringTransactionManager {
 
   // MARK: - Helper Methods
 
-  /// Gera uma data válida para o mês especificado, lidando com dias que não existem
-  /// - Parameters:
-  ///   - originalDate: Data original da transação recorrente
-  ///   - targetMonth: Mês para o qual gerar a data
-  ///   - targetYear: Ano para o qual gerar a data
-  /// - Returns: Data válida para o mês especificado
-  private func generateValidDateForMonth(
-    originalDate: Date,
-    targetMonth: Int,
-    targetYear: Int
-  ) -> Date {
-    let originalDay = calendar.component(.day, from: originalDate)
-
-    // Calculate the last day of the specific month
-    let lastDayOfMonth: Int
-    switch targetMonth {
-    case 2:  // February
-      let isLeapYear = (targetYear % 4 == 0 && targetYear % 100 != 0) || (targetYear % 400 == 0)
-      lastDayOfMonth = isLeapYear ? 29 : 28
-    case 4, 6, 9, 11:  // April, June, September, November
-      lastDayOfMonth = 30
-    default:  // January, March, May, July, August, October, December
-      lastDayOfMonth = 31
-    }
-
-    // Determine the day to use
-    let dayToUse = min(originalDay, lastDayOfMonth)
-
-    // Create the date
-    var dateComponents = DateComponents()
-    dateComponents.year = targetYear
-    dateComponents.month = targetMonth
-    dateComponents.day = dayToUse
-    dateComponents.hour = 12  // Use noon to avoid timezone issues
-    dateComponents.minute = 0
-    dateComponents.second = 0
-
-    guard let validDate = calendar.date(from: dateComponents) else {
-      // Fallback: use the first day of the month
-      dateComponents.day = 1
-      return calendar.date(from: dateComponents) ?? Date()
-    }
-
-    return validDate
-  }
 
   // MARK: - Notification Management
 

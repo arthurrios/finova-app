@@ -205,7 +205,8 @@ extension AddTransactionModalViewController: AddTransactionModalViewDelegate,
       dateString: data.date,
       categoryKey: data.category,
       typeRaw: data.transactionType,
-      creditCardId: data.creditCardId)
+      creditCardId: data.creditCardId,
+      businessDayRule: data.businessDayRule)
 
     handleTransactionResult(result)
   }
@@ -221,7 +222,8 @@ extension AddTransactionModalViewController: AddTransactionModalViewDelegate,
       dateString: data.date,
       categoryKey: data.category,
       typeRaw: data.transactionType,
-      creditCardId: data.creditCardId
+      creditCardId: data.creditCardId,
+      businessDayRule: data.businessDayRule
     ) { [weak self] result in
       DispatchQueue.main.async {
         self?.contentView.saveButton.stopLoading()
@@ -256,7 +258,8 @@ extension AddTransactionModalViewController: AddTransactionModalViewDelegate,
       dateString: data.date,
       categoryKey: data.category,
       typeRaw: data.transactionType,
-      creditCardId: data.creditCardId
+      creditCardId: data.creditCardId,
+      businessDayRule: data.businessDayRule
     )
     handleUpdateResult(result)
   }
@@ -269,7 +272,8 @@ extension AddTransactionModalViewController: AddTransactionModalViewDelegate,
       dateString: data.date,
       categoryKey: data.category,
       typeRaw: data.transactionType,
-      creditCardId: data.creditCardId
+      creditCardId: data.creditCardId,
+      businessDayRule: data.businessDayRule
     )
     handleUpdateResult(result)
   }
@@ -287,7 +291,8 @@ extension AddTransactionModalViewController: AddTransactionModalViewDelegate,
       dateString: data.date,
       categoryKey: data.category,
       typeRaw: data.transactionType,
-      creditCardId: data.creditCardId
+      creditCardId: data.creditCardId,
+      businessDayRule: data.businessDayRule
     )
     handleUpdateResult(result)
   }
@@ -312,7 +317,8 @@ extension AddTransactionModalViewController: AddTransactionModalViewDelegate,
       categoryKey: data.category,
       typeRaw: data.transactionType,
       creditCardId: data.creditCardId,
-      editOption: editOption
+      editOption: editOption,
+      businessDayRule: data.businessDayRule
     ) { [weak self] result in
       DispatchQueue.main.async {
         self?.contentView.saveButton.stopLoading()
@@ -400,6 +406,29 @@ extension AddTransactionModalViewController: AddTransactionModalViewDelegate,
   func didTapCreateCreditCard() {
     dismissModal()
     flowDelegate?.didTapCreateCreditCard()
+  }
+
+  func didRequestBusinessDayRulePicker(
+    current: BusinessDayRule, completion: @escaping (BusinessDayRule) -> Void
+  ) {
+    let alert = UIAlertController(
+      title: "addTransactionModal.businessDay.label".localized,
+      message: "settings.businessDay.picker.message".localized(
+        HolidayCalendar.shared.region.displayName),
+      preferredStyle: .actionSheet)
+
+    for rule in BusinessDayRule.allCases {
+      let action = UIAlertAction(title: rule.title, style: .default) { _ in completion(rule) }
+      if rule == current { action.setValue(true, forKey: "checked") }
+      alert.addAction(action)
+    }
+    alert.addAction(UIAlertAction(title: "alert.cancel".localized, style: .cancel))
+
+    if let popover = alert.popoverPresentationController {
+      popover.sourceView = contentView
+      popover.sourceRect = contentView.bounds
+    }
+    present(alert, animated: true)
   }
 
   func closeModal() {

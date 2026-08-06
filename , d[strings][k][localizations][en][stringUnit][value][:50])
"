@@ -1,0 +1,4 @@
+=== interpolated .localized in the new files ===
+Finova/Sources/Core/Models/BusinessDayRule.swift:39:        "businessDayRule.\(rawValue).title".localized
+Finova/Sources/Core/Utils/HolidayCalendar.swift:59:        "settings.businessDay.region.\(rawValue)".localized
+=== all businessDay* / holiday* keys in 1.6.0 catalog ===

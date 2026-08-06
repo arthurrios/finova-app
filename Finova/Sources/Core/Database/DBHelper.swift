@@ -42,6 +42,7 @@ class DBHelper {
             try migrateCreditCardsTable()
             try migrateCreditCardStatementsTable()
             try migrateEarlyPaymentColumns()
+            try migrateBusinessDayColumns()
             isInitialized = true
             //            print("✅ Database initialized successfully")
         } catch {
@@ -347,8 +348,11 @@ class DBHelper {
               original_amount,
               credit_card_id,
               statement_id,
-              is_credit_card_statement
-              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+              is_credit_card_statement,
+              business_day_rule,
+              unadjusted_date,
+              series_period
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
       """
         
         var statement: OpaquePointer?
@@ -421,6 +425,19 @@ class DBHelper {
             sqlite3_bind_null(statement, 15)
         }
 
+        sqlite3_bind_text(
+            statement, 16, transaction.data.businessDayRule.rawValue, -1, SQLITE_TRANSIENT)
+        // Falls back to the adjusted date so this is never null for a row written by this build:
+        // regeneration derives from it, and a null would send the series back to the shifted date.
+        sqlite3_bind_int64(
+            statement, 17,
+            Int64(transaction.data.unadjustedDateTimestamp ?? transaction.data.dateTimestamp))
+        if let seriesPeriod = transaction.data.seriesPeriod {
+            sqlite3_bind_int64(statement, 18, Int64(seriesPeriod))
+        } else {
+            sqlite3_bind_null(statement, 18)
+        }
+
         guard sqlite3_step(statement) == SQLITE_DONE else {
             let msg = String(cString: sqlite3_errmsg(db))
             throw DBError.stepFailed(message: msg)
@@ -452,7 +469,10 @@ class DBHelper {
         original_amount,
         credit_card_id,
         statement_id,
-        is_credit_card_statement
+        is_credit_card_statement,
+        business_day_rule,
+        COALESCE(unadjusted_date, date),
+        COALESCE(series_period, budget_month_date)
       FROM Transactions;
       """
         var statement: OpaquePointer?
@@ -524,6 +544,15 @@ class DBHelper {
             let isCreditCardStatement: Bool? = sqlite3_column_type(statement, 15) == SQLITE_NULL
                 ? nil : (sqlite3_column_int(statement, 15) == 1)
 
+            // Business-day columns, appended to the SELECT above so these indices stay at the end.
+            // Both date columns are COALESCEd in SQL, so neither is ever NULL for a row that has a
+            // date at all; a rule naming a case this build does not implement collapses to `.exact`.
+            let businessDayRule = BusinessDayRule.fromStored(
+                sqlite3_column_type(statement, 16) == SQLITE_NULL
+                    ? nil : String(cString: sqlite3_column_text(statement, 16)))
+            let unadjustedDate = Int(sqlite3_column_int64(statement, 17))
+            let seriesPeriod = Int(sqlite3_column_int64(statement, 18))
+
             // Default empty type to "expense" to handle corrupt data
             let sanitizedTypeKey = typeKey.isEmpty ? "expense" : typeKey
 
@@ -542,6 +571,9 @@ class DBHelper {
                 creditCardId: creditCardId,
                 statementId: statementId,
                 isCreditCardStatement: isCreditCardStatement,
+                businessDayRule: businessDayRule,
+                unadjustedDateTimestamp: unadjustedDate,
+                seriesPeriod: seriesPeriod,
                 category: catKey,
                 type: sanitizedTypeKey
             )
@@ -582,40 +614,51 @@ class DBHelper {
         }
     }
     
-    func getRecurringTransactions() throws -> [Transaction] {
-        let query = """
-      SELECT
-        id, title, category, type, amount, date, budget_month_date,
-        is_recurring, has_installments, parent_transaction_id,
-        installment_number, total_installments, original_amount
-      FROM Transactions 
-      WHERE is_recurring = 1 AND (has_installments IS NULL OR has_installments = 0);
-      """
-        
-        return try executeTransactionQuery(query)
-    }
-    
-    func getInstallmentTransactions(parentId: Int) throws -> [Transaction] {
-        let query = """
-      SELECT
-        id, title, category, type, amount, date, budget_month_date,
-        is_recurring, has_installments, parent_transaction_id,
-        installment_number, total_installments, original_amount
-      FROM Transactions 
-      WHERE parent_transaction_id = ?
-      ORDER BY installment_number ASC;
-      """
-        
-        return try executeTransactionQuery(query, bindValues: [parentId])
-    }
-    
-    func getInstallmentParentTransactions() throws -> [Transaction] {
-        let query = """
-      SELECT
+    /// The column list every `executeTransactionQuery` caller must SELECT, in the order the parser
+    /// reads them.
+    ///
+    /// Shared because it has to be. The three callers used to select 13, 13 and 16 columns against a
+    /// parser that reads all 16, relying on `sqlite3_column_type` returning SQLITE_NULL for indices
+    /// past the end of the row — so two of the three silently produced nil credit-card fields. Adding
+    /// the business-day columns on top of that would have put them at a different index per query,
+    /// which for `getRecurringTransactions` means the generator reading someone else's column.
+    private static let transactionSelectColumns = """
         id, title, category, type, amount, date, budget_month_date,
         is_recurring, has_installments, parent_transaction_id,
         installment_number, total_installments, original_amount,
-        credit_card_id, statement_id, is_credit_card_statement
+        credit_card_id, statement_id, is_credit_card_statement,
+        business_day_rule,
+        COALESCE(unadjusted_date, date),
+        COALESCE(series_period, budget_month_date)
+      """
+
+    func getRecurringTransactions() throws -> [Transaction] {
+        let query = """
+      SELECT
+        \(Self.transactionSelectColumns)
+      FROM Transactions
+      WHERE is_recurring = 1 AND (has_installments IS NULL OR has_installments = 0);
+      """
+
+        return try executeTransactionQuery(query)
+    }
+
+    func getInstallmentTransactions(parentId: Int) throws -> [Transaction] {
+        let query = """
+      SELECT
+        \(Self.transactionSelectColumns)
+      FROM Transactions
+      WHERE parent_transaction_id = ?
+      ORDER BY installment_number ASC;
+      """
+
+        return try executeTransactionQuery(query, bindValues: [parentId])
+    }
+
+    func getInstallmentParentTransactions() throws -> [Transaction] {
+        let query = """
+      SELECT
+        \(Self.transactionSelectColumns)
       FROM Transactions
       WHERE has_installments = 1;
       """
@@ -678,6 +721,14 @@ class DBHelper {
             sqlite3_column_type(statement, 15) == SQLITE_NULL
             ? nil : (sqlite3_column_int(statement, 15) == 1)
 
+            // Business-day columns — see `transactionSelectColumns`. `getRecurringTransactions` reads
+            // through this parser, so dropping the rule here would silently un-shift every series.
+            let businessDayRule = BusinessDayRule.fromStored(
+                sqlite3_column_type(statement, 16) == SQLITE_NULL
+                    ? nil : String(cString: sqlite3_column_text(statement, 16)))
+            let unadjustedDate = Int(sqlite3_column_int64(statement, 17))
+            let seriesPeriod = Int(sqlite3_column_int64(statement, 18))
+
             let dbData = DBTransactionData(
                 id: id, title: title, amount: amount, dateTimestamp: ts, budgetMonthDate: monthAnchor,
                 isRecurring: isRecurring, hasInstallments: hasInstallments,
@@ -686,6 +737,9 @@ class DBHelper {
                 originalAmount: originalAmount,
                 creditCardId: creditCardId, statementId: statementId,
                 isCreditCardStatement: isCreditCardStatement,
+                businessDayRule: businessDayRule,
+                unadjustedDateTimestamp: unadjustedDate,
+                seriesPeriod: seriesPeriod,
                 category: catKey, type: typeKey
             )
             
@@ -846,7 +900,8 @@ class DBHelper {
             title = ?, category = ?, type = ?, amount = ?, date = ?,
             budget_month_date = ?, is_recurring = ?, has_installments = ?,
             total_installments = ?, original_amount = ?,
-            credit_card_id = ?, statement_id = ?, is_credit_card_statement = ?
+            credit_card_id = ?, statement_id = ?, is_credit_card_statement = ?,
+            business_day_rule = ?, unadjusted_date = ?, series_period = ?
           WHERE id = ?;
       """
 
@@ -898,8 +953,22 @@ class DBHelper {
             sqlite3_bind_null(statement, 13)
         }
 
-        sqlite3_bind_int64(statement, 14, Int64(transaction.data.id!))
-        
+        // Written on edit as well as insert: an edit that dropped these would un-shift the row and
+        // empty its occurrence slot, which is exactly what the generator reads to decide a month is
+        // missing — so the next generation pass would duplicate it.
+        sqlite3_bind_text(
+            statement, 14, transaction.data.businessDayRule.rawValue, -1, SQLITE_TRANSIENT)
+        sqlite3_bind_int64(
+            statement, 15,
+            Int64(transaction.data.unadjustedDateTimestamp ?? transaction.data.dateTimestamp))
+        if let seriesPeriod = transaction.data.seriesPeriod {
+            sqlite3_bind_int64(statement, 16, Int64(seriesPeriod))
+        } else {
+            sqlite3_bind_null(statement, 16)
+        }
+
+        sqlite3_bind_int64(statement, 17, Int64(transaction.data.id!))
+
         guard sqlite3_step(statement) == SQLITE_DONE else {
             let msg = String(cString: sqlite3_errmsg(db))
             throw DBError.stepFailed(message: msg)
@@ -1256,6 +1325,56 @@ class DBHelper {
             db,
             "CREATE INDEX IF NOT EXISTS idx_tx_cancelled_by ON Transactions(cancelled_by_transaction_id);",
             nil, nil, nil)
+    }
+
+    /// The three columns behind business-day date shifting.
+    ///
+    /// `series_period` exists because `budget_month_date` was doing two incompatible jobs: identifying
+    /// which occurrence of a series a row IS, and deciding which budget it counts against. Those are
+    /// the same value only while nothing moves a date across a month boundary. A business-day rule does
+    /// exactly that, and then:
+    ///   - anchoring identity to the scheduled month makes the row count in the wrong budget;
+    ///   - anchoring it to the landing month empties the scheduled month's slot, so the generator sees
+    ///     a missing occurrence and creates a duplicate.
+    /// Splitting them lets `budget_month_date` follow the date the money actually moves while identity
+    /// stays put. Two rows sharing a `budget_month_date` is now legal.
+    ///
+    /// All three nullable with no backfill: every reader coalesces to the pre-existing behaviour
+    /// (`unadjusted_date` → `date`, `series_period` → `budget_month_date`), which is exactly right for
+    /// rows written before the columns existed because nothing has ever shifted them.
+    private func migrateBusinessDayColumns() throws {
+        let checkQuery = "PRAGMA table_info(Transactions);"
+        var statement: OpaquePointer?
+
+        guard sqlite3_prepare_v2(db, checkQuery, -1, &statement, nil) == SQLITE_OK else {
+            let msg = String(cString: sqlite3_errmsg(db))
+            throw DBError.prepareFailed(message: msg)
+        }
+        defer { sqlite3_finalize(statement) }
+
+        var existingColumns: Set<String> = []
+        while sqlite3_step(statement) == SQLITE_ROW {
+            existingColumns.insert(String(cString: sqlite3_column_text(statement, 1)))
+        }
+
+        let businessDayColumns: [String: String] = [
+            "business_day_rule": "ALTER TABLE Transactions ADD COLUMN business_day_rule TEXT;",
+            "unadjusted_date": "ALTER TABLE Transactions ADD COLUMN unadjusted_date INTEGER;",
+            "series_period": "ALTER TABLE Transactions ADD COLUMN series_period INTEGER;",
+        ]
+
+        for (column, alterQuery) in businessDayColumns where !existingColumns.contains(column) {
+            var alterStatement: OpaquePointer?
+            guard sqlite3_prepare_v2(db, alterQuery, -1, &alterStatement, nil) == SQLITE_OK else {
+                let msg = String(cString: sqlite3_errmsg(db))
+                throw DBError.prepareFailed(message: msg)
+            }
+            defer { sqlite3_finalize(alterStatement) }
+            guard sqlite3_step(alterStatement) == SQLITE_DONE else {
+                let msg = String(cString: sqlite3_errmsg(db))
+                throw DBError.stepFailed(message: msg)
+            }
+        }
     }
 
     /// Runs `body` inside one SQLite transaction, rolling back if it throws.
@@ -1878,6 +1997,36 @@ class DBHelper {
             let msg = String(cString: sqlite3_errmsg(db))
             throw DBError.stepFailed(message: msg)
         }
+    }
+
+    /// Records the rule an edit was made under, alongside the unshifted date it applied to.
+    ///
+    /// Both together, always: storing the rule without the original date would let a later
+    /// regeneration re-derive from the already shifted date, walking the occurrence a little further
+    /// every time a month is materialised.
+    func setBusinessDayRule(
+        transactionId: Int, rule: BusinessDayRule, unadjustedDateTimestamp: Int
+    ) {
+        guard isInitialized else { return }
+        let sql = """
+            UPDATE Transactions
+               SET business_day_rule = ?, unadjusted_date = ?
+             WHERE id = ?;
+            """
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
+            print("[BusinessDay] Could not prepare business_day_rule write")
+            return
+        }
+        defer { sqlite3_finalize(stmt) }
+        sqlite3_bind_text(stmt, 1, rule.rawValue, -1, SQLITE_TRANSIENT)
+        sqlite3_bind_int64(stmt, 2, Int64(unadjustedDateTimestamp))
+        sqlite3_bind_int64(stmt, 3, Int64(transactionId))
+        guard sqlite3_step(stmt) == SQLITE_DONE else {
+            print("[BusinessDay] Could not set business_day_rule on \(transactionId)")
+            return
+        }
+        TransactionRepository.invalidateCache()
     }
 
     /// Moves both the transaction's own date and the budget month it counts toward.
