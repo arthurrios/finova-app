@@ -38,6 +38,12 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
       // 🔔 Check if this is first time opening app in new month and schedule notifications
       self?.checkAndScheduleMonthlyNotificationsOnFirstLaunch()
 
+      // 💳 Statement reminders. These were previously only reachable through
+      // scheduleNotificationsOnLaunch(), which nothing on the real launch path calls — its only
+      // caller is NotificationDebugManager — so the "Credit card statement" toggle in Settings
+      // promised reminders that were never scheduled.
+      StatementNotificationManager.shared.scheduleAllStatementNotifications()
+
       #if DEBUG
         // 🧪 Debug: Show data status on app launch (only in debug mode)
         DebugDataManager.shared.showDataStatus()
@@ -56,6 +62,11 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
 
     // Monitorar saldo negativo quando o app voltar ao foreground
     monitorNegativeBalance()
+
+    // 💳 Refresh statement reminders too: a statement's total changes as purchases land on it, and
+    // both reminders quote that total. Coalesced inside the manager, so returning to foreground
+    // repeatedly costs one sweep.
+    StatementNotificationManager.shared.rescheduleAllNotifications()
 
     // Note: SceneDelegate will handle the appDidEnterForeground notification posting
     // to avoid duplicate notifications and ensure proper timing
@@ -426,122 +437,15 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
 
   // MARK: - Credit Card Statement Notifications
 
+  /// Credit-card statement reminders.
+  ///
+  /// Delegated to `StatementNotificationManager`, which sweeps stale requests *inside* the
+  /// `getPendingNotificationRequests` completion. The implementation that used to live here swept
+  /// asynchronously while scheduling synchronously, so the removal landed after the loop had
+  /// re-added the same `statement_due_<id>` identifiers and deleted the notifications it had just
+  /// created.
   private func scheduleCreditCardStatementNotifications() {
-    guard NotificationPreferencesManager.shared.shouldShowNotification(type: .creditCardStatement) else {
-      print("🔔 💳 Credit card statement notifications disabled - skipping")
-      return
-    }
-
-    guard let user = UserDefaultsManager.getUser(),
-          let firebaseUID = user.firebaseUID else {
-      print("🔔 ❌ Cannot schedule statement notifications: User not authenticated")
-      return
-    }
-
-    SecureLocalDataManager.shared.authenticateUser(firebaseUID: firebaseUID)
-
-    let cardRepo = CreditCardRepository()
-    let statementRepo = StatementRepository()
-    let cards = cardRepo.fetchAllCards(userId: firebaseUID)
-
-    let now = Date()
-    var calendar = Calendar.current
-    calendar.timeZone = TimeZone.current
-
-    // Remove old statement notifications first
-    UNUserNotificationCenter.current().getPendingNotificationRequests { requests in
-      let statementIds = requests
-        .filter { $0.identifier.hasPrefix("statement_due_") || $0.identifier.hasPrefix("statement_pay_") }
-        .map { $0.identifier }
-      UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: statementIds)
-      print("🔔 🧹 Cleared \(statementIds.count) existing statement notifications")
-    }
-
-    var scheduledCount = 0
-
-    for card in cards where !card.isDeleted {
-      guard let cardId = card.id else { continue }
-      let statements = statementRepo.fetchStatements(forCardId: cardId)
-
-      for statement in statements {
-        guard !statement.isPaid, let statementId = statement.id else { continue }
-
-        let dueDate = statement.dueDate
-        guard dueDate > now else { continue }
-
-        let amountString = statement.totalAmount.currencyString
-
-        // Due-soon notification (3 days before due date, at 9 AM)
-        if let threeDaysBefore = calendar.date(byAdding: .day, value: -3, to: dueDate) {
-          var dueSoonDate = calendar.startOfDay(for: threeDaysBefore)
-          dueSoonDate = calendar.date(byAdding: .hour, value: 9, to: dueSoonDate) ?? dueSoonDate
-
-          if dueSoonDate > now {
-            let timeInterval = dueSoonDate.timeIntervalSinceNow
-            let thirtyDaysInSeconds: TimeInterval = 30 * 24 * 60 * 60
-            if timeInterval <= thirtyDaysInSeconds {
-              let trigger = UNTimeIntervalNotificationTrigger(timeInterval: timeInterval, repeats: false)
-
-              let content = UNMutableNotificationContent()
-              content.title = "notification.statement.dueSoon.title".localized
-              content.body = String(format: "notification.statement.dueSoon.body".localized, card.name, amountString)
-              content.sound = .default
-              content.userInfo = [
-                "type": "credit_card_statement",
-                "statementId": statementId,
-                "cardId": cardId
-              ]
-
-              let id = "statement_due_\(statementId)"
-              let request = UNNotificationRequest(identifier: id, content: content, trigger: trigger)
-              UNUserNotificationCenter.current().add(request) { error in
-                if let error = error {
-                  print("🔔 ❌ Error scheduling due-soon notification: \(error)")
-                } else {
-                  print("🔔 ✅ Scheduled due-soon notification for \(card.name) statement \(statementId)")
-                }
-              }
-              scheduledCount += 1
-            }
-          }
-        }
-
-        // Payment reminder (on due date, at 9 AM)
-        var paymentDate = calendar.startOfDay(for: dueDate)
-        paymentDate = calendar.date(byAdding: .hour, value: 9, to: paymentDate) ?? paymentDate
-
-        if paymentDate > now {
-          let timeInterval = paymentDate.timeIntervalSinceNow
-          let thirtyDaysInSeconds: TimeInterval = 30 * 24 * 60 * 60
-          if timeInterval <= thirtyDaysInSeconds {
-            let trigger = UNTimeIntervalNotificationTrigger(timeInterval: timeInterval, repeats: false)
-
-            let content = UNMutableNotificationContent()
-            content.title = "notification.statement.paymentDue.title".localized
-            content.body = String(format: "notification.statement.paymentDue.body".localized, card.name, amountString)
-            content.sound = .default
-            content.userInfo = [
-              "type": "credit_card_statement",
-              "statementId": statementId,
-              "cardId": cardId
-            ]
-
-            let id = "statement_pay_\(statementId)"
-            let request = UNNotificationRequest(identifier: id, content: content, trigger: trigger)
-            UNUserNotificationCenter.current().add(request) { error in
-              if let error = error {
-                print("🔔 ❌ Error scheduling payment-due notification: \(error)")
-              } else {
-                print("🔔 ✅ Scheduled payment-due notification for \(card.name) statement \(statementId)")
-              }
-            }
-            scheduledCount += 1
-          }
-        }
-      }
-    }
-
-    print("🔔 💳 Scheduled \(scheduledCount) credit card statement notifications")
+    StatementNotificationManager.shared.scheduleAllStatementNotifications()
   }
 
   // MARK: - UNUserNotificationCenterDelegate

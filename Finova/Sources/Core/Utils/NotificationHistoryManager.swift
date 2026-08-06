@@ -173,15 +173,25 @@ final class NotificationHistoryManager {
     let content = notification.request.content
     let id = notification.request.identifier
 
-    // Skip if already exists (avoid duplicates when called from both willPresent and didReceive)
-    guard !history.contains(where: { $0.id == id }) else {
+    // Skip only when the *same content* is already recorded — that is the real duplicate case
+    // (`willPresent` and `didReceive` both firing for one delivery).
+    //
+    // Matching on the identifier alone silently dropped every repeat of a fixed-identifier
+    // notification: `negative_balance_projection` and the month-keyed installment/recurring
+    // reminders reuse their ID by design, so once one had been recorded, later deliveries carrying a
+    // new date or amount never reached the history at all.
+    if let existing = history.first(where: { $0.id == id }),
+      existing.title == content.title, existing.body == content.body
+    {
       return
     }
+    // A re-delivery with new content replaces the stale entry rather than sitting beside it.
+    history.removeAll { $0.id == id }
 
     // Determine type from userInfo first (for push notifications), then from identifier
     let userInfo = content.userInfo
     let type: NotificationHistoryItem.NotificationType
-    if let typeString = userInfo["type"] as? String {
+    if userInfo["type"] as? String != nil {
       type = determineNotificationType(from: userInfo)
     } else {
       type = determineNotificationType(fromIdentifier: id)
@@ -231,10 +241,15 @@ final class NotificationHistoryManager {
         let content = notification.request.content
         let id = notification.request.identifier
 
-        // Skip if already in history
-        guard !self.history.contains(where: { $0.id == id }) else {
+        // Skip only when the same content is already recorded — see
+        // `handleDeliveredLocalNotification` for why the identifier alone is not enough.
+        if let existing = self.history.first(where: { $0.id == id }),
+          existing.title == content.title, existing.body == content.body
+        {
           continue
         }
+        // A re-delivery with new content replaces the stale entry rather than sitting beside it.
+        self.history.removeAll { $0.id == id }
 
         // Determine type from userInfo first (for push notifications), then from identifier
         let userInfo = content.userInfo
@@ -283,12 +298,16 @@ final class NotificationHistoryManager {
         return .appUpdate
       case "negative_balance":
         return .negativeBalance
-      case "transaction":
+      case "transaction", "reminder":
         return .transaction
-      case "installment":
+      // The schedulers emit the bucketed forms — `installment_month`, `recurring_reminder`, … — so
+      // matching only the bare words filed every consolidated reminder under `.other`.
+      case "installment", "installment_month", "installment_reminder":
         return .installment
-      case "recurring":
+      case "recurring", "recurring_month", "recurring_reminder":
         return .recurring
+      case "monthly_reminder", "monthly_fallback":
+        return .monthly
       case "credit_card_statement":
         return .creditCardStatement
       default:

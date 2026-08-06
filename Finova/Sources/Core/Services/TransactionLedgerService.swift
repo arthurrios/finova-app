@@ -36,6 +36,40 @@ final class TransactionLedgerService {
     return transactions
   }
 
+  // MARK: - Balance Basis (shared with the negative-balance monitor)
+
+  /// The exact row set every balance figure on the dashboard is built from: real transactions with
+  /// early-paid installments removed, plus the synthetic per-statement credit card debits, minus the
+  /// individual credit card purchases (those are represented by their statement synthetic instead).
+  ///
+  /// Exposed so `BalanceMonitorManager` projects over the same rows the user sees. It used to build
+  /// its own set from `fetchTransactions()`, which contains no statement synthetics at all — the
+  /// statement debit, usually the largest single outflow of the month, was invisible to the
+  /// projection, so the day the balance was predicted to go negative was wrong or never found.
+  func cashTransactionsForBalance() -> [Transaction] {
+    return fetchAllTransactionsIncludingStatements().filter { tx in
+      tx.creditCardId == nil || tx.isCreditCardStatement == true
+    }
+  }
+
+  /// Balance at the end of `date` (today by default), accumulated across the whole ledger.
+  ///
+  /// Equivalent to the `currentBalance` the current month's card shows: the balance offset plus the
+  /// net of every cash transaction dated on or before `date`. Deliberately keyed on the transaction
+  /// DATE and not on `budgetMonthDate` — the monitor used to accumulate whole past months by the
+  /// stored anchor, which disagrees with the card for any row whose budget month was moved away from
+  /// its date (a manually re-filed card purchase, for instance).
+  func balanceAsOf(_ date: Date = Date(), transactions: [Transaction]? = nil) -> Int {
+    let cash = transactions ?? cashTransactionsForBalance()
+    let cutoff = calendar.startOfDay(for: date)
+
+    return cash.reduce(UIDUserDefaultsManager.shared.getCurrentUserBalanceOffset()) { acc, tx in
+      let txDate = Date(timeIntervalSince1970: TimeInterval(tx.dateTimestamp))
+      guard calendar.startOfDay(for: txDate) <= cutoff else { return acc }
+      return tx.type == .income ? acc + tx.amount : acc - tx.amount
+    }
+  }
+
   // MARK: - Monthly Calculations
 
   func calculateMonthlyData(for monthRange: ClosedRange<Int>, referenceDate: Date = Date())

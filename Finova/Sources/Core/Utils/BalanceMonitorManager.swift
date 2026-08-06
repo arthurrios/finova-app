@@ -20,6 +20,10 @@ final class BalanceMonitorManager {
   /// Fixed notification identifier — UNUserNotificationCenter auto-replaces on same ID
   private static let notificationId = "negative_balance_projection"
 
+  /// The negative date we have already warned about immediately, so the eve-of warning fires once
+  /// rather than on every foreground. See `scheduleNegativeBalanceNotifications`.
+  private static let immediateNoticeDefaultsKey = "negativeBalanceImmediateNoticeDate"
+
   // Controle para evitar execuções muito frequentes
   private var lastMonitoringTime: Date?
   private let minimumMonitoringInterval: TimeInterval = 300  // 5 minutos
@@ -113,16 +117,18 @@ final class BalanceMonitorManager {
   private func calculateDailyBalanceProjectionInternal(for monthInterval: DateInterval) -> [Date:
     Int]
   {
-    let allTransactions = transactionRepo.fetchTransactions()  // Use same filtering as Dashboard
-
-    // Exclude credit card transactions from balance (they go to the statement instead)
-    // This matches the dashboard's TransactionLedgerService logic
-    let cashTransactions = allTransactions.filter { tx in
-      tx.creditCardId == nil || tx.isCreditCardStatement == true
-    }
-
-    // Usar a mesma lógica do dashboard para calcular o saldo atual
-    let currentBalance = calculateCurrentBalanceLikeDashboard(allTransactions: cashTransactions)
+    // Both the row set and the starting balance now come from the ledger service, so the projection
+    // is built from exactly what the dashboard shows.
+    //
+    // Three things were wrong with computing this locally. The set came from `fetchTransactions()`,
+    // which holds no synthetic statement rows — so the credit card statement debit, usually the
+    // month's largest single outflow, was invisible and the predicted negative day was wrong or
+    // never found at all. Installments paid early were still counted. And the starting balance
+    // accumulated past months by `budgetMonthDate` while the projection walks forward by transaction
+    // date, so the two halves disagreed.
+    let ledgerService = TransactionLedgerService()
+    let cashTransactions = ledgerService.cashTransactionsForBalance()
+    let currentBalance = ledgerService.balanceAsOf(Date(), transactions: cashTransactions)
 
     // Filtrar transações futuras dentro da janela de 30 dias — sem restrição de mês,
     // para capturar corretamente transações do mês seguinte (ex: aluguel em 1º do mês próximo).
@@ -189,9 +195,26 @@ final class BalanceMonitorManager {
     return []
   }
 
-  /// Agenda notificações para dias com saldo negativo
+  /// Agenda a notificação para o primeiro dia com saldo negativo.
+  ///
+  /// Only the first negative day is ever notified — `findNegativeBalanceDaysInternal` returns one —
+  /// and all of them shared a single fixed identifier anyway, so the old loop could only ever have
+  /// left the last iteration standing.
   private func scheduleNegativeBalanceNotifications(for negativeDays: [Date]) {
-    let today = Date()
+    guard let negativeDay = negativeDays.first else { return }
+
+    let now = Date()
+    let todayStart = calendar.startOfDay(for: now)
+    let negativeDayStart = calendar.startOfDay(for: negativeDay)
+
+    let daysUntilNegative =
+      calendar.dateComponents([.day], from: todayStart, to: negativeDayStart).day ?? 0
+
+    // Notificar apenas para dias futuros (amanhã em diante), dentro da janela projetada
+    guard daysUntilNegative >= 1 && daysUntilNegative <= 30 else {
+      removeNegativeBalanceNotifications()
+      return
+    }
 
     // Formatar a data de acordo com o idioma
     let dateFormatter = DateFormatter()
@@ -200,66 +223,58 @@ final class BalanceMonitorManager {
     } else {
       dateFormatter.dateFormat = "dd/MM"
     }
+    let formattedDate = dateFormatter.string(from: negativeDay)
 
-    for negativeDay in negativeDays {
-      // Calcular quantos dias faltam até o saldo ficar negativo
-      let todayStart = calendar.startOfDay(for: today)
-      let negativeDayStart = calendar.startOfDay(for: negativeDay)
-      let daysUntilNegative =
-        calendar.dateComponents([.day], from: todayStart, to: negativeDayStart).day ?? 0
+    // 8 AM on the day before the balance goes negative.
+    guard let dayBefore = calendar.date(byAdding: .day, value: -1, to: negativeDayStart) else {
+      return
+    }
+    var fireComponents = calendar.dateComponents([.year, .month, .day], from: dayBefore)
+    fireComponents.hour = 8
+    fireComponents.minute = 0
+    fireComponents.second = 0
+    guard let fireDate = calendar.date(from: fireComponents) else { return }
 
-      // Notificar apenas para dias futuros (amanhã em diante)
-      guard daysUntilNegative >= 1 && daysUntilNegative <= 30 else {
-        continue
-      }
+    let trigger: UNNotificationTrigger
 
-      // Criar conteúdo da notificação
-      let content = UNMutableNotificationContent()
-      content.title = "notification.negative.balance.title".localized
+    if fireDate > now {
+      trigger = UNCalendarNotificationTrigger(
+        dateMatching: calendar.dateComponents([.year, .month, .day, .hour, .minute], from: fireDate),
+        repeats: false)
+    } else {
+      // The 8 AM slot has already passed and the balance goes negative tomorrow: warn now, but only
+      // once per negative date. Without this guard every foreground re-fired the same alert, because
+      // an immediate trigger cannot be "replaced" once it has been delivered.
+      let alreadyWarnedFor = UserDefaults.standard.object(
+        forKey: Self.immediateNoticeDefaultsKey) as? Double
+      guard alreadyWarnedFor != negativeDayStart.timeIntervalSince1970 else { return }
+      UserDefaults.standard.set(
+        negativeDayStart.timeIntervalSince1970, forKey: Self.immediateNoticeDefaultsKey)
+      trigger = UNTimeIntervalNotificationTrigger(timeInterval: 1, repeats: false)
+    }
 
-      let formattedDate = dateFormatter.string(from: negativeDay)
+    let content = UNMutableNotificationContent()
+    content.title = "notification.negative.balance.title".localized
+    // "tomorrow", not "in %d days": the body used to bake the distance in at SCHEDULING time while
+    // delivery is 8 AM the day before, so an alert scheduled twelve days out still claimed
+    // "in 12 days" when it actually arrived on the eve.
+    content.body = String(
+      format: "notification.negative.balance.body.tomorrow".localized, formattedDate)
+    content.sound = .default
+    content.categoryIdentifier = "NEGATIVE_BALANCE"
+    content.userInfo = [
+      "type": "negative_balance",
+      "negativeDate": negativeDayStart.timeIntervalSince1970,
+      "daysUntilNegative": daysUntilNegative,
+      "formattedDate": formattedDate,
+    ]
 
-      let bodyMessage = String(
-        format: "notification.negative.balance.body".localized, daysUntilNegative, formattedDate)
-      content.body = bodyMessage
-      content.sound = .default
-      content.categoryIdentifier = "NEGATIVE_BALANCE"
-      content.userInfo = [
-        "type": "negative_balance",
-        "negativeDate": negativeDay.timeIntervalSince1970,
-        "daysUntilNegative": daysUntilNegative,
-        "formattedDate": formattedDate,
-      ]
+    let request = UNNotificationRequest(
+      identifier: Self.notificationId, content: content, trigger: trigger)
 
-      let trigger: UNNotificationTrigger
-
-      if daysUntilNegative == 1 {
-        // Negative day is tomorrow — fire immediately
-        trigger = UNTimeIntervalNotificationTrigger(timeInterval: 1, repeats: false)
-      } else {
-        // Schedule for 8 AM the day BEFORE the negative day
-        guard let dayBefore = calendar.date(byAdding: .day, value: -1, to: negativeDay) else {
-          continue
-        }
-        var dateComponents = calendar.dateComponents([.year, .month, .day], from: dayBefore)
-        dateComponents.hour = 8
-        dateComponents.minute = 0
-        dateComponents.second = 0
-
-        trigger = UNCalendarNotificationTrigger(
-          dateMatching: calendar.dateComponents(
-            [.year, .month, .day, .hour, .minute],
-            from: calendar.date(from: dateComponents) ?? dayBefore),
-          repeats: false)
-      }
-
-      let request = UNNotificationRequest(
-        identifier: Self.notificationId, content: content, trigger: trigger)
-
-      notificationCenter.add(request) { error in
-        if let error = error {
-          logError("Error scheduling negative balance notification: \(error)")
-        }
+    notificationCenter.add(request) { error in
+      if let error = error {
+        logError("Error scheduling negative balance notification: \(error)")
       }
     }
   }
@@ -355,59 +370,4 @@ final class BalanceMonitorManager {
     }
   }
 
-  // MARK: - Private Balance Calculation
-
-  /// Calcula o saldo atual até hoje, usando a mesma lógica de currentBalance do dashboard.
-  /// Retorna o saldo acumulado: passado completo + transações do mês atual até hoje (exclusive futuras).
-  private func calculateCurrentBalanceLikeDashboard(allTransactions: [Transaction]) -> Int {
-    let today = Date()
-    let todayStart = calendar.startOfDay(for: today)
-    let currentMonth = calendar.dateInterval(of: .month, for: today)!
-    let currentMonthAnchor = currentMonth.start.monthAnchor
-
-    // Pre-build anchor → net maps for past months (all transactions)
-    let expensesByAnchor = allTransactions
-      .filter { $0.type == .expense }
-      .reduce(into: [Int: Int]()) { acc, tx in
-        acc[tx.budgetMonthDate, default: 0] += tx.amount
-      }
-
-    let incomesByAnchor = allTransactions
-      .filter { $0.type == .income }
-      .reduce(into: [Int: Int]()) { acc, tx in
-        acc[tx.budgetMonthDate, default: 0] += tx.amount
-      }
-
-    var previousAvailable = UIDUserDefaultsManager.shared.getCurrentUserBalanceOffset()
-
-    // FIXED: use unique anchors — previously used one entry per transaction,
-    // causing each month's net to be added once per transaction instead of once per month.
-    let uniqueAnchors = Set(allTransactions.map { $0.budgetMonthDate })
-      .filter { $0 <= currentMonthAnchor }
-      .sorted()
-
-    for anchor in uniqueAnchors {
-      if anchor < currentMonthAnchor {
-        // Past months: include all transactions (= final balance for that month)
-        let expense = expensesByAnchor[anchor] ?? 0
-        let income = incomesByAnchor[anchor] ?? 0
-        previousAvailable += (income - expense)
-      } else {
-        // Current month: only include transactions up to TODAY.
-        // Future transactions are intentionally excluded here; they will be added
-        // incrementally in the projection loop to avoid double-counting.
-        let txsUpToToday = allTransactions.filter { tx in
-          guard tx.budgetMonthDate == anchor else { return false }
-          let txDate = Date(timeIntervalSince1970: TimeInterval(tx.dateTimestamp))
-          return calendar.startOfDay(for: txDate) <= todayStart
-        }
-        let net = txsUpToToday.reduce(0) { result, tx in
-          tx.type == .income ? result + tx.amount : result - tx.amount
-        }
-        previousAvailable += net
-      }
-    }
-
-    return previousAvailable
-  }
 }
