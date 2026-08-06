@@ -1590,6 +1590,42 @@ class DBHelper {
         return sqlite3_column_int(stmt, 0) == 1
     }
 
+    /// Every generated recurring occurrence, as (parent, slot, id), oldest id first.
+    ///
+    /// Only generated recurring children: `parent_transaction_id` set, and no `installment_number`
+    /// (installments are identified by number, and early payment can legitimately put more than one
+    /// in a single month). The series parent has no parent id, so it is excluded too. A user-created
+    /// transaction is never one of these, so nothing here can ever see one.
+    ///
+    /// Slots come from `COALESCE(series_period, budget_month_date)`: rows written before the
+    /// business-day migration have no `series_period`, and for those the accounting month IS the slot.
+    func fetchRecurringOccurrenceSlots() -> [(parentId: Int, slot: Int, id: Int)] {
+        guard isInitialized else { return [] }
+        let sql = """
+            SELECT parent_transaction_id,
+                   COALESCE(series_period, budget_month_date),
+                   id
+              FROM Transactions
+             WHERE parent_transaction_id IS NOT NULL
+               AND installment_number IS NULL
+             ORDER BY parent_transaction_id, 2, id;
+            """
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return [] }
+        defer { sqlite3_finalize(stmt) }
+
+        var rows: [(parentId: Int, slot: Int, id: Int)] = []
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            rows.append(
+                (
+                    parentId: Int(sqlite3_column_int64(stmt, 0)),
+                    slot: Int(sqlite3_column_int64(stmt, 1)),
+                    id: Int(sqlite3_column_int64(stmt, 2))
+                ))
+        }
+        return rows
+    }
+
     // MARK: Convenience wrappers
 
     @discardableResult

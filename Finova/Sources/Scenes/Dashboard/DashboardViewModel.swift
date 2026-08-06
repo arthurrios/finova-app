@@ -56,6 +56,10 @@ final class DashboardViewModel {
       creditCardService.reassignMisplacedTransactions(userId: uid, transactionRepo: transactionRepo)
     }
 
+    // Clear duplicates left behind by the old per-instance generation guards, before anything
+    // reads or extends a series. Runs once per install; a no-op on a clean database.
+    RecurringDuplicateCleanup.runOnceIfNeeded()
+
     // Use the transaction ledger service for all calculations
     let monthlyData = transactionLedger.calculateMonthlyData(for: monthRange)
 

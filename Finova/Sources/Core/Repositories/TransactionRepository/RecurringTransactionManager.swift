@@ -28,10 +28,17 @@ final class RecurringTransactionManager {
   private let notificationCenter = UNUserNotificationCenter.current()
 
   // MARK: - Concurrency Control
-  private let operationQueue = DispatchQueue(
+  // Static so ALL manager instances share one serial queue. Recurring generation,
+  // edits and deletes are then mutually serialized across the whole app — previously
+  // each instance had its own queue, so (for example) an "edit future" on the
+  // AddTransaction screen's manager could run concurrently with lazy generation on the
+  // Dashboard's manager and interleave reads/writes on the same series. That race
+  // produced exact duplicate occurrences: both managers read their own snapshot of the
+  // series, both computed the same month as missing, and both inserted it.
+  private static let operationQueue = DispatchQueue(
     label: "recurring.transaction.operations", qos: .userInitiated)
-  private var currentOperations: Set<String> = []
-  private let operationLock = NSLock()
+  private static var currentOperations: Set<String> = []
+  private static let operationLock = NSLock()
 
   // MARK: - Deleted Instance Tracking
   // Tracks instances deleted via .currentSelection to prevent lazy generation from recreating them.
@@ -68,7 +75,7 @@ final class RecurringTransactionManager {
     transactionStartDate: Date? = nil
   ) {
     // Use async queue to prevent blocking the main thread
-    operationQueue.async { [weak self] in
+    Self.operationQueue.async { [weak self] in
       guard let self = self else { return }
 
       let recurringTransactions = self.transactionRepo.fetchRecurringTransactions()
@@ -107,7 +114,7 @@ final class RecurringTransactionManager {
     }
 
     // Use async queue to prevent blocking the main thread
-    operationQueue.async { [weak self] in
+    Self.operationQueue.async { [weak self] in
       guard let self = self else {
         DispatchQueue.main.async { completion?() }
         return
@@ -151,7 +158,10 @@ final class RecurringTransactionManager {
 
     // Get existing instances for this specific recurring transaction
     let existingInstances = transactionRepo.fetchTransactionInstancesForRecurring(recurringTxId)
-    let existingAnchors = Set(existingInstances.map { $0.budgetMonthDate })
+    // Keyed on seriesPeriod — the occurrence an instance IS — not budgetMonthDate, the month it
+    // is accounted FOR. A rule that pushes a date into an adjacent month moves budgetMonthDate,
+    // which would leave the occurrence's own slot looking empty and have us recreate it.
+    let existingAnchors = Set(existingInstances.map { $0.seriesPeriod })
 
     // Determine the effective start anchor
     let effectiveStartAnchor: Int
@@ -359,22 +369,24 @@ final class RecurringTransactionManager {
   ) {
     let operationId = "cleanup_recurring_\(parentTransactionId)_\(cleanupOption)"
 
-    // Prevent concurrent deletion operations on the same transaction
-    operationLock.lock()
-    defer { operationLock.unlock() }
-
-    guard !currentOperations.contains(operationId) else {
+    // Prevent concurrent deletion operations on the same transaction.
+    // Unlocked explicitly rather than by `defer`: the lock is now shared by every manager
+    // instance, so holding it across the dispatch below would serialize unrelated work,
+    // and NSLock is not recursive.
+    Self.operationLock.lock()
+    guard !Self.currentOperations.contains(operationId) else {
+      Self.operationLock.unlock()
       DispatchQueue.main.async { completion?() }
       return
     }
+    Self.currentOperations.insert(operationId)
+    Self.operationLock.unlock()
 
-    currentOperations.insert(operationId)
-
-    operationQueue.async { [weak self] in
+    Self.operationQueue.async { [weak self] in
       defer {
-        self?.operationLock.lock()
-        self?.currentOperations.remove(operationId)
-        self?.operationLock.unlock()
+        Self.operationLock.lock()
+        Self.currentOperations.remove(operationId)
+        Self.operationLock.unlock()
         // Call completion on main thread
         DispatchQueue.main.async { completion?() }
       }
@@ -474,22 +486,22 @@ final class RecurringTransactionManager {
   ) {
     let operationId = "cleanup_installment_\(parentTransactionId)_\(cleanupOption)"
 
-    // Prevent concurrent deletion operations on the same transaction
-    operationLock.lock()
-    defer { operationLock.unlock() }
-
-    guard !currentOperations.contains(operationId) else {
+    // Prevent concurrent deletion operations on the same transaction. Explicit unlock —
+    // see the note on the recurring cleanup path above.
+    Self.operationLock.lock()
+    guard !Self.currentOperations.contains(operationId) else {
+      Self.operationLock.unlock()
       DispatchQueue.main.async { completion?() }
       return
     }
+    Self.currentOperations.insert(operationId)
+    Self.operationLock.unlock()
 
-    currentOperations.insert(operationId)
-
-    operationQueue.async { [weak self] in
+    Self.operationQueue.async { [weak self] in
       defer {
-        self?.operationLock.lock()
-        self?.currentOperations.remove(operationId)
-        self?.operationLock.unlock()
+        Self.operationLock.lock()
+        Self.currentOperations.remove(operationId)
+        Self.operationLock.unlock()
         // Call completion on main thread
         DispatchQueue.main.async { completion?() }
       }
@@ -579,7 +591,7 @@ final class RecurringTransactionManager {
     newData: TransactionModel,
     completion: @escaping (Result<Void, Error>) -> Void
   ) {
-    operationQueue.async { [weak self] in
+    Self.operationQueue.async { [weak self] in
       guard let self = self else {
         DispatchQueue.main.async { completion(.failure(TransactionError.repositoryUnavailable)) }
         return
@@ -854,7 +866,7 @@ final class RecurringTransactionManager {
       return
     }
 
-    operationQueue.async { [weak self] in
+    Self.operationQueue.async { [weak self] in
       guard let self = self else {
         DispatchQueue.main.async { completion?(0) }
         return
@@ -929,10 +941,10 @@ final class RecurringTransactionManager {
         // Get existing anchors from pre-built lookup
         let existingAnchors = instancesByParentId[recurringTxId] ?? []
 
-        // Get anchors of intentionally deleted instances (from .currentSelection deletion)
-        self.operationLock.lock()
+        // Get anchors of intentionally deleted instances (from .currentSelection deletion).
+        // `excludedAnchors` takes `deletedAnchorsLock` itself; wrapping it in operationLock as
+        // well would hold the now app-wide lock inside this loop and stall every other manager.
         let excludedAnchors = Self.excludedAnchors(for: recurringTxId)
-        self.operationLock.unlock()
 
         // Only generate for months that don't have instances yet and weren't intentionally deleted
         let missingAnchors = monthAnchors.subtracting(existingAnchors)
