@@ -1,3 +1,82 @@
+## 1.5.0 (2026-08-07)
+
+The budgeting release: money is planned by allocation and grouped by tag, credit cards carry real
+statements and installments, and recurring series survive weekends, holidays and each other.
+
+Written by hand — the semantic-release workflow is disabled, so this summarises 172 commits since
+`v1.0.3` rather than listing them.
+
+### 🚀 Features
+
+**Budget allocation**
+
+* Allocate a month's budget by category, with a donut chart, per-category cells and unallocated headroom
+* Track unallocated spending separately, so a category with no plan still shows up
+* **allocations:** project the month's closing balance on the budget card ([c398e22](https://github.com/arthurrios/finova-app/commit/c398e225ea45bef66653b97987f53d0c77f9acbb))
+* **budget card:** show saved beside overspent in the header, enlarge the outcome line ([fe05749](https://github.com/arthurrios/finova-app/commit/fe0574998aa69d4ab2daaf0652a202f621bcc99d))
+
+**Allocation tags**
+
+* **allocation tags:** add the tag model, palette, store and per-month breakdown ([717a34c](https://github.com/arthurrios/finova-app/commit/717a34c7f0d84e00042ef5e472ffcdb5cb895f56))
+* **allocation tags:** add the tag management screens ([3bdd340](https://github.com/arthurrios/finova-app/commit/3bdd34086e01174e5c67ab5e6fa7cd6b3bf597c9))
+* **budget card:** draw a tag ring inside the donut ([68d4964](https://github.com/arthurrios/finova-app/commit/68d49642a6c44cc8f99212ec9b454595bf177ff8))
+* **allocation tags:** wire the ring, chip strip and list filter to the dashboard ([86c9ddc](https://github.com/arthurrios/finova-app/commit/86c9ddc2f4a7d280bfe26eba1a14761a114ef254))
+* **allocation tags:** reach tags from the allocations header and the strip ([164d4b0](https://github.com/arthurrios/finova-app/commit/164d4b03f3c149ffb4890d937b24b45507a7a6b2))
+* **allocation tags:** drag to reorder, and let that order drive the donut ([8ec67a0](https://github.com/arthurrios/finova-app/commit/8ec67a00fffb22665395027371d4f583629af8f7))
+* **allocation tags:** translate tag names on device ([d6a90e7](https://github.com/arthurrios/finova-app/commit/d6a90e708cf59560764f744bf43a3d58d6c67801))
+
+**Credit cards**
+
+* Credit cards with closing and due dates, statements per month, and statement notifications
+* **installments:** pay future installments early, and cancel a purchase ([a09c551](https://github.com/arthurrios/finova-app/commit/a09c5519e69ce47688df89e0f677c03f4c46bd53))
+
+**Transactions**
+
+* **transactions:** shift dates off weekends and holidays ([7334d55](https://github.com/arthurrios/finova-app/commit/7334d551fe97baf9f68217802cec59ff29f04fae))
+* Hide values behind an eye toggle, on the dashboard and the inner screens
+* Custom and global transaction filters, and a currency setting independent of device locale
+
+**Elsewhere**
+
+* Profile screens, an Adjust Balance modal, and biometric sign-in
+
+### 🐛 Bug Fixes
+
+**Recurring series**
+
+* **recurring:** one generator at a time, and one occurrence per slot ([debdaae](https://github.com/arthurrios/finova-app/commit/debdaae75300e4ef2591253dc9ba691c05344942))
+* **recurring:** serialize the secure store, and stop losing writes ([9e054a9](https://github.com/arthurrios/finova-app/commit/9e054a91e9c3fd246f579196c83ad9f502a19fc4))
+* **recurring:** stop the duplicate cleanup spending its one pass on nothing ([829758b](https://github.com/arthurrios/finova-app/commit/829758bb5b47693fa9bcdf49e56cae843dcd2c5e))
+* **recurring:** find the whole series when its parent is gone, delete in batch ([3e7b0f6](https://github.com/arthurrios/finova-app/commit/3e7b0f6dca8b34c8e0fdda60c6c6d5a86ffa4d1d))
+* **recurring:** plain delete removes the whole series, matching 1.6.0 ([c48c75f](https://github.com/arthurrios/finova-app/commit/c48c75f10d141b09fb90ebd7a81295841b449583))
+* **recurring:** drop deleted-occurrence exclusions when the store is emptied ([e2076fc](https://github.com/arthurrios/finova-app/commit/e2076fcdb6e6a996698a20b96ca220564fd679dd))
+
+**Credit cards and installments**
+
+* **statements:** a credit on a card reduces the invoice, not raises it ([efa1099](https://github.com/arthurrios/finova-app/commit/efa1099af881321eedb4cf8e8611afe3bd72409c))
+* **credit card:** stop card-date edits rewriting closed statements ([0ac5f2e](https://github.com/arthurrios/finova-app/commit/0ac5f2eda4ba96e56b1fdbce2affefeefd5d2095))
+* **installments:** chain the series across statements, and bill it on the due date ([6a7e52b](https://github.com/arthurrios/finova-app/commit/6a7e52bec40074ac35f3d19cf1b45028e47fba6d))
+* **installments:** create the whole series upfront, as 1.6.0 does ([6c19303](https://github.com/arthurrios/finova-app/commit/6c19303c126de83b716d995b0a2062b889991277))
+
+**Budget card**
+
+* **budget card:** make the projection bar show what is actually saved ([a7d4a82](https://github.com/arthurrios/finova-app/commit/a7d4a82e940cc69d4301a0ee4758ed18dcc90a0f))
+* **budget card:** colour the projection by the month's net, and move the overspend ([6f54371](https://github.com/arthurrios/finova-app/commit/6f54371ec7eb6b0992ccfb82722da1a11b62577b))
+* **budget card:** flag a negative projected balance red regardless of the net ([832851a](https://github.com/arthurrios/finova-app/commit/832851a2e560653799c43277a95527215d466866))
+* **budget card:** say the projection assumes the whole plan is spent ([d631105](https://github.com/arthurrios/finova-app/commit/d6311059e92cf8d0e3be90cfd662b89cca1f6558))
+* **budget card:** a closed month leads with its verdict, not a capped spend figure ([0e33535](https://github.com/arthurrios/finova-app/commit/0e33535dbecfb73fce10b2cc4b56dbac528dbd01))
+* **budget card:** keep the donut's centre icon at full strength ([9e1d2e8](https://github.com/arthurrios/finova-app/commit/9e1d2e88c54e43cd84b73d7c70ac6b789a0fbc81))
+* **allocations:** stop calling an open month's unspent budget "saved" ([2fb6463](https://github.com/arthurrios/finova-app/commit/2fb646316138889518d67051d70cec1f14124919))
+* **allocations:** let the allocation sheet grow instead of squashing its content ([ae1d665](https://github.com/arthurrios/finova-app/commit/ae1d665597c2e1d0c213d29b27afae806ea9f88f))
+
+**Elsewhere**
+
+* **notifications:** repair scheduling races, monthly prompts and balance projection ([301a09c](https://github.com/arthurrios/finova-app/commit/301a09c8061805fb07c447625ce934378d960155))
+* **hide values:** give the flag one owner, and add the toggle to the inner screens ([58c7935](https://github.com/arthurrios/finova-app/commit/58c79355d0d03ba1881d6944541c233a32ddc3d1))
+* **batch ops:** wait for the write before dismissing ([616bb09](https://github.com/arthurrios/finova-app/commit/616bb0988998ac6f8868d21a5908187c66501092))
+* **ipad:** move the floating add buttons to the bottom trailing corner ([ce89101](https://github.com/arthurrios/finova-app/commit/ce89101a8b1773ec78702b18df305684aa50fa9a))
+* **allocation tags:** stop the port re-sorting the 1.5.0 string catalog ([6125e86](https://github.com/arthurrios/finova-app/commit/6125e862f871255920763734f5ddfae311d14661))
+
 ## 1.0.0 (2025-07-11)
 
 
