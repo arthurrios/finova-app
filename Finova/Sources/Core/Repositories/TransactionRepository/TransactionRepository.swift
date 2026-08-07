@@ -12,12 +12,56 @@ final class TransactionRepository: TransactionRepositoryProtocol {
   private let db = DBHelper.shared
 
   // MARK: - In-Memory Cache
+
+  /// Guards the secure store and the cache that shadows it. Recursive because a `mutateSecureStore`
+  /// body may reach back into a read on the same thread.
+  private static let storeLock = NSRecursiveLock()
+
   private static var cachedTransactions: [Transaction]?
   private static var cacheUserUID: String?
 
   static func invalidateCache() {
+    storeLock.lock()
+    defer { storeLock.unlock() }
     cachedTransactions = nil
     cacheUserUID = nil
+  }
+
+  /// Runs one read-modify-write of the secure store as a single atomic step: loads it, hands it to
+  /// `body`, and — if `body` reports a change — writes it back and drops the cache, all before any
+  /// other thread can read or write. Returns whether anything was written.
+  ///
+  /// Every mutating method here used to do this by hand, unsynchronized, and that leaked
+  /// duplicate recurring occurrences two ways. The dashboard ledger reads on the main thread while
+  /// recurring generation runs on a background queue, so:
+  ///
+  ///   - LOST UPDATE. Two writers each load the same array, each append their own row, and each save
+  ///     the whole thing. The second save has no idea the first happened, so the first writer's row
+  ///     is gone from the store even though it is still in SQLite. Generation dedups against the
+  ///     store, does not see the row, and creates the occurrence a second time.
+  ///   - STALE CACHE. Invalidating before the write is not enough, and neither is invalidating after
+  ///     it: a reader can miss the cache, load the PRE-write store, and only then publish that
+  ///     snapshot into `cachedTransactions` — landing after the writer's invalidation and surviving
+  ///     it. The next generation pass reads that snapshot and re-creates what it cannot see.
+  ///
+  /// Holding one lock across load-mutate-save-invalidate closes both: a reader either sees the store
+  /// entirely before the write or entirely after it, and can never publish a snapshot into the cache
+  /// mid-write. Serializing the generators (see `RecurringTransactionManager`) stops two passes
+  /// overlapping but does nothing about a store or cache that is already wrong.
+  @discardableResult
+  private static func mutateSecureStore(_ body: (inout [Transaction]) throws -> Bool) rethrows
+    -> Bool
+  {
+    storeLock.lock()
+    defer { storeLock.unlock() }
+
+    var transactions = SecureLocalDataManager.shared.loadTransactions()
+    guard try body(&transactions) else { return false }
+
+    SecureLocalDataManager.shared.saveTransactions(transactions)
+    cachedTransactions = nil
+    cacheUserUID = nil
+    return true
   }
 
   func fetchTransactions() -> [Transaction] {
@@ -44,9 +88,6 @@ final class TransactionRepository: TransactionRepositoryProtocol {
     // Insert to SQLite first
     let insertedId = try db.insertTransaction(transaction)
 
-    // 🔒 Also save to SecureLocalDataManager for UID-isolated storage
-    var secureTransactions = SecureLocalDataManager.shared.loadTransactions()
-
     // Convert TransactionModel to Transaction for secure storage
     let dbData = transaction.data
     let uiData = try UITransactionData(from: dbData)
@@ -68,12 +109,24 @@ final class TransactionRepository: TransactionRepositoryProtocol {
       creditCardId: newTransaction.creditCardId,
       statementId: newTransaction.statementId,
       isCreditCardStatement: newTransaction.isCreditCardStatement,
+      // Carried explicitly, and taken from `uiData` rather than `newTransaction`: this rebuild exists
+      // only to stamp the SQLite id, but every field it forgets is silently DROPPED from the secure
+      // store. `fetchAllTransactions` reads the secure store, and recurring generation dedups against
+      // `seriesPeriod` from it — so losing that here makes the generator fall back to
+      // budgetMonthDate, miss occurrences whose date a rule moved into an adjacent month, and create
+      // them a second time.
+      businessDayRule: uiData.businessDayRule,
+      unadjustedDateTimestamp: uiData.unadjustedDateTimestamp,
+      seriesPeriod: uiData.seriesPeriod,
       category: newTransaction.category,
       type: newTransaction.type
     )
 
-    secureTransactions.append(Transaction(data: updatedData))
-    SecureLocalDataManager.shared.saveTransactions(secureTransactions)
+    // 🔒 Also save to SecureLocalDataManager for UID-isolated storage
+    Self.mutateSecureStore { secureTransactions in
+      secureTransactions.append(Transaction(data: updatedData))
+      return true
+    }
 
     // Notify that data has changed (for cache invalidation)
     NotificationCenter.default.post(name: .transactionDataChanged, object: nil)
@@ -103,18 +156,17 @@ final class TransactionRepository: TransactionRepositoryProtocol {
     }
 
     // 🔒 One pass over SecureLocalDataManager for the whole batch.
-    var secureTransactions = SecureLocalDataManager.shared.loadTransactions()
-    let countBefore = secureTransactions.count
-    secureTransactions.removeAll { transaction in
-      guard let transactionId = transaction.id else { return false }
-      return doomed.contains(transactionId)
+    Self.mutateSecureStore { secureTransactions in
+      let countBefore = secureTransactions.count
+      secureTransactions.removeAll { transaction in
+        guard let transactionId = transaction.id else { return false }
+        return doomed.contains(transactionId)
+      }
+      logDebug(
+        "TransactionRepository: Removed \(countBefore - secureTransactions.count) transactions from SecureLocalDataManager"
+      )
+      return true
     }
-    logDebug(
-      "TransactionRepository: Removed \(countBefore - secureTransactions.count) transactions from SecureLocalDataManager"
-    )
-    SecureLocalDataManager.shared.saveTransactions(secureTransactions)
-
-    Self.invalidateCache()
 
     // Notify that data has changed (for cache invalidation)
     NotificationCenter.default.post(name: .transactionDataChanged, object: nil)
@@ -151,6 +203,11 @@ final class TransactionRepository: TransactionRepositoryProtocol {
     // Returns ALL transactions including parent transactions (for internal operations)
     // 🔒 Use SecureLocalDataManager for UID-isolated data access ONLY
     let currentUID = AuthenticationManager.shared.currentUser?.uid
+
+    // Under the same lock as every write: the miss, the load and the publish have to be one step, or
+    // this is exactly where a pre-write snapshot gets published over a writer's invalidation.
+    Self.storeLock.lock()
+    defer { Self.storeLock.unlock() }
 
     if let cached = Self.cachedTransactions, Self.cacheUserUID == currentUID {
       return cached
@@ -219,30 +276,33 @@ final class TransactionRepository: TransactionRepositoryProtocol {
     transactionId: Int,
     newDates: (Transaction) -> (dateTimestamp: Int, budgetMonthDate: Int)
   ) {
-    var secureTransactions = SecureLocalDataManager.shared.loadTransactions()
-    guard let index = secureTransactions.firstIndex(where: { $0.id == transactionId }) else { return }
-    let existing = secureTransactions[index]
-    let dates = newDates(existing)
-    let updatedData = UITransactionData(
-      id: existing.id,
-      title: existing.title,
-      amount: existing.amount,
-      dateTimestamp: dates.dateTimestamp,
-      budgetMonthDate: dates.budgetMonthDate,
-      isRecurring: existing.isRecurring,
-      hasInstallments: existing.hasInstallments,
-      parentTransactionId: existing.parentTransactionId,
-      installmentNumber: existing.installmentNumber,
-      totalInstallments: existing.totalInstallments,
-      originalAmount: existing.originalAmount,
-      creditCardId: existing.creditCardId,
-      statementId: existing.statementId,
-      isCreditCardStatement: existing.isCreditCardStatement,
-      category: existing.category,
-      type: existing.type
-    )
-    secureTransactions[index] = Transaction(data: updatedData)
-    SecureLocalDataManager.shared.saveTransactions(secureTransactions)
+    Self.mutateSecureStore { secureTransactions in
+      guard let index = secureTransactions.firstIndex(where: { $0.id == transactionId }) else {
+        return false
+      }
+      let existing = secureTransactions[index]
+      let dates = newDates(existing)
+      let updatedData = UITransactionData(
+        id: existing.id,
+        title: existing.title,
+        amount: existing.amount,
+        dateTimestamp: dates.dateTimestamp,
+        budgetMonthDate: dates.budgetMonthDate,
+        isRecurring: existing.isRecurring,
+        hasInstallments: existing.hasInstallments,
+        parentTransactionId: existing.parentTransactionId,
+        installmentNumber: existing.installmentNumber,
+        totalInstallments: existing.totalInstallments,
+        originalAmount: existing.originalAmount,
+        creditCardId: existing.creditCardId,
+        statementId: existing.statementId,
+        isCreditCardStatement: existing.isCreditCardStatement,
+        category: existing.category,
+        type: existing.type
+      )
+      secureTransactions[index] = Transaction(data: updatedData)
+      return true
+    }
   }
 
   // MARK: - Credit Card Fields
@@ -257,8 +317,10 @@ final class TransactionRepository: TransactionRepositoryProtocol {
     )
 
     // Also update SecureLocalDataManager
-    var secureTransactions = SecureLocalDataManager.shared.loadTransactions()
-    if let index = secureTransactions.firstIndex(where: { $0.id == transactionId }) {
+    Self.mutateSecureStore { secureTransactions in
+      guard let index = secureTransactions.firstIndex(where: { $0.id == transactionId }) else {
+        return false
+      }
       let existing = secureTransactions[index]
       let updatedData = UITransactionData(
         id: existing.id,
@@ -279,7 +341,7 @@ final class TransactionRepository: TransactionRepositoryProtocol {
         type: existing.type
       )
       secureTransactions[index] = Transaction(data: updatedData)
-      SecureLocalDataManager.shared.saveTransactions(secureTransactions)
+      return true
     }
   }
 
@@ -288,8 +350,10 @@ final class TransactionRepository: TransactionRepositoryProtocol {
     try db.clearTransactionCreditCardFields(transactionId: transactionId)
 
     // Also update SecureLocalDataManager
-    var secureTransactions = SecureLocalDataManager.shared.loadTransactions()
-    if let index = secureTransactions.firstIndex(where: { $0.id == transactionId }) {
+    Self.mutateSecureStore { secureTransactions in
+      guard let index = secureTransactions.firstIndex(where: { $0.id == transactionId }) else {
+        return false
+      }
       let existing = secureTransactions[index]
       let updatedData = UITransactionData(
         id: existing.id,
@@ -310,7 +374,7 @@ final class TransactionRepository: TransactionRepositoryProtocol {
         type: existing.type
       )
       secureTransactions[index] = Transaction(data: updatedData)
-      SecureLocalDataManager.shared.saveTransactions(secureTransactions)
+      return true
     }
   }
 
@@ -325,9 +389,6 @@ final class TransactionRepository: TransactionRepositoryProtocol {
     Self.invalidateCache()
     // Insert to SQLite first
     let insertedId = try db.insertTransaction(transaction)
-
-    // 🔒 Also save to SecureLocalDataManager for UID-isolated storage
-    var secureTransactions = SecureLocalDataManager.shared.loadTransactions()
 
     // Convert TransactionModel to Transaction for secure storage
     let dbData = transaction.data
@@ -349,12 +410,20 @@ final class TransactionRepository: TransactionRepositoryProtocol {
       creditCardId: uiData.creditCardId,
       statementId: uiData.statementId,
       isCreditCardStatement: uiData.isCreditCardStatement,
+      // See the note in `insertTransaction` — omitting these drops them from the secure store, which
+      // is what recurring generation dedups against.
+      businessDayRule: uiData.businessDayRule,
+      unadjustedDateTimestamp: uiData.unadjustedDateTimestamp,
+      seriesPeriod: uiData.seriesPeriod,
       category: uiData.category,
       type: uiData.type
     )
 
-    secureTransactions.append(Transaction(data: updatedData))
-    SecureLocalDataManager.shared.saveTransactions(secureTransactions)
+    // 🔒 Also save to SecureLocalDataManager for UID-isolated storage
+    Self.mutateSecureStore { secureTransactions in
+      secureTransactions.append(Transaction(data: updatedData))
+      return true
+    }
 
     return insertedId
   }
@@ -365,9 +434,11 @@ final class TransactionRepository: TransactionRepositoryProtocol {
     try db.updateTransaction(transaction)
 
     // Also update SecureLocalDataManager to keep it in sync
-    var secureTransactions = SecureLocalDataManager.shared.loadTransactions()
-
-    if let index = secureTransactions.firstIndex(where: { $0.id == transaction.data.id }) {
+    let didUpdate = Self.mutateSecureStore { secureTransactions -> Bool in
+      guard let index = secureTransactions.firstIndex(where: { $0.id == transaction.data.id })
+      else {
+        return false
+      }
       let existingTransaction = secureTransactions[index]
 
       // Convert string category and type to enum values
@@ -406,8 +477,10 @@ final class TransactionRepository: TransactionRepositoryProtocol {
       let transactionToSave = Transaction(data: updatedData)
       secureTransactions[index] = transactionToSave
 
-      SecureLocalDataManager.shared.saveTransactions(secureTransactions)
-    } else {
+      return true
+    }
+
+    if !didUpdate {
       logError("Transaction \(transaction.data.id ?? -1) NOT FOUND in SecureLocalDataManager")
     }
 
@@ -424,10 +497,11 @@ final class TransactionRepository: TransactionRepositoryProtocol {
     try db.updateTransactionParentId(transactionId: transactionId, parentId: parentId)
 
     // 🔒 Also update SecureLocalDataManager for UID-isolated storage
-    var secureTransactions = SecureLocalDataManager.shared.loadTransactions()
-
-    // Find and update the specific transaction
-    if let index = secureTransactions.firstIndex(where: { $0.id == transactionId }) {
+    Self.mutateSecureStore { secureTransactions in
+      // Find and update the specific transaction
+      guard let index = secureTransactions.firstIndex(where: { $0.id == transactionId }) else {
+        return false
+      }
       let existingTransaction = secureTransactions[index]
 
       // Create updated transaction data with new parent ID
@@ -449,10 +523,7 @@ final class TransactionRepository: TransactionRepositoryProtocol {
 
       // Replace the transaction in the array
       secureTransactions[index] = Transaction(data: updatedData)
-
-      // Save back to secure storage
-      SecureLocalDataManager.shared.saveTransactions(secureTransactions)
-
+      return true
     }
   }
 
@@ -721,10 +792,9 @@ final class TransactionRepository: TransactionRepositoryProtocol {
     try db.updateSingleTransaction(updatedTransaction)
 
     // 🔒 Also update SecureLocalDataManager for UID-isolated storage
-    var secureTransactions = SecureLocalDataManager.shared.loadTransactions()
-
-    // Find and update only the specific transaction
-    if let index = secureTransactions.firstIndex(where: { $0.id == id }) {
+    let didUpdate = Self.mutateSecureStore { secureTransactions -> Bool in
+      // Find and update only the specific transaction
+      guard let index = secureTransactions.firstIndex(where: { $0.id == id }) else { return false }
       let existingTransaction = secureTransactions[index]
 
       // Create new UITransactionData with updated fields
@@ -748,10 +818,12 @@ final class TransactionRepository: TransactionRepositoryProtocol {
       )
 
       // Create new Transaction instance
-      let updatedTransaction = Transaction(data: updatedData)
-      secureTransactions[index] = updatedTransaction
-      SecureLocalDataManager.shared.saveTransactions(secureTransactions)
+      secureTransactions[index] = Transaction(data: updatedData)
+      return true
+    }
 
+    // Outside the lock: notification work has no business holding the store.
+    if didUpdate {
       // Reschedule notification for the updated transaction
       rescheduleNotificationForTransaction(transactionId: id)
     }
@@ -762,9 +834,10 @@ final class TransactionRepository: TransactionRepositoryProtocol {
     try db.updateTransactionParentId(transactionId: transactionId, parentId: parentId)
 
     // Also update SecureLocalDataManager for UID-isolated storage
-    var secureTransactions = SecureLocalDataManager.shared.loadTransactions()
-
-    if let index = secureTransactions.firstIndex(where: { $0.id == transactionId }) {
+    Self.mutateSecureStore { secureTransactions in
+      guard let index = secureTransactions.firstIndex(where: { $0.id == transactionId }) else {
+        return false
+      }
       let existingTransaction = secureTransactions[index]
 
       // Create new UITransactionData with updated parent ID
@@ -785,9 +858,8 @@ final class TransactionRepository: TransactionRepositoryProtocol {
       )
 
       // Create new Transaction instance
-      let updatedTransaction = Transaction(data: updatedData)
-      secureTransactions[index] = updatedTransaction
-      SecureLocalDataManager.shared.saveTransactions(secureTransactions)
+      secureTransactions[index] = Transaction(data: updatedData)
+      return true
     }
   }
 
@@ -797,9 +869,10 @@ final class TransactionRepository: TransactionRepositoryProtocol {
     try db.updateIsRecurring(transactionId: transactionId, isRecurring: isRecurring)
 
     // Also update SecureLocalDataManager for UID-isolated storage
-    var secureTransactions = SecureLocalDataManager.shared.loadTransactions()
-
-    if let index = secureTransactions.firstIndex(where: { $0.id == transactionId }) {
+    Self.mutateSecureStore { secureTransactions in
+      guard let index = secureTransactions.firstIndex(where: { $0.id == transactionId }) else {
+        return false
+      }
       let existingTransaction = secureTransactions[index]
 
       // Create new UITransactionData with updated isRecurring flag
@@ -820,9 +893,8 @@ final class TransactionRepository: TransactionRepositoryProtocol {
       )
 
       // Create new Transaction instance
-      let updatedTransaction = Transaction(data: updatedData)
-      secureTransactions[index] = updatedTransaction
-      SecureLocalDataManager.shared.saveTransactions(secureTransactions)
+      secureTransactions[index] = Transaction(data: updatedData)
+      return true
     }
 
     // Notify that data has changed
