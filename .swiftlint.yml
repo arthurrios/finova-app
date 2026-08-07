@@ -21,12 +21,14 @@ opt_in_rules:
   - vertical_parameter_alignment_on_call
 
 included:
-  - FinanceApp/Sources
-  - FinanceApp
+  # Finova covers Finova/Sources plus the app-root files (AppDelegate, SceneDelegate, ...)
+  - Finova
 
 excluded:
   - Pods
-  - FinanceApp.xcodeproj
+  - Finova.xcodeproj
+  - Finova.xcworkspace
+  # legacy directory, still present in the tree
   - FinanceApp.xcworkspace
   - Carthage
   - .build
