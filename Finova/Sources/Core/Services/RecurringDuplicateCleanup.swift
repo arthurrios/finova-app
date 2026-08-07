@@ -95,13 +95,36 @@ enum RecurringDuplicateCleanup {
     /// The gate is set BEFORE the work, so a crash part way through cannot leave this re-deleting on
     /// every launch. A pass that dies early just leaves some duplicates behind; the invariant is
     /// "never delete more than intended", not "always finish".
+    ///
+    /// It is NOT set when there are no occurrences to scan at all. The caller is
+    /// `loadMonthlyCards`, which runs on the first dashboard load — and there are paths where the
+    /// ledger is still empty at that point and the rows arrive afterwards: a fresh install that then
+    /// restores, and the "Data Recovery" import, which brings in legacy rows that may themselves be
+    /// duplicated. Burning the gate against an empty database spends the one pass on nothing and
+    /// leaves those rows uncleaned forever. An empty scan costs one indexed query, so retrying next
+    /// launch is cheap; a populated database still gets exactly one pass.
     static func runOnceIfNeeded(
         repository: TransactionRepository = TransactionRepository(),
         db: DBHelper = .shared,
         defaults: UserDefaults = .standard
     ) {
         guard !defaults.bool(forKey: hasRunKey) else { return }
+
+        // Nothing to look at yet — leave the gate open and try again once there is. Asked of the
+        // signed-in user's ledger rather than the whole table, because that is whose duplicates this
+        // pass is spent on.
+        guard !repository.fetchAllRecurringInstances().isEmpty else { return }
+
         defaults.set(true, forKey: hasRunKey)
         run(repository: repository, db: db)
+    }
+
+    /// Re-opens the gate so the next `runOnceIfNeeded` scans again.
+    ///
+    /// For imports that add rows this has already run past — the "Data Recovery" flow replaces the
+    /// store wholesale from SQLite, and whatever duplicates those rows carry have never been seen by
+    /// a scan.
+    static func reopenGate(defaults: UserDefaults = .standard) {
+        defaults.set(false, forKey: hasRunKey)
     }
 }

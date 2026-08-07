@@ -173,19 +173,62 @@ final class RecurringDuplicateCleanupTests: XCTestCase {
         XCTAssertTrue(groups(second, for: parent).isEmpty)
     }
 
-    func testTheGateIsSetEvenWhenThereIsNothingToDo() {
+    func testTheGateIsSetOnceThereIsSomethingToScan() {
         let defaults = UserDefaults(suiteName: "dup_cleanup_gate_\(UUID().uuidString)")!
 
+        // A clean — but populated — ledger still spends the one pass.
+        let parent = insert("Series")
+        insert("Occ", parentId: parent, slot: jan)
         RecurringDuplicateCleanup.runOnceIfNeeded(
             repository: transactionRepo, db: db, defaults: defaults)
         XCTAssertTrue(defaults.bool(forKey: "hasCleanedRecurringDuplicatesV1"))
 
         // And a second call is a no-op rather than a second scan.
+        insert("Occ", parentId: parent, slot: feb)
+        insert("Occ", parentId: parent, slot: feb)
+        RecurringDuplicateCleanup.runOnceIfNeeded(
+            repository: transactionRepo, db: db, defaults: defaults)
+        XCTAssertEqual(liveIds(titled: "Occ").count, 3, "gated out, so the duplicate remains")
+    }
+
+    /// The first dashboard load can happen before any rows exist — a fresh install that restores
+    /// afterwards, or the Data Recovery import. Spending the one pass on an empty ledger would leave
+    /// whatever arrives next uncleaned forever.
+    func testAnEmptyLedgerDoesNotBurnTheGate() {
+        let defaults = UserDefaults(suiteName: "dup_cleanup_gate_\(UUID().uuidString)")!
+
+        RecurringDuplicateCleanup.runOnceIfNeeded(
+            repository: transactionRepo, db: db, defaults: defaults)
+        XCTAssertFalse(
+            defaults.bool(forKey: "hasCleanedRecurringDuplicatesV1"),
+            "nothing was scanned, so the pass is still owed")
+
+        // Rows arrive later, carrying a duplicate — the retry must catch it.
         let parent = insert("Series")
         insert("Occ", parentId: parent, slot: feb)
         insert("Occ", parentId: parent, slot: feb)
         RecurringDuplicateCleanup.runOnceIfNeeded(
             repository: transactionRepo, db: db, defaults: defaults)
-        XCTAssertEqual(liveIds(titled: "Occ").count, 2, "gated out, so the duplicate remains")
+        XCTAssertEqual(liveIds(titled: "Occ").count, 1, "the late-arriving duplicate is cleaned")
+        XCTAssertTrue(defaults.bool(forKey: "hasCleanedRecurringDuplicatesV1"))
+    }
+
+    func testReopeningTheGateAllowsASecondPass() {
+        let defaults = UserDefaults(suiteName: "dup_cleanup_gate_\(UUID().uuidString)")!
+
+        let parent = insert("Series")
+        insert("Occ", parentId: parent, slot: jan)
+        RecurringDuplicateCleanup.runOnceIfNeeded(
+            repository: transactionRepo, db: db, defaults: defaults)
+        XCTAssertTrue(defaults.bool(forKey: "hasCleanedRecurringDuplicatesV1"))
+
+        // An import brings in rows the scan never saw.
+        insert("Occ", parentId: parent, slot: feb)
+        insert("Occ", parentId: parent, slot: feb)
+
+        RecurringDuplicateCleanup.reopenGate(defaults: defaults)
+        RecurringDuplicateCleanup.runOnceIfNeeded(
+            repository: transactionRepo, db: db, defaults: defaults)
+        XCTAssertEqual(liveIds(titled: "Occ").count, 2, "one per slot survives")
     }
 }

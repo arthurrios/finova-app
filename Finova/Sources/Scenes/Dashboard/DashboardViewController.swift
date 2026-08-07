@@ -2485,6 +2485,11 @@ extension DashboardViewController {
             let recoverySuccess = viewModel.attemptTransactionRecovery()
 
             if recoverySuccess {
+                // These rows have never been through a duplicate scan — the one-shot pass may already
+                // have run against the pre-recovery ledger. Re-open the gate so it looks at them.
+                RecurringDuplicateCleanup.reopenGate()
+                RecurringDuplicateCleanup.runOnceIfNeeded()
+
                 // Refresh the dashboard after recovery
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                     self.refreshDashboardData()
