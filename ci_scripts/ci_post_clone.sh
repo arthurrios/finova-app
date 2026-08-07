@@ -4,10 +4,7 @@
 #
 # `Pods/` is gitignored, so a fresh clone has no `Pods/Target Support Files/*.xcconfig`
 # and every Pods target fails with "Unable to open base configuration reference file".
-# Some of Pods/ is committed despite the ignore rule — 456 of 1100 files, from an
-# accidental `git add -f` at some point — which is why local builds work and Cloud's
-# clone does not. Rather than commit the remaining 644, generate them here from the
-# Podfile.lock, which IS tracked and pins every version.
+# Podfile.lock IS tracked and pins every version, so install from it here.
 #
 # Runs from ci_scripts/, so step up to the repo before installing.
 
