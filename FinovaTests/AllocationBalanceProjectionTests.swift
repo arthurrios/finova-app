@@ -126,6 +126,114 @@ final class AllocationBalanceProjectionTests: XCTestCase {
         XCTAssertTrue(projection.isOverCommitted)
     }
 
+    // MARK: - Deferred card spending
+
+    /// The regression this term exists for. A card purchase consumes the month's plan but leaves the
+    /// account on a later statement, so `base` does not move - and the projection used to climb by the
+    /// amount of a spend.
+    func testCardPurchaseDoesNotRaiseTheProjection() {
+        // Market allocated 50.000 with 10.000 already spent, on a 100.000 balance.
+        let before = AllocationBalanceProjection(
+            base: 100_000,
+            allocations: [allocation(.market, allocated: 50_000, used: 10_000)],
+            tense: .projected)
+
+        // A 15.000 card purchase in Market, settling next month: usage rises, `base` cannot move
+        // because the balance is cash-only.
+        let after = AllocationBalanceProjection(
+            base: 100_000,
+            allocations: [allocation(.market, allocated: 50_000, used: 25_000)],
+            deferredCardSpending: 15_000,
+            tense: .projected)
+
+        XCTAssertEqual(before.projected, 60_000)
+        XCTAssertEqual(
+            after.projected, before.projected,
+            "spending against the plan on a card must not change what the month is projected to keep")
+    }
+
+    /// Without the subtraction the same purchase inflates the projection - kept as the explicit
+    /// statement of the bug, so nobody "simplifies" the term away.
+    func testOmittingDeferredCardSpendingInflatesTheProjection() {
+        let unsubtracted = AllocationBalanceProjection(
+            base: 100_000,
+            allocations: [allocation(.market, allocated: 50_000, used: 25_000)],
+            tense: .projected)
+
+        XCTAssertEqual(unsubtracted.projected, 75_000, "the pre-fix behaviour: up by the 15.000 spent")
+    }
+
+    func testDeferredCardSpendingComesOffTheProjectionOnly() {
+        let allocations = [allocation(.meals, allocated: 90_000, used: 52_000)]
+
+        let withoutCard = AllocationBalanceProjection(
+            base: 400_000, allocations: allocations,
+            unallocatedSpending: 8_000, unallocatedHeadroom: 20_000, tense: .projected)
+        let withCard = AllocationBalanceProjection(
+            base: 400_000, allocations: allocations,
+            unallocatedSpending: 8_000, unallocatedHeadroom: 20_000,
+            deferredCardSpending: 30_000, tense: .projected)
+
+        XCTAssertEqual(withCard.projected, withoutCard.projected - 30_000)
+        // Money spent is neither kept nor off-plan, so no other quantity may move.
+        XCTAssertEqual(withCard.unspentAllocations, withoutCard.unspentAllocations)
+        XCTAssertEqual(withCard.totalSaved, withoutCard.totalSaved)
+        XCTAssertEqual(withCard.overspent, withoutCard.overspent)
+        XCTAssertEqual(withCard.netSaved, withoutCard.netSaved)
+        XCTAssertEqual(withCard.usedWithinAllocations, withoutCard.usedWithinAllocations)
+    }
+
+    func testDeferredCardSpendingDefaultsToZero() {
+        let projection = AllocationBalanceProjection(
+            base: 100_000,
+            allocations: [allocation(.meals, allocated: 40_000, used: 0)],
+            tense: .projected)
+
+        XCTAssertEqual(projection.deferredCardSpending, 0)
+        XCTAssertEqual(projection.projected, 60_000)
+    }
+
+    func testNegativeDeferredCardSpendingIsIgnored() {
+        // Defensive: the service counts expenses only, so a negative means the caller measured
+        // something else - it must never invent money.
+        let projection = AllocationBalanceProjection(
+            base: 100_000, allocations: [], deferredCardSpending: -25_000, tense: .projected)
+
+        XCTAssertEqual(projection.deferredCardSpending, 0)
+        XCTAssertEqual(projection.projected, 100_000)
+    }
+
+    /// Card debt already run up is a real claim on the balance, so it can tip a month over on its own.
+    func testCardDebtCanOverCommitAMonthTheAllocationsAloneWouldNot() {
+        let allocations = [allocation(.meals, allocated: 30_000, used: 0)]
+
+        let cashOnly = AllocationBalanceProjection(
+            base: 40_000, allocations: allocations, tense: .projected)
+        let withCard = AllocationBalanceProjection(
+            base: 40_000, allocations: allocations,
+            deferredCardSpending: 25_000, tense: .projected)
+
+        XCTAssertFalse(cashOnly.isOverCommitted)
+        XCTAssertTrue(withCard.isOverCommitted)
+        XCTAssertEqual(withCard.projected, -15_000)
+        XCTAssertEqual(withCard.shortfall, 15_000)
+        assertSharesNormalised(withCard)
+    }
+
+    func testDeferredCardSpendingShrinksTheSurvivingBarSegment() {
+        let allocations = [allocation(.meals, allocated: 100_000, used: 40_000)]
+
+        let withoutCard = AllocationBalanceProjection(
+            base: 400_000, allocations: allocations, tense: .projected)
+        let withCard = AllocationBalanceProjection(
+            base: 400_000, allocations: allocations,
+            deferredCardSpending: 100_000, tense: .projected)
+
+        XCTAssertLessThan(withCard.barShares.projected, withoutCard.barShares.projected)
+        assertSharesNormalised(withCard)
+        assertSharesNormalised(withoutCard)
+    }
+
     // MARK: - Over-committed
 
     func testAllocationsExceedingBaseGoNegativeAndFlagOverCommitted() {

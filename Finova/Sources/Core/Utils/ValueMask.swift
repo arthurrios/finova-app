@@ -54,6 +54,17 @@ extension Int {
         return self < 0 ? "-" + abs(self).compactCurrencyString : compactCurrencyString
     }
 
+    /// Full precision, negatives carrying an explicit `-`. The sibling of `maskedSignedCompactString`
+    /// for surfaces that are not 72pt wide - the explainer sheet itemises the projection, where
+    /// rounding the terms to `1,8k` would stop them visibly adding up to the total.
+    ///
+    /// Masks identically: the sign goes with the digits, because `-••••••` would still announce an
+    /// overdraft the user asked to hide.
+    func maskedSignedCurrencyString(hidden: Bool = ValueMask.isActive) -> String {
+        if hidden { return ValueMask.placeholder }
+        return self < 0 ? "-" + abs(self).currencyString : currencyString
+    }
+
     /// The masked attributed string carries only the body font across its whole range: there is no
     /// currency symbol in "••••••", so applying the smaller `symbolFont` to part of the bullets
     /// would read as a rendering glitch. The font matches the unmasked string so baselines and row
