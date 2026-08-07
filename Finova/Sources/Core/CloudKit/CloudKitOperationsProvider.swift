@@ -185,21 +185,34 @@ final class RealCloudKitOperations: CloudKitOperationsProvider {
         recordHandler: @escaping (CKRecord) -> Void,
         completion: @escaping (Result<Void, Error>) -> Void
     ) {
-        let query = CKQuery(recordType: recordType, predicate: NSPredicate(value: true))
-        let operation = CKQueryOperation(query: query)
-        operation.zoneID = zoneID
-        operation.recordMatchedBlock = { _, result in
-            if case .success(let record) = result { recordHandler(record) }
-        }
-        operation.queryResultBlock = { result in
-            switch result {
-            case .success: completion(.success(()))
-            case .failure(let error): completion(.failure(error))
+        // FOLLOWS THE CURSOR. `queryResultBlock` yields `Result<CKQueryOperation.Cursor?, Error>`, and
+        // CloudKit pages a query at roughly 100 records — so ignoring that cursor silently returns
+        // only the FIRST PAGE and reports success. On a ledger of 1300 transactions that is not a
+        // partial answer, it is a wrong one that looks complete: a caller diffing cloud against local
+        // would conclude ~1200 records were missing from CloudKit.
+        func run(_ operation: CKQueryOperation) {
+            operation.zoneID = zoneID
+            operation.recordMatchedBlock = { _, result in
+                if case .success(let record) = result { recordHandler(record) }
             }
+            operation.queryResultBlock = { result in
+                switch result {
+                case .success(let cursor):
+                    if let cursor = cursor {
+                        run(CKQueryOperation(cursor: cursor))
+                    } else {
+                        completion(.success(()))
+                    }
+                case .failure(let error):
+                    completion(.failure(error))
+                }
+            }
+            operation.qualityOfService = .userInitiated
+            Self.applyTimeouts(to: operation)
+            database(scope).add(operation)
         }
-        operation.qualityOfService = .userInitiated
-        Self.applyTimeouts(to: operation)
-        database(scope).add(operation)
+
+        run(CKQueryOperation(query: CKQuery(recordType: recordType, predicate: NSPredicate(value: true))))
     }
 
     func fetchZoneChanges(
