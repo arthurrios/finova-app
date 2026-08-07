@@ -10619,6 +10619,278 @@
         }
       }
     },
+    "projection.explainer.a11y.open": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "How the projection is worked out"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Como a projeção é calculada"
+          }
+        }
+      }
+    },
+    "projection.explainer.formula.balance.format": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Balance by %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saldo até %@"
+          }
+        }
+      }
+    },
+    "projection.explainer.formula.card": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Card spending not yet billed"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gastos no cartão ainda não faturados"
+          }
+        }
+      }
+    },
+    "projection.explainer.formula.header": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "If fully used"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se usar tudo"
+          }
+        }
+      }
+    },
+    "projection.explainer.formula.note": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This assumes every budget gets spent in full. It is the cautious figure, so the month usually closes above it."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Isto considera que todo orçamento será gasto por completo. É o valor cauteloso, então o mês normalmente fecha acima dele."
+          }
+        }
+      }
+    },
+    "projection.explainer.formula.result": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "If you spend the whole plan"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se gastar todo o plano"
+          }
+        }
+      }
+    },
+    "projection.explainer.formula.unspent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Budget still unspent"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Orçamento ainda não usado"
+          }
+        }
+      }
+    },
+    "projection.explainer.history.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Once a few months have closed, this will show how much of each budget you actually tend to spend."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quando alguns meses fecharem, aqui aparecerá quanto de cada orçamento você realmente costuma gastar."
+          }
+        }
+      }
+    },
+    "projection.explainer.history.header": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "How much of each budget you usually use"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quanto de cada orçamento você costuma usar"
+          }
+        }
+      }
+    },
+    "projection.explainer.history.month": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 closed month"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 mês fechado"
+          }
+        }
+      }
+    },
+    "projection.explainer.history.months.format": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d closed months"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d meses fechados"
+          }
+        }
+      }
+    },
+    "projection.explainer.history.none": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "not enough history yet"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "histórico insuficiente"
+          }
+        }
+      }
+    },
+    "projection.explainer.history.range.format": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$d–%2$d%%"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$d–%2$d%%"
+          }
+        }
+      }
+    },
+    "projection.explainer.history.single.format": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "about %d%%"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cerca de %d%%"
+          }
+        }
+      }
+    },
+    "projection.explainer.history.varied": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "varies a lot"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "varia muito"
+          }
+        }
+      }
+    },
+    "projection.explainer.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "How this is worked out"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Como isto é calculado"
+          }
+        }
+      }
+    },
     "recurring.cleanup.all": {
       "extractionState": "manual",
       "localizations": {

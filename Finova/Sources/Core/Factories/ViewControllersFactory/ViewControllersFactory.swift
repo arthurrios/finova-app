@@ -255,4 +255,25 @@ final class ViewControllersFactory: ViewControllersFactoryProtocol {
     ) -> BudgetAllocationDetailsViewController {
         return BudgetAllocationDetailsViewController(unallocatedSpending: unallocatedSpending)
     }
+
+    // MARK: - Projection Explainer
+
+    /// Takes the projection rather than the inputs to build one: the card has already computed it, and
+    /// a second construction site for that formula would drift from the first.
+    static func makeProjectionExplainerViewController(
+        projection: AllocationBalanceProjection,
+        balanceDay: Int,
+        allocations: [BudgetAllocation],
+        monthAnchor: Int,
+        ledgerScope: LedgerScope
+    ) -> ProjectionExplainerViewController {
+        return ProjectionExplainerViewController(
+            contentView: ProjectionExplainerView(),
+            viewModel: ProjectionExplainerViewModel(
+                projection: projection,
+                balanceDay: balanceDay,
+                allocations: allocations,
+                monthAnchor: monthAnchor,
+                ledgerScope: ledgerScope))
+    }
 }

@@ -1877,6 +1877,18 @@ extension DashboardViewController: UICollectionViewDataSource {
             cell.onCreateTagTapped = { [weak self] in
                 self?.flowDelegate?.presentCreateAllocationTag()
             }
+            cell.onExplainProjectionTapped = {
+                [weak self] projection, balanceDay, allocations, monthAnchor in
+                guard let self else { return }
+                self.flowDelegate?.presentProjectionExplainer(
+                    projection: projection,
+                    balanceDay: balanceDay,
+                    allocations: allocations,
+                    monthAnchor: monthAnchor,
+                    // The same expression the cell's own `ledgerScope` is set from, so the history
+                    // in the sheet is read from the ledger whose allocations it lists.
+                    ledgerScope: LedgerScope(self.viewModel.currentContext))
+            }
 
             cell.transactionTableView.dataSource = self
             cell.transactionTableView.delegate = self

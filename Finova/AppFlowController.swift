@@ -570,6 +570,26 @@ extension AppFlowController {
             self?.navigateToAllocationTagEdit(tag: tag)
         }
     }
+
+    func presentProjectionExplainer(
+        projection: AllocationBalanceProjection,
+        balanceDay: Int,
+        allocations: [BudgetAllocation],
+        monthAnchor: Int,
+        ledgerScope: LedgerScope
+    ) {
+        guard let presenter = navigationController?.topViewController else { return }
+        let viewController = ViewControllersFactory.makeProjectionExplainerViewController(
+            projection: projection,
+            balanceDay: balanceDay,
+            allocations: allocations,
+            monthAnchor: monthAnchor,
+            ledgerScope: ledgerScope)
+        // A sheet rather than a push: it explains what is on screen behind it, and dismissing it should
+        // return the user to that card without a navigation animation.
+        viewController.modalPresentationStyle = .pageSheet
+        presenter.present(viewController, animated: true)
+    }
 }
 
 extension AppFlowController: AllocationTagsFlowDelegate {

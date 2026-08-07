@@ -78,6 +78,10 @@ class MonthCarouselCell: UICollectionViewCell {
     var onBudgetViewStateChanged: ((Int, Bool) -> Void)?  // (monthAnchor, isShowingBudgetView)
     var onManageTagsTapped: (() -> Void)?
     var onCreateTagTapped: (() -> Void)?
+    /// Carries everything the explainer needs, so it never recomputes the projection the card just
+    /// rendered - `(projection, balanceDay, allocations, monthAnchor)`.
+    var onExplainProjectionTapped:
+        ((AllocationBalanceProjection, Int, [BudgetAllocation], Int) -> Void)?
 
     // MARK: - Properties
 
@@ -406,6 +410,41 @@ class MonthCarouselCell: UICollectionViewCell {
         return button
     }()
 
+    /// Opens the explanation of the projected balance the front face shows.
+    ///
+    /// Lives here rather than on the projection block itself, which is the surface it explains: that
+    /// block sits on top of the donut, the donut owns tag-selection taps, and a layout test exists to
+    /// keep the block from swallowing them. The allocations header is below the chart entirely, so a
+    /// button here competes with nothing. The card header was the other candidate and is full - three
+    /// buttons already, at a 343pt narrowest width.
+    private let allocationsExplainButton: UIButton = {
+        let button = UIButton(type: .system)
+        button.setImage(
+            UIImage(systemName: "questionmark.circle")?.withRenderingMode(.alwaysTemplate),
+            for: .normal)
+        button.tintColor = Colors.gray500
+        button.accessibilityLabel = "projection.explainer.a11y.open".localized
+        button.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            button.widthAnchor.constraint(equalToConstant: Metrics.spacing5),
+            button.heightAnchor.constraint(equalToConstant: Metrics.spacing5)
+        ])
+        return button
+    }()
+
+    /// Groups the explain button with the Tags button, for the same reason
+    /// `allocationsHeaderLeadingStack` groups the title with its count pill: the header distributes
+    /// with `.equalSpacing`, so a third top-level arranged subview would spread all three evenly and
+    /// pull this pair away from the trailing edge.
+    private lazy var allocationsHeaderTrailingStack: UIStackView = {
+        let stack = UIStackView()
+        stack.axis = .horizontal
+        stack.alignment = .center
+        stack.spacing = Metrics.spacing2
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        return stack
+    }()
+
     lazy var allocationsTableView: UITableView = {
         let tableView = UITableView()
         tableView.backgroundColor = Colors.gray100
@@ -510,6 +549,18 @@ class MonthCarouselCell: UICollectionViewCell {
         onManageTagsTapped?()
     }
 
+    /// Hands the card's own figures to the explainer.
+    ///
+    /// Silent when the card has no projection - that means the month has no ledger row to project
+    /// from, so the block the sheet would explain is itself hidden and there is nothing to say.
+    @objc private func explainProjectionTapped() {
+        guard let projection = budgetCard.projection,
+            let basis = budgetCard.balanceBasis
+        else { return }
+        onExplainProjectionTapped?(
+            projection, basis.dayOfMonth, currentAllocations, currentMonthAnchor)
+    }
+
     @objc private func handleAllocationTagsChanged() {
         guard Thread.isMainThread else {
             DispatchQueue.main.async { [weak self] in self?.handleAllocationTagsChanged() }
@@ -578,7 +629,11 @@ class MonthCarouselCell: UICollectionViewCell {
             unallocatedSpending: currentUnallocatedSpending,
             monthAnchor: currentMonthAnchor,
             monthData: currentMonthData,
-            tagBreakdown: tagBreakdown
+            tagBreakdown: tagBreakdown,
+            // Read from the same scope as the allocations above: this cancels their card spending out
+            // of the projection's base, so a mismatched scope would subtract another ledger's debt.
+            deferredCardSpending: allocationService.deferredCardSpending(
+                forMonth: currentMonthAnchor, in: ledgerScope)
         )
         budgetCard.setSelectedTag(selectedTagId)
 
@@ -690,10 +745,14 @@ class MonthCarouselCell: UICollectionViewCell {
         allocationsHeaderLeadingStack.addArrangedSubview(allocationsHeaderTitleLabel)
         allocationsHeaderLeadingStack.addArrangedSubview(allocationsNumberContainerView)
         allocationsTableHeaderView.addArrangedSubview(allocationsHeaderLeadingStack)
-        allocationsTableHeaderView.addArrangedSubview(allocationsTagsButton)
+        allocationsHeaderTrailingStack.addArrangedSubview(allocationsExplainButton)
+        allocationsHeaderTrailingStack.addArrangedSubview(allocationsTagsButton)
+        allocationsTableHeaderView.addArrangedSubview(allocationsHeaderTrailingStack)
         allocationsNumberContainerView.addArrangedSubview(allocationsNumberLabel)
         allocationsTagsButton.addTarget(
             self, action: #selector(manageTagsTapped), for: .touchUpInside)
+        allocationsExplainButton.addTarget(
+            self, action: #selector(explainProjectionTapped), for: .touchUpInside)
         contentView.addSubview(allocationTagStripView)
         contentView.addSubview(allocationsTableView)
         contentView.addSubview(allocationsEmptyStateView)

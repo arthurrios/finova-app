@@ -30,10 +30,15 @@ final class BudgetCard: UIView {
     private var chartHostingController: UIViewController?
     private var currentMonthAnchor: Int = 0
     private var visibilityObservation: ValueVisibilityObservation?
-    private var projection: AllocationBalanceProjection?
+    /// Readable so the explainer sheet can itemise the same arithmetic this card renders. Rebuilding
+    /// it there from the same inputs would be a second construction site of one formula, and the two
+    /// would drift the first time either changed.
+    private(set) var projection: AllocationBalanceProjection?
     private var tagBreakdown: AllocationTagBreakdown = .empty
     private var selectedTagId: String?
-    private var balanceBasis: BalanceBasis?
+    /// Readable for the same reason as `projection` - the sheet needs the day the balance is anchored
+    /// to, and deriving it a second time would be a second definition of "end of this month".
+    private(set) var balanceBasis: BalanceBasis?
     private var currentUsedValue: Int?
     private var currentBudgetLimit: Int?
 
@@ -43,7 +48,7 @@ final class BudgetCard: UIView {
     /// Both numbers on this card are end-of-period figures, so the caption has to name the day
     /// or "Balance" is ambiguous - the transaction face has the same problem and solves it the
     /// same way, with "Balance on the 31st".
-    private struct BalanceBasis {
+    struct BalanceBasis {
         let amount: Int
         /// Day of the displayed month the amount refers to.
         let dayOfMonth: Int
@@ -525,7 +530,8 @@ final class BudgetCard: UIView {
         unallocatedSpending: [UnallocatedCategorySpending],
         monthAnchor: Int,
         monthData: MonthBudgetCardType? = nil,
-        tagBreakdown: AllocationTagBreakdown = .empty
+        tagBreakdown: AllocationTagBreakdown = .empty,
+        deferredCardSpending: Int = 0
     ) {
         self.allocations = allocations
         self.unallocatedSummary = unallocatedSummary
@@ -559,12 +565,18 @@ final class BudgetCard: UIView {
         // The trailing block reports a forecast while the month is open and what the allocations
         // actually consumed once it has closed - `base - unspentAllocations` would be a
         // counterfactual on a closed month.
+        //
+        // `deferredCardSpending` comes off the base rather than the leading block's: this month's card
+        // purchases consumed the plan here but leave the account on a later statement, so without it
+        // the projection *rose* when a card expense was added. The leading block stays the real closing
+        // balance and must not move.
         self.projection = balanceBasis.map {
             AllocationBalanceProjection(
                 base: $0.amount,
                 allocations: allocations,
                 unallocatedSpending: unallocatedSummary.totalUsedInUnallocatedCategories,
                 unallocatedHeadroom: unallocatedSummary.unallocatedAmount,
+                deferredCardSpending: deferredCardSpending,
                 tense: isPastMonth ? .actual : .projected
             )
         }
@@ -724,9 +736,11 @@ final class BudgetCard: UIView {
 
         // Open month: the two corner blocks bracket one outcome rather than reporting two unrelated
         // balances - the leading one is the balance if nothing more is drawn from the plan, this one
-        // if all of it is. The truth lands between, and the gap closes on its own as
-        // `unspentAllocations` falls to zero. No room for a connector with the donut between them,
-        // so the caption carries the assumption.
+        // if all of it is. The truth lands between, and the gap narrows on its own as
+        // `unspentAllocations` falls. It closes to `deferredCardSpending`, not to zero: card purchases
+        // already made this month settle on a later statement, so they are outstanding here even once
+        // the plan is fully drawn. No room for a connector with the donut between them, so the caption
+        // carries the assumption.
         //
         // Closed month: the verdict. This used to read "Budget used" over `usedWithinAllocations`,
         // which was two lies at once - the figure is capped per category, so it excluded overruns

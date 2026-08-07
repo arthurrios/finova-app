@@ -72,7 +72,23 @@ struct AllocationBalanceProjection: Equatable {
     /// exactly like any other spend, so they are not counted as money kept.
     let usedWithinAllocations: Int
 
-    /// What survives once every allocation is honoured. May be negative.
+    /// Money already charged against this month's allocations that `base` has not absorbed yet:
+    /// credit card spending made this month whose statement settles in a later one.
+    ///
+    /// Without this term the projection *rises* when a card purchase is added, which is what it used to
+    /// do. `base` is cash-only - `TransactionLedgerService` keeps card purchases out of the balance
+    /// entirely and represents them by the statement synthetic, dated to the statement's due date -
+    /// while allocation usage counts the purchase in the month it was made. So the purchase consumed
+    /// the plan here (`unspentAllocations` fell) with nothing coming off the balance, and
+    /// `base - unspent` climbed by the amount of a *spend*.
+    ///
+    /// Subtracting it makes this answer "what is left once the plan is honoured, counting the card debt
+    /// this month has already run up". The money is committed either way; only the date it leaves the
+    /// account differs.
+    let deferredCardSpending: Int
+
+    /// What survives once every allocation is honoured and this month's card debt is paid. May be
+    /// negative.
     let projected: Int
 
     let tense: Tense
@@ -82,11 +98,17 @@ struct AllocationBalanceProjection: Equatable {
     ///     `overspent` - money spent with no plan behind it is money spent beyond the plan.
     ///   - unallocatedHeadroom: budget cap never earmarked to a category, which counts toward
     ///     `totalSaved`. Clamped at zero, so over-allocation does not read as negative saving.
+    ///   - deferredCardSpending: card spending counted against these allocations whose statement
+    ///     settles after this month, so `base` does not reflect it yet. Comes off the projection and
+    ///     nothing else - it is money spent, so it is neither saved nor overspending. Clamped at zero;
+    ///     `BudgetAllocationService.deferredCardSpending` counts only expenses, so a negative can only
+    ///     mean the caller measured something else.
     init(
         base: Int,
         allocations: [BudgetAllocation],
         unallocatedSpending: Int = 0,
         unallocatedHeadroom: Int = 0,
+        deferredCardSpending: Int = 0,
         tense: Tense
     ) {
         // Only the *unspent* remainder is a future outflow. Money already spent is inside `base`,
@@ -98,6 +120,7 @@ struct AllocationBalanceProjection: Equatable {
             $0 + max(0, min($1.usedAmount, $1.allocatedAmount))
         }
         let unspent = Self.unspent(allocations: allocations)
+        let deferred = max(0, deferredCardSpending)
 
         self.base = base
         self.unspentAllocations = unspent
@@ -105,7 +128,10 @@ struct AllocationBalanceProjection: Equatable {
         self.overspent = Self.overspent(
             allocations: allocations, unallocatedSpending: unallocatedSpending)
         self.usedWithinAllocations = used
-        self.projected = base - unspent
+        self.deferredCardSpending = deferred
+        // Both subtrahends are outflows `base` has yet to see: `unspent` because the plan has not been
+        // drawn on yet, `deferred` because the card statement carrying it lands in a later month.
+        self.projected = base - deferred - unspent
         self.tense = tense
     }
 

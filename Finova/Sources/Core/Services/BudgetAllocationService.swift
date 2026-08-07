@@ -16,17 +16,20 @@ final class BudgetAllocationService {
     private let allocationRepo: BudgetAllocationRepositoryProtocol
     private let transactionRepo: TransactionRepository
     private let budgetRepo: BudgetRepository
+    private let statementRepo: StatementRepository
 
     // MARK: - Initialization
 
     init(
         allocationRepo: BudgetAllocationRepositoryProtocol = BudgetAllocationRepository(),
         transactionRepo: TransactionRepository = TransactionRepository(),
-        budgetRepo: BudgetRepository = BudgetRepository()
+        budgetRepo: BudgetRepository = BudgetRepository(),
+        statementRepo: StatementRepository = StatementRepository()
     ) {
         self.allocationRepo = allocationRepo
         self.transactionRepo = transactionRepo
         self.budgetRepo = budgetRepo
+        self.statementRepo = statementRepo
     }
 
     // MARK: - Create
@@ -351,6 +354,194 @@ final class BudgetAllocationService {
 
         // Sort by spent amount (highest first)
         return unallocatedSpending.sorted { $0.spentAmount > $1.spentAmount }
+    }
+
+    // MARK: - Deferred Card Spending
+
+    /// Spending charged against `monthAnchor`'s allocations that the month's closing balance has not
+    /// absorbed, because it sits on a credit card statement settling later.
+    ///
+    /// `AllocationBalanceProjection` takes this off the balance before projecting. The two figures have
+    /// always bucketed a card purchase differently: `TransactionLedgerService` keeps card purchases out
+    /// of the balance entirely and represents them by the statement synthetic, dated to the statement's
+    /// due date, while usage below counts the purchase under its own `budgetMonthDate`. A card purchase
+    /// therefore consumed the month's plan with nothing leaving the month's balance, and
+    /// `base - unspentAllocations` *rose* by the amount spent.
+    ///
+    /// The row filter mirrors `calculateUsageByCategory` exactly - same scope, same
+    /// `excludingEarlyPaidInstallments()`, same `budgetMonthDate`/`.expense` predicate - because this
+    /// has to cancel that method's contribution, not approximate it. Note `budgetMonthDate` and not the
+    /// transaction date: a business-day adjustment can push those into different months, and it is the
+    /// allocation side this has to agree with. Change one and change both.
+    func deferredCardSpending(forMonth monthAnchor: Int, in scope: LedgerScope) -> Int {
+        let all = scope.groupId.map { transactionRepo.fetchTransactionsForGroup(groupId: $0) }
+            ?? transactionRepo.fetchAllTransactions()
+
+        // Only expenses, matching usage: a card refund never reduces `usedAmount`, so it must not
+        // reduce what is subtracted here either.
+        //
+        // The cheap predicate runs first and `excludingEarlyPaidInstallments()` second - it is a
+        // membership test, so the order cannot change the result, but it costs a query against
+        // `DBHelper.shared`, and this runs per carousel cell. A month with no card spending now pays
+        // nothing for it.
+        let monthCardRows = all.filter {
+            $0.budgetMonthDate == monthAnchor && $0.type == .expense
+                && $0.creditCardId != nil && $0.isCreditCardStatement != true
+        }
+        guard !monthCardRows.isEmpty else { return 0 }
+
+        let cardRows = monthCardRows.excludingEarlyPaidInstallments()
+        guard !cardRows.isEmpty else { return 0 }
+
+        let settlement = settlementMonths(forCards: Set(cardRows.compactMap { $0.creditCardId }))
+
+        return cardRows.reduce(0) { total, transaction in
+            guard let statementId = transaction.statementId,
+                let settles = settlement[statementId]
+            else {
+                // Attached to no live statement, so no synthetic will ever carry this row into any
+                // month's balance - deferred indefinitely rather than settled.
+                return total + transaction.amount
+            }
+            return settles > monthAnchor ? total + transaction.amount : total
+        }
+    }
+
+    // MARK: - Spend History
+
+    /// How much of `category`'s plan this ledger's own closed months say actually gets spent.
+    ///
+    /// Feeds nothing monetary. `AllocationBalanceProjection` still assumes the whole plan will be
+    /// spent, and this exists to tell the user what their own record says about that assumption -
+    /// see `CategorySpendHistory` for why it reports a range rather than an average.
+    ///
+    /// A convenience over `spendHistories(for:before:in:asOf:)` for a single category. Both are read on
+    /// a user-initiated screen open, never on a render path, which is why neither caches: a cache worth
+    /// having here would have to be *static* (`allocationService` is a per-cell instance) and would
+    /// then need locking, because `.allocationDataChanged` is posted from background threads by
+    /// `SyncEngine`, `MirrorTagRestore` and `DataRepairService` while `.transactionDataChanged` is
+    /// posted synchronously on the writing thread. Not paying for that.
+    ///
+    /// The row filter mirrors `calculateUsageByCategory` exactly - same scope, same
+    /// `excludingEarlyPaidInstallments()`, same `budgetMonthDate`/`.expense` predicate. The ratio has
+    /// to be a fraction of the same `usedAmount` the card displays, or the two disagree about one
+    /// category in front of the user. Change one and change both.
+    ///
+    /// Card spending counts here, in its purchase month, exactly as the card already shows it. The
+    /// statement-timing problem that `deferredCardSpending` exists for cannot arise: that one comes
+    /// from the *balance* running on a cash clock while usage runs on a purchase clock, and this
+    /// figure never touches the balance - it is `used / allocated` inside one month, both sides on the
+    /// purchase clock. Statement synthetics are category `.creditCard`, are never persisted, and are
+    /// appended only inside `TransactionLedgerService`, so they cannot reach this read at all.
+    ///
+    /// - Parameters:
+    ///   - monthAnchor: the month being viewed. Excluded from its own history, along with everything
+    ///     after it.
+    ///   - reference: seam for tests, so the window is deterministic. Same convention as
+    ///     `TransactionLedgerService.balanceAsOf(_:)`.
+    func spendHistory(
+        for category: TransactionCategory,
+        before monthAnchor: Int,
+        in scope: LedgerScope,
+        asOf reference: Date = Date()
+    ) -> CategorySpendHistory {
+        spendHistories(for: [category], before: monthAnchor, in: scope, asOf: reference)[category.key]
+            ?? .none
+    }
+
+    /// The same figure for several categories in **one** pass over each table.
+    ///
+    /// The explainer sheet lists every allocated category, and calling the single-category form per row
+    /// would scan `BudgetAllocations` once per category - that table has no cache of any kind, so it
+    /// would be a real full scan each time. Keyed by `TransactionCategory.key`; a category with no
+    /// usable history is absent rather than present-and-empty, so a caller must fall back to `.none`.
+    func spendHistories(
+        for categories: [TransactionCategory],
+        before monthAnchor: Int,
+        in scope: LedgerScope,
+        asOf reference: Date = Date()
+    ) -> [String: CategorySpendHistory] {
+        guard !categories.isEmpty else { return [:] }
+
+        // Closed months only, and never past the month on screen. `closedMonthAnchors` already
+        // excludes the current month; the `< monthAnchor` filter additionally keeps any month at or
+        // after the one being viewed out of its own explanation - which matters on a future card,
+        // whose neighbours are closed but irrelevant to it.
+        //
+        // Getting this wrong is the quiet way to break the feature: `generateRecurringAllocationHorizon`
+        // materialises 36 months FORWARD with no spending behind them, and `fetchAllAllocations()`
+        // returns every one, so a window that leaked forward would read them as 0% and report that
+        // every category is never spent.
+        let window = DateUtils.closedMonthAnchors(
+            count: CategorySpendHistory.sampleWindow, asOf: reference
+        ).filter { $0 < monthAnchor }
+        guard !window.isEmpty else { return [:] }
+        let months = Set(window)
+        let wanted = Set(categories.map(\.key))
+
+        let allAllocations = scope.groupId.map { allocationRepo.fetchAllocationsForGroup(groupId: $0) }
+            ?? allocationRepo.fetchAllAllocations()
+
+        // Summed, not assigned. `insertAllocation` rejects a second row for the same category, month
+        // and scope, so this should be a single row - but the legacy UserDefaults-to-SQLite migration
+        // above it writes straight to `db.insertBudgetAllocation` with no such check, so an old ledger
+        // can hold a pair. Summing is the defensive read; picking one arbitrarily would silently
+        // measure spending against half a plan.
+        var allocatedByCategoryMonth: [String: [Int: Int]] = [:]
+        for allocation in allAllocations
+        where wanted.contains(allocation.category.key) && months.contains(allocation.monthDate)
+            && allocation.allocatedAmount > 0 {
+            allocatedByCategoryMonth[allocation.category.key, default: [:]][
+                allocation.monthDate, default: 0] += allocation.allocatedAmount
+        }
+        guard !allocatedByCategoryMonth.isEmpty else { return [:] }
+
+        // `usedAmount` on the rows above is ALWAYS zero - `BudgetAllocation.init(from:)` hard-sets it
+        // and only `getAllocationsWithUsage` ever fills it in, one month at a time. Reading it here
+        // would make every ratio 0 and the feature would report that nothing is ever spent, silently.
+        // Usage comes from the transactions.
+        let allTransactions = scope.groupId.map { transactionRepo.fetchTransactionsForGroup(groupId: $0) }
+            ?? transactionRepo.fetchAllTransactions()
+
+        let sampled = Set(allocatedByCategoryMonth.keys)
+        let rows = allTransactions.filter {
+            sampled.contains($0.category.key) && $0.type == .expense
+                && months.contains($0.budgetMonthDate)
+        }
+
+        var usedByCategoryMonth: [String: [Int: Int]] = [:]
+        // Applied after the cheap predicate: it is a membership test, so the order cannot change the
+        // result, but it costs a query against `DBHelper.shared`. Skipped entirely when nothing matched.
+        for transaction in rows.isEmpty ? [] : rows.excludingEarlyPaidInstallments() {
+            usedByCategoryMonth[transaction.category.key, default: [:]][
+                transaction.budgetMonthDate, default: 0] += transaction.amount
+        }
+
+        // A sampled month with no spending is a real 0% observation, not a gap - that is the signal
+        // this whole type exists to surface.
+        return allocatedByCategoryMonth.reduce(into: [String: CategorySpendHistory]()) { result, entry in
+            let used = usedByCategoryMonth[entry.key] ?? [:]
+            let ratios = entry.value.reduce(into: [Int: Double]()) { ratios, month in
+                ratios[month.key] = Double(used[month.key] ?? 0) / Double(month.value)
+            }
+            result[entry.key] = CategorySpendHistory(ratiosByMonth: ratios)
+        }
+    }
+
+    /// The ledger month each statement settles in.
+    ///
+    /// The due date, not the closing date: `CreditCardService.generateStatementTransactions` stamps the
+    /// statement synthetic with `dueDate`, and `TransactionLedgerService` buckets every balance row by
+    /// its own date. So the due month is the month the balance actually takes the hit.
+    private func settlementMonths(forCards cardIds: Set<Int>) -> [Int: Int] {
+        var months: [Int: Int] = [:]
+        for cardId in cardIds {
+            for statement in statementRepo.fetchStatements(forCardId: cardId) {
+                guard let id = statement.id else { continue }
+                months[id] = statement.dueDate.monthAnchor
+            }
+        }
+        return months
     }
 
     // MARK: - Private Helpers
