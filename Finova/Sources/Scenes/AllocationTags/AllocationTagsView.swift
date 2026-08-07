@@ -257,7 +257,7 @@ final class AllocationTagsView: UIView {
             emptyStateView.bottomAnchor.constraint(
                 equalTo: createTagButtonGlassContainer.topAnchor, constant: -Metrics.spacing4),
 
-            createTagButtonGlassContainer.centerXAnchor.constraint(equalTo: centerXAnchor),
+            createTagButtonHorizontalConstraint(),
             createTagButtonGlassContainer.bottomAnchor.constraint(
                 equalTo: safeAreaLayoutGuide.bottomAnchor, constant: -Metrics.spacing4),
             createTagButtonGlassContainer.widthAnchor.constraint(
@@ -273,6 +273,15 @@ final class AllocationTagsView: UIView {
             createTagButton.bottomAnchor.constraint(
                 equalTo: createTagButtonGlassContainer.bottomAnchor),
         ])
+    }
+
+    /// Bottom-centre on iPhone, bottom-trailing on iPad — see `DashboardView` for the same choice.
+    private func createTagButtonHorizontalConstraint() -> NSLayoutConstraint {
+        guard UIDevice.current.userInterfaceIdiom == .pad else {
+            return createTagButtonGlassContainer.centerXAnchor.constraint(equalTo: centerXAnchor)
+        }
+        return createTagButtonGlassContainer.trailingAnchor.constraint(
+            equalTo: safeAreaLayoutGuide.trailingAnchor, constant: -Metrics.spacing4)
     }
 
     override func layoutSubviews() {

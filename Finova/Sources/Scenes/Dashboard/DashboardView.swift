@@ -379,7 +379,7 @@ final class DashboardView: UIView {
       transactionsTableShimmerView.bottomAnchor.constraint(
         equalTo: bottomAnchor, constant: -Metrics.spacing4),
 
-      addButtonGlassContainer.centerXAnchor.constraint(equalTo: centerXAnchor),
+      addButtonHorizontalConstraint(),
       addButtonGlassContainer.bottomAnchor.constraint(equalTo: safeAreaLayoutGuide.bottomAnchor),
       addButtonGlassContainer.heightAnchor.constraint(equalToConstant: Metrics.addButtonSize),
       addButtonGlassContainer.widthAnchor.constraint(equalToConstant: Metrics.addButtonSize),
@@ -395,6 +395,18 @@ final class DashboardView: UIView {
     monthCarouselHeightConstraint = monthCarousel.heightAnchor.constraint(equalToConstant: 500)
     monthCarouselHeightConstraint?.priority = .defaultHigh
     monthCarouselHeightConstraint?.isActive = true
+  }
+
+  /// Bottom-centre on iPhone, bottom-trailing on iPad.
+  ///
+  /// Centred works on a phone, where the middle of the screen is also within reach. On an iPad it
+  /// leaves the button stranded in the middle of a much wider bottom edge, away from either hand.
+  private func addButtonHorizontalConstraint() -> NSLayoutConstraint {
+    guard UIDevice.current.userInterfaceIdiom == .pad else {
+      return addButtonGlassContainer.centerXAnchor.constraint(equalTo: centerXAnchor)
+    }
+    return addButtonGlassContainer.trailingAnchor.constraint(
+      equalTo: safeAreaLayoutGuide.trailingAnchor, constant: -Metrics.spacing4)
   }
 
   func hideShimmerViewsAndShowOriginals() {
