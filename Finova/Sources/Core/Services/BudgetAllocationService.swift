@@ -276,11 +276,20 @@ final class BudgetAllocationService {
             $0.isRecurring && $0.parentAllocationId == nil
         }
 
+        // TOMBSTONES: a month the user deleted must never be recreated. Series-keyed, so a deletion
+        // in one series does not punch a permanent hole in every later series for the same category.
+        let deletedMonths = allocationRepo.deletedMonthsBySeries()
+
         logDebug("BudgetAllocationService: Found \(recurringParents.count) recurring parents")
 
         for parent in recurringParents {
             guard let parentId = parent.dbId else {
                 logDebug("BudgetAllocationService: Skipping parent with no dbId")
+                continue
+            }
+
+            if deletedMonths[parentId]?.contains(monthAnchor) == true {
+                logDebug("BudgetAllocationService: month \(monthAnchor) was deleted from series \(parentId) — not recreating")
                 continue
             }
 

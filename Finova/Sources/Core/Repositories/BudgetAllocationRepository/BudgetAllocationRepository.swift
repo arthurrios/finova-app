@@ -12,6 +12,8 @@ import Foundation
 protocol BudgetAllocationRepositoryProtocol {
     func fetchAllocations(for monthDate: Int) -> [BudgetAllocation]
     func fetchAllAllocations() -> [BudgetAllocation]
+    /// Months each series had deleted, so generation never recreates them.
+    func deletedMonthsBySeries() -> [Int: Set<Int>]
     func insertAllocation(_ model: BudgetAllocationModel) throws -> Int
     func updateAllocation(_ model: BudgetAllocationModel) throws
     func updateRecurringAllocationAndFuture(id: Int, newAmount: Int) throws
@@ -37,14 +39,22 @@ final class BudgetAllocationRepository: BudgetAllocationRepositoryProtocol {
     }
 
     func fetchAllAllocations() -> [BudgetAllocation] {
-        // Load from UserDefaults for now (can be migrated to DB later)
-        guard let data = UserDefaults.standard.data(forKey: userDefaultsKey),
-              let models = try? JSONDecoder().decode([BudgetAllocationModel].self, from: data)
-        else {
-            return []
-        }
+        liveModels().map { BudgetAllocation(from: $0) }
+    }
 
-        return models.map { BudgetAllocation(from: $0) }
+    /// Months this series had deleted, keyed by series. Consulted by generation so a month the user
+    /// removed is never recreated.
+    ///
+    /// SERIES-keyed rather than (month, category): keying on the category alone would suppress that
+    /// month for every FUTURE series of the same category too, leaving each new series born with a
+    /// permanent hole wherever an older one had been deleted.
+    func deletedMonthsBySeries() -> [Int: Set<Int>] {
+        var result: [Int: Set<Int>] = [:]
+        for model in loadModels() where !model.isLive {
+            guard let seriesId = model.seriesId else { continue }
+            result[seriesId, default: []].insert(model.monthDate)
+        }
+        return result
     }
 
     // MARK: - Insert
@@ -52,9 +62,11 @@ final class BudgetAllocationRepository: BudgetAllocationRepositoryProtocol {
     func insertAllocation(_ model: BudgetAllocationModel) throws -> Int {
         var models = loadModels()
 
-        // Check for duplicate (same category and month)
+        // Check for duplicate (same category and month) among LIVE rows only. A tombstone is a
+        // record that the user removed that month, not a row occupying it — counting it here would
+        // make re-creating a deleted month impossible.
         if models.contains(where: {
-            $0.categoryKey == model.categoryKey && $0.monthDate == model.monthDate
+            $0.isLive && $0.categoryKey == model.categoryKey && $0.monthDate == model.monthDate
         }) {
             throw BudgetAllocationError.duplicateAllocation
         }
@@ -90,7 +102,7 @@ final class BudgetAllocationRepository: BudgetAllocationRepositoryProtocol {
         logDebug("BudgetAllocationRepository: Looking for model with id \(String(describing: model.id)) in \(models.count) models")
         logDebug("BudgetAllocationRepository: Available IDs: \(models.compactMap { $0.id })")
 
-        guard let index = models.firstIndex(where: { $0.id != nil && $0.id! == model.id }) else {
+        guard let index = models.firstIndex(where: { $0.id != nil && $0.id! == model.id && $0.isLive }) else {
             logError("BudgetAllocationRepository: Could not find allocation with id \(String(describing: model.id))")
             throw BudgetAllocationError.allocationNotFound
         }
@@ -111,7 +123,7 @@ final class BudgetAllocationRepository: BudgetAllocationRepositoryProtocol {
         logDebug("BudgetAllocationRepository: updateRecurringAllocationAndFuture called with id: \(id), newAmount: \(newAmount)")
         logDebug("BudgetAllocationRepository: Total models in storage: \(models.count)")
 
-        guard let allocation = models.first(where: { $0.id != nil && $0.id! == id }) else {
+        guard let allocation = models.first(where: { $0.id != nil && $0.id! == id && $0.isLive }) else {
             logError("BudgetAllocationRepository: Allocation with id \(id) not found for future update")
             throw BudgetAllocationError.allocationNotFound
         }
@@ -130,7 +142,9 @@ final class BudgetAllocationRepository: BudgetAllocationRepositoryProtocol {
         // Update all allocations with the same parent that are >= current month
         // ALSO update the parent allocation so future lazily-generated instances use the new amount
         for i in models.indices {
-            guard let modelId = models[i].id else { continue }
+            // Tombstones are skipped: editing one would both revive a month the user deleted (the
+            // rebuild below drops the flag) and count towards the edit.
+            guard let modelId = models[i].id, models[i].isLive else { continue }
 
             // Check if this is the allocation being updated
             let isCurrentAllocation = modelId == id
@@ -144,14 +158,8 @@ final class BudgetAllocationRepository: BudgetAllocationRepositoryProtocol {
 
             if isCurrentAllocation || isParent || (isRelatedChild && isFutureOrCurrent) {
                 logDebug("BudgetAllocationRepository: Updating allocation id=\(modelId), monthDate=\(models[i].monthDate), reason: isCurrentAllocation=\(isCurrentAllocation), isParent=\(isParent), isRelatedChild=\(isRelatedChild), isFutureOrCurrent=\(isFutureOrCurrent)")
-                models[i] = BudgetAllocationModel(
-                    id: models[i].id,
-                    monthDate: models[i].monthDate,
-                    categoryKey: models[i].categoryKey,
-                    allocatedAmount: newAmount,
-                    isRecurring: models[i].isRecurring,
-                    parentAllocationId: models[i].parentAllocationId
-                )
+                // `with` rather than a field-by-field rebuild, which silently dropped `isDeleted`.
+                models[i] = models[i].with(allocatedAmount: newAmount)
                 updatedCount += 1
                 updatedIds.append(modelId)
             }
@@ -170,7 +178,7 @@ final class BudgetAllocationRepository: BudgetAllocationRepositoryProtocol {
 
         logDebug("BudgetAllocationRepository: updateAllRecurringAllocations called with id: \(id), newAmount: \(newAmount)")
 
-        guard let allocation = models.first(where: { $0.id != nil && $0.id! == id }) else {
+        guard let allocation = models.first(where: { $0.id != nil && $0.id! == id && $0.isLive }) else {
             logError("BudgetAllocationRepository: Allocation with id \(id) not found for all update")
             throw BudgetAllocationError.allocationNotFound
         }
@@ -184,18 +192,12 @@ final class BudgetAllocationRepository: BudgetAllocationRepositoryProtocol {
 
         // Update ALL allocations in this recurring series (past, present, future)
         for i in models.indices {
-            guard let modelId = models[i].id else { continue }
+            // Tombstones skipped — see the note in updateRecurringAllocationAndFuture.
+            guard let modelId = models[i].id, models[i].isLive else { continue }
 
             if modelId == parentId || models[i].parentAllocationId == parentId {
                 logDebug("BudgetAllocationRepository: Updating allocation id=\(modelId), monthDate=\(models[i].monthDate)")
-                models[i] = BudgetAllocationModel(
-                    id: models[i].id,
-                    monthDate: models[i].monthDate,
-                    categoryKey: models[i].categoryKey,
-                    allocatedAmount: newAmount,
-                    isRecurring: models[i].isRecurring,
-                    parentAllocationId: models[i].parentAllocationId
-                )
+                models[i] = models[i].with(allocatedAmount: newAmount)
                 updatedCount += 1
                 updatedIds.append(modelId)
             }
@@ -219,39 +221,31 @@ final class BudgetAllocationRepository: BudgetAllocationRepositoryProtocol {
         logDebug("BudgetAllocationRepository: Model IDs: \(models.compactMap { $0.id })")
 
         // Explicitly unwrap optional ID for comparison
-        guard let index = models.firstIndex(where: { $0.id != nil && $0.id! == id }) else {
+        guard let index = models.firstIndex(where: { $0.id != nil && $0.id! == id && $0.isLive }) else {
             logError("BudgetAllocationRepository: Allocation with id \(id) not found for deletion. Available IDs: \(models.compactMap { $0.id })")
             throw BudgetAllocationError.allocationNotFound
         }
 
         let allocationToDelete = models[index]
 
-        // If this is a recurring child instance, stop the parent from regenerating it
-        // by setting isRecurring=false on the parent
-        if let parentId = allocationToDelete.parentAllocationId {
-            if let parentIndex = models.firstIndex(where: { $0.id != nil && $0.id! == parentId }) {
-                let parentModel = models[parentIndex]
-                models[parentIndex] = BudgetAllocationModel(
-                    id: parentModel.id,
-                    monthDate: parentModel.monthDate,
-                    categoryKey: parentModel.categoryKey,
-                    allocatedAmount: parentModel.allocatedAmount,
-                    isRecurring: false,
-                    parentAllocationId: parentModel.parentAllocationId
-                )
-                logDebug("BudgetAllocationRepository: Set isRecurring=false on parent \(parentId) to prevent lazy regeneration")
-            }
-        }
-        // If this is a parent allocation being deleted, also check if it's recurring
-        // and update to prevent any orphan-related issues
-        else if allocationToDelete.isRecurring {
-            // Parent being deleted - no need to modify isRecurring as it's being removed
-            logDebug("BudgetAllocationRepository: Deleting recurring parent allocation \(id)")
-        }
+        // Deleting ONE occurrence must not stop the series.
+        //
+        // This used to clear the PARENT's `isRecurring`, so removing a single month silently killed
+        // every future month of that series. It was standing in for a tombstone — the only way to
+        // stop regeneration was to stop the series entirely. The tombstone below does exactly and
+        // only what is wanted: suppress this one month. Stopping a whole series remains the job of
+        // `deleteRecurringAllocationAndFuture`.
+        let isSeriesOccurrence =
+            allocationToDelete.isRecurring || allocationToDelete.parentAllocationId != nil
 
-        logDebug("BudgetAllocationRepository: Found allocation at index \(index), removing...")
-        models.remove(at: index)
-        logDebug("BudgetAllocationRepository: Models count after removal: \(models.count)")
+        if isSeriesOccurrence {
+            models[index] = allocationToDelete.with(isDeleted: true)
+            logDebug("BudgetAllocationRepository: Tombstoned occurrence \(id) (month \(allocationToDelete.monthDate))")
+        } else {
+            // A plain one-off is regenerated by nothing, so it can go for good.
+            models.remove(at: index)
+            logDebug("BudgetAllocationRepository: Removed one-off allocation \(id)")
+        }
         saveModels(models)
 
         // Notify that data has changed
@@ -262,7 +256,7 @@ final class BudgetAllocationRepository: BudgetAllocationRepositoryProtocol {
     func deleteRecurringAllocationAndFuture(id: Int) throws {
         var models = loadModels()
 
-        guard let allocation = models.first(where: { $0.id != nil && $0.id! == id }) else {
+        guard let allocation = models.first(where: { $0.id != nil && $0.id! == id && $0.isLive }) else {
             logError("BudgetAllocationRepository: Allocation with id \(id) not found for future deletion")
             throw BudgetAllocationError.allocationNotFound
         }
@@ -273,41 +267,31 @@ final class BudgetAllocationRepository: BudgetAllocationRepositoryProtocol {
         // Find the current allocation's month date
         let currentMonthDate = allocation.monthDate
 
-        let countBefore = models.count
+        // Tombstone this occurrence and every later one in the series, rather than removing them:
+        // the parent stops recurring below, but a device that re-materializes from an older parent
+        // state would otherwise refill exactly these months.
+        var tombstoned = 0
+        for (index, model) in models.enumerated() {
+            guard let modelId = model.id, model.isLive else { continue }
 
-        // Remove all allocations with the same parent that are >= current month
-        // Also remove the current allocation itself
-        models.removeAll { model in
-            guard let modelId = model.id else { return false }
+            let isRelated = modelId == id || modelId == parentId
+                || model.parentAllocationId == parentId
+            let isFutureOrCurrent = modelId == id || model.monthDate >= currentMonthDate
+            guard isRelated && isFutureOrCurrent else { continue }
 
-            // Check if this is the allocation being deleted
-            if modelId == id {
-                return true
-            }
-
-            // Check if related to the recurring series and in future/current month
-            let isRelated = modelId == parentId || model.parentAllocationId == parentId
-            let isFutureOrCurrent = model.monthDate >= currentMonthDate
-            return isRelated && isFutureOrCurrent
+            models[index] = model.with(isDeleted: true)
+            tombstoned += 1
         }
 
-        let countAfter = models.count
-        logDebug("BudgetAllocationRepository: Deleted \(countBefore - countAfter) allocations (future+current)")
+        logDebug("BudgetAllocationRepository: Tombstoned \(tombstoned) allocations (future+current)")
 
         // IMPORTANT: Stop the parent from generating new future instances via lazy generation
         // Check if the parent allocation still exists (wasn't deleted because it's in the past)
-        if let parentIndex = models.firstIndex(where: { $0.id != nil && $0.id! == parentId }) {
-            // Parent still exists (in a past month) - set isRecurring to false to stop future generation
-            let parentModel = models[parentIndex]
-            models[parentIndex] = BudgetAllocationModel(
-                id: parentModel.id,
-                monthDate: parentModel.monthDate,
-                categoryKey: parentModel.categoryKey,
-                allocatedAmount: parentModel.allocatedAmount,
-                isRecurring: false,
-                parentAllocationId: parentModel.parentAllocationId
-            )
-            logDebug("BudgetAllocationRepository: Set isRecurring=false on parent \(parentId) to prevent lazy regeneration")
+        if let parentIndex = models.firstIndex(where: { $0.id != nil && $0.id! == parentId && $0.isLive }) {
+            // Parent still exists (in a past month) - stop it generating anything further.
+            // `with` preserves the tombstone flag; rebuilding the model field by field dropped it.
+            models[parentIndex] = models[parentIndex].with(isRecurring: false)
+            logDebug("BudgetAllocationRepository: Stopped recurrence on parent \(parentId)")
         }
 
         saveModels(models)
@@ -319,7 +303,7 @@ final class BudgetAllocationRepository: BudgetAllocationRepositoryProtocol {
     func deleteAllRecurringAllocations(id: Int) throws {
         var models = loadModels()
 
-        guard let allocation = models.first(where: { $0.id != nil && $0.id! == id }) else {
+        guard let allocation = models.first(where: { $0.id != nil && $0.id! == id && $0.isLive }) else {
             logError("BudgetAllocationRepository: Allocation with id \(id) not found for all deletion")
             throw BudgetAllocationError.allocationNotFound
         }
@@ -327,16 +311,16 @@ final class BudgetAllocationRepository: BudgetAllocationRepositoryProtocol {
         // Get the parent allocation ID (use this allocation's ID if it's the parent)
         let parentId = allocation.parentAllocationId ?? id
 
-        let countBefore = models.count
-
-        // Remove ALL allocations in this recurring series (past, present, future)
-        models.removeAll { model in
-            guard let modelId = model.id else { return false }
-            return modelId == parentId || model.parentAllocationId == parentId
+        // Tombstone every occurrence in this series (past, present, future).
+        var tombstoned = 0
+        for (index, model) in models.enumerated() {
+            guard let modelId = model.id, model.isLive else { continue }
+            guard modelId == parentId || model.parentAllocationId == parentId else { continue }
+            models[index] = model.with(isDeleted: true)
+            tombstoned += 1
         }
 
-        let countAfter = models.count
-        logDebug("BudgetAllocationRepository: Deleted \(countBefore - countAfter) allocations (all occurrences)")
+        logDebug("BudgetAllocationRepository: Tombstoned \(tombstoned) allocations (all occurrences)")
 
         saveModels(models)
 
@@ -349,20 +333,12 @@ final class BudgetAllocationRepository: BudgetAllocationRepositoryProtocol {
     func updateIsRecurring(allocationId: Int, isRecurring: Bool) throws {
         var models = loadModels()
 
-        guard let index = models.firstIndex(where: { $0.id != nil && $0.id! == allocationId }) else {
+        guard let index = models.firstIndex(where: { $0.id != nil && $0.id! == allocationId && $0.isLive }) else {
             logError("BudgetAllocationRepository: Allocation with id \(allocationId) not found for isRecurring update")
             throw BudgetAllocationError.allocationNotFound
         }
 
-        let existingModel = models[index]
-        models[index] = BudgetAllocationModel(
-            id: existingModel.id,
-            monthDate: existingModel.monthDate,
-            categoryKey: existingModel.categoryKey,
-            allocatedAmount: existingModel.allocatedAmount,
-            isRecurring: isRecurring,
-            parentAllocationId: existingModel.parentAllocationId
-        )
+        models[index] = models[index].with(isRecurring: isRecurring)
 
         logDebug("BudgetAllocationRepository: Updated isRecurring to \(isRecurring) for allocation \(allocationId)")
         saveModels(models)
@@ -370,6 +346,8 @@ final class BudgetAllocationRepository: BudgetAllocationRepositoryProtocol {
 
     // MARK: - Private Helpers
 
+    /// EVERY stored row, including tombstones. Mutation paths use this — writing back a filtered
+    /// list would erase the tombstones and undo every delete.
     private func loadModels() -> [BudgetAllocationModel] {
         guard let data = UserDefaults.standard.data(forKey: userDefaultsKey),
               let models = try? JSONDecoder().decode([BudgetAllocationModel].self, from: data)
@@ -377,6 +355,11 @@ final class BudgetAllocationRepository: BudgetAllocationRepositoryProtocol {
             return []
         }
         return models
+    }
+
+    /// The rows that still exist as far as the rest of the app is concerned.
+    private func liveModels() -> [BudgetAllocationModel] {
+        loadModels().filter { $0.isLive }
     }
 
     private func saveModels(_ models: [BudgetAllocationModel]) {

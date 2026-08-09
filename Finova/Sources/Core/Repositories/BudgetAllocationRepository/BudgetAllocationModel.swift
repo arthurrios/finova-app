@@ -10,20 +10,37 @@ import UIKit
 // MARK: - Database Model
 
 struct BudgetAllocationModel: Codable {
-    
+
     let id: Int?
     let monthDate: Int
     let categoryKey: String
     let allocatedAmount: Int
     let isRecurring: Bool
     let parentAllocationId: Int?
-    
+
+    /// TOMBSTONE. A deleted occurrence of a recurring series is kept, flagged, rather than removed.
+    ///
+    /// Removing the row outright is only safe while nothing regenerates months on its own. Once a
+    /// series materializes eagerly, the very next pass sees an empty month and fills it back in — so
+    /// the delete appears to do nothing. The flagged row is the record that the user removed that
+    /// month on purpose.
+    ///
+    /// Optional so allocations already stored in UserDefaults decode unchanged: absent reads as
+    /// "not deleted", which is what every existing row is.
+    let isDeleted: Bool?
+
+    var isLive: Bool { isDeleted != true }
+
+    /// The series this row belongs to. A parent is its own series.
+    var seriesId: Int? { parentAllocationId ?? id }
+
     init(id: Int? = nil,
          monthDate: Int,
          categoryKey: String,
          allocatedAmount: Int,
          isRecurring: Bool = false,
-         parentAllocationId: Int? = nil
+         parentAllocationId: Int? = nil,
+         isDeleted: Bool? = nil
     ) {
         self.id = id
         self.monthDate = monthDate
@@ -31,6 +48,27 @@ struct BudgetAllocationModel: Codable {
         self.allocatedAmount = allocatedAmount
         self.isRecurring = isRecurring
         self.parentAllocationId = parentAllocationId
+        self.isDeleted = isDeleted
+    }
+
+    /// A copy with selected fields replaced. The model is immutable and every mutation site
+    /// previously rebuilt it field by field, which is how `isDeleted` would get silently dropped by
+    /// the next edit.
+    func with(
+        allocatedAmount: Int? = nil,
+        isRecurring: Bool? = nil,
+        parentAllocationId: Int?? = nil,
+        isDeleted: Bool? = nil
+    ) -> BudgetAllocationModel {
+        BudgetAllocationModel(
+            id: id,
+            monthDate: monthDate,
+            categoryKey: categoryKey,
+            allocatedAmount: allocatedAmount ?? self.allocatedAmount,
+            isRecurring: isRecurring ?? self.isRecurring,
+            parentAllocationId: parentAllocationId ?? self.parentAllocationId,
+            isDeleted: isDeleted ?? self.isDeleted
+        )
     }
 }
 
