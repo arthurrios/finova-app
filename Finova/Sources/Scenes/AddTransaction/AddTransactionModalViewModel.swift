@@ -112,17 +112,18 @@ final class AddTransactionModalViewModel {
         let immediateMonthAnchors = Set(
           SeriesMonths.seriesAnchors(start: date.monthAnchor).filter { $0 > date.monthAnchor })
 
-        // Generate only the immediate window of instances
-        // Completion runs on background queue - heavy work stays there
-        recurringManager.generateInstancesLazilyForMonths(immediateMonthAnchors) { [weak self] _ in
-          guard let self = self else { return }
-          // These operations run on background thread (no UI blocking)
-          self.scheduleNotificationsForRecurringTransactions()
-          // Only the notification post needs main thread
-          DispatchQueue.main.async {
-            self.invalidateLedgerCache()
-          }
-        }
+        // Synchronous, on this thread. This returns `.success`, and the caller dismisses the modal
+        // and refreshes the dashboard on that — so anything still in flight would be rendered as a
+        // gap. It got away with firing and forgetting while the window was two months.
+        //
+        // Deliberately NOT the async wrapper with a semaphore: that wrapper delivers some of its
+        // answers on a different queue from others, so blocking a thread on it deadlocks whenever
+        // the early-out path is taken. Calling the synchronous core is the whole reason it was
+        // extracted.
+        let created = recurringManager.materializeMissingOccurrences(immediateMonthAnchors)
+        logWarning("[RecurringCreate] '\(title)' materialized \(created) occurrence(s)")
+        scheduleNotificationsForRecurringTransactions()
+        invalidateLedgerCache()
 
         return .success(())
       } catch {

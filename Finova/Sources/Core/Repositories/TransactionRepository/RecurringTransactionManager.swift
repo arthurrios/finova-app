@@ -894,23 +894,44 @@ final class RecurringTransactionManager {
     completion: ((_ newInstancesCreated: Int) -> Void)? = nil
   ) {
     guard !monthAnchors.isEmpty else {
-      DispatchQueue.main.async { completion?(0) }
+      // Answered on the SAME queue as the success path below.
+      //
+      // These early-outs used to answer on MAIN while success answered on `operationQueue`. A
+      // synchronous caller that blocked its thread waiting for the completion therefore deadlocked
+      // whenever it hit an early-out — and the whole point of a synchronous caller is that it is
+      // waiting. That is why the synchronous core exists instead: callers that need the result now
+      // call `materializeMissingOccurrences` directly rather than blocking on this.
+      Self.operationQueue.async { completion?(0) }
       return
     }
 
     Self.operationQueue.async { [weak self] in
       guard let self = self else {
-        DispatchQueue.main.async { completion?(0) }
+        completion?(0)
         return
       }
+      completion?(self.materializeMissingOccurrences(monthAnchors))
+    }
+  }
 
+  /// Synchronous core of materialization. Creates any missing occurrence for the given month
+  /// anchors and returns how many rows were created.
+  ///
+  /// Callers that must not answer before the rows exist — creation, which dismisses the modal and
+  /// refreshes the dashboard on its return — call this directly rather than blocking on the async
+  /// wrapper above. Blocking on a completion that may be delivered to the caller's own thread is a
+  /// deadlock, not a wait.
+  @discardableResult
+  func materializeMissingOccurrences(_ monthAnchors: Set<Int>) -> Int {
+    guard !monthAnchors.isEmpty else { return 0 }
+
+    do {
       // Fetch ALL transactions ONCE for efficiency
       let allTransactions = self.transactionRepo.fetchAllTransactions()
 
       // Early exit if no transactions
       guard !allTransactions.isEmpty else {
-        DispatchQueue.main.async { completion?(0) }
-        return
+        return 0
       }
 
       // Build lookup tables ONCE
@@ -981,8 +1002,7 @@ final class RecurringTransactionManager {
 
       // Early exit if no parents to process
       guard !recurringParents.isEmpty || !installmentParents.isEmpty else {
-        DispatchQueue.main.async { completion?(0) }
-        return
+        return 0
       }
 
       var newInstancesCreated = 0
@@ -1170,8 +1190,7 @@ final class RecurringTransactionManager {
         }
       }
 
-      // Call completion on current (background) queue - callers should dispatch to main if needed
-      completion?(newInstancesCreated)
+      return newInstancesCreated
     }
   }
 
