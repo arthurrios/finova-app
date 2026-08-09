@@ -10,6 +10,24 @@
 
 set -e
 
+echo "--- Restoring GoogleService-Info.plist"
+# The plist is gitignored (it is a build input, not source), so a fresh clone does not have it.
+# Without it `configureFirebase()` cannot run and the app traps inside FirebaseAuth about a second
+# after launch, on whatever background thread first touches a singleton — a crash with no visible
+# connection to its cause. Provide it as a base64 secret on the Xcode Cloud workflow.
+if [ -z "${GOOGLE_SERVICE_INFO_PLIST_BASE64:-}" ]; then
+    echo "GOOGLE_SERVICE_INFO_PLIST_BASE64 is not set."
+    echo "Add it as a secret environment variable on the Xcode Cloud workflow."
+    exit 1
+fi
+
+PLIST_DEST="$CI_PRIMARY_REPOSITORY_PATH/Finova/GoogleService-Info.plist"
+echo "$GOOGLE_SERVICE_INFO_PLIST_BASE64" | base64 --decode > "$PLIST_DEST"
+
+# Fail here rather than let a truncated or mis-pasted secret become a launch crash in TestFlight.
+plutil -lint "$PLIST_DEST" >/dev/null || { echo "Decoded GoogleService-Info.plist is not a valid plist"; exit 1; }
+echo "OK: $(wc -c < "$PLIST_DEST") bytes"
+
 echo "--- Installing CocoaPods"
 if ! command -v pod >/dev/null 2>&1; then
     brew install cocoapods

@@ -102,10 +102,23 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
 
   private func configureFirebase() {
     guard let path = Bundle.main.path(forResource: "GoogleService-Info", ofType: "plist") else {
-      logWarning(
-        "GoogleService-Info.plist not found - Firebase configuration skipped (likely in test environment)"
-      )
-      return
+      // A shipped app without this file cannot work: the first `Auth.auth()` traps inside
+      // FirebaseAuth, on whatever background thread happened to touch a singleton first, roughly a
+      // second after launch. Logging a warning and carrying on turned a missing build input into a
+      // crash with no visible connection to its cause — the plist is gitignored, so an archive
+      // built anywhere other than a machine that already has it produced exactly that.
+      //
+      // Tests legitimately run without it, so they stay on the warning path. Anything else stops
+      // here, where the message names the actual problem.
+      #if DEBUG
+        logWarning("GoogleService-Info.plist not found - skipping Firebase (test environment)")
+        return
+      #else
+        fatalError(
+          "GoogleService-Info.plist is missing from the app bundle. It is gitignored, so a CI build "
+            + "must provide it — see ci_scripts/ci_post_clone.sh and the GOOGLE_SERVICE_INFO_PLIST_BASE64 "
+            + "environment variable in the Xcode Cloud workflow.")
+      #endif
     }
 
     if FileManager.default.fileExists(atPath: path) {
