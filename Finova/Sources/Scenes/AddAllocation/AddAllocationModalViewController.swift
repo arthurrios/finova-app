@@ -52,6 +52,7 @@ final class AddAllocationModalViewController: UIViewController {
         super.viewDidLoad()
 
         contentView.delegate = self
+        contentView.setBaseMonth(monthAnchor)
         setupView()
 
         if let allocation = allocationToEdit {
@@ -131,10 +132,13 @@ extension AddAllocationModalViewController: AddAllocationModalViewDelegate {
         flowDelegate?.dismissAllocationModal()
     }
 
-    func didTapSave(category: TransactionCategory, amount: Int, isRecurring: Bool) {
+    func didTapSave(
+        category: TransactionCategory, amount: Int, isRecurring: Bool, recurrenceEndMonth: Int?
+    ) {
         if let allocation = allocationToEdit, let allocationId = allocation.dbId {
-            // Edit mode - check if recurring to show options
-            let isRecurringAllocation = allocation.isRecurring || allocation.parentAllocationId != nil
+            // Edit mode - check if recurring to show options. Uses the service check so a BOUNDED
+            // series (parent already stopped recurring, but still owns children) still prompts.
+            let isRecurringAllocation = allocationService.isPartOfRecurringSeries(allocationId: allocationId)
 
             if isRecurringAllocation {
                 showRecurringEditOptions(allocationId: allocationId, newAmount: amount)
@@ -163,7 +167,8 @@ extension AddAllocationModalViewController: AddAllocationModalViewDelegate {
                     category: category,
                     amount: amount,
                     monthAnchor: monthAnchor,
-                    isRecurring: isRecurring
+                    isRecurring: isRecurring,
+                    recurrenceEndMonth: recurrenceEndMonth
                 )
                 flowDelegate?.didSaveAllocation()
             } catch {
@@ -333,6 +338,14 @@ extension AddAllocationModalViewController: AddAllocationModalViewDelegate {
             self?.performUpdate(allocationId: allocationId, newAmount: newAmount, option: .futureOnly)
         })
 
+        // Edit this month through a chosen end month (bounded)
+        alert.addAction(UIAlertAction(
+            title: "allocation.edit.scope.through".localized,
+            style: .default
+        ) { [weak self] _ in
+            self?.promptForEndMonth(allocationId: allocationId, newAmount: newAmount)
+        })
+
         // Edit all occurrences (past, present, and future)
         alert.addAction(UIAlertAction(
             title: "allocation.edit.recurring.all".localized,
@@ -348,6 +361,49 @@ extension AddAllocationModalViewController: AddAllocationModalViewDelegate {
         ))
 
         present(alert, animated: true)
+    }
+
+    /// Lets the user pick the last month a bounded edit should apply to. Only offers months that
+    /// actually exist in this series from the edited month forward — never a month that would
+    /// silently do nothing.
+    private func promptForEndMonth(allocationId: Int, newAmount: Int) {
+        let all = BudgetAllocationRepository().fetchAllAllocations()
+        guard let current = all.first(where: { $0.dbId == allocationId }) else { return }
+        let parentId = current.parentAllocationId ?? allocationId
+
+        let months = all
+            .filter {
+                ($0.dbId == parentId || $0.parentAllocationId == parentId)
+                    && $0.monthDate >= current.monthDate
+            }
+            .map { $0.monthDate }
+        let uniqueMonths = Array(Set(months)).sorted()
+        guard !uniqueMonths.isEmpty else { return }
+
+        let sheet = UIAlertController(
+            title: "allocation.edit.scope.throughTitle".localized,
+            message: nil,
+            preferredStyle: .actionSheet)
+
+        let formatter = DateFormatter()
+        formatter.locale = Locale.current
+        formatter.dateFormat = "MMM yyyy"
+        formatter.timeZone = TimeZone(abbreviation: "UTC")
+
+        for anchor in uniqueMonths {
+            let title = formatter.string(from: Date(timeIntervalSince1970: TimeInterval(anchor)))
+            sheet.addAction(UIAlertAction(title: title, style: .default) { [weak self] _ in
+                self?.performUpdate(
+                    allocationId: allocationId, newAmount: newAmount, option: .throughMonth(anchor))
+            })
+        }
+        sheet.addAction(UIAlertAction(title: "alert.cancel".localized, style: .cancel))
+
+        if let popover = sheet.popoverPresentationController {
+            popover.sourceView = contentView.saveButton
+            popover.sourceRect = contentView.saveButton.bounds
+        }
+        present(sheet, animated: true)
     }
 
     private func performUpdate(allocationId: Int, newAmount: Int, option: AllocationEditOption) {

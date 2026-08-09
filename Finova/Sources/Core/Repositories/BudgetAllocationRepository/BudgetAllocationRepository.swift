@@ -17,6 +17,7 @@ protocol BudgetAllocationRepositoryProtocol {
     func insertAllocation(_ model: BudgetAllocationModel) throws -> Int
     func updateAllocation(_ model: BudgetAllocationModel) throws
     func updateRecurringAllocationAndFuture(id: Int, newAmount: Int) throws
+    func updateRecurringAllocationsThrough(id: Int, newAmount: Int, endMonth: Int) throws
     func updateAllRecurringAllocations(id: Int, newAmount: Int) throws
     func deleteAllocation(id: Int) throws
     func deleteRecurringAllocationAndFuture(id: Int) throws
@@ -167,6 +168,45 @@ final class BudgetAllocationRepository: BudgetAllocationRepositoryProtocol {
         }
 
         logDebug("BudgetAllocationRepository: Updated \(updatedCount) allocations (future+current+parent), IDs: \(updatedIds)")
+
+        saveModels(models)
+
+        // Notify that data has changed
+        NotificationCenter.default.post(name: .allocationDataChanged, object: nil)
+    }
+
+    /// Updates this occurrence and every later one in the series UP TO AND INCLUDING `endMonth`.
+    /// Occurrences after `endMonth` keep their current amount — this is the "this through <month>"
+    /// bounded edit.
+    func updateRecurringAllocationsThrough(id: Int, newAmount: Int, endMonth: Int) throws {
+        var models = loadModels()
+
+        guard let allocation = models.first(where: { $0.id != nil && $0.id! == id && $0.isLive }) else {
+            logError("BudgetAllocationRepository: Allocation with id \(id) not found for bounded update")
+            throw BudgetAllocationError.allocationNotFound
+        }
+
+        let parentId = allocation.parentAllocationId ?? id
+        let currentMonthDate = allocation.monthDate
+
+        var updatedCount = 0
+
+        for i in models.indices {
+            // Tombstones skipped — see the note in updateRecurringAllocationAndFuture.
+            guard let modelId = models[i].id, models[i].isLive else { continue }
+
+            let isCurrentAllocation = modelId == id
+            let isRelated = modelId == parentId || models[i].parentAllocationId == parentId
+            let inRange = models[i].monthDate >= currentMonthDate && models[i].monthDate <= endMonth
+
+            if isCurrentAllocation || (isRelated && inRange) {
+                // `with` rather than a field-by-field rebuild, which silently dropped `isDeleted`.
+                models[i] = models[i].with(allocatedAmount: newAmount)
+                updatedCount += 1
+            }
+        }
+
+        logDebug("BudgetAllocationRepository: Updated \(updatedCount) allocations through month \(endMonth)")
 
         saveModels(models)
 

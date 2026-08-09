@@ -37,13 +37,41 @@ final class BudgetAllocationService {
     ///   - amount: The allocated amount in cents
     ///   - monthAnchor: The month anchor timestamp
     ///   - isRecurring: Whether this allocation should recur monthly
+    ///   - recurrenceEndMonth: last month anchor the series should cover. `nil` = ongoing
+    ///     ("Always"). A bounded series materializes only up to this month and then stops recurring.
     /// - Returns: The ID of the created allocation
     @discardableResult
     func createAllocation(
         category: TransactionCategory,
         amount: Int,
         monthAnchor: Int,
+        isRecurring: Bool,
+        recurrenceEndMonth: Int?
+    ) throws -> Int {
+        try createAllocationInternal(
+            category: category, amount: amount, monthAnchor: monthAnchor,
+            isRecurring: isRecurring, recurrenceEndMonth: recurrenceEndMonth)
+    }
+
+    /// Back-compat overload: ongoing recurrence (no end month).
+    @discardableResult
+    func createAllocation(
+        category: TransactionCategory,
+        amount: Int,
+        monthAnchor: Int,
         isRecurring: Bool
+    ) throws -> Int {
+        try createAllocationInternal(
+            category: category, amount: amount, monthAnchor: monthAnchor,
+            isRecurring: isRecurring, recurrenceEndMonth: nil)
+    }
+
+    private func createAllocationInternal(
+        category: TransactionCategory,
+        amount: Int,
+        monthAnchor: Int,
+        isRecurring: Bool,
+        recurrenceEndMonth: Int?
     ) throws -> Int {
         guard amount > 0 else { throw BudgetAllocationError.invalidAmount }
 
@@ -60,12 +88,32 @@ final class BudgetAllocationService {
         // call returns. Nothing materializes on navigation any more, so a month skipped here would
         // simply be missing until some later pass happened to cover it.
         if isRecurring {
-            let created = materializeSeries(parentId: newId, startMonth: monthAnchor)
+            let created = materializeSeries(
+                parentId: newId, startMonth: monthAnchor, endMonth: recurrenceEndMonth)
             logWarning(
-                "[RecurringAllocationCreate] series \(newId) (\(category.key)) materialized \(created) occurrence(s)")
+                "[RecurringAllocationCreate] series \(newId) (\(category.key)) materialized \(created) occurrence(s), endMonth=\(recurrenceEndMonth.map(String.init) ?? "always")"
+            )
+
+            // A bounded series must stop growing: clear the parent's recurrence so the rolling
+            // top-up never extends it past the end month. The end month is not stored as a field —
+            // "stopped recurring while still owning children" IS the representation of a bound.
+            if recurrenceEndMonth != nil {
+                try? allocationRepo.updateIsRecurring(allocationId: newId, isRecurring: false)
+            }
         }
 
         return newId
+    }
+
+    /// True if this allocation belongs to a recurring series — including a BOUNDED series whose
+    /// parent has already stopped recurring (`isRecurring == false`) but still owns child
+    /// occurrences. Without the children check, editing the first month of a bounded series would be
+    /// treated as a one-off and silently skip the scope prompt.
+    func isPartOfRecurringSeries(allocationId: Int) -> Bool {
+        let all = allocationRepo.fetchAllAllocations()
+        guard let allocation = all.first(where: { $0.dbId == allocationId }) else { return false }
+        if allocation.isRecurring || allocation.parentAllocationId != nil { return true }
+        return all.contains { $0.parentAllocationId == allocationId }
     }
 
     /// Materializes every missing occurrence of ONE allocation series, from its own start month
@@ -77,10 +125,27 @@ final class BudgetAllocationService {
     ///
     /// Idempotent and tombstone-aware, so it is safe to call on every CRUD and from the rolling
     /// top-up.
+    ///
+    /// - Parameter endMonth: last month the series may occupy (a BOUNDED series). `nil` means
+    ///   "unbounded", except for a series that has already been bounded — see below.
     @discardableResult
-    func materializeSeries(parentId: Int, startMonth: Int) -> Int {
+    func materializeSeries(parentId: Int, startMonth: Int, endMonth: Int? = nil) -> Int {
         let all = allocationRepo.fetchAllAllocations()
         guard let parent = all.first(where: { $0.dbId == parentId }) else { return 0 }
+
+        // A BOUNDED series is one whose parent has already stopped recurring while still owning
+        // children — the end month is not stored anywhere, it is expressed by that flag. Such a
+        // series must have its GAPS filled but must never be EXTENDED, so when no explicit bound is
+        // given, treat the last month it already holds as the bound. Passing nil here would grow a
+        // "12 months" series to the full 36-month horizon on the next pass.
+        var effectiveEnd = endMonth
+        if effectiveEnd == nil && !parent.isRecurring {
+            effectiveEnd = all
+                .filter { $0.dbId == parentId || $0.parentAllocationId == parentId }
+                .map { $0.monthDate }
+                .max()
+        }
+        let endMonth = effectiveEnd
 
         let tombstoned = allocationRepo.deletedMonthsBySeries()[parentId] ?? []
 
@@ -98,7 +163,7 @@ final class BudgetAllocationService {
                 .map { $0.monthDate })
 
         var created = 0
-        for anchor in SeriesMonths.seriesAnchors(start: startMonth) {
+        for anchor in SeriesMonths.seriesAnchors(start: startMonth, endMonth: endMonth) {
             guard anchor > parent.monthDate else { continue }
             if ownMonths.contains(anchor) { continue }
             if tombstoned.contains(anchor) {
@@ -204,6 +269,11 @@ final class BudgetAllocationService {
             // Update this and all future recurring allocations
             logDebug("BudgetAllocationService: Calling updateRecurringAllocationAndFuture for id \(id)")
             try allocationRepo.updateRecurringAllocationAndFuture(id: id, newAmount: newAmount)
+        case .throughMonth(let endMonth):
+            // Update this occurrence and every later one up to (and including) endMonth
+            logDebug("BudgetAllocationService: Calling updateRecurringAllocationsThrough for id \(id), endMonth \(endMonth)")
+            try allocationRepo.updateRecurringAllocationsThrough(
+                id: id, newAmount: newAmount, endMonth: endMonth)
         case .all:
             // Update all allocations in this recurring series (past, present, future)
             logDebug("BudgetAllocationService: Calling updateAllRecurringAllocations for id \(id)")
