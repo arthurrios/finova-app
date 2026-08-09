@@ -5737,6 +5737,23 @@
         }
       }
     },
+    "monthCard.adjustBalance.a11y": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adjust balance"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajustar saldo"
+          }
+        }
+      }
+    },
     "monthCard.availableBudget": {
       "extractionState": "manual",
       "localizations": {
@@ -5750,6 +5767,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Saldo final"
+          }
+        }
+      }
+    },
+    "monthCard.balanceMenu.adjust": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adjust balance"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajustar saldo"
+          }
+        }
+      }
+    },
+    "monthCard.balanceMenu.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Doesn't match your bank?"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não bate com o seu banco?"
           }
         }
       }

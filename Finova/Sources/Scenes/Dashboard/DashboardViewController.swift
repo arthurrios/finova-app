@@ -1726,7 +1726,7 @@ extension DashboardViewController: MonthBudgetCardDelegate {
         flowDelegate?.navigateToBudgets(date: budgetDate)
     }
     
-    func didLongPressBalance() {
+    func didRequestBalanceAdjustment() {
         let selectedIndex = syncedViewModel.selectedIndex
         guard selectedIndex < syncedViewModel.monthData.count else { return }
         let monthData = syncedViewModel.monthData[selectedIndex]
