@@ -247,7 +247,17 @@ final class RecurringTransactionManager {
         calendar.date(byAdding: .month, value: offset, to: referenceDate)?.monthAnchor
       })
 
+    // CHILDREN ONLY. `fetchAllRecurringInstances` filters on `parentTransactionId != nil`, and a
+    // series parent SELF-links — so the parent is in that list, and the `isBeforeRecurringStart`
+    // test below ("month <= this series' start month") is trivially true for it. Cleanup would
+    // therefore delete the parent of every series it looked at, taking the whole series with it.
+    //
+    // This is masked today only because the loop `return`s on the first row with a nil id, which
+    // aborts the whole pass. That `return` is a bug in its own right (one bad row silently stops
+    // cleanup for every remaining sibling) and is fixed to `continue` below — so the two changes
+    // MUST land together: fixing the `continue` alone makes the parent deletion reachable.
     let allInstances = transactionRepo.fetchAllRecurringInstances()
+      .filter { $0.id != $0.parentTransactionId }
     let recurringTransactions = transactionRepo.fetchRecurringTransactions()
     let recurringStartAnchors = Dictionary(
       uniqueKeysWithValues: recurringTransactions.map { ($0.id, $0.budgetMonthDate) })
@@ -285,7 +295,9 @@ final class RecurringTransactionManager {
           } ?? false)
       }
 
-      guard let id = instance.id else { return }
+      // `continue`, not `return`: a single row with a nil id used to abort cleanup for every
+      // remaining sibling in the ledger.
+      guard let id = instance.id else { continue }
 
       if shouldDelete {
         do {
@@ -647,7 +659,7 @@ final class RecurringTransactionManager {
 
     // Build list of instances to update based on edit option
     // Store the original timestamp and budgetMonthDate to preserve them
-    var instancesToUpdate: [(id: Int, originalTimestamp: Int, originalBudgetMonthDate: Int, originalIsRecurring: Bool?, originalParentId: Int?, originalCreditCardId: Int?, originalStatementId: Int?)] = []
+    var instancesToUpdate: [(id: Int, originalTimestamp: Int, originalBudgetMonthDate: Int, originalSeriesPeriod: Int, originalIsRecurring: Bool?, originalParentId: Int?, originalCreditCardId: Int?, originalStatementId: Int?)] = []
 
     for instance in relatedInstances {
       guard let instanceId = instance.id else { continue }
@@ -673,6 +685,7 @@ final class RecurringTransactionManager {
           id: instanceId,
           originalTimestamp: instance.dateTimestamp,
           originalBudgetMonthDate: instance.budgetMonthDate,
+          originalSeriesPeriod: instanceMonthAnchor,
           originalIsRecurring: instance.isRecurring,
           originalParentId: instance.parentTransactionId,
           originalCreditCardId: instance.creditCardId,
@@ -692,49 +705,58 @@ final class RecurringTransactionManager {
     var oldStatementIdsToRecalculate: Set<Int> = []
 
     // Perform all updates
-    for (instanceId, originalTimestamp, originalBudgetMonthDate, originalIsRecurring, originalParentId, originalCreditCardId, originalStatementId) in instancesToUpdate {
-      let originalDate = Date(timeIntervalSince1970: TimeInterval(originalTimestamp))
-      let originalDay = localCalendar.component(.day, from: originalDate)
+    // The series' own anchor row, for the un-clamped anchor day.
+    let seriesParent = relatedInstances.first(where: { $0.id == parentTransactionId })
 
-      // Only recalculate date if the day actually changed
+    for (instanceId, originalTimestamp, originalBudgetMonthDate, originalSeriesPeriod, originalIsRecurring, originalParentId, originalCreditCardId, originalStatementId) in instancesToUpdate {
+      // Compare against the SERIES' anchor day, never this row's own day.
+      //
+      // A row's day is clamped to its month: a day-31 series is day 28 in February. Comparing the
+      // picked day against the clamped one reported "changed" for February on every single edit.
+      let seriesAnchorDay =
+        seriesParent.map {
+          localCalendar.component(
+            .day, from: Date(timeIntervalSince1970: TimeInterval($0.dateTimestamp)))
+        }
+        ?? localCalendar.component(
+          .day, from: Date(timeIntervalSince1970: TimeInterval(originalTimestamp)))
+
+      // Legacy rows whose accounting month drifted away from their slot get repaired on any edit.
+      let slotDrifted = originalBudgetMonthDate != originalSeriesPeriod
+
       let finalTimestamp: Int
       let finalBudgetMonthDate: Int
       let dateChanged: Bool
 
-      if newDay == originalDay {
+      if newDay == seriesAnchorDay && !slotDrifted {
         // Day didn't change - preserve original timestamp and budgetMonthDate exactly
         finalTimestamp = originalTimestamp
         finalBudgetMonthDate = originalBudgetMonthDate
         dateChanged = false
       } else {
-        // Day changed - need to recalculate the date
-        let originalYear = localCalendar.component(.year, from: originalDate)
-        let originalMonth = localCalendar.component(.month, from: originalDate)
+        // Rebuild from the SLOT, through the same helper generation uses.
+        //
+        // This used to build `DateComponents` from the ROW's own date with the new day, which is
+        // wrong twice over. Day 31 in February does not fail — Foundation rolls it forward to 3
+        // March — so `finalBudgetMonthDate` became March: the February occurrence vanished from
+        // February and landed on top of March's, which is where "a missing month plus a duplicate in
+        // a later month" came from. And deriving the month from an already business-day-shifted date
+        // put the occurrence in the neighbouring month for the same reason.
+        //
+        // `OccurrenceDateCalculator.occurrence` clamps properly (min(day, lastDayOfMonth)), and the
+        // slot is authoritative about which month this occurrence is FOR.
+        let slotDate = Date(timeIntervalSince1970: TimeInterval(originalSeriesPeriod))
+        let targetYear = localCalendar.component(.year, from: slotDate)
+        let targetMonth = localCalendar.component(.month, from: slotDate)
 
-        var dateComponents = DateComponents()
-        dateComponents.year = originalYear
-        dateComponents.month = originalMonth
-        dateComponents.day = newDay
-        // Preserve the original hour/minute/second to avoid timestamp drift
-        dateComponents.hour = localCalendar.component(.hour, from: originalDate)
-        dateComponents.minute = localCalendar.component(.minute, from: originalDate)
-        dateComponents.second = localCalendar.component(.second, from: originalDate)
-
-        var newDate = localCalendar.date(from: dateComponents)
-
-        // If the date is invalid (e.g., Feb 31), adjust to the last valid day of the month
-        if newDate == nil {
-          let lastDayOfMonth =
-            localCalendar.range(of: .day, in: .month, for: originalDate)?.upperBound ?? 31
-          let actualLastDay = lastDayOfMonth - 1
-          dateComponents.day = actualLastDay
-          newDate = localCalendar.date(from: dateComponents)
-        }
-
-        guard let calculatedDate = newDate else { continue }
+        let calculatedDate = OccurrenceDateCalculator.occurrence(
+          anchorDay: newDay, targetMonth: targetMonth, targetYear: targetYear,
+          calendar: localCalendar)
 
         finalTimestamp = Int(calculatedDate.timeIntervalSince1970)
-        finalBudgetMonthDate = calculatedDate.monthAnchor
+        // Pinned to the slot, exactly as generation does. An occurrence can no longer leave the
+        // month it is scheduled for, whatever a rule did to its date.
+        finalBudgetMonthDate = originalSeriesPeriod
         dateChanged = true
       }
 

@@ -7443,13 +7443,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Applied to new transactions. Holidays: %@"
+            "value": "Applied to new transactions. Moves dates off weekends only."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aplicada a novas transações. Feriados: %@"
+            "value": "Aplicada a novas transações. Move apenas datas em fins de semana."
           }
         }
       }
