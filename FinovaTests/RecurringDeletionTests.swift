@@ -57,8 +57,9 @@ final class RecurringDeletionTests: XCTestCase {
             transactionRepo.fetchAllTransactions().first { $0.title == title && $0.isRecurring == true },
             "Recurring parent should exist")
 
-        recurringManager.generateInstancesForTransaction(
-            parent, in: -3...6, referenceDate: Date(), transactionStartDate: start)
+        // No manual generation step: creation now materializes the whole series eagerly, from the
+        // parent's own start month through the horizon. Generating again here would be a no-op at
+        // best (materialization is idempotent) and a source of drift at worst.
         TransactionRepository.invalidateCache()
 
         return (parent, instances(titled: title))

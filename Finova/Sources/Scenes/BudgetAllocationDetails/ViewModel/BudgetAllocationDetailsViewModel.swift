@@ -145,12 +145,18 @@ final class BudgetAllocationDetailsViewModel {
     }
 
     /// Returns true if this allocation is part of a recurring series.
-    /// This includes both parent allocations (isRecurring=true) and child allocations (parentAllocationId != nil)
+    ///
+    /// Uses the same check as the edit sheet (`BudgetAllocationService.isPartOfRecurringSeries`), which
+    /// also counts a BOUNDED series whose parent has already stopped recurring but still owns
+    /// children. With the weaker local check the two screens disagreed: the first month of a bounded
+    /// series offered the scope prompt on edit but not on delete, so deleting it silently removed one
+    /// occurrence instead of asking.
     var isRecurring: Bool {
-        if let allocation = allocation {
-            return allocation.isRecurring || allocation.parentAllocationId != nil
+        guard let allocation = allocation else { return false }  // Unallocated mode
+        if let dbId = allocation.dbId {
+            return BudgetAllocationService().isPartOfRecurringSeries(allocationId: dbId)
         }
-        return false  // Unallocated mode
+        return allocation.isRecurring || allocation.parentAllocationId != nil
     }
 
     // MARK: - Formatted Strings
@@ -360,6 +366,13 @@ final class BudgetAllocationDetailsViewModel {
         logDebug("BudgetAllocationDetailsVM: Deleting allocation with dbId: \(dbId), option: \(option), isRecurring: \(allocation.isRecurring), parentId: \(String(describing: allocation.parentAllocationId))")
 
         do {
+            // Re-attach orphaned occurrences before a SCOPED delete, or rows whose parent pointer is
+            // broken survive it and reappear as strays. Not for `.currentOnly`, which is one row.
+            if option != .currentOnly {
+                RecurringSeriesLinker(allocationRepo: allocationRepository)
+                    .repairAllocationSeries(around: allocation.parentAllocationId ?? dbId)
+            }
+
             switch option {
             case .currentOnly:
                 // Delete only this specific allocation
@@ -375,10 +388,34 @@ final class BudgetAllocationDetailsViewModel {
                 try allocationRepository.deleteAllRecurringAllocations(id: dbId)
             }
             logDebug("BudgetAllocationDetailsVM: Deletion successful for option: \(option)")
+            SyncEngine.shared.pushPendingChangesNow()
             return .success(())
         } catch {
             logError("BudgetAllocationDetailsVM: Deletion failed with error: \(error)")
             return .failure(error)
+        }
+    }
+
+    /// Async variants of the two allocation deletes, mirroring `deleteTransactionAsync` above.
+    ///
+    /// These ran inline on the main thread and the view controller navigated away immediately —
+    /// "delete all" can touch 37+ rows, each with a CloudKit soft-delete, so the screen popped while
+    /// the writes were still landing and the dashboard behind it rendered the pre-delete state.
+    func deleteAllocationAsync(completion: @escaping (Result<Void, Error>) -> Void) {
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self else { return }
+            let result = self.deleteAllocation()
+            DispatchQueue.main.async { completion(result) }
+        }
+    }
+
+    func deleteRecurringAllocationAsync(
+        option: AllocationDeleteOption, completion: @escaping (Result<Void, Error>) -> Void
+    ) {
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self else { return }
+            let result = self.deleteRecurringAllocation(option: option)
+            DispatchQueue.main.async { completion(result) }
         }
     }
 

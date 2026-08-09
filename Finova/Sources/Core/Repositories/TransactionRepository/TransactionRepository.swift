@@ -618,9 +618,23 @@ final class TransactionRepository: TransactionRepositoryProtocol {
     let parentExists = all.contains { $0.id == groupId }
     guard !parentExists else { return byParent }
 
+    // Scope and anchor day join the predicate so this can never reach across ledgers, and never
+    // sweep up a same-title series anchored on a different day of the month. Both are components of
+    // series identity everywhere else (see `SeriesFingerprint`); leaving them out here meant a delete
+    // could take more than the series the user was looking at.
+    let scopeById = fetchSharedGroupIds()
+    let ownScope = transaction.id.flatMap { scopeById[$0] } ?? ""
+    let ownDay = SeriesDay.anchorDay(of: transaction)
+
     let siblings = all.filter { tx in
-      tx.mode == .recurring && tx.title == transaction.title
-        && tx.amount == transaction.amount && tx.category == transaction.category
+      guard let txId = tx.id else { return false }
+      guard tx.mode == .recurring, tx.title == transaction.title,
+        tx.amount == transaction.amount, tx.category == transaction.category
+      else { return false }
+      guard (scopeById[txId] ?? "") == ownScope else { return false }
+      return SeriesDay.matches(
+        SeriesDay.anchorDay(of: tx), inMonthOf: tx.unadjustedDate,
+        ownDay, inMonthOf: transaction.unadjustedDate)
     }
 
     var byId: [Int: Transaction] = [:]
@@ -647,7 +661,13 @@ final class TransactionRepository: TransactionRepositoryProtocol {
 
     logDebug("TransactionRepository: Deleting all recurring occurrences for transaction \(transactionId), recurringGroupId: \(String(describing: recurringGroupId))")
 
-    let relatedTransactions = recurringSeriesMembers(of: current, in: allTransactions)
+    // Re-attach orphaned occurrences first, so "delete all" genuinely takes the whole series instead
+    // of leaving behind rows whose parent pointer is broken.
+    if let groupId = recurringGroupId {
+      RecurringSeriesLinker(transactionRepo: self).repairTransactionSeries(around: groupId)
+    }
+
+    let relatedTransactions = recurringSeriesMembers(of: current, in: fetchAllTransactions())
 
     logDebug("TransactionRepository: Found \(relatedTransactions.count) transactions to delete")
 
@@ -669,25 +689,33 @@ final class TransactionRepository: TransactionRepositoryProtocol {
     }
 
     let recurringGroupId = current.parentTransactionId ?? current.id
-    // Compare on the month anchor, NOT the full timestamp. `date` and `budgetMonthDate`
-    // are stored independently (and a CC-linked instance's `date` can be remapped to a
-    // due date in a different calendar month), so a raw-Date compare would miss or
-    // over-include instances. The month anchor matches how the app groups months and
-    // how the recurring EDIT path selects "future" instances.
-    let currentAnchor = current.budgetMonthDate
+    // The occurrence SLOT, matching the EDIT path (`editRecurringTransactionsFromDateSync`) exactly.
+    //
+    // This used to compare `budgetMonthDate`, which agrees with the slot only while the business-day
+    // rule is `.exact`. Under `.previous`/`.next` an occurrence can be pushed across a month boundary,
+    // and then the two disagree — so "delete this and future" and "edit this and future" selected
+    // DIFFERENT sets of rows for the same series, and an occurrence at the boundary was either
+    // deleted a month early or left behind.
+    let currentAnchor = current.seriesPeriod
 
     logDebug("TransactionRepository: Deleting future recurring instances for transaction \(transactionId), recurringGroupId: \(String(describing: recurringGroupId)), currentAnchor: \(currentAnchor)")
 
+    // Re-attach orphaned occurrences BEFORE selecting what to delete, or a row whose parent pointer
+    // is broken survives the delete and reappears as a stray.
+    if let groupId = recurringGroupId {
+      RecurringSeriesLinker(transactionRepo: self).repairTransactionSeries(around: groupId)
+    }
+
     // Before we stop the parent's recurrence below, materialize any months between the
-    // parent and the cutoff that were never lazily generated — otherwise disabling
+    // parent and the cutoff that were never materialized — otherwise disabling
     // recurrence would prevent those (legitimately pre-cutoff) months from ever existing.
     if let groupId = recurringGroupId {
       RecurringTransactionManager().backfillRecurringMonths(
         parentTransactionId: groupId, cutoffAnchor: currentAnchor)
     }
 
-    let relatedTransactions = recurringSeriesMembers(of: current, in: allTransactions)
-      .filter { $0.budgetMonthDate >= currentAnchor }
+    let relatedTransactions = recurringSeriesMembers(of: current, in: fetchAllTransactions())
+      .filter { $0.seriesPeriod >= currentAnchor }
 
     logDebug("TransactionRepository: Found \(relatedTransactions.count) future transactions to delete")
 
@@ -807,6 +835,17 @@ final class TransactionRepository: TransactionRepositoryProtocol {
       "SELECT shared_group_id FROM Transactions WHERE id = ?;",
       intBinding: transactionId
     )
+  }
+
+  /// Every row's ledger scope in one query, as `id -> sharedGroupId`. Rows absent from the result are
+  /// personal.
+  ///
+  /// Materialization and series relinking both need scope for EVERY row they consider — scope is a
+  /// required component of series identity, or a personal series and a group series that look alike
+  /// merge. Asking `fetchSharedGroupId(for:)` per row made that a full table's worth of queries
+  /// inside an already-serialized write pass.
+  func fetchSharedGroupIds() -> [Int: String] {
+    return db.fetchSharedGroupIdsForTransactions()
   }
 
   // MARK: - CloudKit Sync Methods

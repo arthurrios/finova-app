@@ -22,6 +22,14 @@ protocol BudgetAllocationRepositoryProtocol {
     func deleteRecurringAllocationAndFuture(id: Int) throws
     func deleteAllRecurringAllocations(id: Int) throws
     func updateIsRecurring(allocationId: Int, isRecurring: Bool) throws
+    func updateParentAllocationId(id: Int, parentId: Int) throws
+    /// Materializes every missing occurrence of one series, from its own start month through the
+    /// horizon. Returns how many rows were created.
+    @discardableResult
+    func materializeSeries(parentId: Int, endMonth: Int?) -> Int
+    /// Materializes every missing occurrence of EVERY recurring series. The rolling top-up.
+    @discardableResult
+    func materializeAllSeries() -> Int
     /// Batches a multi-row mutation into one transaction + one change notification.
     func performBulk(_ work: () throws -> Void) throws
     func fetchPersonalAllocationsCount() -> Int
@@ -260,12 +268,15 @@ final class BudgetAllocationRepository: BudgetAllocationRepositoryProtocol {
 
         let now = Int(Date().timeIntervalSince1970)
 
-        if let parentId = allocationToDelete.parentAllocationId {
-            db.executeSyncUpdate(
-                "UPDATE BudgetAllocations SET is_recurring = 0, sync_status = 'pending', ck_modified_at = ?, updated_at = ? WHERE id = ?;",
-                intBindings: [now, now, parentId]
-            )
-        }
+        // Deleting ONE occurrence must not stop the series. This used to clear the PARENT's
+        // `is_recurring`, so removing a single month silently killed every future month of that
+        // series — and, because the create-conflict flow deletes conflicting rows one at a time, it
+        // could stop several unrelated series as a side effect of creating one.
+        //
+        // The tombstone below (`is_deleted = 1`, read back per series by
+        // `fetchDeletedAllocationMonthsBySeries`) already
+        // suppresses regeneration of exactly this month, which is all a single-occurrence delete
+        // should do. Stopping a whole series remains the job of `deleteRecurringAllocationAndFuture`.
 
         let ckName = fetchCKRecordName(for: id)
         if ckName != nil {
@@ -291,6 +302,7 @@ final class BudgetAllocationRepository: BudgetAllocationRepositoryProtocol {
 
         let parentId = allocation.parentAllocationId ?? id
         let currentMonthDate = allocation.monthDate
+        let parentMonth = db.fetchBudgetAllocation(byId: parentId)?.monthDate ?? currentMonthDate
 
         let allModels = db.fetchAllBudgetAllocations(userId: UIDUserDefaultsManager.shared.currentUserUID)
         // Whole delete-future operation (deletes + backfill inserts + parent update) as ONE
@@ -312,9 +324,13 @@ final class BudgetAllocationRepository: BudgetAllocationRepositoryProtocol {
             }
 
             // Preserve months between the parent and the cutoff that were never materialized,
-            // BEFORE disabling the parent's recurrence below (which stops all future
-            // generation — including pre-cutoff months that lazy generation never created).
-            backfillRecurringAllocationMonths(parentId: parentId, cutoffMonth: currentMonthDate)
+            // BEFORE disabling the parent's recurrence below (which stops all future generation —
+            // including pre-cutoff months). Bounded at the month before the cutoff, so this never
+            // re-creates a month the loop above just deleted.
+            let lastKeptMonth = Date.fromMonthAnchor(currentMonthDate).monthAnchor(offsetByMonths: -1)
+            if lastKeptMonth > parentMonth {
+                materializeSeries(parentId: parentId, endMonth: lastKeptMonth)
+            }
 
             // Stop parent from generating future instances
             if db.fetchBudgetAllocation(byId: parentId) != nil {
@@ -326,50 +342,136 @@ final class BudgetAllocationRepository: BudgetAllocationRepositoryProtocol {
         }
     }
 
-    /// Materializes any missing recurring allocation instances for months strictly
-    /// between the parent's own month and `cutoffMonth`, inheriting the amount from the
-    /// occurrence in effect at each month. Called by "delete future" before the parent's
-    /// recurrence is disabled, so pre-cutoff months that were never lazily generated
-    /// aren't lost. Mirrors the recurring-transaction backfill.
-    private func backfillRecurringAllocationMonths(parentId: Int, cutoffMonth: Int) {
-        let all = db.fetchAllBudgetAllocations(userId: UIDUserDefaultsManager.shared.currentUserUID)
-        guard let parent = all.first(where: { $0.id == parentId }) else { return }
-        let startMonth = parent.monthDate
-        guard startMonth < cutoffMonth else { return }
+    // MARK: - Materialization
 
-        // Occurrences of this series, ascending, for picking the in-effect template.
+    /// Materializes every missing occurrence of ONE allocation series, from the parent's own month
+    /// through the horizon (or through `endMonth` for a bounded series). Returns how many were made.
+    ///
+    /// SERIES-anchored, and that is the whole point. This replaces a loop that walked
+    /// `1...horizonMonths` from `Date()` and then discarded anything at or before the parent's month —
+    /// so a series created while the user was scrolled back to a past month never materialized the
+    /// gap between its start and today, permanently. `SeriesMonths.seriesAnchors` anchors the horizon
+    /// on `max(now, start)`, which covers past-, present- and future-dated series alike.
+    ///
+    /// Idempotent and tombstone-aware, so it is safe to call on every CRUD and from the rolling
+    /// top-up. Nothing generates on render any more, so this is the only thing that fills a month.
+    @discardableResult
+    func materializeSeries(parentId: Int, endMonth: Int? = nil) -> Int {
+        let all = db.fetchAllBudgetAllocations(userId: UIDUserDefaultsManager.shared.currentUserUID)
+        guard let parent = all.first(where: { $0.id == parentId }) else { return 0 }
+
+        // A BOUNDED series is one whose parent has already stopped recurring while still owning
+        // children — the end month is not stored anywhere, it is expressed by that flag. Such a
+        // series must have its GAPS filled but must never be EXTENDED, so when no explicit bound is
+        // given, treat the last month it already holds as the bound. Passing nil here would have
+        // grown a "12 months" series to the full 36-month horizon on the next edit.
+        var effectiveEnd = endMonth
+        if effectiveEnd == nil && !parent.isRecurring {
+            effectiveEnd = all
+                .filter { $0.id == parentId || $0.parentAllocationId == parentId }
+                .map { $0.monthDate }
+                .max()
+        }
+        let endMonth = effectiveEnd
+
+        // SERIES-scoped tombstones. The category-wide key ("<month>|<category>") suppressed a month
+        // for that category permanently, so any later series was born with a hole exactly where an
+        // older one had been deleted — silently, because the skip was not logged.
+        let tombstonedMonths = db.fetchDeletedAllocationMonthsBySeries(
+            userId: UIDUserDefaultsManager.shared.currentUserUID)[parentId] ?? []
+
+        // Occurrences of THIS series, ascending, for picking the in-effect template.
         let series = all
             .filter { $0.id == parentId || $0.parentAllocationId == parentId }
             .sorted { $0.monthDate < $1.monthDate }
+        var ownMonths = Set(series.map { $0.monthDate })
 
-        var cal = Calendar(identifier: .gregorian)
-        cal.timeZone = TimeZone.current
-        var date = Date(timeIntervalSince1970: TimeInterval(startMonth))
-        var steps = 0
-        while steps < 600 {  // safety bound (~50 years)
-            steps += 1
-            guard let next = cal.date(byAdding: .month, value: 1, to: date) else { break }
-            date = next
-            let monthAnchor = next.monthAnchor
-            if monthAnchor >= cutoffMonth { break }
+        // Months held by a DIFFERENT allocation in the same category and scope. We cannot insert
+        // there (one live allocation per month+category+scope), but it is not this series' row —
+        // treating every same-category row as "already covered" is what let an unrelated one-off
+        // silently punch a hole in a series.
+        let foreignMonths = Set(
+            all.filter {
+                $0.categoryKey == parent.categoryKey
+                    && ($0.sharedGroupId ?? "") == (parent.sharedGroupId ?? "")
+                    && !ownMonths.contains($0.monthDate)
+            }.map { $0.monthDate })
 
-            // Skip if any allocation already exists for this month+category.
-            let exists = all.contains {
-                $0.monthDate == monthAnchor && $0.categoryKey == parent.categoryKey
+        var created = 0
+
+        // One transaction and one UI notification for the whole horizon, instead of ~36 of each.
+        try? performBulk {
+            for anchor in SeriesMonths.seriesAnchors(start: parent.monthDate, endMonth: endMonth) {
+                guard anchor > parent.monthDate else { continue }  // parent holds its own month
+                if ownMonths.contains(anchor) { continue }
+                if tombstonedMonths.contains(anchor) {
+                    logWarning(
+                        "[Materialize] allocation month \(anchor) for '\(parent.categoryKey)' was deleted from series \(parentId) — not recreating"
+                    )
+                    continue
+                }
+                if foreignMonths.contains(anchor) {
+                    logWarning(
+                        "[Materialize] allocation month \(anchor) for '\(parent.categoryKey)' is held by a row outside series \(parentId) — skipping"
+                    )
+                    continue
+                }
+
+                let template = series.last(where: { $0.monthDate <= anchor }) ?? parent
+                let instance = BudgetAllocationModel(
+                    monthDate: anchor,
+                    categoryKey: parent.categoryKey,
+                    allocatedAmount: template.allocatedAmount,
+                    isRecurring: true,
+                    parentAllocationId: parentId,
+                    sharedGroupId: parent.sharedGroupId
+                )
+
+                if let newId = try? insertAllocation(instance) {
+                    assignInstanceIdentity(instanceId: newId, parentId: parentId, monthDate: anchor)
+                    ownMonths.insert(anchor)
+                    created += 1
+                }
             }
-            if exists { continue }
-
-            let template = series.last(where: { $0.monthDate <= monthAnchor }) ?? parent
-            let instance = BudgetAllocationModel(
-                monthDate: monthAnchor,
-                categoryKey: parent.categoryKey,
-                allocatedAmount: template.allocatedAmount,
-                isRecurring: true,
-                parentAllocationId: parentId,
-                sharedGroupId: parent.sharedGroupId
-            )
-            _ = try? insertAllocation(instance)
         }
+
+        return created
+    }
+
+    /// Gives a generated occurrence the identity every device derives for (series, month), replacing
+    /// the random uuid the insert trigger assigned. Skipped silently when the parent has no uuid yet.
+    private func assignInstanceIdentity(instanceId: Int, parentId: Int, monthDate: Int) {
+        guard
+            let parentUuid = db.uuidIdentity(table: "BudgetAllocations", localId: parentId)?.uuid
+        else { return }
+        db.assignDeterministicUuid(
+            table: "BudgetAllocations", localId: instanceId,
+            uuid: DeterministicIdentity.allocationInstance(
+                parentUuid: parentUuid, monthDate: monthDate))
+    }
+
+    /// Materializes every missing occurrence of EVERY recurring allocation series. The rolling
+    /// top-up; also covers series that arrived from another device.
+    @discardableResult
+    func materializeAllSeries() -> Int {
+        let all = db.fetchAllBudgetAllocations(userId: UIDUserDefaultsManager.shared.currentUserUID)
+
+        // Ongoing series (still recurring) AND bounded ones (stopped recurring but still owning
+        // children). Bounded series were excluded entirely, so a gap inside one — say, two months a
+        // now-fixed tombstone bug had suppressed — could never heal. `materializeSeries` refuses to
+        // extend a bounded series past the last month it holds, so including them is safe.
+        let parents = all.filter { candidate in
+            guard candidate.parentAllocationId == nil, let id = candidate.id else { return false }
+            return candidate.isRecurring || all.contains { $0.parentAllocationId == id }
+        }
+        guard !parents.isEmpty else { return 0 }
+
+        var created = 0
+        for parent in parents {
+            guard let parentId = parent.id else { continue }
+            created += materializeSeries(parentId: parentId)
+        }
+        return created
     }
 
     func deleteAllRecurringAllocations(id: Int) throws {
@@ -404,6 +506,25 @@ final class BudgetAllocationRepository: BudgetAllocationRepositoryProtocol {
             "UPDATE BudgetAllocations SET is_recurring = ?, sync_status = 'pending' WHERE id = ?;",
             intBindings: [isRecurring ? 1 : 0, allocationId]
         )
+    }
+
+    /// Re-parents one allocation into another's series.
+    ///
+    /// The single writer for `parent_allocation_id` after insert — `RecurringSeriesLinker` uses it to
+    /// adopt occurrences whose pointer references a row that does not exist locally. Deliberately
+    /// narrow: nothing else may rewrite a series link, so a careless bulk update cannot orphan a
+    /// series in one statement.
+    func updateParentAllocationId(id: Int, parentId: Int) throws {
+        guard db.fetchBudgetAllocation(byId: id) != nil else {
+            logError("BudgetAllocationRepository: Allocation with id \(id) not found for relink")
+            throw BudgetAllocationError.allocationNotFound
+        }
+
+        db.executeSyncUpdate(
+            "UPDATE BudgetAllocations SET parent_allocation_id = ?, sync_status = 'pending' WHERE id = ?;",
+            intBindings: [parentId, id]
+        )
+        notifyAllocationDataChanged()
     }
 
     // MARK: - Mirror Mode

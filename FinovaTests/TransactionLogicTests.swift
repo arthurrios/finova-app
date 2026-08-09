@@ -347,7 +347,7 @@ class TransactionLogicTests: XCTestCase {
             }
         }
         let genExp = XCTestExpectation(description: "materialize early window")
-        recurringManager.generateInstancesLazilyForMonths(earlyAnchors) { _ in genExp.fulfill() }
+        recurringManager.materializeOccurrences(for: earlyAnchors) { _ in genExp.fulfill() }
         wait(for: [genExp], timeout: 5.0)
 
         let marchDate = DateFormatter.fullDateFormatter.date(from: "15/03/2025")!
@@ -384,10 +384,10 @@ class TransactionLogicTests: XCTestCase {
             XCTFail("Future-only edit should succeed: \(error)"); return
         }
 
-        // Already-materialized instances from March onward reflect the edit; earlier ones don't.
+        // Instances from March onward reflect the edit; earlier ones don't.
         let afterEdit = transactionRepo.fetchAllTransactions()
         for inst in afterEdit where inst.parentTransactionId == parentId {
-            if inst.date.monthAnchor >= marchAnchor {
+            if inst.seriesPeriod >= marchAnchor {
                 XCTAssertEqual(inst.amount, 120000,
                     "Instances at/after the edit month should use the new amount")
             } else {
@@ -396,24 +396,24 @@ class TransactionLogicTests: XCTestCase {
             }
         }
 
-        // A month beyond the materialized window is not generated yet.
-        let farDate = DateFormatter.fullDateFormatter.date(from: "15/06/2027")!
-        let farAnchor = farDate.monthAnchor
-        XCTAssertFalse(
-            afterEdit.contains { $0.parentTransactionId == parentId && $0.date.monthAnchor == farAnchor },
-            "Far-future month should not be materialized yet")
+        // The edit materializes the WHOLE series before applying its scope, so months beyond the
+        // window that was pre-materialized above exist too — and carry the edited amount.
+        //
+        // This used to be the reverse: a far-future month stayed unmaterialized until something
+        // asked for it, and was then regenerated from the stale parent template. With nothing
+        // generating on demand any more, an edit that did not materialize first would simply never
+        // reach those months.
+        let horizonAnchor = SeriesMonths.horizonAnchor(start: startDate.monthAnchor)
+        let seriesAfterEdit = afterEdit.filter { $0.parentTransactionId == parentId }
+        XCTAssertEqual(
+            seriesAfterEdit.map { $0.seriesPeriod }.max(), horizonAnchor,
+            "The edit should have materialized the series through its full horizon")
 
-        // Materialize it now — this is the path that used to revert to the stale parent amount.
-        let lazyExp = XCTestExpectation(description: "lazily generate far-future month")
-        recurringManager.generateInstancesLazilyForMonths([farAnchor]) { _ in lazyExp.fulfill() }
-        wait(for: [lazyExp], timeout: 5.0)
-
-        let farInstance = transactionRepo.fetchAllTransactions().first {
-            $0.parentTransactionId == parentId && $0.date.monthAnchor == farAnchor
-        }
-        XCTAssertNotNil(farInstance, "Far-future instance should now be generated")
+        let farAnchor = Date().monthAnchor(offsetByMonths: 30)
+        let farInstance = seriesAfterEdit.first { $0.seriesPeriod == farAnchor }
+        XCTAssertNotNil(farInstance, "Far-future month should be materialized by the edit itself")
         XCTAssertEqual(farInstance?.amount, 120000,
-            "Lazily-generated future instance must inherit the future-only edit, not the stale parent amount")
+            "A month materialized by the edit must inherit the future-only amount, not the stale parent amount")
     }
 
     // MARK: - Installment Transaction Tests

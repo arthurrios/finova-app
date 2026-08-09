@@ -186,19 +186,22 @@ extension AddAllocationModalViewController: AddAllocationModalViewDelegate {
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self = self else { return }
             do {
-                if !conflictingIds.isEmpty {
-                    let repository = BudgetAllocationRepository()
+                // Conflict deletes and the create as ONE transaction and ONE UI notification —
+                // otherwise each delete committed and posted separately, and the carousel reloaded
+                // against a ledger where the old rows were gone but the new series did not exist yet.
+                let repository = BudgetAllocationRepository()
+                try repository.performBulk {
                     for allocationId in conflictingIds {
                         try repository.deleteAllocation(id: allocationId)
                     }
+                    try self.allocationService.createAllocation(
+                        category: category,
+                        amount: amount,
+                        monthAnchor: monthAnchor,
+                        isRecurring: isRecurring,
+                        recurrenceEndMonth: recurrenceEndMonth
+                    )
                 }
-                try self.allocationService.createAllocation(
-                    category: category,
-                    amount: amount,
-                    monthAnchor: monthAnchor,
-                    isRecurring: isRecurring,
-                    recurrenceEndMonth: recurrenceEndMonth
-                )
                 DispatchQueue.main.async {
                     self.contentView.saveButton.stopLoading()
                     self.flowDelegate?.didSaveAllocation()

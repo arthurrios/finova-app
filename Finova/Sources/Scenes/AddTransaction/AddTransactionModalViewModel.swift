@@ -10,7 +10,6 @@ import Foundation
 final class AddTransactionModalViewModel {
   private let transactionRepo: TransactionRepository
   private let recurringManager: RecurringTransactionManager
-  private let carouselRange: ClosedRange<Int> = -12...24
   private var calendar: Calendar = {
     var cal = Calendar.current
     cal.timeZone = TimeZone.current  // Ensure we use local timezone
@@ -110,46 +109,37 @@ final class AddTransactionModalViewModel {
           SyncEngine.shared.pushPendingChangesNow()
         }
 
-        // Check for similar existing recurring transactions
+        // THE SERIES this row belongs to — which is NOT always the row just inserted. When it links
+        // into an existing series, the new row becomes a CHILD, and generation only ever runs for
+        // parents. Materializing `insertedId` in that case produced nothing at all (the classic
+        // "created a recurring transaction and got one stray row").
+        let seriesParentId: Int
         if let existingSimilar = recurringManager.findSimilarRecurringTransaction(
           title: title,
           category: category.key,
           amount: amount,
-          type: type.key
+          type: type.key,
+          anchorDay: calendar.component(.day, from: date)
         ), let existingId = existingSimilar.id {
-          // Link to existing recurring transaction instead of creating a new parent
           try recurringManager.linkToExistingRecurringTransaction(
             newTransactionId: insertedId,
             existingParentId: existingId
           )
+          seriesParentId = existingId
         } else {
-          // No similar transaction found, make this a new parent
+          // No similar series found, make this a new parent
           try transactionRepo.updateParentTransactionId(
             transactionId: insertedId, parentId: insertedId)
+          seriesParentId = insertedId
         }
 
-        // UPFRONT GENERATION: eagerly generate the full recurring horizon so every occurrence
-        // exists as a real, syncable row at creation time (see RecurringTransactionManager.horizonMonths).
-        let immediateMonthAnchors: Set<Int> = {
-          var anchors = Set<Int>()
-          for monthOffset in 1...RecurringTransactionManager.horizonMonths {
-            if let futureDate = calendar.date(byAdding: .month, value: monthOffset, to: date) {
-              anchors.insert(futureDate.monthAnchor)
-            }
-          }
-          return anchors
-        }()
-
-        // Generate the full horizon, then push immediately so sync happens right after creation
-        // (not on a later navigation). Completion runs on background queue - heavy work stays there.
-        recurringManager.generateInstancesLazilyForMonths(immediateMonthAnchors) { [weak self] created in
-          guard let self = self else { return }
-          logWarning("[RecurringCreate] upfront generation produced \(created) future instance(s) for '\(title)'")
-          DispatchQueue.main.async {
-            self.invalidateLedgerCache()
-            SyncEngine.shared.pushPendingChangesNow()
-          }
-        }
+        // EAGER GENERATION: materialize the whole series now. Series-anchored, so it fills from the
+        // series' own start month through the horizon regardless of whether that start is in the
+        // past, present or future.
+        let created = recurringManager.materializeSeries(parentId: seriesParentId)
+        logWarning("[RecurringCreate] '\(title)' series \(seriesParentId) materialized \(created) occurrence(s)")
+        invalidateLedgerCache()
+        SyncEngine.shared.pushPendingChangesNow()
 
         return .success(())
       } catch {
@@ -248,10 +238,13 @@ final class AddTransactionModalViewModel {
       return
     }
 
-    // Anchor from the picked date, timestamp from the adjusted one - see `addTransaction`.
+    // Anchor from the picked (UNADJUSTED) date, timestamp from the adjusted one — see
+    // `addTransaction`, which this must agree with. Anchoring on the adjusted date instead meant a
+    // rule that pushed the first occurrence across a month boundary put the parent in one month and
+    // its slot (`seriesPeriod`, below) in another, so the series generated from the wrong start.
     let effectiveDate = BusinessDayAdjuster.adjust(date, rule: businessDayRule, calendar: calendar)
     let timestamp = Int(effectiveDate.timeIntervalSince1970)
-    let anchor = effectiveDate.monthAnchor
+    let anchor = date.monthAnchor
 
     let model = TransactionModel(
       title: title,
@@ -284,22 +277,28 @@ final class AddTransactionModalViewModel {
         SyncEngine.shared.pushPendingChangesNow()
       }
 
-      // Check for similar existing recurring transactions
+      // THE SERIES this row belongs to — see the same block in `addTransaction`. When it links into
+      // an existing series the new row becomes a CHILD, and generation only ever runs for parents,
+      // so materializing `insertedId` here produced nothing and left a single stray row.
+      let seriesParentId: Int
       if let existingSimilar = recurringManager.findSimilarRecurringTransaction(
         title: title,
         category: category.key,
         amount: amount,
-        type: type.key
+        type: type.key,
+        anchorDay: calendar.component(.day, from: date)
       ), let existingId = existingSimilar.id {
-        logWarning("[RecurringCreate] '\(title)' LINKED to existing series parent=\(existingId) (not a new series) — future months belong to that series")
+        logWarning("[RecurringCreate] '\(title)' LINKED to existing series parent=\(existingId) — future months belong to that series")
         try recurringManager.linkToExistingRecurringTransaction(
           newTransactionId: insertedId,
           existingParentId: existingId
         )
+        seriesParentId = existingId
       } else {
         logWarning("[RecurringCreate] '\(title)' created as NEW series parent=\(insertedId)")
         try transactionRepo.updateParentTransactionId(
           transactionId: insertedId, parentId: insertedId)
+        seriesParentId = insertedId
       }
 
       // Assign parent recurring transaction to credit card statement
@@ -319,38 +318,18 @@ final class AddTransactionModalViewModel {
         }
       }
 
-      // UPFRONT GENERATION: eagerly generate the full recurring horizon so every occurrence
-      // exists as a real, syncable row at creation time (see RecurringTransactionManager.horizonMonths).
-      let immediateMonthAnchors: Set<Int> = {
-        var anchors = Set<Int>()
-        for monthOffset in 1...RecurringTransactionManager.horizonMonths {
-          if let futureDate = calendar.date(byAdding: .month, value: monthOffset, to: date) {
-            anchors.insert(futureDate.monthAnchor)
-          }
-        }
-        return anchors
-      }()
-
-      // Wait for instance generation to complete before calling completion, then push
-      // immediately so sync happens right after creation (not on a later navigation).
-      recurringManager.generateInstancesLazilyForMonths(immediateMonthAnchors) { [weak self] created in
-        // `created` is APP-WIDE (all recurring parents this pass). Log THIS series' actual
-        // materialized months so a shortfall (e.g. dedup skipping months that already have a
-        // same-title row from earlier testing) is unambiguous.
+      // EAGER GENERATION: relink any orphaned occurrence of an identical earlier series, then
+      // materialize this series in full — from its own start month through the horizon — and only
+      // then answer. The completion is what dismisses the modal and refreshes the dashboard, so
+      // anything still in flight here would be rendered as a gap.
+      recurringManager.linkAndMaterializeSeries(parentId: seriesParentId) { [weak self] created in
         let seriesMonths = self?.transactionRepo
-          .fetchTransactionInstancesForRecurring(insertedId)
-          .map { $0.budgetMonthDate }.sorted() ?? []
-        logWarning("[RecurringCreate] '\(title)' parent=\(insertedId): this series now spans \(seriesMonths.count) month(s); app-wide new this pass=\(created)")
-        // If the series is empty, dump the same-title rows blocking generation + their group tag,
-        // so we can tell whether context-blind dedup (personal rows blocking a group series) is the cause.
-        if seriesMonths.count <= 1, let repo = self?.transactionRepo {
-          let sameTitle = repo.fetchAllTransactions().filter { $0.title == title }
-          logWarning("[RecurringDiag] \(sameTitle.count) existing active '\(title)' row(s) blocking generation:")
-          for t in sameTitle.prefix(45) {
-            let gid = t.id.flatMap { repo.fetchSharedGroupId(for: $0) } ?? "nil"
-            logWarning("[RecurringDiag]   id=\(t.id ?? -1) month=\(t.budgetMonthDate) parent=\(t.parentTransactionId ?? -1) recurring=\(t.isRecurring ?? false) group=\(gid)")
-          }
-        }
+          .fetchTransactionInstancesForRecurring(seriesParentId)
+          .map { $0.seriesPeriod }.sorted() ?? []
+        logWarning(
+          "[RecurringCreate] '\(title)' series \(seriesParentId) now spans \(seriesMonths.count) month(s); \(created) created this pass"
+        )
+
         guard let self = self else {
           DispatchQueue.main.async {
             SyncEngine.shared.pushPendingChangesNow()
@@ -359,12 +338,11 @@ final class AddTransactionModalViewModel {
           return
         }
 
-        // These operations run on background thread
-        // Notification scheduling is handled by RecurringTransactionManager via RecurringNotificationManager
+        // Cache invalidation before the completion, so the refresh the caller triggers reads the
+        // rows we just wrote rather than a stale ledger snapshot.
+        self.invalidateLedgerCache()
 
-        // Invalidate cache and call completion on main thread
         DispatchQueue.main.async {
-          self.invalidateLedgerCache()
           SyncEngine.shared.pushPendingChangesNow()
           completion(.success(()))
         }
@@ -1485,17 +1463,30 @@ final class AddTransactionModalViewModel {
             GroupNotificationService.shared.logActivity(
               action: .transactionEdited, groupId: groupId, detail: title,
               targetRecordName: ckRecordName)
-            SyncEngine.shared.pushPendingChangesNow()
           }
           self?.invalidateLedgerCache()
+          // Outside the group branch: a personal series edit touches every occurrence of the
+          // series and must push too. Gated on `groupId`, personal edits sat pending until some
+          // unrelated trigger fired a sync.
+          SyncEngine.shared.pushPendingChangesNow()
         }
         completion(result)
       }
     }
   }
 
+  /// Invalidates the ledger cache and tells the UI to refresh.
+  ///
+  /// Always posted on MAIN. `.transactionDataChanged` observers (DashboardViewController, the
+  /// carousel cells) reload UIKit directly, and every write path now runs on a background queue — so
+  /// posting inline delivered a UIKit reload on whatever queue happened to be doing the writing.
   private func invalidateLedgerCache() {
-    // Post notification to invalidate ledger cache
-    NotificationCenter.default.post(name: .transactionDataChanged, object: nil)
+    if Thread.isMainThread {
+      NotificationCenter.default.post(name: .transactionDataChanged, object: nil)
+    } else {
+      DispatchQueue.main.async {
+        NotificationCenter.default.post(name: .transactionDataChanged, object: nil)
+      }
+    }
   }
 }

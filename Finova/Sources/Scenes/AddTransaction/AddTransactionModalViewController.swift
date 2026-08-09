@@ -229,19 +229,62 @@ extension AddTransactionModalViewController: AddTransactionModalViewDelegate,
     self.present(alertController, animated: true)
   }
 
-  func sendTransactionData(_ data: AddTransactionData) {
+  /// Runs the write off the main thread and only dismisses once it has fully landed.
+  ///
+  /// Every save/update path goes through here. They used to call the view model synchronously on
+  /// main, which both blocked the UI and — because statement recalculation and notification
+  /// reconciliation happen inside those calls — meant the dashboard could be told to refresh while
+  /// the work was still in flight.
+  private func performWrite(
+    _ work: @escaping () -> Result<Void, Error>,
+    onSuccess: @escaping () -> Void
+  ) {
     contentView.saveButton.startLoading()
-    let result = viewModel.addTransaction(
-      title: data.title,
-      amount: data.amount,
-      dateString: data.date,
-      categoryKey: data.category,
-      typeRaw: data.transactionType,
-      creditCardId: data.creditCardId,
-      businessDayRule: data.businessDayRule)
-    contentView.saveButton.stopLoading()
+    DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+      let result = work()
+      DispatchQueue.main.async {
+        guard let self = self else { return }
+        self.contentView.saveButton.stopLoading()
+        switch result {
+        case .success:
+          onSuccess()
+        case .failure(let error):
+          self.handleError(
+            title: "alert.error.title".localized, message: Self.message(for: error))
+        }
+      }
+    }
+  }
 
-    handleTransactionResult(result)
+  private static func message(for error: Error) -> String {
+    switch error {
+    case TransactionError.invalidDateFormat:
+      return "alert.error.invalidDateFormat".localized
+    case TransactionError.invalidCategory:
+      return "alert.error.invalidCategory".localized
+    case TransactionError.invalidType:
+      return "alert.error.invalidTransactionType".localized
+    case TransactionError.invalidInstallmentCount:
+      return "alert.error.invalidInstallmentCount".localized
+    default:
+      return "alert.error.defaultMessage".localized
+    }
+  }
+
+  func sendTransactionData(_ data: AddTransactionData) {
+    performWrite({ [viewModel] in
+      viewModel.addTransaction(
+        title: data.title,
+        amount: data.amount,
+        dateString: data.date,
+        categoryKey: data.category,
+        typeRaw: data.transactionType,
+        creditCardId: data.creditCardId,
+        businessDayRule: data.businessDayRule)
+    }) { [weak self] in
+      self?.dismissModal()
+      self?.flowDelegate?.didAddTransaction()
+    }
   }
 
   func sendRecurringTransactionData(_ data: AddTransactionData) {
@@ -290,65 +333,67 @@ extension AddTransactionModalViewController: AddTransactionModalViewDelegate,
   }
 
   func updateTransactionData(id: Int, _ data: AddTransactionData) {
-    contentView.saveButton.startLoading()
-    let result = viewModel.updateTransaction(
-      id: id,
-      title: data.title,
-      amount: data.amount,
-      dateString: data.date,
-      categoryKey: data.category,
-      typeRaw: data.transactionType,
-      creditCardId: data.creditCardId,
-      businessDayRule: data.businessDayRule
-    )
-    contentView.saveButton.stopLoading()
-    handleUpdateResult(result)
+    performWrite({ [viewModel] in
+      viewModel.updateTransaction(
+        id: id,
+        title: data.title,
+        amount: data.amount,
+        dateString: data.date,
+        categoryKey: data.category,
+        typeRaw: data.transactionType,
+        creditCardId: data.creditCardId,
+        businessDayRule: data.businessDayRule
+      )
+    }) { [weak self] in
+      self?.dismissModal()
+      self?.flowDelegate?.didUpdateTransaction()
+    }
   }
 
+  /// Scoped recurring edits go through `updateRecurringTransactionDataWithOption`; this delegate
+  /// method is unreachable from the edit sheet (see `AddTransactionModalView`, which routes only to
+  /// single / `.futureOnly` / `.all`). Kept as a conformance stub that behaves like "edit all"
+  /// rather than the legacy whole-series rewrite it used to call, which rebuilt every occurrence's
+  /// date from the ALREADY-ADJUSTED timestamp and so walked a business-day series forward a few days
+  /// on every edit.
   func updateRecurringTransactionData(id: Int, _ data: AddTransactionData) {
-    contentView.saveButton.startLoading()
-    let result = viewModel.updateTransaction(
-      id: id,
-      title: data.title,
-      amount: data.amount,
-      dateString: data.date,
-      categoryKey: data.category,
-      typeRaw: data.transactionType,
-      creditCardId: data.creditCardId,
-      businessDayRule: data.businessDayRule
-    )
-    contentView.saveButton.stopLoading()
-    handleUpdateResult(result)
+    updateRecurringTransactionDataWithOption(id: id, data, editOption: .all)
   }
 
   func updateInstallmentTransactionData(id: Int, _ data: InstallmentTransactionData) {
-    contentView.saveButton.startLoading()
-    let result = viewModel.updateTransactionWithInstallments(id: id, data)
-    contentView.saveButton.stopLoading()
-    handleUpdateResult(result)
+    performWrite({ [viewModel] in
+      viewModel.updateTransactionWithInstallments(id: id, data)
+    }) { [weak self] in
+      self?.dismissModal()
+      self?.flowDelegate?.didUpdateTransaction()
+    }
   }
 
   func updateSingleRecurringTransactionData(id: Int, _ data: AddTransactionData) {
-    contentView.saveButton.startLoading()
-    let result = viewModel.updateSingleTransaction(
-      id: id,
-      title: data.title,
-      amount: data.amount,
-      dateString: data.date,
-      categoryKey: data.category,
-      typeRaw: data.transactionType,
-      creditCardId: data.creditCardId,
-      businessDayRule: data.businessDayRule
-    )
-    contentView.saveButton.stopLoading()
-    handleUpdateResult(result)
+    performWrite({ [viewModel] in
+      viewModel.updateSingleTransaction(
+        id: id,
+        title: data.title,
+        amount: data.amount,
+        dateString: data.date,
+        categoryKey: data.category,
+        typeRaw: data.transactionType,
+        creditCardId: data.creditCardId,
+        businessDayRule: data.businessDayRule
+      )
+    }) { [weak self] in
+      self?.dismissModal()
+      self?.flowDelegate?.didUpdateTransaction()
+    }
   }
 
   func updateSingleInstallmentTransactionData(id: Int, _ data: InstallmentTransactionData) {
-    contentView.saveButton.startLoading()
-    let result = viewModel.updateSingleTransactionWithInstallments(id: id, data)
-    contentView.saveButton.stopLoading()
-    handleUpdateResult(result)
+    performWrite({ [viewModel] in
+      viewModel.updateSingleTransactionWithInstallments(id: id, data)
+    }) { [weak self] in
+      self?.dismissModal()
+      self?.flowDelegate?.didUpdateTransaction()
+    }
   }
 
   func updateRecurringTransactionDataWithOption(

@@ -29,14 +29,21 @@ final class DashboardViewModel {
   /// Callback to notify UI that data has changed and needs refresh
   var onDataNeedsRefresh: (() -> Void)?
 
-  /// Track if lazy generation is in progress to avoid duplicate runs
-  private var isLazyGenerationInProgress = false
+  /// Guards against overlapping rolling top-ups. Read on main (from `loadMonthlyCards`) and written
+  /// from the materialization queue, so it needs the lock — an unsynchronized `Bool` here let two
+  /// full-table passes overlap.
+  private var isMaterializationInProgress = false
+  private let materializationLock = NSLock()
+
+  /// Constructed here rather than injected because `BudgetAllocationService` is deliberately not a
+  /// singleton (see the note on its `spendHistories`).
+  private lazy var allocationService = BudgetAllocationService()
 
   init(
     budgetRepo: BudgetRepository = BudgetRepository(),
     transactionRepo: TransactionRepository = TransactionRepository(),
-    monthRange: ClosedRange<Int> = -12...24
-  ) {  // 3 years
+    monthRange: ClosedRange<Int> = SeriesMonths.carouselRange
+  ) {
     self.budgetRepo = budgetRepo
     self.transactionRepo = transactionRepo
     self.monthRange = monthRange
@@ -72,7 +79,7 @@ final class DashboardViewModel {
       let monthlyData = transactionLedger.calculateMonthlyData(for: monthRange)
 
       // Trigger lazy generation AFTER returning data (non-blocking)
-      triggerLazyGenerationInBackground()
+      materializeAllSeriesInBackground()
 
       return monthlyData
 
@@ -87,7 +94,7 @@ final class DashboardViewModel {
 
       // Lazy-generate recurring instances for group context too,
       // so future months show the same instances as personal view.
-      triggerLazyGenerationInBackground()
+      materializeAllSeriesInBackground()
 
       return transactionLedger.calculateMonthlyDataForGroup(
         groupId: group.id, for: monthRange
@@ -125,69 +132,59 @@ final class DashboardViewModel {
     return BudgetGroupService.shared.fetchAllGroups()
   }
 
-  /// Triggers lazy generation in background without blocking UI
-  /// This is called after loadMonthlyCards returns to avoid blocking
-  private func triggerLazyGenerationInBackground() {
+  /// The rolling top-up: materializes every recurring series — transactions AND allocations — that is
+  /// missing occurrences, in the background, after `loadMonthlyCards` has returned.
+  ///
+  /// This is the ONLY generation trigger that is not attached to a specific CRUD action. Nothing
+  /// generates on render, navigation or scroll (see `SeriesMonths`), so this pass is what covers
+  /// series that arrived from another device, or that predate a horizon change. Both passes are
+  /// series-anchored and idempotent, so re-running is free when there is nothing to do.
+  private func materializeAllSeriesInBackground() {
     // HYDRATION GATE: never materialize recurring instances before this device has completed a
     // verified full pull. Otherwise a freshly-logged-in device regenerates "deleted" future
     // instances from a cloud parent that still reads isRecurring=true (a fresh device has no
     // tombstones to suppress it), making a deleted series reappear. Once the authoritative
     // parent state is pulled, generation resumes on the next dashboard refresh.
     guard UserDefaults.standard.bool(forKey: "syncFullPullVerified_v2") else {
-      logWarning("[LazyGen] Skipping generation — full pull not yet verified on this device")
+      logWarning("[Materialize] Skipping — full pull not yet verified on this device")
       return
     }
 
-    guard !isLazyGenerationInProgress else {
+    materializationLock.lock()
+    guard !isMaterializationInProgress else {
+      materializationLock.unlock()
       return
     }
-
-    isLazyGenerationInProgress = true
+    isMaterializationInProgress = true
+    materializationLock.unlock()
 
     // Run everything on background queue to avoid blocking main thread
     DispatchQueue.global(qos: .utility).async { [weak self] in
       guard let self = self else { return }
 
-      let now = Date()
-      var monthAnchors = Set<Int>()
-
-      // ROLLING HORIZON: ensure every recurring series is materialized forward to
-      // now + horizonMonths (eager-bounded model). This also backfills existing series
-      // created before the horizon was widened — no separate migration needed. Keeps the
-      // dashboard's lower bound so already-visible past months still fill in.
-      // performLazyGeneration is idempotent, forward-only and tombstone-aware, so re-running
-      // it never duplicates or resurrects a deleted occurrence.
-      for offset in self.monthRange.lowerBound...RecurringTransactionManager.horizonMonths {
-        if let date = self.calendar.date(byAdding: .month, value: offset, to: now) {
-          monthAnchors.insert(date.monthAnchor)
-        }
-      }
-
-      // Generate instances (the manager will handle checking what's needed)
-      self.recurringManager.generateInstancesLazilyForMonths(monthAnchors) { [weak self] newInstancesCreated in
+      // Both passes walk every recurring PARENT and fill that parent's own start month through the
+      // horizon. Deliberately not a window of months: a series older than the window would keep
+      // permanent holes, which is how "some months are skipped" survived the previous fix.
+      self.recurringManager.materializeAllSeries { [weak self] newTransactions in
         guard let self = self else { return }
 
-        self.isLazyGenerationInProgress = false
+        self.allocationService.materializeAllSeries { [weak self] newAllocations in
+          guard let self = self else { return }
 
-        // Only refresh UI if new instances were actually created
-        guard newInstancesCreated > 0 else { return }
+          self.materializationLock.lock()
+          self.isMaterializationInProgress = false
+          self.materializationLock.unlock()
 
-        self.transactionLedger.invalidateCache()
+          guard newTransactions > 0 || newAllocations > 0 else { return }
 
-        DispatchQueue.main.async {
-          self.onDataNeedsRefresh?()
-        }
-      }
-    }
-  }
+          logWarning(
+            "[Materialize] rolling top-up created \(newTransactions) transaction occurrence(s) and \(newAllocations) allocation occurrence(s)"
+          )
+          self.transactionLedger.invalidateCache()
 
-  /// Triggers lazy generation for a specific set of months (e.g., when user scrolls to new months)
-  func triggerLazyGenerationForMonths(_ monthAnchors: Set<Int>, completion: (() -> Void)? = nil) {
-    DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-      self?.recurringManager.generateInstancesLazilyForMonths(monthAnchors) { [weak self] _ in
-        self?.transactionLedger.invalidateCache()
-        DispatchQueue.main.async {
-          completion?()
+          DispatchQueue.main.async {
+            self.onDataNeedsRefresh?()
+          }
         }
       }
     }
@@ -287,17 +284,19 @@ final class DashboardViewModel {
   }
 
   private func updateRecurringTransactions() {
-    // LAZY GENERATION: Use lazy generation instead of eager generation
-    triggerLazyGenerationInBackground()
+    materializeAllSeriesInBackground()
   }
 
   func updateRecurringTransactionsWithCleanupChoice(
     cleanupOption: RecurringCleanupOption = .futureOnly
   ) {
-    // LAZY GENERATION: Use lazy generation instead of eager generation
-    // Cleanup is still needed when user explicitly requests deletion
+    // RETENTION, not carousel. This used to pass `monthRange` (-12...24) to a routine that deletes
+    // every occurrence outside the range it is given, while generation writes through +36 — so
+    // cleanup destroyed the twelve months creation had just generated and pushed those deletes to
+    // CloudKit. The window an occurrence may occupy is `retentionRange`; the carousel is only what
+    // we happen to render.
     recurringManager.cleanupRecurringInstancesOutsideRange(
-      monthRange, referenceDate: Date(), cleanupOption: cleanupOption)
+      SeriesMonths.retentionRange, referenceDate: Date(), cleanupOption: cleanupOption)
   }
 
   func deleteTransaction(id: Int) -> Result<Void, Error> {

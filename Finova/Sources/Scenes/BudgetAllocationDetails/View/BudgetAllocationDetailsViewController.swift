@@ -353,28 +353,32 @@ extension BudgetAllocationDetailsViewController: BudgetAllocationDetailsViewDele
         present(alert, animated: true)
     }
 
+    /// Navigates only once the delete has fully landed.
+    ///
+    /// Both of these ran inline on the main thread and popped the screen immediately, so the
+    /// dashboard behind could render the pre-delete state while the writes were still going.
     private func performDelete() {
-        let result = viewModel.deleteAllocation()
-
-        switch result {
-        case .success:
-            flowDelegate?.didDeleteAllocation()
-        case .failure(let error):
-            showErrorAlert(error)
+        viewModel.deleteAllocationAsync { [weak self] result in
+            switch result {
+            case .success:
+                self?.flowDelegate?.didDeleteAllocation()
+            case .failure(let error):
+                self?.showErrorAlert(error)
+            }
         }
     }
 
     private func performRecurringDelete(option: AllocationDeleteOption) {
         logDebug("BudgetAllocationDetailsVC: Deleting allocation with option: \(option), dbId: \(String(describing: viewModel.allocation?.dbId))")
-        let result = viewModel.deleteRecurringAllocation(option: option)
-
-        switch result {
-        case .success:
-            logDebug("BudgetAllocationDetailsVC: Allocation deleted successfully, calling flowDelegate")
-            flowDelegate?.didDeleteAllocation()
-        case .failure(let error):
-            logError("BudgetAllocationDetailsVC: Failed to delete allocation: \(error)")
-            showErrorAlert(error)
+        viewModel.deleteRecurringAllocationAsync(option: option) { [weak self] result in
+            switch result {
+            case .success:
+                logDebug("BudgetAllocationDetailsVC: Allocation deleted successfully, calling flowDelegate")
+                self?.flowDelegate?.didDeleteAllocation()
+            case .failure(let error):
+                logError("BudgetAllocationDetailsVC: Failed to delete allocation: \(error)")
+                self?.showErrorAlert(error)
+            }
         }
     }
 

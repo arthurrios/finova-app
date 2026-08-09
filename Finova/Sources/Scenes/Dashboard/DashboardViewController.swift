@@ -413,28 +413,33 @@ final class DashboardViewController: UIViewController {
         // Show shimmer only on current card initially, then comprehensive cleanup
         showShimmerOnCurrentCard()
         
-        // For recurring/installment transactions, we need to ensure generation is complete
-        // Add a small delay to allow backend processing to complete
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            // Load fresh data after backend processing
-            let monthData = self.viewModel.loadMonthlyCards()
-            let transactions = self.viewModel.transactionRepo.fetchTransactions()
-            
-            // Update the view models
-            self.syncedViewModel.setMonthData(monthData)
-            self.syncedViewModel.setTransactions(self.mergeWithStatementTransactions(transactions))
+        // Read immediately. There used to be a 0.1s delay here "to allow backend processing to
+        // complete" — a guess at how long generation would take, which is exactly the race that made
+        // a freshly-created series render with months missing. Every CRUD path now completes ALL of
+        // its writes (materialization, statement recalculation, notification reconciliation, cache
+        // invalidation) before the callback that gets us here, so there is nothing left to wait for.
+        let monthData = self.viewModel.loadMonthlyCards()
+        let transactions = self.viewModel.transactionRepo.fetchTransactions()
 
-            // Schedule notifications for any new transactions in the next 30 days
-            self.scheduleTransactionNotificationsViaManager()
-            
-            // Force refresh the UI with animation
-            DispatchQueue.main.async {
-                self.refreshVisibleCellsWithAnimation()
-                
-                // Use comprehensive cleanup since installments might affect non-visible months
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                    self.hideShimmerOnAllCards()
-                }
+        // Update the view models
+        self.syncedViewModel.setMonthData(monthData)
+        self.syncedViewModel.setTransactions(self.mergeWithStatementTransactions(transactions))
+
+        // Schedule notifications for any new transactions in the next 30 days
+        self.scheduleTransactionNotificationsViaManager()
+
+        // A new or edited series changes future balances, so re-run the projection alerts. This ran
+        // on the delete path only, so adding the transaction that pushed a month negative raised no
+        // alert until some unrelated trigger fired one.
+        BalanceMonitorManager.shared.forceTriggerBalanceMonitoring()
+
+        // Force refresh the UI with animation
+        DispatchQueue.main.async {
+            self.refreshVisibleCellsWithAnimation()
+
+            // Use comprehensive cleanup since installments might affect non-visible months
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                self.hideShimmerOnAllCards()
             }
         }
     }

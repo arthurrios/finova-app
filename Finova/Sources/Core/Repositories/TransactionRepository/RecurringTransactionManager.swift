@@ -20,14 +20,21 @@ enum RecurringEditOption {
 }
 
 final class RecurringTransactionManager {
-  /// EAGER BOUNDED GENERATION: a recurring series always materializes its occurrences as real
-  /// rows from its start month through `now + horizonMonths`. Occurrences are created at
-  /// creation time (full horizon, pushed immediately) and kept rolling forward by an
-  /// idempotent, forward-only, tombstone-aware, hydration-gated top-up on dashboard load —
-  /// never reactively per-navigation. This is what makes recurring sync cleanly: every
-  /// occurrence is a first-class synced row created once, not regenerated independently on
-  /// each device (which produced duplicates and resurrected deletions).
-  static let horizonMonths = 36
+  /// EAGER GENERATION — the invariant this whole type exists to hold:
+  ///
+  /// A series' occurrences are materialized IN FULL at creation, re-materialized IN FULL before any
+  /// edit or delete, and topped up by ONE rolling pass at dashboard load. Nothing is ever generated in
+  /// response to navigation, rendering or scrolling. A month that is missing is a bug with no
+  /// self-healing path — that is deliberate, because the alternative (materialize-on-render) is what
+  /// left months stale wherever the user had not happened to scroll.
+  ///
+  /// Generation is always SERIES-anchored — from a parent's own start month through the horizon —
+  /// never window-anchored. A window pass leaves permanent holes in any series older than the window.
+  ///
+  /// It stays idempotent, forward-only, tombstone-aware and hydration-gated, which is what makes it
+  /// sync cleanly: every occurrence is a first-class synced row created once, not regenerated
+  /// independently on each device (which produced duplicates and resurrected deletions).
+  static var horizonMonths: Int { SeriesMonths.horizonMonths }
 
   private let transactionRepo: TransactionRepository
   private let creditCardService: CreditCardService
@@ -74,203 +81,87 @@ final class RecurringTransactionManager {
     self.calendar = utcCalendar
   }
 
-  func generateRecurringTransactionsForRange(
-    _ monthRange: ClosedRange<Int>,
-    referenceDate: Date = Date(),
-    transactionStartDate: Date? = nil
-  ) {
-    // Use async queue to prevent blocking the main thread
-    Self.operationQueue.async { [weak self] in
-      guard let self = self else { return }
+  // MARK: - Eager Materialization
+  //
+  // The window-based generators that used to live here (`generateRecurringTransactionsForRange`,
+  // `generateInstancesForNewRecurringTransaction`, `performInstanceGeneration`) are gone. They
+  // enumerated a range of month OFFSETS around a reference date, which left permanent holes in any
+  // series whose start fell outside that window, and they had drifted from the path actually in use.
+  // Everything now goes through `materializeMissingOccurrences`, which is SERIES-anchored.
 
-      let recurringTransactions = self.transactionRepo.fetchRecurringTransactions()
-
-      // Fetch all transactions once instead of per-transaction
-      let allTransactions = self.transactionRepo.fetchAllTransactions()
-      let allTransactionIds = Set(allTransactions.compactMap { $0.id })
-
-      for recurringTx in recurringTransactions {
-        guard let recurringTxId = recurringTx.id else { continue }
-
-        // Use the pre-fetched set for efficient existence check
-        guard allTransactionIds.contains(recurringTxId) else { continue }
-
-        self.generateInstancesForTransaction(
-          recurringTx,
-          in: monthRange,
-          referenceDate: referenceDate,
-          transactionStartDate: transactionStartDate
-        )
-      }
-    }
+  /// Materializes every missing occurrence of ONE series, from its own start month through the
+  /// horizon, and returns how many rows were created.
+  ///
+  /// This is the entry point every CRUD action uses. `SeriesMonths.seriesAnchors` anchors the horizon
+  /// on `max(now, start)`, which is what makes a series created for a past month fill the gap between
+  /// its start and today instead of leaving it empty forever.
+  @discardableResult
+  func materializeSeries(parentId: Int) -> Int {
+    return materializeSeriesInline(parentId: parentId)
   }
 
-  /// Generate instances for a newly created recurring transaction (optimized for single transaction)
-  func generateInstancesForNewRecurringTransaction(
-    _ recurringTx: Transaction,
-    in monthRange: ClosedRange<Int>,
-    referenceDate: Date,
-    transactionStartDate: Date? = nil,
-    completion: (() -> Void)? = nil
-  ) {
-    guard recurringTx.id != nil else {
-      completion?()
-      return
-    }
-
-    // Use async queue to prevent blocking the main thread
+  /// Relinks orphaned occurrences into this series and then materializes it in full, on the serial
+  /// queue, answering only once BOTH are done.
+  ///
+  /// The entry point creation uses. Answering early is what let the dashboard refresh onto a series
+  /// that was still being written — and with nothing generating on render, a month missed here stays
+  /// missing until the next rolling top-up.
+  func linkAndMaterializeSeries(parentId: Int, completion: @escaping (Int) -> Void) {
     Self.operationQueue.async { [weak self] in
       guard let self = self else {
-        DispatchQueue.main.async { completion?() }
+        completion(0)
         return
       }
 
-      self.performInstanceGeneration(
-        for: recurringTx,
-        in: monthRange,
-        referenceDate: referenceDate,
-        transactionStartDate: transactionStartDate
-      )
-
-      // Call completion on main thread
-      DispatchQueue.main.async { completion?() }
-    }
-  }
-
-  func generateInstancesForTransaction(
-    _ recurringTx: Transaction,
-    in monthRange: ClosedRange<Int>,
-    referenceDate: Date,
-    transactionStartDate: Date? = nil
-  ) {
-    performInstanceGeneration(
-      for: recurringTx,
-      in: monthRange,
-      referenceDate: referenceDate,
-      transactionStartDate: transactionStartDate
-    )
-  }
-
-  // MARK: - Private Instance Generation Logic
-
-  private func performInstanceGeneration(
-    for recurringTx: Transaction,
-    in monthRange: ClosedRange<Int>,
-    referenceDate: Date,
-    transactionStartDate: Date? = nil
-  ) {
-    guard let recurringTxId = recurringTx.id else { return }
-
-    // Get existing instances for this specific recurring transaction
-    let existingInstances = transactionRepo.fetchTransactionInstancesForRecurring(recurringTxId)
-    // Keyed on the occurrence SLOT. Keying on `budgetMonthDate` meant that a rule which pushed an
-    // occurrence into an adjacent month emptied its own slot, so the next pass "filled the gap" and
-    // produced a duplicate.
-    let existingAnchors = Set(existingInstances.map { $0.seriesPeriod })
-
-    // Determine the effective start anchor
-    let effectiveStartAnchor: Int
-    if let startDate = transactionStartDate {
-      effectiveStartAnchor = startDate.monthAnchor
-    } else {
-      effectiveStartAnchor = recurringTx.budgetMonthDate
-    }
-
-    var newInstances: [TransactionModel] = []
-
-    for monthOffset in monthRange {
-      guard let targetDate = calendar.date(byAdding: .month, value: monthOffset, to: referenceDate)
-      else { continue }
-
-      let targetAnchor = targetDate.monthAnchor
-
-      // Skip if an instance already exists for this period
-      if existingAnchors.contains(targetAnchor) { continue }
-
-      // Never create an instance for the same month as the parent transaction
-      if targetAnchor == recurringTx.budgetMonthDate { continue }
-
-      // Create instances for the effective start anchor and all future periods
-      if targetAnchor >= effectiveStartAnchor {
-        // The series' canonical date, NOT `dateTimestamp`: deriving the anchor day from an already
-        // shifted date would walk the series a few days further every month.
-        let originalDate = recurringTx.unadjustedDate
-
-        // Generate a valid date for the target month
-        let targetYear = calendar.component(.year, from: targetDate)
-        let targetMonth = calendar.component(.month, from: targetDate)
-        let occurrence = OccurrenceDateCalculator.occurrencePair(
-          from: originalDate,
-          targetMonth: targetMonth,
-          targetYear: targetYear,
-          rule: recurringTx.businessDayRule,
-          calendar: calendar
-        )
-
-        // Create the instance, preserving credit card association from parent
-        //
-        // `budgetMonthDate` stays `targetAnchor` - the month this occurrence is FOR - even when the
-        // rule pushed its date into the next month. The one-row-per-month invariant is enforced
-        // entirely on the anchor, and a moving anchor would let two occurrences collide on one month
-        // and permanently suppress one of them.
-        let instanceModel = TransactionModel(
-          title: recurringTx.title,
-          category: recurringTx.category.key,
-          amount: recurringTx.amount,
-          type: recurringTx.type.key,
-          dateTimestamp: Int(occurrence.adjusted.timeIntervalSince1970),
-          // The month this occurrence is FOR. A series must show exactly one occurrence per month;
-          // counting it where the cash landed makes a month whose 1st is a weekend show two salaries
-          // and the next show none. Payroll convention: "November's salary, paid early".
-          budgetMonthDate: targetAnchor,
-          parentTransactionId: recurringTxId,
-          creditCardId: recurringTx.creditCardId,
-          businessDayRule: recurringTx.businessDayRule,
-          unadjustedDateTimestamp: Int(occurrence.unadjusted.timeIntervalSince1970),
-          // Identity: the slot this occurrence fills, regardless of where its date landed.
-          seriesPeriod: targetAnchor
-        )
-
-        do {
-          let insertedId = try transactionRepo.insertTransactionAndGetId(instanceModel)
-          newInstances.append(instanceModel)
-
-          // Derived identity: both devices compute the same uuid for (series, month), so a month
-          // materialised independently on two devices is ONE row rather than two that
-          // ConflictResolver then has to guess are the same by title + amount + month.
-          if let parentId = recurringTx.id,
-             let parentUuid = db.uuidIdentity(table: "Transactions", localId: parentId)?.uuid {
-            db.assignDeterministicUuid(
-              table: "Transactions", localId: insertedId,
-              uuid: DeterministicIdentity.recurringInstance(
-                parentUuid: parentUuid, monthDate: targetAnchor))
-          }
-
-          // An instance belongs to whatever ledger its SERIES belongs to. Mirror mode used to
-          // stamp the mirrored group here instead, so instances of a personal series were born
-          // tagged to a group the series itself was not in.
-          if let parentId = recurringTx.id,
-             let groupId = transactionRepo.fetchSharedGroupId(for: parentId) {
-            transactionRepo.updateSharedGroupId(transactionId: insertedId, groupId: groupId)
-          }
-
-          // Assign to correct monthly statement if linked to a credit card.
-          //
-          // Routed on the UNADJUSTED date: which billing cycle a charge lands in follows the purchase
-          // date, not the day the money is scheduled to move.
-          if let cardId = recurringTx.creditCardId,
-             let uid = AuthenticationManager.shared.currentUser?.uid {
-            assignToStatement(transactionId: insertedId, creditCardId: cardId, transactionDate: occurrence.unadjusted, userId: uid)
-          }
-        } catch {
-          logError("Error creating recurring transaction instance: \(error)")
-        }
+      let relinked = RecurringSeriesLinker(transactionRepo: self.transactionRepo)
+        .repairTransactionSeries(around: parentId)
+      if relinked > 0 {
+        logWarning("[RecurringCreate] adopted \(relinked) orphaned occurrence(s) into series \(parentId)")
       }
-    }
 
-    // Schedule notifications for all newly created instances
-    if !newInstances.isEmpty {
-      RecurringNotificationManager.shared.scheduleNotifications(for: newInstances)
+      completion(self.materializeSeriesInline(parentId: parentId))
+    }
+  }
+
+  /// Synchronous core of `materializeSeries`. Safe to call inline when already serialized on
+  /// `operationQueue` — the edit and delete paths do exactly that.
+  private func materializeSeriesInline(parentId: Int) -> Int {
+    let all = transactionRepo.fetchAllTransactions()
+    guard let parent = all.first(where: { $0.id == parentId }) else { return 0 }
+    let anchors = SeriesMonths.seriesAnchors(start: parent.seriesPeriod)
+    guard !anchors.isEmpty else { return 0 }
+    return materializeMissingOccurrences(Set(anchors), limitedToSeries: parentId)
+  }
+
+  /// Materializes every missing occurrence of EVERY recurring series, each from its own start month
+  /// through the horizon. The rolling top-up at dashboard load; also covers series that arrived from
+  /// another device.
+  func materializeAllSeries(completion: ((Int) -> Void)? = nil) {
+    Self.operationQueue.async { [weak self] in
+      guard let self = self else {
+        completion?(0)
+        return
+      }
+
+      let all = self.transactionRepo.fetchAllTransactions()
+      let parents = all.filter {
+        $0.isRecurring == true && ($0.parentTransactionId == nil || $0.parentTransactionId == $0.id)
+      }
+
+      // Union of every series' own span, so one pass covers all of them without any series being
+      // clipped to a shared window.
+      var anchors = Set<Int>()
+      for parent in parents {
+        anchors.formUnion(SeriesMonths.seriesAnchors(start: parent.seriesPeriod))
+      }
+
+      guard !anchors.isEmpty else {
+        completion?(0)
+        return
+      }
+
+      let created = self.materializeMissingOccurrences(anchors)
+      completion?(created)
     }
   }
 
@@ -321,7 +212,9 @@ final class RecurringTransactionManager {
           } ?? false)
       }
 
-      guard let id = instance.id else { return }
+      // `continue`, not `return`: a single row with a nil id used to abort cleanup for every
+      // remaining sibling in the ledger.
+      guard let id = instance.id else { continue }
 
       if shouldDelete {
         do {
@@ -468,31 +361,35 @@ final class RecurringTransactionManager {
   ) throws {
     let selectedAnchor = selectedTransactionDate.monthAnchor
 
-    // DETERMINISTIC EDIT: "this and future" / "all" must affect the whole series — not only the
-    // months that happen to be materialized right now. Recurring occurrences are created lazily,
-    // so a device that never navigated forward (or whose lazy generation was gated) has no future
-    // rows to update, and the edit would silently touch only the current one. Materialize the
-    // forward horizon (matching creation's 24-month window) first, so every future occurrence
-    // exists as a row. performLazyGeneration skips intentionally-deleted months, so this never
-    // resurrects a deleted occurrence. Runs inline on operationQueue (the Async caller already
-    // serialized us; performLazyGeneration is documented safe to call inline here).
+    // RELINK FIRST. "This and future" / "all" select siblings by parent pointer, and that pointer is
+    // a local autoincrement id — a row that arrived from another device, or that predates a repair,
+    // can point at a row that does not exist here. Those rows were silently skipped and stayed stale
+    // forever. Re-attaching them by content BEFORE the selection runs is what makes the plain
+    // pointer filter below sufficient.
+    let relinked = RecurringSeriesLinker(transactionRepo: transactionRepo)
+      .repairTransactionSeries(around: parentTransactionId)
+    if relinked > 0 {
+      logWarning("[RecurringEdit] Relinked \(relinked) orphaned occurrence(s) before edit")
+    }
+
+    // DETERMINISTIC EDIT: "this and future" / "all" must affect the WHOLE series, not only the months
+    // that happen to exist right now. Nothing materializes on navigation any more, so a device that
+    // never scrolled forward has no future rows at all and the edit would touch only the current one.
+    // Materialize the series in full first. Materialization skips intentionally-deleted months, so
+    // this never resurrects a deleted occurrence. Runs inline on operationQueue (the async caller
+    // already serialized us; materializeMissingOccurrences is documented safe to call inline here).
     if editOption != .currentSelection {
-      var horizonAnchors = Set<Int>()
-      for offset in 0...Self.horizonMonths {
-        if let d = calendar.date(byAdding: .month, value: offset, to: selectedTransactionDate) {
-          horizonAnchors.insert(d.monthAnchor)
-        }
-      }
-      let materialized = performLazyGeneration(horizonAnchors)
+      let materialized = materializeSeriesInline(parentId: parentTransactionId)
       if materialized > 0 {
-        logWarning("[RecurringEdit] Materialized \(materialized) missing future instance(s) before edit (option=\(editOption))")
+        logWarning("[RecurringEdit] Materialized \(materialized) missing occurrence(s) before edit (option=\(editOption))")
       }
     }
 
-    // Fetch all transactions ONCE (now includes any just-materialized future rows)
+    // Fetch all transactions ONCE (now includes any just-relinked and just-materialized rows)
     let allTransactions = transactionRepo.fetchAllTransactions()
 
-    // Filter to related instances
+    // Filter to related instances. A plain pointer filter is correct here ONLY because the relink
+    // above has already re-attached every row that belongs to this series.
     let relatedInstances = allTransactions.filter {
       $0.parentTransactionId == parentTransactionId || $0.id == parentTransactionId
     }
@@ -688,12 +585,18 @@ final class RecurringTransactionManager {
 
   // MARK: - Recurring Transaction Linking
 
-  /// Find existing recurring transactions with the same characteristics
+  /// Find existing recurring transactions with the same characteristics.
+  ///
+  /// `anchorDay` is part of the predicate because generation's duplicate guard keys on the day too.
+  /// Without it the two disagreed: creation would link a new series into an existing one anchored on
+  /// a different day, and generation would then refuse to fill it — leaving a stray row and no
+  /// occurrences.
   func findSimilarRecurringTransaction(
     title: String,
     category: String,
     amount: Int,
-    type: String
+    type: String,
+    anchorDay: Int
   ) -> Transaction? {
     let recurringTransactions = transactionRepo.fetchRecurringTransactions()
 
@@ -706,6 +609,7 @@ final class RecurringTransactionManager {
         && transaction.category.key == category
         && transaction.amount == amount
         && transaction.type.key == type
+        && SeriesDay.anchorDay(of: transaction) == anchorDay
 
       // Parent transactions either have no parent or point to themselves
       let isParent = transaction.parentTransactionId == nil
@@ -739,38 +643,50 @@ final class RecurringTransactionManager {
 
   // MARK: - Lazy Generation Methods
 
-  /// Lazily generates recurring transaction instances only for the specified month anchors.
-  /// This method is optimized to minimize database calls and skip unnecessary work.
+  /// Materializes missing occurrences for the given month anchors, on the serial queue.
+  ///
+  /// Prefer `materializeSeries(parentId:)` or `materializeAllSeries()` — they compute the anchors from
+  /// each series' own span. This overload exists for callers that already know exactly which months
+  /// they need (the "delete future" backfill).
   /// - Parameters:
-  ///   - monthAnchors: Set of month anchors to generate instances for
-  ///   - completion: Optional completion handler called when generation is complete
-  func generateInstancesLazilyForMonths(
-    _ monthAnchors: Set<Int>,
+  ///   - monthAnchors: Set of month anchors to materialize
+  ///   - completion: Called on the materialization queue when the pass is complete
+  func materializeOccurrences(
+    for monthAnchors: Set<Int>,
     completion: ((_ newInstancesCreated: Int) -> Void)? = nil
   ) {
     guard !monthAnchors.isEmpty else {
-      DispatchQueue.main.async { completion?(0) }
+      // Same queue as the success path. This used to answer on main while success answered on
+      // `operationQueue`, so a caller's completion ran on a different thread depending on whether
+      // there was work to do.
+      Self.operationQueue.async { completion?(0) }
       return
     }
 
     Self.operationQueue.async { [weak self] in
       guard let self = self else {
-        DispatchQueue.main.async { completion?(0) }
+        completion?(0)
         return
       }
-      let created = self.performLazyGeneration(monthAnchors)
+      let created = self.materializeMissingOccurrences(monthAnchors)
       completion?(created)
     }
   }
 
-  /// Synchronous core of lazy generation. Materializes any missing recurring instances
-  /// for the given month anchors and returns how many were created.
+  /// Synchronous core of materialization. Creates any missing recurring occurrence for the given
+  /// month anchors and returns how many rows were created.
   ///
-  /// Safe to call inline while already serialized on `operationQueue` — used both by the
-  /// async `generateInstancesLazilyForMonths` above and by the "delete future" backfill,
-  /// which needs to materialize pre-cutoff months synchronously before the parent's
+  /// Safe to call inline while already serialized on `operationQueue` — used by the async wrappers
+  /// above, by the edit path (which materializes the whole series before applying a scope), and by
+  /// the "delete future" backfill, which must materialize pre-cutoff months before the parent's
   /// recurrence is disabled.
-  private func performLazyGeneration(_ monthAnchors: Set<Int>) -> Int {
+  ///
+  /// - Parameter limitedToSeries: when set, only that parent's series is considered. Creation uses
+  ///   this so a brand-new series is filled without walking every other series in the ledger.
+  @discardableResult
+  private func materializeMissingOccurrences(
+    _ monthAnchors: Set<Int>, limitedToSeries seriesId: Int? = nil
+  ) -> Int {
       // Fetch ALL transactions ONCE for efficiency
       let allTransactions = self.transactionRepo.fetchAllTransactions()
 
@@ -804,9 +720,16 @@ final class RecurringTransactionManager {
         guard let seriesId = tx.parentTransactionId ?? tx.id else { continue }
         occurrencesBySeriesId[seriesId, default: []].append(tx)
       }
+      // Sorted by SLOT, because that is what the template lookup searches on
+      // (`last(where: { $0.seriesPeriod <= targetAnchor })`). Sorting by `budgetMonthDate` while
+      // searching by `seriesPeriod` is only equivalent while the business-day rule is `.exact`; under
+      // `.previous`/`.next` an occurrence pushed across a month boundary makes the two disagree, the
+      // array is then unsorted with respect to the search key, and `last(where:)` silently picks the
+      // wrong template — so a month materialized after an "edit this and future" inherited the
+      // pre-edit amount.
       for (seriesId, occurrences) in occurrencesBySeriesId {
         occurrencesBySeriesId[seriesId] = occurrences.sorted {
-          $0.budgetMonthDate < $1.budgetMonthDate
+          $0.seriesPeriod < $1.seriesPeriod
         }
       }
 
@@ -821,25 +744,47 @@ final class RecurringTransactionManager {
         }
       }
 
-      // Build a set of existing (title, budgetMonthDate, DAY) to prevent duplicates even when
-      // parent_transaction_id is wrong (cross-device ID mismatch). The DAY is part of the key so
-      // two same-title recurring series that fall on DIFFERENT days of the month can coexist —
-      // keying on title+month alone wrongly blocked a new series when another same-title one
-      // already occupied every month (it generated 0 instances, leaving only a stray parent).
-      //
-      // The day comes from the UNADJUSTED date on both sides of this comparison. Keyed on the shifted
-      // day instead, two same-title series anchored on (say) the 15th and 16th that both roll to the
-      // same Monday would collide, and the second would generate nothing at all - the exact failure
-      // the day component was added to prevent.
-      var existingTitleAnchors: Set<String> = []
-      for tx in allTransactions {
-        let txDay = calendar.component(.day, from: tx.unadjustedDate)
-        existingTitleAnchors.insert("\(tx.title)|\(tx.seriesPeriod)|\(txDay)")
+      // Filter recurring parents only — installments are now generated upfront at creation time
+      var recurringParents = allTransactions.filter {
+        $0.isRecurring == true && ($0.parentTransactionId == nil || $0.parentTransactionId == $0.id)
+      }
+      if let seriesId = seriesId {
+        recurringParents = recurringParents.filter { $0.id == seriesId }
       }
 
-      // Filter recurring parents only — installments are now generated upfront at creation time
-      let recurringParents = allTransactions.filter {
-        $0.isRecurring == true && ($0.parentTransactionId == nil || $0.parentTransactionId == $0.id)
+      // Cross-device duplicate protection: which SLOTS are already occupied, per series identity.
+      //
+      // This used to be keyed on `title | slot | day` over EVERY row in the ledger, so a one-off
+      // transaction — or a row in a different category, type or ledger that merely shared a title and
+      // a day — silently blocked that month for a genuine series. That is the "some months are
+      // skipped" bug. The key is now the full series fingerprint (scope, title, category, type, day)
+      // and only rows that are part of a recurring series contribute to it.
+      //
+      // The day used is the SERIES' canonical day: for a child, the day its parent is anchored on,
+      // not the child's own (which `OccurrenceDateCalculator` may have clamped in a short month).
+      let scopeById = self.transactionRepo.fetchSharedGroupIds()
+      let parentsById = Dictionary(
+        uniqueKeysWithValues: allTransactions.compactMap { tx -> (Int, Transaction)? in
+          guard let id = tx.id else { return nil }
+          return (id, tx)
+        })
+
+      func fingerprint(of tx: Transaction) -> SeriesFingerprint? {
+        guard let id = tx.id else { return nil }
+        // Anchor day follows the series parent when it is known locally.
+        let anchorSource = tx.parentTransactionId.flatMap { parentsById[$0] } ?? tx
+        return SeriesFingerprint(
+          scope: scopeById[id],
+          title: tx.title,
+          category: tx.category.key,
+          type: tx.type.key,
+          anchorDay: SeriesDay.anchorDay(of: anchorSource))
+      }
+
+      var occupiedSlots: [SeriesFingerprint: Set<Int>] = [:]
+      for tx in allTransactions where tx.mode == .recurring {
+        guard let key = fingerprint(of: tx) else { continue }
+        occupiedSlots[key, default: []].insert(tx.seriesPeriod)
       }
 
       // Early exit if no recurring parents to process
@@ -848,6 +793,7 @@ final class RecurringTransactionManager {
       }
 
       var newInstancesCreated = 0
+      var touchedSeriesIds = Set<Int>()
 
       // Batch every insert/update in this generation pass into ONE transaction (one fsync)
       // instead of one per row. Inner per-row do/catch still logs and continues, so a single
@@ -864,34 +810,61 @@ final class RecurringTransactionManager {
         // Get anchors of intentionally deleted instances (from .currentSelection deletion)
         let excludedAnchors = Self.excludedAnchors(for: recurringTxId)
 
-        // Only generate for months that don't have instances yet and weren't intentionally deleted
+        // Only generate for slots this series doesn't hold yet and didn't intentionally delete.
+        //
+        // Compared against the parent's SLOT (`seriesPeriod`), not its accounting month. Once a
+        // business-day rule can push a date across a month boundary the two disagree, and comparing
+        // the wrong one either skipped a legitimate month or re-created one the parent already owns.
+        let parentSlot = recurringTx.seriesPeriod
         let missingAnchors = monthAnchors.subtracting(existingAnchors)
           .subtracting(excludedAnchors)
-          .filter { $0 != recurringTx.budgetMonthDate }  // Don't create for parent's month
-          .filter { $0 > recurringTx.budgetMonthDate }  // Only future months
+          .filter { $0 > parentSlot }  // Forward-only; the parent occupies its own slot
+
+        // Tombstones are the one thing that silently removes months from a series. Say so — a
+        // silent skip here is indistinguishable from a generation bug, which is exactly how the
+        // allocation side hid a permanent two-month hole for so long.
+        let suppressed = monthAnchors.intersection(excludedAnchors).filter { $0 > parentSlot }
+        if !suppressed.isEmpty {
+          logWarning(
+            "[Materialize] series \(recurringTxId) ('\(recurringTx.title)'): \(suppressed.count) month(s) suppressed by an earlier delete — not recreating \(suppressed.sorted())"
+          )
+        }
 
         guard !missingAnchors.isEmpty else { continue }
 
         // Occurrences of this series, ascending by month (for picking the in-effect template).
         let seriesOccurrences = occurrencesBySeriesId[recurringTxId] ?? [recurringTx]
+        let seriesKey = fingerprint(of: recurringTx)
 
-        for targetAnchor in missingAnchors {
+        for targetAnchor in missingAnchors.sorted() {
           // Inherit from the most recent occurrence at or before this month, so a prior
           // "edit this and future" change carries forward. Falls back to the parent.
           let template = seriesOccurrences.last(where: { $0.seriesPeriod <= targetAnchor })
             ?? recurringTx
 
-          // Safety check: skip only if a same-title row on the SAME day already exists in this
-          // month (cross-device duplicate protection). A same-title series on a different day is
-          // legitimately distinct and must still generate.
-          // Unadjusted on both sides — see the note where `existingTitleAnchors` is built.
-          let templateDay = calendar.component(.day, from: template.unadjustedDate)
-          let key = "\(template.title)|\(targetAnchor)|\(templateDay)"
-          guard !existingTitleAnchors.contains(key) else { continue }
+          // Cross-device duplicate protection: a row matching this series' full fingerprint already
+          // holds the slot, but is not linked to this parent — which means its parent pointer is
+          // broken (a foreign device's autoincrement id). Creating a second row here would duplicate
+          // the month; the repair belongs to RecurringSeriesLinker, which runs ahead of every CRUD.
+          if let seriesKey = seriesKey, occupiedSlots[seriesKey]?.contains(targetAnchor) == true {
+            logWarning(
+              "[Materialize] slot \(targetAnchor) for series \(recurringTxId) ('\(recurringTx.title)') is held by an unlinked row — skipping; relink should have adopted it"
+            )
+            continue
+          }
 
+          // Which month this slot IS, read in the same timezone the anchor was written in.
+          //
+          // `targetAnchor` is local midnight on the 1st (`Date.monthAnchor` is `TimeZone.current`).
+          // Reading it back through this type's UTC calendar lands in the PREVIOUS month for any zone
+          // ahead of UTC, so the occurrence was generated for the wrong month while
+          // `budgetMonthDate` still said the right one. The date is still CONSTRUCTED with
+          // `self.calendar` below, so existing rows' timestamps keep their convention.
           let targetDate = Date(timeIntervalSince1970: TimeInterval(targetAnchor))
-          let targetYear = self.calendar.component(.year, from: targetDate)
-          let targetMonth = self.calendar.component(.month, from: targetDate)
+          var anchorCalendar = Calendar(identifier: .gregorian)
+          anchorCalendar.timeZone = TimeZone.current
+          let targetYear = anchorCalendar.component(.year, from: targetDate)
+          let targetMonth = anchorCalendar.component(.month, from: targetDate)
 
           // The template's rule, so a series materialised lazily months later comes out identical to
           // one the eager path produced at creation time.
@@ -920,20 +893,24 @@ final class RecurringTransactionManager {
           do {
             let insertedId = try self.transactionRepo.insertTransactionAndGetId(instanceModel)
             newInstancesCreated += 1
-            existingTitleAnchors.insert(key)
+            if let seriesKey = seriesKey {
+              occupiedSlots[seriesKey, default: []].insert(targetAnchor)
+            }
+            touchedSeriesIds.insert(recurringTxId)
 
             // Derived identity for (series, month) — see the note at the other generation site.
-            if let parentId = template.id,
-               let parentUuid = self.db.uuidIdentity(table: "Transactions", localId: parentId)?.uuid {
+            if let parentUuid = self.db.uuidIdentity(table: "Transactions", localId: recurringTxId)?
+              .uuid
+            {
               self.db.assignDeterministicUuid(
                 table: "Transactions", localId: insertedId,
                 uuid: DeterministicIdentity.recurringInstance(
                   parentUuid: parentUuid, monthDate: targetAnchor))
             }
 
-            // Inherit the series' scope, not the device's mirror setting (see above).
-            if let parentId = template.id,
-               let groupId = self.transactionRepo.fetchSharedGroupId(for: parentId) {
+            // An occurrence belongs to whatever ledger its SERIES belongs to — read from the parent,
+            // not the template, which may be an edited child.
+            if let groupId = scopeById[recurringTxId] {
               self.transactionRepo.updateSharedGroupId(transactionId: insertedId, groupId: groupId)
             }
 
@@ -949,7 +926,15 @@ final class RecurringTransactionManager {
       }
       } // end inTransaction
 
-      // Installment lazy generation removed — all installments are now created upfront at creation time
+      // NOTIFICATIONS: reconcile every series this pass touched.
+      //
+      // Outside the DB transaction — notification scheduling is async work that must not hold the
+      // write lock. This is not optional bookkeeping: occurrences created here previously got NO
+      // notification at all, because only the (now-deleted) eager generator scheduled them, so every
+      // month materialized after creation was silently reminder-less.
+      for parentId in touchedSeriesIds {
+        RecurringNotificationManager.shared.rescheduleNotifications(parentTransactionId: parentId)
+      }
 
       return newInstancesCreated
   }
@@ -962,41 +947,16 @@ final class RecurringTransactionManager {
   func backfillRecurringMonths(parentTransactionId: Int, cutoffAnchor: Int) {
     let all = transactionRepo.fetchAllTransactions()
     guard let parent = all.first(where: { $0.id == parentTransactionId }) else { return }
-    let startAnchor = parent.budgetMonthDate
+    let startAnchor = parent.seriesPeriod
     guard startAnchor < cutoffAnchor else { return }
 
-    // Enumerate month anchors strictly between the parent's month and the cutoff, using
-    // the same (current-timezone) month-anchor convention instances were created with.
-    var cal = Calendar(identifier: .gregorian)
-    cal.timeZone = TimeZone.current
-    var anchors: Set<Int> = []
-    var date = Date(timeIntervalSince1970: TimeInterval(startAnchor))
-    var steps = 0
-    while steps < 600 {  // safety bound (~50 years)
-      steps += 1
-      guard let next = cal.date(byAdding: .month, value: 1, to: date) else { break }
-      date = next
-      let anchor = next.monthAnchor
-      if anchor >= cutoffAnchor { break }
-      anchors.insert(anchor)
-    }
+    // Months strictly between the parent's own slot and the cutoff.
+    let anchors = Set(
+      SeriesMonths.anchors(from: startAnchor, through: cutoffAnchor)
+        .filter { $0 > startAnchor && $0 < cutoffAnchor })
 
     guard !anchors.isEmpty else { return }
-    _ = performLazyGeneration(anchors)
-  }
-
-  /// Check if lazy generation is needed for the given month anchors (lightweight check)
-  /// Note: This is now only used for debugging - the generation method handles its own checks
-  func needsLazyGeneration(for monthAnchors: Set<Int>) -> Bool {
-    // This is intentionally a fast approximate check
-    // The actual generation method will do the detailed check
-    let recurringCount = transactionRepo.fetchRecurringTransactions().count
-    let allTransactions = transactionRepo.fetchAllTransactions()
-    let installmentParentCount = allTransactions.filter {
-      $0.hasInstallments == true && $0.parentTransactionId == nil
-    }.count
-
-    return recurringCount > 0 || installmentParentCount > 0
+    _ = materializeMissingOccurrences(anchors, limitedToSeries: parentTransactionId)
   }
 
   // MARK: - Credit Card Statement Assignment

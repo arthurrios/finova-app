@@ -4338,6 +4338,44 @@ class DBHelper {
         return results
     }
 
+    /// Every non-null `shared_group_id` in Transactions, as `id -> groupId`. Rows absent from the
+    /// result are personal.
+    ///
+    /// Series identity includes ledger scope, so materialization and relinking need scope for every
+    /// row they consider. One query instead of one per row.
+    func fetchSharedGroupIdsForTransactions() -> [Int: String] {
+        guard isInitialized else { return [:] }
+        let query = "SELECT id, shared_group_id FROM Transactions WHERE shared_group_id IS NOT NULL;"
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK else { return [:] }
+        defer { sqlite3_finalize(statement) }
+
+        var results: [Int: String] = [:]
+        while sqlite3_step(statement) == SQLITE_ROW {
+            let id = Int(sqlite3_column_int64(statement, 0))
+            guard let raw = sqlite3_column_text(statement, 1) else { continue }
+            results[id] = String(cString: raw)
+        }
+        return results
+    }
+
+    /// Every non-null `shared_group_id` in BudgetAllocations, as `id -> groupId`.
+    func fetchSharedGroupIdsForAllocations() -> [Int: String] {
+        guard isInitialized else { return [:] }
+        let query = "SELECT id, shared_group_id FROM BudgetAllocations WHERE shared_group_id IS NOT NULL;"
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK else { return [:] }
+        defer { sqlite3_finalize(statement) }
+
+        var results: [Int: String] = [:]
+        while sqlite3_step(statement) == SQLITE_ROW {
+            let id = Int(sqlite3_column_int64(statement, 0))
+            guard let raw = sqlite3_column_text(statement, 1) else { continue }
+            results[id] = String(cString: raw)
+        }
+        return results
+    }
+
     func fetchSingleString(_ query: String, textBinding: String? = nil, intBinding: Int? = nil) -> String? {
         guard isInitialized else { return nil }
         var statement: OpaquePointer?
@@ -4452,32 +4490,45 @@ class DBHelper {
         return results
     }
 
-    /// Tombstone keys ("<month_date>|<category_key>") for SOFT-DELETED recurring allocation
-    /// occurrences, so eager/rolling generation never recreates a month the user deleted.
-    /// (fetchAllBudgetAllocations excludes is_deleted rows, so without this the generator is blind
-    /// to deletions and resurrects them — the allocation counterpart of the transaction tombstone.)
-    func fetchDeletedAllocationKeys(userId: String?) -> Set<String> {
-        guard isInitialized else { return [] }
+    /// Tombstoned allocation months, grouped by the SERIES they belonged to
+    /// (`parent_allocation_id ?? id`), mirroring `TransactionRepository.fetchDeletedChildAnchors`.
+    ///
+    /// Series-scoped on purpose. The category-wide form below keys on `"<month>|<category>"` with no
+    /// series component, so a month deleted once was suppressed for that category FOREVER — every
+    /// later series for the same category was born with a permanent hole exactly there, and no
+    /// amount of re-materializing could fill it. That is how a freshly created series ended up
+    /// missing two months in the middle while every other month generated fine.
+    ///
+    /// A brand-new series has a parent id nothing is tombstoned against, so it materializes in full;
+    /// re-materializing an EXISTING series still honours its own deletions, which is the invariant
+    /// that actually matters (never resurrect what the user removed).
+    func fetchDeletedAllocationMonthsBySeries(userId: String?) -> [Int: Set<Int>] {
+        guard isInitialized else { return [:] }
         let query: String
         if userId != nil {
-            query = "SELECT month_date, category_key FROM BudgetAllocations WHERE user_id = ? AND is_deleted = 1;"
+            query = "SELECT COALESCE(parent_allocation_id, id), month_date FROM BudgetAllocations WHERE user_id = ? AND is_deleted = 1;"
         } else {
-            query = "SELECT month_date, category_key FROM BudgetAllocations WHERE is_deleted = 1;"
+            query = "SELECT COALESCE(parent_allocation_id, id), month_date FROM BudgetAllocations WHERE is_deleted = 1;"
         }
         var statement: OpaquePointer?
-        guard sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK else { return [] }
+        guard sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK else { return [:] }
         defer { sqlite3_finalize(statement) }
         if let uid = userId {
             sqlite3_bind_text(statement, 1, uid, -1, SQLITE_TRANSIENT)
         }
-        var keys: Set<String> = []
+        var result: [Int: Set<Int>] = [:]
         while sqlite3_step(statement) == SQLITE_ROW {
-            let monthDate = Int(sqlite3_column_int64(statement, 0))
-            let categoryKey = String(cString: sqlite3_column_text(statement, 1))
-            keys.insert("\(monthDate)|\(categoryKey)")
+            let seriesId = Int(sqlite3_column_int64(statement, 0))
+            let monthDate = Int(sqlite3_column_int64(statement, 1))
+            result[seriesId, default: []].insert(monthDate)
         }
-        return keys
+        return result
     }
+
+    // The category-wide tombstone lookup that used to live here ("<month>|<category>") is gone
+    // deliberately. Without a series component it suppressed a month for that category forever, so
+    // every later series was born with a permanent hole wherever an older one had been deleted.
+    // Use `fetchDeletedAllocationMonthsBySeries` — do not reintroduce a category-keyed variant.
 
     /// Fix 5a: Fetches allocations filtered by shared_group_id.
     func fetchBudgetAllocationsForGroup(groupId: String) -> [BudgetAllocationModel] {
