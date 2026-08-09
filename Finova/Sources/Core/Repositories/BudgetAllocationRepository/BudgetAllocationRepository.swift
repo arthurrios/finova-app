@@ -22,6 +22,7 @@ protocol BudgetAllocationRepositoryProtocol {
     func deleteRecurringAllocationAndFuture(id: Int) throws
     func deleteAllRecurringAllocations(id: Int) throws
     func updateIsRecurring(allocationId: Int, isRecurring: Bool) throws
+    func updateParentAllocationId(id: Int, parentId: Int) throws
 }
 
 // MARK: - Implementation
@@ -341,6 +342,24 @@ final class BudgetAllocationRepository: BudgetAllocationRepositoryProtocol {
         models[index] = models[index].with(isRecurring: isRecurring)
 
         logDebug("BudgetAllocationRepository: Updated isRecurring to \(isRecurring) for allocation \(allocationId)")
+        saveModels(models)
+    }
+
+    /// Re-parents one allocation into another's series.
+    ///
+    /// The single writer for `parentAllocationId` after insert — `RecurringSeriesLinker` uses it to
+    /// adopt occurrences whose pointer references a row that no longer exists. Deliberately narrow:
+    /// nothing else may rewrite a series link, so a careless bulk update cannot orphan a series.
+    func updateParentAllocationId(id: Int, parentId: Int) throws {
+        var models = loadModels()
+
+        guard let index = models.firstIndex(where: { $0.id != nil && $0.id! == id && $0.isLive })
+        else {
+            logError("BudgetAllocationRepository: Allocation with id \(id) not found for relink")
+            throw BudgetAllocationError.allocationNotFound
+        }
+
+        models[index] = models[index].with(parentAllocationId: .some(parentId))
         saveModels(models)
     }
 

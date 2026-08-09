@@ -54,7 +54,103 @@ final class BudgetAllocationService {
             isRecurring: isRecurring
         )
 
-        return try allocationRepo.insertAllocation(model)
+        let newId = try allocationRepo.insertAllocation(model)
+
+        // EAGER GENERATION: materialize the whole series NOW, so every occurrence exists before this
+        // call returns. Nothing materializes on navigation any more, so a month skipped here would
+        // simply be missing until some later pass happened to cover it.
+        if isRecurring {
+            let created = materializeSeries(parentId: newId, startMonth: monthAnchor)
+            logWarning(
+                "[RecurringAllocationCreate] series \(newId) (\(category.key)) materialized \(created) occurrence(s)")
+        }
+
+        return newId
+    }
+
+    /// Materializes every missing occurrence of ONE allocation series, from its own start month
+    /// through the horizon. Returns how many were created.
+    ///
+    /// Series-anchored: `SeriesMonths.seriesAnchors` anchors the horizon on `max(now, start)`, so a
+    /// series created while scrolled back to a past month fills the gap between its start and today
+    /// rather than leaving it permanently empty.
+    ///
+    /// Idempotent and tombstone-aware, so it is safe to call on every CRUD and from the rolling
+    /// top-up.
+    @discardableResult
+    func materializeSeries(parentId: Int, startMonth: Int) -> Int {
+        let all = allocationRepo.fetchAllAllocations()
+        guard let parent = all.first(where: { $0.dbId == parentId }) else { return 0 }
+
+        let tombstoned = allocationRepo.deletedMonthsBySeries()[parentId] ?? []
+
+        // Occurrences of THIS series, ascending, for the in-effect template.
+        let series = all
+            .filter { $0.dbId == parentId || $0.parentAllocationId == parentId }
+            .sorted { $0.monthDate < $1.monthDate }
+        var ownMonths = Set(series.map { $0.monthDate })
+
+        // Months held by a DIFFERENT allocation in the same category. We cannot insert there (one
+        // live allocation per month+category), but it is not this series' row — treating every
+        // same-category row as "already covered" is what let an unrelated one-off punch a hole.
+        let foreignMonths = Set(
+            all.filter { $0.category.key == parent.category.key && !ownMonths.contains($0.monthDate) }
+                .map { $0.monthDate })
+
+        var created = 0
+        for anchor in SeriesMonths.seriesAnchors(start: startMonth) {
+            guard anchor > parent.monthDate else { continue }
+            if ownMonths.contains(anchor) { continue }
+            if tombstoned.contains(anchor) {
+                logWarning(
+                    "[Materialize] allocation month \(anchor) for '\(parent.category.key)' was deleted from series \(parentId) — not recreating")
+                continue
+            }
+            if foreignMonths.contains(anchor) {
+                logWarning(
+                    "[Materialize] allocation month \(anchor) for '\(parent.category.key)' is held by a row outside series \(parentId) — skipping")
+                continue
+            }
+
+            let template = series.last(where: { $0.monthDate <= anchor }) ?? parent
+            let instance = BudgetAllocationModel(
+                monthDate: anchor,
+                categoryKey: parent.category.key,
+                allocatedAmount: template.allocatedAmount,
+                isRecurring: true,
+                parentAllocationId: parentId
+            )
+            if (try? allocationRepo.insertAllocation(instance)) != nil {
+                ownMonths.insert(anchor)
+                created += 1
+            }
+        }
+
+        return created
+    }
+
+    /// The rolling top-up: materializes every missing occurrence of every recurring series, each
+    /// from its own start month through the horizon.
+    ///
+    /// Replaces generation-on-render. `getAllocationsWithUsage` used to materialize the month it was
+    /// asked for — once per RENDERED carousel card, on the main thread — so a month existed only if
+    /// the user had scrolled to it.
+    @discardableResult
+    func materializeAllSeries() -> Int {
+        let all = allocationRepo.fetchAllAllocations()
+        // Ongoing series, and bounded ones whose parent stopped recurring but still owns children —
+        // excluding the latter meant a gap inside a bounded series could never heal.
+        let parents = all.filter { candidate in
+            guard candidate.parentAllocationId == nil, let id = candidate.dbId else { return false }
+            return candidate.isRecurring || all.contains { $0.parentAllocationId == id }
+        }
+
+        var created = 0
+        for parent in parents {
+            guard let parentId = parent.dbId else { continue }
+            created += materializeSeries(parentId: parentId, startMonth: parent.monthDate)
+        }
+        return created
     }
 
     // MARK: - Update
@@ -135,10 +231,11 @@ final class BudgetAllocationService {
     /// Also generates any missing recurring instances for the month.
     /// - Parameter monthAnchor: The month anchor timestamp
     /// - Returns: Array of allocations with usage amounts filled in
+    /// A PURE READ. It used to materialize this month's recurring occurrences first, which made it a
+    /// write called once per rendered carousel card, on the main thread — so a month's allocations
+    /// existed only if the user had scrolled to that month. Generation now happens eagerly at CRUD
+    /// time and in one rolling pass; see `materializeAllSeries`.
     func getAllocationsWithUsage(forMonth monthAnchor: Int) -> [BudgetAllocation] {
-        // First, generate any missing recurring instances
-        generateRecurringInstancesIfNeeded(forMonth: monthAnchor)
-
         // Fetch allocations for the month
         var allocations = allocationRepo.fetchAllocations(for: monthAnchor)
 

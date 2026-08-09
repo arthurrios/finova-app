@@ -36,6 +36,30 @@ extension Date {
     return Int(firstOfMonth.timeIntervalSince1970)
   }
 
+  /// The month anchor `offset` whole months from this date's own month. Negative goes back.
+  ///
+  /// Anchors to the first of the month before stepping. Not to dodge `date(byAdding: .month)`'s day
+  /// clamping - that clamps the *day* and keeps the month, so 31 January plus a month is 28 February
+  /// and the month is still right - but because it makes the result canonical: exactly
+  /// `firstOfMonth + offset months`, independent of what time of day the receiver happens to carry.
+  ///
+  /// One calendar, `TimeZone.current` - the convention every `month_date` and `budget_month_date`
+  /// already stored was written with. Several call sites step in a UTC calendar and then read
+  /// `.monthAnchor`, which is `TimeZone.current`: two conventions inside one expression. Prefer this
+  /// to rolling another.
+  func monthAnchor(offsetByMonths offset: Int) -> Int {
+    var cal = Calendar(identifier: .gregorian)
+    cal.timeZone = TimeZone.current
+    let comps = cal.dateComponents([.year, .month], from: self)
+    guard let firstOfMonth = cal.date(from: comps),
+      let shifted = cal.date(byAdding: .month, value: offset, to: firstOfMonth)
+    else {
+      logError("Failed to offset month anchor by \(offset) months")
+      return monthAnchor
+    }
+    return Int(shifted.timeIntervalSince1970)
+  }
+
   /// Get month anchor using a specific timezone
   func monthAnchor(in timezone: TimeZone) -> Int {
     var cal = Calendar(identifier: .gregorian)

@@ -82,14 +82,24 @@ final class DashboardViewModel {
     DispatchQueue.global(qos: .utility).async { [weak self] in
       guard let self = self else { return }
 
-      let now = Date()
+      // SERIES-anchored, not window-anchored. This used to enumerate the carousel's own range of
+      // offsets around today, which clips any series whose start falls outside that window — so a
+      // series older than the window kept permanent holes no amount of re-running could fill. The
+      // union of every series' own span covers all of them without clipping any.
+      let allTransactions = self.transactionRepo.fetchAllTransactions()
+      let parents = allTransactions.filter {
+        $0.isRecurring == true && ($0.parentTransactionId == nil || $0.parentTransactionId == $0.id)
+      }
       var monthAnchors = Set<Int>()
+      for parent in parents {
+        monthAnchors.formUnion(SeriesMonths.seriesAnchors(start: parent.seriesPeriod))
+      }
 
-      // Generate anchors for all months in the range
-      for offset in self.monthRange {
-        if let date = self.calendar.date(byAdding: .month, value: offset, to: now) {
-          monthAnchors.insert(date.monthAnchor)
-        }
+      // Allocations get the same treatment, and for the same reason: nothing materializes on render
+      // any more, so this pass is what fills months the user has not visited.
+      let newAllocations = BudgetAllocationService().materializeAllSeries()
+      if newAllocations > 0 {
+        logWarning("[Materialize] rolling top-up created \(newAllocations) allocation occurrence(s)")
       }
 
       // Generate instances (the manager will handle checking what's needed)
@@ -99,7 +109,7 @@ final class DashboardViewModel {
         self.isLazyGenerationInProgress = false
 
         // Only refresh UI if new instances were actually created
-        guard newInstancesCreated > 0 else { return }
+        guard newInstancesCreated > 0 || newAllocations > 0 else { return }
 
         self.transactionLedger.invalidateCache()
 

@@ -647,7 +647,17 @@ final class RecurringTransactionManager {
   ) throws {
     let selectedAnchor = selectedTransactionDate.monthAnchor
 
-    // Fetch all transactions ONCE
+    // RELINK FIRST. "This and future" / "all" select siblings by parent pointer, and that pointer is
+    // a local autoincrement id — a row that predates a repair can point at a row that no longer
+    // exists. Those rows were silently skipped and stayed stale forever. Re-attaching them by
+    // content BEFORE the selection runs is what makes the plain pointer filter below sufficient.
+    let relinked = RecurringSeriesLinker(transactionRepo: transactionRepo)
+      .repairTransactionSeries(around: parentTransactionId)
+    if relinked > 0 {
+      logWarning("[RecurringEdit] Relinked \(relinked) orphaned occurrence(s) before edit")
+    }
+
+    // Fetch all transactions ONCE (now includes any just-relinked rows)
     let allTransactions = transactionRepo.fetchAllTransactions()
 
     // Filter to related instances
@@ -927,15 +937,37 @@ final class RecurringTransactionManager {
         }
       }
 
-      // Existing (title, slot, DAY) triples, to catch duplicates even when parent_transaction_id is
-      // wrong. The day comes from the UNADJUSTED date: keyed on the shifted day instead, two
-      // same-title series anchored on (say) the 15th and 16th that both roll to the same Monday would
-      // collide, and the second would generate nothing at all — the exact failure the day component
-      // was added to prevent.
-      var existingTitleAnchors: Set<String> = []
-      for tx in allTransactions {
-        let txDay = self.calendar.component(.day, from: tx.unadjustedDate)
-        existingTitleAnchors.insert("\(tx.title)|\(tx.seriesPeriod)|\(txDay)")
+      // Cross-device duplicate protection: which SLOTS are already occupied, per series identity.
+      //
+      // This used to be keyed on `title | slot | day` over EVERY row in the ledger, so a one-off
+      // transaction — or a row in a different category or type that merely shared a title and a day
+      // — silently blocked that month for a genuine series. That is the "some months are skipped"
+      // bug. The key is now the full series fingerprint, and only rows that are part of a recurring
+      // series contribute to it.
+      //
+      // The day used is the SERIES' canonical day: for a child, the day its parent is anchored on,
+      // not the child's own, which `OccurrenceDateCalculator` may have clamped in a short month.
+      let parentsById = Dictionary(
+        uniqueKeysWithValues: allTransactions.compactMap { tx -> (Int, Transaction)? in
+          guard let id = tx.id else { return nil }
+          return (id, tx)
+        })
+
+      func fingerprint(of tx: Transaction) -> SeriesFingerprint? {
+        guard tx.id != nil else { return nil }
+        let anchorSource = tx.parentTransactionId.flatMap { parentsById[$0] } ?? tx
+        return SeriesFingerprint(
+          scope: nil,  // no group ledgers on this branch
+          title: tx.title,
+          category: tx.category.key,
+          type: tx.type.key,
+          anchorDay: SeriesDay.anchorDay(of: anchorSource))
+      }
+
+      var occupiedSlots: [SeriesFingerprint: Set<Int>] = [:]
+      for tx in allTransactions where tx.mode == .recurring {
+        guard let key = fingerprint(of: tx) else { continue }
+        occupiedSlots[key, default: []].insert(tx.seriesPeriod)
       }
 
       // Filter recurring parents and installment parents
@@ -968,22 +1000,51 @@ final class RecurringTransactionManager {
         // well would hold the now app-wide lock inside this loop and stall every other manager.
         let excludedAnchors = Self.excludedAnchors(for: recurringTxId)
 
-        // Only generate for months that don't have instances yet and weren't intentionally deleted
+        // Compared against the parent's SLOT, not its accounting month. Once a business-day rule can
+        // push a date across a month boundary the two disagree, and comparing the wrong one either
+        // skipped a legitimate month or re-created one the parent already holds.
+        let parentSlot = recurringTx.seriesPeriod
         let missingAnchors = monthAnchors.subtracting(existingAnchors)
           .subtracting(excludedAnchors)
-          .filter { $0 != recurringTx.budgetMonthDate }  // Don't create for parent's month
-          .filter { $0 > recurringTx.budgetMonthDate }  // Only future months
+          .filter { $0 > parentSlot }  // Forward-only; the parent occupies its own slot
+
+        // A tombstone is the one thing that silently removes months from a series. Say so.
+        let suppressed = monthAnchors.intersection(excludedAnchors).filter { $0 > parentSlot }
+        if !suppressed.isEmpty {
+          logWarning(
+            "[Materialize] series \(recurringTxId) ('\(recurringTx.title)'): \(suppressed.count) month(s) suppressed by an earlier delete")
+        }
 
         guard !missingAnchors.isEmpty else { continue }
+
+        let seriesKey = fingerprint(of: recurringTx)
 
         // The series' canonical date, NOT its stored one. Re-deriving the anchor day from a date the
         // rule has already shifted would walk the series a little further every generation pass.
         let originalDate = recurringTx.unadjustedDate
 
-        for targetAnchor in missingAnchors {
+        for targetAnchor in missingAnchors.sorted() {
+          // A row matching this series' full fingerprint already holds the slot but is not linked to
+          // this parent — its parent pointer is broken. Creating a second row would duplicate the
+          // month; the repair belongs to RecurringSeriesLinker, which runs ahead of every CRUD.
+          if let seriesKey = seriesKey, occupiedSlots[seriesKey]?.contains(targetAnchor) == true {
+            logWarning(
+              "[Materialize] slot \(targetAnchor) for series \(recurringTxId) ('\(recurringTx.title)') is held by an unlinked row — skipping")
+            continue
+          }
+
+          // Which month this slot IS, read in the same timezone the anchor was written in.
+          //
+          // `targetAnchor` is local midnight on the 1st (`Date.monthAnchor` is `TimeZone.current`).
+          // Reading it back through this type's UTC calendar lands in the PREVIOUS month for any
+          // zone ahead of UTC, so the occurrence was generated for the wrong month while
+          // `budgetMonthDate` still said the right one. The date is still CONSTRUCTED with
+          // `self.calendar` below, so existing rows' timestamps keep their convention.
           let targetDate = Date(timeIntervalSince1970: TimeInterval(targetAnchor))
-          let targetYear = self.calendar.component(.year, from: targetDate)
-          let targetMonth = self.calendar.component(.month, from: targetDate)
+          var anchorCalendar = Calendar(identifier: .gregorian)
+          anchorCalendar.timeZone = TimeZone.current
+          let targetYear = anchorCalendar.component(.year, from: targetDate)
+          let targetMonth = anchorCalendar.component(.month, from: targetDate)
 
           let occurrence = OccurrenceDateCalculator.occurrencePair(
             from: originalDate,
@@ -993,12 +1054,9 @@ final class RecurringTransactionManager {
             calendar: self.calendar
           )
 
-          // Cross-check against the title/slot/day set, so a series whose parent link is wrong still
-          // cannot double up.
-          let dayKey = self.calendar.component(.day, from: occurrence.unadjusted)
-          let titleKey = "\(recurringTx.title)|\(targetAnchor)|\(dayKey)"
-          if existingTitleAnchors.contains(titleKey) { continue }
-          existingTitleAnchors.insert(titleKey)
+          if let seriesKey = seriesKey {
+            occupiedSlots[seriesKey, default: []].insert(targetAnchor)
+          }
 
           // `budgetMonthDate` is where the money actually moves, so it follows the ADJUSTED date;
           // `seriesPeriod` is which occurrence this is, so it stays on the scheduled month. They

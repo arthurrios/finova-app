@@ -106,17 +106,11 @@ final class AddTransactionModalViewModel {
             transactionId: insertedId, parentId: insertedId)
         }
 
-        // LAZY GENERATION: Only generate instances for a small window (next 2 months)
-        // Additional instances will be generated lazily when the user navigates to those months
-        let immediateMonthAnchors: Set<Int> = {
-          var anchors = Set<Int>()
-          for monthOffset in 1...2 {
-            if let futureDate = calendar.date(byAdding: .month, value: monthOffset, to: date) {
-              anchors.insert(futureDate.monthAnchor)
-            }
-          }
-          return anchors
-        }()
+        // EAGER GENERATION: materialize the whole series now — from its own start month through the
+        // horizon — rather than a two-month window topped up on navigation. A month that is not
+        // created here does not exist until a dashboard load happens to cover it.
+        let immediateMonthAnchors = Set(
+          SeriesMonths.seriesAnchors(start: date.monthAnchor).filter { $0 > date.monthAnchor })
 
         // Generate only the immediate window of instances
         // Completion runs on background queue - heavy work stays there
@@ -271,16 +265,10 @@ final class AddTransactionModalViewModel {
         }
       }
 
-      // Generate instances for immediate window (next 2 months)
-      let immediateMonthAnchors: Set<Int> = {
-        var anchors = Set<Int>()
-        for monthOffset in 1...2 {
-          if let futureDate = calendar.date(byAdding: .month, value: monthOffset, to: date) {
-            anchors.insert(futureDate.monthAnchor)
-          }
-        }
-        return anchors
-      }()
+      // EAGER GENERATION — see the note on the same block in `addTransaction`. The series is
+      // materialized in full here, not topped up later on navigation.
+      let immediateMonthAnchors = Set(
+        SeriesMonths.seriesAnchors(start: date.monthAnchor).filter { $0 > date.monthAnchor })
 
       // Wait for instance generation to complete before calling completion
       recurringManager.generateInstancesLazilyForMonths(immediateMonthAnchors) { [weak self] _ in
