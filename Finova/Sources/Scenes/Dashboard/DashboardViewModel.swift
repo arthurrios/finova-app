@@ -162,6 +162,14 @@ final class DashboardViewModel {
     DispatchQueue.global(qos: .utility).async { [weak self] in
       guard let self = self else { return }
 
+      // INVARIANT SWEEP, before generating: one live occurrence per (series, slot), each in the
+      // month it is scheduled for. Detects read-only and writes only when something is actually
+      // broken, so a healthy ledger costs one query and marks nothing pending — which is what keeps
+      // this safe to run on every load (see the note in `loadMonthlyCards`). Runs first so
+      // generation does not fill a "gap" that is really a row sitting in the wrong month.
+      let removed = RecurringDuplicateCleanup.sweepIfDirty(repository: self.transactionRepo)
+      if removed > 0 { self.transactionLedger.invalidateCache() }
+
       // Both passes walk every recurring PARENT and fill that parent's own start month through the
       // horizon. Deliberately not a window of months: a series older than the window would keep
       // permanent holes, which is how "some months are skipped" survived the previous fix.

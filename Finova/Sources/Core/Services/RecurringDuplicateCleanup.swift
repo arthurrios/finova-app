@@ -120,10 +120,7 @@ enum RecurringDuplicateCleanup {
 
     /// Runs once per install, on launch.
     ///
-    /// Gated rather than repeated because it is a repair for a specific past defect, not an ongoing
-    /// invariant check - the slot keying now prevents these from being created at all. Re-running it
-    /// would be harmless (it is idempotent: with no duplicates it does nothing), but a delete that
-    /// runs on every launch is not something to leave lying around.
+    /// Kept for the launch path. The standing invariant check is `sweepIfDirty` below.
     static func runOnceIfNeeded(
         repository: TransactionRepository = TransactionRepository(),
         db: DBHelper = .shared,
@@ -135,6 +132,57 @@ enum RecurringDuplicateCleanup {
         // and anything it missed can be swept by calling `run` explicitly.
         defaults.set(true, forKey: hasRunKey)
         run(repository: repository, db: db)
+    }
+
+    /// The standing invariant check: one live occurrence per (series, slot), each sitting in the
+    /// month it is scheduled for. Returns how many rows it removed.
+    ///
+    /// This used to be a one-shot migration, on the theory that slot keying made duplicates
+    /// impossible to create. That was wrong — the edit path rebuilt an occurrence's date from the
+    /// row rather than from its slot, and day 31 in February rolls forward to 3 March rather than
+    /// failing, so every edit of a long-anchored series moved February's occurrence onto March's.
+    /// The generation rule being correct does not make the invariant self-enforcing, so it is
+    /// checked continuously instead of assumed.
+    ///
+    /// **Detects read-only and writes only when something is actually wrong.** A repair that rewrites
+    /// rows on every dashboard load marks them `pending` and makes two devices push their own repair
+    /// results over each other's — see the note at the top of `DashboardViewModel.loadMonthlyCards`.
+    /// When the ledger is clean this costs one query and touches nothing.
+    ///
+    /// Callers MUST gate on a verified full pull: `deleteBatch` soft-deletes synced rows and queues
+    /// them as `pendingDelete`, so running it on a half-hydrated device deletes from the cloud rows
+    /// it simply has not pulled yet.
+    @discardableResult
+    static func sweepIfDirty(
+        repository: TransactionRepository = TransactionRepository(),
+        db: DBHelper = .shared
+    ) -> Int {
+        let groups = findDuplicates(db: db)
+        let drifted = db.countSeriesAccountingMonthDrift()
+
+        guard !groups.isEmpty || drifted > 0 else { return 0 }
+
+        logWarning(
+            "[DuplicateCleanup] Invariant broken: \(groups.count) slot(s) hold more than one "
+                + "occurrence, \(drifted) row(s) sit outside their scheduled month — repairing")
+
+        let moved = db.repairSeriesAccountingMonths()
+        if moved > 0 {
+            logWarning("[DuplicateCleanup] Moved \(moved) occurrence(s) back to their own month")
+        }
+
+        // Re-detect: moving rows back into their slots can reveal, or resolve, collisions.
+        let doomed = findDuplicates(db: db).flatMap(\.remove)
+        guard !doomed.isEmpty else { return 0 }
+
+        do {
+            try repository.deleteBatch(ids: doomed)
+            logWarning("[DuplicateCleanup] Removed \(doomed.count) duplicate occurrence(s)")
+            return doomed.count
+        } catch {
+            logError("[DuplicateCleanup] Failed to remove duplicates: \(error)")
+            return 0
+        }
     }
 
     /// Clears the once-only gate, so `runOnceIfNeeded` will act again. For tests and for a manual

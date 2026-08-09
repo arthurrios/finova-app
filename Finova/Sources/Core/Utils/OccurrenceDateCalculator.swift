@@ -79,14 +79,12 @@ enum OccurrenceDateCalculator {
         targetMonth: Int,
         targetYear: Int,
         rule: BusinessDayRule,
-        calendar: Calendar,
-        holidays: HolidayCalendar = .shared
+        calendar: Calendar
     ) -> (unadjusted: Date, adjusted: Date) {
         let unadjusted = occurrence(
             from: unadjustedOrigin, targetMonth: targetMonth, targetYear: targetYear,
             calendar: calendar)
-        let adjusted = BusinessDayAdjuster.adjust(
-            unadjusted, rule: rule, calendar: calendar, holidays: holidays)
+        let adjusted = BusinessDayAdjuster.adjust(unadjusted, rule: rule, calendar: calendar)
         return (unadjusted, adjusted)
     }
 
@@ -95,9 +93,8 @@ enum OccurrenceDateCalculator {
     static func pair(
         for date: Date,
         rule: BusinessDayRule,
-        calendar: Calendar,
-        holidays: HolidayCalendar = .shared
+        calendar: Calendar
     ) -> (unadjusted: Date, adjusted: Date) {
-        (date, BusinessDayAdjuster.adjust(date, rule: rule, calendar: calendar, holidays: holidays))
+        (date, BusinessDayAdjuster.adjust(date, rule: rule, calendar: calendar))
     }
 }

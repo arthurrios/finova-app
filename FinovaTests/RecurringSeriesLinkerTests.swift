@@ -42,7 +42,9 @@ final class RecurringSeriesLinkerTests: XCTestCase {
     cal.timeZone = TimeZone.current
     var parts = cal.dateComponents(
       [.year, .month], from: Date.fromMonthAnchor(Date().monthAnchor(offsetByMonths: offset)))
-    parts.day = day
+    // Clamp — see the note in RecurringMaterializationTests. An unclamped day rolls into the next
+    // month and quietly changes the fixture's anchor day.
+    parts.day = min(day, HolidayCalendar.daysInMonth(parts.month ?? 1, year: parts.year ?? 2026))
     parts.hour = 12
     let start = try XCTUnwrap(cal.date(from: parts))
 
@@ -53,8 +55,13 @@ final class RecurringSeriesLinkerTests: XCTestCase {
     guard case .success = result else { throw XCTSkip("Could not create fixture: \(result)") }
     TransactionRepository.invalidateCache()
 
+    // Matched by anchor day too: several fixtures deliberately share a title, and matching on title
+    // alone handed back the same row twice, so "two series" tests compared a series to itself.
+    let anchorDay = cal.component(.day, from: start)
     return try XCTUnwrap(
-      transactionRepo.fetchAllTransactions().first { $0.title == title && $0.isRecurring == true })
+      transactionRepo.fetchAllTransactions().first {
+        $0.title == title && $0.isRecurring == true && SeriesDay.anchorDay(of: $0) == anchorDay
+      })
   }
 
   /// Breaks one occurrence's parent pointer the way a cross-device id mismatch does: it points at

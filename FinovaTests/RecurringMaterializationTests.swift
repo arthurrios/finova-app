@@ -46,7 +46,10 @@ final class RecurringMaterializationTests: XCTestCase {
     cal.timeZone = TimeZone.current
     let anchor = Date().monthAnchor(offsetByMonths: offset)
     var parts = cal.dateComponents([.year, .month], from: Date.fromMonthAnchor(anchor))
-    parts.day = day
+    // Clamp, exactly as the app does. `day = 31` in a 30-day month does not fail — Foundation rolls
+    // it into the next month — which silently moved the fixture's start month AND changed its anchor
+    // day to 1, so a test about day-31 behaviour was really testing day 1.
+    parts.day = min(day, HolidayCalendar.daysInMonth(parts.month ?? 1, year: parts.year ?? 2026))
     parts.hour = 12
     let start = try XCTUnwrap(cal.date(from: parts))
 
@@ -63,9 +66,13 @@ final class RecurringMaterializationTests: XCTestCase {
     }
     TransactionRepository.invalidateCache()
 
+    // Disambiguate by anchor day: two fixtures may share a title on purpose, and matching on title
+    // alone returned the FIRST one for both, so tests comparing "two series" compared one to itself.
+    let anchorDay = cal.component(.day, from: start)
     return try XCTUnwrap(
       transactionRepo.fetchAllTransactions().first {
         $0.title == title && $0.isRecurring == true
+          && SeriesDay.anchorDay(of: $0) == anchorDay
       }, "Recurring parent should exist")
   }
 
@@ -243,6 +250,68 @@ final class RecurringMaterializationTests: XCTestCase {
         held.count, Set(held).count,
         "\(rule): every slot must be held exactly once, even when dates shift across months")
     }
+  }
+
+  /// THE FEBRUARY BUG. A series anchored on day 29-31 clamps to 28 in February. The edit path used
+  /// to rebuild each occurrence's date from the ROW (year+month of its own date, with the new day) —
+  /// and `day = 31` in February does not fail, Foundation rolls it forward to 3 March. The
+  /// accounting month was then taken from that rolled-over date, so February's occurrence left
+  /// February and landed on top of March's: one month emptied, a duplicate in the next.
+  ///
+  /// Every occurrence must stay in the month it is scheduled for, no matter what its date does.
+  func testEditingALongAnchoredSeriesKeepsFebruaryInFebruary() throws {
+    let parent = try createSeries(
+      title: "Day 31 Rent", startingMonthsFromNow: -2, day: 31)
+    let parentId = try XCTUnwrap(parent.id)
+    let before = slots(ofSeries: parentId)
+
+    // Edit "this and future" from the parent's own month, changing only the amount.
+    let newData = TransactionModel(
+      id: parentId, title: "Day 31 Rent", category: "utilities", amount: 222_000, type: "expense",
+      dateTimestamp: parent.dateTimestamp, budgetMonthDate: parent.budgetMonthDate,
+      isRecurring: true, hasInstallments: false, parentTransactionId: parentId,
+      originalAmount: 222_000, businessDayRule: parent.businessDayRule,
+      unadjustedDateTimestamp: parent.unadjustedDateTimestamp, seriesPeriod: parent.seriesPeriod)
+
+    try recurringManager.editRecurringTransactionsFromDate(
+      parentTransactionId: parentId, selectedTransactionDate: parent.unadjustedDate,
+      editOption: .all, newData: newData)
+    TransactionRepository.invalidateCache()
+
+    let after = slots(ofSeries: parentId)
+    XCTAssertEqual(after, before, "An edit must not add, remove or move any slot")
+    XCTAssertEqual(after.count, Set(after).count, "An edit must not duplicate a slot")
+
+    // The invariant the bug broke: accounting month == slot, for every occurrence.
+    let members = transactionRepo.fetchAllTransactions()
+      .filter { $0.id == parentId || $0.parentTransactionId == parentId }
+    for row in members {
+      XCTAssertEqual(
+        row.budgetMonthDate, row.seriesPeriod,
+        "Occurrence \(row.id ?? -1) left the month it is scheduled for")
+    }
+
+    // And February specifically is clamped, not rolled forward.
+    var cal = Calendar(identifier: .gregorian)
+    cal.timeZone = TimeZone.current
+    for row in members where cal.component(.month, from: row.unadjustedDate) == 2 {
+      let day = cal.component(.day, from: row.unadjustedDate)
+      XCTAssertTrue(day == 28 || day == 29, "February should clamp to 28/29, got \(day)")
+    }
+  }
+
+  /// The same defect reached through creation + the rolling top-up rather than an edit.
+  func testALongAnchoredSeriesHasNoDuplicateSlotsAcrossFebruary() throws {
+    let parent = try createSeries(title: "Day 30 Bill", startingMonthsFromNow: -3, day: 30)
+    let parentId = try XCTUnwrap(parent.id)
+
+    _ = recurringManager.materializeSeries(parentId: parentId)
+    let held = slots(ofSeries: parentId)
+
+    XCTAssertEqual(held.count, Set(held).count, "No slot may be held twice")
+    assertContiguous(
+      held, from: parent.seriesPeriod,
+      through: SeriesMonths.horizonAnchor(start: parent.seriesPeriod))
   }
 
   /// The anchor day is read from the UNADJUSTED date, so a rule that shifts dates must not split a

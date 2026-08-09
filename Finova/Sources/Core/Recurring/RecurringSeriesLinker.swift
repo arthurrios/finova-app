@@ -198,7 +198,16 @@ struct RecurringSeriesLinker {
       // Must already participate in recurrence. A plain one-off allocation the user created for a
       // single month is NOT part of anyone's series and must never be swept in — that is the one
       // distinction category + scope cannot make on its own.
-      guard candidate.isRecurring || candidate.parentAllocationId != nil else { continue }
+      //
+      // "Owns children" is the third case and it is not optional: a BOUNDED series has its parent's
+      // `is_recurring` cleared (that flag is how the end month is stored), so its parent reads
+      // exactly like a one-off — `isRecurring == false`, `parentAllocationId == nil`. Without this
+      // the parent of an earlier bounded series was never adopted, and the month it occupied stayed
+      // stranded outside the current series: the "skipped a couple of months" report.
+      let ownsChildren = all.contains { $0.parentAllocationId == candidateId }
+      guard candidate.isRecurring || candidate.parentAllocationId != nil || ownsChildren else {
+        continue
+      }
 
       guard
         AllocationSeriesFingerprint(scope: candidate.sharedGroupId, category: candidate.category.key)
@@ -222,6 +231,20 @@ struct RecurringSeriesLinker {
         logWarning(
           "[SeriesLink] adopted allocation \(candidateId) ('\(candidate.category.key)', month \(candidate.monthDate)) into series \(parentId)"
         )
+
+        // Flatten: anything that pointed at the row we just adopted must now point at the target.
+        // Series membership is matched one level deep (`parentAllocationId == parentId`), so leaving
+        // a chain would hide those grandchildren from every scoped edit and delete — reintroducing
+        // the exact bug this repair exists to close.
+        if ownsChildren {
+          for grandchild in all where grandchild.parentAllocationId == candidateId {
+            guard let grandchildId = grandchild.dbId else { continue }
+            guard !occupiedMonths.contains(grandchild.monthDate) else { continue }
+            try allocationRepo.updateParentAllocationId(id: grandchildId, parentId: parentId)
+            occupiedMonths.insert(grandchild.monthDate)
+            relinked += 1
+          }
+        }
       } catch {
         logError("[SeriesLink] failed to relink allocation \(candidateId): \(error)")
       }

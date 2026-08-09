@@ -5,7 +5,17 @@
 
 import Foundation
 
-/// Moves a date off a weekend or holiday, in the direction a `BusinessDayRule` asks for.
+/// Moves a date off a WEEKEND, in the direction a `BusinessDayRule` asks for.
+///
+/// Holidays are deliberately not considered. The rule exists so a scheduled amount lands on a day
+/// banks actually move money, and weekends are the part of that every user shares. A national
+/// holiday table is not: it is wrong for anyone whose bank, employer or country differs from the
+/// device locale, it changes year to year, and — because occurrence dates are stored — a table
+/// update would silently re-date occurrences that already exist. It also produced surprises like a
+/// 1 January occurrence being pulled back into the previous December.
+///
+/// `HolidayCalendar` still exists for calendar arithmetic (`daysInMonth`, `weekday`) and is still
+/// what the settings screen names; it just no longer shifts dates.
 ///
 /// Every entry point takes the `Calendar` explicitly and never falls back to `Calendar.current`. The
 /// codebase builds occurrence dates in two different calendars - a UTC one in
@@ -14,17 +24,12 @@ import Foundation
 /// the caller's own calendar is what keeps the adjuster and its caller talking about the same day.
 enum BusinessDayAdjuster {
 
-    /// A bound on the walk, so a corrupt holiday table degrades to "no shift" instead of looping.
-    /// The longest real run of non-business days is a weekend plus a few adjacent holidays; ten is far
-    /// past anything a national calendar produces.
+    /// A bound on the walk, so an unexpected calendar degrades to "no shift" instead of looping.
+    /// A weekend is two days; ten is far past anything reachable.
     static let maxShiftDays = 10
 
-    static func isBusinessDay(
-        _ date: Date,
-        calendar: Calendar,
-        holidays: HolidayCalendar = .shared
-    ) -> Bool {
-        !calendar.isDateInWeekend(date) && !holidays.isHoliday(date, in: calendar)
+    static func isBusinessDay(_ date: Date, calendar: Calendar) -> Bool {
+        !calendar.isDateInWeekend(date)
     }
 
     /// The adjusted date, or the input unchanged for `.exact` and for a date that is already a business
@@ -36,11 +41,10 @@ enum BusinessDayAdjuster {
     static func adjust(
         _ date: Date,
         rule: BusinessDayRule,
-        calendar: Calendar,
-        holidays: HolidayCalendar = .shared
+        calendar: Calendar
     ) -> Date {
         guard rule.shiftsDates else { return date }
-        guard !isBusinessDay(date, calendar: calendar, holidays: holidays) else { return date }
+        guard !isBusinessDay(date, calendar: calendar) else { return date }
 
         let step = rule == .nextBusinessDay ? 1 : -1
         var candidate = date
@@ -56,7 +60,7 @@ enum BusinessDayAdjuster {
                 return date
             }
             candidate = next
-            if isBusinessDay(candidate, calendar: calendar, holidays: holidays) { return candidate }
+            if isBusinessDay(candidate, calendar: calendar) { return candidate }
         }
 
         logWarning(

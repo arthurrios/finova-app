@@ -4271,18 +4271,48 @@ class DBHelper {
     ///
     /// - Returns: how many rows moved.
     @discardableResult
+    /// How many live occurrences sit in a month other than the one they are scheduled for.
+    ///
+    /// Read-only twin of `repairSeriesAccountingMonths`, so the standing invariant check can decide
+    /// whether there is anything to repair WITHOUT writing. Repairing unconditionally marks rows
+    /// `pending` on every pass, which is how two devices end up pushing repair results over each
+    /// other's.
+    func countSeriesAccountingMonthDrift() -> Int {
+        guard isInitialized else { return 0 }
+        return fetchSingleInt(
+            """
+            SELECT COUNT(*) FROM Transactions
+             WHERE parent_transaction_id IS NOT NULL
+               AND installment_number IS NULL
+               AND series_period IS NOT NULL
+               AND budget_month_date != series_period
+               AND (is_deleted IS NULL OR is_deleted = 0);
+            """) ?? 0
+    }
+
     func repairSeriesAccountingMonths() -> Int {
         guard isInitialized else { return 0 }
         let now = Int(Date().timeIntervalSince1970)
         // Marks the rows pending on purpose: this changes which budget they feed, so peers need it.
         // One statement, so `updated_at` is stamped once and `markAsSynced` can settle them.
+        //
+        // `installment_number IS NULL` is load-bearing now that this runs as a standing invariant
+        // check rather than once per install: an installment child is DELIBERATELY re-dated to its
+        // statement's due date, so its accounting month legitimately differs from its slot. Without
+        // the exclusion this would drag every installment back on every dashboard load, undoing the
+        // statement assignment and marking the rows pending each time.
+        //
+        // The series parent is included (no `id != parent_transaction_id`): it is occurrence #1 and
+        // the same invariant applies. Parents created before the anchor was fixed were written from
+        // the ADJUSTED date, so a rule that shifted the first occurrence across a month boundary put
+        // the parent in the wrong month permanently.
         return executeSyncUpdateCount(
             """
             UPDATE Transactions
                SET budget_month_date = series_period,
                    sync_status = 'pending', ck_modified_at = ?, updated_at = ?
              WHERE parent_transaction_id IS NOT NULL
-               AND id != parent_transaction_id
+               AND installment_number IS NULL
                AND series_period IS NOT NULL
                AND budget_month_date != series_period
                AND (is_deleted IS NULL OR is_deleted = 0);

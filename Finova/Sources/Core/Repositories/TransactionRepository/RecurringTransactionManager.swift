@@ -174,7 +174,16 @@ final class RecurringTransactionManager {
         calendar.date(byAdding: .month, value: offset, to: referenceDate)?.monthAnchor
       })
 
+    // CHILDREN ONLY. `fetchAllRecurringInstances` filters on `parentTransactionId != nil`, and a
+    // series parent SELF-links — so the parent is in that list, and the `isBeforeRecurringStart`
+    // test below ("month <= this series' start month") is trivially true for it. Cleanup therefore
+    // deleted the parent of every series it looked at, taking the whole series with it.
+    //
+    // It survived unnoticed only because the loop used to `return` on the first row with a nil id;
+    // fixing that to `continue` made it reachable for every row. Same exclusion the duplicate
+    // scanner already uses (`fetchRecurringOccurrenceSlots`).
     let allInstances = transactionRepo.fetchAllRecurringInstances()
+      .filter { $0.id != $0.parentTransactionId }
     let recurringTransactions = transactionRepo.fetchRecurringTransactions()
     let recurringStartAnchors = Dictionary(
       uniqueKeysWithValues: recurringTransactions.map { ($0.id, $0.budgetMonthDate) })
@@ -443,18 +452,14 @@ final class RecurringTransactionManager {
     // The rule the user just picked. Occurrences adopt it; keeping each row's existing rule would
     // make "edit this and future" silently a no-op for the rule.
     let newRule = newData.data.businessDayRule
+    // The series' own anchor row, for the un-clamped anchor day.
+    let parent = relatedInstances.first(where: { $0.id == parentTransactionId })
 
     // Track old statement IDs that need recalculation
     var oldStatementIdsToRecalculate: Set<Int> = []
 
     // Perform all updates
     for (instanceId, originalTimestamp, originalUnadjustedTimestamp, originalRule, originalBudgetMonthDate, originalSeriesPeriod, originalIsRecurring, originalParentId, originalCreditCardId, originalStatementId) in instancesToUpdate {
-      // The canonical date drives this, not the stored one: comparing the picked day against a day a
-      // rule had already shifted would report a change on every edit, and rebuild the date from the
-      // shifted value.
-      let originalDate = Date(timeIntervalSince1970: TimeInterval(originalUnadjustedTimestamp))
-      let originalDay = localCalendar.component(.day, from: originalDate)
-
       // Recalculate when the day changed OR the rule did.
       //
       // The rule half matters on its own: switching a series to "previous business day" without
@@ -466,48 +471,52 @@ final class RecurringTransactionManager {
       let finalBudgetMonthDate: Int
       let dateChanged: Bool
 
-      if newDay == originalDay && newRule == originalRule {
+      // Compare against the SERIES' anchor day, never this row's own day.
+      //
+      // A row's day is clamped to its month: a day-31 series is day 28 in February. Comparing the
+      // picked day against the clamped one reported "changed" for February on every single edit.
+      let seriesAnchorDay =
+        parent.map { SeriesDay.anchorDay(of: $0) }
+        ?? localCalendar.component(
+          .day, from: Date(timeIntervalSince1970: TimeInterval(originalUnadjustedTimestamp)))
+      let dayChanged = newDay != seriesAnchorDay
+      // Legacy rows whose accounting month drifted away from their slot get repaired on any edit.
+      let slotDrifted = originalBudgetMonthDate != originalSeriesPeriod
+
+      if !dayChanged && newRule == originalRule && !slotDrifted {
         // Nothing that affects the date changed - preserve both timestamps exactly.
         finalTimestamp = originalTimestamp
         finalUnadjustedTimestamp = originalUnadjustedTimestamp
         finalBudgetMonthDate = originalBudgetMonthDate
         dateChanged = false
       } else {
-        // Day changed - need to recalculate the date
-        let originalYear = localCalendar.component(.year, from: originalDate)
-        let originalMonth = localCalendar.component(.month, from: originalDate)
+        // Rebuild from the SLOT, through the same helper generation uses.
+        //
+        // This used to build `DateComponents` from the ROW's own date with the new day, which is
+        // wrong twice over. Day 31 in February does not fail — Foundation rolls it forward to 3
+        // March — so `finalBudgetMonthDate` became March: the February occurrence vanished from
+        // February and landed on top of March's, which is where the "missing month plus a duplicate
+        // in a later month" came from. And deriving the month from a date a business-day rule had
+        // already shifted put the occurrence in the neighbouring month for the same reason.
+        //
+        // `OccurrenceDateCalculator.occurrence` clamps properly (min(day, lastDayOfMonth)), and the
+        // slot is authoritative about which month this occurrence is FOR.
+        let slotDate = Date.fromMonthAnchor(originalSeriesPeriod)
+        let targetYear = localCalendar.component(.year, from: slotDate)
+        let targetMonth = localCalendar.component(.month, from: slotDate)
 
-        var dateComponents = DateComponents()
-        dateComponents.year = originalYear
-        dateComponents.month = originalMonth
-        dateComponents.day = newDay
-        // Preserve the original hour/minute/second to avoid timestamp drift
-        dateComponents.hour = localCalendar.component(.hour, from: originalDate)
-        dateComponents.minute = localCalendar.component(.minute, from: originalDate)
-        dateComponents.second = localCalendar.component(.second, from: originalDate)
-
-        var newDate = localCalendar.date(from: dateComponents)
-
-        // If the date is invalid (e.g., Feb 31), adjust to the last valid day of the month
-        if newDate == nil {
-          let lastDayOfMonth =
-            localCalendar.range(of: .day, in: .month, for: originalDate)?.upperBound ?? 31
-          let actualLastDay = lastDayOfMonth - 1
-          dateComponents.day = actualLastDay
-          newDate = localCalendar.date(from: dateComponents)
-        }
-
-        guard let calculatedDate = newDate else { continue }
-
-        // The anchor follows the UNADJUSTED date, so a rule that pushes an occurrence into the next
-        // month leaves it counted in the month it belongs to.
+        let unadjusted = OccurrenceDateCalculator.occurrence(
+          anchorDay: newDay, targetMonth: targetMonth, targetYear: targetYear,
+          calendar: localCalendar)
         let adjusted = BusinessDayAdjuster.adjust(
-          calculatedDate, rule: newRule, calendar: localCalendar)
+          unadjusted, rule: newRule, calendar: localCalendar)
+
         finalTimestamp = Int(adjusted.timeIntervalSince1970)
-        finalUnadjustedTimestamp = Int(calculatedDate.timeIntervalSince1970)
-        // The scheduled month, matching generation. The slot is carried through separately and
-        // never changes here - moving it is what emptied a month and spawned duplicates.
-        finalBudgetMonthDate = calculatedDate.monthAnchor
+        finalUnadjustedTimestamp = Int(unadjusted.timeIntervalSince1970)
+        // Pinned to the slot, exactly as generation does (`budgetMonthDate: targetAnchor`). An
+        // occurrence can no longer leave the month it is scheduled for, whatever the rule did to
+        // its date.
+        finalBudgetMonthDate = originalSeriesPeriod
         dateChanged = true
       }
 

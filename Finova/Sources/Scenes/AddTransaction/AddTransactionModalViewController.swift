@@ -204,8 +204,10 @@ extension AddTransactionModalViewController: AddTransactionModalViewDelegate,
   ) {
     let alert = UIAlertController(
       title: "addTransactionModal.businessDay.label".localized,
-      message: "settings.businessDay.picker.message".localized(
-        HolidayCalendar.shared.region.displayName),
+      // No region argument: the rule moves dates off WEEKENDS only. Holidays were dropped because a
+      // national table is wrong for anyone whose bank or country differs from the device locale,
+      // and because updating it would silently re-date occurrences already stored.
+      message: "settings.businessDay.picker.message".localized,
       preferredStyle: .actionSheet)
 
     for rule in BusinessDayRule.allCases {

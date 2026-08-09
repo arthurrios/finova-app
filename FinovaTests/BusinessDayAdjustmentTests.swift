@@ -161,11 +161,29 @@ final class BusinessDayAdjustmentTests: XCTestCase {
 
     func testExactRuleNeverMovesADate() {
         let calendar = utcCalendar()
-        // Christmas Day 2026, a Friday and a holiday in both regions.
-        let christmas = date(2026, 12, 25, in: calendar)
+        // A Sunday, so `.exact` is genuinely declining to move something the other rules would.
+        let sunday = date(2026, 4, 5, in: calendar)
+        XCTAssertEqual(HolidayCalendar.weekday(key(2026, 4, 5)), .sunday)
         XCTAssertEqual(
-            BusinessDayAdjuster.adjust(christmas, rule: .exact, calendar: calendar, holidays: brazil),
-            christmas)
+            BusinessDayAdjuster.adjust(sunday, rule: .exact, calendar: calendar),
+            sunday)
+    }
+
+    /// Holidays are deliberately NOT observed — the rule moves dates off weekends only. A national
+    /// table is wrong for anyone whose bank or country differs from the device locale, and because
+    /// occurrence dates are stored, updating it would silently re-date existing occurrences.
+    func testHolidaysOnAWeekdayAreLeftAlone() {
+        let calendar = utcCalendar()
+        // Christmas Day 2026 is a Friday, and a holiday in both bundled regions.
+        XCTAssertEqual(HolidayCalendar.weekday(key(2026, 12, 25)), .friday)
+        XCTAssertTrue(brazil.isHoliday(key(2026, 12, 25)))
+
+        let christmas = date(2026, 12, 25, in: calendar)
+        for rule in [BusinessDayRule.nextBusinessDay, .previousBusinessDay] {
+            XCTAssertEqual(
+                BusinessDayAdjuster.adjust(christmas, rule: rule, calendar: calendar), christmas,
+                "\(rule) must not move a weekday just because it is a holiday")
+        }
     }
 
     func testABusinessDayIsLeftAlone() {
@@ -173,34 +191,34 @@ final class BusinessDayAdjustmentTests: XCTestCase {
         let wednesday = date(2026, 4, 8, in: calendar)
         for rule in [BusinessDayRule.nextBusinessDay, .previousBusinessDay] {
             XCTAssertEqual(
-                BusinessDayAdjuster.adjust(wednesday, rule: rule, calendar: calendar, holidays: brazil),
+                BusinessDayAdjuster.adjust(wednesday, rule: rule, calendar: calendar),
                 wednesday, "\(rule) should not move a plain Wednesday")
         }
     }
 
-    func testNextBusinessDaySkipsAHolidayAndTheWeekendBehindIt() {
+    /// Good Friday 2026 (3 April) is a holiday but an ordinary Friday, so it does not move.
+    func testNextBusinessDayLeavesAHolidayFridayInPlace() {
         let calendar = utcCalendar()
-        // Good Friday 2026 (3 April) -> Sat, Sun -> Monday 6 April.
+        XCTAssertEqual(HolidayCalendar.weekday(key(2026, 4, 3)), .friday)
         let adjusted = BusinessDayAdjuster.adjust(
-            date(2026, 4, 3, in: calendar), rule: .nextBusinessDay, calendar: calendar,
-            holidays: brazil)
-        XCTAssertEqual(DayKey(adjusted, in: calendar), key(2026, 4, 6))
+            date(2026, 4, 3, in: calendar), rule: .nextBusinessDay, calendar: calendar)
+        XCTAssertEqual(DayKey(adjusted, in: calendar), key(2026, 4, 3))
     }
 
     func testPreviousBusinessDayCrossesAYearBoundary() {
         let calendar = utcCalendar()
-        // 1 January 2026 is a Thursday and a holiday; 31 December 2025 is an ordinary Wednesday in Brazil.
+        // 1 January 2028 is a Saturday; the previous business day is Friday 31 December 2027.
+        XCTAssertEqual(HolidayCalendar.weekday(key(2028, 1, 1)), .saturday)
         let adjusted = BusinessDayAdjuster.adjust(
-            date(2026, 1, 1, in: calendar), rule: .previousBusinessDay, calendar: calendar,
-            holidays: brazil)
-        XCTAssertEqual(DayKey(adjusted, in: calendar), key(2025, 12, 31))
+            date(2028, 1, 1, in: calendar), rule: .previousBusinessDay, calendar: calendar)
+        XCTAssertEqual(DayKey(adjusted, in: calendar), key(2027, 12, 31))
     }
 
     func testAdjustmentPreservesTheTimeOfDay() {
         let calendar = utcCalendar()
         let saturday = date(2026, 4, 4, in: calendar)
         let adjusted = BusinessDayAdjuster.adjust(
-            saturday, rule: .nextBusinessDay, calendar: calendar, holidays: weekendsOnly)
+            saturday, rule: .nextBusinessDay, calendar: calendar)
         XCTAssertEqual(calendar.component(.hour, from: adjusted), 12)
         XCTAssertEqual(calendar.component(.minute, from: adjusted), 0)
     }
@@ -209,19 +227,15 @@ final class BusinessDayAdjustmentTests: XCTestCase {
 
     func testAdjustmentIsIdempotentForEveryDayOfAYear() {
         let calendar = utcCalendar()
-        for holidays in [brazil, unitedStates, weekendsOnly] {
-            for rule in [BusinessDayRule.nextBusinessDay, .previousBusinessDay] {
-                for month in 1...12 {
-                    for day in 1...HolidayCalendar.daysInMonth(month, year: 2026) {
-                        let original = date(2026, month, day, in: calendar)
-                        let once = BusinessDayAdjuster.adjust(
-                            original, rule: rule, calendar: calendar, holidays: holidays)
-                        let twice = BusinessDayAdjuster.adjust(
-                            once, rule: rule, calendar: calendar, holidays: holidays)
-                        XCTAssertEqual(
-                            once, twice,
-                            "\(holidays.region)/\(rule) not idempotent at 2026-\(month)-\(day)")
-                    }
+        for rule in [BusinessDayRule.nextBusinessDay, .previousBusinessDay] {
+            for month in 1...12 {
+                for day in 1...HolidayCalendar.daysInMonth(month, year: 2026) {
+                    let original = date(2026, month, day, in: calendar)
+                    let once = BusinessDayAdjuster.adjust(
+                        original, rule: rule, calendar: calendar)
+                    let twice = BusinessDayAdjuster.adjust(once, rule: rule, calendar: calendar)
+                    XCTAssertEqual(
+                        once, twice, "\(rule) not idempotent at 2026-\(month)-\(day)")
                 }
             }
         }
@@ -233,11 +247,10 @@ final class BusinessDayAdjustmentTests: XCTestCase {
             for month in 1...12 {
                 for day in 1...HolidayCalendar.daysInMonth(month, year: 2026) {
                     let adjusted = BusinessDayAdjuster.adjust(
-                        date(2026, month, day, in: calendar), rule: rule, calendar: calendar,
-                        holidays: brazil)
+                        date(2026, month, day, in: calendar), rule: rule, calendar: calendar)
                     XCTAssertTrue(
                         BusinessDayAdjuster.isBusinessDay(
-                            adjusted, calendar: calendar, holidays: brazil),
+                            adjusted, calendar: calendar),
                         "\(rule) left 2026-\(month)-\(day) on a non-business day")
                 }
             }
@@ -250,11 +263,12 @@ final class BusinessDayAdjustmentTests: XCTestCase {
         let zones = ["UTC", "America/Sao_Paulo", "Pacific/Auckland"]
         for zoneID in zones {
             let cal = calendar(zoneID)
+            // Saturday 4 April 2026 -> Monday 6 April, in every zone.
             let adjusted = BusinessDayAdjuster.adjust(
-                date(2026, 4, 3, in: cal), rule: .nextBusinessDay, calendar: cal, holidays: brazil)
+                date(2026, 4, 4, in: cal), rule: .nextBusinessDay, calendar: cal)
             XCTAssertEqual(
                 DayKey(adjusted, in: cal), key(2026, 4, 6),
-                "Good Friday 2026 should roll to Monday 6 April in \(zoneID)")
+                "Saturday 4 April 2026 should roll to Monday 6 April in \(zoneID)")
         }
     }
 
@@ -301,8 +315,7 @@ final class BusinessDayAdjustmentTests: XCTestCase {
         XCTAssertEqual(HolidayCalendar.weekday(key(2026, 2, 15)), .sunday)
 
         let adjusted = BusinessDayAdjuster.adjust(
-            date(2026, 2, 15, in: calendar), rule: .previousBusinessDay, calendar: calendar,
-            holidays: weekendsOnly)
+            date(2026, 2, 15, in: calendar), rule: .previousBusinessDay, calendar: calendar)
         XCTAssertEqual(DayKey(adjusted, in: calendar), key(2026, 2, 13))
         XCTAssertEqual(HolidayCalendar.weekday(key(2026, 2, 13)), .friday)
     }
@@ -314,32 +327,28 @@ final class BusinessDayAdjustmentTests: XCTestCase {
         XCTAssertEqual(HolidayCalendar.weekday(key(2026, 2, 14)), .saturday)
 
         let adjusted = BusinessDayAdjuster.adjust(
-            date(2026, 2, 14, in: calendar), rule: .nextBusinessDay, calendar: calendar,
-            holidays: weekendsOnly)
+            date(2026, 2, 14, in: calendar), rule: .nextBusinessDay, calendar: calendar)
         XCTAssertEqual(DayKey(adjusted, in: calendar), key(2026, 2, 16))
         XCTAssertEqual(HolidayCalendar.weekday(key(2026, 2, 16)), .monday)
     }
 
-    /// Weekends and holidays are skipped by the same walk, so a run of both is crossed in one go.
-    ///
-    /// Sunday 15 February 2026 forwards in Brazil: Monday the 16th and Tuesday the 17th are Carnaval,
-    /// so the first business day is Wednesday the 18th - four days later.
-    func testWalkCrossesAWeekendAndConsecutiveHolidaysTogether() {
+    /// Carnaval Monday and Tuesday (16-17 February 2026) are holidays but ordinary weekdays, so the
+    /// walk stops at the Monday instead of crossing them.
+    func testWalkDoesNotCrossHolidaysThatFallOnWeekdays() {
         let calendar = utcCalendar()
+        XCTAssertTrue(brazil.isHoliday(key(2026, 2, 16)))
         let adjusted = BusinessDayAdjuster.adjust(
-            date(2026, 2, 15, in: calendar), rule: .nextBusinessDay, calendar: calendar,
-            holidays: brazil)
-        XCTAssertEqual(DayKey(adjusted, in: calendar), key(2026, 2, 18))
+            date(2026, 2, 15, in: calendar), rule: .nextBusinessDay, calendar: calendar)
+        XCTAssertEqual(DayKey(adjusted, in: calendar), key(2026, 2, 16))
     }
 
-    /// And backwards over the same block: Wednesday 18 February is already a business day, but
-    /// Tuesday the 17th walks back over both Carnaval days and the weekend to Friday the 13th.
-    func testPreviousWalkCrossesHolidaysAndTheWeekendBehindThem() {
+    /// The backwards mirror, holidays ignored: Tuesday 17 February is an ordinary weekday and stays.
+    func testPreviousWalkLeavesAHolidayWeekdayInPlace() {
         let calendar = utcCalendar()
+        XCTAssertTrue(brazil.isHoliday(key(2026, 2, 17)))
         let adjusted = BusinessDayAdjuster.adjust(
-            date(2026, 2, 17, in: calendar), rule: .previousBusinessDay, calendar: calendar,
-            holidays: brazil)
-        XCTAssertEqual(DayKey(adjusted, in: calendar), key(2026, 2, 13))
+            date(2026, 2, 17, in: calendar), rule: .previousBusinessDay, calendar: calendar)
+        XCTAssertEqual(DayKey(adjusted, in: calendar), key(2026, 2, 17))
     }
 
     // MARK: - Occurrence generation
@@ -353,12 +362,12 @@ final class BusinessDayAdjustmentTests: XCTestCase {
         for month in 1...12 {
             let first = OccurrenceDateCalculator.occurrencePair(
                 from: origin, targetMonth: month, targetYear: 2026, rule: .nextBusinessDay,
-                calendar: calendar, holidays: brazil)
+                calendar: calendar)
             // Re-deriving from the pair's own unadjusted value - what lazy generation does months
             // later - must land on exactly the same dates.
             let again = OccurrenceDateCalculator.occurrencePair(
                 from: first.unadjusted, targetMonth: month, targetYear: 2026, rule: .nextBusinessDay,
-                calendar: calendar, holidays: brazil)
+                calendar: calendar)
             XCTAssertEqual(first.unadjusted, again.unadjusted, "month \(month)")
             XCTAssertEqual(first.adjusted, again.adjusted, "month \(month)")
         }
@@ -372,12 +381,12 @@ final class BusinessDayAdjustmentTests: XCTestCase {
         let origin = date(2026, 4, 4, in: calendar)
         let correct = OccurrenceDateCalculator.occurrencePair(
             from: origin, targetMonth: 4, targetYear: 2026, rule: .nextBusinessDay,
-            calendar: calendar, holidays: weekendsOnly)
+            calendar: calendar)
         XCTAssertEqual(DayKey(correct.adjusted, in: calendar), key(2026, 4, 6))
 
         let drifted = OccurrenceDateCalculator.occurrencePair(
             from: correct.adjusted, targetMonth: 4, targetYear: 2026, rule: .nextBusinessDay,
-            calendar: calendar, holidays: weekendsOnly)
+            calendar: calendar)
         XCTAssertNotEqual(
             DayKey(drifted.unadjusted, in: calendar), DayKey(correct.unadjusted, in: calendar),
             "feeding the adjusted date back in should visibly move the anchor day - this is what the "
@@ -392,7 +401,7 @@ final class BusinessDayAdjustmentTests: XCTestCase {
         let origin = date(2026, 1, 31, in: calendar)
         let occurrence = OccurrenceDateCalculator.occurrencePair(
             from: origin, targetMonth: 1, targetYear: 2026, rule: .nextBusinessDay,
-            calendar: calendar, holidays: weekendsOnly)
+            calendar: calendar)
 
         XCTAssertEqual(DayKey(occurrence.adjusted, in: calendar), key(2026, 2, 2))
         XCTAssertEqual(DayKey(occurrence.unadjusted, in: calendar), key(2026, 1, 31))
@@ -427,7 +436,7 @@ final class BusinessDayAdjustmentTests: XCTestCase {
         let calendar = utcCalendar()
         let pair = OccurrenceDateCalculator.occurrencePair(
             from: date(2026, 4, 4, in: calendar), targetMonth: 4, targetYear: 2026, rule: .exact,
-            calendar: calendar, holidays: brazil)
+            calendar: calendar)
         XCTAssertEqual(pair.unadjusted, pair.adjusted)
     }
 
@@ -448,7 +457,7 @@ final class BusinessDayAdjustmentTests: XCTestCase {
         let scheduled = date(2026, 11, 1, in: calendar)
         let occurrence = OccurrenceDateCalculator.occurrencePair(
             from: scheduled, targetMonth: 11, targetYear: 2026, rule: .previousBusinessDay,
-            calendar: calendar, holidays: weekendsOnly)
+            calendar: calendar)
 
         XCTAssertEqual(DayKey(occurrence.adjusted, in: calendar), key(2026, 10, 30))
 
@@ -500,10 +509,10 @@ final class BusinessDayAdjustmentTests: XCTestCase {
         // October's own occurrence, on the 30th, plus November's pulled back to the 30th.
         let october = OccurrenceDateCalculator.occurrencePair(
             from: date(2026, 10, 30, in: calendar), targetMonth: 10, targetYear: 2026,
-            rule: .previousBusinessDay, calendar: calendar, holidays: weekendsOnly)
+            rule: .previousBusinessDay, calendar: calendar)
         let november = OccurrenceDateCalculator.occurrencePair(
             from: date(2026, 11, 1, in: calendar), targetMonth: 11, targetYear: 2026,
-            rule: .previousBusinessDay, calendar: calendar, holidays: weekendsOnly)
+            rule: .previousBusinessDay, calendar: calendar)
 
         XCTAssertEqual(
             october.adjusted.monthAnchor, november.adjusted.monthAnchor,
