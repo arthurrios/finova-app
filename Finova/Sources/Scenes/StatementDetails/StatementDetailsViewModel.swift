@@ -27,6 +27,17 @@ final class StatementDetailsViewModel {
 
     func loadTransactions() {
         guard let stmtId = statement.id else { return }
+
+        // Re-read the statement, don't trust the copy handed to `init`. Paying it from the screen
+        // pushed on top of this one flips `is_paid`/`paid_date` in the database, and a snapshot taken
+        // when this screen was first created would go on reporting the invoice as open and unpaid
+        // after the user came back.
+        if let fresh = stmtRepo.fetchStatements(forCardId: statement.creditCardId)
+            .first(where: { $0.id == stmtId })
+        {
+            statement = fresh
+        }
+
         let allTransactions = transactionRepo.fetchAllTransactions()
         transactions = allTransactions.filter { tx in
             guard tx.statementId == stmtId && tx.isCreditCardStatement != true else { return false }

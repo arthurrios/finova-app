@@ -7,6 +7,7 @@ import UIKit
 
 protocol StatementDetailsViewDelegate: AnyObject {
     func didTapBack()
+    func didTapPayStatement()
     func didTapMarkAsPaid()
     func didTapTransaction(_ transaction: Transaction)
     func didRequestDeleteTransaction(_ transaction: Transaction, completion: @escaping (Bool) -> Void)
@@ -164,7 +165,7 @@ final class StatementDetailsView: UIView {
         let stackView = UIStackView(
             axis: .vertical,
             spacing: Metrics.spacing3,
-            arrangedSubviews: [markAsPaidButton]
+            arrangedSubviews: [payStatementButton, markAsPaidButton]
         )
         stackView.translatesAutoresizingMaskIntoConstraints = false
         stackView.directionalLayoutMargins = NSDirectionalEdgeInsets(
@@ -174,7 +175,13 @@ final class StatementDetailsView: UIView {
         return stackView
     }()
 
-    let markAsPaidButton = Button(variant: .base, label: "statementDetails.button.markAsPaid".localized)
+    /// The primary action: it records a real payment — a debit for the money and a credit against the
+    /// invoice. `markAsPaidButton` below only flips a flag and moves nothing, so it is demoted to the
+    /// outlined variant rather than removed; users who reconcile elsewhere still want it.
+    let payStatementButton = Button(
+        variant: .base, label: "statementDetails.button.payStatement".localized)
+
+    let markAsPaidButton = Button(variant: .outlined, label: "statementDetails.button.markAsPaid".localized)
 
     override init(frame: CGRect) {
         super.init(frame: .zero)
@@ -331,10 +338,12 @@ final class StatementDetailsView: UIView {
         let backTap = UITapGestureRecognizer(target: self, action: #selector(backTapped))
         backButtonGlassContainer.addGestureRecognizer(backTap)
         markAsPaidButton.addTarget(self, action: #selector(markAsPaidTapped), for: .touchUpInside)
+        payStatementButton.addTarget(self, action: #selector(payStatementTapped), for: .touchUpInside)
     }
 
     @objc private func backTapped() { delegate?.didTapBack() }
     @objc private func markAsPaidTapped() { delegate?.didTapMarkAsPaid() }
+    @objc private func payStatementTapped() { delegate?.didTapPayStatement() }
 
     // MARK: - Configuration
     func configure(with viewModel: StatementDetailsViewModel) {
@@ -362,6 +371,10 @@ final class StatementDetailsView: UIView {
 
         // Footer visibility
         markAsPaidButton.isHidden = viewModel.isPaid
+        // Nothing to pay on an invoice whose charges are already fully offset by credits. It can
+        // happen without the paid flag — a refund covering the whole balance — and offering to pay
+        // zero would just fail the amount check.
+        payStatementButton.isHidden = viewModel.statementTotal <= 0
         actionButtonsContainerView.isHidden = viewModel.isPaid
 
         if let paidText = viewModel.paidDateText {

@@ -47,6 +47,10 @@ extension StatementDetailsViewController: StatementDetailsViewDelegate {
         flowDelegate?.dismissStatementDetails()
     }
 
+    func didTapPayStatement() {
+        flowDelegate?.payStatement(card: viewModel.card, statement: viewModel.statement)
+    }
+
     func didTapMarkAsPaid() {
         let alert = UIAlertController(
             title: "statementDetails.button.markAsPaid".localized,

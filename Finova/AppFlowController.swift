@@ -727,10 +727,39 @@ extension AppFlowController: AddCreditCardFlowDelegate {
     }
 }
 
+// MARK: - Statement Payment Flow
+
+extension AppFlowController: StatementPaymentFlowDelegate {
+    func dismissStatementPayment() {
+        navigationController?.popViewController(animated: true)
+    }
+
+    func didCompleteStatementPayment(paymentId: Int) {
+        // Back to the invoice rather than on to the debit that was created — unlike an early payment,
+        // the question the user is answering here is "did my statement go down?", and the statement
+        // screen reloads itself in `viewWillAppear`. The debit is one tap away in the ledger.
+        navigationController?.popViewController(animated: true)
+
+        // The dashboard behind this stack is showing pre-payment balances.
+        DispatchQueue.main.async {
+            self.navigationController?.viewControllers
+                .compactMap { $0 as? DashboardViewController }
+                .last?
+                .refreshAfterTransactionAdd()
+        }
+    }
+}
+
 // MARK: - Statement Details Flow
 extension AppFlowController: StatementDetailsFlowDelegate {
     func dismissStatementDetails() {
         navigationController?.popViewController(animated: true)
+    }
+
+    func payStatement(card: CreditCard, statement: CreditCardStatement) {
+        let viewController = viewControllersFactory.makeStatementPaymentViewController(
+            flowDelegate: self, statement: statement, card: card)
+        navigationController?.pushViewController(viewController, animated: true)
     }
 
     func didMarkStatementAsPaid() {

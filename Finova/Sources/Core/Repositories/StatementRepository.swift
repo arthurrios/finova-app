@@ -107,4 +107,17 @@ class StatementRepository {
             return false
         }
     }
+
+    /// Reopens a paid statement. The undo half of `markAsPaid`.
+    func markAsUnpaid(statementId: Int) -> Bool {
+        do {
+            try DBHelper.shared.markStatementAsUnpaid(statementId: statementId)
+            // The due reminders were cancelled when it was marked paid, so they have to come back.
+            StatementNotificationManager.shared.rescheduleAllNotifications()
+            return true
+        } catch {
+            logError("Failed to mark statement as unpaid: \(error)")
+            return false
+        }
+    }
 }

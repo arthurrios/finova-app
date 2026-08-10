@@ -193,6 +193,16 @@ final class TransactionRepository: TransactionRepositoryProtocol {
       InstallmentCancellationService(transactionRepo: self).releaseInstallments(cancelledBy: id)
     }
 
+    // A statement payment is a pair — the debit that moved the money and the credit that reduced the
+    // invoice — and neither half makes sense alone. Deleting the debit while its credit stood would
+    // leave the invoice discounted by a payment nobody made; deleting the credit while its debit stood
+    // would charge for a payment the invoice no longer records. Either half taken removes the other,
+    // and the statement is reopened if it owes money again. The service holds a cascade guard so the
+    // partner's own delete does not come back round here.
+    if db.isStatementPayment(transactionId: id) || db.statementPaymentId(transactionId: id) != nil {
+      StatementPaymentService(transactionRepo: self).handleDeletion(of: id)
+    }
+
     UNUserNotificationCenter.current().removePendingNotificationRequests(
       withIdentifiers: ["transaction_\(id)"])
 
