@@ -51,9 +51,10 @@ final class ConflictResolver {
         // wire — `resolveUuidForeignKeys()` derives the local id afterwards, on this pass or a later
         // one if the debit itself hasn't arrived yet.
         // Gated per field on the schema version that introduced it: an absent pointer from a peer that
-        // HAS the field is a genuine clear (the early payment was reversed, the cancellation undone),
-        // while the same absence from an older peer means nothing at all and must leave the local
-        // pointer alone. Version 1 = early payment, version 2 = cancellation.
+        // HAS the field is a genuine clear (the early payment was reversed, the cancellation undone,
+        // the statement payment deleted), while the same absence from an older peer means nothing at
+        // all and must leave the local pointer alone. Version 1 = early payment, version 2 =
+        // cancellation, version 3 = statement payment.
         if table == "Transactions" {
             let senderSchema = ckRecord["earlyPaymentSchema"] as? Int ?? 0
             db.applyInboundInstallmentPointers(
@@ -68,6 +69,12 @@ final class ConflictResolver {
                     ? (
                         uuid: ckRecord["cancelledByTransactionUuid"] as? String,
                         isPayer: (ckRecord["isCancellationRefund"] as? Int) == 1
+                    )
+                    : nil,
+                statementPayment: senderSchema >= 3
+                    ? (
+                        uuid: ckRecord["statementPaymentUuid"] as? String,
+                        isPayer: (ckRecord["isStatementPayment"] as? Int) == 1
                     )
                     : nil
             )

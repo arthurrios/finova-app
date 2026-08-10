@@ -172,6 +172,14 @@ final class ViewControllersFactory: ViewControllersFactoryProtocol {
         return viewController
     }
 
+    func makeStatementPaymentViewController(flowDelegate: StatementPaymentFlowDelegate, statement: CreditCardStatement, card: CreditCard) -> StatementPaymentViewController {
+        let contentView = StatementPaymentView()
+        let viewModel = StatementPaymentViewModel(card: card, statement: statement)
+        let viewController = StatementPaymentViewController(
+            contentView: contentView, viewModel: viewModel, flowDelegate: flowDelegate)
+        return viewController
+    }
+
     func makeBudgetGroupsViewController(flowDelegate: BudgetGroupsFlowDelegate) -> BudgetGroupsViewController {
         let contentView = BudgetGroupsView()
         let viewModel = BudgetGroupsViewModel()

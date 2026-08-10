@@ -73,6 +73,7 @@ class DBHelper {
             try migrateRevColumns()
             try migrateUuidColumnsV1()
             try migrateEarlyPaymentColumns()
+            try migrateStatementPaymentColumns()
             try migrateBusinessDayColumns()
             isInitialized = true
             performUuidBackfillV1()
@@ -1891,6 +1892,37 @@ class DBHelper {
         }
     }
     
+    /// Reopens a statement that was marked paid.
+    ///
+    /// Needed because a statement payment can be undone: deleting the debit puts the balance back, and
+    /// an invoice that still reads "paid" while owing money is worse than one that never got the flag.
+    /// Clears `paid_amount`/`paid_date` too — a stale amount from a payment that no longer exists is
+    /// what `StatementDetailsView` would otherwise go on displaying.
+    func markStatementAsUnpaid(statementId: Int) throws {
+        guard isInitialized else { return }
+        let query = """
+            UPDATE CreditCardStatements
+               SET is_paid = 0, paid_amount = NULL, paid_date = NULL, updated_at = ?,
+                   sync_status = 'pending', ck_modified_at = ?
+             WHERE id = ?;
+            """
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK else {
+            let msg = String(cString: sqlite3_errmsg(db))
+            throw DBError.prepareFailed(message: msg)
+        }
+        defer { sqlite3_finalize(statement) }
+        let now = Int64(Date().timeIntervalSince1970)
+        sqlite3_bind_int64(statement, 1, now)
+        sqlite3_bind_int64(statement, 2, now)
+        sqlite3_bind_int64(statement, 3, Int64(statementId))
+        guard sqlite3_step(statement) == SQLITE_DONE else {
+            let msg = String(cString: sqlite3_errmsg(db))
+            throw DBError.stepFailed(message: msg)
+        }
+        SyncChangeTracker.shared.markDirty()
+    }
+
     func updateStatementDates(statementId: Int, closingDate: Int, dueDate: Int, isDatesOverridden: Bool = false) throws {
         guard isInitialized else { return }
         let query = "UPDATE CreditCardStatements SET closing_date = ?, due_date = ?, is_dates_overridden = ?, updated_at = ?, sync_status = 'pending', ck_modified_at = ? WHERE id = ?;"
@@ -1970,23 +2002,32 @@ class DBHelper {
         return val == 1
     }
 
-    // MARK: - Installment Series Pointers
+    // MARK: - Transaction Supersession Pointers
 
-    /// The two ways an installment can be superseded, each a (integer, uuid) column pair pointing at
-    /// the transaction responsible.
+    /// The ways one transaction can be superseded or offset by another, each a (integer, uuid) column
+    /// pair pointing at the transaction responsible, plus a flag marking that other transaction.
     ///
-    /// They differ in one respect that matters: a `settled` installment stops counting toward totals
-    /// (its money was charged early, on the debit), while a `cancelled` one keeps counting (the card
-    /// goes on charging it and a single credit offsets the whole remainder). Only the pointer
-    /// mechanics are shared, which is what this enum abstracts.
+    /// The mechanics are shared; what each case MEANS for totals is not, and the difference is the
+    /// whole reason they are separate columns rather than one:
+    ///
+    /// - `settledEarly` — the installment stops counting toward totals; its money was charged early,
+    ///   on the debit. `DBHelper.statementRowFilter` excludes these rows outright.
+    /// - `cancelled` — the installment keeps counting: the card goes on charging it and a single
+    ///   credit offsets the whole remainder.
+    /// - `statementPayment` — the pointer sits on a CREDIT row inside a statement, aimed at the debit
+    ///   that paid it. That credit **must keep counting**, because being counted as income is exactly
+    ///   how it reduces the invoice (see `signedAmount`). Reusing `settledEarly` here would filter the
+    ///   credit out and cancel the payment's effect entirely.
     enum InstallmentPointer {
         case settledEarly
         case cancelled
+        case statementPayment
 
         var intColumn: String {
             switch self {
             case .settledEarly: return "settled_by_transaction_id"
             case .cancelled: return "cancelled_by_transaction_id"
+            case .statementPayment: return "statement_payment_id"
             }
         }
 
@@ -1994,6 +2035,7 @@ class DBHelper {
             switch self {
             case .settledEarly: return "settled_by_transaction_uuid"
             case .cancelled: return "cancelled_by_transaction_uuid"
+            case .statementPayment: return "statement_payment_uuid"
             }
         }
 
@@ -2002,6 +2044,7 @@ class DBHelper {
             switch self {
             case .settledEarly: return "is_early_payment"
             case .cancelled: return "is_cancellation_refund"
+            case .statementPayment: return "is_statement_payment"
             }
         }
     }
@@ -2205,6 +2248,36 @@ class DBHelper {
         hasInstallmentPointerFlag(.cancelled, transactionId: transactionId)
     }
 
+    /// Points a statement credit at the debit that paid it, or clears it when `nil`.
+    @discardableResult
+    func setStatementPaymentLink(transactionId: Int, paymentId: Int?) -> Bool {
+        setInstallmentPointer(.statementPayment, transactionId: transactionId, targetId: paymentId)
+    }
+
+    /// The id of the debit that produced this statement credit, if any.
+    func statementPaymentId(transactionId: Int) -> Int? {
+        installmentPointerTarget(.statementPayment, transactionId: transactionId)
+    }
+
+    func statementPaymentUuid(transactionId: Int) -> String? {
+        installmentPointerUuid(.statementPayment, transactionId: transactionId)
+    }
+
+    /// The statement credit rows a given payment debit produced. Normally exactly one.
+    func creditIds(paidBy paymentId: Int) -> [Int] {
+        installmentIds(.statementPayment, pointingAt: paymentId)
+    }
+
+    @discardableResult
+    func setStatementPaymentFlag(transactionId: Int, isStatementPayment: Bool) -> Bool {
+        setInstallmentPointerFlag(
+            .statementPayment, transactionId: transactionId, isSet: isStatementPayment)
+    }
+
+    func isStatementPayment(transactionId: Int) -> Bool {
+        hasInstallmentPointerFlag(.statementPayment, transactionId: transactionId)
+    }
+
     /// Applies the pointers carried by an inbound record.
     ///
     /// Only uuids are written — never an integer id from another device. `resolveUuidForeignKeys()`
@@ -2215,7 +2288,8 @@ class DBHelper {
     func applyInboundInstallmentPointers(
         ckRecordName: String,
         settled: (uuid: String?, isPayer: Bool)?,
-        cancelled: (uuid: String?, isPayer: Bool)?
+        cancelled: (uuid: String?, isPayer: Bool)?,
+        statementPayment: (uuid: String?, isPayer: Bool)? = nil
     ) {
         guard isInitialized else { return }
         if let settled = settled {
@@ -2227,6 +2301,11 @@ class DBHelper {
             applyInboundPointer(
                 .cancelled, ckRecordName: ckRecordName, uuid: cancelled.uuid,
                 isPayer: cancelled.isPayer)
+        }
+        if let statementPayment = statementPayment {
+            applyInboundPointer(
+                .statementPayment, ckRecordName: ckRecordName, uuid: statementPayment.uuid,
+                isPayer: statementPayment.isPayer)
         }
     }
 
@@ -2657,6 +2736,39 @@ class DBHelper {
             nil, nil, nil)
     }
 
+    /// Paying a credit-card statement, in part or in full.
+    ///
+    /// A payment is a PAIR of rows: a debit on the chosen date with no card link (the money actually
+    /// leaving the account, which is why it counts in the ledger), and a credit inside the statement
+    /// for the same amount (which is what makes the invoice total drop). `statement_payment_id` sits
+    /// on the credit and points at the debit, so either row can find the other and deleting one can
+    /// take the other with it.
+    ///
+    /// The credit deliberately does NOT use `settled_by_transaction_id`. That column removes a row
+    /// from `statementRowFilter` and `getTransactionSumForStatement`; this credit has to stay counted,
+    /// because being summed as income (see `signedAmount`) is precisely how it reduces the invoice.
+    ///
+    /// `statement_payment_uuid` is the pointer that crosses the wire; the integer is a local cache
+    /// rebuilt by `resolveUuidForeignKeys()`, exactly as with `settled_by_transaction_id`.
+    ///
+    /// Runs after `migrateEarlyPaymentColumns` for the same reason it does — `uuidFKRules` references
+    /// both columns.
+    private func migrateStatementPaymentColumns() throws {
+        try addColumnIfNotExists(
+            table: "Transactions", column: "statement_payment_id", definition: "INTEGER")
+        try addColumnIfNotExists(
+            table: "Transactions", column: "statement_payment_uuid", definition: "TEXT")
+        // Marks the debit, so the delete path can recognise it after its credit is gone and the
+        // details screen can name what it paid. A separate flag rather than inferring from "some row
+        // points at me", matching `is_early_payment`.
+        try addColumnIfNotExists(
+            table: "Transactions", column: "is_statement_payment", definition: "INTEGER DEFAULT 0")
+        sqlite3_exec(
+            db,
+            "CREATE INDEX IF NOT EXISTS idx_tx_statement_payment ON Transactions(statement_payment_id);",
+            nil, nil, nil)
+    }
+
     /// Business-day adjustment: which rule this row was created with, and the date before the rule
     /// moved it.
     ///
@@ -2945,6 +3057,7 @@ class DBHelper {
         ("Transactions", "parent_transaction_id", "parent_transaction_uuid", "Transactions"),
         ("Transactions", "settled_by_transaction_id", "settled_by_transaction_uuid", "Transactions"),
         ("Transactions", "cancelled_by_transaction_id", "cancelled_by_transaction_uuid", "Transactions"),
+        ("Transactions", "statement_payment_id", "statement_payment_uuid", "Transactions"),
         ("CreditCardStatements", "credit_card_id", "credit_card_uuid", "CreditCards"),
         ("BudgetAllocations", "parent_allocation_id", "parent_allocation_uuid", "BudgetAllocations"),
     ]

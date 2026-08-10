@@ -65,4 +65,26 @@ enum CloudKitSchemaFlags {
     ///
     /// Deployed to the production schema on 2026-08-04.
     static let businessDayFieldsDeployed = true
+
+    /// Whether `statementPaymentUuid` and `isStatementPayment` exist on the `Transaction` record in
+    /// the production schema.
+    ///
+    /// Fields on an existing record type pushed through `pushBatches`, so the warning at the top
+    /// applies in full: one undeployed field halts every remaining save batch, for all data.
+    ///
+    /// While this is `false`, paying a statement works correctly on the device that does it — both
+    /// rows are created and the invoice balance drops, because the rows themselves sync as ordinary
+    /// transactions. Only the LINK between them stays local. A second device would show the debit and
+    /// the credit as unrelated rows, and deleting one there would not remove the other. So this must
+    /// be `true` before the feature reaches users on more than one device.
+    ///
+    /// It also gates the `earlyPaymentSchema` bump to 3: a receiver reads version 3 as "this sender
+    /// knows about the statement-payment pointer", and claiming that while the field is withheld
+    /// would make an absent pointer look like a deliberate clear.
+    ///
+    /// **Not yet deployed.** Xcode builds use the Development environment, where CloudKit
+    /// auto-creates the fields, so on-device testing works with this `false` and the link simply
+    /// stays local. Before a TestFlight or App Store build: CloudKit Dashboard → Deploy Schema
+    /// Changes → Production, then flip this. Setting it back to `false` is the escape hatch.
+    static let statementPaymentFieldsDeployed = false
 }

@@ -161,6 +161,24 @@ class StatementRepository {
         }
     }
 
+    /// Reopens a paid statement. The undo half of `markAsPaid`.
+    func markAsUnpaid(statementId: Int) -> Bool {
+        do {
+            try db.markStatementAsUnpaid(statementId: statementId)
+            db.executeSyncUpdate(
+                "UPDATE CreditCardStatements SET sync_status = 'pending' WHERE id = ?;",
+                intBindings: [statementId]
+            )
+            // The due reminders were cancelled when it was marked paid, so they have to come back.
+            StatementNotificationManager.shared.rescheduleAllNotifications()
+            NotificationCenter.default.post(name: .creditCardDataChanged, object: nil)
+            return true
+        } catch {
+            logError("Failed to mark statement as unpaid: \(error)")
+            return false
+        }
+    }
+
     // MARK: - CloudKit Sync Methods
 
     func fetchPendingSync() -> [CreditCardStatement] {
