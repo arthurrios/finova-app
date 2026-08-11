@@ -1200,6 +1200,12 @@ final class DashboardViewController: UIViewController {
         
         // Check if budget migration is needed (run once)
         checkAndRunBudgetMigrationIfNeeded()
+
+        // Undo the statement-due month that moving a transaction between statements used to stamp
+        // onto `budget_month_date`, putting each card expense back in the month it was spent.
+        // Runs once per device, here rather than at launch because it needs a signed-in user's rows.
+        CreditCardService().repairBudgetMonthToSpendingMonthIfNeeded(
+            transactionRepo: viewModel.transactionRepo)
         
         DispatchQueue.global(qos: .userInitiated).async {
             let userImage = SecureLocalDataManager.shared.loadProfileImage()

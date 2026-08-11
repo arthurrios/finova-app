@@ -141,14 +141,65 @@ class CreditCardService {
         }
     }
 
+    /// Puts a card transaction's `budget_month_date` back on the month it was spent in.
+    /// Returns how many rows moved.
+    ///
+    /// `moveTransactionToStatement` used to stamp the target statement's DUE month onto that
+    /// column. A due date almost always lands in the month AFTER the purchase, so every transaction
+    /// the user had moved between statements — in every category — was charged to the following
+    /// month's allocation, leaving its own month looking underspent and the next one over budget.
+    ///
+    /// Scoped to exactly that population: rows flagged `is_statement_overridden`, which is the flag
+    /// that path sets. A card purchase nobody moved already carries the right month, and
+    /// recomputing it would move a row that was never broken. `date` was never touched by that
+    /// path, so it is the purchase date and therefore the answer.
+    @discardableResult
+    func repairBudgetMonthToSpendingMonth(transactionRepo: TransactionRepository) -> Int {
+        let damaged = transactionRepo.fetchAllTransactions().filter { tx in
+            guard let txId = tx.id, tx.statementId != nil, tx.isCreditCardStatement != true
+            else { return false }
+            return DBHelper.shared.isStatementOverridden(transactionId: txId)
+        }
+        guard !damaged.isEmpty else { return 0 }
+
+        var fixCount = 0
+        for tx in damaged {
+            guard let txId = tx.id else { continue }
+            let month = Date(timeIntervalSince1970: TimeInterval(tx.dateTimestamp)).monthAnchor
+            guard month != tx.budgetMonthDate else { continue }
+
+            // `updateBudgetMonthDate` mirrors the row to the secure store itself, so there is
+            // nothing further to mark on this branch.
+            transactionRepo.updateBudgetMonthDate(transactionId: txId, newBudgetMonthDate: month)
+            fixCount += 1
+            logWarning(
+                "[CCRepair] tx \(txId) ('\(tx.title)') budgetMonth \(tx.budgetMonthDate) -> \(month) (statement month was not the spending month)"
+            )
+        }
+
+        if fixCount > 0 {
+            logWarning("[CCRepair] Moved \(fixCount) card transaction(s) back to their spending month")
+            NotificationCenter.default.post(name: .transactionDataChanged, object: nil)
+        }
+        return fixCount
+    }
+
+    /// One-time repair, run once per device. See `repairBudgetMonthToSpendingMonth`.
+    func repairBudgetMonthToSpendingMonthIfNeeded(transactionRepo: TransactionRepository) {
+        let key = "hasRepairedCCBudgetMonthToSpendingMonth_v1"
+        guard !UserDefaults.standard.bool(forKey: key) else { return }
+        repairBudgetMonthToSpendingMonth(transactionRepo: transactionRepo)
+        UserDefaults.standard.set(true, forKey: key)
+    }
+
     /// Moves a card transaction onto a different statement at the user's request.
     ///
     /// The move is flagged as an override so `reassignCardTransactions` — which re-derives every
     /// card transaction's statement from the card's current closing day — cannot silently undo it.
     ///
-    /// `budget_month_date` follows the target statement's due month so the expense counts against
-    /// the budget for the month it is actually billed; the purchase date itself is left alone,
-    /// because the purchase still happened when it happened.
+    /// Neither the purchase date NOR `budget_month_date` is touched: moving a purchase to another
+    /// statement changes when the CARD BILLS IT, not when it was spent, and the budget month is the
+    /// spending month — the one whose category allocation the purchase consumes.
     func moveTransactionToStatement(
         transactionId: Int,
         creditCardId: Int,
@@ -165,14 +216,6 @@ class CreditCardService {
             )
 
             DBHelper.shared.setStatementOverridden(transactionId: transactionId, overridden: true)
-
-            let targetStatements = stmtRepo.fetchStatements(forCardId: creditCardId)
-            if let targetStatement = targetStatements.first(where: { $0.id == toStatementId }) {
-                transactionRepo.updateBudgetMonthDate(
-                    transactionId: transactionId,
-                    newBudgetMonthDate: targetStatement.dueDate.monthAnchor
-                )
-            }
 
             // The source statement is recalculated through `recalculateStatementTotal` so it is
             // deleted if this was its last row; the target cannot be empty, so a plain total is enough.
