@@ -98,7 +98,15 @@ final class SplashViewController: UIViewController {
       BudgetAllocationRepository.migrateFromUserDefaultsIfNeeded()
 
       // One-time: migrate existing CC installment dates to statement due dates
-      CreditCardService().migrateInstallmentDatesToStatementDueDates(transactionRepo: TransactionRepository())
+      let ccTransactionRepo = TransactionRepository()
+      let ccService = CreditCardService()
+      ccService.migrateInstallmentDatesToStatementDueDates(transactionRepo: ccTransactionRepo)
+
+      // One-time: undo the statement-due month that the remap above (and the manual
+      // move-to-statement action) used to stamp onto `budget_month_date`, putting each card
+      // expense back in the month it was actually spent. Runs after the date migration so it sees
+      // the final ledger dates. Ordered, deterministic, and skipped on an unhydrated device.
+      ccService.repairBudgetMonthToSpendingMonthIfNeeded(transactionRepo: ccTransactionRepo)
 
       // Check if this user has existing settings
       let existingSettings = UIDUserDefaultsManager.shared.getUserSettings(for: firebaseUser.uid)

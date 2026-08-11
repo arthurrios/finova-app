@@ -229,6 +229,18 @@ final class TransactionRepository: TransactionRepositoryProtocol {
     )
   }
 
+  /// Puts a card transaction's ledger date on its statement's due date WITHOUT touching the month it
+  /// is budgeted against. Every statement remap goes through here rather than
+  /// `updateDateAndBudgetMonth`, so no path can silently move an expense out of the month it was
+  /// spent in — see `DBHelper.updateTransactionDate`.
+  func updateStatementDueDate(transactionId: Int, newDateTimestamp: Int) {
+    Self.invalidateCache()
+    db.updateTransactionDate(
+      transactionId: transactionId,
+      newDateTimestamp: newDateTimestamp
+    )
+  }
+
   func updateBudgetMonthDate(transactionId: Int, newBudgetMonthDate: Int) {
     Self.invalidateCache()
     db.updateTransactionBudgetMonthDate(
@@ -453,13 +465,11 @@ final class TransactionRepository: TransactionRepositoryProtocol {
             )
             newStatementIds.insert(stmtId)
 
-            // Remap installment date to statement due date
+            // Ledger date only — the budget month stays on `installment.unadjusted`, set above.
             let dueDateTimestamp = Int(statement.dueDate.timeIntervalSince1970)
-            let dueDateBudgetMonth = statement.dueDate.monthAnchor
-            updateDateAndBudgetMonth(
+            updateStatementDueDate(
               transactionId: insertedId,
-              newDateTimestamp: dueDateTimestamp,
-              newBudgetMonthDate: dueDateBudgetMonth
+              newDateTimestamp: dueDateTimestamp
             )
 
             previousStatement = statement

@@ -972,8 +972,9 @@ final class RecurringTransactionManager {
 
   /// Assigns a transaction to the correct credit card statement based on its date.
   /// When `remapToStatementDueDate` is true (for CC installments), the transaction's
-  /// dateTimestamp and budgetMonthDate are updated to the statement's due date so that
-  /// the installment appears in the month money is actually debited.
+  /// dateTimestamp is moved to the statement's due date so it appears in the month money is
+  /// actually debited. Its `budgetMonthDate` is deliberately left alone: the expense still consumes
+  /// the category allocation of the month it was spent in.
   private func assignToStatement(transactionId: Int, creditCardId: Int, transactionDate: Date, userId: String, remapToStatementDueDate: Bool = false) {
     guard let card = creditCardRepo.fetchCard(byId: creditCardId) else { return }
     // On non-original devices, only link to existing statements (never create new ones).
@@ -997,11 +998,9 @@ final class RecurringTransactionManager {
 
       if remapToStatementDueDate {
         let dueDateTimestamp = Int(statement.dueDate.timeIntervalSince1970)
-        let dueDateBudgetMonth = statement.dueDate.monthAnchor
-        transactionRepo.updateDateAndBudgetMonth(
+        transactionRepo.updateStatementDueDate(
           transactionId: transactionId,
-          newDateTimestamp: dueDateTimestamp,
-          newBudgetMonthDate: dueDateBudgetMonth
+          newDateTimestamp: dueDateTimestamp
         )
       }
     } catch {

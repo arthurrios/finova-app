@@ -67,7 +67,7 @@ enum DataRepairService {
         creditCardService.consolidateDuplicateStatementsByMonth(userId: uid, transactionRepo: transactionRepo)
         creditCardService.reassignMisplacedTransactions(userId: uid, transactionRepo: transactionRepo)
         creditCardService.recalculateAllStatementTotals()
-        creditCardService.repairBudgetMonthForOverriddenTransactions()
+        creditCardService.repairBudgetMonthToSpendingMonth(transactionRepo: transactionRepo)
 
         // Consolidate duplicate allocations — one per (scope, month, category), which is the app's
         // own invariant: `insertAllocation` rejects a second one for the same category and month in

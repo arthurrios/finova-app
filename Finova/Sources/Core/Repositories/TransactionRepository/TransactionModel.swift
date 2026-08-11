@@ -64,6 +64,13 @@ struct Transaction: Codable {
     /// The occurrence slot this row occupies, falling back to its accounting month.
     var seriesPeriod: Int { data.seriesPeriod ?? data.budgetMonthDate }
 
+    /// The occurrence slot AS STORED, with no fallback.
+    ///
+    /// A repair that has to tell "no slot was ever recorded" from "the slot happens to equal the
+    /// accounting month" cannot use `seriesPeriod` — its fallback collapses the two. Only reach for
+    /// this when that distinction is the point.
+    var storedSeriesPeriod: Int? { data.seriesPeriod }
+
     /// The occurrence date before the business-day rule moved it, falling back to the stored date for
     /// rows written before the column existed. Regeneration derives from this, never from `date`.
     var unadjustedDate: Date {

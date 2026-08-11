@@ -757,6 +757,23 @@ class DBHelper {
         )
     }
 
+    /// Moves a card transaction's ledger date onto its statement's due date, leaving
+    /// `budget_month_date` untouched.
+    ///
+    /// The two columns answer different questions and used to be written together: `date` is WHEN THE
+    /// MONEY LEAVES (the statement's due date, which is what the balance and the month list bucket
+    /// by), while `budget_month_date` is WHEN IT WAS SPENT — the month whose category allocation the
+    /// purchase consumes. Stamping the due month onto both pushed every installment, and every
+    /// transaction the user moved between statements, one month forward in its category budget.
+    func updateTransactionDate(transactionId: Int, newDateTimestamp: Int) {
+        guard isInitialized else { return }
+        let now = Int(Date().timeIntervalSince1970)
+        executeSyncUpdate(
+            "UPDATE Transactions SET date = ?, sync_status = 'pending', ck_modified_at = ?, updated_at = ? WHERE id = ?;",
+            intBindings: [newDateTimestamp, now, now, transactionId]
+        )
+    }
+
     func updateTransactionBudgetMonthDate(transactionId: Int, newBudgetMonthDate: Int) {
         guard isInitialized else { return }
         let now = Int(Date().timeIntervalSince1970)
