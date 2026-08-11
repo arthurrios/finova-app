@@ -250,8 +250,65 @@ final class BudgetAllocationService {
     ///   - id: The allocation ID to update
     ///   - newAmount: The new allocated amount in cents
     ///   - option: The edit option (currentOnly, futureOnly, or all)
+    /// The LIVE row a scoped write should anchor its pre-write repair on.
+    ///
+    /// `repairAllocationSeries` opens with `first(where: { $0.dbId == parentId })` and returns 0 when
+    /// it misses, so anchoring on a `parentAllocationId` that no local row answers to turns the
+    /// repair into a silent no-op — and the write that follows reaches only the rows sharing that
+    /// same dangling pointer. That is the "edit this and all future changed January and March,
+    /// nothing else" report: the pointer had arrived from another device, where it addressed a
+    /// different row entirely.
+    ///
+    /// When the pointer leads nowhere, fall back to the earliest live row that shares this series'
+    /// identity — category, per `RecurringSeriesLinker` — at or before the edited month, so the
+    /// repair can adopt the edited row and its stranded siblings back into one timeline. The edited
+    /// row itself is always a candidate, so this never returns an id that cannot anchor.
+    private func seriesAnchor(for id: Int, in all: [BudgetAllocation]) -> Int {
+        guard let target = all.first(where: { $0.dbId == id }) else { return id }
+        // No pointer at all means the row IS a root — nothing to resolve. Only a pointer that leads
+        // nowhere gets the search below, so the healthy path keeps its exact previous behaviour.
+        guard let pointer = target.parentAllocationId else { return id }
+        if all.contains(where: { $0.dbId == pointer }) { return pointer }
+
+        let peers = all.filter { candidate in
+            guard let candidateId = candidate.dbId else { return false }
+            guard candidate.category.key == target.category.key,
+                candidate.monthDate <= target.monthDate
+            else { return false }
+            // Same bound the linker applies: a genuine one-off is nobody's series root.
+            return candidate.isRecurring || candidate.parentAllocationId != nil
+                || all.contains { $0.parentAllocationId == candidateId }
+        }
+
+        let anchor = peers.min {
+            ($0.monthDate, $0.dbId ?? 0) < ($1.monthDate, $1.dbId ?? 0)
+        }
+        guard let anchorId = anchor?.dbId, anchorId != id else { return id }
+
+        logWarning(
+            "[AllocationEdit] row \(id) points at parent \(pointer), which is not a local allocation — anchoring the series repair on \(anchorId) instead"
+        )
+        return anchorId
+    }
+
     func updateAllocationWithOption(id: Int, newAmount: Int, option: AllocationEditOption) throws {
         guard newAmount > 0 else { throw BudgetAllocationError.invalidAmount }
+
+        // RELINK, THEN EDIT. A scoped edit selects siblings by parent pointer, so an occurrence
+        // whose pointer is broken is invisible to it and stays outdated. Repairing first is what
+        // lets the selection downstream stay a plain pointer filter. Skipped for `.currentOnly`,
+        // which touches exactly one known row.
+        if case .currentOnly = option {} else {
+            let scoped = allocationRepo.fetchAllAllocations()
+            if scoped.contains(where: { $0.dbId == id }) {
+                let relinked = RecurringSeriesLinker(allocationRepo: allocationRepo)
+                    .repairAllocationSeries(around: seriesAnchor(for: id, in: scoped))
+                if relinked > 0 {
+                    logWarning(
+                        "[AllocationEdit] relinked \(relinked) occurrence(s) before edit (option=\(option))")
+                }
+            }
+        }
 
         // Debug: Log the allocation being edited
         let allAllocations = allocationRepo.fetchAllAllocations()
@@ -288,6 +345,16 @@ final class BudgetAllocationService {
     ///   - id: The allocation ID to delete
     ///   - deleteAllFuture: If true and allocation is recurring, deletes all future instances
     func deleteAllocation(id: Int, deleteAllFuture: Bool = false) throws {
+        // Same reasoning as the edit path: a scoped delete selects siblings by parent pointer, so
+        // orphaned occurrences would survive a "delete future" and reappear as strays.
+        if deleteAllFuture {
+            let scoped = allocationRepo.fetchAllAllocations()
+            if scoped.contains(where: { $0.dbId == id }) {
+                RecurringSeriesLinker(allocationRepo: allocationRepo)
+                    .repairAllocationSeries(around: seriesAnchor(for: id, in: scoped))
+            }
+        }
+
         if deleteAllFuture {
             try allocationRepo.deleteRecurringAllocationAndFuture(id: id)
         } else {

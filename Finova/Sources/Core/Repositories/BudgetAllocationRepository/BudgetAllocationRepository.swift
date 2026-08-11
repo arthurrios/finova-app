@@ -119,6 +119,50 @@ final class BudgetAllocationRepository: BudgetAllocationRepositoryProtocol {
         NotificationCenter.default.post(name: .allocationDataChanged, object: nil)
     }
 
+    // MARK: - Series Membership
+
+    /// The id a scoped write should treat as this series' root.
+    ///
+    /// `parentAllocationId` is a LOCAL id and CloudKit carries it between devices verbatim, so an
+    /// inbound occurrence can point at an id that is not a live row here — until the uuid pointer
+    /// resolves it, or forever if the sender predates that column. Reading such a pointer as the
+    /// root is what made "edit this and all future" reach only the rows that happened to share the
+    /// same dangling value; every correctly-linked month in the series was invisible to the filter.
+    /// A row whose pointer leads nowhere is its own root.
+    private func resolvedParentId(
+        for allocation: BudgetAllocationModel, id: Int, in models: [BudgetAllocationModel]
+    ) -> Int {
+        guard let pointer = allocation.parentAllocationId else { return id }
+        guard models.contains(where: { $0.id == pointer && $0.isLive }) else {
+            logWarning(
+                "[Allocation] row \(id) points at parent \(pointer), which is not a local allocation — treating the row as its own series root"
+            )
+            return id
+        }
+        return pointer
+    }
+
+    /// Every id that identifies this series, for membership tests.
+    ///
+    /// The resolved root, plus the dangling pointer itself when there is one: sibling occurrences
+    /// that arrived from the same device carry that same value and genuinely belong to the series.
+    /// Strictly more inclusive than the plain pointer filter it replaces — it can never reach fewer
+    /// rows than before.
+    private func seriesKeys(
+        for allocation: BudgetAllocationModel, id: Int, in models: [BudgetAllocationModel]
+    ) -> Set<Int> {
+        let root = resolvedParentId(for: allocation, id: id, in: models)
+        var keys: Set<Int> = [root]
+        if let pointer = allocation.parentAllocationId, pointer != root { keys.insert(pointer) }
+        return keys
+    }
+
+    private func isMember(_ model: BudgetAllocationModel, ofSeries keys: Set<Int>) -> Bool {
+        if let modelId = model.id, keys.contains(modelId) { return true }
+        if let pointer = model.parentAllocationId, keys.contains(pointer) { return true }
+        return false
+    }
+
     func updateRecurringAllocationAndFuture(id: Int, newAmount: Int) throws {
         var models = loadModels()
 
@@ -130,9 +174,9 @@ final class BudgetAllocationRepository: BudgetAllocationRepositoryProtocol {
             throw BudgetAllocationError.allocationNotFound
         }
 
-        // Get the parent allocation ID
-        let parentId = allocation.parentAllocationId ?? id
-        logDebug("BudgetAllocationRepository: Current allocation parentAllocationId: \(String(describing: allocation.parentAllocationId)), using parentId: \(parentId)")
+        // Every id this series answers to — the pointer only when it is live. See `seriesKeys`.
+        let keys = seriesKeys(for: allocation, id: id, in: models)
+        logDebug("BudgetAllocationRepository: Current allocation parentAllocationId: \(String(describing: allocation.parentAllocationId)), using series keys: \(keys.sorted())")
 
         // Find the current allocation's month date
         let currentMonthDate = allocation.monthDate
@@ -151,15 +195,15 @@ final class BudgetAllocationRepository: BudgetAllocationRepositoryProtocol {
             // Check if this is the allocation being updated
             let isCurrentAllocation = modelId == id
 
-            // Check if this is the parent (must update parent so future instances get new amount)
-            let isParent = modelId == parentId
+            // The series root itself is always updated, so future lazily-generated instances
+            // inherit the new amount.
+            let isRoot = keys.contains(modelId)
 
-            // Check if this is a child allocation in the future
-            let isRelatedChild = models[i].parentAllocationId == parentId
+            let isRelatedChild = isMember(models[i], ofSeries: keys)
             let isFutureOrCurrent = models[i].monthDate >= currentMonthDate
 
-            if isCurrentAllocation || isParent || (isRelatedChild && isFutureOrCurrent) {
-                logDebug("BudgetAllocationRepository: Updating allocation id=\(modelId), monthDate=\(models[i].monthDate), reason: isCurrentAllocation=\(isCurrentAllocation), isParent=\(isParent), isRelatedChild=\(isRelatedChild), isFutureOrCurrent=\(isFutureOrCurrent)")
+            if isCurrentAllocation || isRoot || (isRelatedChild && isFutureOrCurrent) {
+                logDebug("BudgetAllocationRepository: Updating allocation id=\(modelId), monthDate=\(models[i].monthDate), reason: isCurrentAllocation=\(isCurrentAllocation), isRoot=\(isRoot), isRelatedChild=\(isRelatedChild), isFutureOrCurrent=\(isFutureOrCurrent)")
                 // `with` rather than a field-by-field rebuild, which silently dropped `isDeleted`.
                 models[i] = models[i].with(allocatedAmount: newAmount)
                 updatedCount += 1
@@ -186,7 +230,7 @@ final class BudgetAllocationRepository: BudgetAllocationRepositoryProtocol {
             throw BudgetAllocationError.allocationNotFound
         }
 
-        let parentId = allocation.parentAllocationId ?? id
+        let keys = seriesKeys(for: allocation, id: id, in: models)
         let currentMonthDate = allocation.monthDate
 
         var updatedCount = 0
@@ -196,7 +240,7 @@ final class BudgetAllocationRepository: BudgetAllocationRepositoryProtocol {
             guard let modelId = models[i].id, models[i].isLive else { continue }
 
             let isCurrentAllocation = modelId == id
-            let isRelated = modelId == parentId || models[i].parentAllocationId == parentId
+            let isRelated = isMember(models[i], ofSeries: keys)
             let inRange = models[i].monthDate >= currentMonthDate && models[i].monthDate <= endMonth
 
             if isCurrentAllocation || (isRelated && inRange) {
@@ -224,9 +268,8 @@ final class BudgetAllocationRepository: BudgetAllocationRepositoryProtocol {
             throw BudgetAllocationError.allocationNotFound
         }
 
-        // Get the parent allocation ID (use this allocation's ID if it's the parent)
-        let parentId = allocation.parentAllocationId ?? id
-        logDebug("BudgetAllocationRepository: Using parentId: \(parentId)")
+        let keys = seriesKeys(for: allocation, id: id, in: models)
+        logDebug("BudgetAllocationRepository: Using series keys: \(keys.sorted())")
 
         var updatedCount = 0
         var updatedIds: [Int] = []
@@ -236,7 +279,7 @@ final class BudgetAllocationRepository: BudgetAllocationRepositoryProtocol {
             // Tombstones skipped — see the note in updateRecurringAllocationAndFuture.
             guard let modelId = models[i].id, models[i].isLive else { continue }
 
-            if modelId == parentId || models[i].parentAllocationId == parentId {
+            if modelId == id || isMember(models[i], ofSeries: keys) {
                 logDebug("BudgetAllocationRepository: Updating allocation id=\(modelId), monthDate=\(models[i].monthDate)")
                 models[i] = models[i].with(allocatedAmount: newAmount)
                 updatedCount += 1
@@ -302,8 +345,8 @@ final class BudgetAllocationRepository: BudgetAllocationRepositoryProtocol {
             throw BudgetAllocationError.allocationNotFound
         }
 
-        // Get the parent allocation ID
-        let parentId = allocation.parentAllocationId ?? id
+        let parentId = resolvedParentId(for: allocation, id: id, in: models)
+        let keys = seriesKeys(for: allocation, id: id, in: models)
 
         // Find the current allocation's month date
         let currentMonthDate = allocation.monthDate
@@ -315,8 +358,7 @@ final class BudgetAllocationRepository: BudgetAllocationRepositoryProtocol {
         for (index, model) in models.enumerated() {
             guard let modelId = model.id, model.isLive else { continue }
 
-            let isRelated = modelId == id || modelId == parentId
-                || model.parentAllocationId == parentId
+            let isRelated = modelId == id || isMember(model, ofSeries: keys)
             let isFutureOrCurrent = modelId == id || model.monthDate >= currentMonthDate
             guard isRelated && isFutureOrCurrent else { continue }
 
@@ -349,14 +391,13 @@ final class BudgetAllocationRepository: BudgetAllocationRepositoryProtocol {
             throw BudgetAllocationError.allocationNotFound
         }
 
-        // Get the parent allocation ID (use this allocation's ID if it's the parent)
-        let parentId = allocation.parentAllocationId ?? id
+        let keys = seriesKeys(for: allocation, id: id, in: models)
 
         // Tombstone every occurrence in this series (past, present, future).
         var tombstoned = 0
         for (index, model) in models.enumerated() {
             guard let modelId = model.id, model.isLive else { continue }
-            guard modelId == parentId || model.parentAllocationId == parentId else { continue }
+            guard modelId == id || isMember(model, ofSeries: keys) else { continue }
             models[index] = model.with(isDeleted: true)
             tombstoned += 1
         }
