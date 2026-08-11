@@ -323,6 +323,84 @@ final class RecurringAllocationTests: XCTestCase {
       "A standalone one-off must not be adopted into a series and deleted with it")
   }
 
+  // MARK: - Dangling parent pointer (the "only January and March changed" bug)
+
+  /// `parent_allocation_id` is a LOCAL autoincrement id that CloudKit carries between devices
+  /// verbatim (`CKBudgetAllocationAdapter`), so a row that arrived from another device can point at
+  /// an id that is not a live row here — until `parent_allocation_uuid` resolves, or forever if the
+  /// sender predates the uuid columns.
+  ///
+  /// Reported symptom: "edit this and all future" from Jan/27 changed January and March and nothing
+  /// else. Those two were exactly the rows carrying the dangling pointer: anchoring the pre-edit
+  /// repair on a non-existent parent makes `repairAllocationSeries` and `materializeSeries` bail on
+  /// their `first(where:)` guard, and the pointer filter downstream then reaches only the rows that
+  /// happen to share the same dangling value.
+  private func makeSeriesWithDanglingOrphans() throws -> (
+    parentId: Int, editAnchor: Int, orphanAnchors: [Int]
+  ) {
+    let parentId = try createRecurring(category: .education, startingMonthsFromNow: 0)
+
+    let editAnchor = Date().monthAnchor(offsetByMonths: 5)
+    let strayAnchor = Date().monthAnchor(offsetByMonths: 7)
+    let danglingParentId = 9_999_999
+
+    for anchor in [editAnchor, strayAnchor] {
+      let row = try XCTUnwrap(
+        allocationRepo.fetchAllAllocations().first {
+          $0.parentAllocationId == parentId && $0.monthDate == anchor
+        })
+      try allocationRepo.updateParentAllocationId(
+        id: try XCTUnwrap(row.dbId), parentId: danglingParentId)
+    }
+
+    return (parentId, editAnchor, [editAnchor, strayAnchor])
+  }
+
+  func testEditFutureFromARowWithADanglingParentPointerReachesTheWholeSeries() throws {
+    let (parentId, editAnchor, _) = try makeSeriesWithDanglingOrphans()
+
+    let editRow = try XCTUnwrap(
+      allocationRepo.fetchAllAllocations().first {
+        $0.monthDate == editAnchor && $0.category.key == TransactionCategory.education.key
+      })
+    try service.updateAllocationWithOption(
+      id: try XCTUnwrap(editRow.dbId), newAmount: 88_000, option: .futureOnly)
+
+    for allocation in allocationRepo.fetchAllAllocations()
+    where allocation.category.key == TransactionCategory.education.key {
+      if allocation.monthDate >= editAnchor {
+        XCTAssertEqual(
+          allocation.allocatedAmount, 88_000,
+          "Month \(allocation.monthDate) is at/after the edit and must not be skipped because the edited row's parent pointer dangles"
+        )
+      } else {
+        XCTAssertEqual(allocation.allocatedAmount, 40_000)
+      }
+    }
+
+    XCTAssertNotNil(
+      allocationRepo.fetchAllAllocations().first { $0.dbId == parentId },
+      "The original series parent must still exist")
+  }
+
+  func testDeleteFutureFromARowWithADanglingParentPointerReachesTheWholeSeries() throws {
+    let (_, cutoffAnchor, _) = try makeSeriesWithDanglingOrphans()
+
+    let cutoffRow = try XCTUnwrap(
+      allocationRepo.fetchAllAllocations().first {
+        $0.monthDate == cutoffAnchor && $0.category.key == TransactionCategory.education.key
+      })
+    try service.deleteAllocation(id: try XCTUnwrap(cutoffRow.dbId), deleteAllFuture: true)
+
+    let survivors = allocationRepo.fetchAllAllocations()
+      .filter { $0.category.key == TransactionCategory.education.key }
+      .map { $0.monthDate }
+    XCTAssertTrue(
+      survivors.allSatisfy { $0 < cutoffAnchor },
+      "Every month at/after the cutoff must be deleted, including the ones whose parent pointer dangles"
+    )
+  }
+
   // MARK: - No lazy generation
 
   /// The load-bearing test for the eager-generation decision: reading a month must never create a

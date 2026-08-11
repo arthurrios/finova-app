@@ -153,6 +153,47 @@ final class BudgetAllocationRepository: BudgetAllocationRepositoryProtocol {
         return newId
     }
 
+    // MARK: - Series Membership
+
+    /// The id a scoped write should treat as this series' root.
+    ///
+    /// `parent_allocation_id` is a LOCAL autoincrement id and CloudKit carries it between devices
+    /// verbatim (see `CKBudgetAllocationAdapter`), so an inbound occurrence can point at an id that
+    /// is not a row here at all — until `parent_allocation_uuid` resolves it, or forever if the
+    /// sender predates that column. Reading such a pointer as the root is what made "edit this and
+    /// all future" reach only the rows that happened to share the same dangling value; every
+    /// correctly-linked month in the series was invisible to the filter. A row whose pointer leads
+    /// nowhere is its own root.
+    private func resolvedParentId(for allocation: BudgetAllocationModel, id: Int) -> Int {
+        guard let pointer = allocation.parentAllocationId else { return id }
+        guard db.fetchBudgetAllocation(byId: pointer) != nil else {
+            logWarning(
+                "[Allocation] row \(id) points at parent \(pointer), which is not a local allocation — treating the row as its own series root"
+            )
+            return id
+        }
+        return pointer
+    }
+
+    /// Every id that identifies this series, for membership tests.
+    ///
+    /// The resolved root, plus the dangling pointer itself when there is one: sibling occurrences
+    /// that arrived from the same device carry that same value and genuinely belong to the series.
+    /// Strictly more inclusive than the plain pointer filter it replaces — it can never reach fewer
+    /// rows than before.
+    private func seriesKeys(for allocation: BudgetAllocationModel, id: Int) -> Set<Int> {
+        let root = resolvedParentId(for: allocation, id: id)
+        var keys: Set<Int> = [root]
+        if let pointer = allocation.parentAllocationId, pointer != root { keys.insert(pointer) }
+        return keys
+    }
+
+    private func isMember(_ model: BudgetAllocationModel, ofSeries keys: Set<Int>) -> Bool {
+        if let modelId = model.id, keys.contains(modelId) { return true }
+        if let pointer = model.parentAllocationId, keys.contains(pointer) { return true }
+        return false
+    }
+
     // MARK: - Update
 
     func updateAllocation(_ model: BudgetAllocationModel) throws {
@@ -176,7 +217,7 @@ final class BudgetAllocationRepository: BudgetAllocationRepositoryProtocol {
             throw BudgetAllocationError.allocationNotFound
         }
 
-        let parentId = allocation.parentAllocationId ?? id
+        let keys = seriesKeys(for: allocation, id: id)
         let currentMonthDate = allocation.monthDate
         let now = Int(Date().timeIntervalSince1970)
 
@@ -188,11 +229,9 @@ final class BudgetAllocationRepository: BudgetAllocationRepositoryProtocol {
                 guard let modelId = model.id else { continue }
 
                 let isCurrentAllocation = modelId == id
-                let isParent = modelId == parentId
-                let isRelatedChild = model.parentAllocationId == parentId
                 let isFutureOrCurrent = model.monthDate >= currentMonthDate
 
-                if isCurrentAllocation || ((isParent || isRelatedChild) && isFutureOrCurrent) {
+                if isCurrentAllocation || (isMember(model, ofSeries: keys) && isFutureOrCurrent) {
                     db.executeSyncUpdate(
                         "UPDATE BudgetAllocations SET allocated_amount = ?, sync_status = 'pending', ck_modified_at = ?, updated_at = ? WHERE id = ?;",
                         intBindings: [newAmount, now, now, modelId]
@@ -211,7 +250,7 @@ final class BudgetAllocationRepository: BudgetAllocationRepositoryProtocol {
             throw BudgetAllocationError.allocationNotFound
         }
 
-        let parentId = allocation.parentAllocationId ?? id
+        let keys = seriesKeys(for: allocation, id: id)
         let currentMonthDate = allocation.monthDate
         let now = Int(Date().timeIntervalSince1970)
 
@@ -221,10 +260,9 @@ final class BudgetAllocationRepository: BudgetAllocationRepositoryProtocol {
                 guard let modelId = model.id else { continue }
 
                 let isCurrentAllocation = modelId == id
-                let isRelated = modelId == parentId || model.parentAllocationId == parentId
                 let inRange = model.monthDate >= currentMonthDate && model.monthDate <= endMonth
 
-                if isCurrentAllocation || (isRelated && inRange) {
+                if isCurrentAllocation || (isMember(model, ofSeries: keys) && inRange) {
                     db.executeSyncUpdate(
                         "UPDATE BudgetAllocations SET allocated_amount = ?, sync_status = 'pending', ck_modified_at = ?, updated_at = ? WHERE id = ?;",
                         intBindings: [newAmount, now, now, modelId]
@@ -240,7 +278,7 @@ final class BudgetAllocationRepository: BudgetAllocationRepositoryProtocol {
             throw BudgetAllocationError.allocationNotFound
         }
 
-        let parentId = allocation.parentAllocationId ?? id
+        let keys = seriesKeys(for: allocation, id: id)
         let now = Int(Date().timeIntervalSince1970)
 
         let allModels = db.fetchAllBudgetAllocations(userId: UIDUserDefaultsManager.shared.currentUserUID)
@@ -248,7 +286,7 @@ final class BudgetAllocationRepository: BudgetAllocationRepositoryProtocol {
         try performBulk {
             for model in allModels {
                 guard let modelId = model.id else { continue }
-                if modelId == parentId || model.parentAllocationId == parentId {
+                if modelId == id || isMember(model, ofSeries: keys) {
                     db.executeSyncUpdate(
                         "UPDATE BudgetAllocations SET allocated_amount = ?, sync_status = 'pending', ck_modified_at = ?, updated_at = ? WHERE id = ?;",
                         intBindings: [newAmount, now, now, modelId]
@@ -317,7 +355,8 @@ final class BudgetAllocationRepository: BudgetAllocationRepositoryProtocol {
             throw BudgetAllocationError.allocationNotFound
         }
 
-        let parentId = allocation.parentAllocationId ?? id
+        let parentId = resolvedParentId(for: allocation, id: id)
+        let keys = seriesKeys(for: allocation, id: id)
         let currentMonthDate = allocation.monthDate
         let parentMonth = db.fetchBudgetAllocation(byId: parentId)?.monthDate ?? currentMonthDate
 
@@ -333,9 +372,8 @@ final class BudgetAllocationRepository: BudgetAllocationRepositoryProtocol {
                     continue
                 }
 
-                let isRelated = modelId == parentId || model.parentAllocationId == parentId
                 let isFutureOrCurrent = model.monthDate >= currentMonthDate
-                if isRelated && isFutureOrCurrent {
+                if isMember(model, ofSeries: keys) && isFutureOrCurrent {
                     softDeleteOrHardDelete(id: modelId)
                 }
             }
@@ -497,14 +535,14 @@ final class BudgetAllocationRepository: BudgetAllocationRepositoryProtocol {
             throw BudgetAllocationError.allocationNotFound
         }
 
-        let parentId = allocation.parentAllocationId ?? id
+        let keys = seriesKeys(for: allocation, id: id)
 
         let allModels = db.fetchAllBudgetAllocations(userId: UIDUserDefaultsManager.shared.currentUserUID)
         // One transaction + one UI notification for the whole series.
         try performBulk {
             for model in allModels {
                 guard let modelId = model.id else { continue }
-                if modelId == parentId || model.parentAllocationId == parentId {
+                if modelId == id || isMember(model, ofSeries: keys) {
                     softDeleteOrHardDelete(id: modelId)
                 }
             }
