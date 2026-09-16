@@ -128,7 +128,11 @@ final class AddTransactionModalViewController: UIViewController {
 
     // Modal auto-sizes to fit content (driven by self-sizing scroll view).
     // Only cap with a max height — scroll kicks in if content exceeds it.
-    contentView.heightAnchor.constraint(lessThanOrEqualTo: view.heightAnchor, multiplier: 0.85)
+    // 0.92, not 0.85: an expense paid by card and split into installments is the tallest the
+    // form gets — 759pt of content plus the 34pt home-indicator inset on a 874pt screen. At
+    // 0.85 that did not fit, so Save opened below the safe area, half under the home bar, and
+    // you had to scroll to reach it. 0.92 still leaves the sheet clearly short of full screen.
+    contentView.heightAnchor.constraint(lessThanOrEqualTo: view.heightAnchor, multiplier: 0.92)
       .isActive = true
   }
 
