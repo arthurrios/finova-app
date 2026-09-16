@@ -497,6 +497,20 @@ final class AddTransactionModalView: UIView {
 
     let targetHeight: CGFloat = shouldShowInstallments ? Metrics.inputHeight : 0
 
+    // The constraint and the stack spacing change outside the animation block, and only the
+    // top-most view is laid out inside it. The other order hung the app. The scroll view
+    // sizes itself from its own content, so laying out this view and then its view
+    // controller's view inside the block re-entered the layout pass, and every pass attached
+    // one more animation to each layer it touched. -[CALayer animationForKey:] then had a
+    // longer list to walk on the next pass, layout never settled, and the main thread spun
+    // at 100% with the whole app unresponsive - only killing it recovered.
+    // Repro: expense -> credit card -> installments -> recurring.
+    installmentsHeightConstraint?.constant = targetHeight
+    transactionModeStackView.spacing = shouldShowInstallments ? Metrics.spacing3 : 0
+
+    let layoutRoot = findViewController()?.view ?? self
+    layoutRoot.setNeedsLayout()
+
     UIView.animate(
       withDuration: 0.3,
       delay: 0,
@@ -505,14 +519,7 @@ final class AddTransactionModalView: UIView {
       options: [.beginFromCurrentState, .allowUserInteraction],
       animations: {
         self.installmentsInputContainer.alpha = shouldShowInstallments ? 1.0 : 0.0
-        self.installmentsHeightConstraint?.constant = targetHeight
-        self.transactionModeStackView.spacing = shouldShowInstallments ? Metrics.spacing3 : 0
-
-        self.layoutIfNeeded()
-
-        if let viewController = self.findViewController() {
-          viewController.view.layoutIfNeeded()
-        }
+        layoutRoot.layoutIfNeeded()
       },
       completion: { [weak self] _ in
         guard let self = self else { return }
