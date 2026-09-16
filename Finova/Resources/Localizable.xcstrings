@@ -7777,6 +7777,40 @@
         }
       }
     },
+    "notification.statement.closed.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your %@ statement closed at %@. Due date is coming up."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sua fatura do %@ fechou em %@. O vencimento está chegando."
+          }
+        }
+      }
+    },
+    "notification.statement.closed.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Statement Closed"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fatura Fechada"
+          }
+        }
+      }
+    },
     "notification.statement.dueSoon.body": {
       "extractionState": "manual",
       "localizations": {

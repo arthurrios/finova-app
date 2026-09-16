@@ -74,6 +74,10 @@ class StatementRepository {
         do {
             let total = try DBHelper.shared.getTransactionSumForStatement(statementId: statementId)
             try DBHelper.shared.updateStatementTotal(statementId: statementId, totalAmount: total)
+            // The reminder embeds the amount, so the total moving means the pending reminder is now
+            // wrong. Rescheduling here rather than at the call sites, because several of them reach
+            // this method directly and each one used to leave the old figure standing.
+            StatementNotificationManager.shared.rescheduleAllNotifications()
         } catch {
             logError("Failed to recalculate statement total: \(error)")
         }
@@ -101,6 +105,10 @@ class StatementRepository {
                 paidAmount: paidAmount,
                 paidDate: Int(paidDate.timeIntervalSince1970)
             )
+            // `markAsUnpaid` already assumed this happened here. It did not, so a settled invoice
+            // went on reminding the user on its due date - and the reschedule that runs just before
+            // the flag is set sees a balance of zero, so the message named the wrong amount too.
+            StatementNotificationManager.shared.cancelNotifications(for: statementId)
             return true
         } catch {
             logError("Failed to mark statement as paid: \(error)")

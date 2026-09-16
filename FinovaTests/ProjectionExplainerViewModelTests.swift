@@ -40,8 +40,7 @@ final class ProjectionExplainerViewModelTests: XCTestCase {
                 tense: tense),
             balanceDay: balanceDay,
             allocations: allocations,
-            monthAnchor: anchor,
-            ledgerScope: .personal)
+            monthAnchor: anchor)
     }
 
     // MARK: - The formula agrees with the projection

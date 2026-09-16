@@ -8,7 +8,7 @@
 import Foundation
 import UserNotifications
 
-/// Single source of truth for all `statement_due_<id>` and `statement_pay_<id>` notifications.
+/// Single source of truth for all `statement_closed_<id>` and `statement_pay_<id>` notifications.
 ///
 /// These identifiers were already understood across the app — `NotificationHistoryManager` classifies
 /// them, `NotificationPreferencesManager` cancels them when the toggle goes off, and Settings offers
@@ -49,9 +49,7 @@ final class StatementNotificationManager {
       guard let self = self else { return }
       let staleIds =
         requests
-        .filter {
-          $0.identifier.hasPrefix("statement_due_") || $0.identifier.hasPrefix("statement_pay_")
-        }
+        .filter { StatementNotificationPlan.isStatementIdentifier($0.identifier) }
         .map { $0.identifier }
       if !staleIds.isEmpty {
         self.notificationCenter.removePendingNotificationRequests(withIdentifiers: staleIds)
@@ -82,10 +80,9 @@ final class StatementNotificationManager {
       let statements = statementRepo.fetchStatements(forCardId: cardId)
 
       for statement in statements {
-        guard !statement.isPaid, let statementId = statement.id else { continue }
-        scheduleNotificationPair(
-          statementId: statementId, cardId: cardId, cardName: card.name,
-          dueDate: statement.dueDate, totalAmount: statement.totalAmount, now: now)
+        guard let statementId = statement.id else { continue }
+        scheduleStatement(
+          statement, statementId: statementId, cardId: cardId, cardName: card.name, now: now)
       }
     }
   }
@@ -96,10 +93,9 @@ final class StatementNotificationManager {
   func scheduleNotification(for statement: CreditCardStatement, card: CreditCard) {
     guard NotificationPreferencesManager.shared.shouldShowNotification(type: .creditCardStatement)
     else { return }
-    guard !statement.isPaid, let statementId = statement.id, let cardId = card.id else { return }
-    scheduleNotificationPair(
-      statementId: statementId, cardId: cardId, cardName: card.name, dueDate: statement.dueDate,
-      totalAmount: statement.totalAmount, now: Date())
+    guard let statementId = statement.id, let cardId = card.id else { return }
+    scheduleStatement(
+      statement, statementId: statementId, cardId: cardId, cardName: card.name, now: Date())
   }
 
   /// Reschedules all statement notifications.
@@ -124,10 +120,10 @@ final class StatementNotificationManager {
 
   // MARK: - Cancel
 
-  /// Cancels both due-soon and payment-due notifications for a given statement.
+  /// Cancels every notification a statement may have pending.
   func cancelNotifications(for statementId: Int) {
     notificationCenter.removePendingNotificationRequests(
-      withIdentifiers: ["statement_due_\(statementId)", "statement_pay_\(statementId)"]
+      withIdentifiers: StatementNotificationPlan.identifiers(for: statementId)
     )
   }
 
@@ -136,9 +132,7 @@ final class StatementNotificationManager {
     notificationCenter.getPendingNotificationRequests { [weak self] requests in
       let ids =
         requests
-        .filter {
-          $0.identifier.hasPrefix("statement_due_") || $0.identifier.hasPrefix("statement_pay_")
-        }
+        .filter { StatementNotificationPlan.isStatementIdentifier($0.identifier) }
         .map { $0.identifier }
       self?.notificationCenter.removePendingNotificationRequests(withIdentifiers: ids)
     }
@@ -146,72 +140,47 @@ final class StatementNotificationManager {
 
   // MARK: - Private
 
-  private func scheduleNotificationPair(
-    statementId: Int, cardId: Int, cardName: String, dueDate: Date, totalAmount: Int, now: Date
+  private func scheduleStatement(
+    _ statement: CreditCardStatement, statementId: Int, cardId: Int, cardName: String, now: Date
   ) {
-    guard dueDate > now else { return }
+    let planned = StatementNotificationPlan.plan(
+      statementId: statementId,
+      cardName: cardName,
+      closingDate: statement.closingDate,
+      dueDate: statement.dueDate,
+      totalAmount: statement.totalAmount,
+      isPaid: statement.isPaid,
+      calendar: calendar,
+      now: now)
+    schedule(planned, statementId: statementId, cardId: cardId, now: now)
+  }
 
-    let amountString = totalAmount.currencyString
-    let thirtyDaysInSeconds: TimeInterval = 30 * 24 * 60 * 60
+  /// Turns the plan into real requests. Every field the user reads comes from the plan, which was
+  /// built from the statement row a moment ago - so the amount in the message is the amount in the
+  /// ledger, not one captured when the notification was first scheduled.
+  private func schedule(
+    _ planned: [PlannedStatementNotification], statementId: Int, cardId: Int, now: Date
+  ) {
+    for item in planned {
+      let trigger = UNTimeIntervalNotificationTrigger(
+        timeInterval: item.fireDate.timeIntervalSince(now), repeats: false)
 
-    // Due-soon notification (3 days before due date, at 9 AM)
-    if let threeDaysBefore = calendar.date(byAdding: .day, value: -3, to: dueDate) {
-      var dueSoonDate = calendar.startOfDay(for: threeDaysBefore)
-      dueSoonDate = calendar.date(byAdding: .hour, value: 9, to: dueSoonDate) ?? dueSoonDate
+      let content = UNMutableNotificationContent()
+      content.title = item.kind.titleKey.localized
+      content.body = String(
+        format: item.kind.bodyKey.localized, item.cardName, item.amountMinor.currencyString)
+      content.sound = .default
+      content.userInfo = [
+        "type": "credit_card_statement",
+        "statementId": statementId,
+        "cardId": cardId,
+      ]
 
-      if dueSoonDate > now {
-        let timeInterval = dueSoonDate.timeIntervalSinceNow
-        if timeInterval <= thirtyDaysInSeconds {
-          let trigger = UNTimeIntervalNotificationTrigger(timeInterval: timeInterval, repeats: false)
-
-          let content = UNMutableNotificationContent()
-          content.title = "notification.statement.dueSoon.title".localized
-          content.body = String(
-            format: "notification.statement.dueSoon.body".localized, cardName, amountString)
-          content.sound = .default
-          content.userInfo = [
-            "type": "credit_card_statement",
-            "statementId": statementId,
-            "cardId": cardId,
-          ]
-
-          let request = UNNotificationRequest(
-            identifier: "statement_due_\(statementId)", content: content, trigger: trigger)
-          notificationCenter.add(request) { error in
-            if let error = error {
-              logError("Error scheduling due-soon notification: \(error)")
-            }
-          }
-        }
-      }
-    }
-
-    // Payment reminder (on due date, at 9 AM)
-    var paymentDate = calendar.startOfDay(for: dueDate)
-    paymentDate = calendar.date(byAdding: .hour, value: 9, to: paymentDate) ?? paymentDate
-
-    if paymentDate > now {
-      let timeInterval = paymentDate.timeIntervalSinceNow
-      if timeInterval <= thirtyDaysInSeconds {
-        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: timeInterval, repeats: false)
-
-        let content = UNMutableNotificationContent()
-        content.title = "notification.statement.paymentDue.title".localized
-        content.body = String(
-          format: "notification.statement.paymentDue.body".localized, cardName, amountString)
-        content.sound = .default
-        content.userInfo = [
-          "type": "credit_card_statement",
-          "statementId": statementId,
-          "cardId": cardId,
-        ]
-
-        let request = UNNotificationRequest(
-          identifier: "statement_pay_\(statementId)", content: content, trigger: trigger)
-        notificationCenter.add(request) { error in
-          if let error = error {
-            logError("Error scheduling payment-due notification: \(error)")
-          }
+      let request = UNNotificationRequest(
+        identifier: item.identifier, content: content, trigger: trigger)
+      notificationCenter.add(request) { error in
+        if let error = error {
+          logError("Error scheduling \(item.kind.rawValue) statement notification: \(error)")
         }
       }
     }
