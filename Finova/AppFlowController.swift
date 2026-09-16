@@ -420,16 +420,14 @@ extension AppFlowController {
         projection: AllocationBalanceProjection,
         balanceDay: Int,
         allocations: [BudgetAllocation],
-        monthAnchor: Int,
-        ledgerScope: LedgerScope
+        monthAnchor: Int
     ) {
         guard let presenter = navigationController?.topViewController else { return }
         let viewController = ViewControllersFactory.makeProjectionExplainerViewController(
             projection: projection,
             balanceDay: balanceDay,
             allocations: allocations,
-            monthAnchor: monthAnchor,
-            ledgerScope: ledgerScope)
+            monthAnchor: monthAnchor)
         // A sheet rather than a push: it explains what is on screen behind it, and dismissing it should
         // return the user to that card without a navigation animation.
         viewController.modalPresentationStyle = .pageSheet

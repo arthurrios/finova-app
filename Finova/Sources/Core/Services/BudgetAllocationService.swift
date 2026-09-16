@@ -505,9 +505,8 @@ final class BudgetAllocationService {
     /// has to cancel that method's contribution, not approximate it. Note `budgetMonthDate` and not the
     /// transaction date: a business-day adjustment can push those into different months, and it is the
     /// allocation side this has to agree with. Change one and change both.
-    func deferredCardSpending(forMonth monthAnchor: Int, in scope: LedgerScope) -> Int {
-        let all = scope.groupId.map { transactionRepo.fetchTransactionsForGroup(groupId: $0) }
-            ?? transactionRepo.fetchAllTransactions()
+    func deferredCardSpending(forMonth monthAnchor: Int) -> Int {
+        let all = transactionRepo.fetchAllTransactions()
 
         // Only expenses, matching usage: a card refund never reduces `usedAmount`, so it must not
         // reduce what is subtracted here either.
@@ -574,10 +573,9 @@ final class BudgetAllocationService {
     func spendHistory(
         for category: TransactionCategory,
         before monthAnchor: Int,
-        in scope: LedgerScope,
         asOf reference: Date = Date()
     ) -> CategorySpendHistory {
-        spendHistories(for: [category], before: monthAnchor, in: scope, asOf: reference)[category.key]
+        spendHistories(for: [category], before: monthAnchor, asOf: reference)[category.key]
             ?? .none
     }
 
@@ -590,7 +588,6 @@ final class BudgetAllocationService {
     func spendHistories(
         for categories: [TransactionCategory],
         before monthAnchor: Int,
-        in scope: LedgerScope,
         asOf reference: Date = Date()
     ) -> [String: CategorySpendHistory] {
         guard !categories.isEmpty else { return [:] }
@@ -611,8 +608,7 @@ final class BudgetAllocationService {
         let months = Set(window)
         let wanted = Set(categories.map(\.key))
 
-        let allAllocations = scope.groupId.map { allocationRepo.fetchAllocationsForGroup(groupId: $0) }
-            ?? allocationRepo.fetchAllAllocations()
+        let allAllocations = allocationRepo.fetchAllAllocations()
 
         // Summed, not assigned. `insertAllocation` rejects a second row for the same category, month
         // and scope, so this should be a single row - but the legacy UserDefaults-to-SQLite migration
@@ -632,8 +628,7 @@ final class BudgetAllocationService {
         // and only `getAllocationsWithUsage` ever fills it in, one month at a time. Reading it here
         // would make every ratio 0 and the feature would report that nothing is ever spent, silently.
         // Usage comes from the transactions.
-        let allTransactions = scope.groupId.map { transactionRepo.fetchTransactionsForGroup(groupId: $0) }
-            ?? transactionRepo.fetchAllTransactions()
+        let allTransactions = transactionRepo.fetchAllTransactions()
 
         let sampled = Set(allocatedByCategoryMonth.keys)
         let rows = allTransactions.filter {

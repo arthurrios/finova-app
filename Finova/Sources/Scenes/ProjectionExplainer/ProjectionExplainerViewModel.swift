@@ -45,7 +45,6 @@ final class ProjectionExplainerViewModel {
     private let balanceDay: Int
     private let allocations: [BudgetAllocation]
     private let monthAnchor: Int
-    private let ledgerScope: LedgerScope
     private let allocationService: BudgetAllocationService
 
     init(
@@ -53,14 +52,12 @@ final class ProjectionExplainerViewModel {
         balanceDay: Int,
         allocations: [BudgetAllocation],
         monthAnchor: Int,
-        ledgerScope: LedgerScope,
         allocationService: BudgetAllocationService = BudgetAllocationService()
     ) {
         self.projection = projection
         self.balanceDay = balanceDay
         self.allocations = allocations
         self.monthAnchor = monthAnchor
-        self.ledgerScope = ledgerScope
         self.allocationService = allocationService
     }
 
@@ -124,7 +121,7 @@ final class ProjectionExplainerViewModel {
         guard !allocations.isEmpty else { return [] }
 
         let histories = allocationService.spendHistories(
-            for: allocations.map(\.category), before: monthAnchor, in: ledgerScope)
+            for: allocations.map(\.category), before: monthAnchor)
 
         return allocations.map { allocation in
             let history = histories[allocation.category.key] ?? .none

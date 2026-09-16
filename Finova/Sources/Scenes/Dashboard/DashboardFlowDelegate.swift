@@ -30,6 +30,5 @@ protocol DashboardFlowDelegate: AnyObject {
         projection: AllocationBalanceProjection,
         balanceDay: Int,
         allocations: [BudgetAllocation],
-        monthAnchor: Int,
-        ledgerScope: LedgerScope)
+        monthAnchor: Int)
 }

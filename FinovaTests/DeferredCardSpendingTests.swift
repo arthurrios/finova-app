@@ -146,12 +146,12 @@ final class DeferredCardSpendingTests: XCTestCase {
         return id
     }
 
-    private func deferred(_ scope: LedgerScope = .personal) -> Int {
-        service.deferredCardSpending(forMonth: thisMonth, in: scope)
+    private func deferred() -> Int {
+        service.deferredCardSpending(forMonth: thisMonth)
     }
 
-    private func usage(_ scope: LedgerScope = .personal) -> Int {
-        service.getAllocationsWithUsage(forMonth: thisMonth, in: scope)
+    private func usage() -> Int {
+        service.getAllocationsWithUsage(forMonth: thisMonth)
             .reduce(0) { $0 + $1.usedAmount }
     }
 

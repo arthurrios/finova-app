@@ -223,8 +223,7 @@ final class ViewControllersFactory: ViewControllersFactoryProtocol {
         projection: AllocationBalanceProjection,
         balanceDay: Int,
         allocations: [BudgetAllocation],
-        monthAnchor: Int,
-        ledgerScope: LedgerScope
+        monthAnchor: Int
     ) -> ProjectionExplainerViewController {
         return ProjectionExplainerViewController(
             contentView: ProjectionExplainerView(),
@@ -232,7 +231,6 @@ final class ViewControllersFactory: ViewControllersFactoryProtocol {
                 projection: projection,
                 balanceDay: balanceDay,
                 allocations: allocations,
-                monthAnchor: monthAnchor,
-                ledgerScope: ledgerScope))
+                monthAnchor: monthAnchor))
     }
 }

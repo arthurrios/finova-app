@@ -171,10 +171,10 @@ final class CategorySpendHistoryReadTests: XCTestCase {
     }
 
     private func read(
-        _ category: TransactionCategory = .market, scope: LedgerScope = .personal
+        _ category: TransactionCategory = .market
     ) -> CategorySpendHistory {
         service.spendHistory(
-            for: category, before: viewedMonth, in: scope, asOf: reference)
+            for: category, before: viewedMonth, asOf: reference)
     }
 
     // MARK: - The two traps
@@ -381,33 +381,6 @@ final class CategorySpendHistoryReadTests: XCTestCase {
         XCTAssertEqual(result.sampleCount, 4)
         XCTAssertEqual(result.lowestRatio, 0.25, accuracy: 0.0001)
         XCTAssertEqual(result.highestRatio, 0.25, accuracy: 0.0001)
-    }
-
-    // MARK: - Scope
-
-    func testPersonalHistoryDoesNotLeakIntoTheGroupRead() {
-        for back in 1...4 {
-            let month = closedMonth(back)
-            allocate(100_000, month: month, group: nil)
-            spend(60_000, month: month, title: "Mine \(back)", group: nil)
-        }
-
-        XCTAssertEqual(read(scope: .personal).sampleCount, 4)
-        XCTAssertEqual(read(scope: .group(groupId)), .none)
-    }
-
-    func testGroupHistoryDoesNotLeakIntoThePersonalRead() {
-        for back in 1...4 {
-            let month = closedMonth(back)
-            allocate(100_000, month: month, group: groupId)
-            spend(30_000, month: month, title: "Ours \(back)", group: groupId)
-        }
-
-        XCTAssertEqual(read(scope: .personal), .none)
-
-        let group = read(scope: .group(groupId))
-        XCTAssertEqual(group.sampleCount, 4)
-        XCTAssertEqual(group.highestRatio, 0.3, accuracy: 0.0001)
     }
 
     // MARK: - Verdicts end to end

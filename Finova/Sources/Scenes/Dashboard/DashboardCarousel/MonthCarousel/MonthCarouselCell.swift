@@ -623,10 +623,10 @@ class MonthCarouselCell: UICollectionViewCell {
             monthAnchor: currentMonthAnchor,
             monthData: currentMonthData,
             tagBreakdown: tagBreakdown,
-            // Read from the same scope as the allocations above: this cancels their card spending out
-            // of the projection's base, so a mismatched scope would subtract another ledger's debt.
+            // Read the same way as the allocations above: this cancels their card spending out of
+            // the projection's base.
             deferredCardSpending: allocationService.deferredCardSpending(
-                forMonth: currentMonthAnchor, in: ledgerScope)
+                forMonth: currentMonthAnchor)
         )
         budgetCard.setSelectedTag(selectedTagId)
 

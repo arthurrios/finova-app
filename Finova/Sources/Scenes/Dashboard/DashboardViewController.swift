@@ -1376,10 +1376,7 @@ extension DashboardViewController: UICollectionViewDataSource {
                     projection: projection,
                     balanceDay: balanceDay,
                     allocations: allocations,
-                    monthAnchor: monthAnchor,
-                    // The same expression the cell's own `ledgerScope` is set from, so the history
-                    // in the sheet is read from the ledger whose allocations it lists.
-                    ledgerScope: LedgerScope(self.viewModel.currentContext))
+                    monthAnchor: monthAnchor)
             }
 
             cell.transactionTableView.dataSource = self
