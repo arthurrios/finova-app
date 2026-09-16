@@ -28,10 +28,19 @@ final class PaymentMethodOptionView: UIView {
         return view
     }()
 
+    // The option is a fixed 48pt tall and roughly half the modal wide, so the labels cannot
+    // wrap - they have to shrink. English fits at full size; "Cartão de Crédito" and
+    // "Afeta o saldo imediatamente" do not, and were being cut to "Cartão de Cré..." and
+    // "Afeta o saldo imediata...". Low compression resistance makes the label take the
+    // stack's width so adjustsFontSizeToFitWidth actually engages.
     private let titleLabel: UILabel = {
         let label = UILabel()
         label.font = Fonts.textSMBold.font
         label.textColor = Colors.gray700
+        label.numberOfLines = 1
+        label.adjustsFontSizeToFitWidth = true
+        label.minimumScaleFactor = 0.6
+        label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         label.translatesAutoresizingMaskIntoConstraints = false
         return label
     }()
@@ -40,8 +49,10 @@ final class PaymentMethodOptionView: UIView {
         let label = UILabel()
         label.font = Fonts.textXS.font
         label.textColor = Colors.gray500
+        label.numberOfLines = 1
         label.adjustsFontSizeToFitWidth = true
-        label.minimumScaleFactor = 0.75
+        label.minimumScaleFactor = 0.6
+        label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         label.translatesAutoresizingMaskIntoConstraints = false
         return label
     }()

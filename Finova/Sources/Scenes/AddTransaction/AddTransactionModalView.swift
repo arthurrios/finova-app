@@ -968,7 +968,11 @@ final class AddTransactionModalView: UIView {
     let service = CreditCardService()
     let closingDate = service.calculateClosingDate(card: card, transactionDate: transactionDate)
     let dueDate = service.calculateDueDate(closingDate: closingDate, card: card)
-    let monthName = DateFormatter.monthFormatter.string(from: closingDate)
+    // monthFormatter is pinned to en_US_POSIX on purpose: it produces a lookup key, not
+    // display text. Every other screen runs it through "month.<key>" before showing it;
+    // this banner did not, so pt-BR read "Vai para a fatura de Oct".
+    let monthKey = DateFormatter.monthFormatter.string(from: closingDate).lowercased()
+    let monthName = "month.\(monthKey)".localized
     let dueDateStr = DateFormatter.fullDateFormatter.string(from: dueDate)
     statementInfoBanner.text = String(format: "addTransactionModal.paymentMethod.statementInfo".localized, monthName, dueDateStr)
     statementInfoBanner.isHidden = false
