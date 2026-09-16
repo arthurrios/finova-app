@@ -116,6 +116,11 @@ class StatementRepository {
                 intBindings: [total, total, Int(Date().timeIntervalSince1970), statementId]
             )
             TransactionRepository.invalidateCache()
+            // The reminder embeds the amount, so the total moving means the pending reminder is now
+            // wrong. Rescheduling here rather than at the call sites because three of them reach this
+            // method directly - the dashboard's statement repair, the post-sync duplicate merge and
+            // the demo seed - and each one used to leave the old figure standing.
+            StatementNotificationManager.shared.rescheduleAllNotifications()
             NotificationCenter.default.post(name: .creditCardDataChanged, object: nil)
         } catch {
             logError("Failed to recalculate statement total: \(error)")
@@ -153,6 +158,10 @@ class StatementRepository {
                 "UPDATE CreditCardStatements SET sync_status = 'pending' WHERE id = ?;",
                 intBindings: [statementId]
             )
+            // `markAsUnpaid` already assumed this happened here. It did not, so a settled invoice
+            // went on reminding the user on its due date - and the reschedule that runs just before
+            // the flag is set sees a balance of zero, so the message named the wrong amount too.
+            StatementNotificationManager.shared.cancelNotifications(for: statementId)
             NotificationCenter.default.post(name: .creditCardDataChanged, object: nil)
             return true
         } catch {
