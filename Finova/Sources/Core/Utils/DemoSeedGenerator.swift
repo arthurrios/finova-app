@@ -172,9 +172,9 @@ struct DemoSeedGenerator {
         }
 
         let defs: [RecurringDef] = [
-            RecurringDef(title: "Salary", category: "salary", type: "income", amount: 550_000, day: 5),
+            RecurringDef(title: "Salário", category: "salary", type: "income", amount: 550_000, day: 5),
             RecurringDef(title: "Netflix", category: "subscriptions", type: "expense", amount: 4_490, day: 15),
-            RecurringDef(title: "Gym", category: "fitness", type: "expense", amount: 9_990, day: 1),
+            RecurringDef(title: "Academia", category: "fitness", type: "expense", amount: 9_990, day: 1),
         ]
 
         for def in defs {
@@ -241,14 +241,14 @@ struct DemoSeedGenerator {
         let allMonths: Set<Int> = [0, 1, 2, 3, 4, 5]
 
         let defs: [OneOffDef] = [
-            OneOffDef(category: "market", title: "Supermarket", baseAmount: 35_000, type: "expense", day: 8, activeMonths: allMonths),
-            OneOffDef(category: "meals", title: "Restaurant", baseAmount: 8_500, type: "expense", day: 12, activeMonths: allMonths),
+            OneOffDef(category: "market", title: "Supermercado", baseAmount: 35_000, type: "expense", day: 8, activeMonths: allMonths),
+            OneOffDef(category: "meals", title: "Restaurante", baseAmount: 8_500, type: "expense", day: 12, activeMonths: allMonths),
             OneOffDef(category: "transportation", title: "Uber", baseAmount: 2_500, type: "expense", day: 18, activeMonths: allMonths),
-            OneOffDef(category: "utilities", title: "Electricity", baseAmount: 18_000, type: "expense", day: 20, activeMonths: allMonths),
+            OneOffDef(category: "utilities", title: "Energia elétrica", baseAmount: 18_000, type: "expense", day: 20, activeMonths: allMonths),
             OneOffDef(category: "entertainment", title: "Cinema", baseAmount: 4_000, type: "expense", day: 22, activeMonths: [0, 1, 3, 5]),
-            OneOffDef(category: "healthcare", title: "Pharmacy", baseAmount: 6_000, type: "expense", day: 14, activeMonths: [1, 3, 4]),
-            OneOffDef(category: "clothing", title: "Clothes", baseAmount: 15_000, type: "expense", day: 10, activeMonths: [2, 4]),
-            OneOffDef(category: "transfer", title: "Transfer received", baseAmount: 20_000, type: "income", day: 25, activeMonths: [1, 4]),
+            OneOffDef(category: "healthcare", title: "Farmácia", baseAmount: 6_000, type: "expense", day: 14, activeMonths: [1, 3, 4]),
+            OneOffDef(category: "clothing", title: "Roupas", baseAmount: 15_000, type: "expense", day: 10, activeMonths: [2, 4]),
+            OneOffDef(category: "transfer", title: "Transferência recebida", baseAmount: 20_000, type: "income", day: 25, activeMonths: [1, 4]),
         ]
 
         var count = 0
@@ -290,16 +290,16 @@ struct DemoSeedGenerator {
         let cardRepo = CreditCardRepository()
         let stmtRepo = StatementRepository()
 
-        // --- Chase Sapphire ---
+        // --- Nubank Ultravioleta ---
         let chase = CreditCard(
             id: nil,
-            name: "Chase Sapphire",
+            name: "Nubank Ultravioleta",
             lastFourDigits: "4321",
             cardBrand: .mastercard,
-            closingDay: 3,
-            dueDay: 10,
+            closingDay: 25,
+            dueDay: 28,
             creditLimit: 800_000,
-            cardColor: .blue,
+            cardColor: .purple,
             userId: userUID,
             isDeleted: false,
             isDefault: true,
@@ -307,16 +307,16 @@ struct DemoSeedGenerator {
             updatedAt: Date()
         )
 
-        // --- Amex Platinum ---
+        // --- Itaú Personnalité ---
         let amex = CreditCard(
             id: nil,
-            name: "Amex Platinum",
+            name: "Itaú Personnalité",
             lastFourDigits: "8765",
-            cardBrand: .amex,
+            cardBrand: .visa,
             closingDay: 15,
             dueDay: 22,
             creditLimit: 1_500_000,
-            cardColor: .platinum,
+            cardColor: .black,
             userId: userUID,
             isDeleted: false,
             isDefault: false,
@@ -335,7 +335,7 @@ struct DemoSeedGenerator {
 
         // --- Statements for each card ---
         let chaseStmtIds = insertStatements(
-            cardId: chaseId, closingDay: 3, dueDay: 10,
+            cardId: chaseId, closingDay: 25, dueDay: 28,
             userUID: userUID, monthDates: monthDates, stmtRepo: stmtRepo, cal: cal
         )
         let amexStmtIds = insertStatements(
@@ -424,12 +424,12 @@ struct DemoSeedGenerator {
         }
 
         let chaseTxDefs: [CCTxDef] = [
-            CCTxDef(title: "Restaurant", category: "meals", baseAmount: 8_500, day: 12, activeMonths: [0, 1, 2, 3, 4, 5], cardId: chaseId),
-            CCTxDef(title: "Cinema", category: "entertainment", baseAmount: 4_000, day: 22, activeMonths: [0, 1, 3, 5], cardId: chaseId),
+            CCTxDef(title: "iFood", category: "meals", baseAmount: 7_390, day: 12, activeMonths: [0, 1, 2, 3, 4, 5], cardId: chaseId),
+            CCTxDef(title: "Cinemark", category: "entertainment", baseAmount: 5_290, day: 22, activeMonths: [0, 1, 3, 5], cardId: chaseId),
         ]
 
         let amexTxDefs: [CCTxDef] = [
-            CCTxDef(title: "Clothes", category: "clothing", baseAmount: 15_000, day: 10, activeMonths: [2, 4], cardId: amexId),
+            CCTxDef(title: "Renner", category: "clothing", baseAmount: 17_900, day: 10, activeMonths: [2, 4], cardId: amexId),
         ]
 
         var count = 0
@@ -454,7 +454,7 @@ struct DemoSeedGenerator {
                     budgetMonthDate: m.anchor,
                     creditCardId: def.cardId,
                     statementId: stmtIds[idx],
-                    isCreditCardStatement: true
+                    isCreditCardStatement: false
                 )
                 do {
                     try txRepo.insertTransaction(model)
@@ -497,7 +497,7 @@ struct DemoSeedGenerator {
                         transactionId: txId,
                         creditCardId: chaseId,
                         statementId: chaseStmtIds[idx],
-                        isCreditCardStatement: true
+                        isCreditCardStatement: false
                     )
                     break
                 }
@@ -510,14 +510,14 @@ struct DemoSeedGenerator {
     private static func seedBudgetGroups(userUID: String) {
         let repo = BudgetGroupRepository()
 
-        let userName = AuthenticationManager.shared.currentUser?.displayName ?? "You"
-        let userEmail = AuthenticationManager.shared.currentUser?.email ?? "you@email.com"
+        let userName = AuthenticationManager.shared.currentUser?.displayName ?? "Você"
+        let userEmail = AuthenticationManager.shared.currentUser?.email ?? "arthur@email.com"
 
         let groupId = UUID().uuidString
 
         let group = BudgetGroup(
             id: groupId,
-            name: "Family Budget",
+            name: "Orçamento da Família",
             ownerId: userUID,
             ownerName: userName,
             ownerEmail: userEmail,
@@ -540,9 +540,9 @@ struct DemoSeedGenerator {
         // Regular member (for testing permissions screen)
         let regularMember = GroupMember(
             groupId: groupId,
-            userId: "demo-user-alice",
-            name: "Alice",
-            email: "alice@email.com",
+            userId: "demo-user-ana",
+            name: "Ana",
+            email: "ana@email.com",
             role: .member,
             permissions: .canAdd,
             lastActive: Calendar.current.date(byAdding: .hour, value: -3, to: Date())
@@ -552,9 +552,9 @@ struct DemoSeedGenerator {
         // Another member
         let viewOnlyMember = GroupMember(
             groupId: groupId,
-            userId: "demo-user-bob",
-            name: "Bob",
-            email: "bob@email.com",
+            userId: "demo-user-bruno",
+            name: "Bruno",
+            email: "bruno@email.com",
             role: .member,
             permissions: .viewOnly,
             lastActive: Calendar.current.date(byAdding: .day, value: -2, to: Date())
@@ -564,9 +564,9 @@ struct DemoSeedGenerator {
         // Extra members to test "+N" indicator and scrolling
         let carol = GroupMember(
             groupId: groupId,
-            userId: "demo-user-carol",
-            name: "Carol",
-            email: "carol@email.com",
+            userId: "demo-user-carla",
+            name: "Carla",
+            email: "carla@email.com",
             role: .member,
             permissions: .canAdd,
             lastActive: Calendar.current.date(byAdding: .hour, value: -12, to: Date())
@@ -575,9 +575,9 @@ struct DemoSeedGenerator {
 
         let dave = GroupMember(
             groupId: groupId,
-            userId: "demo-user-dave",
-            name: "Dave",
-            email: "dave@email.com",
+            userId: "demo-user-diego",
+            name: "Diego",
+            email: "diego@email.com",
             role: .member,
             permissions: .memberDefault,
             lastActive: Calendar.current.date(byAdding: .day, value: -5, to: Date())
@@ -587,9 +587,9 @@ struct DemoSeedGenerator {
         // Pending invitation (for testing GroupInvitation screen)
         let pendingInvitation = GroupInvitation(
             groupId: UUID().uuidString,
-            groupName: "Roommates Expenses",
-            inviterName: "Emma",
-            inviterEmail: "emma@email.com",
+            groupName: "Despesas da República",
+            inviterName: "Marina",
+            inviterEmail: "marina@email.com",
             inviteeEmail: userEmail
         )
         repo.insertInvitation(pendingInvitation)

@@ -153,8 +153,11 @@ final class CKRecordIdDedupeTests: XCTestCase {
 
         let second = reopen()
         XCTAssertEqual(titles(second), afterFirst, "A second open must change nothing")
-        XCTAssertEqual(
-            second.fetchSingleInt("PRAGMA user_version;"), 4,
+        // At or beyond v4, not exactly 4: the gate only has to have PASSED for the pass not to run
+        // again, and later schema generations legitimately bump this further. Asserting equality made
+        // this test fail the moment an unrelated migration was added.
+        XCTAssertGreaterThanOrEqual(
+            second.fetchSingleInt("PRAGMA user_version;") ?? 0, 4,
             "The pass is gated on user_version, so schema state travels with the file"
         )
     }
@@ -177,7 +180,8 @@ final class CKRecordIdDedupeTests: XCTestCase {
             1,
             "v3 (ProjectionSyncState) must have run"
         )
-        XCTAssertEqual(db.fetchSingleInt("PRAGMA user_version;"), 4, "and v4 must have completed")
+        XCTAssertGreaterThanOrEqual(
+            db.fetchSingleInt("PRAGMA user_version;") ?? 0, 4, "and v4 must have completed")
     }
 
     /// The index the dedupe exists to enable. Without it the duplicates simply come back.

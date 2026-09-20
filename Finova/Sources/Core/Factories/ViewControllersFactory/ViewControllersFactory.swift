@@ -242,6 +242,31 @@ final class ViewControllersFactory: ViewControllersFactoryProtocol {
         return viewController
     }
 
+    func makeImportHistoryViewController(flowDelegate: ImportFlowDelegate) -> ImportHistoryViewController {
+        let contentView = ImportHistoryView()
+        let viewModel = ImportHistoryViewModel()
+        return ImportHistoryViewController(
+            contentView: contentView, viewModel: viewModel, flowDelegate: flowDelegate)
+    }
+
+    func makeImportReviewViewController(
+        flowDelegate: ImportFlowDelegate, file: LoadedFile, plan: ImportPlan
+    ) -> ImportReviewViewController {
+        let contentView = ImportReviewView()
+        let viewModel = ImportReviewViewModel(file: file, plan: plan)
+        return ImportReviewViewController(
+            contentView: contentView, viewModel: viewModel, flowDelegate: flowDelegate)
+    }
+
+    func makeImportMappingViewController(
+        flowDelegate: ImportFlowDelegate, file: LoadedFile, plan: ImportPlan
+    ) -> ImportMappingViewController {
+        let contentView = ImportMappingView()
+        let viewModel = ImportMappingViewModel(file: file, plan: plan)
+        return ImportMappingViewController(
+            contentView: contentView, viewModel: viewModel, flowDelegate: flowDelegate)
+    }
+
     func makeSyncSettingsViewController(flowDelegate: SyncSettingsFlowDelegate) -> SyncSettingsViewController {
         let contentView = SyncSettingsView()
         let viewModel = SyncSettingsViewModel()

@@ -50,4 +50,11 @@ protocol ViewControllersFactoryProtocol: AnyObject {
   func makeMemberPermissionsViewController(flowDelegate: MemberPermissionsFlowDelegate, member: GroupMember, group: BudgetGroup) -> MemberPermissionsViewController
   func makeGroupInvitationViewController(flowDelegate: GroupInvitationFlowDelegate, invitation: GroupInvitation) -> GroupInvitationViewController
   func makeSyncSettingsViewController(flowDelegate: SyncSettingsFlowDelegate) -> SyncSettingsViewController
+  func makeImportHistoryViewController(flowDelegate: ImportFlowDelegate) -> ImportHistoryViewController
+  func makeImportReviewViewController(
+    flowDelegate: ImportFlowDelegate, file: LoadedFile, plan: ImportPlan
+  ) -> ImportReviewViewController
+  func makeImportMappingViewController(
+    flowDelegate: ImportFlowDelegate, file: LoadedFile, plan: ImportPlan
+  ) -> ImportMappingViewController
 }

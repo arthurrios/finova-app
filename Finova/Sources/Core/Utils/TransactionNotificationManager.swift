@@ -166,6 +166,21 @@ final class TransactionNotificationManager {
     )
   }
 
+  /// Cancels many at once, in a single call.
+  ///
+  /// `removePendingNotificationRequests` is documented as asynchronous, but internally it makes a
+  /// synchronous mach round-trip to the notification daemon. Calling it once per row is therefore an
+  /// XPC round-trip per row: a few hundred deletions (a rolled-back import, a long series) saturate
+  /// the connection and block, indefinitely, on a host where that daemon is not answering.
+  ///
+  /// One call for the whole set, which is what the API takes an array for.
+  func cancelNotifications(for transactionIds: [Int]) {
+    guard !transactionIds.isEmpty else { return }
+    notificationCenter.removePendingNotificationRequests(
+      withIdentifiers: transactionIds.map { "transaction_\($0)" }
+    )
+  }
+
   // MARK: - Bulk Scheduling
 
   /// Schedules notifications for a batch of transactions, optionally clearing existing ones first.

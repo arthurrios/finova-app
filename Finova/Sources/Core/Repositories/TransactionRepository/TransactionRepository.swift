@@ -45,6 +45,79 @@ final class TransactionRepository: TransactionRepositoryProtocol {
     NotificationCenter.default.post(name: .transactionDataChanged, object: nil)
   }
 
+  /// What an import batch actually wrote.
+  struct ImportInsertOutcome {
+    let inserted: [(localId: Int, uuid: String)]
+    /// True if the caller cancelled partway. Whatever had already committed is still in `inserted`,
+    /// so the caller can undo exactly that much.
+    let cancelled: Bool
+  }
+
+  /// Writes an imported batch: chunked, one transaction per chunk, one notification for the lot.
+  ///
+  /// `insertTransaction` is the wrong tool at this size for three separate reasons, all of which
+  /// this method fixes: it posts `.transactionDataChanged` per row (a thousand full ledger re-reads
+  /// on the main thread), it prepares and finalizes a statement per row, and it calls
+  /// `SyncChangeTracker.markDirty()` per row from inside whatever transaction is open. See
+  /// `DBHelper.insertTransactionsBatch` for why that last one is the dangerous one.
+  ///
+  /// Every row is stamped with one identical `appliedAt`, which is what lets a later rollback
+  /// distinguish "untouched since the import" from "the user has edited this" by exact equality.
+  ///
+  /// Chunked rather than run as a single transaction so that cancelling, or crashing, leaves a whole
+  /// number of committed chunks rather than an all-or-nothing outcome on a long operation. The
+  /// cancellation check sits BETWEEN chunks only — a chunk is one transaction, and interrupting it
+  /// midway is what `inTransaction`'s ROLLBACK already handles.
+  func insertImportedBatch(
+    _ rows: [TransactionModel],
+    batchUuid: String,
+    appliedAt: Date,
+    chunkSize: Int = 200,
+    isCancelled: () -> Bool = { false },
+    progress: (_ done: Int, _ total: Int) -> Void = { _, _ in }
+  ) throws -> ImportInsertOutcome {
+    guard !rows.isEmpty else { return ImportInsertOutcome(inserted: [], cancelled: false) }
+
+    Self.invalidateCache()
+
+    let stampedAt = Int(appliedAt.timeIntervalSince1970)
+    var inserted: [(localId: Int, uuid: String)] = []
+    inserted.reserveCapacity(rows.count)
+    var cancelled = false
+
+    var offset = 0
+    while offset < rows.count {
+      if isCancelled() { cancelled = true; break }
+
+      let chunk = Array(rows[offset..<min(offset + chunkSize, rows.count)])
+      // Minted here rather than left to the SQL backstop trigger so the caller gets the uuids back
+      // and can record batch membership without a second read.
+      let uuids = chunk.map { _ in UUID().uuidString }
+
+      var chunkResult: [(localId: Int, uuid: String)] = []
+      try db.inTransaction {
+        chunkResult = try db.insertTransactionsBatch(
+          chunk, uuids: uuids, importBatchUuid: batchUuid, stampedAt: stampedAt)
+      }
+      inserted.append(contentsOf: chunkResult)
+
+      offset += chunk.count
+      progress(inserted.count, rows.count)
+    }
+
+    Self.invalidateCache()
+
+    // Exactly one wake-up for the whole batch, and only now that every chunk has committed — never
+    // from inside `inTransaction`, where it could wake the sync engine into a write that joins our
+    // open BEGIN.
+    if !inserted.isEmpty {
+      SyncChangeTracker.shared.markDirty()
+      NotificationCenter.default.post(name: .transactionDataChanged, object: nil)
+    }
+
+    return ImportInsertOutcome(inserted: inserted, cancelled: cancelled)
+  }
+
   func delete(id: Int) throws {
     try deleteBatch(ids: [id])
   }
@@ -77,6 +150,13 @@ final class TransactionRepository: TransactionRepositoryProtocol {
         .filter { $0.id.map(doomed.contains) ?? false }
         .compactMap { $0.statementId }
     )
+
+    // Hoisted out of the loop for the same reason as everything else here, but with sharper teeth:
+    // `removePendingNotificationRequests` makes a synchronous mach round-trip despite its
+    // documentation, so one call per row is one XPC round-trip per row. At a few hundred rows — a
+    // rolled-back CSV import, a long series — that saturates the connection and blocks indefinitely
+    // on any host where the notification daemon is not answering.
+    TransactionNotificationManager.shared.cancelNotifications(for: ids)
 
     for id in ids {
       try deleteRow(id: id)
@@ -122,8 +202,9 @@ final class TransactionRepository: TransactionRepositoryProtocol {
       StatementPaymentService(transactionRepo: self).handleDeletion(of: id)
     }
 
-    // Cancel any scheduled notification for this transaction
-    TransactionNotificationManager.shared.cancelNotification(for: id)
+    // Notification cancellation is NOT done here — see `deleteBatch`, which cancels the whole set in
+    // one call. Per-row it is one synchronous XPC round-trip each, which a few hundred rows will
+    // block on.
 
     // Check if this record has been synced to CloudKit
     let ckName = fetchCKRecordName(for: id)

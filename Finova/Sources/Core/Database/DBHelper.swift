@@ -75,6 +75,7 @@ class DBHelper {
             try migrateEarlyPaymentColumns()
             try migrateStatementPaymentColumns()
             try migrateBusinessDayColumns()
+            try migrateImportColumns()
             isInitialized = true
             performUuidBackfillV1()
             rebuildBudgetsTableV2()
@@ -84,6 +85,7 @@ class DBHelper {
             performParentIdFixMigration()
             performPendingModifiedAtMigration()
             performUpdatedAtBackfill()
+            createImportTablesV5()
             //            print("✅ Database initialized successfully")
         } catch {
             //            print("⚠️ Database initialization failed: \(error)")
@@ -3114,28 +3116,61 @@ class DBHelper {
     /// `VACUUM INTO` writes a single consistent file with the WAL already checkpointed in. A plain
     /// file copy can capture the `.sqlite` without its `-wal` and silently lose the most recent
     /// commits — not acceptable before a destructive table rebuild on real financial data.
-    /// How many snapshots to keep. Each is a full copy of the database — roughly 6.5 MB against an
-    /// 11 MB database on a real ledger — so an unbounded directory quietly consumes the device.
-    /// Five is enough to step back through a testing session and still bounded at ~35 MB.
-    private static let snapshotsToKeep = 5
+    /// How many snapshots to keep PER TAG. Each is a full copy of the database — roughly 6.5 MB
+    /// against an 11 MB database on a real ledger — so an unbounded directory quietly consumes the
+    /// device. Five is enough to step back through a testing session with one operation.
+    ///
+    /// Per tag, not overall. Keeping the newest five files regardless of tag meant a caller that
+    /// snapshots often — a bulk import can run several times in one sitting — silently evicted
+    /// `pre-budgets-v2` and `pre-manual-repair`, which are the break-glass nets for the genuinely
+    /// destructive operations and are written exactly once each. A frequent, reversible operation
+    /// must not be able to delete the safety net of a rare, irreversible one.
+    private static let snapshotsToKeepPerTag = 5
 
-    /// Deletes all but the newest `snapshotsToKeep` snapshots.
+    /// The tag a snapshot filename was written with, or nil if it doesn't parse.
+    ///
+    /// Filenames are `AppFinance-<tag>-<unixTimestamp>.sqlite` and **the tag itself contains
+    /// hyphens** (`pre-budgets-v2`, `pre-ckrecordid-dedupe-v4`), so the tag is everything between
+    /// the fixed prefix and the final component — not `split(separator: "-")[1]`.
+    private static func snapshotTag(_ url: URL) -> String? {
+        let stem = url.deletingPathExtension().lastPathComponent
+        guard stem.hasPrefix("AppFinance-") else { return nil }
+        var parts = stem.dropFirst("AppFinance-".count).split(separator: "-")
+        guard parts.count >= 2 else { return nil }
+        parts.removeLast()  // the timestamp
+        return parts.joined(separator: "-")
+    }
+
+    /// The unix timestamp in a snapshot filename, or 0 if it doesn't parse.
     ///
     /// Ordered by the timestamp in the FILENAME, not by modification date: `VACUUM INTO` writes and
     /// the filesystem may report mtimes out of order for files created in the same second, and the
     /// filename is the value the app itself chose.
+    private static func snapshotTimestamp(_ url: URL) -> Int {
+        Int(url.deletingPathExtension().lastPathComponent.split(separator: "-").last ?? "") ?? 0
+    }
+
+    /// Deletes all but the newest `snapshotsToKeepPerTag` snapshots **of each tag**.
+    ///
+    /// A file whose name doesn't parse into a tag is left alone rather than deleted: this directory
+    /// is the last line of defence before a destructive migration, and an unrecognised file there is
+    /// far more likely to be something a human put there deliberately than something to reclaim.
     private func pruneSnapshots(in dir: URL) {
         let files = (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil))?
             .filter { $0.lastPathComponent.hasPrefix("AppFinance-") && $0.pathExtension == "sqlite" } ?? []
-        guard files.count > Self.snapshotsToKeep else { return }
 
-        func timestamp(_ url: URL) -> Int {
-            Int(url.deletingPathExtension().lastPathComponent.split(separator: "-").last ?? "") ?? 0
-        }
-        let doomed = files.sorted { timestamp($0) > timestamp($1) }.dropFirst(Self.snapshotsToKeep)
-        for url in doomed {
-            try? FileManager.default.removeItem(at: url)
-            logWarning("[Migration] Pruned old snapshot: \(url.lastPathComponent)")
+        let byTag = Dictionary(grouping: files.compactMap { url -> (String, URL)? in
+            Self.snapshotTag(url).map { ($0, url) }
+        }, by: { $0.0 }).mapValues { $0.map(\.1) }
+
+        for (tag, tagged) in byTag where tagged.count > Self.snapshotsToKeepPerTag {
+            let doomed = tagged
+                .sorted { Self.snapshotTimestamp($0) > Self.snapshotTimestamp($1) }
+                .dropFirst(Self.snapshotsToKeepPerTag)
+            for url in doomed {
+                try? FileManager.default.removeItem(at: url)
+                logWarning("[Migration] Pruned old '\(tag)' snapshot: \(url.lastPathComponent)")
+            }
         }
     }
 
@@ -5575,6 +5610,561 @@ class DBHelper {
         }()
 
         return (rule, unadjusted, seriesPeriod)
+    }
+
+    // MARK: - CSV import (schema v5)
+
+    /// Links a transaction to the CSV import batch that created it.
+    ///
+    /// Nullable, no default, no backfill. Every pre-existing row is correctly "not imported", and a
+    /// mass UPDATE would mark the whole ledger `pending` and force a full CloudKit re-push for a
+    /// feature that changes nothing until the user opts into it — the same reasoning as
+    /// `migrateBusinessDayColumns`.
+    ///
+    /// Deliberately NOT a CloudKit field, and `CKTransactionAdapter` must never learn about it. See
+    /// `CloudKitSchemaFlags`: a field the production schema doesn't have makes the server reject the
+    /// whole record and abandon every remaining batch, which halts syncing for the entire app. It
+    /// would also be a dangling pointer, because `ImportBatches` is local-only by design and does not
+    /// exist on the receiving device.
+    private func migrateImportColumns() throws {
+        try addColumnIfNotExists(table: "Transactions", column: "import_batch_uuid", definition: "TEXT")
+        // Partial: for the majority of users who never import, this occupies a single page.
+        sqlite3_exec(db, """
+            CREATE INDEX IF NOT EXISTS idx_tx_import_batch
+                ON Transactions(import_batch_uuid) WHERE import_batch_uuid IS NOT NULL;
+            """, nil, nil, nil)
+    }
+
+    /// Local-only CSV import history.
+    ///
+    /// These two tables are deliberately absent from `syncableTablesV1`, so the generic
+    /// uuid/rev/system-fields machinery and the uuid backstop triggers never adopt them. They are a
+    /// log of an action one device performed on a file only that device has; their `status` is
+    /// per-device state, not shared state. Syncing them would make rollback correctness on a second
+    /// device depend on both the batch record AND all its rows having arrived, and a partially
+    /// hydrated batch would offer an undo button that silently under-deletes.
+    ///
+    /// `ImportBatchRows` is not redundant with `Transactions.import_batch_uuid`. It is the DURABLE
+    /// membership list: it survives a hard delete of the transaction, which is the only reason a row
+    /// that CloudKit later resurrects can still be recognised as one the user rolled back.
+    ///
+    /// Gated on `user_version` so the DDL runs once rather than on every open, matching
+    /// `createProjectionSyncStateV3`. **Because it is gated, this CREATE never re-runs for an
+    /// existing install** — a future column on either table must be added with
+    /// `addColumnIfNotExists` in the additive section above. Editing the statement below would only
+    /// affect fresh installs, and the two would silently diverge.
+    private func createImportTablesV5() {
+        guard isInitialized, schemaUserVersion() < 5 else { return }
+        sqlite3_exec(db, """
+            CREATE TABLE IF NOT EXISTS ImportBatches (
+                id                INTEGER PRIMARY KEY AUTOINCREMENT,
+                uuid              TEXT    NOT NULL,
+                user_id           TEXT,
+                created_at        INTEGER NOT NULL,
+                applied_at        INTEGER,
+                finished_at       INTEGER,
+                rolled_back_at    INTEGER,
+                source_filename   TEXT    NOT NULL,
+                file_hash         TEXT    NOT NULL,
+                file_byte_count   INTEGER NOT NULL DEFAULT 0,
+                bank_preset_id    TEXT,
+                column_mapping    TEXT    NOT NULL DEFAULT '{}',
+                rows_in_file      INTEGER NOT NULL DEFAULT 0,
+                rows_selected     INTEGER NOT NULL DEFAULT 0,
+                rows_inserted     INTEGER NOT NULL DEFAULT 0,
+                rows_skipped      INTEGER NOT NULL DEFAULT 0,
+                rows_failed       INTEGER NOT NULL DEFAULT 0,
+                rows_removed      INTEGER NOT NULL DEFAULT 0,
+                amount_total      INTEGER NOT NULL DEFAULT 0,
+                date_min          INTEGER,
+                date_max          INTEGER,
+                status            TEXT    NOT NULL DEFAULT 'preparing',
+                schema_version    INTEGER NOT NULL DEFAULT 1,
+                notes             TEXT
+            );
+            """, nil, nil, nil)
+        sqlite3_exec(db, """
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_import_batches_uuid ON ImportBatches(uuid);
+            """, nil, nil, nil)
+        // The history list is scoped by user: this database is shared across accounts, so an
+        // unscoped query would show account A's imports to account B.
+        sqlite3_exec(db, """
+            CREATE INDEX IF NOT EXISTS idx_import_batches_created
+                ON ImportBatches(user_id, created_at DESC);
+            """, nil, nil, nil)
+        sqlite3_exec(db, """
+            CREATE TABLE IF NOT EXISTS ImportBatchRows (
+                batch_uuid       TEXT NOT NULL,
+                transaction_uuid TEXT NOT NULL,
+                source_line      INTEGER,
+                row_fingerprint  TEXT NOT NULL,
+                PRIMARY KEY (batch_uuid, transaction_uuid)
+            );
+            """, nil, nil, nil)
+        sqlite3_exec(db, """
+            CREATE INDEX IF NOT EXISTS idx_import_batch_rows_tx
+                ON ImportBatchRows(transaction_uuid);
+            """, nil, nil, nil)
+        // Serves the "have I already imported this exact row?" dedupe tier.
+        sqlite3_exec(db, """
+            CREATE INDEX IF NOT EXISTS idx_import_batch_rows_fp
+                ON ImportBatchRows(row_fingerprint);
+            """, nil, nil, nil)
+        setSchemaUserVersion(5)
+        logWarning("[Migration] ImportBatches / ImportBatchRows created (schema v5)")
+    }
+
+    /// Inserts many imported transactions on ONE prepared statement, binding a caller-supplied
+    /// `uuid` and `stampedAt` to every row. Returns the (rowid, uuid) of each row inserted, in input
+    /// order.
+    ///
+    /// Three deliberate differences from `insertTransaction`, each of which matters at 1000 rows:
+    ///
+    /// 1. **It never calls `SyncChangeTracker.markDirty()`.** `markDirty` doesn't write to the
+    ///    database itself, but it arms a main-queue work item that wakes `SyncEngine`, which DOES
+    ///    write through `executeSyncUpdate` — the interaction documented on
+    ///    `TransactionRepository.deleteBatch` as having silently lost deletes when it fired inside an
+    ///    open BEGIN. The existing bulk path (`RecurringTransactionManager.materializeMissingOccurrences`)
+    ///    gets away with it only on a timing margin: 0.5 s of debounce plus 2.0 s in
+    ///    `handleLocalDataChange`. That margin is not worth betting a user's ledger on, and removing
+    ///    the wake-up is strictly better than muting it — which is why this does NOT touch
+    ///    `SyncChangeTracker.isSuppressed` either. That flag is a plain non-atomic `Bool` already
+    ///    written from the CloudKit callback queue by `pushBatches` and `pushDeletes`; a third writer
+    ///    races in both directions, and a throw would leave it stuck `true`, silently killing sync for
+    ///    the rest of the session. The caller marks dirty exactly once, after the commit.
+    ///
+    /// 2. **`uuid` is bound rather than left to the backstop trigger.** `trg_transactions_uuid` fires
+    ///    an extra UPDATE per row when uuid comes in NULL. The trigger is a safety net for call sites
+    ///    that don't know it exists, not the fast path.
+    ///
+    /// 3. **`ck_modified_at` and `updated_at` take one identical `stampedAt` for the whole batch**,
+    ///    rather than `Date()` per row. That is what lets rollback ask "has the user edited this row
+    ///    since the import?" as an exact equality test instead of a fuzzy timestamp comparison.
+    ///
+    /// `sync_status` is left to its column DEFAULT of `'pending'`, so the sync engine picks these up
+    /// as ordinary local changes. `shared_group_id` is never bound, so it stays NULL: personal ledger.
+    func insertTransactionsBatch(
+        _ models: [TransactionModel],
+        uuids: [String],
+        importBatchUuid: String,
+        stampedAt: Int
+    ) throws -> [(localId: Int, uuid: String)] {
+        guard isInitialized else {
+            logWarning("Database not initialized, skipping import batch insert")
+            return []
+        }
+        guard models.count == uuids.count else {
+            throw DBError.stepFailed(message: "insertTransactionsBatch: \(models.count) models but \(uuids.count) uuids")
+        }
+        guard !models.isEmpty else { return [] }
+
+        let insertQuery = """
+          INSERT INTO Transactions (
+              title, category, type, amount, date, budget_month_date,
+              is_recurring, has_installments, parent_transaction_id,
+              installment_number, total_installments, original_amount,
+              credit_card_id, statement_id, is_credit_card_statement,
+              user_id, ck_modified_at, updated_at, created_by_uid,
+              business_day_rule, unadjusted_date, series_period,
+              uuid, import_batch_uuid
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+      """
+
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, insertQuery, -1, &statement, nil) == SQLITE_OK else {
+            let msg = String(cString: sqlite3_errmsg(db))
+            throw DBError.prepareFailed(message: msg)
+        }
+        defer { sqlite3_finalize(statement) }
+
+        let uid = UIDUserDefaultsManager.shared.currentUserUID
+        var results: [(localId: Int, uuid: String)] = []
+        results.reserveCapacity(models.count)
+
+        for (model, uuid) in zip(models, uuids) {
+            sqlite3_reset(statement)
+            sqlite3_clear_bindings(statement)
+
+            let d = model.data
+            sqlite3_bind_text(statement, 1, d.title, -1, SQLITE_TRANSIENT)
+            sqlite3_bind_text(statement, 2, d.category, -1, SQLITE_TRANSIENT)
+            sqlite3_bind_text(statement, 3, d.type, -1, SQLITE_TRANSIENT)
+            sqlite3_bind_int64(statement, 4, Int64(d.amount))
+            sqlite3_bind_int64(statement, 5, Int64(d.dateTimestamp))
+            sqlite3_bind_int64(statement, 6, Int64(d.budgetMonthDate))
+
+            // Bindings 7-15 are the recurring/installment/card fields. An imported row is a plain
+            // one-off, so these are expected to be nil — but they are bound from the model rather
+            // than hardcoded, so this primitive stays honest about what it was handed. In particular
+            // `parent_transaction_id` MUST stay NULL: a self-referencing parent is the convention
+            // that flips `Transaction.mode` to `.recurring`, which would hand the row to the series
+            // materializer and let it occupy a month slot belonging to a real series.
+            bindOptionalBool(statement, 7, d.isRecurring)
+            bindOptionalBool(statement, 8, d.hasInstallments)
+            bindOptionalInt(statement, 9, d.parentTransactionId)
+            bindOptionalInt(statement, 10, d.installmentNumber)
+            bindOptionalInt(statement, 11, d.totalInstallments)
+            bindOptionalInt(statement, 12, d.originalAmount)
+            bindOptionalInt(statement, 13, d.creditCardId)
+            bindOptionalInt(statement, 14, d.statementId)
+            bindOptionalBool(statement, 15, d.isCreditCardStatement)
+
+            if let uid { sqlite3_bind_text(statement, 16, uid, -1, SQLITE_TRANSIENT) }
+            else { sqlite3_bind_null(statement, 16) }
+
+            sqlite3_bind_int64(statement, 17, Int64(stampedAt))
+            sqlite3_bind_int64(statement, 18, Int64(stampedAt))
+
+            if let uid { sqlite3_bind_text(statement, 19, uid, -1, SQLITE_TRANSIENT) }
+            else { sqlite3_bind_null(statement, 19) }
+
+            sqlite3_bind_text(statement, 20, d.businessDayRule.rawValue, -1, SQLITE_TRANSIENT)
+            sqlite3_bind_int64(statement, 21, Int64(d.unadjustedDateTimestamp ?? d.dateTimestamp))
+            sqlite3_bind_int64(statement, 22, Int64(d.seriesPeriod ?? d.budgetMonthDate))
+            sqlite3_bind_text(statement, 23, uuid, -1, SQLITE_TRANSIENT)
+            sqlite3_bind_text(statement, 24, importBatchUuid, -1, SQLITE_TRANSIENT)
+
+            guard sqlite3_step(statement) == SQLITE_DONE else {
+                let msg = String(cString: sqlite3_errmsg(db))
+                throw DBError.stepFailed(message: msg)
+            }
+            results.append((localId: Int(sqlite3_last_insert_rowid(db)), uuid: uuid))
+        }
+
+        return results
+    }
+
+    private func bindOptionalBool(_ s: OpaquePointer?, _ idx: Int32, _ value: Bool?) {
+        if let value { sqlite3_bind_int(s, idx, value ? 1 : 0) } else { sqlite3_bind_null(s, idx) }
+    }
+
+    private func bindOptionalInt(_ s: OpaquePointer?, _ idx: Int32, _ value: Int?) {
+        if let value { sqlite3_bind_int64(s, idx, Int64(value)) } else { sqlite3_bind_null(s, idx) }
+    }
+
+    private func bindOptionalDate(_ s: OpaquePointer?, _ idx: Int32, _ value: Date?) {
+        if let value { sqlite3_bind_int64(s, idx, Int64(value.timeIntervalSince1970)) }
+        else { sqlite3_bind_null(s, idx) }
+    }
+
+    private func optionalDate(_ s: OpaquePointer?, _ idx: Int32) -> Date? {
+        guard sqlite3_column_type(s, idx) != SQLITE_NULL else { return nil }
+        return Date(timeIntervalSince1970: TimeInterval(sqlite3_column_int64(s, idx)))
+    }
+
+    private func optionalText(_ s: OpaquePointer?, _ idx: Int32) -> String? {
+        guard sqlite3_column_type(s, idx) != SQLITE_NULL,
+              let c = sqlite3_column_text(s, idx) else { return nil }
+        return String(cString: c)
+    }
+
+    // MARK: - Import batch records
+    //
+    // None of these call `SyncChangeTracker.markDirty()`. `ImportBatches` and `ImportBatchRows` are
+    // not syncable tables, so a write here is not a local change the sync engine needs to hear about.
+
+    /// The column list, shared by every read below so the decoder's indices stay in step with it.
+    private static let importBatchColumns = """
+        id, uuid, user_id, created_at, applied_at, finished_at, rolled_back_at,
+        source_filename, file_hash, file_byte_count, bank_preset_id, column_mapping,
+        rows_in_file, rows_selected, rows_inserted, rows_skipped, rows_failed, rows_removed,
+        amount_total, date_min, date_max, status, schema_version, notes
+        """
+
+    private func decodeImportBatch(_ s: OpaquePointer?) -> ImportBatch {
+        ImportBatch(
+            id: Int(sqlite3_column_int64(s, 0)),
+            uuid: String(cString: sqlite3_column_text(s, 1)),
+            userId: optionalText(s, 2),
+            createdAt: Date(timeIntervalSince1970: TimeInterval(sqlite3_column_int64(s, 3))),
+            appliedAt: optionalDate(s, 4),
+            finishedAt: optionalDate(s, 5),
+            rolledBackAt: optionalDate(s, 6),
+            sourceFilename: String(cString: sqlite3_column_text(s, 7)),
+            fileHash: String(cString: sqlite3_column_text(s, 8)),
+            fileByteCount: Int(sqlite3_column_int64(s, 9)),
+            bankPresetId: optionalText(s, 10),
+            columnMapping: optionalText(s, 11) ?? "{}",
+            rowsInFile: Int(sqlite3_column_int64(s, 12)),
+            rowsSelected: Int(sqlite3_column_int64(s, 13)),
+            rowsInserted: Int(sqlite3_column_int64(s, 14)),
+            rowsSkipped: Int(sqlite3_column_int64(s, 15)),
+            rowsFailed: Int(sqlite3_column_int64(s, 16)),
+            rowsRemoved: Int(sqlite3_column_int64(s, 17)),
+            amountTotal: Int(sqlite3_column_int64(s, 18)),
+            dateMin: optionalDate(s, 19),
+            dateMax: optionalDate(s, 20),
+            // An unrecognised status means a newer build wrote it. Reading it as `.failed` keeps the
+            // row visible and non-destructive rather than dropping it from history entirely.
+            status: ImportBatchStatus(rawValue: optionalText(s, 21) ?? "") ?? .failed,
+            schemaVersion: Int(sqlite3_column_int64(s, 22)),
+            notes: optionalText(s, 23)
+        )
+    }
+
+    @discardableResult
+    func insertImportBatch(_ batch: ImportBatch) throws -> Int {
+        guard isInitialized else { return 0 }
+        let query = """
+            INSERT INTO ImportBatches (
+                uuid, user_id, created_at, applied_at, finished_at, rolled_back_at,
+                source_filename, file_hash, file_byte_count, bank_preset_id, column_mapping,
+                rows_in_file, rows_selected, rows_inserted, rows_skipped, rows_failed, rows_removed,
+                amount_total, date_min, date_max, status, schema_version, notes
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+            """
+        var s: OpaquePointer?
+        guard sqlite3_prepare_v2(db, query, -1, &s, nil) == SQLITE_OK else {
+            throw DBError.prepareFailed(message: String(cString: sqlite3_errmsg(db)))
+        }
+        defer { sqlite3_finalize(s) }
+
+        sqlite3_bind_text(s, 1, batch.uuid, -1, SQLITE_TRANSIENT)
+        if let uid = batch.userId { sqlite3_bind_text(s, 2, uid, -1, SQLITE_TRANSIENT) }
+        else { sqlite3_bind_null(s, 2) }
+        sqlite3_bind_int64(s, 3, Int64(batch.createdAt.timeIntervalSince1970))
+        bindOptionalDate(s, 4, batch.appliedAt)
+        bindOptionalDate(s, 5, batch.finishedAt)
+        bindOptionalDate(s, 6, batch.rolledBackAt)
+        sqlite3_bind_text(s, 7, batch.sourceFilename, -1, SQLITE_TRANSIENT)
+        sqlite3_bind_text(s, 8, batch.fileHash, -1, SQLITE_TRANSIENT)
+        sqlite3_bind_int64(s, 9, Int64(batch.fileByteCount))
+        if let p = batch.bankPresetId { sqlite3_bind_text(s, 10, p, -1, SQLITE_TRANSIENT) }
+        else { sqlite3_bind_null(s, 10) }
+        sqlite3_bind_text(s, 11, batch.columnMapping, -1, SQLITE_TRANSIENT)
+        sqlite3_bind_int64(s, 12, Int64(batch.rowsInFile))
+        sqlite3_bind_int64(s, 13, Int64(batch.rowsSelected))
+        sqlite3_bind_int64(s, 14, Int64(batch.rowsInserted))
+        sqlite3_bind_int64(s, 15, Int64(batch.rowsSkipped))
+        sqlite3_bind_int64(s, 16, Int64(batch.rowsFailed))
+        sqlite3_bind_int64(s, 17, Int64(batch.rowsRemoved))
+        sqlite3_bind_int64(s, 18, Int64(batch.amountTotal))
+        bindOptionalDate(s, 19, batch.dateMin)
+        bindOptionalDate(s, 20, batch.dateMax)
+        sqlite3_bind_text(s, 21, batch.status.rawValue, -1, SQLITE_TRANSIENT)
+        sqlite3_bind_int64(s, 22, Int64(batch.schemaVersion))
+        if let n = batch.notes { sqlite3_bind_text(s, 23, n, -1, SQLITE_TRANSIENT) }
+        else { sqlite3_bind_null(s, 23) }
+
+        guard sqlite3_step(s) == SQLITE_DONE else {
+            throw DBError.stepFailed(message: String(cString: sqlite3_errmsg(db)))
+        }
+        return Int(sqlite3_last_insert_rowid(db))
+    }
+
+    /// Rewrites every mutable field. Cheap (history is tens of rows) and it keeps callers from
+    /// having to remember which subset of counters a given transition touches.
+    func updateImportBatch(_ batch: ImportBatch) throws {
+        guard isInitialized else { return }
+        let query = """
+            UPDATE ImportBatches SET
+                applied_at = ?, finished_at = ?, rolled_back_at = ?,
+                rows_in_file = ?, rows_selected = ?, rows_inserted = ?,
+                rows_skipped = ?, rows_failed = ?, rows_removed = ?,
+                amount_total = ?, date_min = ?, date_max = ?,
+                status = ?, notes = ?
+             WHERE uuid = ?;
+            """
+        var s: OpaquePointer?
+        guard sqlite3_prepare_v2(db, query, -1, &s, nil) == SQLITE_OK else {
+            throw DBError.prepareFailed(message: String(cString: sqlite3_errmsg(db)))
+        }
+        defer { sqlite3_finalize(s) }
+
+        bindOptionalDate(s, 1, batch.appliedAt)
+        bindOptionalDate(s, 2, batch.finishedAt)
+        bindOptionalDate(s, 3, batch.rolledBackAt)
+        sqlite3_bind_int64(s, 4, Int64(batch.rowsInFile))
+        sqlite3_bind_int64(s, 5, Int64(batch.rowsSelected))
+        sqlite3_bind_int64(s, 6, Int64(batch.rowsInserted))
+        sqlite3_bind_int64(s, 7, Int64(batch.rowsSkipped))
+        sqlite3_bind_int64(s, 8, Int64(batch.rowsFailed))
+        sqlite3_bind_int64(s, 9, Int64(batch.rowsRemoved))
+        sqlite3_bind_int64(s, 10, Int64(batch.amountTotal))
+        bindOptionalDate(s, 11, batch.dateMin)
+        bindOptionalDate(s, 12, batch.dateMax)
+        sqlite3_bind_text(s, 13, batch.status.rawValue, -1, SQLITE_TRANSIENT)
+        if let n = batch.notes { sqlite3_bind_text(s, 14, n, -1, SQLITE_TRANSIENT) }
+        else { sqlite3_bind_null(s, 14) }
+        sqlite3_bind_text(s, 15, batch.uuid, -1, SQLITE_TRANSIENT)
+
+        guard sqlite3_step(s) == SQLITE_DONE else {
+            throw DBError.stepFailed(message: String(cString: sqlite3_errmsg(db)))
+        }
+    }
+
+    func fetchImportBatch(uuid: String) -> ImportBatch? {
+        guard isInitialized else { return nil }
+        var s: OpaquePointer?
+        let query = "SELECT \(Self.importBatchColumns) FROM ImportBatches WHERE uuid = ? LIMIT 1;"
+        guard sqlite3_prepare_v2(db, query, -1, &s, nil) == SQLITE_OK else { return nil }
+        defer { sqlite3_finalize(s) }
+        sqlite3_bind_text(s, 1, uuid, -1, SQLITE_TRANSIENT)
+        guard sqlite3_step(s) == SQLITE_ROW else { return nil }
+        return decodeImportBatch(s)
+    }
+
+    /// The history list. One indexed scan, no joins, and no per-row count over `Transactions` — a
+    /// correlated subquery per batch is what turns a cheap list into a slow one.
+    func fetchImportBatches(userId: String?, limit: Int = 100) -> [ImportBatch] {
+        guard isInitialized else { return [] }
+        var s: OpaquePointer?
+        let scope = userId == nil ? "user_id IS NULL" : "user_id = ?"
+        let query = """
+            SELECT \(Self.importBatchColumns) FROM ImportBatches
+             WHERE \(scope) ORDER BY created_at DESC LIMIT ?;
+            """
+        guard sqlite3_prepare_v2(db, query, -1, &s, nil) == SQLITE_OK else { return [] }
+        defer { sqlite3_finalize(s) }
+        var idx: Int32 = 1
+        if let userId { sqlite3_bind_text(s, idx, userId, -1, SQLITE_TRANSIENT); idx += 1 }
+        sqlite3_bind_int64(s, idx, Int64(limit))
+
+        var out: [ImportBatch] = []
+        while sqlite3_step(s) == SQLITE_ROW { out.append(decodeImportBatch(s)) }
+        return out
+    }
+
+    /// Batches in a state that means a write was interrupted, so they can be reconciled.
+    func fetchInterruptedImportBatches(userId: String?) -> [ImportBatch] {
+        fetchImportBatches(userId: userId, limit: 500)
+            .filter { ImportBatchStatus.interrupted.contains($0.status) }
+    }
+
+    /// Prior imports of the same file, newest first — the "you already imported this" check.
+    func fetchImportBatches(fileHash: String, userId: String?) -> [ImportBatch] {
+        fetchImportBatches(userId: userId, limit: 500)
+            .filter { $0.fileHash == fileHash && $0.status == .applied }
+    }
+
+    func recordImportBatchRows(_ rows: [ImportBatchRow]) throws {
+        guard isInitialized, !rows.isEmpty else { return }
+        let query = """
+            INSERT OR REPLACE INTO ImportBatchRows
+                (batch_uuid, transaction_uuid, source_line, row_fingerprint)
+            VALUES (?, ?, ?, ?);
+            """
+        var s: OpaquePointer?
+        guard sqlite3_prepare_v2(db, query, -1, &s, nil) == SQLITE_OK else {
+            throw DBError.prepareFailed(message: String(cString: sqlite3_errmsg(db)))
+        }
+        defer { sqlite3_finalize(s) }
+        for row in rows {
+            sqlite3_reset(s)
+            sqlite3_clear_bindings(s)
+            sqlite3_bind_text(s, 1, row.batchUuid, -1, SQLITE_TRANSIENT)
+            sqlite3_bind_text(s, 2, row.transactionUuid, -1, SQLITE_TRANSIENT)
+            bindOptionalInt(s, 3, row.sourceLine)
+            sqlite3_bind_text(s, 4, row.rowFingerprint, -1, SQLITE_TRANSIENT)
+            guard sqlite3_step(s) == SQLITE_DONE else {
+                throw DBError.stepFailed(message: String(cString: sqlite3_errmsg(db)))
+            }
+        }
+    }
+
+    /// Every row fingerprint this user has ever imported, for the "already imported this row"
+    /// dedupe tier. Excludes rolled-back batches: those rows are gone, so re-importing them is the
+    /// user changing their mind, not a duplicate.
+    func importedRowFingerprints(userId: String?) -> Set<String> {
+        guard isInitialized else { return [] }
+        let scope = userId == nil ? "b.user_id IS NULL" : "b.user_id = ?"
+        let query = """
+            SELECT r.row_fingerprint FROM ImportBatchRows r
+              JOIN ImportBatches b ON b.uuid = r.batch_uuid
+             WHERE \(scope) AND b.status = 'applied';
+            """
+        var s: OpaquePointer?
+        guard sqlite3_prepare_v2(db, query, -1, &s, nil) == SQLITE_OK else { return [] }
+        defer { sqlite3_finalize(s) }
+        if let userId { sqlite3_bind_text(s, 1, userId, -1, SQLITE_TRANSIENT) }
+        var out: Set<String> = []
+        while sqlite3_step(s) == SQLITE_ROW {
+            if let c = sqlite3_column_text(s, 0) { out.insert(String(cString: c)) }
+        }
+        return out
+    }
+
+    /// How many rows this batch created are still live. Detail-screen only.
+    func liveTransactionCount(importBatchUuid: String) -> Int {
+        guard isInitialized else { return 0 }
+        let query = """
+            SELECT COUNT(*) FROM Transactions
+             WHERE import_batch_uuid = ? AND (is_deleted IS NULL OR is_deleted = 0);
+            """
+        var s: OpaquePointer?
+        guard sqlite3_prepare_v2(db, query, -1, &s, nil) == SQLITE_OK else { return 0 }
+        defer { sqlite3_finalize(s) }
+        sqlite3_bind_text(s, 1, importBatchUuid, -1, SQLITE_TRANSIENT)
+        guard sqlite3_step(s) == SQLITE_ROW else { return 0 }
+        return Int(sqlite3_column_int64(s, 0))
+    }
+
+    /// The minimum a rollback needs to know about each row this batch created.
+    struct ImportedRowState {
+        let id: Int
+        let uuid: String?
+        let hasCKRecord: Bool
+        let isDeleted: Bool
+        let updatedAt: Int?
+    }
+
+    func fetchImportedRowStates(importBatchUuid: String) -> [ImportedRowState] {
+        guard isInitialized else { return [] }
+        let query = """
+            SELECT id, uuid, ck_record_id, is_deleted, updated_at
+              FROM Transactions WHERE import_batch_uuid = ?;
+            """
+        var s: OpaquePointer?
+        guard sqlite3_prepare_v2(db, query, -1, &s, nil) == SQLITE_OK else { return [] }
+        defer { sqlite3_finalize(s) }
+        sqlite3_bind_text(s, 1, importBatchUuid, -1, SQLITE_TRANSIENT)
+
+        var out: [ImportedRowState] = []
+        while sqlite3_step(s) == SQLITE_ROW {
+            out.append(ImportedRowState(
+                id: Int(sqlite3_column_int64(s, 0)),
+                uuid: optionalText(s, 1),
+                hasCKRecord: sqlite3_column_type(s, 2) != SQLITE_NULL,
+                isDeleted: sqlite3_column_int(s, 3) == 1,
+                updatedAt: sqlite3_column_type(s, 4) == SQLITE_NULL
+                    ? nil : Int(sqlite3_column_int64(s, 4))
+            ))
+        }
+        return out
+    }
+
+    /// Deletes any transaction whose uuid belongs to a batch the user rolled back.
+    ///
+    /// The backstop for the one case a local rollback cannot cover on its own: a row that was
+    /// mid-push when the undo ran, whose cloud copy therefore outlived it and comes back on the next
+    /// full pull. `ImportBatchRows` is what makes the returning row recognisable — it survives the
+    /// hard delete that removed the transaction.
+    ///
+    /// Returns the number of rows removed. Cheap for everyone else: the guard is one indexed probe.
+    @discardableResult
+    func sweepRolledBackImportOrphans() -> Int {
+        guard isInitialized else { return 0 }
+
+        var probe: OpaquePointer?
+        let probeQuery = "SELECT 1 FROM ImportBatches WHERE status = 'rolledBack' LIMIT 1;"
+        guard sqlite3_prepare_v2(db, probeQuery, -1, &probe, nil) == SQLITE_OK else { return 0 }
+        let hasRolledBack = sqlite3_step(probe) == SQLITE_ROW
+        sqlite3_finalize(probe)
+        guard hasRolledBack else { return 0 }
+
+        let removed = executeSyncUpdateCount("""
+            DELETE FROM Transactions
+             WHERE uuid IN (
+               SELECT r.transaction_uuid FROM ImportBatchRows r
+                 JOIN ImportBatches b ON b.uuid = r.batch_uuid
+                WHERE b.status = 'rolledBack'
+             );
+            """)
+        if removed > 0 {
+            logWarning("[Import] Swept \(removed) resurrected row(s) from rolled-back import batches")
+            TransactionRepository.invalidateCache()
+        }
+        return removed
     }
 
     private func addColumnIfNotExists(table: String, column: String, definition: String) throws {

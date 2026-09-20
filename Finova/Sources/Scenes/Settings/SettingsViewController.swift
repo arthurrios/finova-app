@@ -183,6 +183,10 @@ extension SettingsViewController: SettingsViewDelegate {
         flowDelegate?.navigateToSyncSettings()
     }
 
+    func didTapImportData() {
+        flowDelegate?.navigateToImportData()
+    }
+
     func didToggleTransparency(_ isEnabled: Bool) {
         viewModel.toggleTransparency(isEnabled)
     }

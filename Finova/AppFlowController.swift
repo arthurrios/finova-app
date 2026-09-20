@@ -536,6 +536,11 @@ extension AppFlowController: DashboardFlowDelegate, SettingsFlowDelegate, Profil
         navigationController?.pushViewController(viewController, animated: true)
     }
 
+    func navigateToImportData() {
+        let viewController = viewControllersFactory.makeImportHistoryViewController(flowDelegate: self)
+        navigationController?.pushViewController(viewController, animated: true)
+    }
+
     func dismissSyncSettings() {
         navigationController?.popViewController(animated: true)
     }
@@ -1146,5 +1151,55 @@ extension AppFlowController: InitialSyncFlowDelegate {
         pendingLargeSyncDetected = false
         let dashboardVC = viewControllersFactory.makeDashboardViewController(flowDelegate: self)
         navigationController?.setViewControllers([dashboardVC], animated: true)
+    }
+}
+
+// MARK: - Import Flow
+
+extension AppFlowController: ImportFlowDelegate {
+
+    func navigateToImportReview(file: LoadedFile, plan: ImportPlan) {
+        let viewController = viewControllersFactory.makeImportReviewViewController(
+            flowDelegate: self, file: file, plan: plan)
+        navigationController?.pushViewController(viewController, animated: true)
+    }
+
+    func navigateToImportMapping(file: LoadedFile, plan: ImportPlan) {
+        let viewController = viewControllersFactory.makeImportMappingViewController(
+            flowDelegate: self, file: file, plan: plan)
+        navigationController?.pushViewController(viewController, animated: true)
+    }
+
+    /// Replaces the mapping screen rather than stacking on top of it: once the schema is confirmed,
+    /// going "back" from the diff should return to the history, not to a form the user has already
+    /// answered. Same idiom as `didCompleteEarlyPayment`.
+    func didConfirmImportMapping(file: LoadedFile, plan: ImportPlan) {
+        guard let navigationController else { return }
+        var stack = navigationController.viewControllers
+        if stack.last is ImportMappingViewController { stack.removeLast() }
+        stack.append(viewControllersFactory.makeImportReviewViewController(
+            flowDelegate: self, file: file, plan: plan))
+        navigationController.setViewControllers(stack, animated: true)
+    }
+
+    /// Unwinds the whole import stack back to the history, which will refresh and show the new batch.
+    func didFinishImport() {
+        guard let navigationController else { return }
+        if let history = navigationController.viewControllers
+            .compactMap({ $0 as? ImportHistoryViewController }).last {
+            navigationController.popToViewController(history, animated: true)
+        } else {
+            navigationController.popToRootViewController(animated: true)
+        }
+
+        // The ledger changed underneath whatever the user goes back to.
+        if let dashboard = navigationController.viewControllers
+            .compactMap({ $0 as? DashboardViewController }).last {
+            dashboard.refreshAfterTransactionAdd()
+        }
+    }
+
+    func dismissImport() {
+        navigationController?.popViewController(animated: true)
     }
 }

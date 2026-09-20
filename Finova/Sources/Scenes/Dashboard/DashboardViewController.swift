@@ -2252,7 +2252,9 @@ extension DashboardViewController: MonthBudgetCardDelegate {
         flowDelegate?.navigateToBudgets(date: budgetDate)
     }
     
-    func didLongPressBalance() {
+    func didRequestBalanceAdjustment() {
+        // The card already hides the affordance for non-owners; this is the enforcement, and it
+        // reads the live context rather than the one the card was configured with.
         if case .group(let group) = viewModel.currentContext, !group.isOwner {
             return
         }

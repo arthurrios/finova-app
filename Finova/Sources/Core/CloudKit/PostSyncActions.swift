@@ -42,6 +42,17 @@ final class RealPostSyncActions: PostSyncActions {
             // moment that is true. Self-guarded and one-shot, so calling it every cycle is free.
             MirrorTagRestore.runOnceIfNeeded()
 
+            // An undo the user asked for while a push was in flight. It could not run then, because
+            // a row mid-push still reads `ck_record_id IS NULL` and would have been hard-deleted
+            // locally while its cloud copy survived. Here the cycle has finished and every row's
+            // record name is settled, so classification is exact. Self-guarded: a no-op unless a
+            // batch is actually waiting.
+            ImportRollbackService().runDeferredRollbacks()
+
+            // Backstop for the same hazard: drop any row a pull just handed back that belongs to a
+            // batch the user already rolled back. One indexed probe when nothing has been imported.
+            ImportOrphanSweep.runIfNeeded()
+
             completion()
         }
     }

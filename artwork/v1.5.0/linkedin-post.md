@@ -51,48 +51,66 @@ purchase" instead of "Pay installments early".
 
 ## Caption
 
-Finova v1.5.0 is out — and this one is about the card in your pocket. 💳
+LinkedIn does not render Markdown - asterisks appear literally - so this is written with
+plain section labels and is ready to paste as-is.
 
-When you spend on credit, the money doesn't leave when you tap. It leaves on the due date,
-on a statement that closed days earlier. Budgeting apps usually flatten that away. This
-release doesn't.
+```
+Finova 1.5.0 is live. 💳
 
-**Credit Card Intelligence**
-• Track multiple cards, each with its own closing day, due day and limit
-• Choose cash or card as you enter a charge — cash hits your balance now, a card charge is
-  routed to the cycle that actually contains it, so a purchase after the closing date lands
-  on next month's statement, exactly like your issuer does it
-• Open a statement to see its period, closing date, due date, total and every line on it
-• Installments chain across statements instead of dumping the whole purchase on month one
+When you pay by card, the money doesn't leave when you tap. It leaves on the due
+date, on a statement that closed days earlier.
 
-**Pay ahead, on your terms**
-• Pick any future installments and settle them early, in one tap
-• The app tells you which open statement they'll be added to before you confirm
-• An installment you've prepaid greys out in the month it would have been billed — because
-  it no longer counts toward that month's budget
+Most budgeting apps flatten that away. This release doesn't.
 
-**Smarter budgets**
-• See where the month is heading before it ends: projected balance, and what's left if every
-  allocation is fully used
-• Give every category its own slice of the budget, with unallocated spending tracked rather
-  than lost
-• Group categories into tags — Essentials, Lifestyle, Wellbeing — so you can ask what a whole
-  set of categories costs, not just one line
+CREDIT CARD INTELLIGENCE
 
-**Under the hood**
-• New `CreditCard` and `CreditCardStatement` models, with `CreditCardRepository`,
-  `StatementRepository` and a `CreditCardService` that owns the cycle maths
-• Schema migration adding the card and statement tables, plus card/statement foreign keys on
-  transactions
-• Statement re-shaping limited to cycles that haven't closed — an invoice you were already
-  billed for is a historical record, not something to rewrite
-• Allocation tags persist as a single versioned blob, sanitised on every read, so a mapping
-  can never point at a deleted tag
-• Still 100% programmatic UIKit, MVVM + flow controllers + factory-injected dependencies
+→ Add each card with its own closing day, due day and limit
+→ Mark a charge as cash or card as you enter it. Cash hits your balance now; a card
+   charge goes to the billing cycle that actually contains it — so a purchase made
+   after the closing date lands on next month's statement, exactly like your issuer
+   does it
+→ Open any statement to see its period, closing and due dates, total, status, and
+   every line on it
+→ Split a purchase and the installments chain across statements, instead of dumping
+   the whole amount onto month one
+
+PAY AHEAD, ON YOUR TERMS
+
+→ Pick any future installments and settle them early
+→ Before you confirm, the app tells you which open statement they'll be added to
+→ An installment you've prepaid greys out in the month it would have been billed —
+   because it genuinely stops counting toward that month's budget
+→ Changed your mind? Undo it.
+
+BUDGETS THAT LOOK FORWARD
+
+→ See where the month is heading: projected closing balance, and what's left if every
+   allocation is fully used
+→ Give each category its own slice, with unallocated spending tracked instead of
+   quietly disappearing
+→ Group categories into tags — Essentials, Lifestyle, Wellbeing — so you can ask what
+   a whole set of categories costs, not just one line
+
+UNDER THE HOOD
+
+New CreditCard and CreditCardStatement models with their own repositories, and a
+CreditCardService that owns the cycle maths. A schema migration for the card and
+statement tables. Statement re-shaping is deliberately limited to cycles that haven't
+closed — an invoice you were already billed for is a record, not something to rewrite.
+
+Still 100% programmatic UIKit. MVVM, flow controllers, factory-injected dependencies.
 
 Swift · UIKit · SQLite.swift · Firebase Auth · iOS 16+
 
-Available on the App Store. If you carry a credit card and a budget at the same time, I'd
-genuinely like to know whether this matches how you think about it. 👇
+On the App Store now. If you carry a credit card and a budget at the same time, I'd
+like to know whether this matches how you actually think about it. 👇
 
-#iOSDevelopment #Swift #UIKit #IndieDev #PersonalFinance #MobileDevelopment #Finova
+#iOSDev #Swift #UIKit #IndieDev #PersonalFinance #MobileDevelopment
+```
+
+Every feature claim was observed working in the app during the capture session, not
+inferred from source.
+
+Two optional trims: the hook runs three lines and LinkedIn truncates around the second, so
+leading with "It leaves on the due date..." hits harder; and UNDER THE HOOD is the most
+cuttable section for a non-iOS audience.

@@ -19,11 +19,18 @@ class MonthBudgetCard: UIView {
     /// Test hooks, matching the convention `BudgetCard` already uses.
     static let usedValueIdentifier = "monthBudgetCard.usedValue"
     static let limitValueIdentifier = "monthBudgetCard.limitValue"
+    static let adjustBalanceIdentifier = "monthBudgetCard.adjustBalance"
 
     weak var delegate: MonthBudgetCardDelegate?
     weak var flipDelegate: MonthCardFlipDelegate?
     var ledgerService: TransactionLedgerService?
-    var dataContext: DataContext = .personal
+    /// Assigned by the dashboard on every cell configure, in no guaranteed order relative to
+    /// `configure(data:)` — hence the observer rather than a read at configure time. The pencil's
+    /// visibility depends on it, and a card reused from a group the user owns into one they do not
+    /// would otherwise keep offering the adjustment.
+    var dataContext: DataContext = .personal {
+        didSet { applyAdjustAffordanceVisibility() }
+    }
     private var budgetDate: Date?
     
     private var displayMode: BalanceDisplayMode = .final
@@ -115,6 +122,13 @@ class MonthBudgetCard: UIView {
         availableBudgetValueLabel.translatesAutoresizingMaskIntoConstraints = false
         
         container.addSubview(balanceHideValuesButton)
+        container.addSubview(adjustBalanceButton)
+
+        // Collapsed rather than merely hidden when the adjustment is unavailable, so the balance
+        // gets the width back instead of running up against an invisible 36pt block.
+        let adjustWidth = adjustBalanceButton.widthAnchor.constraint(
+            equalToConstant: Metrics.hideValuesButtonSize)
+        adjustBalanceButtonWidth = adjustWidth
 
         NSLayoutConstraint.activate([
             availableBudgetValueLabel.leadingAnchor.constraint(equalTo: container.leadingAnchor),
@@ -123,14 +137,21 @@ class MonthBudgetCard: UIView {
             balanceHideValuesButton.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             balanceHideValuesButton.centerYAnchor.constraint(equalTo: container.centerYAnchor),
 
-            balanceHideValuesButton.leadingAnchor.constraint(
+            adjustBalanceButton.trailingAnchor.constraint(
+                equalTo: balanceHideValuesButton.leadingAnchor),
+            adjustBalanceButton.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+            adjustWidth,
+            adjustBalanceButton.heightAnchor.constraint(
+                equalToConstant: Metrics.hideValuesButtonSize),
+
+            adjustBalanceButton.leadingAnchor.constraint(
                 greaterThanOrEqualTo: availableBudgetValueLabel.trailingAnchor, constant: 8),
 
             // The row takes its height from the button. Keep this: without it the balance row
             // collapses.
             container.heightAnchor.constraint(equalTo: balanceHideValuesButton.heightAnchor),
         ])
-        
+
         return container
     }()
     
@@ -172,6 +193,43 @@ class MonthBudgetCard: UIView {
         button.isHidden = true
         return button
     }()
+
+    /// Says out loud that the balance is editable.
+    ///
+    /// The adjustment was reachable only by a half-second press on the number, with nothing on the
+    /// card to suggest it existed — so in practice it did not, for anyone who had not been told.
+    /// The pencil is the whole point of this control; the menu behind it exists to name what the
+    /// adjustment is *for* before the keypad opens, which a straight jump into the modal cannot do.
+    private lazy var adjustBalanceButton: UIButton = {
+        let button = UIButton(type: .system)
+        // iOS's standard edit glyph, at the eye's weight rather than the caption's. A bare `pencil`
+        // was unreadable at this size — a stray diagonal mark beside a large number — and
+        // `pencil.circle` was worse, reading as a slash in a ring. `gray100` puts it in the same
+        // class as the toggle beside it instead of looking like disabled text.
+        let config = UIImage.SymbolConfiguration(pointSize: 17, weight: .medium)
+        button.setImage(
+            UIImage(systemName: "square.and.pencil", withConfiguration: config), for: .normal)
+        button.tintColor = Colors.gray100
+        button.translatesAutoresizingMaskIntoConstraints = false
+        button.showsMenuAsPrimaryAction = true
+        button.accessibilityLabel = "monthCard.adjustBalance.a11y".localized
+        button.accessibilityIdentifier = MonthBudgetCard.adjustBalanceIdentifier
+        return button
+    }()
+
+    private var adjustBalanceButtonWidth: NSLayoutConstraint?
+
+    /// Whether this card's ledger is one the user may rewrite the balance of.
+    ///
+    /// Group members who are not the owner may not, and the affordance is collapsed for them rather
+    /// than left to respond and do nothing — the version this replaces fired the haptic and then
+    /// silently returned, which reads as a broken card.
+    private var canAdjustBalance: Bool {
+        switch dataContext {
+        case .personal: return true
+        case .group(let group): return group.isOwner
+        }
+    }
 
     private lazy var budgetViewToggleButton: UIButton = {
         let button = UIButton(type: .system)
@@ -594,10 +652,25 @@ class MonthBudgetCard: UIView {
         // No gesture wiring for the eye toggles - `HideValuesButton` is a real UIButton and carries
         // its own target.
 
+        // Kept as an alias for the users who already learned it. The pencil is the discoverable
+        // route; this one exists so the gesture they know does not stop working.
         let longPressGesture = UILongPressGestureRecognizer(
             target: self, action: #selector(handleBalanceLongPress(_:)))
         longPressGesture.minimumPressDuration = 0.5
         availableBudgetValueWithToggleContainer.addGestureRecognizer(longPressGesture)
+
+        // The title is the reason this is a menu and not a direct jump: it names what the
+        // adjustment reconciles against, at the moment the user is deciding whether to tap it.
+        adjustBalanceButton.menu = UIMenu(
+            title: "monthCard.balanceMenu.title".localized,
+            children: [
+                UIAction(
+                    title: "monthCard.balanceMenu.adjust".localized,
+                    image: UIImage(systemName: "square.and.pencil")
+                ) { [weak self] _ in
+                    self?.requestBalanceAdjustment()
+                }
+            ])
     }
     
     private func setupNotificationObserver() {
@@ -655,8 +728,10 @@ class MonthBudgetCard: UIView {
                 equalTo: availableBudgetValueLabel.leadingAnchor),
             container.centerYAnchor.constraint(
                 equalTo: availableBudgetValueWithToggleContainer.centerYAnchor),
+            // Stops at the pencil, not at the eye, so a long balance cannot run underneath it.
+            // The pencil collapses to zero width when hidden, which hands the space back.
             container.trailingAnchor.constraint(
-                equalTo: balanceHideValuesButton.leadingAnchor, constant: -8),
+                equalTo: adjustBalanceButton.leadingAnchor, constant: -8),
         ])
 
         // The button is added to this container once, in the container's own initializer, and never
@@ -731,10 +806,21 @@ class MonthBudgetCard: UIView {
 
     @objc
     private func handleBalanceLongPress(_ gesture: UILongPressGestureRecognizer) {
-        guard gesture.state == .began else { return }
+        guard gesture.state == .began, canAdjustBalance else { return }
+
+        // A press that starts on the pencil belongs to the button: it opens the menu on its own,
+        // and without this the same press would also fire the modal behind it.
+        let location = gesture.location(in: availableBudgetValueWithToggleContainer)
+        guard !adjustBalanceButton.frame.contains(location) else { return }
+
         let generator = UIImpactFeedbackGenerator(style: .medium)
         generator.impactOccurred()
-        delegate?.didLongPressBalance()
+        delegate?.didRequestBalanceAdjustment()
+    }
+
+    private func requestBalanceAdjustment() {
+        guard canAdjustBalance else { return }
+        delegate?.didRequestBalanceAdjustment()
     }
     
     @objc
@@ -792,6 +878,21 @@ class MonthBudgetCard: UIView {
         let showsBalanceToggle = hasBudget && !isFilterActive
         balanceHideValuesButton.isHidden = !showsBalanceToggle
         headerHideValuesButton.isHidden = showsBalanceToggle
+
+        applyAdjustAffordanceVisibility()
+    }
+
+    /// Shows the pencil only where adjusting means something.
+    ///
+    /// Without a budget there is no balance row to hang it off; while a filter is active the row
+    /// shows a filtered sum rather than a balance, and reconciling against that figure would write
+    /// a nonsense offset.
+    private func applyAdjustAffordanceVisibility() {
+        let hasBudget = (currentMonthData?.budgetLimit ?? 0) > 0
+        let shows = hasBudget && !isFilterActive && canAdjustBalance
+
+        adjustBalanceButton.isHidden = !shows
+        adjustBalanceButtonWidth?.constant = shows ? Metrics.hideValuesButtonSize : 0
     }
 
     /// Re-renders every masked label on this card from the current data.

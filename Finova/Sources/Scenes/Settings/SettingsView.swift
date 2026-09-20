@@ -144,6 +144,18 @@ final class SettingsView: UIView {
     let syncStatusDetailLabel = createDetailLabel(text: "")
     private let syncSettingsChevron = createChevronView()
 
+    // Data Section
+    private let dataHeaderView = createSectionHeader(title: "settings.section.data".localized)
+
+    private let importDataContainer: UIView = {
+        let container = createSettingContainer()
+        container.isUserInteractionEnabled = true
+        return container
+    }()
+    private let importDataIconView = createIconView(imageName: "square.and.arrow.down")
+    private let importDataLabel = createSettingLabel(text: "settings.import.title".localized)
+    private let importDataChevron = createChevronView()
+
     // Group Sharing (Transparent Mode) Section
     private let transparencyHeaderView = createSectionHeader(title: "settings.section.transparency".localized)
 
@@ -251,6 +263,11 @@ final class SettingsView: UIView {
         contentStackView.addArrangedSubview(sharingHeaderView)
         setupSyncSettingsContainer()
         contentStackView.addArrangedSubview(syncSettingsContainer)
+
+        // Data section
+        contentStackView.addArrangedSubview(dataHeaderView)
+        setupImportDataContainer()
+        contentStackView.addArrangedSubview(importDataContainer)
 
         // Group Sharing section
         contentStackView.addArrangedSubview(transparencyHeaderView)
@@ -492,6 +509,23 @@ final class SettingsView: UIView {
         ])
     }
 
+    private func setupImportDataContainer() {
+        importDataContainer.addSubview(importDataIconView)
+        importDataContainer.addSubview(importDataLabel)
+        importDataContainer.addSubview(importDataChevron)
+
+        NSLayoutConstraint.activate([
+            importDataIconView.leadingAnchor.constraint(equalTo: importDataContainer.leadingAnchor, constant: Metrics.spacing4),
+            importDataIconView.centerYAnchor.constraint(equalTo: importDataContainer.centerYAnchor),
+
+            importDataLabel.leadingAnchor.constraint(equalTo: importDataIconView.trailingAnchor, constant: Metrics.spacing3),
+            importDataLabel.centerYAnchor.constraint(equalTo: importDataContainer.centerYAnchor),
+
+            importDataChevron.trailingAnchor.constraint(equalTo: importDataContainer.trailingAnchor, constant: -Metrics.spacing4),
+            importDataChevron.centerYAnchor.constraint(equalTo: importDataContainer.centerYAnchor)
+        ])
+    }
+
     private func setupTransparencyContainer() {
         transparencyContainer.addSubview(transparencyIconView)
         transparencyContainer.addSubview(transparencyLabel)
@@ -654,10 +688,18 @@ final class SettingsView: UIView {
         let syncSettingsTap = UITapGestureRecognizer(target: self, action: #selector(syncSettingsTapped))
         syncSettingsContainer.addGestureRecognizer(syncSettingsTap)
 
+        let importDataTap = UITapGestureRecognizer(target: self, action: #selector(importDataTapped))
+        importDataContainer.addGestureRecognizer(importDataTap)
+
         transparencySwitch.addTarget(self, action: #selector(transparencyToggled), for: .valueChanged)
 
         let transparencyGroupTap = UITapGestureRecognizer(target: self, action: #selector(transparencyGroupTapped))
         transparencyGroupContainer.addGestureRecognizer(transparencyGroupTap)
+    }
+
+    @objc
+    private func importDataTapped() {
+        delegate?.didTapImportData()
     }
 
     @objc
