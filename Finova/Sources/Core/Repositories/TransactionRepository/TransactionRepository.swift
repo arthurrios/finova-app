@@ -301,6 +301,12 @@ final class TransactionRepository: TransactionRepositoryProtocol {
     try db.updateTransactionParentId(transactionId: transactionId, parentId: parentId)
   }
 
+  func updateDescriptors(transactionId: Int, title: String, category: String, type: String) {
+    Self.invalidateCache()
+    db.updateTransactionDescriptors(
+      transactionId: transactionId, title: title, category: category, type: type)
+  }
+
   func updateDateAndBudgetMonth(transactionId: Int, newDateTimestamp: Int, newBudgetMonthDate: Int) {
     Self.invalidateCache()
     db.updateTransactionDateAndBudgetMonth(

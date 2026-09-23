@@ -625,12 +625,19 @@ class CreditCardService {
     /// Past statements (closingDate already in the past) are left untouched so historical
     /// records remain stable.
     /// Call this after editing a card's closingDay or dueDay.
-    func recalculateStatementDatesForCard(_ card: CreditCard, userId: String? = nil, transactionRepo: TransactionRepository? = nil) {
+    ///
+    /// `respectingDateOverrides` is for the launch repair, which runs without the user asking: it
+    /// must not undo dates the user set by hand on a statement.
+    func recalculateStatementDatesForCard(
+        _ card: CreditCard, userId: String? = nil, transactionRepo: TransactionRepository? = nil,
+        respectingDateOverrides: Bool = false
+    ) {
         guard let cardId = card.id else { return }
         let statements = stmtRepo.fetchStatements(forCardId: cardId)
         let now = Date()
 
         for stmt in statements where stmt.closingDate > now && !stmt.isPaid {
+            if respectingDateOverrides && stmt.isDatesOverridden { continue }
             // Recalculate closing date based on existing closing date's month
             let calendar = Calendar.current
             let month = calendar.component(.month, from: stmt.closingDate)
@@ -646,7 +653,161 @@ class CreditCardService {
 
         // Reassign transactions to correct statements based on new dates
         guard let userId = userId, let transactionRepo = transactionRepo else { return }
+
+        // A cycle can end up with two open statements in one month — one on the old closing day,
+        // one on the new. Collapse them before anything routes by month, or an installment stays
+        // stranded on the old one: a "ghost" invoice still showing the old due date.
+        mergeSameMonthOpenStatements(for: card, transactionRepo: transactionRepo)
+
+        // An installment's ledger date IS its statement's due date. Moving the due date without
+        // moving the installments left them showing (and reminding for) the old day.
+        remapOpenInstallmentsToDueDate(cardId: cardId, transactionRepo: transactionRepo)
+
         reassignCardTransactions(card: card, userId: userId, transactionRepo: transactionRepo, onlyFutureCycles: true)
+    }
+
+    /// Collapses two or more OPEN statements that share a card and a closing month into one.
+    /// Returns how many statements were removed.
+    ///
+    /// "One statement per (card, month)" is the rule every router relies on, but it is not enforced
+    /// by the schema, and a closing-day change can leave a second statement for the same cycle on
+    /// the old day. The keeper is the one already on the card's current closing day, else the
+    /// oldest; its dates are then put on the current rules.
+    ///
+    /// Open statements only: a month with a closed or paid statement is history, and history is
+    /// left exactly as it is.
+    @discardableResult
+    func mergeSameMonthOpenStatements(for card: CreditCard, transactionRepo: TransactionRepository) -> Int {
+        guard let cardId = card.id else { return 0 }
+        let calendar = Calendar.current
+        let now = Date()
+
+        struct MonthKey: Hashable { let year: Int; let month: Int }
+        let byMonth = Dictionary(grouping: stmtRepo.fetchStatements(forCardId: cardId)) {
+            MonthKey(
+                year: calendar.component(.year, from: $0.closingDate),
+                month: calendar.component(.month, from: $0.closingDate))
+        }
+
+        var removed = 0
+        for (key, group) in byMonth where group.count > 1 {
+            guard group.allSatisfy({ $0.closingDate > now && !$0.isPaid }) else {
+                logWarning("[StmtMerge] card \(cardId) \(key.month)/\(key.year): \(group.count) statements, one is closed or paid — left alone")
+                continue
+            }
+
+            let currentClosingDay = min(card.closingDay, daysInMonth(month: key.month, year: key.year))
+            let allTransactions = transactionRepo.fetchAllTransactions()
+            let rowCount = Dictionary(grouping: allTransactions.compactMap(\.statementId), by: { $0 })
+                .mapValues(\.count)
+
+            // Keeper: on the current closing day first, then the one holding the most rows (the real
+            // invoice, not the ghost — after `recalculateStatementDatesForCard` both share the day),
+            // then the oldest.
+            let sorted = group.sorted { a, b in
+                let aDay = calendar.component(.day, from: a.closingDate) == currentClosingDay
+                let bDay = calendar.component(.day, from: b.closingDate) == currentClosingDay
+                if aDay != bDay { return aDay }
+                let aRows = a.id.flatMap { rowCount[$0] } ?? 0
+                let bRows = b.id.flatMap { rowCount[$0] } ?? 0
+                if aRows != bRows { return aRows > bRows }
+                return (a.id ?? Int.max) < (b.id ?? Int.max)
+            }
+            guard let keeper = sorted.first, let keeperId = keeper.id else { continue }
+
+            for drop in sorted where drop.id != keeperId {
+                guard let dropId = drop.id else { continue }
+                for tx in allTransactions where tx.statementId == dropId && tx.isCreditCardStatement != true {
+                    guard let txId = tx.id else { continue }
+                    do {
+                        try transactionRepo.updateCreditCardFields(
+                            transactionId: txId,
+                            creditCardId: cardId,
+                            statementId: keeperId,
+                            isCreditCardStatement: false
+                        )
+                    } catch {
+                        logError("[StmtMerge] Failed to move tx \(txId) from \(dropId) to \(keeperId): \(error)")
+                    }
+                }
+                _ = stmtRepo.deleteStatement(statementId: dropId)
+                removed += 1
+                logWarning("[StmtMerge] Merged statement \(dropId) into \(keeperId) (card \(cardId), \(key.month)/\(key.year))")
+            }
+
+            let closingDate = calendar.date(
+                from: DateComponents(year: key.year, month: key.month, day: currentClosingDay))!
+            let dueDate = calculateDueDate(closingDate: closingDate, card: card)
+            if !keeper.isDatesOverridden, keeper.closingDate != closingDate || keeper.dueDate != dueDate {
+                _ = stmtRepo.updateDates(statementId: keeperId, closingDate: closingDate, dueDate: dueDate)
+            }
+            // Directly, not through `recalculateStatementTotal`: that one skips synced statements,
+            // and the keeper has just gained rows.
+            stmtRepo.recalculateTotal(statementId: keeperId)
+        }
+        return removed
+    }
+
+    /// Puts every installment on an OPEN statement of this card onto that statement's due date.
+    /// Ledger date only — the budget month stays on the month it was spent in (see
+    /// `TransactionRepository.updateStatementDueDate`). Returns how many rows moved.
+    ///
+    /// A closed or paid statement is history and keeps whatever its installments already say.
+    @discardableResult
+    func remapOpenInstallmentsToDueDate(cardId: Int, transactionRepo: TransactionRepository) -> Int {
+        let now = Date()
+        var openById: [Int: CreditCardStatement] = [:]
+        for stmt in stmtRepo.fetchStatements(forCardId: cardId) where stmt.closingDate > now && !stmt.isPaid {
+            if let id = stmt.id { openById[id] = stmt }
+        }
+        guard !openById.isEmpty else { return 0 }
+
+        var moved = 0
+        var parentIds = Set<Int>()
+        for tx in transactionRepo.fetchAllTransactions()
+        where tx.creditCardId == cardId && tx.installmentNumber != nil && tx.isCreditCardStatement != true {
+            guard let txId = tx.id, let stmtId = tx.statementId, let stmt = openById[stmtId] else { continue }
+            let dueTimestamp = Int(stmt.dueDate.timeIntervalSince1970)
+            guard tx.dateTimestamp != dueTimestamp else { continue }
+
+            transactionRepo.updateStatementDueDate(transactionId: txId, newDateTimestamp: dueTimestamp)
+            if let parentId = tx.parentTransactionId { parentIds.insert(parentId) }
+            moved += 1
+        }
+
+        // Installment reminders are month-bucketed per parent, so each moved series is recomputed.
+        for parentId in parentIds {
+            InstallmentNotificationManager.shared.rescheduleNotifications(parentTransactionId: parentId)
+        }
+        if moved > 0 {
+            logWarning("[StmtMerge] Moved \(moved) installment(s) on card \(cardId) onto their statement's due date")
+            NotificationCenter.default.post(name: .transactionDataChanged, object: nil)
+        }
+        return moved
+    }
+
+    /// One-time launch repair for cards whose closing or due day was changed before
+    /// `recalculateStatementDatesForCard` did the merge and remap above. It runs that same pass for
+    /// every card: open statements still on the old days move to the current ones (a ghost can be
+    /// alone in its month, with no new-day statement to merge into), same-month duplicates merge,
+    /// and stranded installments move to their statement's due date. Re-running is harmless —
+    /// every step only touches rows that are still wrong.
+    func repairCardCycleChangeIfNeeded(userId: String, transactionRepo: TransactionRepository) {
+        // Per account: a phone can sign in to more than one, and a pass run for one must not
+        // mark the other as done.
+        let key = "hasRepairedCardCycleChange_v1_\(userId)"
+        guard !UserDefaults.standard.bool(forKey: key) else { return }
+
+        // Same hydration rule as every repair that deletes: a half-pulled device must not act on a
+        // partial view. A device with sync OFF has no partial view.
+        let hydrated = UserDefaults.standard.bool(forKey: "syncFullPullVerified_v2")
+        guard hydrated || !UserDefaultsManager.getSyncEnabled() else { return }
+
+        for card in cardRepo.fetchAllCards(userId: userId) where !card.isDeleted {
+            recalculateStatementDatesForCard(
+                card, userId: userId, transactionRepo: transactionRepo, respectingDateOverrides: true)
+        }
+        UserDefaults.standard.set(true, forKey: key)
     }
 
     /// Reassigns all transactions for a card to their correct statements based on current card settings.

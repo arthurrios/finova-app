@@ -108,6 +108,14 @@ final class SplashViewController: UIViewController {
       // the final ledger dates. Ordered, deterministic, and skipped on an unhydrated device.
       ccService.repairBudgetMonthToSpendingMonthIfNeeded(transactionRepo: ccTransactionRepo)
 
+      // One-time: re-link installments whose parent id points at a row this device does not hold.
+      // Before the card passes below, so they see whole series.
+      InstallmentParentRepair.runIfNeeded(transactionRepo: ccTransactionRepo, userId: firebaseUser.uid)
+
+      // One-time: collapse the ghost statements a closing/due-day change left behind, and move the
+      // installments still showing the old due date onto their statement's new one.
+      ccService.repairCardCycleChangeIfNeeded(userId: firebaseUser.uid, transactionRepo: ccTransactionRepo)
+
       // Check if this user has existing settings
       let existingSettings = UIDUserDefaultsManager.shared.getUserSettings(for: firebaseUser.uid)
       var localUser: User?

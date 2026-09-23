@@ -68,6 +68,12 @@ final class AddTransactionModalViewController: UIViewController {
         let totalAmount = relatedTransactions.reduce(0) { $0 + $1.amount }
         contentView.setTotalAmountForInstallment(totalAmount)
       }
+
+      if let startDate = AddTransactionModalViewModel.installmentSeriesStartDate(
+        groupId: installmentGroupId, related: relatedTransactions)
+      {
+        contentView.setInitialDateForInstallment(startDate)
+      }
     }
   }
 

@@ -750,6 +750,18 @@ class DBHelper {
         return results
     }
     
+    /// Rewrites only what a transaction is CALLED and FILED UNDER — title, category, type — and
+    /// nothing that decides where or when it lands (date, budget month, statement, amount).
+    func updateTransactionDescriptors(transactionId: Int, title: String, category: String, type: String) {
+        guard isInitialized else { return }
+        let now = Int(Date().timeIntervalSince1970)
+        executeSyncUpdate(
+            "UPDATE Transactions SET title = ?, category = ?, type = ?, sync_status = 'pending', ck_modified_at = ?, updated_at = ? WHERE id = ?;",
+            textBindings: [title, category, type],
+            intBindings: [now, now, transactionId]
+        )
+    }
+
     func updateTransactionDateAndBudgetMonth(transactionId: Int, newDateTimestamp: Int, newBudgetMonthDate: Int) {
         guard isInitialized else { return }
         let now = Int(Date().timeIntervalSince1970)
