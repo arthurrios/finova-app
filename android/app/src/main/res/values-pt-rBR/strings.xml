@@ -59,4 +59,33 @@
     <string name="biometric_prompt_title">Desbloquear o Finova</string>
     <string name="biometric_prompt_reason">Use a biometria para acessar seus dados financeiros com segurança</string>
     <string name="alert_cancel">Cancelar</string>
+
+    <string name="dashboard_welcome_title">Olá, %1$s!</string>
+    <string name="dashboard_context_label">Minha Conta</string>
+    <string name="dashboard_notifications">Notificações</string>
+    <string name="dashboard_add_transaction">Adicionar lançamento</string>
+    <string name="month_card_balance_on_day">Saldo no dia %1$s</string>
+    <string name="month_card_used_budget">Usado</string>
+    <string name="month_card_limit_budget">Limite</string>
+    <string name="month_card_define_budget">Definir orçamento</string>
+    <string name="month_card_adjust_balance">Ajustar saldo</string>
+    <string name="month_card_budget_view">Alocações do orçamento</string>
+    <string name="month_card_settings">Configurações do mês</string>
+    <string name="month_card_hide_values">Ocultar valores</string>
+    <string name="month_card_show_values">Mostrar valores</string>
+    <string name="transactions_header_title">Lançamentos</string>
+    <string name="transactions_search_placeholder">Buscar lançamentos...</string>
+    <string name="transactions_filter">Filtrar</string>
+    <string name="transactions_empty_state_description">Você ainda não registrou despesas ou receitas neste mês</string>
+    <string name="credit_card_statement_subtitle">%1$d transações · Toque para ver</string>
+    <string name="credit_card_statement_subtitle_singular">%1$d transação · Toque para ver</string>
+    <string name="early_payment_badge_settled">Antecipada</string>
+    <string name="delete_action_label">Excluir</string>
+    <string name="month_previous">Mês anterior</string>
+    <string name="month_next">Próximo mês</string>
+    <string-array name="month_short">
+        <item>Jan</item><item>Fev</item><item>Mar</item><item>Abr</item><item>Maio</item><item>Jun</item>
+        <item>Jul</item><item>Ago</item><item>Set</item><item>Out</item><item>Nov</item><item>Dez</item>
+    </string-array>
+    <string name="month_card_balance_menu_title">Não bate com o seu banco?</string>
 </resources>

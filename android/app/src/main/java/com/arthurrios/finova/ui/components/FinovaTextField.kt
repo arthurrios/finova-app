@@ -1,5 +1,6 @@
 package com.arthurrios.finova.ui.components
 
+import androidx.annotation.DrawableRes
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -22,6 +23,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.autofill.ContentType
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -68,16 +70,20 @@ fun FinovaTextField(
     enabled: Boolean = true,
     imeAction: ImeAction = ImeAction.Default,
     keyboardActions: KeyboardActions = KeyboardActions.Default,
+    @DrawableRes leadingIcon: Int? = null,
+    containerColor: Color = FinovaColors.Gray200,
+    /** Shows an x that empties the field while it has text (the search field). */
+    clearable: Boolean = false,
 ) {
     var passwordHidden by rememberSaveable { mutableStateOf(true) }
     val interactionSource = remember { MutableInteractionSource() }
     val filled = value.isNotEmpty()
     val restingBorder = if (filled) FinovaColors.MainMagenta else FinovaColors.Gray300
     val colors = OutlinedTextFieldDefaults.colors(
-        focusedContainerColor = FinovaColors.Gray200,
-        unfocusedContainerColor = FinovaColors.Gray200,
-        disabledContainerColor = FinovaColors.Gray200,
-        errorContainerColor = FinovaColors.Gray200,
+        focusedContainerColor = containerColor,
+        unfocusedContainerColor = containerColor,
+        disabledContainerColor = containerColor,
+        errorContainerColor = containerColor,
         focusedBorderColor = FinovaColors.MainMagenta,
         unfocusedBorderColor = restingBorder,
         errorBorderColor = FinovaColors.MainRed,
@@ -89,6 +95,8 @@ fun FinovaTextField(
         errorPlaceholderColor = FinovaColors.Gray400,
         errorTextColor = FinovaColors.Gray700,
         errorCursorColor = FinovaColors.Gray700,
+        focusedLeadingIconColor = FinovaColors.Gray600,
+        unfocusedLeadingIconColor = FinovaColors.Gray600,
         focusedTrailingIconColor = FinovaColors.Gray600,
         unfocusedTrailingIconColor = FinovaColors.Gray600,
         errorTrailingIconColor = FinovaColors.MainRed,
@@ -147,9 +155,22 @@ fun FinovaTextField(
                 interactionSource = interactionSource,
                 isError = isError,
                 placeholder = { Text(placeholder, style = FinovaType.Input) },
-                trailingIcon = if (type.isPassword) {
-                    { PasswordToggle(hidden = passwordHidden, onToggle = { passwordHidden = !passwordHidden }) }
-                } else null,
+                leadingIcon = leadingIcon?.let { icon ->
+                    { Icon(painterResource(icon), contentDescription = null, modifier = Modifier.size(20.dp)) }
+                },
+                trailingIcon = when {
+                    type.isPassword -> {
+                        { PasswordToggle(hidden = passwordHidden, onToggle = { passwordHidden = !passwordHidden }) }
+                    }
+                    clearable && value.isNotEmpty() -> {
+                        {
+                            IconButton(onClick = { onValueChange("") }) {
+                                Icon(painterResource(R.drawable.ic_x), contentDescription = null, modifier = Modifier.size(16.dp))
+                            }
+                        }
+                    }
+                    else -> null
+                },
                 colors = colors,
                 contentPadding = PaddingValues(horizontal = Spacing.S4, vertical = Spacing.S3),
                 container = {
