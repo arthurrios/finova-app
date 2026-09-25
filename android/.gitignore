@@ -1,0 +1,12 @@
+.gradle/
+build/
+local.properties
+.idea/
+*.iml
+.kotlin/
+captures/
+.externalNativeBuild/
+.cxx/
+
+# Firebase config stays out of git, like GoogleService-Info.plist on iOS.
+app/google-services.json
