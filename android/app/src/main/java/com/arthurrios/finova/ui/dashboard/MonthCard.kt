@@ -26,9 +26,11 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -45,6 +47,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringArrayResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import kotlin.math.roundToInt
 import com.arthurrios.finova.R
@@ -103,15 +106,21 @@ fun MonthCard(
                 Spacer(Modifier.width(Spacing.S2))
                 Text(text = "/ ${page.month.year}", style = FinovaType.TitleXS, color = FinovaColors.Gray400)
                 Spacer(Modifier.weight(1f))
-                if (!page.hasBudget) HideValuesButton(valuesHidden, onToggleValues)
-                IconButton(onClick = onBudgetView) {
+                if (!page.hasBudget) {
+                    HideValuesButton(valuesHidden, onToggleValues)
+                    Spacer(Modifier.width(Spacing.S2))
+                }
+                CompactIconButton(onClick = onBudgetView, size = Spacing.S6) {
                     Icon(
                         imageVector = Icons.Filled.PieChart,
                         contentDescription = stringResource(R.string.month_card_budget_view),
                         tint = FinovaColors.Gray100,
+                        // Same box as the gear; the Material glyph has its own padding inside.
+                        modifier = Modifier.size(Spacing.S6),
                     )
                 }
-                IconButton(onClick = onSettings) {
+                Spacer(Modifier.width(Spacing.S3))
+                CompactIconButton(onClick = onSettings, size = Spacing.S6) {
                     Icon(
                         painter = painterResource(R.drawable.ic_settings_icon),
                         contentDescription = stringResource(R.string.month_card_settings),
@@ -282,7 +291,7 @@ private fun DaySliderTrack(fraction: Float, selectedDay: Int, daysInMonth: Int, 
 
 @Composable
 private fun HideValuesButton(hidden: Boolean, onToggle: () -> Unit) {
-    IconButton(onClick = onToggle) {
+    CompactIconButton(onClick = onToggle, size = HideValuesButtonSize) {
         Icon(
             painter = painterResource(if (hidden) R.drawable.ic_eye else R.drawable.ic_eye_closed),
             contentDescription = stringResource(
@@ -299,7 +308,7 @@ private fun HideValuesButton(hidden: Boolean, onToggle: () -> Unit) {
 private fun AdjustBalanceButton(onAdjust: () -> Unit) {
     var open by remember { mutableStateOf(false) }
     Box {
-        IconButton(onClick = { open = true }) {
+        CompactIconButton(onClick = { open = true }, size = HideValuesButtonSize) {
             Icon(
                 imageVector = Icons.Outlined.Edit,
                 contentDescription = stringResource(R.string.month_card_adjust_balance),
@@ -322,6 +331,20 @@ private fun AdjustBalanceButton(onAdjust: () -> Unit) {
                 },
             )
         }
+    }
+}
+
+/** Metrics.hideValuesButtonSize on iOS. */
+private val HideValuesButtonSize = 36.dp
+
+/**
+ * An icon button at the iOS size. Material pads every icon button out to a 48dp touch area,
+ * which made the card taller than on iOS; these keep the iOS footprint instead.
+ */
+@Composable
+private fun CompactIconButton(onClick: () -> Unit, size: Dp, content: @Composable () -> Unit) {
+    CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides Dp.Unspecified) {
+        IconButton(onClick = onClick, modifier = Modifier.size(size), content = content)
     }
 }
 

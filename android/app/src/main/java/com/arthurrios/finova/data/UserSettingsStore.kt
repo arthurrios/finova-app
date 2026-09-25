@@ -16,6 +16,29 @@ class UserSettingsStore(context: Context) {
         get() = prefs.getBoolean(KEY_BIOMETRIC_ENABLED, false)
         set(value) = prefs.edit { putBoolean(KEY_BIOMETRIC_ENABLED, value) }
 
+    /** Hide amounts everywhere (iOS `hideValues`, a device-wide switch). */
+    var hideValues: Boolean
+        get() = prefs.getBoolean(KEY_HIDE_VALUES, false)
+        set(value) = prefs.edit { putBoolean(KEY_HIDE_VALUES, value) }
+
+    /**
+     * The currency amounts are shown in. iOS stores "auto" (follow the phone's region) or an ISO
+     * code; so does Android.
+     */
+    var currencySetting: String
+        get() = prefs.getString(KEY_CURRENCY, CURRENCY_AUTO) ?: CURRENCY_AUTO
+        set(value) = prefs.edit { putString(KEY_CURRENCY, value) }
+
+    val currencyCode: String
+        get() = currencySetting.takeUnless { it == CURRENCY_AUTO }
+            ?: runCatching { java.util.Currency.getInstance(java.util.Locale.getDefault()).currencyCode }.getOrNull()
+            ?: "BRL"
+
+    fun currentUserName(): String? {
+        val uid = prefs.getString(KEY_CURRENT_UID, null) ?: return null
+        return prefs.getString(nameKey(uid), null)
+    }
+
     /** Saves the signed-in user. A returning user keeps their saved name unless it was "User". */
     fun saveSignedInUser(user: AuthUser) {
         val savedName = prefs.getString(nameKey(user.firebaseUid), null)
@@ -47,5 +70,8 @@ class UserSettingsStore(context: Context) {
     private companion object {
         const val KEY_CURRENT_UID = "current_user_uid"
         const val KEY_BIOMETRIC_ENABLED = "biometric_enabled"
+        const val KEY_HIDE_VALUES = "hide_values"
+        const val KEY_CURRENCY = "currency_code"
+        const val CURRENCY_AUTO = "auto"
     }
 }

@@ -6,6 +6,9 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.fragment.app.FragmentActivity
+import androidx.lifecycle.lifecycleScope
+import com.arthurrios.finova.debug.DebugSeeder
+import kotlinx.coroutines.launch
 import com.arthurrios.finova.ui.navigation.FinovaNavHost
 import com.arthurrios.finova.ui.theme.FinovaTheme
 
@@ -17,6 +20,9 @@ class MainActivity : FragmentActivity() {
         installSplashScreen().setOnExitAnimationListener { it.remove() }
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        if (isDebuggable() && intent.getBooleanExtra("finova.debug.seed", false)) {
+            lifecycleScope.launch { DebugSeeder.seedIfEmpty(appContainer.financeRepository()) }
+        }
         setContent {
             FinovaTheme {
                 FinovaNavHost(startRoute = debugStartRoute())
@@ -29,8 +35,9 @@ class MainActivity : FragmentActivity() {
      * --es finova.debug.route dashboard` opens a screen directly, for checking screens on the
      * emulator without signing in.
      */
-    private fun debugStartRoute(): String? {
-        val debuggable = applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
-        return if (debuggable) intent.getStringExtra("finova.debug.route") else null
-    }
+    private fun debugStartRoute(): String? =
+        if (isDebuggable()) intent.getStringExtra("finova.debug.route") else null
+
+    /** `--ez finova.debug.seed true` fills an empty database with sample data (debug builds). */
+    private fun isDebuggable(): Boolean = applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
 }

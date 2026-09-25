@@ -1,6 +1,8 @@
 package com.arthurrios.finova.ui.dashboard
 
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -56,13 +58,14 @@ fun MonthTabs(
                 modifier = Modifier.size(Spacing.S4),
             )
         }
+        BoxWithConstraints(Modifier.weight(1f)) {
+        // Five whole months across, the selected one in the middle, as on iOS.
+        val tabWidth = maxWidth / VisibleMonths
         PrimaryScrollableTabRow(
             selectedTabIndex = selected,
-            modifier = Modifier.weight(1f),
             containerColor = Color.Transparent,
             edgePadding = 0.dp,
-            // Material's default 90dp fits three months; iOS shows five.
-            minTabWidth = 56.dp,
+            minTabWidth = tabWidth,
             divider = {},
             indicator = {
                 TabRowDefaults.PrimaryIndicator(
@@ -77,6 +80,7 @@ fun MonthTabs(
             months.forEachIndexed { index, month ->
                 val isSelected = index == selected
                 Tab(
+                    modifier = Modifier.width(tabWidth),
                     selected = isSelected,
                     onClick = { onSelect(index) },
                     selectedContentColor = FinovaColors.Gray700,
@@ -89,6 +93,7 @@ fun MonthTabs(
                     },
                 )
             }
+        }
         }
         IconButton(
             onClick = { onSelect((selected + 1).coerceAtMost(months.lastIndex)) },
@@ -103,3 +108,5 @@ fun MonthTabs(
         }
     }
 }
+
+private const val VisibleMonths = 5
