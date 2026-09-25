@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The Finova mark, redrawn as a vector from appLogo.png (144px) on iOS so it stays sharp at
+     splash size. Back shape at 50% like the original. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="144dp"
+    android:height="144dp"
+    android:viewportWidth="144"
+    android:viewportHeight="144">
+    <path
+        android:fillColor="#DA4BDD"
+        android:fillAlpha="0.5"
+        android:pathData="M8.79,80.95L46.76,24.7A5,5 0 0 1 50.91,22.5L99.09,22.5A5,5 0 0 1 103.24,30.3L65.27,86.55A5,5 0 0 1 61.12,88.75L12.94,88.75A5,5 0 0 1 8.79,80.95Z" />
+    <path
+        android:fillColor="#DA4BDD"
+        android:pathData="M68.83,95L94.51,56.95A5,5 0 0 1 98.66,54.75L131.09,54.75A5,5 0 0 1 135.24,62.55L97.94,117.8A5,5 0 0 1 93.8,120L43.78,120A5,5 0 0 1 39.64,112.2L49.76,97.2A5,5 0 0 1 53.91,95L68.83,95Z" />
+</vector>

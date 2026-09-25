@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Only what XML themes need; Compose uses ui/theme/Color.kt. -->
+<resources>
+    <color name="gray100">#FFF9FBF9</color>
+    <color name="gray700">#FF0F0F0F</color>
+</resources>

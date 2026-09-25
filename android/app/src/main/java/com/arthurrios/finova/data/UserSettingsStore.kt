@@ -28,6 +28,12 @@ class UserSettingsStore(context: Context) {
         }
     }
 
+    /** Whether this user chose to stay signed in. A user with no record yet counts as saved. */
+    fun isUserSaved(uid: String): Boolean = prefs.getBoolean(savedKey(uid), true)
+
+    /** Forgets who is signed in on this device (their per-user settings stay). */
+    fun clearCurrentUser() = prefs.edit { remove(KEY_CURRENT_UID) }
+
     fun setCurrentUserSaved(saved: Boolean) {
         val uid = prefs.getString(KEY_CURRENT_UID, null) ?: return
         prefs.edit { putBoolean(savedKey(uid), saved) }

@@ -32,6 +32,17 @@ class AuthRepository(private val context: Context) {
             return FirebaseAuth.getInstance()
         }
 
+    /** The Firebase session kept on the device, if any. Null when Firebase is not set up. */
+    fun currentUser(): AuthUser? {
+        if (FirebaseApp.getApps(context).isEmpty()) return null
+        return FirebaseAuth.getInstance().currentUser?.toAuthUser()
+    }
+
+    fun signOut() {
+        if (FirebaseApp.getApps(context).isEmpty()) return
+        FirebaseAuth.getInstance().signOut()
+    }
+
     suspend fun signInWithEmail(email: String, password: String): AuthUser = wrap {
         auth.signInWithEmailAndPassword(email, password).await().user.toAuthUser()
     }
