@@ -445,7 +445,7 @@ final class MonthlyNotificationManager {
     return true
   }
 
-  private static func notificationModel(for tx: Transaction) -> TransactionModel {
+  static func notificationModel(for tx: Transaction) -> TransactionModel {
     TransactionModel(
       id: tx.id,
       title: tx.title,

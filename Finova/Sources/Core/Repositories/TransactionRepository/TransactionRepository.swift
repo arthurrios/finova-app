@@ -281,6 +281,25 @@ final class TransactionRepository: TransactionRepositoryProtocol {
     }
   }
 
+  /// Renames and re-files one row without touching when or where it lands. Mirrored into the secure
+  /// store, which is what statement and dashboard reads go through on this release.
+  func updateDescriptors(
+    transactionId: Int, title: String, category: TransactionCategory, type: TransactionType
+  ) {
+    Self.invalidateCache()
+    db.updateTransactionDescriptors(
+      transactionId: transactionId, title: title, category: category.key,
+      type: String(describing: type))
+    Self.mutateSecureStore { secureTransactions in
+      guard let index = secureTransactions.firstIndex(where: { $0.id == transactionId }) else {
+        return false
+      }
+      secureTransactions[index] = secureTransactions[index].withDescriptors(
+        title: title, category: category, type: type)
+      return true
+    }
+  }
+
   /// Rewrites just the date fields of one row in the secure store, leaving everything else as-is.
   private func mirrorToSecureStore(
     transactionId: Int,

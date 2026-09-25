@@ -591,10 +591,9 @@ final class AddTransactionModalView: UIView {
     }
   }
 
-  private func setDateRestrictionsForInstallment(transaction: Transaction) {
-    // For installment transactions, restrict date picker to the current month only
+  private func setDateRestrictionsForInstallment(around transactionDate: Date) {
+    // For installment transactions, restrict date picker to the series' start month only
     let calendar = Calendar.current
-    let transactionDate = transaction.date
 
     // Get the first day of the current transaction's month
     let startOfMonth =
@@ -615,6 +614,14 @@ final class AddTransactionModalView: UIView {
 
     // Set date restrictions to only allow dates within the current month
     initialDateTextField.setDateRestrictions(minimumDate: startOfMonth, maximumDate: endOfMonth)
+  }
+
+  /// The date the series STARTED, which is what the rebuild on save re-derives every installment
+  /// from. The row being edited is one installment, and its own date is its statement's due date:
+  /// pre-filling that restarted the whole series at that installment, so the earlier ones vanished.
+  func setInitialDateForInstallment(_ startDate: Date) {
+    initialDateTextField.text = DateFormatter.fullDateFormatter.string(from: startDate)
+    setDateRestrictionsForInstallment(around: startDate)
   }
 
   func setTotalAmountForInstallment(_ totalAmount: Int) {
@@ -1042,7 +1049,7 @@ final class AddTransactionModalView: UIView {
 
     // Set date restrictions for installment transactions
     if transaction.mode == .installments {
-      setDateRestrictionsForInstallment(transaction: transaction)
+      setDateRestrictionsForInstallment(around: transaction.date)
     }
 
     // Configure date picker for recurring transactions

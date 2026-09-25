@@ -867,6 +867,24 @@ final class AddTransactionModalViewModel {
     }
   }
 
+  /// The date an installment series STARTED — what the edit sheet shows and what a rebuild
+  /// re-derives every installment from.
+  ///
+  /// The parent placeholder holds the date the user picked. Without one (a series whose parent row
+  /// is gone), walk back from the earliest installment's own date.
+  static func installmentSeriesStartDate(groupId: Int?, related: [Transaction]) -> Date? {
+    if let parent = related.first(where: { $0.id == groupId && $0.hasInstallments == true }) {
+      return parent.unadjustedDate
+    }
+    guard
+      let first = related
+        .filter({ $0.installmentNumber != nil })
+        .min(by: { ($0.installmentNumber ?? 0) < ($1.installmentNumber ?? 0) }),
+      let number = first.installmentNumber
+    else { return nil }
+    return Calendar.current.date(byAdding: .month, value: -(number - 1), to: first.unadjustedDate)
+  }
+
   func updateTransactionWithInstallments(id: Int, _ data: InstallmentTransactionData) -> Result<
     Void, Error
   > {
@@ -900,6 +918,32 @@ final class AddTransactionModalViewModel {
       guard let existingTransaction = existingTransactions.first(where: { $0.id == id }) else {
         logError("Could not find transaction with ID: \(id)")
         return .failure(TransactionError.transactionNotFound)
+      }
+
+      // Nothing that shapes the series changed — only its title, category or type. Rewrite those on
+      // every row in place. The rebuild below re-derives every installment from the start date and
+      // re-routes each one through today's card rules, so a category change used to move the whole
+      // series — past, paid installments included — and could drop it out of the statement the user
+      // was looking at.
+      let seriesId = existingTransaction.parentTransactionId ?? id
+      let series = existingTransactions.filter { $0.id == seriesId || $0.parentTransactionId == seriesId }
+      let children = series.filter { $0.parentTransactionId == seriesId }
+      if !children.isEmpty,
+        let seriesStart = Self.installmentSeriesStartDate(groupId: seriesId, related: series),
+        children.reduce(0, { $0 + $1.amount }) == data.totalAmount,
+        (existingTransaction.totalInstallments ?? children.count) == data.installments,
+        calendar.isDate(seriesStart, inSameDayAs: dateObj),
+        data.creditCardId == children.first(where: { $0.creditCardId != nil })?.creditCardId,
+        data.businessDayRule == existingTransaction.businessDayRule
+      {
+        for row in series {
+          guard let rowId = row.id else { continue }
+          transactionRepo.updateDescriptors(
+            transactionId: rowId, title: data.title, category: transactionCategory,
+            type: transactionType)
+        }
+        invalidateLedgerCache()
+        return .success(())
       }
 
       // For installment transactions, we need to find the main installment transaction

@@ -148,7 +148,33 @@ struct Transaction: Codable {
 
         self.data = uiData
     }
-    
+
+    /// The same row with a new title, category and type — every other field, including the ones
+    /// with no public initializer path (series period, unadjusted date), carried over untouched.
+    func withDescriptors(title: String, category: TransactionCategory, type: TransactionType) -> Transaction {
+        Transaction(data: UITransactionData(
+            id: data.id,
+            title: title,
+            amount: data.amount,
+            dateTimestamp: data.dateTimestamp,
+            budgetMonthDate: data.budgetMonthDate,
+            isRecurring: data.isRecurring,
+            hasInstallments: data.hasInstallments,
+            parentTransactionId: data.parentTransactionId,
+            installmentNumber: data.installmentNumber,
+            totalInstallments: data.totalInstallments,
+            originalAmount: data.originalAmount,
+            creditCardId: data.creditCardId,
+            statementId: data.statementId,
+            isCreditCardStatement: data.isCreditCardStatement,
+            businessDayRule: data.businessDayRule,
+            unadjustedDateTimestamp: data.unadjustedDateTimestamp,
+            seriesPeriod: data.seriesPeriod,
+            category: category,
+            type: type
+        ))
+    }
+
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         

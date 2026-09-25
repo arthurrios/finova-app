@@ -2231,6 +2231,27 @@ class DBHelper {
         }
     }
 
+    /// Rewrites only what a transaction is CALLED and FILED UNDER — title, category, type — and
+    /// nothing that decides where or when it lands (date, budget month, statement, amount).
+    func updateTransactionDescriptors(transactionId: Int, title: String, category: String, type: String) {
+        guard isInitialized else { return }
+        let query = "UPDATE Transactions SET title = ?, category = ?, type = ? WHERE id = ?;"
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK else {
+            print("[Transaction] Could not prepare title/category/type write")
+            return
+        }
+        defer { sqlite3_finalize(statement) }
+        sqlite3_bind_text(statement, 1, title, -1, SQLITE_TRANSIENT)
+        sqlite3_bind_text(statement, 2, category, -1, SQLITE_TRANSIENT)
+        sqlite3_bind_text(statement, 3, type, -1, SQLITE_TRANSIENT)
+        sqlite3_bind_int64(statement, 4, Int64(transactionId))
+        guard sqlite3_step(statement) == SQLITE_DONE else {
+            print("[Transaction] Could not update title/category/type on \(transactionId)")
+            return
+        }
+    }
+
     func clearTransactionCreditCardFields(transactionId: Int) throws {
         guard isInitialized else { return }
         let query = "UPDATE Transactions SET credit_card_id = NULL, statement_id = NULL, is_credit_card_statement = 0 WHERE id = ?;"

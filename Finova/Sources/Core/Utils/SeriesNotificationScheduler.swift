@@ -89,15 +89,27 @@ enum SeriesNotificationScheduler {
     var byMonth: [String: [TransactionModel]] = [:]
 
     for model in models {
-      let date = Date(timeIntervalSince1970: TimeInterval(model.data.dateTimestamp))
-      let monthKey =
-        "\(calendar.component(.year, from: date))-\(calendar.component(.month, from: date))"
-      byMonth[monthKey, default: []].append(model)
+      byMonth[monthKey(for: model.data.dateTimestamp), default: []].append(model)
     }
 
     for (monthKey, monthModels) in byMonth {
       scheduleMonth(monthKey: monthKey, models: monthModels, kind: kind)
     }
+  }
+
+  /// The month a row's reminder is bucketed under — the `<monthKey>` in its identifier.
+  static func monthKey(for dateTimestamp: Int) -> String {
+    let date = Date(timeIntervalSince1970: TimeInterval(dateTimestamp))
+    return "\(calendar.component(.year, from: date))-\(calendar.component(.month, from: date))"
+  }
+
+  /// Rebuilds the reminders for `monthKeys` after rows moved between months. Cancels first: a month
+  /// that lost its last row must stop reminding, and one that kept some must carry the new count and
+  /// total. `models` must be EVERY row of this kind, not one series — a month reminder consolidates
+  /// all of them.
+  static func reschedule(monthKeys: Set<String>, from models: [TransactionModel], kind: Kind) {
+    cancel(monthKeys: Array(monthKeys), kind: kind)
+    schedule(models.filter { monthKeys.contains(monthKey(for: $0.data.dateTimestamp)) }, kind: kind)
   }
 
   /// Cancels the month reminders for the given month keys, both the real one and its distant-future

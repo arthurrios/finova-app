@@ -1206,7 +1206,14 @@ final class DashboardViewController: UIViewController {
         // Runs once per device, here rather than at launch because it needs a signed-in user's rows.
         CreditCardService().repairBudgetMonthToSpendingMonthIfNeeded(
             transactionRepo: viewModel.transactionRepo)
-        
+
+        // Once per account: collapse the ghost statements a closing/due-day change left behind, and
+        // move the installments still showing the old due date onto their statement's new one.
+        if let uid = AuthenticationManager.shared.currentUser?.uid {
+            CreditCardService().repairCardCycleChangeIfNeeded(
+                userId: uid, transactionRepo: viewModel.transactionRepo)
+        }
+
         DispatchQueue.global(qos: .userInitiated).async {
             let userImage = SecureLocalDataManager.shared.loadProfileImage()
             if let image = userImage {
