@@ -10,7 +10,6 @@
     <string name="login_welcome_title">Boas vindas!</string>
     <string name="login_welcome_subtitle">Pronto para organizar suas finanças? Acesse agora</string>
     <string name="login_button">Entrar</string>
-    <string name="login_apple_sign_in">Entrar com Apple</string>
     <string name="login_google_sign_in">Entrar com Google</string>
     <string name="login_dont_have_account">Ainda não possui uma conta?</string>
     <string name="login_register_link">Criar Conta</string>

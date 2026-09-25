@@ -12,7 +12,6 @@
     <string name="login_welcome_title">Welcome!</string>
     <string name="login_welcome_subtitle">Ready to organize your finances? Log in now</string>
     <string name="login_button">Login</string>
-    <string name="login_apple_sign_in">Sign in with Apple</string>
     <string name="login_google_sign_in">Sign in with Google</string>
     <string name="login_dont_have_account">Don\'t have an account?</string>
     <string name="login_register_link">Create Account</string>

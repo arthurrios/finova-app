@@ -70,7 +70,6 @@ fun LoginRoute(
         onPasswordChange = viewModel::onPasswordChange,
         onLogin = viewModel::signInWithEmail,
         onGoogle = { activity?.let(viewModel::signInWithGoogle) },
-        onApple = { activity?.let(viewModel::signInWithApple) },
         onRegister = onRegister,
     )
 
@@ -99,7 +98,7 @@ fun LoginRoute(
     }
 }
 
-/** Port of LoginView.swift. */
+/** Port of LoginView.swift. Android has no "Sign in with Apple": email and Google only. */
 @Composable
 fun LoginScreen(
     state: LoginUiState,
@@ -107,7 +106,6 @@ fun LoginScreen(
     onPasswordChange: (String) -> Unit,
     onLogin: () -> Unit,
     onGoogle: () -> Unit,
-    onApple: () -> Unit,
     onRegister: () -> Unit,
 ) {
     val focusManager = LocalFocusManager.current
@@ -202,13 +200,6 @@ fun LoginScreen(
             )
             Spacer(Modifier.height(Spacing.S3))
             FinovaOutlinedButton(
-                text = stringResource(R.string.login_apple_sign_in),
-                onClick = onApple,
-                enabled = !busy || state.loading == SignInMethod.Apple,
-                loading = state.loading == SignInMethod.Apple,
-            )
-            Spacer(Modifier.height(Spacing.S3))
-            FinovaOutlinedButton(
                 text = stringResource(R.string.login_google_sign_in),
                 onClick = onGoogle,
                 trailingIcon = R.drawable.ic_google_logo,
@@ -247,6 +238,6 @@ internal val LoginHeroHeight = 360.dp
 @Composable
 private fun LoginScreenPreview() {
     FinovaTheme {
-        LoginScreen(LoginUiState(), {}, {}, {}, {}, {}, {})
+        LoginScreen(LoginUiState(), {}, {}, {}, {}, {})
     }
 }
