@@ -15,7 +15,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-enum class SignInMethod { Email, Google, Apple }
+enum class SignInMethod { Email, Google }
 
 /** The dialogs login can show after a successful sign-in. */
 enum class BiometricDialog { OfferEnable, NotEnrolled }
@@ -59,9 +59,6 @@ class LoginViewModel(
 
     fun signInWithGoogle(activity: Activity) =
         signIn(SignInMethod.Google) { authRepository.signInWithGoogle(activity) }
-
-    fun signInWithApple(activity: Activity) =
-        signIn(SignInMethod.Apple) { authRepository.signInWithApple(activity) }
 
     fun dismissError() = _state.update { it.copy(error = null) }
 

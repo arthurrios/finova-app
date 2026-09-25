@@ -12,7 +12,6 @@ import com.google.firebase.FirebaseApp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.auth.GoogleAuthProvider
-import com.google.firebase.auth.OAuthProvider
 import com.google.firebase.auth.userProfileChangeRequest
 import kotlinx.coroutines.tasks.await
 
@@ -77,18 +76,6 @@ class AuthRepository(private val context: Context) {
         val firebaseCredential = GoogleAuthProvider.getCredential(google.idToken, null)
         val user = firebaseAuth.signInWithCredential(firebaseCredential).await().user
         user.toAuthUser(extractedName = google.displayName)
-    }
-
-    /** Apple through Firebase's web flow (a Custom Tab); Android has no native Apple sign-in. */
-    suspend fun signInWithApple(activity: Activity): AuthUser = wrap {
-        val provider = OAuthProvider.newBuilder("apple.com")
-            .setScopes(listOf("email", "name"))
-            .build()
-        val firebaseAuth = auth
-        val pending = firebaseAuth.pendingAuthResult
-        val result = pending?.await()
-            ?: firebaseAuth.startActivityForSignInWithProvider(activity, provider).await()
-        result.user.toAuthUser()
     }
 
     private fun webClientId(): String {
