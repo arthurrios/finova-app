@@ -23,6 +23,9 @@ import com.arthurrios.finova.R
 import com.arthurrios.finova.auth.AuthRepository
 import com.arthurrios.finova.data.UserSettingsStore
 import com.arthurrios.finova.security.Biometrics
+import com.arthurrios.finova.ui.dashboard.DashboardActions
+import com.arthurrios.finova.ui.dashboard.DashboardSamples
+import com.arthurrios.finova.ui.dashboard.DashboardScreen
 import com.arthurrios.finova.ui.login.LoginRoute
 import com.arthurrios.finova.ui.login.LoginViewModel
 import com.arthurrios.finova.ui.register.RegisterRoute
@@ -42,11 +45,11 @@ object Routes {
 }
 
 @Composable
-fun FinovaNavHost() {
+fun FinovaNavHost(startRoute: String? = null) {
     val navController = rememberNavController()
     val appContext = LocalContext.current.applicationContext
 
-    NavHost(navController = navController, startDestination = Routes.SPLASH) {
+    NavHost(navController = navController, startDestination = startRoute ?: Routes.SPLASH) {
         composable(
             Routes.SPLASH,
             // The splash animates into login itself, so the switch must not add its own fade.
@@ -126,7 +129,10 @@ fun FinovaNavHost() {
                 onBackToLogin = { navController.popBackStack() },
             )
         }
-        composable(Routes.DASHBOARD) { PlaceholderScreen("Dashboard") }
+        composable(Routes.DASHBOARD) {
+            // Sample data until the ledger is ported; the layout is the real one.
+            DashboardScreen(DashboardSamples.state(), object : DashboardActions {})
+        }
     }
 }
 

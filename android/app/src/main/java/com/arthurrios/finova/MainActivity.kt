@@ -1,5 +1,6 @@
 package com.arthurrios.finova
 
+import android.content.pm.ApplicationInfo
 import android.os.Bundle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -18,8 +19,18 @@ class MainActivity : FragmentActivity() {
         enableEdgeToEdge()
         setContent {
             FinovaTheme {
-                FinovaNavHost()
+                FinovaNavHost(startRoute = debugStartRoute())
             }
         }
+    }
+
+    /**
+     * Debug builds only: `adb shell am start -n com.arthurrios.finova/.MainActivity
+     * --es finova.debug.route dashboard` opens a screen directly, for checking screens on the
+     * emulator without signing in.
+     */
+    private fun debugStartRoute(): String? {
+        val debuggable = applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
+        return if (debuggable) intent.getStringExtra("finova.debug.route") else null
     }
 }

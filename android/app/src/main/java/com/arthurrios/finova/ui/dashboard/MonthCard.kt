@@ -1,0 +1,274 @@
+package com.arthurrios.finova.ui.dashboard
+
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.PieChart
+import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringArrayResource
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.dp
+import com.arthurrios.finova.R
+import com.arthurrios.finova.ui.components.FinovaOutlinedButton
+import com.arthurrios.finova.ui.format.Money
+import com.arthurrios.finova.ui.theme.CornerRadius
+import com.arthurrios.finova.ui.theme.FinovaColors
+import com.arthurrios.finova.ui.theme.FinovaType
+import com.arthurrios.finova.ui.theme.Spacing
+import com.arthurrios.finova.ui.format.localizedDayOfMonth
+
+/**
+ * The dark card at the top of each month. Port of MonthBudgetCard.swift: the balance for the
+ * chosen day, a day slider, used vs. limit, and a status bar along the bottom edge.
+ *
+ * [balanceForDay] answers what the balance is on a given day of this month; the slider asks it
+ * as the user drags.
+ */
+@Composable
+fun MonthCard(
+    page: MonthPageUi,
+    currencyCode: String,
+    valuesHidden: Boolean,
+    balanceForDay: (Int) -> Long,
+    onToggleValues: () -> Unit,
+    onAdjustBalance: () -> Unit,
+    onBudgetView: () -> Unit,
+    onSettings: () -> Unit,
+    onDefineBudget: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val daysInMonth = page.month.lengthOfMonth()
+    val today = java.time.LocalDate.now().dayOfMonth
+    // Current month opens on today; every other month on its last day, like iOS.
+    val startDay = if (page.isCurrentMonth) today else daysInMonth
+    var selectedDay by remember(page.month) { mutableStateOf(startDay) }
+    val monthNames = stringArrayResource(R.array.month_short)
+
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(CornerRadius.ExtraLarge))
+            .background(CardGradient),
+    ) {
+        Column(
+            modifier = Modifier.padding(
+                start = Spacing.S6, end = Spacing.S6, top = Spacing.S6, bottom = Spacing.S7,
+            ),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = monthNames[page.month.monthValue - 1].uppercase(),
+                    style = FinovaType.TitleSM,
+                    color = FinovaColors.Gray100,
+                )
+                Spacer(Modifier.width(Spacing.S2))
+                Text(text = "/ ${page.month.year}", style = FinovaType.TitleXS, color = FinovaColors.Gray400)
+                Spacer(Modifier.weight(1f))
+                if (!page.hasBudget) HideValuesButton(valuesHidden, onToggleValues)
+                IconButton(onClick = onBudgetView) {
+                    Icon(
+                        imageVector = Icons.Filled.PieChart,
+                        contentDescription = stringResource(R.string.month_card_budget_view),
+                        tint = FinovaColors.Gray100,
+                    )
+                }
+                IconButton(onClick = onSettings) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_settings_icon),
+                        contentDescription = stringResource(R.string.month_card_settings),
+                        tint = FinovaColors.Gray100,
+                        modifier = Modifier.size(Spacing.S6),
+                    )
+                }
+            }
+            Spacer(Modifier.height(Spacing.S4))
+            HorizontalDivider(color = FinovaColors.OpaqueWhite)
+            Spacer(Modifier.height(Spacing.S3))
+
+            if (page.hasBudget) {
+                val balance = balanceForDay(selectedDay)
+                Text(
+                    text = stringResource(R.string.month_card_balance_on_day, localizedDayOfMonth(selectedDay)),
+                    style = FinovaType.TextSM,
+                    color = FinovaColors.Gray400,
+                )
+                Spacer(Modifier.height(Spacing.S3))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = Money.formatMasked(balance, currencyCode, valuesHidden),
+                        style = FinovaType.TitleLG,
+                        color = FinovaColors.Gray100,
+                        modifier = Modifier.weight(1f),
+                    )
+                    AdjustBalanceButton(onAdjustBalance)
+                    HideValuesButton(valuesHidden, onToggleValues)
+                }
+                Spacer(Modifier.height(Spacing.S3))
+                DaySlider(
+                    day = selectedDay,
+                    daysInMonth = daysInMonth,
+                    onDayChange = { selectedDay = it },
+                )
+            } else {
+                FinovaOutlinedButton(
+                    text = stringResource(R.string.month_card_define_budget),
+                    onClick = onDefineBudget,
+                )
+            }
+            Spacer(Modifier.height(Spacing.S2))
+
+            Row {
+                Column(verticalArrangement = Arrangement.spacedBy(Spacing.S2), modifier = Modifier.weight(1f)) {
+                    Text(stringResource(R.string.month_card_used_budget), style = FinovaType.TextXS, color = FinovaColors.Gray400)
+                    Text(
+                        Money.formatMasked(page.usedValue, currencyCode, valuesHidden),
+                        style = FinovaType.TextSM,
+                        color = FinovaColors.Gray100,
+                    )
+                }
+                Column(verticalArrangement = Arrangement.spacedBy(Spacing.S2), horizontalAlignment = Alignment.End) {
+                    Text(stringResource(R.string.month_card_limit_budget), style = FinovaType.TextXS, color = FinovaColors.Gray400)
+                    if (page.hasBudget) {
+                        Text(
+                            Money.formatMasked(page.budgetLimit ?: 0, currencyCode, valuesHidden),
+                            style = FinovaType.TextSM,
+                            color = FinovaColors.Gray100,
+                        )
+                    } else {
+                        Image(painterResource(R.drawable.ic_infinity), contentDescription = null, modifier = Modifier.size(20.dp))
+                    }
+                }
+            }
+        }
+        if (page.hasBudget) {
+            BudgetStatusBar(
+                used = page.usedValue,
+                limit = page.budgetLimit ?: 0,
+                modifier = Modifier.align(Alignment.BottomCenter),
+            )
+        }
+    }
+}
+
+/** The bar along the card's bottom edge: magenta under 75%, amber from 75%, red over the limit. */
+@Composable
+private fun BudgetStatusBar(used: Long, limit: Long, modifier: Modifier = Modifier) {
+    val fraction = if (limit > 0) used.toFloat() / limit else 0f
+    val color = when {
+        fraction > 1f -> FinovaColors.MainRed
+        fraction >= 0.75f -> FinovaColors.WarningAmber
+        else -> FinovaColors.MainMagenta
+    }
+    val progress by animateFloatAsState(fraction.coerceIn(0f, 1f), label = "budget")
+    LinearProgressIndicator(
+        progress = { progress },
+        color = color,
+        trackColor = FinovaColors.Gray600,
+        strokeCap = StrokeCap.Round,
+        gapSize = 0.dp,
+        drawStopIndicator = {},
+        modifier = modifier.fillMaxWidth().height(8.dp),
+    )
+}
+
+/**
+ * Picks the day whose balance the card shows. iOS hand-builds this (DaySlider.swift); here it is
+ * the Material 3 slider with one step per day, whose tick marks play the role of the iOS dots.
+ */
+@Composable
+private fun DaySlider(day: Int, daysInMonth: Int, onDayChange: (Int) -> Unit) {
+    Slider(
+        value = day.toFloat(),
+        onValueChange = { onDayChange(it.toInt()) },
+        valueRange = 1f..daysInMonth.toFloat(),
+        steps = (daysInMonth - 2).coerceAtLeast(0),
+        colors = SliderDefaults.colors(
+            thumbColor = FinovaColors.Gray100,
+            activeTrackColor = FinovaColors.MainMagenta,
+            inactiveTrackColor = FinovaColors.Gray600,
+            activeTickColor = FinovaColors.Gray100.copy(alpha = 0.35f),
+            inactiveTickColor = FinovaColors.Gray400.copy(alpha = 0.6f),
+        ),
+        modifier = Modifier.fillMaxWidth().height(40.dp),
+    )
+}
+
+@Composable
+private fun HideValuesButton(hidden: Boolean, onToggle: () -> Unit) {
+    IconButton(onClick = onToggle) {
+        Icon(
+            painter = painterResource(if (hidden) R.drawable.ic_eye else R.drawable.ic_eye_closed),
+            contentDescription = stringResource(
+                if (hidden) R.string.month_card_show_values else R.string.month_card_hide_values
+            ),
+            tint = FinovaColors.Gray100,
+            modifier = Modifier.size(24.dp),
+        )
+    }
+}
+
+/** iOS opens a menu from this button; so does Android. */
+@Composable
+private fun AdjustBalanceButton(onAdjust: () -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    Box {
+        IconButton(onClick = { open = true }) {
+            Icon(
+                imageVector = Icons.Outlined.Edit,
+                contentDescription = stringResource(R.string.month_card_adjust_balance),
+                tint = FinovaColors.Gray100,
+            )
+        }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            Text(
+                text = stringResource(R.string.month_card_balance_menu_title),
+                style = FinovaType.TextXS,
+                color = FinovaColors.Gray500,
+                modifier = Modifier.padding(horizontal = Spacing.S4, vertical = Spacing.S2),
+            )
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.month_card_adjust_balance)) },
+                leadingIcon = { Icon(Icons.Outlined.Edit, contentDescription = null) },
+                onClick = {
+                    open = false
+                    onAdjust()
+                },
+            )
+        }
+    }
+}
+
+/** Colors.gradientBlack on iOS. */
+private val CardGradient = Brush.horizontalGradient(listOf(FinovaColors.Gray700, FinovaColors.GradientBlackEnd))
