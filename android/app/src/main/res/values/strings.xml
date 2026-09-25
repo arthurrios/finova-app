@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Finova</string>
+    <string name="skeleton_title">Finova for Android</string>
+    <string name="skeleton_body">The app shell is running. Screens from iOS 1.5.2 come next.</string>
+</resources>
