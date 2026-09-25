@@ -14,9 +14,12 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -60,6 +63,8 @@ interface DashboardActions {
 fun DashboardScreen(state: DashboardUiState, actions: DashboardActions) {
     val pagerState = rememberPagerState(initialPage = state.selectedMonth) { state.months.size }
     val scope = rememberCoroutineScope()
+    // iOS always asks before deleting; a swipe or the trash icon only opens the question.
+    var pendingDelete by remember { mutableStateOf<TransactionRowUi?>(null) }
 
     // The pager reports the settled page; the tabs follow it.
     LaunchedEffect(pagerState) {
@@ -82,7 +87,12 @@ fun DashboardScreen(state: DashboardUiState, actions: DashboardActions) {
                     onSelect = { scope.launch { pagerState.animateScrollToPage(it) } },
                 )
                 HorizontalPager(state = pagerState, modifier = Modifier.weight(1f)) { index ->
-                    MonthPage(page = state.months[index], state = state, actions = actions)
+                    MonthPage(
+                        page = state.months[index],
+                        state = state,
+                        actions = actions,
+                        onRequestDelete = { pendingDelete = it },
+                    )
                 }
             }
         }
@@ -100,10 +110,32 @@ fun DashboardScreen(state: DashboardUiState, actions: DashboardActions) {
             Icon(painterResource(R.drawable.ic_plus), contentDescription = stringResource(R.string.dashboard_add_transaction))
         }
     }
+
+    pendingDelete?.let { row ->
+        AlertDialog(
+            onDismissRequest = { pendingDelete = null },
+            title = { Text(stringResource(R.string.transaction_delete_title)) },
+            text = { Text(stringResource(R.string.delete_confirmation)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    pendingDelete = null
+                    actions.onDeleteTransaction(row)
+                }) { Text(stringResource(R.string.alert_delete), color = FinovaColors.MainRed) }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDelete = null }) { Text(stringResource(R.string.alert_cancel)) }
+            },
+        )
+    }
 }
 
 @Composable
-private fun MonthPage(page: MonthPageUi, state: DashboardUiState, actions: DashboardActions) {
+private fun MonthPage(
+    page: MonthPageUi,
+    state: DashboardUiState,
+    actions: DashboardActions,
+    onRequestDelete: (TransactionRowUi) -> Unit,
+) {
     var query by rememberSaveable(page.month) { mutableStateOf("") }
     val rows = remember(page.transactions, query) {
         if (query.isBlank()) page.transactions
@@ -144,7 +176,7 @@ private fun MonthPage(page: MonthPageUi, state: DashboardUiState, actions: Dashb
                     valuesHidden = state.valuesHidden,
                     isLast = index == rows.lastIndex,
                     onClick = { actions.onTransaction(row) },
-                    onDelete = { actions.onDeleteTransaction(row) },
+                    onDelete = { onRequestDelete(row) },
                 )
             }
         }

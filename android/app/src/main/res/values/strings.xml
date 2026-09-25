@@ -94,4 +94,7 @@
         <item>Jul</item><item>Aug</item><item>Sep</item><item>Oct</item><item>Nov</item><item>Dec</item>
     </string-array>
     <string name="month_card_balance_menu_title">Doesn\'t match your bank?</string>
+    <string name="transaction_delete_title">Delete transaction</string>
+    <string name="delete_confirmation">Are you sure?</string>
+    <string name="alert_delete">Delete</string>
 </resources>

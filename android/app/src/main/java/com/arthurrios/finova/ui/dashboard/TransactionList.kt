@@ -27,7 +27,8 @@ import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -153,13 +154,17 @@ fun TransactionRow(
     onDelete: () -> Unit,
 ) {
     val shape = if (isLast) BottomCorners else RoundedCornerShape(0.dp)
-    val dismissState = rememberSwipeToDismissBoxState()
-    LaunchedEffect(dismissState.currentValue) {
-        if (dismissState.currentValue == SwipeToDismissBoxValue.EndToStart) {
-            onDelete()
-            dismissState.reset()
-        }
-    }
+    // Half the row, not Material's 56dp default, and the row never stays dismissed: a swipe only
+    // asks the dashboard to confirm, then springs back, as the iOS delete action does.
+    val currentOnDelete by rememberUpdatedState(onDelete)
+    @Suppress("DEPRECATION")
+    val dismissState = rememberSwipeToDismissBoxState(
+        confirmValueChange = { value ->
+            if (value == SwipeToDismissBoxValue.EndToStart) currentOnDelete()
+            false
+        },
+        positionalThreshold = { width -> width * 0.5f },
+    )
     val canDelete = row.statementTransactionCount == null
     Column(Modifier.clip(shape).border(1.dp, FinovaColors.Gray300, shape)) {
         SwipeToDismissBox(

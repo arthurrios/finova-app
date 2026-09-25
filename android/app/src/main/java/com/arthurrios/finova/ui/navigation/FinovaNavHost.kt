@@ -23,8 +23,10 @@ import com.arthurrios.finova.R
 import com.arthurrios.finova.auth.AuthRepository
 import com.arthurrios.finova.data.UserSettingsStore
 import com.arthurrios.finova.security.Biometrics
-import com.arthurrios.finova.ui.dashboard.DashboardActions
-import com.arthurrios.finova.ui.dashboard.DashboardSamples
+import com.arthurrios.finova.ui.dashboard.DashboardViewModel
+import com.arthurrios.finova.appContainer
+import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.arthurrios.finova.ui.dashboard.DashboardScreen
 import com.arthurrios.finova.ui.login.LoginRoute
 import com.arthurrios.finova.ui.login.LoginViewModel
@@ -130,8 +132,16 @@ fun FinovaNavHost(startRoute: String? = null) {
             )
         }
         composable(Routes.DASHBOARD) {
-            // Sample data until the ledger is ported; the layout is the real one.
-            DashboardScreen(DashboardSamples.state(), object : DashboardActions {})
+            val viewModel: DashboardViewModel = viewModel(
+                factory = viewModelFactory {
+                    initializer {
+                        val container = appContext.appContainer
+                        DashboardViewModel(container.financeRepository(), container.settings)
+                    }
+                }
+            )
+            val state by viewModel.state.collectAsStateWithLifecycle()
+            DashboardScreen(state, viewModel)
         }
     }
 }

@@ -88,4 +88,7 @@
         <item>Jul</item><item>Ago</item><item>Set</item><item>Out</item><item>Nov</item><item>Dez</item>
     </string-array>
     <string name="month_card_balance_menu_title">Não bate com o seu banco?</string>
+    <string name="transaction_delete_title">Apagar transação</string>
+    <string name="delete_confirmation">Tem certeza?</string>
+    <string name="alert_delete">Apagar</string>
 </resources>
