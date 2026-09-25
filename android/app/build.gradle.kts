@@ -61,6 +61,9 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.navigation.compose)
     implementation(libs.androidx.biometric)
+    // BiometricPrompt needs a FragmentActivity; this keeps it on a current Fragment release.
+    implementation(libs.androidx.fragment.ktx)
+    implementation(libs.androidx.core.splashscreen)
     implementation(platform(libs.firebase.bom))
     implementation(libs.firebase.auth)
     implementation(libs.androidx.credentials)

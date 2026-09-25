@@ -55,4 +55,8 @@
     <string name="password_validation_has_special_character">Caractere especial</string>
     <string name="validation_error_name_required">Nome é obrigatório</string>
     <string name="validation_error_passwords_do_not_match">As senhas não correspondem</string>
+
+    <string name="biometric_prompt_title">Desbloquear o Finova</string>
+    <string name="biometric_prompt_reason">Use a biometria para acessar seus dados financeiros com segurança</string>
+    <string name="alert_cancel">Cancelar</string>
 </resources>

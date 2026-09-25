@@ -114,7 +114,7 @@ fun RegisterScreen(
                 .padding(start = Spacing.S8, end = Spacing.S8, top = Spacing.S7, bottom = Spacing.S3),
         ) {
             Image(
-                painter = painterResource(R.drawable.app_logo),
+                painter = painterResource(R.drawable.finova_logo),
                 contentDescription = null,
                 modifier = Modifier.size(100.dp).align(Alignment.CenterHorizontally),
             )

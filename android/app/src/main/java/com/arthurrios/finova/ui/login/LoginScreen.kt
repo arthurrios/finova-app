@@ -130,7 +130,7 @@ fun LoginScreen(
     ) {
         if (isSmallScreen) {
             Image(
-                painter = painterResource(R.drawable.app_logo),
+                painter = painterResource(R.drawable.finova_logo),
                 contentDescription = null,
                 modifier = Modifier
                     .padding(top = Spacing.S5)
@@ -241,7 +241,7 @@ fun LoginScreen(
 }
 
 /** Metrics.loginHeroHeight on iOS. */
-private val LoginHeroHeight = 360.dp
+internal val LoginHeroHeight = 360.dp
 
 @Preview(showBackground = true, heightDp = 915)
 @Composable

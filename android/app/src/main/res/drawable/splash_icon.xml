@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The system launch screen icon: the mark inside the 288dp splash icon box, at the same size
+     the Compose splash draws it (LogoSize in SplashScreen.kt). 19% = 55dp of 288dp. -->
+<inset xmlns:android="http://schemas.android.com/apk/res/android"
+    android:drawable="@drawable/finova_logo"
+    android:inset="19%" />

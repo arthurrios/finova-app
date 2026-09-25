@@ -59,4 +59,9 @@
     <string name="password_validation_has_special_character">Special character</string>
     <string name="validation_error_name_required">Name is required</string>
     <string name="validation_error_passwords_do_not_match">Passwords do not match</string>
+
+    <!-- Adapted from faceid.reason on iOS ("Use Face ID to …"). -->
+    <string name="biometric_prompt_title">Unlock Finova</string>
+    <string name="biometric_prompt_reason">Use biometrics to access your financial data securely</string>
+    <string name="alert_cancel">Cancel</string>
 </resources>

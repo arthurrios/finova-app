@@ -2,6 +2,14 @@
 <resources>
     <!-- Window theme only; everything drawn in Compose uses FinovaTheme. -->
     <style name="Theme.Finova" parent="android:Theme.Material.Light.NoActionBar">
-        <item name="android:windowBackground">@android:color/white</item>
+        <item name="android:windowBackground">@color/gray100</item>
+    </style>
+
+    <!-- The system launch screen (Android's LaunchScreen): the logo on the dark splash color.
+         The Compose splash starts from the same picture, so the hand-off does not flash. -->
+    <style name="Theme.Finova.Starting" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/gray700</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/splash_icon</item>
+        <item name="postSplashScreenTheme">@style/Theme.Finova</item>
     </style>
 </resources>
