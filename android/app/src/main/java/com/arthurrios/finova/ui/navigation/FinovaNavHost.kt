@@ -23,6 +23,8 @@ import com.arthurrios.finova.data.UserSettingsStore
 import com.arthurrios.finova.security.Biometrics
 import com.arthurrios.finova.ui.login.LoginRoute
 import com.arthurrios.finova.ui.login.LoginViewModel
+import com.arthurrios.finova.ui.register.RegisterRoute
+import com.arthurrios.finova.ui.register.RegisterViewModel
 import com.arthurrios.finova.ui.theme.FinovaColors
 import com.arthurrios.finova.ui.theme.FinovaType
 import com.arthurrios.finova.ui.theme.Spacing
@@ -62,7 +64,28 @@ fun FinovaNavHost() {
                 onRegister = { navController.navigate(Routes.REGISTER) },
             )
         }
-        composable(Routes.REGISTER) { PlaceholderScreen("Register") }
+        composable(Routes.REGISTER) {
+            val viewModel: RegisterViewModel = viewModel(
+                factory = viewModelFactory {
+                    initializer {
+                        RegisterViewModel(
+                            AuthRepository(appContext),
+                            UserSettingsStore(appContext),
+                            Biometrics(appContext),
+                        )
+                    }
+                }
+            )
+            RegisterRoute(
+                viewModel = viewModel,
+                onRegistered = {
+                    navController.navigate(Routes.DASHBOARD) {
+                        popUpTo(Routes.LOGIN) { inclusive = true }
+                    }
+                },
+                onBackToLogin = { navController.popBackStack() },
+            )
+        }
         composable(Routes.DASHBOARD) { PlaceholderScreen("Dashboard") }
     }
 }

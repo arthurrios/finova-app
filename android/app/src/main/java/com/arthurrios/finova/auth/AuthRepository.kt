@@ -13,6 +13,7 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.auth.GoogleAuthProvider
 import com.google.firebase.auth.OAuthProvider
+import com.google.firebase.auth.userProfileChangeRequest
 import kotlinx.coroutines.tasks.await
 
 /** Thrown when the person closes a sign-in picker. The UI stays quiet about it. */
@@ -33,6 +34,17 @@ class AuthRepository(private val context: Context) {
 
     suspend fun signInWithEmail(email: String, password: String): AuthUser = wrap {
         auth.signInWithEmailAndPassword(email, password).await().user.toAuthUser()
+    }
+
+    /** Creates the account, then stores the name on the Firebase profile, like iOS. */
+    suspend fun register(name: String, email: String, password: String): AuthUser = wrap {
+        val user = auth.createUserWithEmailAndPassword(email, password).await().user
+            ?: throw AuthError.from(IllegalStateException("Firebase returned no user"))
+        // iOS carries on when the name update fails; the name is still kept locally.
+        runCatching {
+            user.updateProfile(userProfileChangeRequest { displayName = name }).await()
+        }
+        user.toAuthUser(extractedName = name)
     }
 
     /** Google through Credential Manager, the system account picker. */

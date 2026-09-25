@@ -13,11 +13,9 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.verticalScroll
@@ -44,6 +42,8 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.arthurrios.finova.R
+import com.arthurrios.finova.ui.components.AuthErrorDialog
+import com.arthurrios.finova.ui.components.EnableBiometricsDialog
 import com.arthurrios.finova.ui.components.FinovaButton
 import com.arthurrios.finova.ui.components.FinovaOutlinedButton
 import com.arthurrios.finova.ui.components.FinovaTextField
@@ -74,31 +74,13 @@ fun LoginRoute(
         onRegister = onRegister,
     )
 
-    state.error?.let { error ->
-        AlertDialog(
-            onDismissRequest = viewModel::dismissError,
-            title = { Text(stringResource(error.titleRes)) },
-            text = { Text(stringResource(error.messageRes)) },
-            confirmButton = {
-                TextButton(onClick = viewModel::dismissError) { Text(stringResource(R.string.error_try_again)) }
-            },
-        )
-    }
+    state.error?.let { AuthErrorDialog(error = it, onDismiss = viewModel::dismissError) }
 
     val biometricName = stringResource(R.string.biometric_name)
     when (state.biometricDialog) {
-        BiometricDialog.OfferEnable -> AlertDialog(
-            onDismissRequest = {},
-            title = { Text(stringResource(R.string.faceid_enable_title, biometricName)) },
-            text = { Text(stringResource(R.string.faceid_enable_message, biometricName)) },
-            confirmButton = {
-                TextButton(onClick = viewModel::onEnableBiometrics) {
-                    Text(stringResource(R.string.faceid_enable_button, biometricName))
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = viewModel::onSkipBiometrics) { Text(stringResource(R.string.skip)) }
-            },
+        BiometricDialog.OfferEnable -> EnableBiometricsDialog(
+            onEnable = viewModel::onEnableBiometrics,
+            onSkip = viewModel::onSkipBiometrics,
         )
         BiometricDialog.NotEnrolled -> AlertDialog(
             onDismissRequest = {},
@@ -142,7 +124,8 @@ fun LoginScreen(
             .fillMaxSize()
             .background(FinovaColors.Gray100)
             .pointerInput(Unit) { detectTapGestures { focusManager.clearFocus() } }
-            .imePadding()
+            // Keeps the hero out of the status bar and the form above the gesture bar and keyboard.
+            .safeDrawingPadding()
             .verticalScroll(rememberScrollState()),
     ) {
         if (isSmallScreen) {
@@ -150,7 +133,6 @@ fun LoginScreen(
                 painter = painterResource(R.drawable.app_logo),
                 contentDescription = null,
                 modifier = Modifier
-                    .statusBarsPadding()
                     .padding(top = Spacing.S5)
                     .size(100.dp)
                     .align(Alignment.CenterHorizontally),
@@ -171,8 +153,7 @@ fun LoginScreen(
         Column(
             modifier = Modifier
                 .alpha(formAlpha.value)
-                .padding(start = Spacing.S8, end = Spacing.S8, top = Spacing.S6)
-                .navigationBarsPadding(),
+                .padding(start = Spacing.S8, end = Spacing.S8, top = Spacing.S6, bottom = Spacing.S4),
         ) {
             Text(
                 text = stringResource(R.string.login_welcome_title).uppercase(),

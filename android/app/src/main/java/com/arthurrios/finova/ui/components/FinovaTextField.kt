@@ -39,7 +39,17 @@ import com.arthurrios.finova.ui.theme.FinovaColors
 import com.arthurrios.finova.ui.theme.FinovaType
 import com.arthurrios.finova.ui.theme.Spacing
 
-enum class FinovaTextFieldType { Normal, Email, Password }
+enum class FinovaTextFieldType {
+    Normal,
+    Name,
+    Email,
+    Password,
+
+    /** A password being created: autofill offers to generate and save one. */
+    NewPassword;
+
+    val isPassword get() = this == Password || this == NewPassword
+}
 
 /**
  * A single-line input: the Material 3 outlined text field, at the iOS Input.swift size (48dp) and
@@ -84,7 +94,7 @@ fun FinovaTextField(
         errorTrailingIconColor = FinovaColors.MainRed,
     )
     val visualTransformation =
-        if (type == FinovaTextFieldType.Password && passwordHidden) PasswordVisualTransformation()
+        if (type.isPassword && passwordHidden) PasswordVisualTransformation()
         else VisualTransformation.None
     val keyboardOptions = when (type) {
         FinovaTextFieldType.Email -> KeyboardOptions(
@@ -93,9 +103,13 @@ fun FinovaTextField(
             autoCorrectEnabled = false,
             imeAction = imeAction,
         )
-        FinovaTextFieldType.Password -> KeyboardOptions(
+        FinovaTextFieldType.Password, FinovaTextFieldType.NewPassword -> KeyboardOptions(
             keyboardType = KeyboardType.Password,
             autoCorrectEnabled = false,
+            imeAction = imeAction,
+        )
+        FinovaTextFieldType.Name -> KeyboardOptions(
+            capitalization = KeyboardCapitalization.Words,
             imeAction = imeAction,
         )
         FinovaTextFieldType.Normal -> KeyboardOptions(imeAction = imeAction)
@@ -103,6 +117,8 @@ fun FinovaTextField(
     val autofill = when (type) {
         FinovaTextFieldType.Email -> ContentType.EmailAddress
         FinovaTextFieldType.Password -> ContentType.Password
+        FinovaTextFieldType.NewPassword -> ContentType.NewPassword
+        FinovaTextFieldType.Name -> ContentType.PersonFullName
         FinovaTextFieldType.Normal -> null
     }
 
@@ -131,7 +147,7 @@ fun FinovaTextField(
                 interactionSource = interactionSource,
                 isError = isError,
                 placeholder = { Text(placeholder, style = FinovaType.Input) },
-                trailingIcon = if (type == FinovaTextFieldType.Password) {
+                trailingIcon = if (type.isPassword) {
                     { PasswordToggle(hidden = passwordHidden, onToggle = { passwordHidden = !passwordHidden }) }
                 } else null,
                 colors = colors,
