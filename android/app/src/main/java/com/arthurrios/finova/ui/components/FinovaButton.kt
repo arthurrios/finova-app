@@ -47,8 +47,9 @@ fun FinovaButton(
         colors = ButtonDefaults.buttonColors(
             containerColor = FinovaColors.MainMagenta,
             contentColor = FinovaColors.Gray100,
-            disabledContainerColor = FinovaColors.MainMagenta.copy(alpha = 0.5f),
-            disabledContentColor = FinovaColors.Gray100,
+            // iOS dims a disabled button to 60%.
+            disabledContainerColor = FinovaColors.MainMagenta.copy(alpha = 0.6f),
+            disabledContentColor = FinovaColors.Gray100.copy(alpha = 0.6f),
         ),
         modifier = modifier.fillMaxWidth().height(Spacing.ButtonHeight),
     ) {

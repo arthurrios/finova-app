@@ -40,4 +40,23 @@
     <string name="login_error_unexpected_error_message">An unexpected error occurred. Please try again later.</string>
     <!-- Android only: the build has no google-services.json. -->
     <string name="auth_error_not_configured">Sign-in is not set up in this build yet.</string>
+
+    <string name="input_name">Name</string>
+    <string name="input_confirm_password">Confirm password</string>
+
+    <string name="register_welcome_title">Create Account</string>
+    <string name="register_welcome_subtitle">Join us to start managing your finances better</string>
+    <string name="register_button">Create Account</string>
+    <string name="register_already_have_account">Already have an account?</string>
+    <string name="register_login_link">Sign In</string>
+
+    <string name="email_validation_invalid">Invalid email</string>
+    <string name="password_must_contain">Password must contain</string>
+    <string name="password_validation_min_length">At least 6 characters</string>
+    <string name="password_validation_has_uppercase">Uppercase letter</string>
+    <string name="password_validation_has_lowercase">Lowercase letter</string>
+    <string name="password_validation_has_number">Number</string>
+    <string name="password_validation_has_special_character">Special character</string>
+    <string name="validation_error_name_required">Name is required</string>
+    <string name="validation_error_passwords_do_not_match">Passwords do not match</string>
 </resources>

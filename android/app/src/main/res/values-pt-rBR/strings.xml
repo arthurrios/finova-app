@@ -36,4 +36,23 @@
     <string name="auth_error_google_token_failure">Falha ao obter tokens de autenticação do Google</string>
     <string name="login_error_unexpected_error_message">Ocorreu um erro inesperado. Tente novamente mais tarde.</string>
     <string name="auth_error_not_configured">O login ainda não está configurado nesta versão.</string>
+
+    <string name="input_name">Nome</string>
+    <string name="input_confirm_password">Confirmar senha</string>
+
+    <string name="register_welcome_title">Criar Conta</string>
+    <string name="register_welcome_subtitle">Junte-se a nós e comece a gerenciar suas finanças melhor</string>
+    <string name="register_button">Criar Conta</string>
+    <string name="register_already_have_account">Já tem uma conta?</string>
+    <string name="register_login_link">Entre</string>
+
+    <string name="email_validation_invalid">E-mail inválido</string>
+    <string name="password_must_contain">Senha deve conter</string>
+    <string name="password_validation_min_length">Pelo menos 6 caracteres</string>
+    <string name="password_validation_has_uppercase">Letra maiúscula</string>
+    <string name="password_validation_has_lowercase">Letra minúscula</string>
+    <string name="password_validation_has_number">Número</string>
+    <string name="password_validation_has_special_character">Caractere especial</string>
+    <string name="validation_error_name_required">Nome é obrigatório</string>
+    <string name="validation_error_passwords_do_not_match">As senhas não correspondem</string>
 </resources>
