@@ -63,11 +63,22 @@ final class TransactionLedgerService {
     let cash = transactions ?? cashTransactionsForBalance()
     let cutoff = calendar.startOfDay(for: date)
 
+    let start = balanceHistoryStart()
+
     return cash.reduce(UIDUserDefaultsManager.shared.getCurrentUserBalanceOffset()) { acc, tx in
       let txDate = Date(timeIntervalSince1970: TimeInterval(tx.dateTimestamp))
-      guard calendar.startOfDay(for: txDate) <= cutoff else { return acc }
+      guard calendar.startOfDay(for: txDate) <= cutoff,
+        BalanceHistoryStart.counts(transactionMonthAnchor: txDate.monthAnchor, from: start)
+      else { return acc }
       return tx.type == .income ? acc + tx.amount : acc - tx.amount
     }
+  }
+
+  /// First month whose transactions count toward this account's balance; nil counts them all.
+  private func balanceHistoryStart() -> Int? {
+    BalanceHistoryStart.anchor(
+      uid: UIDUserDefaultsManager.shared.currentUserUID,
+      offset: UIDUserDefaultsManager.shared.getCurrentUserBalanceOffset())
   }
 
   // MARK: - Monthly Calculations
@@ -118,9 +129,17 @@ final class TransactionLedgerService {
         acc[entry.monthDate] = entry.amount
       }
 
-    // Calculate running balance
+    // Calculate running balance. It starts from the offset plus every counted cash transaction
+    // dated before the first month of the range: starting from the offset alone dropped anything
+    // older than the range, so the balance drifted as months passed (and a one-month range such as
+    // `-1...-1` started from the offset only). See BalanceHistoryStart.
+    let historyStart = balanceHistoryStart()
     var runningBalance = [Int: Int]()
     var previousAvailable = UIDUserDefaultsManager.shared.getCurrentUserBalanceOffset()
+    if let firstAnchor = anchors.first {
+      previousAvailable += BalanceHistoryStart.netBefore(
+        anchor: firstAnchor, start: historyStart, transactions: allTransactions)
+    }
 
     let monthlyData = anchors.map { anchor in
       // Reconstruct date using the same method as monthAnchor calculation
@@ -162,7 +181,8 @@ final class TransactionLedgerService {
 
       // Exclude credit card transactions from balance (they go to the statement instead)
       let cashTransactions = transactionsForMonth.filter { tx in
-        tx.creditCardId == nil || tx.isCreditCardStatement == true
+        (tx.creditCardId == nil || tx.isCreditCardStatement == true)
+          && BalanceHistoryStart.counts(transactionMonthAnchor: anchor, from: historyStart)
       }
       let expense = cashTransactions.filter { $0.type == .expense }.reduce(0) { $0 + $1.amount }
       let income = cashTransactions.filter { $0.type == .income }.reduce(0) { $0 + $1.amount }
@@ -306,6 +326,7 @@ final class TransactionLedgerService {
 
   func calculateCurrentBalance(for monthAnchor: Int) -> Int {
     let allTransactions = fetchAllTransactionsIncludingStatements()
+    let historyStart = balanceHistoryStart()
     let today = Date()
     let monthDate = Date(timeIntervalSince1970: TimeInterval(monthAnchor))
 
@@ -316,6 +337,7 @@ final class TransactionLedgerService {
       let transactionMonthAnchor = transactionDate.monthAnchor
       return transactionMonthAnchor <= monthAnchor
         && (transaction.creditCardId == nil || transaction.isCreditCardStatement == true)
+        && BalanceHistoryStart.counts(transactionMonthAnchor: transactionMonthAnchor, from: historyStart)
     }
 
     // Calculate running balance
@@ -415,6 +437,7 @@ final class TransactionLedgerService {
   /// Calculate balance for a specific day within a month
   func calculateBalanceForDay(day: Int, monthAnchor: Int, previousMonthBalance: Int, transactions: [Transaction]? = nil) -> Int {
     let allTransactions = transactions ?? fetchAllTransactionsIncludingStatements()
+    let historyStart = balanceHistoryStart()
 
     // Get the month date from anchor
     let monthDate = Date(timeIntervalSince1970: TimeInterval(monthAnchor))
@@ -441,6 +464,8 @@ final class TransactionLedgerService {
       // Exclude credit card transactions (they only affect balance when statement is due)
       return transactionDateOnly <= targetDateOnly
         && (transaction.creditCardId == nil || transaction.isCreditCardStatement == true)
+        && BalanceHistoryStart.counts(
+          transactionMonthAnchor: transactionDate.monthAnchor, from: historyStart)
     }
 
     // Calculate running balance from the beginning of time up to target date
