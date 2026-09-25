@@ -1,6 +1,43 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Keys and copy come from Localizable.xcstrings on iOS release/v1.5.2. -->
 <resources>
     <string name="app_name">Finova</string>
-    <string name="skeleton_title">Finova for Android</string>
-    <string name="skeleton_body">The app shell is running. Screens from iOS 1.5.2 come next.</string>
+    <string name="placeholder_body">This screen is not ported from iOS yet.</string>
+
+    <string name="input_email">Email</string>
+    <string name="input_password">Password</string>
+    <string name="input_show_password">Show password</string>
+    <string name="input_hide_password">Hide password</string>
+
+    <string name="login_welcome_title">Welcome!</string>
+    <string name="login_welcome_subtitle">Ready to organize your finances? Log in now</string>
+    <string name="login_button">Login</string>
+    <string name="login_apple_sign_in">Sign in with Apple</string>
+    <string name="login_google_sign_in">Sign in with Google</string>
+    <string name="login_dont_have_account">Don\'t have an account?</string>
+    <string name="login_register_link">Create Account</string>
+
+    <string name="error_try_again">Try again</string>
+    <string name="skip">Skip</string>
+
+    <!-- %1$s is the biometric name, e.g. "Biometrics". -->
+    <string name="biometric_name">Biometrics</string>
+    <string name="faceid_enable_title">Enable %1$s?</string>
+    <string name="faceid_enable_message">Would you like to enable %1$s for quick and secure access to your account?</string>
+    <string name="faceid_enable_button">Enable %1$s</string>
+    <string name="settings_biometric_not_enrolled_message">%1$s is not set up on this device. Please enable it in your device Settings.</string>
+    <string name="settings_biometric_open_settings">Open Settings</string>
+
+    <string name="auth_error_title">Auth Error</string>
+    <string name="validation_error_title">Validation Error</string>
+    <string name="auth_error_email_already_in_use">Email already in use</string>
+    <string name="auth_error_invalid_email">Invalid email</string>
+    <string name="auth_error_weak_password">Weak password</string>
+    <string name="auth_error_invalid_credentials">Invalid email or password</string>
+    <string name="auth_error_too_many_requests">Too many requests</string>
+    <string name="auth_error_network_error">Network error</string>
+    <string name="auth_error_google_token_failure">Failed to obtain Google authentication tokens</string>
+    <string name="login_error_unexpected_error_message">An unexpected error occurred. Please try again later.</string>
+    <!-- Android only: the build has no google-services.json. -->
+    <string name="auth_error_not_configured">Sign-in is not set up in this build yet.</string>
 </resources>

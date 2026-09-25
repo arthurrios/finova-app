@@ -1,5 +1,39 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="skeleton_title">Finova para Android</string>
-    <string name="skeleton_body">A base do app está rodando. As telas do iOS 1.5.2 vêm a seguir.</string>
+    <string name="placeholder_body">Esta tela ainda não foi portada do iOS.</string>
+
+    <string name="input_email">E-mail</string>
+    <string name="input_password">Senha</string>
+    <string name="input_show_password">Mostrar senha</string>
+    <string name="input_hide_password">Ocultar senha</string>
+
+    <string name="login_welcome_title">Boas vindas!</string>
+    <string name="login_welcome_subtitle">Pronto para organizar suas finanças? Acesse agora</string>
+    <string name="login_button">Entrar</string>
+    <string name="login_apple_sign_in">Entrar com Apple</string>
+    <string name="login_google_sign_in">Entrar com Google</string>
+    <string name="login_dont_have_account">Ainda não possui uma conta?</string>
+    <string name="login_register_link">Criar Conta</string>
+
+    <string name="error_try_again">Tentar novamente</string>
+    <string name="skip">Pular</string>
+
+    <string name="biometric_name">Biometria</string>
+    <string name="faceid_enable_title">Habilitar %1$s?</string>
+    <string name="faceid_enable_message">Gostaria de habilitar %1$s para acesso rápido e seguro à sua conta?</string>
+    <string name="faceid_enable_button">Habilitar %1$s</string>
+    <string name="settings_biometric_not_enrolled_message">%1$s não está configurado neste dispositivo. Ative nas Configurações do dispositivo.</string>
+    <string name="settings_biometric_open_settings">Abrir Configurações</string>
+
+    <string name="auth_error_title">Erro de Autenticação</string>
+    <string name="validation_error_title">Erro de Validação</string>
+    <string name="auth_error_email_already_in_use">E-mail já está em uso</string>
+    <string name="auth_error_invalid_email">E-mail inválido</string>
+    <string name="auth_error_weak_password">Senha fraca</string>
+    <string name="auth_error_invalid_credentials">E-mail ou senha inválidos</string>
+    <string name="auth_error_too_many_requests">Muitas requisições</string>
+    <string name="auth_error_network_error">Erro de conexão</string>
+    <string name="auth_error_google_token_failure">Falha ao obter tokens de autenticação do Google</string>
+    <string name="login_error_unexpected_error_message">Ocorreu um erro inesperado. Tente novamente mais tarde.</string>
+    <string name="auth_error_not_configured">O login ainda não está configurado nesta versão.</string>
 </resources>
