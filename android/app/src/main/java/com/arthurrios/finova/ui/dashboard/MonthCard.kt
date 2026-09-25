@@ -1,6 +1,7 @@
 package com.arthurrios.finova.ui.dashboard
 
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -13,18 +14,19 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PieChart
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -34,16 +36,21 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringArrayResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import kotlin.math.roundToInt
 import com.arthurrios.finova.R
 import com.arthurrios.finova.ui.components.FinovaOutlinedButton
 import com.arthurrios.finova.ui.format.Money
-import com.arthurrios.finova.ui.theme.CornerRadius
+import com.arthurrios.finova.ui.theme.CornerRadius as FinovaCorners
 import com.arthurrios.finova.ui.theme.FinovaColors
 import com.arthurrios.finova.ui.theme.FinovaType
 import com.arthurrios.finova.ui.theme.Spacing
@@ -79,7 +86,7 @@ fun MonthCard(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(CornerRadius.ExtraLarge))
+            .clip(RoundedCornerShape(FinovaCorners.ExtraLarge))
             .background(CardGradient),
     ) {
         Column(
@@ -139,6 +146,7 @@ fun MonthCard(
                 DaySlider(
                     day = selectedDay,
                     daysInMonth = daysInMonth,
+                    todayInMonth = if (page.isCurrentMonth) today else null,
                     onDayChange = { selectedDay = it },
                 )
             } else {
@@ -204,25 +212,72 @@ private fun BudgetStatusBar(used: Long, limit: Long, modifier: Modifier = Modifi
 }
 
 /**
- * Picks the day whose balance the card shows. iOS hand-builds this (DaySlider.swift); here it is
- * the Material 3 slider with one step per day, whose tick marks play the role of the iOS dots.
+ * Picks the day whose balance the card shows. It is the Material 3 slider (native drag and
+ * accessibility) drawn like the iOS DaySlider: a 4dp track, a round white thumb with a soft
+ * shadow, a small tick per day, and a tall white tick on today in the current month.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun DaySlider(day: Int, daysInMonth: Int, onDayChange: (Int) -> Unit) {
+private fun DaySlider(day: Int, daysInMonth: Int, todayInMonth: Int?, onDayChange: (Int) -> Unit) {
     Slider(
         value = day.toFloat(),
-        onValueChange = { onDayChange(it.toInt()) },
+        onValueChange = { onDayChange(it.roundToInt()) },
         valueRange = 1f..daysInMonth.toFloat(),
         steps = (daysInMonth - 2).coerceAtLeast(0),
-        colors = SliderDefaults.colors(
-            thumbColor = FinovaColors.Gray100,
-            activeTrackColor = FinovaColors.MainMagenta,
-            inactiveTrackColor = FinovaColors.Gray600,
-            activeTickColor = FinovaColors.Gray100.copy(alpha = 0.35f),
-            inactiveTickColor = FinovaColors.Gray400.copy(alpha = 0.6f),
-        ),
+        thumb = {
+            Box(
+                Modifier
+                    .size(24.dp)
+                    .shadow(4.dp, CircleShape, ambientColor = FinovaColors.Gray700, spotColor = FinovaColors.Gray700)
+                    .background(FinovaColors.Gray100, CircleShape),
+            )
+        },
+        track = { sliderState ->
+            DaySliderTrack(
+                fraction = (sliderState.value - 1f) / (daysInMonth - 1).coerceAtLeast(1),
+                selectedDay = day,
+                daysInMonth = daysInMonth,
+                todayInMonth = todayInMonth,
+            )
+        },
         modifier = Modifier.fillMaxWidth().height(40.dp),
     )
+}
+
+@Composable
+private fun DaySliderTrack(fraction: Float, selectedDay: Int, daysInMonth: Int, todayInMonth: Int?) {
+    Canvas(Modifier.fillMaxWidth().height(16.dp)) {
+        val trackHeight = 4.dp.toPx()
+        val y = size.height / 2
+        val radius = CornerRadius(trackHeight / 2)
+        drawRoundRect(
+            color = FinovaColors.Gray600,
+            topLeft = Offset(0f, y - trackHeight / 2),
+            size = Size(size.width, trackHeight),
+            cornerRadius = radius,
+        )
+        drawRoundRect(
+            color = FinovaColors.MainMagenta,
+            topLeft = Offset(0f, y - trackHeight / 2),
+            size = Size(size.width * fraction.coerceIn(0f, 1f), trackHeight),
+            cornerRadius = radius,
+        )
+        val tickWidth = 2.dp.toPx()
+        for (d in 1..daysInMonth) {
+            val x = if (daysInMonth == 1) 0f else size.width * (d - 1) / (daysInMonth - 1)
+            val (color, height) = when {
+                d == selectedDay -> FinovaColors.MainMagenta to 1.5.dp.toPx()
+                d == todayInMonth -> FinovaColors.Gray100 to 16.dp.toPx()
+                else -> FinovaColors.Gray400.copy(alpha = 0.6f) to 1.dp.toPx()
+            }
+            drawRoundRect(
+                color = color,
+                topLeft = Offset(x - tickWidth / 2, y - height / 2),
+                size = Size(tickWidth, height),
+                cornerRadius = CornerRadius(tickWidth / 2),
+            )
+        }
+    }
 }
 
 @Composable
