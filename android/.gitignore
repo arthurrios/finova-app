@@ -10,3 +10,8 @@ captures/
 
 # Firebase config stays out of git, like GoogleService-Info.plist on iOS.
 app/google-services.json
+
+# Release signing: the key and its passwords stay on the machine (see keystore.properties).
+keystore.properties
+*.jks
+*.keystore
