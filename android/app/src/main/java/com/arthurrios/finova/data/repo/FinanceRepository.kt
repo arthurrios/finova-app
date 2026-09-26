@@ -5,6 +5,7 @@ import com.arthurrios.finova.data.db.FinovaDatabase
 import com.arthurrios.finova.data.db.RecurringExclusionEntity
 import com.arthurrios.finova.data.db.StatementEntity
 import com.arthurrios.finova.data.db.UserSettingsEntity
+import com.arthurrios.finova.domain.card.CardCycleChange
 import com.arthurrios.finova.domain.card.StatementBook
 import com.arthurrios.finova.domain.card.StatementPayments
 import com.arthurrios.finova.domain.model.Budget
@@ -219,6 +220,26 @@ class FinanceRepository(
                 }
             }
         }
+    }
+
+    /**
+     * After a card's closing or due day changed: moves its open statements to the new days and
+     * re-routes what they hold ([CardCycleChange]). Closed and paid statements stay as they were.
+     */
+    suspend fun applyCardCycleChange(cardId: Long, today: LocalDate = LocalDate.now()) = db.withTransaction {
+        val card = db.creditCards().getById(cardId)?.toModel() ?: return@withTransaction
+        val plan = CardCycleChange.plan(
+            card = card,
+            statements = db.statements().forCard(cardId).map { it.toModel() },
+            rows = db.transactions().getAll().map { it.toDomain() },
+            today = today,
+            rule = defaultRule(),
+        )
+        val realIds = plan.created.associate { it.id to db.statements().insert(it.copy(id = 0).toEntity()) }
+        plan.updated.forEach { db.statements().update(it.toEntity()) }
+        db.transactions().updateAll(plan.rows.map { row -> row.copy(statementId = row.statementId?.let { realIds[it] ?: it }).toEntity() })
+        plan.deleted.forEach { db.statements().delete(it) }
+        settleCardRows()
     }
 
     /**

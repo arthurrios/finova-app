@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.arthurrios.finova.data.UserSettingsStore
 import com.arthurrios.finova.data.repo.CardRepository
+import com.arthurrios.finova.data.repo.FinanceRepository
 import com.arthurrios.finova.domain.model.CardBrand
 import com.arthurrios.finova.domain.model.CardColor
 import com.arthurrios.finova.domain.model.CreditCard
@@ -36,6 +37,7 @@ data class CardForm(
 /** Port of AddCreditCardViewModel plus the validation in AddCreditCardView. */
 class AddCreditCardViewModel(
     private val cards: CardRepository,
+    private val finance: FinanceRepository,
     private val settings: UserSettingsStore,
     private val editingId: Long?,
 ) : ViewModel() {
@@ -84,8 +86,11 @@ class AddCreditCardViewModel(
             color = f.color,
             isDefault = f.isDefault,
         )
+        val daysChanged = editing?.let { it.closingDay != card.closingDay || it.dueDay != card.dueDay } == true
         viewModelScope.launch {
-            cards.save(card)
+            val id = cards.save(card)
+            // New days reshape the cycles still ahead, as AddCreditCardViewModel does on iOS.
+            if (daysChanged) finance.applyCardCycleChange(id)
             onSaved()
         }
     }
