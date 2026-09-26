@@ -549,9 +549,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
             UserDefaults.standard.set(true, forKey: "shouldShowNotificationSuccessAlert")
             UserDefaults.standard.set("rescheduled", forKey: "notificationAlertType")
           } else {
-            // Mark that we should show the failure alert on dashboard
-            UserDefaults.standard.set(true, forKey: "shouldShowNotificationSuccessAlert")
-            UserDefaults.standard.set("failure", forKey: "notificationAlertType")
+            Self.flagScheduleFailure(monthlyManager)
           }
         }
 
@@ -570,9 +568,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
             UserDefaults.standard.set(true, forKey: "shouldShowNotificationSuccessAlert")
             UserDefaults.standard.set("rescheduled", forKey: "notificationAlertType")
           } else {
-            // Mark that we should show the failure alert on dashboard
-            UserDefaults.standard.set(true, forKey: "shouldShowNotificationSuccessAlert")
-            UserDefaults.standard.set("failure", forKey: "notificationAlertType")
+            Self.flagScheduleFailure(monthlyManager)
           }
         }
 
@@ -659,14 +655,36 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
           UserDefaults.standard.set("success", forKey: "notificationAlertType")
           print("🔔 ✅ Monthly notifications scheduled for \(currentMonthKey)")
         } else {
-          // Mark that we should show the failure alert on dashboard
-          UserDefaults.standard.set(true, forKey: "shouldShowNotificationSuccessAlert")
-          UserDefaults.standard.set("failure", forKey: "notificationAlertType")
+          Self.flagScheduleFailure(monthlyManager)
           print("🔔 ❌ Failed to schedule monthly notifications for \(currentMonthKey)")
         }
       }
     } else {
       print("🔔 📅 Already scheduled notifications for month \(currentMonthKey)")
     }
+  }
+}
+
+extension AppDelegate {
+  /// The month the "notifications are off" notice was last shown for.
+  private static let permissionNoticeMonthKey = "notificationPermissionNoticeMonth"
+
+  /// Leaves the dashboard the alert for a scheduling run that did not succeed.
+  ///
+  /// Notifications switched off is the user's choice, not a failure. Reporting it as "Notification
+  /// Setup Failed" came back on every launch, because a month without permission is never recorded
+  /// as scheduled. This says why instead, once a month; the month stays unrecorded so scheduling runs
+  /// as soon as permission is granted.
+  static func flagScheduleFailure(_ monthlyManager: MonthlyNotificationManager) {
+    if !monthlyManager.hasNotificationPermission() {
+      let monthKey = MonthlyNotificationManager.monthKey(for: Date())
+      guard UserDefaults.standard.string(forKey: permissionNoticeMonthKey) != monthKey else { return }
+      UserDefaults.standard.set(monthKey, forKey: permissionNoticeMonthKey)
+      UserDefaults.standard.set(true, forKey: "shouldShowNotificationSuccessAlert")
+      UserDefaults.standard.set("permission", forKey: "notificationAlertType")
+      return
+    }
+    UserDefaults.standard.set(true, forKey: "shouldShowNotificationSuccessAlert")
+    UserDefaults.standard.set("failure", forKey: "notificationAlertType")
   }
 }
