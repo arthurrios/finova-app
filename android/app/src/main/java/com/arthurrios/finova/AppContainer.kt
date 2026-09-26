@@ -34,6 +34,17 @@ class AppContainer(private val context: Context) {
     private fun currentDatabase() = databases.forUser(currentUid())
 
     private var tags: TagRepository? = null
+    private var history: com.arthurrios.finova.notifications.NotificationHistoryStore? = null
+
+    val notificationSettings = com.arthurrios.finova.notifications.NotificationSettingsStore(context)
+
+    /** The sent-notification list of whoever is signed in. */
+    @Synchronized
+    fun notificationHistory(): com.arthurrios.finova.notifications.NotificationHistoryStore {
+        val uid = currentUid()
+        history?.takeIf { it.uid == uid }?.let { return it }
+        return com.arthurrios.finova.notifications.NotificationHistoryStore(context, uid).also { history = it }
+    }
 
     /** One per account, shared by every screen so a change shows everywhere at once. */
     @Synchronized
@@ -51,11 +62,18 @@ class AppContainer(private val context: Context) {
         settings.forgetUser(uid)
         TagRepository(context, uid).removeAll()
         tags = null
+        com.arthurrios.finova.notifications.NotificationHistoryStore(context, uid).removeAll()
+        history = null
     }
 }
 
 class FinovaApplication : Application() {
     val container: AppContainer by lazy { AppContainer(this) }
+
+    override fun onCreate() {
+        super.onCreate()
+        com.arthurrios.finova.notifications.DailyNotificationWorker.schedule(this)
+    }
 }
 
 val Context.appContainer: AppContainer get() = (applicationContext as FinovaApplication).container

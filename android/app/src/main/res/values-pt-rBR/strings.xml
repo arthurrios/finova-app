@@ -513,4 +513,45 @@
     <string name="tags_strip_clear">Limpar filtro</string>
     <string name="tags_share_of_budget">%1$d%% do orçamento</string>
     <string name="budget_allocations_filtered_empty">Nenhuma alocação nesta etiqueta</string>
+    <string name="notif_channel_name">Lembretes</string>
+    <string name="notif_transaction_title_income">Crédito agendado</string>
+    <string name="notif_transaction_title_expense">Débito agendado</string>
+    <string name="notif_transaction_body">%1$s de %2$s</string>
+    <string name="notif_installment_title">Pagamento de Parcela Vencendo</string>
+    <plurals name="notif_installment_body">
+        <item quantity="one">Você tem 1 parcela vencendo este mês totalizando %2$s</item>
+        <item quantity="other">Você tem %1$d parcelas vencendo este mês totalizando %2$s</item>
+    </plurals>
+    <string name="notif_recurring_title">Transação Recorrente Vencendo</string>
+    <plurals name="notif_recurring_body">
+        <item quantity="one">Você tem 1 transação recorrente vencendo este mês totalizando %2$s</item>
+        <item quantity="other">Você tem %1$d transações recorrentes vencendo este mês totalizando %2$s</item>
+    </plurals>
+    <string name="notif_statement_closed_title">Fatura Fechada</string>
+    <string name="notif_statement_closed_body">Sua fatura do %1$s fechou em %2$s. O vencimento está chegando.</string>
+    <string name="notif_statement_due_title">Pagamento Vence Hoje</string>
+    <string name="notif_statement_due_body">Sua fatura do %1$s de %2$s vence hoje. Não esqueça de pagar!</string>
+    <string name="notif_negative_title">⚠️ Alerta de Saldo Negativo</string>
+    <string name="notif_negative_tomorrow">De acordo com os cálculos das transações do mês, seu saldo ficará negativo amanhã (%1$s). Verifique suas transações e ajuste seu orçamento.</string>
+    <string name="notif_settings_title">Notificações</string>
+    <string name="notif_settings_general">Geral</string>
+    <string name="notif_settings_local">Notificações Locais</string>
+    <string name="notif_settings_push">Notificações Push</string>
+    <string name="notif_settings_all_title">Desativar Todas</string>
+    <string name="notif_settings_all_description">Desativar todas as notificações do Finova</string>
+    <string name="notif_settings_transactions_title">Lembretes de Transações</string>
+    <string name="notif_settings_transactions_description">Lembretes de transações agendadas (créditos e débitos)</string>
+    <string name="notif_settings_negative_title">Aviso de Saldo Negativo</string>
+    <string name="notif_settings_negative_description">Seja avisado quando seu saldo projetar ficar negativo</string>
+    <string name="notif_settings_statements_title">Faturas de Cartão</string>
+    <string name="notif_settings_statements_description">Lembretes para datas de vencimento de faturas</string>
+    <string name="notif_settings_updates_title">Atualizações do App</string>
+    <string name="notif_settings_updates_description">Seja notificado quando uma nova versão do Finova estiver disponível</string>
+    <string name="notif_history_title">Notificações</string>
+    <string name="notif_history_clear">Limpar Tudo</string>
+    <string name="notif_history_clear_title">Limpar Todas as Notificações</string>
+    <string name="notif_history_clear_message">Tem certeza que deseja limpar todas as notificações? Esta ação não pode ser desfeita.</string>
+    <string name="notif_history_empty_title">Sem notificações</string>
+    <string name="notif_history_empty_subtitle">Seu histórico de notificações aparecerá aqui</string>
+    <string name="notif_history_yesterday">Ontem</string>
 </resources>

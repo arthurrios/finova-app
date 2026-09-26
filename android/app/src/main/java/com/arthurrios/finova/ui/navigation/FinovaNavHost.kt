@@ -71,6 +71,7 @@ object Routes {
     const val PROFILE = "profile"
     const val SETTINGS = "settings"
     const val NOTIFICATION_SETTINGS = "settings/notifications"
+    const val NOTIFICATIONS = "notifications"
     const val EARLY = "early/{id}"
     fun early(id: Long) = "early/$id"
     const val STATEMENT = "statement/{id}"
@@ -194,9 +195,21 @@ fun FinovaNavHost(startRoute: String? = null) {
                 avatar = container.profileImages.load(container.currentUid())?.asImageBitmap()
                 onPauseOrDispose { }
             }
+            val unread by appContext.appContainer.notificationHistory().items.collectAsStateWithLifecycle()
+            // Asks once for permission to send reminders (Android 13+), as iOS asks at first launch.
+            val askNotifications = androidx.activity.compose.rememberLauncherForActivityResult(
+                androidx.activity.result.contract.ActivityResultContracts.RequestPermission(),
+            ) { }
+            androidx.compose.runtime.LaunchedEffect(Unit) {
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU &&
+                    androidx.core.content.ContextCompat.checkSelfPermission(appContext, android.Manifest.permission.POST_NOTIFICATIONS) !=
+                    android.content.pm.PackageManager.PERMISSION_GRANTED
+                ) askNotifications.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+            }
             DashboardScreen(
-                state,
+                state.copy(unreadNotifications = unread.count { !it.isRead }),
                 viewModel,
+                onOpenNotifications = { navController.navigate(Routes.NOTIFICATIONS) },
                 avatar = avatar,
                 onOpenProfile = { navController.navigate(Routes.PROFILE) },
                 onOpenBudgets = { navController.navigate(Routes.budgets(it)) },
@@ -365,7 +378,12 @@ fun FinovaNavHost(startRoute: String? = null) {
                 onSignedOut = { navController.navigate(Routes.LOGIN) { popUpTo(0) { inclusive = true } } },
             )
         }
-        composable(Routes.NOTIFICATION_SETTINGS) { PlaceholderScreen("Notifications") }
+        composable(Routes.NOTIFICATION_SETTINGS) {
+            com.arthurrios.finova.ui.notifications.NotificationSettingsScreen(appContext.appContainer.notificationSettings, onBack = { navController.popBackStack() })
+        }
+        composable(Routes.NOTIFICATIONS) {
+            com.arthurrios.finova.ui.notifications.NotificationHistoryScreen(appContext.appContainer.notificationHistory(), onBack = { navController.popBackStack() })
+        }
         composable(Routes.CARDS) {
             val viewModel: CreditCardsViewModel = viewModel(
                 factory = viewModelFactory {
