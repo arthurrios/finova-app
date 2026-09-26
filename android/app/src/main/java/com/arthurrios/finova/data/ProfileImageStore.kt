@@ -27,17 +27,31 @@ class ProfileImageStore(private val context: Context) {
 
     /** Copies the picked picture in, scaled down to at most 512 px, since it only shows as an avatar. */
     fun save(uid: String, picked: Uri): Bitmap? = runCatching {
-        val source = ImageDecoder.createSource(context.contentResolver, picked)
-        val bitmap = ImageDecoder.decodeBitmap(source) { decoder, info, _ ->
+        val bitmap = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) decodeScaled(picked) else decodeScaledLegacy(picked)
+        file(uid).outputStream().use { bitmap.compress(Bitmap.CompressFormat.JPEG, 90, it) }
+        bitmap
+    }.getOrNull()
+
+    @androidx.annotation.RequiresApi(android.os.Build.VERSION_CODES.P)
+    private fun decodeScaled(picked: Uri): Bitmap =
+        ImageDecoder.decodeBitmap(ImageDecoder.createSource(context.contentResolver, picked)) { decoder, info, _ ->
             val longest = maxOf(info.size.width, info.size.height)
             if (longest > MAX_SIDE) {
                 val scale = MAX_SIDE.toFloat() / longest
                 decoder.setTargetSize((info.size.width * scale).toInt(), (info.size.height * scale).toInt())
             }
         }
-        file(uid).outputStream().use { bitmap.compress(Bitmap.CompressFormat.JPEG, 90, it) }
-        bitmap
-    }.getOrNull()
+
+    /** Android 8 has no ImageDecoder: read the size first, then decode at a power-of-two scale. */
+    private fun decodeScaledLegacy(picked: Uri): Bitmap {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        context.contentResolver.openInputStream(picked).use { BitmapFactory.decodeStream(it, null, bounds) }
+        var sample = 1
+        while (maxOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= MAX_SIDE) sample *= 2
+        val options = BitmapFactory.Options().apply { inSampleSize = sample }
+        return context.contentResolver.openInputStream(picked).use { BitmapFactory.decodeStream(it, null, options) }
+            ?: error("Could not read the picture")
+    }
 
     private companion object {
         const val MAX_SIDE = 512

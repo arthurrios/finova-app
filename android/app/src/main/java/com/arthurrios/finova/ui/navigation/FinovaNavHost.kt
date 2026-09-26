@@ -377,7 +377,7 @@ fun FinovaNavHost(
                 factory = viewModelFactory {
                     initializer {
                         val info = appContext.packageManager.getPackageInfo(appContext.packageName, 0)
-                        ProfileViewModel(appContext.appContainer, "Finova v${info.versionName} (${info.longVersionCode})")
+                        ProfileViewModel(appContext.appContainer, "Finova v${info.versionName} (${androidx.core.content.pm.PackageInfoCompat.getLongVersionCode(info)})")
                     }
                 }
             )
