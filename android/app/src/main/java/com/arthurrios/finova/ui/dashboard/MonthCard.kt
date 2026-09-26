@@ -30,6 +30,10 @@ import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.onLongClick
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -157,11 +161,22 @@ fun MonthCard(
                 }
                 Spacer(Modifier.height(Spacing.S3))
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
+                    val adjustLabel = stringResource(R.string.month_card_adjust_balance)
                     Text(
                         text = Money.formatMasked(balance, currencyCode, valuesHidden),
                         style = FinovaType.TitleLG,
                         color = FinovaColors.Gray100,
-                        modifier = Modifier.weight(1f),
+                        // Holding the balance adjusts it, as on iOS (the button next to it does too).
+                        modifier = Modifier
+                            .weight(1f)
+                            .pointerInput(onAdjustBalance) {
+                                detectTapGestures(onLongPress = {
+                                    haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                                    onAdjustBalance()
+                                })
+                            }
+                            .semantics { onLongClick(label = adjustLabel) { onAdjustBalance(); true } },
                     )
                     AdjustBalanceButton(onAdjustBalance)
                     HideValuesButton(valuesHidden, onToggleValues)

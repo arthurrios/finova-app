@@ -33,6 +33,8 @@ data class EarlyPaymentUiState(
     val saving: Boolean = false,
     val failed: Boolean = false,
     val done: Boolean = false,
+    /** The early-payment debit just made; the screen is replaced by its details. */
+    val paymentId: Long? = null,
 ) {
     val selectedTotal: Long get() = installments.filter { it.id in selected }.sumOf { it.amount }
     val allSelected: Boolean get() = installments.isNotEmpty() && selected.size == installments.size
@@ -99,10 +101,10 @@ class EarlyPaymentViewModel(
         if (!s.canContinue) return
         _state.update { it.copy(saving = true) }
         viewModelScope.launch {
-            val ok = runCatching {
+            val paymentId = runCatching {
                 repository.payInstallmentsEarly(s.selected.toList(), s.date, s.chargeToCard && s.card != null, title)
-            }.isSuccess
-            _state.update { it.copy(saving = false, done = ok, failed = !ok) }
+            }.getOrNull()
+            _state.update { it.copy(saving = false, done = paymentId != null, failed = paymentId == null, paymentId = paymentId) }
         }
     }
 }

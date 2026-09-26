@@ -78,9 +78,13 @@ class StatementDetailsViewModel(
         viewModelScope.launch { card.value = cards.card(id) }
     }
 
-    fun markAsPaid() {
+    /** [onDone] runs once the write has landed, so leaving the screen cannot cancel it. */
+    fun markAsPaid(onDone: () -> Unit = {}) {
         val total = state.value.total
-        viewModelScope.launch { repository.markStatementPaid(statementId, total, today()) }
+        viewModelScope.launch {
+            repository.markStatementPaid(statementId, total, today())
+            onDone()
+        }
     }
 
     fun delete(row: TransactionRowUi, option: SeriesDeleteOption) {

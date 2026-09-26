@@ -77,9 +77,18 @@ fun TransactionDetailsScreen(
     onBack: () -> Unit,
     onCreateCard: () -> Unit = {},
     onPayEarly: () -> Unit = {},
+    onOpenTransaction: (Long) -> Unit = {},
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val failure by viewModel.failure.collectAsStateWithLifecycle()
+    // After a cancellation, show the refund credit and what it covers; this installment stays behind it.
+    val createdRefund by viewModel.createdRefund.collectAsStateWithLifecycle()
+    LaunchedEffect(createdRefund) {
+        createdRefund?.let {
+            viewModel.refundShown()
+            onOpenTransaction(it)
+        }
+    }
     var confirmCancel by rememberSaveable { mutableStateOf(false) }
     var confirmUndo by rememberSaveable { mutableStateOf(false) }
     var movingStatement by rememberSaveable { mutableStateOf(false) }
@@ -329,6 +338,7 @@ private fun DetailsCard(row: Transaction, state: TransactionDetailsUiState) {
             stringResource(R.string.details_label_type),
             stringResource(if (row.type == TransactionType.Income) R.string.details_type_income else R.string.details_type_expense),
         )
+        state.paymentMethod?.let { DetailRow(stringResource(R.string.details_label_payment_method), it) }
         state.totalValue?.let { DetailRow(stringResource(R.string.details_label_total_value), Money.formatMasked(it, state.currencyCode, state.valuesHidden)) }
         state.lastInstallment?.let { DetailRow(stringResource(R.string.details_label_last_installment), it.format(DateFormat)) }
     }

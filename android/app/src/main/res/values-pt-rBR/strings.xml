@@ -553,4 +553,5 @@
     <string name="notif_history_empty_title">Sem notificações</string>
     <string name="notif_history_empty_subtitle">Seu histórico de notificações aparecerá aqui</string>
     <string name="notif_history_yesterday">Ontem</string>
+    <string name="details_label_payment_method">Método de pagamento</string>
 </resources>

@@ -562,4 +562,5 @@
     <string name="notif_history_empty_title">No notifications</string>
     <string name="notif_history_empty_subtitle">Your notification history will appear here</string>
     <string name="notif_history_yesterday">Yesterday</string>
+    <string name="details_label_payment_method">Payment method</string>
 </resources>

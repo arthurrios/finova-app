@@ -200,7 +200,8 @@ fun StatementDetailsScreen(
             confirmButton = {
                 TextButton(onClick = {
                     confirmPaid = false
-                    viewModel.markAsPaid()
+                    // iOS returns to the previous screen once the statement is marked paid.
+                    viewModel.markAsPaid(onDone = onBack)
                 }) { Text(stringResource(R.string.alert_ok)) }
             },
             dismissButton = { TextButton(onClick = { confirmPaid = false }) { Text(stringResource(R.string.alert_cancel)) } },
