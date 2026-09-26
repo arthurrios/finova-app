@@ -3,6 +3,7 @@ package com.arthurrios.finova.data
 import android.content.Context
 import androidx.core.content.edit
 import com.arthurrios.finova.auth.AuthUser
+import com.arthurrios.finova.domain.model.BusinessDayRule
 
 /**
  * Small per-device settings. Port of the parts of UserDefaultsManager / UIDUserDefaultsManager
@@ -33,6 +34,11 @@ class UserSettingsStore(context: Context) {
         get() = currencySetting.takeUnless { it == CURRENCY_AUTO }
             ?: runCatching { java.util.Currency.getInstance(java.util.Locale.getDefault()).currencyCode }.getOrNull()
             ?: "BRL"
+
+    /** The weekend rule new transactions start with (iOS `defaultBusinessDayRule`). */
+    var defaultBusinessDayRule: BusinessDayRule
+        get() = BusinessDayRule.fromKey(prefs.getString(KEY_DEFAULT_RULE, null))
+        set(value) = prefs.edit { putString(KEY_DEFAULT_RULE, value.key) }
 
     fun currentUserName(): String? {
         val uid = prefs.getString(KEY_CURRENT_UID, null) ?: return null
@@ -73,5 +79,6 @@ class UserSettingsStore(context: Context) {
         const val KEY_HIDE_VALUES = "hide_values"
         const val KEY_CURRENCY = "currency_code"
         const val CURRENCY_AUTO = "auto"
+        const val KEY_DEFAULT_RULE = "default_business_day_rule"
     }
 }

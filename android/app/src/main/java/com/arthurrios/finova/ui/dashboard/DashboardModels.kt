@@ -1,6 +1,7 @@
 package com.arthurrios.finova.ui.dashboard
 
 import androidx.annotation.DrawableRes
+import com.arthurrios.finova.domain.model.BusinessDayRule
 import com.arthurrios.finova.domain.series.SeriesKind
 import java.time.LocalDate
 import java.time.YearMonth
@@ -10,6 +11,7 @@ data class DashboardUiState(
     val userName: String = "",
     val unreadNotifications: Int = 0,
     val currencyCode: String = "BRL",
+    val defaultBusinessDayRule: BusinessDayRule = BusinessDayRule.Exact,
     val valuesHidden: Boolean = false,
     val months: List<MonthPageUi> = emptyList(),
     val selectedMonth: Int = 0,

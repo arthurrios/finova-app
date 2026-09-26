@@ -10,7 +10,10 @@ import com.arthurrios.finova.domain.model.TransactionMode
 import com.arthurrios.finova.domain.model.TransactionType
 import com.arthurrios.finova.domain.series.SeriesDeleteOption
 import com.arthurrios.finova.domain.series.SeriesRules
+import com.arthurrios.finova.domain.time.BusinessDayAdjuster
 import com.arthurrios.finova.domain.time.SeriesMonths
+import com.arthurrios.finova.ui.addtransaction.AddMode
+import com.arthurrios.finova.ui.addtransaction.AddTransactionRequest
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -55,6 +58,7 @@ class DashboardViewModel(
             // iOS falls back to "User" when it has no name.
             userName = settings.currentUserName()?.takeIf { it.isNotBlank() } ?: "User",
             currencyCode = settings.currencyCode,
+            defaultBusinessDayRule = settings.defaultBusinessDayRule,
             valuesHidden = hidden,
             months = summaries.map { summary ->
                 MonthPageUi(
@@ -92,6 +96,36 @@ class DashboardViewModel(
         val hidden = !valuesHidden.value
         settings.hideValues = hidden
         valuesHidden.value = hidden
+    }
+
+    /** Port of AddTransactionModalViewModel's add paths (no card yet). */
+    override fun onSaveTransaction(request: AddTransactionRequest) {
+        val draft = request.draft
+        viewModelScope.launch {
+            when (request.mode) {
+                AddMode.Normal -> {
+                    val date = BusinessDayAdjuster.adjust(draft.date, draft.rule)
+                    repository.add(
+                        Transaction(
+                            title = draft.title,
+                            category = draft.category,
+                            type = draft.type,
+                            amount = draft.amount,
+                            date = date,
+                            // A one-off counts in the month it actually lands in.
+                            budgetMonth = YearMonth.from(date),
+                            businessDayRule = draft.rule,
+                            unadjustedDate = draft.date,
+                        )
+                    )
+                }
+                AddMode.Recurring -> repository.addRecurring(draft, today())
+                AddMode.Installments -> repository.addInstallments(draft, request.installments)
+            }
+            // Open the month the new transaction lands in, as iOS scrolls the carousel there.
+            val index = SeriesMonths.carouselMonths(YearMonth.from(today())).indexOf(YearMonth.from(draft.date))
+            if (index >= 0) selectedMonth.value = index
+        }
     }
 
     override fun onDeleteTransaction(row: TransactionRowUi, option: SeriesDeleteOption) {
