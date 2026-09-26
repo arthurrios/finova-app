@@ -221,6 +221,8 @@ fun FinovaNavHost(
                     android.content.pm.PackageManager.PERMISSION_GRANTED
                 ) askNotifications.launch(android.Manifest.permission.POST_NOTIFICATIONS)
             }
+            val notificationPrefs by appContext.appContainer.notificationSettings.preferences.collectAsStateWithLifecycle()
+            androidx.compose.foundation.layout.Box {
             DashboardScreen(
                 state.copy(unreadNotifications = unread.count { !it.isRead }),
                 viewModel,
@@ -235,6 +237,9 @@ fun FinovaNavHost(
                 onOpenTags = { navController.navigate(Routes.TAGS) },
                 onEditTag = { navController.navigate(Routes.tagEdit(it)) },
             )
+            // The "App updates" switch also governs this in-app prompt (Android has no update push).
+            com.arthurrios.finova.ui.update.UpdatePrompt(enabled = notificationPrefs.appUpdates && !notificationPrefs.allDisabled)
+            }
         }
         composable(Routes.TAGS) {
             com.arthurrios.finova.ui.tags.AllocationTagsScreen(

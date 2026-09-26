@@ -554,4 +554,8 @@
     <string name="notif_history_empty_subtitle">Seu histórico de notificações aparecerá aqui</string>
     <string name="notif_history_yesterday">Ontem</string>
     <string name="details_label_payment_method">Método de pagamento</string>
+    <string name="update_title">Atualização Disponível</string>
+    <string name="update_message">Uma nova versão do Finova está disponível com recursos melhorados e correções de bugs.</string>
+    <string name="update_later">Depois</string>
+    <string name="update_now">Atualizar</string>
 </resources>
