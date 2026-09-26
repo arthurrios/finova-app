@@ -54,6 +54,7 @@ import com.arthurrios.finova.ui.dashboard.MonthPageUi
 import com.arthurrios.finova.ui.dashboard.icon
 import com.arthurrios.finova.ui.dashboard.label
 import com.arthurrios.finova.ui.format.Money
+import com.arthurrios.finova.ui.format.localizedDayOfMonth
 import com.arthurrios.finova.ui.theme.CornerRadius
 import com.arthurrios.finova.ui.theme.FinovaColors
 import com.arthurrios.finova.ui.theme.FinovaType
@@ -138,7 +139,7 @@ fun BudgetCard(
                     breakdown ?: untaggedBreakdown(page), selectedTagId, onTagSelected)
                 page.finalBalance?.let { balance ->
                     CornerBlock(
-                        caption = stringResource(R.string.budget_by_day, "${monthNames[page.month.monthValue - 1]} ${page.month.lengthOfMonth()}"),
+                        caption = stringResource(R.string.budget_by_day, monthDay(page.month.atEndOfMonth())),
                         value = Money.compactMasked(balance, currencyCode, valuesHidden),
                         color = if (!valuesHidden && balance < 0) FinovaColors.BrightRed else FinovaColors.Gray100,
                         alignEnd = false,
@@ -446,3 +447,14 @@ fun MonthPageUi.projection(): AllocationBalanceProjection? = finalBalance?.let {
         tense = if (isPastMonth) AllocationBalanceProjection.Tense.Actual else AllocationBalanceProjection.Tense.Projected,
     )
 }
+
+/**
+ * "Sep 30th" in English, "30 de set." in Portuguese: the month and day in the order the language
+ * uses (iOS put the month first in every language).
+ */
+private fun monthDay(date: java.time.LocalDate, locale: java.util.Locale = java.util.Locale.getDefault()): String =
+    if (locale.language == "en") {
+        date.format(java.time.format.DateTimeFormatter.ofPattern("MMM", locale)) + " " + localizedDayOfMonth(date.dayOfMonth, locale)
+    } else {
+        date.format(java.time.format.DateTimeFormatter.ofPattern(android.text.format.DateFormat.getBestDateTimePattern(locale, "MMMd"), locale))
+    }
