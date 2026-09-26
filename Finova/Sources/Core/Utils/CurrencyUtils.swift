@@ -129,31 +129,19 @@ extension CurrencyUtils {
     if amount >= 1_000_000 {
       let millions = amount / 1_000_000
       if millions >= 10 {
-        return "\(prefix)\(symbol)\(number(millions, digits: 0, locale: locale))M"
+        return "\(prefix)\(symbol)\(String(format: "%.0f", millions))M"
       }
-      return "\(prefix)\(symbol)\(number(millions, digits: 1, locale: locale))M"
+      return "\(prefix)\(symbol)\(String(format: "%.1f", millions))M"
     } else if amount >= 1_000 {
       let thousands = amount / 1_000
       if thousands >= 100 {
-        return "\(prefix)\(symbol)\(number(thousands, digits: 0, locale: locale))k"
+        return "\(prefix)\(symbol)\(String(format: "%.0f", thousands))k"
       }
-      return "\(prefix)\(symbol)\(number(thousands, digits: 1, locale: locale))k"
+      return "\(prefix)\(symbol)\(String(format: "%.1f", thousands))k"
     } else {
       // For smaller values, use regular currency formatting
       return amountMinor.currencyString
     }
-  }
-
-  /// The number in the locale's decimal mark: "20,9" in Portuguese, "20.9" in English.
-  /// `String(format: "%.1f")` always wrote a point, so pt-BR read "R$20.9k".
-  private static func number(_ value: Double, digits: Int, locale: Locale) -> String {
-    let formatter = NumberFormatter()
-    formatter.numberStyle = .decimal
-    formatter.locale = locale
-    formatter.usesGroupingSeparator = false
-    formatter.minimumFractionDigits = digits
-    formatter.maximumFractionDigits = digits
-    return formatter.string(from: NSNumber(value: value)) ?? String(format: "%.\(digits)f", value)
   }
 }
 
