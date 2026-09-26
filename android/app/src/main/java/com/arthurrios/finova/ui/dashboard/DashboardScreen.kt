@@ -37,6 +37,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.arthurrios.finova.R
+import com.arthurrios.finova.ui.addtransaction.AddTransactionRequest
+import com.arthurrios.finova.ui.addtransaction.AddTransactionSheet
 import com.arthurrios.finova.domain.series.SeriesDeleteOption
 import com.arthurrios.finova.ui.theme.FinovaColors
 import com.arthurrios.finova.ui.theme.FinovaTheme
@@ -48,7 +50,7 @@ interface DashboardActions {
     fun onSelectMonth(index: Int) {}
     fun balanceForDay(page: MonthPageUi, day: Int): Long = page.finalBalance ?: 0
     fun onToggleValues() {}
-    fun onAddTransaction() {}
+    fun onSaveTransaction(request: AddTransactionRequest) {}
     fun onProfile() {}
     fun onNotifications() {}
     fun onAdjustBalance(page: MonthPageUi) {}
@@ -67,10 +69,17 @@ fun DashboardScreen(state: DashboardUiState, actions: DashboardActions) {
     val scope = rememberCoroutineScope()
     // iOS always asks before deleting; a swipe or the trash icon only opens the question.
     var pendingDelete by remember { mutableStateOf<TransactionRowUi?>(null) }
+    var showAddSheet by rememberSaveable { mutableStateOf(false) }
 
     // The pager reports the settled page; the tabs follow it.
     LaunchedEffect(pagerState) {
         snapshotFlow { pagerState.settledPage }.collect { actions.onSelectMonth(it) }
+    }
+    // And when the app picks a month itself (after adding a transaction), the pager goes there.
+    LaunchedEffect(state.selectedMonth) {
+        if (state.months.isNotEmpty() && pagerState.settledPage != state.selectedMonth) {
+            pagerState.animateScrollToPage(state.selectedMonth)
+        }
     }
 
     Box(Modifier.fillMaxSize().background(FinovaColors.Gray200)) {
@@ -99,7 +108,7 @@ fun DashboardScreen(state: DashboardUiState, actions: DashboardActions) {
             }
         }
         FloatingActionButton(
-            onClick = actions::onAddTransaction,
+            onClick = { showAddSheet = true },
             shape = CircleShape,
             containerColor = FinovaColors.Gray100,
             contentColor = FinovaColors.MainMagenta,
@@ -111,6 +120,18 @@ fun DashboardScreen(state: DashboardUiState, actions: DashboardActions) {
         ) {
             Icon(painterResource(R.drawable.ic_plus), contentDescription = stringResource(R.string.dashboard_add_transaction))
         }
+    }
+
+    if (showAddSheet) {
+        AddTransactionSheet(
+            currencyCode = state.currencyCode,
+            defaultRule = state.defaultBusinessDayRule,
+            onSave = {
+                showAddSheet = false
+                actions.onSaveTransaction(it)
+            },
+            onDismiss = { showAddSheet = false },
+        )
     }
 
     pendingDelete?.let { row ->

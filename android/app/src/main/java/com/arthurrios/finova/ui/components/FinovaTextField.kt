@@ -1,7 +1,9 @@
 package com.arthurrios.finova.ui.components
 
 import androidx.annotation.DrawableRes
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -74,6 +76,13 @@ fun FinovaTextField(
     containerColor: Color = FinovaColors.Gray200,
     /** Shows an x that empties the field while it has text (the search field). */
     clearable: Boolean = false,
+    /** Text fixed inside the field before / after what is typed ("$", "installment(s)"). */
+    prefix: String? = null,
+    suffix: String? = null,
+    keyboardType: KeyboardType? = null,
+    visualTransformationOverride: VisualTransformation? = null,
+    /** Makes the field a button that opens a picker (date, category) instead of the keyboard. */
+    onClick: (() -> Unit)? = null,
 ) {
     var passwordHidden by rememberSaveable { mutableStateOf(true) }
     val interactionSource = remember { MutableInteractionSource() }
@@ -101,9 +110,8 @@ fun FinovaTextField(
         unfocusedTrailingIconColor = FinovaColors.Gray600,
         errorTrailingIconColor = FinovaColors.MainRed,
     )
-    val visualTransformation =
-        if (type.isPassword && passwordHidden) PasswordVisualTransformation()
-        else VisualTransformation.None
+    val visualTransformation = visualTransformationOverride
+        ?: if (type.isPassword && passwordHidden) PasswordVisualTransformation() else VisualTransformation.None
     val keyboardOptions = when (type) {
         FinovaTextFieldType.Email -> KeyboardOptions(
             keyboardType = KeyboardType.Email,
@@ -121,7 +129,7 @@ fun FinovaTextField(
             imeAction = imeAction,
         )
         FinovaTextFieldType.Normal -> KeyboardOptions(imeAction = imeAction)
-    }
+    }.let { options -> if (keyboardType != null) options.copy(keyboardType = keyboardType) else options }
     val autofill = when (type) {
         FinovaTextFieldType.Email -> ContentType.EmailAddress
         FinovaTextFieldType.Password -> ContentType.Password
@@ -130,10 +138,12 @@ fun FinovaTextField(
         FinovaTextFieldType.Normal -> null
     }
 
+    Box(modifier) {
     BasicTextField(
         value = value,
         onValueChange = onValueChange,
         enabled = enabled,
+        readOnly = onClick != null,
         singleLine = true,
         textStyle = FinovaType.Input.copy(color = FinovaColors.Gray700),
         cursorBrush = SolidColor(FinovaColors.Gray700),
@@ -141,7 +151,7 @@ fun FinovaTextField(
         keyboardOptions = keyboardOptions,
         keyboardActions = keyboardActions,
         interactionSource = interactionSource,
-        modifier = modifier
+        modifier = Modifier
             .fillMaxWidth()
             .height(Spacing.InputHeight)
             .semantics { if (autofill != null) contentType = autofill },
@@ -155,6 +165,8 @@ fun FinovaTextField(
                 interactionSource = interactionSource,
                 isError = isError,
                 placeholder = { Text(placeholder, style = FinovaType.Input) },
+                prefix = prefix?.let { { Text(it, style = FinovaType.Input, color = FinovaColors.Gray700) } },
+                suffix = suffix?.let { { Text(it, style = FinovaType.Input, color = FinovaColors.Gray500) } },
                 leadingIcon = leadingIcon?.let { icon ->
                     { Icon(painterResource(icon), contentDescription = null, modifier = Modifier.size(20.dp)) }
                 },
@@ -187,6 +199,11 @@ fun FinovaTextField(
             )
         },
     )
+    if (onClick != null) {
+        // A transparent layer on top takes the tap, so the field opens its picker.
+        Box(Modifier.matchParentSize().clickable(enabled = enabled, onClick = onClick))
+    }
+    }
 }
 
 @Composable
