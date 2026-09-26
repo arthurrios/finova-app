@@ -69,17 +69,17 @@ class AllocationDetailsViewModel(
             val allocation = Allocations.withUsage(allocationRows, rows, month).firstOrNull { it.category == category }
             val gone = hadAllocation && allocation == null
             if (allocation != null) hadAllocation = true
-            // The rows usage counts: this category's expenses in the budget month. Installments paid
-            // early are left out, since their early payment is what counts.
+            // This category's expenses in the budget month. Installments paid early stay listed with
+            // their "paid early" mark, as on iOS, though usage counts the early payment instead.
             val members = rows.filter {
                 FinanceRepository.isListed(it) && it.category == category && it.type == TransactionType.Expense &&
-                    it.budgetMonth == month && !it.isSettledEarly && !it.isCreditCardStatement
+                    it.budgetMonth == month && !it.isCreditCardStatement
             }
             AllocationDetailsUiState(
                 category = category,
                 month = month,
                 allocation = allocation,
-                used = allocation?.used ?: members.sumOf { it.amount },
+                used = allocation?.used ?: members.filterNot { it.isSettledEarly }.sumOf { it.amount },
                 rows = members.sortedWith(compareByDescending<Transaction> { it.date }.thenByDescending { it.id }).map { it.toRowUi() },
                 allocationRows = allocationRows,
                 currencyCode = settings.currencyCode,
