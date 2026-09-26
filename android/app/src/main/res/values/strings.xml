@@ -563,4 +563,8 @@
     <string name="notif_history_empty_subtitle">Your notification history will appear here</string>
     <string name="notif_history_yesterday">Yesterday</string>
     <string name="details_label_payment_method">Payment method</string>
+    <string name="update_title">Update Available</string>
+    <string name="update_message">A new version of Finova is available with improved features and bug fixes.</string>
+    <string name="update_later">Later</string>
+    <string name="update_now">Update</string>
 </resources>
