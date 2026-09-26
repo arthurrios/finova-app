@@ -76,7 +76,7 @@ fun SettingsScreen(
     onSignedOut: () -> Unit,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    val activity = LocalContext.current as? FragmentActivity
+    val activity = androidx.activity.compose.LocalActivity.current as? FragmentActivity
     var pickingCurrency by rememberSaveable { mutableStateOf(false) }
     val deviceCurrency = remember { runCatching { java.util.Currency.getInstance(java.util.Locale.getDefault()).currencyCode }.getOrDefault("BRL") }
     val biometricName = stringResource(R.string.biometric_name)

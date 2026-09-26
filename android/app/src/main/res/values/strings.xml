@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Keys and copy come from Localizable.xcstrings on iOS release/v1.5.2. -->
 <resources>
-    <string name="app_name">Finova</string>
+    <string name="app_name" translatable="false">Finova</string>
 
     <string name="input_email">Email</string>
     <string name="input_password">Password</string>

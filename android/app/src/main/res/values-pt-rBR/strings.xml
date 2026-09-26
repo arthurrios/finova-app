@@ -478,6 +478,7 @@
     <plurals name="projection_history_months">
         <item quantity="one">%1$d mês fechado</item>
         <item quantity="other">%1$d meses fechados</item>
+        <item quantity="many">%1$d meses fechados</item>
     </plurals>
     <string name="budget_tags_manage">Etiquetas</string>
     <string name="tags_title">Etiquetas de alocação</string>
@@ -493,6 +494,7 @@
     <plurals name="tags_category_count">
         <item quantity="one">%1$d categoria</item>
         <item quantity="other">%1$d categorias</item>
+        <item quantity="many">%1$d categorias</item>
     </plurals>
     <string name="tags_reorder_hint">Toque e mantenha pressionado e arraste para reordenar</string>
     <string name="tags_edit_title">Editar etiqueta</string>
@@ -520,11 +522,13 @@
     <plurals name="notif_installment_body">
         <item quantity="one">Você tem 1 parcela vencendo este mês totalizando %2$s</item>
         <item quantity="other">Você tem %1$d parcelas vencendo este mês totalizando %2$s</item>
+        <item quantity="many">Você tem %1$d parcelas vencendo este mês totalizando %2$s</item>
     </plurals>
     <string name="notif_recurring_title">Transação Recorrente Vencendo</string>
     <plurals name="notif_recurring_body">
         <item quantity="one">Você tem 1 transação recorrente vencendo este mês totalizando %2$s</item>
         <item quantity="other">Você tem %1$d transações recorrentes vencendo este mês totalizando %2$s</item>
+        <item quantity="many">Você tem %1$d transações recorrentes vencendo este mês totalizando %2$s</item>
     </plurals>
     <string name="notif_statement_closed_title">Fatura Fechada</string>
     <string name="notif_statement_closed_body">Sua fatura do %1$s fechou em %2$s. O vencimento está chegando.</string>
