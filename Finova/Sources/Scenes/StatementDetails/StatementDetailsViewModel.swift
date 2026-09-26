@@ -228,8 +228,17 @@ final class StatementDetailsViewModel {
         loadTransactions()
     }
 
+    /// The card's closing day in the month before this statement's closing.
+    ///
+    /// Not "the closing date minus a month": for a card closing on the 31st, April closes on the
+    /// 30th, and 30 March is not the previous closing (31 March is), so the period claimed a day
+    /// that belongs to March's statement.
     private func previousClosingDate() -> Date {
         let calendar = Calendar.current
-        return calendar.date(byAdding: .month, value: -1, to: statement.closingDate)!
+        let monthBefore = calendar.date(byAdding: .month, value: -1, to: statement.closingDate)!
+        let days = calendar.range(of: .day, in: .month, for: monthBefore)?.count ?? 28
+        var components = calendar.dateComponents([.year, .month], from: monthBefore)
+        components.day = min(card.closingDay, days)
+        return calendar.date(from: components) ?? monthBefore
     }
 }
