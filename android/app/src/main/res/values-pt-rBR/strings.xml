@@ -197,4 +197,15 @@
     <string name="transaction_mode_desc_recurring">Transação recorrente</string>
     <string name="transaction_mode_desc_installments">Transação parcelada</string>
     <string name="details_installment_row">Parcela %1$d de %2$d</string>
+    <!-- Transaction filter (TransactionFilterModalView) -->
+    <string name="filter_title">Filtros</string>
+    <string name="filter_day_range_title">Período</string>
+    <string name="filter_mode_global">Global</string>
+    <string name="filter_mode_custom">Personalizado</string>
+    <string name="filter_type_title">Tipo</string>
+    <string name="filter_mode_title">Modo</string>
+    <string name="filter_category_title">Categoria</string>
+    <string name="filter_clear">Limpar</string>
+    <string name="filter_apply">Aplicar</string>
+    <string name="filter_result_label">Total filtrado</string>
 </resources>

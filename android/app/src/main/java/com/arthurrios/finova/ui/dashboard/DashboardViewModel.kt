@@ -147,6 +147,7 @@ class DashboardViewModel(
         amount = amount,
         isIncome = type == TransactionType.Income,
         icon = category.icon(type),
+        category = category,
         mode = when (mode) {
             TransactionMode.Recurring -> TransactionModeUi.Recurring
             TransactionMode.Installments -> TransactionModeUi.Installments

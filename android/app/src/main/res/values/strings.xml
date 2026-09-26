@@ -206,4 +206,15 @@
     <string name="transaction_mode_desc_recurring">Recurring transaction</string>
     <string name="transaction_mode_desc_installments">Installment transaction</string>
     <string name="details_installment_row">Installment %1$d of %2$d</string>
+    <!-- Transaction filter (TransactionFilterModalView) -->
+    <string name="filter_title">Filters</string>
+    <string name="filter_day_range_title">Day Range</string>
+    <string name="filter_mode_global">Global</string>
+    <string name="filter_mode_custom">Custom</string>
+    <string name="filter_type_title">Type</string>
+    <string name="filter_mode_title">Mode</string>
+    <string name="filter_category_title">Category</string>
+    <string name="filter_clear">Clear</string>
+    <string name="filter_apply">Apply</string>
+    <string name="filter_result_label">Filtered total</string>
 </resources>
