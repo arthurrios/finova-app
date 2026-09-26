@@ -226,7 +226,7 @@ private fun RowContent(
         Spacer(Modifier.width(Spacing.S4))
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(Spacing.S1)) {
             Text(
-                row.title,
+                if (isStatement) stringResource(R.string.credit_card_statement_title, row.title) else row.title,
                 style = if (isStatement) FinovaType.TextSM else FinovaType.TextSMBold,
                 color = FinovaColors.Gray700,
                 maxLines = 1,

@@ -3,6 +3,7 @@ package com.arthurrios.finova.ui.dashboard
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.arthurrios.finova.data.UserSettingsStore
+import com.arthurrios.finova.data.repo.CardRepository
 import com.arthurrios.finova.data.repo.FinanceRepository
 import com.arthurrios.finova.domain.ledger.LedgerCalculator
 import com.arthurrios.finova.domain.model.Transaction
@@ -30,6 +31,7 @@ import java.time.YearMonth
 class DashboardViewModel(
     private val repository: FinanceRepository,
     private val settings: UserSettingsStore,
+    private val cardRepository: CardRepository,
     private val today: () -> LocalDate = LocalDate::now,
 ) : ViewModel(), DashboardActions {
 
@@ -41,12 +43,11 @@ class DashboardViewModel(
     private var latestOffset: Long = 0
 
     val state: StateFlow<DashboardUiState> = combine(
-        repository.transactions,
-        repository.budgets,
-        repository.balanceOffset,
+        repository.ledgerRows,
+        combine(repository.budgets, repository.balanceOffset, cardRepository.activeCards, ::Triple),
         selectedMonth,
         valuesHidden,
-    ) { rows, budgets, offset, selected, hidden ->
+    ) { rows, (budgets, offset, cards), selected, hidden ->
         latestRows = rows
         latestOffset = offset
         val day = today()
@@ -76,6 +77,7 @@ class DashboardViewModel(
             },
             selectedMonth = selected,
             isLoading = false,
+            cards = cards,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DashboardUiState(selectedMonth = SeriesMonths.todayIndex()))
 
@@ -124,6 +126,7 @@ class DashboardViewModel(
                             budgetMonth = YearMonth.from(date),
                             businessDayRule = draft.rule,
                             unadjustedDate = draft.date,
+                            creditCardId = draft.creditCardId,
                         )
                     )
                 }
@@ -156,6 +159,8 @@ class DashboardViewModel(
         installmentNumber = installmentNumber,
         totalInstallments = totalInstallments,
         isCreditCard = creditCardId != null,
+        statementTransactionCount = if (isCreditCardStatement) totalInstallments else null,
+        statementId = statementId,
         isSettledEarly = isSettledEarly,
         seriesKind = SeriesRules.kindOf(this),
     )

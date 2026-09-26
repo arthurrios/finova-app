@@ -38,7 +38,7 @@ object DashboardSamples {
                 TransactionModeUi.Installments, 2, 5, isCreditCard = true),
             TransactionRowUi(2, "iPhone 17 Pro – Apple", day(27), 9_991, false, R.drawable.ic_lucide_icon_dollar,
                 TransactionModeUi.Installments, 5, 12, isCreditCard = true),
-            TransactionRowUi(3, "Amex Gold Statement", day(10), 37_248, false, R.drawable.ic_lucide_icon_credit_card,
+            TransactionRowUi(3, "Amex Gold", day(10), 37_248, false, R.drawable.ic_lucide_icon_credit_card,
                 statementTransactionCount = 6),
             TransactionRowUi(4, "American Red Cross", day(5), 2_500, false, R.drawable.ic_lucide_icon_donations,
                 TransactionModeUi.Recurring),

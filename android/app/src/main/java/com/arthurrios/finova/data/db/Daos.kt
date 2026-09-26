@@ -93,6 +93,9 @@ interface CreditCardDao {
     @Query("SELECT * FROM credit_cards")
     suspend fun getAll(): List<CreditCardEntity>
 
+    @Query("SELECT * FROM credit_cards")
+    fun observeAll(): Flow<List<CreditCardEntity>>
+
     @Query("SELECT * FROM credit_cards WHERE id = :id")
     suspend fun getById(id: Long): CreditCardEntity?
 
@@ -113,6 +116,9 @@ interface CreditCardDao {
 interface StatementDao {
     @Query("SELECT * FROM credit_card_statements")
     fun observeAll(): Flow<List<StatementEntity>>
+
+    @Query("SELECT * FROM credit_card_statements")
+    suspend fun getAll(): List<StatementEntity>
 
     @Query("SELECT * FROM credit_card_statements WHERE credit_card_id = :cardId ORDER BY closing_date")
     suspend fun forCard(cardId: Long): List<StatementEntity>

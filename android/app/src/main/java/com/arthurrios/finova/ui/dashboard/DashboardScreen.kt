@@ -73,6 +73,8 @@ fun DashboardScreen(
     actions: DashboardActions,
     onOpenBudgets: (YearMonth?) -> Unit = {},
     onOpenTransaction: (Long) -> Unit = {},
+    onOpenStatement: (Long) -> Unit = {},
+    onCreateCard: () -> Unit = {},
 ) {
     val pagerState = rememberPagerState(initialPage = state.selectedMonth) { state.months.size }
     val scope = rememberCoroutineScope()
@@ -128,6 +130,7 @@ fun DashboardScreen(
                         onAdjustBalance = { adjustFrom = actions.currentBalanceToday() },
                         onOpenBudgets = onOpenBudgets,
                         onOpenTransaction = onOpenTransaction,
+                        onOpenStatement = onOpenStatement,
                     )
                 }
             }
@@ -168,6 +171,11 @@ fun DashboardScreen(
                 actions.onSaveTransaction(it)
             },
             onDismiss = { showAddSheet = false },
+            cards = state.cards,
+            onCreateCard = {
+                showAddSheet = false
+                onCreateCard()
+            },
         )
     }
 
@@ -213,6 +221,7 @@ private fun MonthPage(
     onAdjustBalance: () -> Unit,
     onOpenBudgets: (YearMonth?) -> Unit,
     onOpenTransaction: (Long) -> Unit,
+    onOpenStatement: (Long) -> Unit,
 ) {
     var query by rememberSaveable(page.month) { mutableStateOf("") }
     val rows = remember(page.transactions, query, filters) { page.transactions.filtered(query, filters) }
@@ -265,8 +274,11 @@ private fun MonthPage(
                             row = row,
                             currencyCode = state.currencyCode,
                             valuesHidden = state.valuesHidden,
-                            // Statement rows open the statement (credit card port); others open details.
-                            onClick = { if (row.statementTransactionCount == null) onOpenTransaction(row.id) },
+                            onClick = {
+                                val statementId = row.statementId
+                                if (row.statementTransactionCount != null && statementId != null) onOpenStatement(statementId)
+                                else onOpenTransaction(row.id)
+                            },
                             onDelete = { onRequestDelete(row) },
                         )
                     }

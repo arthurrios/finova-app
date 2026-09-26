@@ -1,7 +1,16 @@
 package com.arthurrios.finova.ui.addtransaction
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.background
+import androidx.compose.foundation.text.BasicText
+import androidx.compose.foundation.text.TextAutoSize
+import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.RadioButtonDefaults
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -45,13 +54,20 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.foundation.focusable
+import androidx.compose.runtime.remember
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.arthurrios.finova.R
+import com.arthurrios.finova.domain.card.CardCycle
 import com.arthurrios.finova.domain.model.BusinessDayRule
+import com.arthurrios.finova.domain.model.CreditCard
 import com.arthurrios.finova.domain.model.TransactionCategory
 import com.arthurrios.finova.domain.model.TransactionType
 import com.arthurrios.finova.domain.series.TransactionDraft
@@ -78,8 +94,7 @@ data class AddTransactionRequest(val draft: TransactionDraft, val mode: AddMode,
 private val DateFormat: DateTimeFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy")
 
 /**
- * "New transaction". Port of AddTransactionModalView on iOS 1.5.2 (card payment comes with the
- * credit card port). The iOS system parts use their Android counterparts: the sheet is a Material
+ * "New transaction". Port of AddTransactionModalView on iOS 1.5.2. The iOS system parts use their Android counterparts: the sheet is a Material
  * bottom sheet, the mode switch Material segmented buttons, the category wheel a dropdown, and
  * the date wheel the Material date picker.
  */
@@ -92,9 +107,22 @@ fun AddTransactionSheet(
     onDismiss: () -> Unit,
     /** Opens the sheet on an existing transaction ("Edit Transaction"); its mode cannot change. */
     editing: AddTransactionRequest? = null,
+    /** The cards an expense can be paid with (not deleted). */
+    cards: List<CreditCard> = emptyList(),
+    /** "Create Card" when there is none yet: the sheet closes and the card form opens. */
+    onCreateCard: () -> Unit = {},
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val focusManager = LocalFocusManager.current
+    val keyboard = LocalSoftwareKeyboardController.current
+    // When a dialog closes, Compose gives focus back to the last focused field, which reopened
+    // the keyboard on the amount after picking a date. Parking focus on the sheet itself (not a
+    // text field) first leaves nothing to restore it to.
+    val parking = remember { FocusRequester() }
+    val closeKeyboard = {
+        parking.requestFocus()
+        keyboard?.hide()
+    }
 
     var title by rememberSaveable { mutableStateOf(editing?.draft?.title ?: "") }
     var category by rememberSaveable { mutableStateOf(editing?.draft?.category) }
@@ -107,6 +135,11 @@ fun AddTransactionSheet(
     var showErrors by rememberSaveable { mutableStateOf(false) }
     var showDatePicker by rememberSaveable { mutableStateOf(false) }
     var showTypeAlert by rememberSaveable { mutableStateOf(false) }
+    var payWithCard by rememberSaveable { mutableStateOf(editing?.draft?.creditCardId != null) }
+    var cardId by rememberSaveable { mutableStateOf(editing?.draft?.creditCardId) }
+    // Only an expense can go on a card; the section hides (and stops counting) for income.
+    val isExpense = type == TransactionType.Expense
+    val card = cards.firstOrNull { it.id == cardId }?.takeIf { payWithCard && isExpense }
 
     val installmentCount = installments.toIntOrNull() ?: 0
     val titleError = showErrors && title.isBlank()
@@ -123,6 +156,8 @@ fun AddTransactionSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .focusRequester(parking)
+                .focusable()
                 .verticalScroll(rememberScrollState())
                 .imePadding()
                 .navigationBarsPadding()
@@ -192,13 +227,19 @@ fun AddTransactionSheet(
                         isError = dateError,
                         leadingIcon = R.drawable.ic_calendar,
                         onClick = {
-                            focusManager.clearFocus()
+                            closeKeyboard()
                             showDatePicker = true
                         },
                     )
-                    BusinessDayRuleButton(rule = rule, onSelect = { rule = it })
+                    if (card != null) {
+                        // A card purchase is charged on the statement's due date, which the card
+                        // decides, so the weekend rule has nothing to act on.
+                        Text(stringResource(R.string.add_transaction_card_rule_hint), style = FinovaType.TextXS, color = FinovaColors.Gray500)
+                    } else {
+                        BusinessDayRuleButton(rule = rule, onSelect = { rule = it })
+                    }
                     val picked = date
-                    if (picked != null && rule != BusinessDayRule.Exact) {
+                    if (card == null && picked != null && rule != BusinessDayRule.Exact) {
                         val effective = BusinessDayAdjuster.adjust(picked, rule)
                         if (effective != picked) {
                             Text(
@@ -212,6 +253,25 @@ fun AddTransactionSheet(
             }
 
             TransactionTypeSelector(selected = type, onSelect = { type = it })
+
+            AnimatedVisibility(visible = isExpense) {
+                PaymentMethodSection(
+                    payWithCard = payWithCard,
+                    cards = cards,
+                    selected = card,
+                    purchaseDate = date ?: LocalDate.now(),
+                    defaultRule = defaultRule,
+                    onPayWithCard = { withCard ->
+                        payWithCard = withCard
+                        // Like iOS: the default card, else the first one.
+                        if (withCard && cards.none { it.id == cardId }) {
+                            cardId = (cards.firstOrNull { it.isDefault } ?: cards.firstOrNull())?.id
+                        }
+                    },
+                    onSelectCard = { cardId = it.id },
+                    onCreateCard = onCreateCard,
+                )
+            }
 
             Spacer(Modifier.height(Spacing.S3))
             HorizontalDivider(color = FinovaColors.Gray300)
@@ -231,7 +291,12 @@ fun AddTransactionSheet(
                     }
                     onSave(
                         AddTransactionRequest(
-                            draft = TransactionDraft(title.trim(), category!!, chosenType, amount, date!!, rule),
+                            draft = TransactionDraft(
+                                title.trim(), category!!, chosenType, amount, date!!, rule,
+                                // The id, not the listed card: a transaction on a card deleted
+                                // since keeps its card when edited.
+                                creditCardId = cardId.takeIf { payWithCard && chosenType == TransactionType.Expense },
+                            ),
                             mode = mode,
                             installments = installmentCount,
                         )
@@ -253,14 +318,13 @@ fun AddTransactionSheet(
                         date = Instant.ofEpochMilli(it).atZone(ZoneOffset.UTC).toLocalDate()
                     }
                     showDatePicker = false
-                    // The dialog hands focus back to the last field; keep the keyboard closed.
-                    focusManager.clearFocus()
+                    closeKeyboard()
                 }) { Text(stringResource(R.string.alert_ok)) }
             },
             dismissButton = {
                 TextButton(onClick = {
                     showDatePicker = false
-                    focusManager.clearFocus()
+                    closeKeyboard()
                 }) { Text(stringResource(R.string.alert_cancel)) }
             },
         ) { DatePicker(state = pickerState) }
@@ -380,3 +444,133 @@ private val BusinessDayRule.label: Int
         BusinessDayRule.NextBusinessDay -> R.string.business_day_rule_next
         BusinessDayRule.PreviousBusinessDay -> R.string.business_day_rule_previous
     }
+
+/**
+ * Cash / debit or a card. Port of the payment method section of AddTransactionModalView: two
+ * option tiles with a radio (hand-built on iOS as well), then the card picker and a line saying
+ * which statement the purchase lands on.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun PaymentMethodSection(
+    payWithCard: Boolean,
+    cards: List<CreditCard>,
+    selected: CreditCard?,
+    purchaseDate: LocalDate,
+    defaultRule: BusinessDayRule,
+    onPayWithCard: (Boolean) -> Unit,
+    onSelectCard: (CreditCard) -> Unit,
+    onCreateCard: () -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(Spacing.S3), modifier = Modifier.padding(top = Spacing.S2)) {
+        Text(stringResource(R.string.payment_method_title), style = FinovaType.TextSMBold, color = FinovaColors.Gray600)
+        Row(horizontalArrangement = Arrangement.spacedBy(Spacing.S3)) {
+            PaymentOption(
+                title = stringResource(R.string.payment_method_cash),
+                subtitle = stringResource(R.string.payment_method_cash_subtitle),
+                selected = !payWithCard,
+                onClick = { onPayWithCard(false) },
+                modifier = Modifier.weight(1f),
+            )
+            PaymentOption(
+                title = stringResource(R.string.payment_method_card),
+                subtitle = stringResource(R.string.payment_method_card_subtitle),
+                selected = payWithCard,
+                onClick = { onPayWithCard(true) },
+                modifier = Modifier.weight(1f),
+            )
+        }
+        AnimatedVisibility(visible = payWithCard) {
+            Column(verticalArrangement = Arrangement.spacedBy(Spacing.S2)) {
+                if (cards.isEmpty()) {
+                    FinovaTextField(
+                        value = stringResource(R.string.payment_method_no_cards),
+                        onValueChange = {},
+                        placeholder = "",
+                        enabled = false,
+                        leadingIcon = R.drawable.ic_lucide_icon_credit_card,
+                    )
+                    com.arthurrios.finova.ui.components.FinovaAccentOutlinedButton(
+                        text = stringResource(R.string.payment_method_create_card),
+                        onClick = onCreateCard,
+                    )
+                } else {
+                    var expanded by rememberSaveable { mutableStateOf(false) }
+                    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
+                        FinovaTextField(
+                            value = selected?.let { "${it.name} ****${it.lastFourDigits}" }.orEmpty(),
+                            onValueChange = {},
+                            placeholder = stringResource(R.string.payment_method_select_card),
+                            leadingIcon = R.drawable.ic_lucide_icon_credit_card,
+                            onClick = { expanded = true },
+                            modifier = Modifier.menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable),
+                        )
+                        ExposedDropdownMenu(
+                            expanded = expanded,
+                            onDismissRequest = { expanded = false },
+                            containerColor = FinovaColors.Gray100,
+                        ) {
+                            cards.forEach { option ->
+                                DropdownMenuItem(
+                                    text = { Text("${option.name} ****${option.lastFourDigits}", style = FinovaType.Input) },
+                                    onClick = {
+                                        expanded = false
+                                        onSelectCard(option)
+                                    },
+                                )
+                            }
+                        }
+                    }
+                    if (selected != null) {
+                        val closing = CardCycle.closingDate(selected.closingDay, purchaseDate)
+                        val due = CardCycle.dueDate(closing, selected.dueDay, defaultRule)
+                        val month = androidx.compose.ui.res.stringArrayResource(R.array.month_short)[closing.monthValue - 1]
+                        Text(
+                            stringResource(R.string.payment_method_statement_info, month, due.format(DateFormat)),
+                            style = FinovaType.TextXS,
+                            color = FinovaColors.Gray500,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PaymentOption(title: String, subtitle: String, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    val shape = androidx.compose.foundation.shape.RoundedCornerShape(com.arthurrios.finova.ui.theme.CornerRadius.Large)
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = modifier
+            .height(Spacing.InputHeight)
+            .clip(shape)
+            .background(FinovaColors.Gray200)
+            .border(1.dp, if (selected) FinovaColors.MainMagenta else FinovaColors.Gray300, shape)
+            .selectable(selected = selected, role = androidx.compose.ui.semantics.Role.RadioButton, onClick = onClick)
+            .padding(horizontal = Spacing.S3),
+    ) {
+        RadioButton(
+            selected = selected,
+            onClick = null,
+            colors = RadioButtonDefaults.colors(selectedColor = FinovaColors.MainMagenta, unselectedColor = FinovaColors.Gray400),
+        )
+        Spacer(Modifier.width(Spacing.S2))
+        // The tile is half the sheet wide, so long labels ("Cartão de Crédito") shrink to fit
+        // instead of wrapping or being cut, as on iOS.
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            BasicText(
+                title,
+                style = FinovaType.TextSMBold.copy(color = FinovaColors.Gray700),
+                maxLines = 1,
+                autoSize = TextAutoSize.StepBased(minFontSize = 8.sp, maxFontSize = FinovaType.TextSMBold.fontSize),
+            )
+            BasicText(
+                subtitle,
+                style = FinovaType.TextXS.copy(color = FinovaColors.Gray500),
+                maxLines = 1,
+                autoSize = TextAutoSize.StepBased(minFontSize = 7.sp, maxFontSize = FinovaType.TextXS.fontSize),
+            )
+        }
+    }
+}

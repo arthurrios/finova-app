@@ -3,7 +3,9 @@ package com.arthurrios.finova.ui.details
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.arthurrios.finova.data.UserSettingsStore
+import com.arthurrios.finova.data.repo.CardRepository
 import com.arthurrios.finova.data.repo.FinanceRepository
+import com.arthurrios.finova.domain.model.CreditCard
 import com.arthurrios.finova.domain.model.Transaction
 import com.arthurrios.finova.domain.series.SeriesDeleteOption
 import com.arthurrios.finova.domain.series.SeriesEditOption
@@ -40,7 +42,14 @@ class TransactionDetailsViewModel(
     private val repository: FinanceRepository,
     private val settings: UserSettingsStore,
     private val transactionId: Long,
+    cardRepository: CardRepository,
 ) : ViewModel() {
+
+    /** The cards the edit sheet offers. */
+    val cards: StateFlow<List<CreditCard>> = cardRepository.activeCards
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    val defaultRule get() = settings.defaultBusinessDayRule
 
     private val valuesHidden = MutableStateFlow(settings.hideValues)
     private var allRows: List<Transaction> = emptyList()
@@ -83,12 +92,16 @@ class TransactionDetailsViewModel(
                     amount = row.originalAmount ?: installments.sumOf { it.amount },
                     date = installments.firstOrNull()?.unadjusted ?: parent?.date ?: row.unadjusted,
                     rule = row.businessDayRule,
+                    creditCardId = row.creditCardId,
                 ),
                 mode = AddMode.Installments,
                 installments = row.totalInstallments ?: installments.size,
             )
             else -> AddTransactionRequest(
-                draft = TransactionDraft(row.title, row.category, row.type, row.amount, row.unadjusted, row.businessDayRule),
+                draft = TransactionDraft(
+                    row.title, row.category, row.type, row.amount, row.unadjusted, row.businessDayRule,
+                    creditCardId = row.creditCardId,
+                ),
                 mode = if (kind == SeriesKind.Recurring) AddMode.Recurring else AddMode.Normal,
                 installments = 0,
             )

@@ -3,8 +3,13 @@ package com.arthurrios.finova.data.repo
 import androidx.room.withTransaction
 import com.arthurrios.finova.data.db.FinovaDatabase
 import com.arthurrios.finova.data.db.RecurringExclusionEntity
+import com.arthurrios.finova.data.db.StatementEntity
 import com.arthurrios.finova.data.db.UserSettingsEntity
+import com.arthurrios.finova.domain.card.StatementBook
 import com.arthurrios.finova.domain.model.Budget
+import com.arthurrios.finova.domain.model.BusinessDayRule
+import com.arthurrios.finova.domain.model.CreditCard
+import com.arthurrios.finova.domain.model.CreditCardStatement
 import com.arthurrios.finova.domain.model.Transaction
 import com.arthurrios.finova.domain.series.SeriesDeleteOption
 import com.arthurrios.finova.domain.series.SeriesEdit
@@ -21,7 +26,11 @@ import java.time.LocalDate
  * RecurringTransactionManager and the balance offset in UIDUserDefaultsManager that the
  * dashboard and the add sheet use.
  */
-class FinanceRepository(private val db: FinovaDatabase) {
+class FinanceRepository(
+    private val db: FinovaDatabase,
+    /** The account's weekend rule, which new statements' due dates follow. */
+    private val defaultRule: () -> BusinessDayRule = { BusinessDayRule.Exact },
+) {
 
     private val exclusions: Flow<Set<SeriesExclusion>> =
         db.recurringExclusions().observeAll().map { rows -> rows.map { SeriesExclusion(it.parentId, it.seriesPeriod) }.toSet() }
@@ -36,11 +45,27 @@ class FinanceRepository(private val db: FinovaDatabase) {
             rows.map { it.toDomain() }.filterNot { SeriesExclusion(it.id, it.slot) in excluded }
         }
 
+    val statements: Flow<List<CreditCardStatement>> =
+        db.statements().observeAll().map { rows -> rows.map { it.toModel() } }
+
+    /** Every card, deleted ones too: their statements still charge the balance. */
+    private val allCards: Flow<List<CreditCard>> = db.creditCards().observeAll().map { rows -> rows.map { it.toModel() } }
+
+    /**
+     * What the ledger and the dashboard list read: the stored rows plus one synthetic row per card
+     * statement, dated on its due date (iOS adds them in TransactionLedgerService).
+     */
+    val ledgerRows: Flow<List<Transaction>> = combine(transactions, statements, allCards) { rows, stmts, cards ->
+        rows + StatementBook.statementRows(cards, stmts, rows)
+    }
+
     val budgets: Flow<List<Budget>> = db.budgets().observeAll().map { rows -> rows.map { it.toDomain() } }
 
     val balanceOffset: Flow<Long> = db.userSettings().observe().map { it?.balanceOffset ?: 0 }
 
-    suspend fun add(transaction: Transaction): Long = db.transactions().insert(transaction.toEntity())
+    suspend fun add(transaction: Transaction): Long = db.withTransaction {
+        db.transactions().insert(transaction.toEntity()).also { settleCardRows() }
+    }
 
     suspend fun addAll(transactions: List<Transaction>): List<Long> = db.transactions().insertAll(transactions.map { it.toEntity() })
 
@@ -49,6 +74,7 @@ class FinanceRepository(private val db: FinovaDatabase) {
         val id = db.withTransaction {
             val id = db.transactions().insert(SeriesRules.recurringParent(draft).toEntity())
             db.transactions().setParent(id, id)
+            settleCardRows()
             id
         }
         materializeRecurring(today)
@@ -59,8 +85,71 @@ class FinanceRepository(private val db: FinovaDatabase) {
     suspend fun addInstallments(draft: TransactionDraft, count: Int): Long = db.withTransaction {
         val (parent, children) = SeriesRules.installmentSeries(draft, count)
         val parentId = db.transactions().insert(parent.toEntity())
-        db.transactions().insertAll(children.map { it.copy(parentTransactionId = parentId).toEntity() })
+        val card = draft.creditCardId?.let { db.creditCards().getById(it)?.toModel() }
+        val placed = if (card == null) children else chainOnStatements(card, children)
+        db.transactions().insertAll(placed.map { it.copy(parentTransactionId = parentId).toEntity() })
+        settleCardRows()
         parentId
+    }
+
+    /**
+     * Puts installments on consecutive statements, as iOS does: the first routed by its picked
+     * date, each next one on the cycle after. An installment is charged when its invoice is due,
+     * so it takes the due date and counts in that month; its slot stays on the picked month.
+     */
+    private suspend fun chainOnStatements(card: CreditCard, children: List<Transaction>): List<Transaction> {
+        val known = db.statements().forCard(card.id).map { it.toModel() }.toMutableList()
+        var previous: CreditCardStatement? = null
+        return children.sortedBy { it.installmentNumber }.map { child ->
+            val wanted = previous?.let { StatementBook.next(known, card, it, defaultRule()) }
+                ?: StatementBook.route(known, card, child.unadjusted, defaultRule())
+            val statement = stored(wanted, known)
+            previous = statement
+            child.copy(
+                date = statement.dueDate,
+                budgetMonth = java.time.YearMonth.from(statement.dueDate),
+                statementId = statement.id,
+            )
+        }
+    }
+
+    /** Inserts [statement] if it is new, and remembers it for the next lookup. */
+    private suspend fun stored(statement: CreditCardStatement, known: MutableList<CreditCardStatement>): CreditCardStatement {
+        if (statement.id != 0L) return statement
+        val id = db.statements().insert(statement.toEntity())
+        return statement.copy(id = id).also { known += it }
+    }
+
+    /**
+     * Gives every card row without a statement its statement (routed by the picked date, as iOS
+     * `assignToStatement` and `repairOrphanedCreditCardTransactions` do), then brings every
+     * statement's cached total up to date and removes statements nothing points at any more.
+     * Runs inside the caller's database transaction after every change that touches card rows.
+     */
+    private suspend fun settleCardRows() {
+        val dao = db.transactions()
+        val orphans = dao.getAll().filter { it.creditCardId != null && it.statementId == null }
+        if (orphans.isNotEmpty()) {
+            val cards = db.creditCards().getAll().associateBy { it.id }
+            val known = db.statements().getAll().map { it.toModel() }.toMutableList()
+            val routed = orphans.mapNotNull { row ->
+                val card = cards[row.creditCardId]?.toModel() ?: return@mapNotNull null
+                val statement = stored(StatementBook.route(known, card, row.unadjustedDate ?: row.date, defaultRule()), known)
+                row.copy(statementId = statement.id)
+            }
+            dao.updateAll(routed)
+        }
+        val rows = dao.getAll().map { it.toDomain() }
+        for (statement in db.statements().getAll()) {
+            if (StatementBook.members(statement.id, rows).isEmpty()) {
+                db.statements().delete(statement.id)
+            } else {
+                val total = StatementBook.total(statement.id, rows)
+                if (total != statement.totalAmount) {
+                    db.statements().update(statement.copy(totalAmount = total, updatedAt = System.currentTimeMillis()))
+                }
+            }
+        }
     }
 
     /** Fills in recurring months missing from the horizon. iOS runs this after every dashboard load. */
@@ -68,12 +157,18 @@ class FinanceRepository(private val db: FinovaDatabase) {
         val rows = db.transactions().getAll().map { it.toDomain() }
         val excluded = db.recurringExclusions().getAll().map { SeriesExclusion(it.parentId, it.seriesPeriod) }.toSet()
         val missing = SeriesRules.missingOccurrences(rows, excluded, today)
-        if (missing.isNotEmpty()) db.transactions().insertAll(missing.map { it.toEntity() })
+        if (missing.isNotEmpty()) {
+            db.transactions().insertAll(missing.map { it.toEntity() })
+            settleCardRows()
+        }
         missing.size
     }
 
     /** Saves an edited one-off. */
-    suspend fun update(transaction: Transaction) = db.transactions().update(transaction.toEntity())
+    suspend fun update(transaction: Transaction) = db.withTransaction {
+        db.transactions().update(transaction.toEntity())
+        settleCardRows()
+    }
 
     /** Saves an edit to part of a recurring series (and a split, when it made one). */
     suspend fun applyEdit(edit: SeriesEdit, today: LocalDate = LocalDate.now()) {
@@ -81,6 +176,7 @@ class FinanceRepository(private val db: FinovaDatabase) {
             if (edit.stopRepeating.isNotEmpty()) db.transactions().setRecurring(edit.stopRepeating.toList(), false)
             edit.moveExclusions?.let { db.recurringExclusions().move(it.fromParent, it.toParent, it.fromSlot) }
             db.transactions().updateAll(edit.updates.map { it.toEntity() })
+            settleCardRows()
         }
         // A new head (after a split) or a new day may leave months to fill in.
         materializeRecurring(today)
@@ -106,6 +202,7 @@ class FinanceRepository(private val db: FinovaDatabase) {
         plan.addExclusions.forEach { db.recurringExclusions().add(RecurringExclusionEntity(it.parentId, it.slot)) }
         if (plan.stopRepeating.isNotEmpty()) db.transactions().setRecurring(plan.stopRepeating.toList(), false)
         if (plan.deleteIds.isNotEmpty()) db.transactions().deleteByIds(plan.deleteIds.toList())
+        settleCardRows()
     }
 
     suspend fun setBudget(budget: Budget) = db.budgets().upsert(budget.toEntity())

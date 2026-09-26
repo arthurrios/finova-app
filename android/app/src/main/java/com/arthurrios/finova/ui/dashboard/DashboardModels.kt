@@ -2,6 +2,7 @@ package com.arthurrios.finova.ui.dashboard
 
 import androidx.annotation.DrawableRes
 import com.arthurrios.finova.domain.model.BusinessDayRule
+import com.arthurrios.finova.domain.model.CreditCard
 import com.arthurrios.finova.domain.model.TransactionCategory
 import com.arthurrios.finova.domain.series.SeriesKind
 import java.time.LocalDate
@@ -17,6 +18,8 @@ data class DashboardUiState(
     val months: List<MonthPageUi> = emptyList(),
     val selectedMonth: Int = 0,
     val isLoading: Boolean = true,
+    /** The cards the add sheet offers. */
+    val cards: List<CreditCard> = emptyList(),
 )
 
 /** One page of the month carousel: the month card plus that month's transactions. */
@@ -57,6 +60,8 @@ data class TransactionRowUi(
     val isSettledEarly: Boolean = false,
     /** Decides which delete question the row gets. */
     val seriesKind: SeriesKind = SeriesKind.Simple,
+    /** The statement a statement row stands for (it opens the statement). */
+    val statementId: Long? = null,
     /** What the filter's category chips match against. */
     val category: TransactionCategory = TransactionCategory.Miscellaneous,
 )

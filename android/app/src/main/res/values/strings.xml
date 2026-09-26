@@ -82,6 +82,7 @@
     <string name="transactions_search_placeholder">Search transactions...</string>
     <string name="transactions_filter">Filter</string>
     <string name="transactions_empty_state_description">You have not yet recorded expenses or income this month</string>
+    <string name="credit_card_statement_title">%1$s Statement</string>
     <string name="credit_card_statement_subtitle">%1$d transactions · Tap to view</string>
     <string name="credit_card_statement_subtitle_singular">%1$d transaction · Tap to view</string>
     <string name="early_payment_badge_settled">Paid early</string>
@@ -259,4 +260,15 @@
     <string name="card_color_platinum">Platinum</string>
     <string name="card_color_red">Red</string>
     <string name="card_color_orange">Orange</string>
+    <!-- Payment method (AddTransactionModalView) -->
+    <string name="payment_method_title">Payment Method</string>
+    <string name="payment_method_cash">Cash / Debit</string>
+    <string name="payment_method_cash_subtitle">Affects balance immediately</string>
+    <string name="payment_method_card">Credit Card</string>
+    <string name="payment_method_card_subtitle">Goes to card statement</string>
+    <string name="payment_method_select_card">Select Card</string>
+    <string name="payment_method_no_cards">No cards registered</string>
+    <string name="payment_method_create_card">Create Card</string>
+    <string name="payment_method_statement_info">Goes to %1$s statement — Due: %2$s</string>
+    <string name="add_transaction_card_rule_hint">Card purchases follow the statement due date</string>
 </resources>
