@@ -90,18 +90,20 @@ fun AddTransactionSheet(
     defaultRule: BusinessDayRule,
     onSave: (AddTransactionRequest) -> Unit,
     onDismiss: () -> Unit,
+    /** Opens the sheet on an existing transaction ("Edit Transaction"); its mode cannot change. */
+    editing: AddTransactionRequest? = null,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val focusManager = LocalFocusManager.current
 
-    var title by rememberSaveable { mutableStateOf("") }
-    var category by rememberSaveable { mutableStateOf<TransactionCategory?>(null) }
-    var mode by rememberSaveable { mutableStateOf(AddMode.Normal) }
-    var installments by rememberSaveable { mutableStateOf("") }
-    var amount by rememberSaveable { mutableStateOf(0L) }
-    var date by rememberSaveable { mutableStateOf<LocalDate?>(null) }
-    var rule by rememberSaveable { mutableStateOf(defaultRule) }
-    var type by rememberSaveable { mutableStateOf<TransactionType?>(null) }
+    var title by rememberSaveable { mutableStateOf(editing?.draft?.title ?: "") }
+    var category by rememberSaveable { mutableStateOf(editing?.draft?.category) }
+    var mode by rememberSaveable { mutableStateOf(editing?.mode ?: AddMode.Normal) }
+    var installments by rememberSaveable { mutableStateOf(editing?.installments?.takeIf { it > 0 }?.toString() ?: "") }
+    var amount by rememberSaveable { mutableStateOf(editing?.draft?.amount ?: 0L) }
+    var date by rememberSaveable { mutableStateOf(editing?.draft?.date) }
+    var rule by rememberSaveable { mutableStateOf(editing?.draft?.rule ?: defaultRule) }
+    var type by rememberSaveable { mutableStateOf(editing?.draft?.type) }
     var showErrors by rememberSaveable { mutableStateOf(false) }
     var showDatePicker by rememberSaveable { mutableStateOf(false) }
     var showTypeAlert by rememberSaveable { mutableStateOf(false) }
@@ -129,7 +131,7 @@ fun AddTransactionSheet(
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    stringResource(R.string.add_transaction_title).uppercase(),
+                    stringResource(if (editing != null) R.string.edit_transaction_title else R.string.add_transaction_title).uppercase(),
                     style = FinovaType.TitleSM,
                     color = FinovaColors.Gray700,
                     modifier = Modifier.weight(1f),
@@ -155,7 +157,7 @@ fun AddTransactionSheet(
 
             CategoryField(selected = category, isError = categoryError, onSelect = { category = it })
 
-            ModeSelector(mode = mode, onSelect = { mode = it })
+            ModeSelector(mode = mode, onSelect = { mode = it }, enabled = editing == null)
 
             AnimatedVisibility(visible = mode == AddMode.Installments) {
                 FinovaTextField(
@@ -216,7 +218,7 @@ fun AddTransactionSheet(
             Spacer(Modifier.height(Spacing.S3))
 
             FinovaButton(
-                text = stringResource(R.string.add_transaction_save),
+                text = stringResource(if (editing != null) R.string.edit_transaction_save else R.string.add_transaction_save),
                 onClick = {
                     focusManager.clearFocus()
                     showErrors = true
@@ -277,13 +279,14 @@ fun AddTransactionSheet(
 /** Normal / Recurring / Installments. iOS uses the system segmented control; this is Android's. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ModeSelector(mode: AddMode, onSelect: (AddMode) -> Unit) {
+private fun ModeSelector(mode: AddMode, onSelect: (AddMode) -> Unit, enabled: Boolean = true) {
     val labels = listOf(R.string.transaction_mode_normal, R.string.transaction_mode_recurring, R.string.transaction_mode_installments)
     SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().height(Spacing.InputHeight)) {
         AddMode.entries.forEachIndexed { index, option ->
             SegmentedButton(
                 selected = mode == option,
                 onClick = { onSelect(option) },
+                enabled = enabled || mode == option,
                 shape = SegmentedButtonDefaults.itemShape(index, AddMode.entries.size),
                 colors = SegmentedButtonDefaults.colors(
                     activeContainerColor = FinovaColors.MainMagenta,
@@ -292,6 +295,12 @@ private fun ModeSelector(mode: AddMode, onSelect: (AddMode) -> Unit) {
                     inactiveContainerColor = FinovaColors.Gray200,
                     inactiveContentColor = FinovaColors.Gray700,
                     inactiveBorderColor = FinovaColors.Gray300,
+                    disabledActiveContainerColor = FinovaColors.MainMagenta,
+                    disabledActiveContentColor = FinovaColors.Gray100,
+                    disabledActiveBorderColor = FinovaColors.Gray300,
+                    disabledInactiveContainerColor = FinovaColors.Gray200,
+                    disabledInactiveContentColor = FinovaColors.Gray400,
+                    disabledInactiveBorderColor = FinovaColors.Gray300,
                 ),
                 // No check mark: iOS shows only the filled segment.
                 icon = {},

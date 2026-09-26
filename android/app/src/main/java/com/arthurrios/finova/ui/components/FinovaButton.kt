@@ -57,6 +57,24 @@ fun FinovaButton(
     }
 }
 
+/** Button.swift `.outlined`: magenta text and border on a faint magenta fill (e.g. Delete). */
+@Composable
+fun FinovaAccentOutlinedButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true) {
+    OutlinedButton(
+        onClick = onClick,
+        enabled = enabled,
+        shape = ButtonShape,
+        border = BorderStroke(1.dp, FinovaColors.MainMagenta),
+        colors = ButtonDefaults.outlinedButtonColors(
+            containerColor = FinovaColors.LowMagenta,
+            contentColor = FinovaColors.MainMagenta,
+        ),
+        modifier = modifier.fillMaxWidth().height(Spacing.ButtonHeight),
+    ) {
+        Text(text = text, style = FinovaType.ButtonMD)
+    }
+}
+
 /** A secondary, outlined button with an optional trailing icon (the social sign-in buttons). */
 @Composable
 fun FinovaOutlinedButton(

@@ -20,6 +20,8 @@ import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.navArgument
 import com.arthurrios.finova.ui.budgets.BudgetsScreen
+import com.arthurrios.finova.ui.details.TransactionDetailsScreen
+import com.arthurrios.finova.ui.details.TransactionDetailsViewModel
 import com.arthurrios.finova.ui.budgets.BudgetsViewModel
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
@@ -49,6 +51,8 @@ object Routes {
     const val REGISTER = "register"
     const val DASHBOARD = "dashboard"
     const val BUDGETS = "budgets?month={month}"
+    const val DETAILS = "details/{id}"
+    fun details(id: Long) = "details/$id"
     fun budgets(month: java.time.YearMonth?) = "budgets?month=" + (month?.let { it.year * 100 + it.monthValue } ?: 0)
 }
 
@@ -147,7 +151,24 @@ fun FinovaNavHost(startRoute: String? = null) {
                 }
             )
             val state by viewModel.state.collectAsStateWithLifecycle()
-            DashboardScreen(state, viewModel, onOpenBudgets = { navController.navigate(Routes.budgets(it)) })
+            DashboardScreen(
+                state,
+                viewModel,
+                onOpenBudgets = { navController.navigate(Routes.budgets(it)) },
+                onOpenTransaction = { navController.navigate(Routes.details(it)) },
+            )
+        }
+        composable(Routes.DETAILS, arguments = listOf(navArgument("id") { type = NavType.LongType })) { entry ->
+            val id = entry.arguments?.getLong("id") ?: 0L
+            val viewModel: TransactionDetailsViewModel = viewModel(
+                factory = viewModelFactory {
+                    initializer {
+                        val container = appContext.appContainer
+                        TransactionDetailsViewModel(container.financeRepository(), container.settings, id)
+                    }
+                }
+            )
+            TransactionDetailsScreen(viewModel, onBack = { navController.popBackStack() })
         }
         composable(
             Routes.BUDGETS,

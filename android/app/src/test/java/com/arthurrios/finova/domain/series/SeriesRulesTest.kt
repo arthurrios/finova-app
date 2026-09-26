@@ -212,4 +212,78 @@ class SeriesRulesTest {
         val plan = SeriesRules.deletion(rows[1], SeriesDeleteOption.ThisOnly, rows)
         assertEquals(setOf(rows[0].id, rows[1].id), plan.deleteIds)
     }
+
+    // ---- Editing ----
+
+    private fun series(): List<Transaction> = listOf(savedParent()) + materialized(savedParent())
+
+    @Test
+    fun editingAOneOffMovesItWhereTheRuleLandsIt() {
+        val row = Transaction(id = 7, title = "Old", category = TransactionCategory.Market, type = TransactionType.Expense,
+            amount = 10_00, date = LocalDate.of(2026, 9, 1), budgetMonth = YearMonth.of(2026, 9))
+        val saturday = LocalDate.of(2026, 10, 31)
+        val edited = SeriesRules.editOneOff(row, draft(amount = 25_00, date = saturday, rule = BusinessDayRule.NextBusinessDay))
+        assertEquals(7L, edited.id)
+        assertEquals(LocalDate.of(2026, 11, 2), edited.date)
+        assertEquals(YearMonth.of(2026, 11), edited.budgetMonth)
+        assertEquals(saturday, edited.unadjusted)
+        assertEquals(25_00L, edited.amount)
+    }
+
+    @Test
+    fun editingOnlyThisOccurrenceTouchesOneRow() {
+        val rows = series()
+        val may = rows.first { it.slot == YearMonth.of(2026, 5) }
+        val edit = SeriesRules.editRecurring(may, draft(amount = 99_00, date = LocalDate.of(2026, 5, 31)), SeriesEditOption.ThisOnly, rows)
+        assertEquals(listOf(may.id), edit.updates.map { it.id })
+        assertEquals(99_00L, edit.updates.single().amount)
+        assertTrue(edit.stopRepeating.isEmpty())
+    }
+
+    @Test
+    fun aNewDayMovesEveryChosenMonthButNeverOutOfItsMonth() {
+        val rows = series()
+        val edit = SeriesRules.editRecurring(rows.first(), draft(date = LocalDate.of(2026, 1, 30)), SeriesEditOption.All, rows)
+        val feb = edit.updates.first { it.slot == YearMonth.of(2026, 2) }
+        assertEquals(LocalDate.of(2026, 2, 28), feb.date)
+        val mar = edit.updates.first { it.slot == YearMonth.of(2026, 3) }
+        assertEquals(LocalDate.of(2026, 3, 30), mar.date)
+        assertTrue(edit.updates.all { it.budgetMonth == it.slot })
+    }
+
+    @Test
+    fun editingThisAndLaterFromTheMiddleSplitsTheSeries() {
+        val rows = series()
+        val may = rows.first { it.slot == YearMonth.of(2026, 5) }
+        val edit = SeriesRules.editRecurring(may, draft(amount = 120_00), SeriesEditOption.ThisAndLater, rows)
+        assertTrue(edit.updates.all { it.slot >= YearMonth.of(2026, 5) })
+        val head = edit.updates.first { it.id == may.id }
+        assertTrue(head.isRecurring)
+        assertEquals(may.id, head.parentTransactionId)
+        assertTrue(edit.updates.all { it.parentTransactionId == may.id })
+        assertEquals(setOf(1L), edit.stopRepeating)
+        // The new head generates the later months with the new amount.
+        val later = SeriesRules.missingOccurrences(listOf(head), emptySet(), today).first()
+        assertEquals(120_00L, later.amount)
+    }
+
+    @Test
+    fun editingThisAndLaterFromTheFirstMonthIsTheWholeSeries() {
+        val rows = series()
+        val edit = SeriesRules.editRecurring(rows.first(), draft(amount = 1_00), SeriesEditOption.ThisAndLater, rows)
+        assertEquals(rows.size, edit.updates.size)
+        assertTrue(edit.stopRepeating.isEmpty())
+    }
+
+    @Test
+    fun splittingAStoppedSeriesDoesNotStartItAgain() {
+        val rows = series().filter { it.slot <= YearMonth.of(2026, 8) }
+            .map { if (it.id == 1L) it.copy(isRecurring = false) else it }
+        val jul = rows.first { it.slot == YearMonth.of(2026, 7) }
+        val edit = SeriesRules.editRecurring(jul, draft(amount = 5_00), SeriesEditOption.ThisAndLater, rows)
+        val head = edit.updates.first { it.id == jul.id }
+        assertFalse(head.isRecurring)
+        assertTrue(SeriesRules.missingOccurrences(edit.updates, emptySet(), today).isEmpty())
+        assertEquals(ExclusionMove(1, jul.id, YearMonth.of(2026, 7)), edit.moveExclusions)
+    }
 }

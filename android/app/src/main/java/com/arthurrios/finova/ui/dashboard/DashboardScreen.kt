@@ -69,6 +69,7 @@ fun DashboardScreen(
     state: DashboardUiState,
     actions: DashboardActions,
     onOpenBudgets: (YearMonth?) -> Unit = {},
+    onOpenTransaction: (Long) -> Unit = {},
 ) {
     val pagerState = rememberPagerState(initialPage = state.selectedMonth) { state.months.size }
     val scope = rememberCoroutineScope()
@@ -111,6 +112,7 @@ fun DashboardScreen(
                         onRequestDelete = { pendingDelete = it },
                         onAdjustBalance = { adjustFrom = actions.currentBalanceToday() },
                         onOpenBudgets = onOpenBudgets,
+                        onOpenTransaction = onOpenTransaction,
                     )
                 }
             }
@@ -174,6 +176,7 @@ private fun MonthPage(
     onRequestDelete: (TransactionRowUi) -> Unit,
     onAdjustBalance: () -> Unit,
     onOpenBudgets: (YearMonth?) -> Unit,
+    onOpenTransaction: (Long) -> Unit,
 ) {
     var query by rememberSaveable(page.month) { mutableStateOf("") }
     val rows = remember(page.transactions, query) {
@@ -220,7 +223,8 @@ private fun MonthPage(
                             row = row,
                             currencyCode = state.currencyCode,
                             valuesHidden = state.valuesHidden,
-                            onClick = { actions.onTransaction(row) },
+                            // Statement rows open the statement (credit card port); others open details.
+                            onClick = { if (row.statementTransactionCount == null) onOpenTransaction(row.id) },
                             onDelete = { onRequestDelete(row) },
                         )
                     }
