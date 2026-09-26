@@ -106,6 +106,9 @@ class CreditCardRepository {
     func deleteCard(id: Int) -> Bool {
         do {
             try DBHelper.shared.softDeleteCreditCard(id: id)
+            // A deleted card's statements get no reminders; the reschedule sweeps the ones already
+            // pending, which otherwise still fired "Payment due" for the card the user deleted.
+            StatementNotificationManager.shared.rescheduleAllNotifications()
             return true
         } catch {
             logError("Failed to delete credit card: \(error)")
