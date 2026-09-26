@@ -341,7 +341,7 @@ fun FinovaNavHost(startRoute: String? = null) {
                     }
                 }
             )
-            BudgetsScreen(viewModel, onBack = { navController.popBackStack() })
+            BudgetsScreen(viewModel, onBack = { navController.popBackStack() }, onManageTags = { navController.navigate(Routes.TAGS) })
         }
         composable(Routes.PROFILE) {
             val viewModel: ProfileViewModel = viewModel(
