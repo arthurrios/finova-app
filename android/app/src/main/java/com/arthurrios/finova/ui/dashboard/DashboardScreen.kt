@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -136,43 +137,50 @@ private fun MonthPage(
         if (query.isBlank()) page.transactions
         else page.transactions.filter { it.title.contains(query.trim(), ignoreCase = true) }
     }
-    LazyColumn(
-        contentPadding = PaddingValues(
-            start = Spacing.S4, end = Spacing.S4, top = Spacing.S4,
-            // Room for the add button so the last row can scroll clear of it.
-            bottom = 96.dp,
-        ),
-        modifier = Modifier.fillMaxSize(),
+    // Like iOS, the card, the search bar and the list header stay put; only the rows scroll,
+    // inside the rounded list box that fills the rest of the page.
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(start = Spacing.S4, end = Spacing.S4, top = Spacing.S4)
+            .navigationBarsPadding()
+            .padding(bottom = Spacing.S2),
     ) {
-        item {
-            MonthCard(
-                page = page,
-                currencyCode = state.currencyCode,
-                valuesHidden = state.valuesHidden,
-                balanceForDay = { actions.balanceForDay(page, it) },
-                onToggleValues = actions::onToggleValues,
-                onAdjustBalance = { actions.onAdjustBalance(page) },
-                onBudgetView = { actions.onBudgetView(page) },
-                onSettings = { actions.onMonthSettings(page) },
-                onDefineBudget = { actions.onDefineBudget(page) },
-            )
-            Spacer(Modifier.height(Spacing.S4))
-            TransactionSearchBar(query = query, onQueryChange = { query = it }, onFilter = { actions.onFilter(page) })
-            Spacer(Modifier.height(Spacing.S3))
-            TransactionListHeader(count = rows.size)
-        }
+        MonthCard(
+            page = page,
+            currencyCode = state.currencyCode,
+            valuesHidden = state.valuesHidden,
+            balanceForDay = { actions.balanceForDay(page, it) },
+            onToggleValues = actions::onToggleValues,
+            onAdjustBalance = { actions.onAdjustBalance(page) },
+            onBudgetView = { actions.onBudgetView(page) },
+            onSettings = { actions.onMonthSettings(page) },
+            onDefineBudget = { actions.onDefineBudget(page) },
+        )
+        Spacer(Modifier.height(Spacing.S4))
+        TransactionSearchBar(query = query, onQueryChange = { query = it }, onFilter = { actions.onFilter(page) })
+        Spacer(Modifier.height(Spacing.S3))
+        TransactionListHeader(count = rows.size)
         if (rows.isEmpty()) {
-            item { TransactionEmptyState() }
+            TransactionEmptyState()
         } else {
-            itemsIndexed(rows, key = { _, row -> row.id }) { index, row ->
-                TransactionRow(
-                    row = row,
-                    currencyCode = state.currencyCode,
-                    valuesHidden = state.valuesHidden,
-                    isLast = index == rows.lastIndex,
-                    onClick = { actions.onTransaction(row) },
-                    onDelete = { onRequestDelete(row) },
-                )
+            TransactionListBox(modifier = Modifier.weight(1f)) {
+                LazyColumn(
+                    // Room under the last row so it can scroll clear of the add button.
+                    contentPadding = PaddingValues(bottom = 72.dp),
+                    modifier = Modifier.fillMaxSize(),
+                ) {
+                    itemsIndexed(rows, key = { _, row -> row.id }) { index, row ->
+                        if (index > 0) HorizontalDivider(color = FinovaColors.Gray300)
+                        TransactionRow(
+                            row = row,
+                            currencyCode = state.currencyCode,
+                            valuesHidden = state.valuesHidden,
+                            onClick = { actions.onTransaction(row) },
+                            onDelete = { onRequestDelete(row) },
+                        )
+                    }
+                }
             }
         }
     }

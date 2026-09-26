@@ -112,6 +112,18 @@ fun TransactionListHeader(count: Int) {
     }
 }
 
+/** The rounded box the rows scroll inside: the bottom half of the list card. */
+@Composable
+fun TransactionListBox(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(BottomCorners)
+            .background(FinovaColors.Gray100)
+            .border(1.dp, FinovaColors.Gray300, BottomCorners),
+    ) { content() }
+}
+
 /** Shown in place of the rows when the month has none. */
 @Composable
 fun TransactionEmptyState() {
@@ -149,11 +161,9 @@ fun TransactionRow(
     row: TransactionRowUi,
     currencyCode: String,
     valuesHidden: Boolean,
-    isLast: Boolean,
     onClick: () -> Unit,
     onDelete: () -> Unit,
 ) {
-    val shape = if (isLast) BottomCorners else RoundedCornerShape(0.dp)
     // Half the row, not Material's 56dp default, and the row never stays dismissed: a swipe only
     // asks the dashboard to confirm, then springs back, as the iOS delete action does.
     val currentOnDelete by rememberUpdatedState(onDelete)
@@ -166,7 +176,7 @@ fun TransactionRow(
         positionalThreshold = { width -> width * 0.5f },
     )
     val canDelete = row.statementTransactionCount == null
-    Column(Modifier.clip(shape).border(1.dp, FinovaColors.Gray300, shape)) {
+    Column {
         SwipeToDismissBox(
             state = dismissState,
             enableDismissFromStartToEnd = false,
