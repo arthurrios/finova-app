@@ -95,7 +95,7 @@ fun TransactionListHeader(count: Int) = CardHeader(stringResource(R.string.trans
  * pill. The card body below it has the rounded bottom.
  */
 @Composable
-fun CardHeader(title: String, count: Int? = null) {
+fun CardHeader(title: String, count: Int? = null, trailing: (@Composable () -> Unit)? = null) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -107,23 +107,34 @@ fun CardHeader(title: String, count: Int? = null) {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
-        Text(
-            text = title.uppercase(),
-            style = FinovaType.Title2XS,
-            color = FinovaColors.Gray500,
-        )
-        if (count != null) {
-            Box(
-                modifier = Modifier
-                    .height(18.dp)
-                    .clip(CircleShape)
-                    .background(FinovaColors.Gray300)
-                    .padding(horizontal = Spacing.S2),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(count.toString(), style = FinovaType.TitleXS, color = FinovaColors.Gray600)
-            }
+        // With trailing actions the count sits beside the title, as in the iOS allocations header.
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.S2)) {
+            Text(
+                text = title.uppercase(),
+                style = FinovaType.Title2XS,
+                color = FinovaColors.Gray500,
+            )
+            if (count != null && trailing != null) CountPill(count)
         }
+        if (trailing != null) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.S3)) { trailing() }
+        } else if (count != null) {
+            CountPill(count)
+        }
+    }
+}
+
+@Composable
+private fun CountPill(count: Int) {
+    Box(
+        modifier = Modifier
+            .height(18.dp)
+            .clip(CircleShape)
+            .background(FinovaColors.Gray300)
+            .padding(horizontal = Spacing.S2),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(count.toString(), style = FinovaType.TitleXS, color = FinovaColors.Gray600)
     }
 }
 

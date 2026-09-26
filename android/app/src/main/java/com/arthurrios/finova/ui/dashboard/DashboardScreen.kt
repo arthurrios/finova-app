@@ -19,9 +19,17 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material.icons.automirrored.outlined.HelpOutline
+import com.arthurrios.finova.ui.theme.FinovaType
+import com.arthurrios.finova.ui.theme.CornerRadius
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.clickable
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import com.arthurrios.finova.ui.budget.projection
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -54,6 +62,8 @@ import java.time.YearMonth
 interface DashboardActions : com.arthurrios.finova.ui.budget.AllocationSheetActions {
     override fun createAllocation(category: com.arthurrios.finova.domain.model.TransactionCategory, amount: Long, month: YearMonth, repeating: Boolean, endMonth: YearMonth?, overwrite: List<Long>) {}
     override fun editAllocation(id: Long, amount: Long, scope: com.arthurrios.finova.domain.allocation.AllocationEditScope, through: YearMonth?) {}
+    /** What the closed months before the page's month say about each allocated category. */
+    fun spendHistories(page: MonthPageUi): Map<com.arthurrios.finova.domain.model.TransactionCategory, com.arthurrios.finova.domain.allocation.CategorySpendHistory> = emptyMap()
     fun onSelectMonth(index: Int) {}
     fun balanceForDay(page: MonthPageUi, day: Int): Long = page.finalBalance ?: 0
     fun onToggleValues() {}
@@ -80,6 +90,7 @@ fun DashboardScreen(
     onOpenProfile: () -> Unit = {},
     /** An allocation (or a category spent in without one) for a month: opens its details. */
     onOpenAllocation: (YearMonth, com.arthurrios.finova.domain.model.TransactionCategory) -> Unit = { _, _ -> },
+    onOpenTags: () -> Unit = {},
 ) {
     val pagerState = rememberPagerState(initialPage = state.selectedMonth) { state.months.size }
     val scope = rememberCoroutineScope()
@@ -143,6 +154,7 @@ fun DashboardScreen(
                         showingBudget = showingBudget,
                         onFlip = { showingBudget = !showingBudget },
                         onOpenAllocation = onOpenAllocation,
+                        onOpenTags = onOpenTags,
                     )
                 }
             }
@@ -251,9 +263,10 @@ private fun MonthPage(
     showingBudget: Boolean,
     onFlip: () -> Unit,
     onOpenAllocation: (YearMonth, com.arthurrios.finova.domain.model.TransactionCategory) -> Unit,
+    onOpenTags: () -> Unit,
 ) {
     if (showingBudget) {
-        BudgetFace(page, state, onFlip, onOpenBudgets, onOpenAllocation)
+        BudgetFace(page, state, actions, onFlip, onOpenBudgets, onOpenAllocation, onOpenTags)
         return
     }
     var query by rememberSaveable(page.month) { mutableStateOf("") }
@@ -329,10 +342,13 @@ private fun MonthPage(
 private fun BudgetFace(
     page: MonthPageUi,
     state: DashboardUiState,
+    actions: DashboardActions,
     onFlip: () -> Unit,
     onOpenBudgets: (YearMonth?) -> Unit,
     onOpenAllocation: (YearMonth, com.arthurrios.finova.domain.model.TransactionCategory) -> Unit,
+    onOpenTags: () -> Unit,
 ) {
+    var explaining by remember { mutableStateOf(false) }
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -351,7 +367,37 @@ private fun BudgetFace(
         )
         Spacer(Modifier.height(Spacing.S4))
         val count = page.allocations.size + page.offPlan.size
-        CardHeader(stringResource(R.string.budget_allocations_title), count)
+        val projection = page.projection()
+        CardHeader(stringResource(R.string.budget_allocations_title), count) {
+            // Silent without a projection: the card hides the block it would explain.
+            if (projection != null) {
+                CompactIconButton(onClick = { explaining = true }, size = Spacing.S5) {
+                    Icon(
+                        androidx.compose.material.icons.Icons.AutoMirrored.Outlined.HelpOutline,
+                        contentDescription = stringResource(R.string.projection_open),
+                        tint = FinovaColors.Gray500,
+                        modifier = Modifier.size(Spacing.S5),
+                    )
+                }
+            }
+            Text(
+                stringResource(R.string.budget_tags_manage),
+                style = FinovaType.TitleXS,
+                color = FinovaColors.MainMagenta,
+                modifier = Modifier.clip(RoundedCornerShape(CornerRadius.Small)).clickable(onClick = onOpenTags).padding(Spacing.S1),
+            )
+        }
+        if (explaining && projection != null) {
+            com.arthurrios.finova.ui.budget.ProjectionExplainerSheet(
+                projection = projection,
+                balanceDay = page.month.lengthOfMonth(),
+                allocations = page.allocations,
+                histories = remember(page) { actions.spendHistories(page) },
+                currencyCode = state.currencyCode,
+                valuesHidden = state.valuesHidden,
+                onDismiss = { explaining = false },
+            )
+        }
         if (count == 0) {
             com.arthurrios.finova.ui.budget.AllocationsEmpty()
         } else {

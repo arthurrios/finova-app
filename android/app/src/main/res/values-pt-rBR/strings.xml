@@ -462,4 +462,23 @@
     <string name="alloc_status_near">Próximo</string>
     <string name="alloc_status_over">Excedido</string>
     <string name="alloc_warning_hidden">Acima do orçamento</string>
+    <string name="projection_open">Como a projeção é calculada</string>
+    <string name="projection_title">Como isto é calculado</string>
+    <string name="projection_formula_header">Se usar tudo</string>
+    <string name="projection_formula_balance">Saldo até %1$s</string>
+    <string name="projection_formula_card">Gastos no cartão ainda não faturados</string>
+    <string name="projection_formula_unspent">Orçamento ainda não usado</string>
+    <string name="projection_formula_result">Se gastar todo o plano</string>
+    <string name="projection_formula_note">Isto considera que todo orçamento será gasto por completo. É o valor cauteloso, então o mês normalmente fecha acima dele.</string>
+    <string name="projection_history_header">Quanto de cada orçamento você costuma usar</string>
+    <string name="projection_history_empty">Quando alguns meses fecharem, aqui aparecerá quanto de cada orçamento você realmente costuma gastar.</string>
+    <string name="projection_history_none">histórico insuficiente</string>
+    <string name="projection_history_range">%1$d–%2$d%%</string>
+    <string name="projection_history_single">cerca de %1$d%%</string>
+    <string name="projection_history_varied">varia muito</string>
+    <plurals name="projection_history_months">
+        <item quantity="one">%1$d mês fechado</item>
+        <item quantity="other">%1$d meses fechados</item>
+    </plurals>
+    <string name="budget_tags_manage">Etiquetas</string>
 </resources>
