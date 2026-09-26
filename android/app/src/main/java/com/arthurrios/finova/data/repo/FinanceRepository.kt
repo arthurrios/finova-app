@@ -84,6 +84,8 @@ class FinanceRepository(private val db: FinovaDatabase) {
 
     suspend fun setBudget(budget: Budget) = db.budgets().upsert(budget.toEntity())
 
+    suspend fun deleteBudget(month: java.time.YearMonth) = db.budgets().delete(month)
+
     suspend fun setBalanceOffset(value: Long) = db.userSettings().save(UserSettingsEntity(balanceOffset = value))
 
     suspend fun isEmpty(): Boolean = db.transactions().count() == 0

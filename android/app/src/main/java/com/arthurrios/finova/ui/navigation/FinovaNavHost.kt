@@ -16,7 +16,11 @@ import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
+import androidx.navigation.navArgument
+import com.arthurrios.finova.ui.budgets.BudgetsScreen
+import com.arthurrios.finova.ui.budgets.BudgetsViewModel
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.arthurrios.finova.R
@@ -44,6 +48,8 @@ object Routes {
     const val LOGIN = "login"
     const val REGISTER = "register"
     const val DASHBOARD = "dashboard"
+    const val BUDGETS = "budgets?month={month}"
+    fun budgets(month: java.time.YearMonth?) = "budgets?month=" + (month?.let { it.year * 100 + it.monthValue } ?: 0)
 }
 
 @Composable
@@ -141,7 +147,23 @@ fun FinovaNavHost(startRoute: String? = null) {
                 }
             )
             val state by viewModel.state.collectAsStateWithLifecycle()
-            DashboardScreen(state, viewModel)
+            DashboardScreen(state, viewModel, onOpenBudgets = { navController.navigate(Routes.budgets(it)) })
+        }
+        composable(
+            Routes.BUDGETS,
+            arguments = listOf(navArgument("month") { type = NavType.IntType; defaultValue = 0 }),
+        ) { entry ->
+            val raw = entry.arguments?.getInt("month") ?: 0
+            val month = if (raw > 0) java.time.YearMonth.of(raw / 100, raw % 100) else null
+            val viewModel: BudgetsViewModel = viewModel(
+                factory = viewModelFactory {
+                    initializer {
+                        val container = appContext.appContainer
+                        BudgetsViewModel(container.financeRepository(), container.settings, month)
+                    }
+                }
+            )
+            BudgetsScreen(viewModel, onBack = { navController.popBackStack() })
         }
     }
 }

@@ -47,12 +47,8 @@ import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.OffsetMapping
-import androidx.compose.ui.text.input.TransformedText
-import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import com.arthurrios.finova.R
 import com.arthurrios.finova.domain.model.BusinessDayRule
@@ -60,6 +56,7 @@ import com.arthurrios.finova.domain.model.TransactionCategory
 import com.arthurrios.finova.domain.model.TransactionType
 import com.arthurrios.finova.domain.series.TransactionDraft
 import com.arthurrios.finova.domain.time.BusinessDayAdjuster
+import com.arthurrios.finova.ui.components.CurrencyTextField
 import com.arthurrios.finova.ui.components.FinovaButton
 import com.arthurrios.finova.ui.components.FinovaTextField
 import com.arthurrios.finova.ui.components.TransactionTypeSelector
@@ -68,14 +65,10 @@ import com.arthurrios.finova.ui.dashboard.label
 import com.arthurrios.finova.ui.theme.FinovaColors
 import com.arthurrios.finova.ui.theme.FinovaType
 import com.arthurrios.finova.ui.theme.Spacing
-import java.math.BigDecimal
-import java.text.NumberFormat
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
-import java.util.Currency
-import java.util.Locale
 
 enum class AddMode { Normal, Recurring, Installments }
 
@@ -105,7 +98,7 @@ fun AddTransactionSheet(
     var category by rememberSaveable { mutableStateOf<TransactionCategory?>(null) }
     var mode by rememberSaveable { mutableStateOf(AddMode.Normal) }
     var installments by rememberSaveable { mutableStateOf("") }
-    var amountDigits by rememberSaveable { mutableStateOf("") }
+    var amount by rememberSaveable { mutableStateOf(0L) }
     var date by rememberSaveable { mutableStateOf<LocalDate?>(null) }
     var rule by rememberSaveable { mutableStateOf(defaultRule) }
     var type by rememberSaveable { mutableStateOf<TransactionType?>(null) }
@@ -113,7 +106,6 @@ fun AddTransactionSheet(
     var showDatePicker by rememberSaveable { mutableStateOf(false) }
     var showTypeAlert by rememberSaveable { mutableStateOf(false) }
 
-    val amount = amountDigits.toLongOrNull() ?: 0L
     val installmentCount = installments.toIntOrNull() ?: 0
     val titleError = showErrors && title.isBlank()
     val categoryError = showErrors && category == null
@@ -178,15 +170,12 @@ fun AddTransactionSheet(
 
             Row(horizontalArrangement = Arrangement.spacedBy(Spacing.S5)) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(Spacing.S1)) {
-                    FinovaTextField(
-                        value = amountDigits,
-                        onValueChange = { text -> amountDigits = text.filter(Char::isDigit).trimStart('0').take(12) },
+                    CurrencyTextField(
+                        cents = amount,
+                        onCentsChange = { amount = it },
+                        currencyCode = currencyCode,
                         placeholder = stringResource(R.string.add_transaction_input_money),
                         isError = amountError,
-                        keyboardType = KeyboardType.Number,
-                        prefix = currencySymbol(currencyCode) + " ",
-                        visualTransformationOverride = CentsTransformation(currencyCode),
-                        imeAction = ImeAction.Done,
                         keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() }),
                     )
                     if (mode == AddMode.Installments) {
@@ -382,29 +371,3 @@ private val BusinessDayRule.label: Int
         BusinessDayRule.NextBusinessDay -> R.string.business_day_rule_next
         BusinessDayRule.PreviousBusinessDay -> R.string.business_day_rule_previous
     }
-
-private fun currencySymbol(code: String): String =
-    runCatching { Currency.getInstance(code).getSymbol(Locale.getDefault()) }.getOrDefault(code)
-
-/**
- * Shows typed digits as money, filling from the right like the iOS currency input: typing 1, 2,
- * 3, 4 reads 0,01 → 0,12 → 1,23 → 12,34. The value itself stays the digits (cents).
- */
-private class CentsTransformation(private val currencyCode: String) : VisualTransformation {
-    override fun filter(text: AnnotatedString): TransformedText {
-        if (text.text.isEmpty()) return TransformedText(text, OffsetMapping.Identity)
-        val digits = runCatching { Currency.getInstance(currencyCode).defaultFractionDigits }.getOrDefault(2).coerceAtLeast(0)
-        val formatter = NumberFormat.getNumberInstance(Locale.getDefault()).apply {
-            minimumFractionDigits = digits
-            maximumFractionDigits = digits
-        }
-        val shown = formatter.format(BigDecimal.valueOf(text.text.toLong(), digits))
-        return TransformedText(
-            AnnotatedString(shown),
-            object : OffsetMapping {
-                override fun originalToTransformed(offset: Int) = shown.length
-                override fun transformedToOriginal(offset: Int) = text.text.length
-            },
-        )
-    }
-}
