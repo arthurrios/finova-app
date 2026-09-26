@@ -353,4 +353,43 @@
     <string name="cancel_undo_action">Desfazer</string>
     <string name="statement_details_carried_in">Crédito de faturas anteriores</string>
     <string name="statement_details_carried_out">Crédito levado para a próxima fatura</string>
+    <!-- Profile (ProfileView) -->
+    <string name="profile_title">Minha Conta</string>
+    <string name="profile_section_financial">Financeiro</string>
+    <string name="profile_section_general">Geral</string>
+    <string name="profile_section_account">Conta</string>
+    <string name="profile_settings">Configurações</string>
+    <string name="profile_logout">Sair</string>
+    <string name="profile_logout_message">Tem certeza que deseja sair?</string>
+    <string name="profile_change_photo">Alterar foto</string>
+    <!-- Settings (SettingsView) -->
+    <string name="settings_title">Configurações</string>
+    <string name="settings_section_security">Segurança</string>
+    <string name="settings_section_preferences">Preferências</string>
+    <string name="settings_section_notifications">Notificações</string>
+    <string name="settings_section_about">Sobre</string>
+    <string name="settings_section_account">Conta</string>
+    <string name="settings_currency">Moeda</string>
+    <string name="settings_currency_auto">Automático</string>
+    <string name="settings_currency_picker_title">Selecionar Moeda</string>
+    <string name="settings_currency_picker_message">Escolha a moeda para exibir valores</string>
+    <string name="settings_notifications">Notificações</string>
+    <string name="settings_version">Versão</string>
+    <string name="settings_delete_account">Apagar conta</string>
+    <string name="settings_delete_warning">Esta ação é irreversível. Todos os seus dados serão excluídos permanentemente. Tem certeza?</string>
+    <string name="settings_delete_confirm">Excluir</string>
+    <string name="settings_delete_processing">Excluindo conta...</string>
+    <string name="settings_delete_error_title">Erro na Exclusão</string>
+    <string name="settings_delete_error_message">Não foi possível excluir a conta. Nada foi alterado.</string>
+    <string name="settings_reauth_title">Autenticação Necessária</string>
+    <string name="settings_reauth_message">Faça login novamente para excluir sua conta, ou saia para limpar apenas os dados locais</string>
+    <string name="settings_reauth_signout">Sair e Limpar Dados</string>
+    <string name="settings_deleted_title">Conta Excluída</string>
+    <string name="settings_deleted_message">Sua conta foi excluída com sucesso</string>
+    <string name="settings_biometric_enable_reason">Você deseja ativar biometria?</string>
+    <string name="settings_biometric_error_title">Erro Biometria</string>
+    <string name="settings_biometric_error_message">Não foi possível ativar a biometria. Tente novamente.</string>
+    <string name="move_statement_row">Fatura</string>
+    <string name="move_statement_title">Mover para Fatura</string>
+    <string name="move_statement_message">Selecione a fatura para mover esta transação.</string>
 </resources>

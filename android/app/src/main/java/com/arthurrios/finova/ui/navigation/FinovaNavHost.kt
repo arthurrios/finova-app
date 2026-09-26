@@ -21,6 +21,8 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.navArgument
 import com.arthurrios.finova.ui.budgets.BudgetsScreen
 import com.arthurrios.finova.ui.cards.AddCreditCardScreen
+import com.arthurrios.finova.ui.profile.ProfileScreen
+import com.arthurrios.finova.ui.profile.ProfileViewModel
 import com.arthurrios.finova.ui.early.EarlyPaymentScreen
 import com.arthurrios.finova.ui.early.EarlyPaymentViewModel
 import com.arthurrios.finova.ui.statement.StatementDetailsScreen
@@ -42,6 +44,8 @@ import com.arthurrios.finova.security.Biometrics
 import com.arthurrios.finova.ui.dashboard.DashboardViewModel
 import com.arthurrios.finova.appContainer
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.arthurrios.finova.ui.dashboard.DashboardScreen
 import com.arthurrios.finova.ui.login.LoginRoute
@@ -64,6 +68,9 @@ object Routes {
     const val DETAILS = "details/{id}"
     fun details(id: Long) = "details/$id"
     const val CARDS = "cards"
+    const val PROFILE = "profile"
+    const val SETTINGS = "settings"
+    const val NOTIFICATION_SETTINGS = "settings/notifications"
     const val EARLY = "early/{id}"
     fun early(id: Long) = "early/$id"
     const val STATEMENT = "statement/{id}"
@@ -171,9 +178,18 @@ fun FinovaNavHost(startRoute: String? = null) {
                 }
             )
             val state by viewModel.state.collectAsStateWithLifecycle()
+            // Read again each time the dashboard shows, so a photo picked in My Account appears.
+            var avatar by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null) }
+            androidx.lifecycle.compose.LifecycleResumeEffect(Unit) {
+                val container = appContext.appContainer
+                avatar = container.profileImages.load(container.currentUid())?.asImageBitmap()
+                onPauseOrDispose { }
+            }
             DashboardScreen(
                 state,
                 viewModel,
+                avatar = avatar,
+                onOpenProfile = { navController.navigate(Routes.PROFILE) },
                 onOpenBudgets = { navController.navigate(Routes.budgets(it)) },
                 onOpenTransaction = { navController.navigate(Routes.details(it)) },
                 onCreateCard = { navController.navigate(Routes.cardForm()) },
@@ -254,6 +270,42 @@ fun FinovaNavHost(startRoute: String? = null) {
             )
             BudgetsScreen(viewModel, onBack = { navController.popBackStack() })
         }
+        composable(Routes.PROFILE) {
+            val viewModel: ProfileViewModel = viewModel(
+                factory = viewModelFactory {
+                    initializer {
+                        val info = appContext.packageManager.getPackageInfo(appContext.packageName, 0)
+                        ProfileViewModel(appContext.appContainer, "Finova v${info.versionName} (${info.longVersionCode})")
+                    }
+                }
+            )
+            ProfileScreen(
+                viewModel,
+                onBack = { navController.popBackStack() },
+                onCreditCards = { navController.navigate(Routes.CARDS) },
+                onSettings = { navController.navigate(Routes.SETTINGS) },
+                onLoggedOut = {
+                    navController.navigate(Routes.LOGIN) { popUpTo(0) { inclusive = true } }
+                },
+            )
+        }
+        composable(Routes.SETTINGS) {
+            val viewModel: com.arthurrios.finova.ui.settings.SettingsViewModel = viewModel(
+                factory = viewModelFactory {
+                    initializer {
+                        val info = appContext.packageManager.getPackageInfo(appContext.packageName, 0)
+                        com.arthurrios.finova.ui.settings.SettingsViewModel(appContext.appContainer, info.versionName.orEmpty())
+                    }
+                }
+            )
+            com.arthurrios.finova.ui.settings.SettingsScreen(
+                viewModel,
+                onBack = { navController.popBackStack() },
+                onNotifications = { navController.navigate(Routes.NOTIFICATION_SETTINGS) },
+                onSignedOut = { navController.navigate(Routes.LOGIN) { popUpTo(0) { inclusive = true } } },
+            )
+        }
+        composable(Routes.NOTIFICATION_SETTINGS) { PlaceholderScreen("Notifications") }
         composable(Routes.CARDS) {
             val viewModel: CreditCardsViewModel = viewModel(
                 factory = viewModelFactory {

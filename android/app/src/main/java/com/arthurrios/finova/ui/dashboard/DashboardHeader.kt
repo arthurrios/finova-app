@@ -43,6 +43,7 @@ fun DashboardHeader(
     onProfile: () -> Unit,
     onNotifications: () -> Unit,
     modifier: Modifier = Modifier,
+    avatar: androidx.compose.ui.graphics.ImageBitmap? = null,
 ) {
     Row(
         modifier = modifier
@@ -59,7 +60,7 @@ fun DashboardHeader(
                 .clickable(onClick = onProfile),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Avatar()
+            Avatar(image = avatar)
             Spacer(Modifier.width(Spacing.S3))
             Column(verticalArrangement = Arrangement.spacedBy(Spacing.S1)) {
                 Text(
@@ -112,7 +113,11 @@ fun DashboardHeader(
 
 /** Port of Avatar.swift: a gray circle with a thin dark ring and the user glyph. */
 @Composable
-fun Avatar(modifier: Modifier = Modifier, size: androidx.compose.ui.unit.Dp = 40.dp) {
+fun Avatar(
+    modifier: Modifier = Modifier,
+    size: androidx.compose.ui.unit.Dp = 40.dp,
+    image: androidx.compose.ui.graphics.ImageBitmap? = null,
+) {
     Box(
         modifier = modifier
             .size(size)
@@ -121,11 +126,20 @@ fun Avatar(modifier: Modifier = Modifier, size: androidx.compose.ui.unit.Dp = 40
             .border(BorderStroke(1.dp, FinovaColors.Gray700), CircleShape),
         contentAlignment = Alignment.Center,
     ) {
-        Icon(
-            painter = painterResource(R.drawable.ic_user),
-            contentDescription = null,
-            tint = FinovaColors.Gray500,
-            modifier = Modifier.size(size / 2),
-        )
+        if (image != null) {
+            androidx.compose.foundation.Image(
+                bitmap = image,
+                contentDescription = null,
+                contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                modifier = Modifier.matchParentSize(),
+            )
+        } else {
+            Icon(
+                painter = painterResource(R.drawable.ic_user),
+                contentDescription = null,
+                tint = FinovaColors.Gray500,
+                modifier = Modifier.size(size / 2),
+            )
+        }
     }
 }
