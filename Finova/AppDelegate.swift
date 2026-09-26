@@ -738,11 +738,27 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
   /// Reschedules this month's notifications and leaves a flag for the dashboard to surface the
   /// resulting alert. `MonthlyNotificationManager` records the month itself on success, which is
   /// what retires the "notifications not configured" prompt for the same month.
+  /// The month the "notifications are off" notice was last shown for.
+  private static let permissionNoticeMonthKey = "notificationPermissionNoticeMonth"
+
   private static func rescheduleMonthlyNotificationsAndFlagAlert(
     successAlertType: String = "rescheduled"
   ) {
     let monthlyManager = MonthlyNotificationManager()
     let success = monthlyManager.scheduleAllMonthlyNotifications(showAlert: false)
+
+    // Notifications switched off is the user's choice, not a failure. Reporting it as "Notification
+    // Setup Failed" came back on every launch, because a month without permission is never recorded
+    // as scheduled. Say why instead, once a month; the month stays unrecorded so scheduling runs as
+    // soon as permission is granted.
+    if !success && !monthlyManager.hasNotificationPermission() {
+      let monthKey = MonthlyNotificationManager.monthKey(for: Date())
+      guard UserDefaults.standard.string(forKey: permissionNoticeMonthKey) != monthKey else { return }
+      UserDefaults.standard.set(monthKey, forKey: permissionNoticeMonthKey)
+      UserDefaults.standard.set(true, forKey: "shouldShowNotificationSuccessAlert")
+      UserDefaults.standard.set("permission", forKey: "notificationAlertType")
+      return
+    }
 
     UserDefaults.standard.set(true, forKey: "shouldShowNotificationSuccessAlert")
     UserDefaults.standard.set(

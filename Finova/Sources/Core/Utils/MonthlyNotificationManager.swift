@@ -134,6 +134,19 @@ final class MonthlyNotificationManager {
     return stored == Self.monthKey(for: Date()) ? .configured : .outdated
   }
 
+  /// Whether the user allows notifications. Blocks on the notification centre, as the scheduler does,
+  /// so call it off the main queue.
+  func hasNotificationPermission() -> Bool {
+    var authorized = false
+    let semaphore = DispatchSemaphore(value: 0)
+    notificationCenter.getNotificationSettings { settings in
+      authorized = settings.authorizationStatus == .authorized
+      semaphore.signal()
+    }
+    semaphore.wait()
+    return authorized
+  }
+
   /// Verifica se as notificações já foram agendadas para o mês atual
   func areNotificationsScheduledForCurrentMonth() -> Bool {
     return UserDefaults.standard.string(forKey: Self.lastScheduledMonthDefaultsKey)
