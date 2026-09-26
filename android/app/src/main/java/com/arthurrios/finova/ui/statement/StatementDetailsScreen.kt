@@ -45,6 +45,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.arthurrios.finova.R
 import com.arthurrios.finova.domain.model.StatementStatus
 import com.arthurrios.finova.ui.components.FinovaAccentOutlinedButton
+import com.arthurrios.finova.ui.components.FinovaButton
 import com.arthurrios.finova.ui.components.RoundIconButton
 import com.arthurrios.finova.ui.components.ScreenHeader
 import com.arthurrios.finova.ui.dashboard.DeleteTransactionDialog
@@ -70,6 +71,7 @@ fun StatementDetailsScreen(
     viewModel: StatementDetailsViewModel,
     onBack: () -> Unit,
     onOpenTransaction: (Long) -> Unit,
+    onPay: () -> Unit = {},
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     var pendingDelete by remember { mutableStateOf<TransactionRowUi?>(null) }
@@ -166,7 +168,14 @@ fun StatementDetailsScreen(
         // Hidden once the statement is paid, like the iOS footer.
         if (!statement.isPaid) {
             HorizontalDivider(color = FinovaColors.Gray300)
-            Box(Modifier.background(FinovaColors.Gray100).navigationBarsPadding().padding(Spacing.S4)) {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(Spacing.S3),
+                modifier = Modifier.background(FinovaColors.Gray100).navigationBarsPadding().padding(Spacing.S4),
+            ) {
+                // Nothing to pay on a statement that owes nothing (a credit balance).
+                if (state.total > 0) {
+                    FinovaButton(text = stringResource(R.string.statement_details_pay), onClick = onPay)
+                }
                 FinovaAccentOutlinedButton(
                     text = stringResource(R.string.statement_details_mark_paid),
                     onClick = { confirmPaid = true },

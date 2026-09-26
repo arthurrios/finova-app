@@ -88,7 +88,14 @@ fun TransactionSearchBar(
 
 /** "TRANSACTIONS" with the count pill: the rounded top of the list card. */
 @Composable
-fun TransactionListHeader(count: Int) {
+fun TransactionListHeader(count: Int) = CardHeader(stringResource(R.string.transactions_header_title), count)
+
+/**
+ * Port of CardHeader.swift: the rounded top of a card, an uppercase title and an optional count
+ * pill. The card body below it has the rounded bottom.
+ */
+@Composable
+fun CardHeader(title: String, count: Int? = null) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -101,21 +108,37 @@ fun TransactionListHeader(count: Int) {
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
         Text(
-            text = stringResource(R.string.transactions_header_title).uppercase(),
+            text = title.uppercase(),
             style = FinovaType.Title2XS,
             color = FinovaColors.Gray500,
         )
-        Box(
-            modifier = Modifier
-                .height(18.dp)
-                .clip(CircleShape)
-                .background(FinovaColors.Gray300)
-                .padding(horizontal = Spacing.S2),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(count.toString(), style = FinovaType.TitleXS, color = FinovaColors.Gray600)
+        if (count != null) {
+            Box(
+                modifier = Modifier
+                    .height(18.dp)
+                    .clip(CircleShape)
+                    .background(FinovaColors.Gray300)
+                    .padding(horizontal = Spacing.S2),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(count.toString(), style = FinovaType.TitleXS, color = FinovaColors.Gray600)
+            }
         }
     }
+}
+
+/** The rounded bottom half of a card, under a [CardHeader]. */
+@Composable
+fun CardBody(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(BottomCorners)
+            .background(FinovaColors.Gray100)
+            .border(1.dp, FinovaColors.Gray300, BottomCorners)
+            .padding(Spacing.S4),
+        verticalArrangement = Arrangement.spacedBy(Spacing.S3),
+    ) { content() }
 }
 
 /** The rounded box the rows scroll inside: the bottom half of the list card. */

@@ -6,6 +6,7 @@ import com.arthurrios.finova.data.db.RecurringExclusionEntity
 import com.arthurrios.finova.data.db.StatementEntity
 import com.arthurrios.finova.data.db.UserSettingsEntity
 import com.arthurrios.finova.domain.card.StatementBook
+import com.arthurrios.finova.domain.card.StatementPayments
 import com.arthurrios.finova.domain.model.Budget
 import com.arthurrios.finova.domain.model.BusinessDayRule
 import com.arthurrios.finova.domain.model.CreditCard
@@ -197,13 +198,53 @@ class FinanceRepository(
     suspend fun delete(transactionId: Long, option: SeriesDeleteOption) = db.withTransaction {
         val rows = db.transactions().getAll().map { it.toDomain() }
         val target = rows.firstOrNull { it.id == transactionId } ?: return@withTransaction
-        val plan = SeriesRules.deletion(target, option, rows)
+        val series = SeriesRules.deletion(target, option, rows)
+        // Half of a statement payment never stays behind alone: an orphan debit charges for a
+        // payment the invoice no longer shows, an orphan credit discounts an invoice nobody paid.
+        val partners = series.deleteIds.flatMap { id -> rows.firstOrNull { it.id == id }?.let { StatementPayments.partners(it, rows) }.orEmpty() }
+        val plan = series.copy(deleteIds = series.deleteIds + partners)
+        val touchedStatements = rows.filter { it.id in plan.deleteIds }.mapNotNull { it.statementId }.toSet()
         if (plan.clearExclusionsFor.isNotEmpty()) db.recurringExclusions().deleteForParents(plan.clearExclusionsFor.toList())
         plan.addExclusions.forEach { db.recurringExclusions().add(RecurringExclusionEntity(it.parentId, it.slot)) }
         if (plan.stopRepeating.isNotEmpty()) db.transactions().setRecurring(plan.stopRepeating.toList(), false)
         if (plan.deleteIds.isNotEmpty()) db.transactions().deleteByIds(plan.deleteIds.toList())
         settleCardRows()
+        // A statement that owes money again stops reading "paid".
+        if (touchedStatements.isNotEmpty()) {
+            val left = db.transactions().getAll().map { it.toDomain() }
+            for (id in touchedStatements) {
+                val statement = db.statements().getById(id) ?: continue
+                if (statement.isPaid && StatementPayments.remaining(id, left) > 0) {
+                    db.statements().update(statement.copy(isPaid = false, paidDate = null, paidAmount = null, updatedAt = System.currentTimeMillis()))
+                }
+            }
+        }
     }
+
+    /**
+     * Books a payment of [amount] against the statement on [date]: the debit and the credit, in one
+     * database transaction. Once nothing is left to pay, the statement reads as paid from the
+     * payment's date (a future date reads as scheduled until then). Returns the debit's id.
+     */
+    suspend fun payStatement(statementId: Long, amount: Long, date: LocalDate, debitTitle: String, creditTitle: String): Long =
+        db.withTransaction {
+            val statement = db.statements().getById(statementId)?.toModel() ?: error("No statement $statementId")
+            val rows = db.transactions().getAll().map { it.toDomain() }
+            require(amount in 1..StatementPayments.remaining(statementId, rows)) { "The amount is more than the statement owes" }
+            val (debit, credit) = StatementPayments.pair(statement, amount, date, debitTitle, creditTitle)
+            val debitId = db.transactions().insert(debit.toEntity())
+            db.transactions().insert(credit.copy(statementPaymentId = debitId).toEntity())
+            settleCardRows()
+            val after = db.transactions().getAll().map { it.toDomain() }
+            if (StatementPayments.remaining(statementId, after) == 0L) {
+                db.statements().getById(statementId)?.let {
+                    db.statements().update(
+                        it.copy(isPaid = true, paidDate = date, paidAmount = StatementPayments.totalPaid(statementId, after), updatedAt = System.currentTimeMillis())
+                    )
+                }
+            }
+            debitId
+        }
 
     /**
      * "Mark as Paid": the statement reads as paid from [date] on. Nothing moves in the balance;

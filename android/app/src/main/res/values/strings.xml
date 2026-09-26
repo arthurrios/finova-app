@@ -287,4 +287,33 @@
     <string name="statement_status_paid">Paid</string>
     <string name="statement_status_overdue">Overdue</string>
     <string name="statement_status_scheduled">Payment Scheduled</string>
+    <!-- Statement payment (StatementPaymentView) -->
+    <string name="pay_title">Pay statement</string>
+    <string name="pay_intro">Record a payment against your %1$s statement. The amount leaves your balance on the date you choose and is credited to the invoice.</string>
+    <string name="pay_invoice_header">Statement</string>
+    <string name="pay_invoice_card">Card</string>
+    <string name="pay_invoice_due">Due date</string>
+    <string name="pay_invoice_balance">Current balance</string>
+    <string name="pay_payment_header">Payment</string>
+    <string name="pay_amount">Amount to pay</string>
+    <string name="pay_when">When</string>
+    <string name="pay_today">Pay today</string>
+    <string name="pay_today_subtitle">The debit is recorded with today\'s date</string>
+    <string name="pay_schedule">Schedule</string>
+    <string name="pay_schedule_subtitle">The debit is recorded on a future date</string>
+    <string name="pay_date">Payment date</string>
+    <string name="pay_remaining">Remaining after payment</string>
+    <string name="pay_note_full">This pays the statement in full.</string>
+    <string name="pay_note_partial">The rest stays on this statement.</string>
+    <string name="pay_continue">Continue</string>
+    <string name="pay_confirm_title">Confirm payment</string>
+    <string name="pay_confirm_message">%1$s to %2$s, on %3$s.\n\n%4$s</string>
+    <string name="pay_confirm_full">The statement will be settled in full.</string>
+    <string name="pay_confirm_partial">%1$s will still be owed on this statement.</string>
+    <string name="pay_confirm_action">Confirm</string>
+    <string name="pay_error_exceeds">The most you can pay on this statement is %1$s.</string>
+    <string name="pay_error_generic">The payment could not be recorded. Nothing was changed.</string>
+    <string name="pay_debit_title">Statement payment — %1$s (%2$s)</string>
+    <string name="pay_credit_title">Payment received — %1$s</string>
+    <string name="alert_error">Error</string>
 </resources>

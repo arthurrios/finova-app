@@ -278,4 +278,33 @@
     <string name="statement_status_paid">Paga</string>
     <string name="statement_status_overdue">Vencida</string>
     <string name="statement_status_scheduled">Pagamento Agendado</string>
+    <!-- Statement payment (StatementPaymentView) -->
+    <string name="pay_title">Pagar fatura</string>
+    <string name="pay_intro">Registre um pagamento na sua fatura de %1$s. O valor sai do seu saldo na data escolhida e é creditado na fatura.</string>
+    <string name="pay_invoice_header">Fatura</string>
+    <string name="pay_invoice_card">Cartão</string>
+    <string name="pay_invoice_due">Vencimento</string>
+    <string name="pay_invoice_balance">Saldo atual</string>
+    <string name="pay_payment_header">Pagamento</string>
+    <string name="pay_amount">Valor a pagar</string>
+    <string name="pay_when">Quando</string>
+    <string name="pay_today">Pagar hoje</string>
+    <string name="pay_today_subtitle">O débito é registrado com a data de hoje</string>
+    <string name="pay_schedule">Agendar</string>
+    <string name="pay_schedule_subtitle">O débito é registrado em uma data futura</string>
+    <string name="pay_date">Data do pagamento</string>
+    <string name="pay_remaining">Restante após o pagamento</string>
+    <string name="pay_note_full">Isso paga a fatura por completo.</string>
+    <string name="pay_note_partial">O restante continua nesta fatura.</string>
+    <string name="pay_continue">Continuar</string>
+    <string name="pay_confirm_title">Confirmar pagamento</string>
+    <string name="pay_confirm_message">%1$s para %2$s, em %3$s.\n\n%4$s</string>
+    <string name="pay_confirm_full">A fatura será quitada por completo.</string>
+    <string name="pay_confirm_partial">Ainda restarão %1$s nesta fatura.</string>
+    <string name="pay_confirm_action">Confirmar</string>
+    <string name="pay_error_exceeds">O máximo que você pode pagar nesta fatura é %1$s.</string>
+    <string name="pay_error_generic">Não foi possível registrar o pagamento. Nada foi alterado.</string>
+    <string name="pay_debit_title">Pagamento de fatura — %1$s (%2$s)</string>
+    <string name="pay_credit_title">Pagamento recebido — %1$s</string>
+    <string name="alert_error">Erro</string>
 </resources>

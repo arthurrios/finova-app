@@ -22,6 +22,8 @@ import androidx.navigation.navArgument
 import com.arthurrios.finova.ui.budgets.BudgetsScreen
 import com.arthurrios.finova.ui.cards.AddCreditCardScreen
 import com.arthurrios.finova.ui.statement.StatementDetailsScreen
+import com.arthurrios.finova.ui.statement.StatementPaymentScreen
+import com.arthurrios.finova.ui.statement.StatementPaymentViewModel
 import com.arthurrios.finova.ui.statement.StatementDetailsViewModel
 import com.arthurrios.finova.ui.cards.AddCreditCardViewModel
 import com.arthurrios.finova.ui.cards.CreditCardsScreen
@@ -62,6 +64,8 @@ object Routes {
     const val CARDS = "cards"
     const val STATEMENT = "statement/{id}"
     fun statement(id: Long) = "statement/$id"
+    const val PAY_STATEMENT = "statement/{id}/pay"
+    fun payStatement(id: Long) = "statement/$id/pay"
     /** Add when id is 0, edit otherwise. */
     const val CARD_FORM = "cards/form?id={id}"
     fun cardForm(id: Long = 0) = "cards/form?id=$id"
@@ -186,7 +190,20 @@ fun FinovaNavHost(startRoute: String? = null) {
                 viewModel,
                 onBack = { navController.popBackStack() },
                 onOpenTransaction = { navController.navigate(Routes.details(it)) },
+                onPay = { navController.navigate(Routes.payStatement(id)) },
             )
+        }
+        composable(Routes.PAY_STATEMENT, arguments = listOf(navArgument("id") { type = NavType.LongType })) { entry ->
+            val id = entry.arguments?.getLong("id") ?: 0L
+            val viewModel: StatementPaymentViewModel = viewModel(
+                factory = viewModelFactory {
+                    initializer {
+                        val container = appContext.appContainer
+                        StatementPaymentViewModel(container.financeRepository(), container.cardRepository(), container.settings, id)
+                    }
+                }
+            )
+            StatementPaymentScreen(viewModel, onBack = { navController.popBackStack() })
         }
         composable(Routes.DETAILS, arguments = listOf(navArgument("id") { type = NavType.LongType })) { entry ->
             val id = entry.arguments?.getLong("id") ?: 0L
