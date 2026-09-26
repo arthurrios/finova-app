@@ -82,3 +82,49 @@ data class UserSettingsEntity(
     /** Starting balance that every running balance begins from (balanceOffset_<uid>). */
     @ColumnInfo(name = "balance_offset") val balanceOffset: Long = 0,
 )
+
+/**
+ * The iOS `CreditCards` table (docs/data-layer-spec.md 1.3). Deleting is soft, as on iOS: the
+ * row stays so its purchases and statements keep a card to point at.
+ */
+@Entity(tableName = "credit_cards")
+data class CreditCardEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val name: String,
+    @ColumnInfo(name = "last_four_digits") val lastFourDigits: String,
+    /** CardBrand.key, e.g. "visa". */
+    @ColumnInfo(name = "card_brand") val cardBrand: String,
+    /** 1…28, like the iOS CHECK constraint. */
+    @ColumnInfo(name = "closing_day") val closingDay: Int,
+    @ColumnInfo(name = "due_day") val dueDay: Int,
+    @ColumnInfo(name = "credit_limit") val creditLimit: Long? = null,
+    /** CardColor.key, e.g. "blue". */
+    @ColumnInfo(name = "card_color") val cardColor: String = "blue",
+    @ColumnInfo(name = "is_deleted") val isDeleted: Boolean = false,
+    @ColumnInfo(name = "is_default") val isDefault: Boolean = false,
+    @ColumnInfo(name = "created_at") val createdAt: Long = System.currentTimeMillis(),
+    @ColumnInfo(name = "updated_at") val updatedAt: Long = System.currentTimeMillis(),
+)
+
+/**
+ * The iOS `CreditCardStatements` table (docs/data-layer-spec.md 1.4): one billing cycle of a card.
+ * `total_amount` is a cached signed sum; the rows pointing at the statement are the truth.
+ */
+@Entity(
+    tableName = "credit_card_statements",
+    indices = [Index("credit_card_id"), Index("due_date"), Index(value = ["credit_card_id", "closing_date"])],
+)
+data class StatementEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    @ColumnInfo(name = "credit_card_id") val creditCardId: Long,
+    @ColumnInfo(name = "closing_date") val closingDate: LocalDate,
+    @ColumnInfo(name = "due_date") val dueDate: LocalDate,
+    @ColumnInfo(name = "total_amount") val totalAmount: Long = 0,
+    @ColumnInfo(name = "is_paid") val isPaid: Boolean = false,
+    @ColumnInfo(name = "paid_date") val paidDate: LocalDate? = null,
+    @ColumnInfo(name = "paid_amount") val paidAmount: Long? = null,
+    /** The user edited the dates by hand; card-cycle repairs leave them alone. */
+    @ColumnInfo(name = "is_dates_overridden") val isDatesOverridden: Boolean = false,
+    @ColumnInfo(name = "created_at") val createdAt: Long = System.currentTimeMillis(),
+    @ColumnInfo(name = "updated_at") val updatedAt: Long = System.currentTimeMillis(),
+)
