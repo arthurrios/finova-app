@@ -21,6 +21,8 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.navArgument
 import com.arthurrios.finova.ui.budgets.BudgetsScreen
 import com.arthurrios.finova.ui.cards.AddCreditCardScreen
+import com.arthurrios.finova.ui.early.EarlyPaymentScreen
+import com.arthurrios.finova.ui.early.EarlyPaymentViewModel
 import com.arthurrios.finova.ui.statement.StatementDetailsScreen
 import com.arthurrios.finova.ui.statement.StatementPaymentScreen
 import com.arthurrios.finova.ui.statement.StatementPaymentViewModel
@@ -62,6 +64,8 @@ object Routes {
     const val DETAILS = "details/{id}"
     fun details(id: Long) = "details/$id"
     const val CARDS = "cards"
+    const val EARLY = "early/{id}"
+    fun early(id: Long) = "early/$id"
     const val STATEMENT = "statement/{id}"
     fun statement(id: Long) = "statement/$id"
     const val PAY_STATEMENT = "statement/{id}/pay"
@@ -219,7 +223,20 @@ fun FinovaNavHost(startRoute: String? = null) {
                 viewModel,
                 onBack = { navController.popBackStack() },
                 onCreateCard = { navController.navigate(Routes.cardForm()) },
+                onPayEarly = { navController.navigate(Routes.early(id)) },
             )
+        }
+        composable(Routes.EARLY, arguments = listOf(navArgument("id") { type = NavType.LongType })) { entry ->
+            val id = entry.arguments?.getLong("id") ?: 0L
+            val viewModel: EarlyPaymentViewModel = viewModel(
+                factory = viewModelFactory {
+                    initializer {
+                        val container = appContext.appContainer
+                        EarlyPaymentViewModel(container.financeRepository(), container.cardRepository(), container.settings, id)
+                    }
+                }
+            )
+            EarlyPaymentScreen(viewModel, onBack = { navController.popBackStack() })
         }
         composable(
             Routes.BUDGETS,

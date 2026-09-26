@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.arthurrios.finova.data.UserSettingsStore
 import com.arthurrios.finova.data.repo.CardRepository
 import com.arthurrios.finova.data.repo.FinanceRepository
+import com.arthurrios.finova.domain.card.Installments
 import com.arthurrios.finova.domain.model.CreditCard
 import com.arthurrios.finova.domain.model.Transaction
 import com.arthurrios.finova.domain.series.SeriesDeleteOption
@@ -35,6 +36,15 @@ data class TransactionDetailsUiState(
     val editRequest: AddTransactionRequest? = null,
     /** True once the row is gone (deleted, or rebuilt by an installment edit). */
     val gone: Boolean = false,
+    /** Installments of this series that can still be paid early. */
+    val payableCount: Int = 0,
+    /** What cancelling the purchase would credit (0: nothing left to cancel, or already cancelled). */
+    val cancelAmount: Long = 0,
+    val cancelCount: Int = 0,
+    /** This row is an early-payment debit; these are the installments it paid. */
+    val earlyPaidInstallments: List<Transaction>? = null,
+    /** This row is a cancellation credit; these are the installments it refunds. */
+    val refundedInstallments: List<Transaction>? = null,
 )
 
 /** Port of TransactionDetailsViewModel.swift (cards, early payment and cancellation come later). */
@@ -43,6 +53,7 @@ class TransactionDetailsViewModel(
     private val settings: UserSettingsStore,
     private val transactionId: Long,
     cardRepository: CardRepository,
+    private val today: () -> LocalDate = LocalDate::now,
 ) : ViewModel() {
 
     /** The cards the edit sheet offers. */
@@ -55,7 +66,7 @@ class TransactionDetailsViewModel(
     private var allRows: List<Transaction> = emptyList()
     private var loaded = false
 
-    val state: StateFlow<TransactionDetailsUiState> = combine(repository.transactions, valuesHidden) { rows, hidden ->
+    val state: StateFlow<TransactionDetailsUiState> = combine(repository.transactions, repository.statements, valuesHidden) { rows, statements, hidden ->
         allRows = rows
         val row = rows.firstOrNull { it.id == transactionId }
         if (row == null) return@combine TransactionDetailsUiState(gone = loaded, valuesHidden = hidden)
@@ -66,6 +77,7 @@ class TransactionDetailsViewModel(
             rows.filter { it.parentTransactionId == seriesId && it.installmentNumber != null }.sortedBy { it.installmentNumber }
         } else emptyList()
         val parent = rows.firstOrNull { it.id == seriesId }
+        val refundable = if (kind == SeriesKind.Installments) Installments.refundable(row, rows, statements, today()) else emptyList()
         TransactionDetailsUiState(
             row = row,
             kind = kind,
@@ -75,6 +87,11 @@ class TransactionDetailsViewModel(
             totalValue = if (kind == SeriesKind.Installments) row.originalAmount else null,
             lastInstallment = installments.lastOrNull()?.date,
             editRequest = editRequestFor(row, kind, parent, installments),
+            payableCount = if (kind == SeriesKind.Installments) Installments.payable(row, rows, statements, today()).size else 0,
+            cancelAmount = refundable.sumOf { it.amount },
+            cancelCount = refundable.size,
+            earlyPaidInstallments = if (row.isEarlyPayment) rows.filter { it.settledByTransactionId == row.id }.sortedBy { it.installmentNumber } else null,
+            refundedInstallments = if (row.isCancellationRefund) rows.filter { it.cancelledByTransactionId == row.id }.sortedBy { it.installmentNumber } else null,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), TransactionDetailsUiState())
 
@@ -116,6 +133,28 @@ class TransactionDetailsViewModel(
     fun delete(option: SeriesDeleteOption) {
         viewModelScope.launch { repository.delete(transactionId, option) }
     }
+
+    /** Set when an action failed; the screen shows the matching error. */
+    private val _failure = MutableStateFlow<Int?>(null)
+    val failure: StateFlow<Int?> = _failure
+
+    fun clearFailure() {
+        _failure.value = null
+    }
+
+    /** Port of TransactionDetailsViewModel.cancelPurchase. */
+    fun cancelPurchase(title: String, @androidx.annotation.StringRes errorRes: Int) {
+        viewModelScope.launch {
+            runCatching { repository.cancelInstallmentPurchase(transactionId, title, today()) }
+                .onFailure { _failure.value = errorRes }
+        }
+    }
+
+    /**
+     * Undoes an early payment or a cancellation by deleting this row: the delete puts its
+     * installments back, as on iOS.
+     */
+    fun undo() = delete(SeriesDeleteOption.ThisOnly)
 
     /** A one-off saves straight away; series edits come through [saveRecurring] / [saveInstallments]. */
     fun saveOneOff(request: AddTransactionRequest) {

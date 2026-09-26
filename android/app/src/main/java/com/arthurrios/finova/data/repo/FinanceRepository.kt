@@ -6,6 +6,7 @@ import com.arthurrios.finova.data.db.RecurringExclusionEntity
 import com.arthurrios.finova.data.db.StatementEntity
 import com.arthurrios.finova.data.db.UserSettingsEntity
 import com.arthurrios.finova.domain.card.CardCycleChange
+import com.arthurrios.finova.domain.card.Installments
 import com.arthurrios.finova.domain.card.StatementBook
 import com.arthurrios.finova.domain.card.StatementPayments
 import com.arthurrios.finova.domain.model.Budget
@@ -208,6 +209,16 @@ class FinanceRepository(
         if (plan.clearExclusionsFor.isNotEmpty()) db.recurringExclusions().deleteForParents(plan.clearExclusionsFor.toList())
         plan.addExclusions.forEach { db.recurringExclusions().add(RecurringExclusionEntity(it.parentId, it.slot)) }
         if (plan.stopRepeating.isNotEmpty()) db.transactions().setRecurring(plan.stopRepeating.toList(), false)
+        // Deleting an early payment or a cancellation credit puts its installments back: left
+        // pointing at a row that is gone, they would drop out of every total with nothing charging.
+        val released = rows.filter { it.id !in plan.deleteIds && (it.settledByTransactionId in plan.deleteIds || it.cancelledByTransactionId in plan.deleteIds) }
+            .map { r ->
+                r.copy(
+                    settledByTransactionId = r.settledByTransactionId.takeUnless { it in plan.deleteIds },
+                    cancelledByTransactionId = r.cancelledByTransactionId.takeUnless { it in plan.deleteIds },
+                )
+            }
+        if (released.isNotEmpty()) db.transactions().updateAll(released.map { it.toEntity() })
         if (plan.deleteIds.isNotEmpty()) db.transactions().deleteByIds(plan.deleteIds.toList())
         settleCardRows()
         // A statement that owes money again stops reading "paid".
@@ -221,6 +232,57 @@ class FinanceRepository(
             }
         }
     }
+
+    /**
+     * Pays [installmentIds] ahead of schedule on [date]: one debit for their total, each installment
+     * marked settled by it, all or nothing. With [toCard] the debit goes on that card's next open
+     * statement; without, it is a plain debit on the date. Returns the debit's id.
+     */
+    suspend fun payInstallmentsEarly(installmentIds: List<Long>, date: LocalDate, toCard: Boolean, title: String): Long =
+        db.withTransaction {
+            require(installmentIds.isNotEmpty()) { "No installments chosen" }
+            val rows = db.transactions().getAll().map { it.toDomain() }
+            val chosen = rows.filter { it.id in installmentIds && !it.isSettledEarly }
+            require(chosen.size == installmentIds.size) { "An installment is gone or already paid" }
+            var debit = Installments.earlyPaymentDebit(chosen.sumOf { it.amount }, date, title)
+            if (toCard) {
+                val card = Installments.cardId(chosen.first(), rows)?.let { db.creditCards().getById(it)?.toModel() }
+                if (card != null) {
+                    val known = db.statements().forCard(card.id).map { it.toModel() }.toMutableList()
+                    val statement = stored(Installments.nextOpenStatement(known, card, date, defaultRule()), known)
+                    debit = debit.copy(creditCardId = card.id, statementId = statement.id)
+                }
+            }
+            val debitId = db.transactions().insert(debit.toEntity())
+            db.transactions().updateAll(chosen.map { it.copy(settledByTransactionId = debitId).toEntity() })
+            settleCardRows()
+            debitId
+        }
+
+    /**
+     * Cancels an installment purchase: one credit today for every installment still to be billed,
+     * each marked cancelled by it. The installments keep counting, so credit and charges cancel
+     * out. On a card the credit goes on the next open statement. Returns the credit's id.
+     */
+    suspend fun cancelInstallmentPurchase(rowId: Long, title: String, today: LocalDate = LocalDate.now()): Long =
+        db.withTransaction {
+            val rows = db.transactions().getAll().map { it.toDomain() }
+            val row = rows.firstOrNull { it.id == rowId } ?: error("No transaction $rowId")
+            val statements = db.statements().getAll().map { it.toModel() }
+            val refundable = Installments.refundable(row, rows, statements, today)
+            require(refundable.isNotEmpty()) { "Nothing left to cancel" }
+            var credit = Installments.cancellationCredit(refundable.sumOf { it.amount }, today, title)
+            val card = Installments.cardId(row, rows)?.let { db.creditCards().getById(it)?.toModel() }
+            if (card != null) {
+                val known = statements.filter { it.creditCardId == card.id }.toMutableList()
+                val statement = stored(Installments.nextOpenStatement(known, card, today, defaultRule()), known)
+                credit = credit.copy(creditCardId = card.id, statementId = statement.id)
+            }
+            val creditId = db.transactions().insert(credit.toEntity())
+            db.transactions().updateAll(refundable.map { it.row.copy(cancelledByTransactionId = creditId).toEntity() })
+            settleCardRows()
+            creditId
+        }
 
     /**
      * After a card's closing or due day changed: moves its open statements to the new days and
