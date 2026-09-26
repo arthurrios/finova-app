@@ -17,6 +17,22 @@ data class SeriesExclusion(val parentId: Long, val slot: YearMonth)
 /** What the user picks when deleting part of a series. Port of RecurringCleanupOption. */
 enum class SeriesDeleteOption { ThisOnly, ThisAndLater, All }
 
+/** What the user picks when editing one row of a recurring series. Port of RecurringEditOption. */
+enum class SeriesEditOption { ThisOnly, ThisAndLater, All }
+
+/**
+ * The rows an edit rewrites. When the series splits: the old parent stops repeating, and the
+ * months the user deleted from the split point on move to the new parent.
+ */
+data class SeriesEdit(
+    val updates: List<Transaction>,
+    val stopRepeating: Set<Long> = emptySet(),
+    val moveExclusions: ExclusionMove? = null,
+)
+
+/** Exclusions of series [fromParent] at or after [fromSlot] now belong to series [toParent]. */
+data class ExclusionMove(val fromParent: Long, val toParent: Long, val fromSlot: YearMonth)
+
 /** Which delete question a row needs. Port of TransactionComplexityType, collapsed. */
 enum class SeriesKind { Simple, Recurring, Installments }
 
@@ -173,6 +189,82 @@ object SeriesRules {
     private fun fingerprint(row: Transaction, rows: List<Transaction>): String {
         val parent = rows.firstOrNull { it.id == seriesId(row) } ?: row
         return listOf(row.title.trim().lowercase(), row.category.key, row.type.key, parent.unadjusted.dayOfMonth).joinToString("|")
+    }
+
+    // ---- Editing -------------------------------------------------------------------------
+
+    /** A one-off edited in place: the picked date moves by the rule, and it counts where it lands. */
+    fun editOneOff(row: Transaction, draft: TransactionDraft): Transaction {
+        val date = BusinessDayAdjuster.adjust(draft.date, draft.rule)
+        return row.copy(
+            title = draft.title,
+            category = draft.category,
+            type = draft.type,
+            amount = draft.amount,
+            date = date,
+            budgetMonth = YearMonth.from(date),
+            businessDayRule = draft.rule,
+            unadjustedDate = draft.date,
+            seriesPeriod = YearMonth.from(date),
+        )
+    }
+
+    /**
+     * Port of `editRecurringTransactionsFromDate`: each chosen occurrence takes the new title,
+     * category, type, amount and rule. A new day moves every chosen occurrence to that day inside its
+     * own month (clamped, never spilling into the next month).
+     *
+     * One change over iOS: "this and later" from a month after the first splits the series there.
+     * The chosen month becomes the parent of a new series and the old one stops repeating, so the
+     * months generated later copy the new values; on iOS they kept copying the old parent.
+     */
+    fun editRecurring(target: Transaction, draft: TransactionDraft, option: SeriesEditOption, rows: List<Transaction>): SeriesEdit {
+        val parentId = seriesId(target)
+        val members = rows.filter { it.id == parentId || it.parentTransactionId == parentId }
+        val parent = members.firstOrNull { it.id == parentId } ?: target
+        val chosen = when (option) {
+            SeriesEditOption.ThisOnly -> members.filter { it.id == target.id }
+            SeriesEditOption.ThisAndLater -> members.filter { it.slot >= target.slot }
+            SeriesEditOption.All -> members
+        }.sortedBy { it.slot }
+        val anchorDay = parent.unadjusted.dayOfMonth
+        val newDay = draft.date.dayOfMonth
+
+        val rewritten = chosen.map { row ->
+            val keepDates = newDay == anchorDay && draft.rule == row.businessDayRule && row.budgetMonth == row.slot
+            val base = row.copy(
+                title = draft.title,
+                category = draft.category,
+                type = draft.type,
+                amount = draft.amount,
+                businessDayRule = draft.rule,
+            )
+            if (keepDates) base
+            else {
+                val unadjusted = OccurrenceDates.occurrence(newDay, row.slot)
+                base.copy(
+                    date = BusinessDayAdjuster.adjust(unadjusted, draft.rule),
+                    unadjustedDate = unadjusted,
+                    budgetMonth = row.slot,
+                    seriesPeriod = row.slot,
+                )
+            }
+        }
+
+        val splits = option == SeriesEditOption.ThisAndLater && chosen.none { it.id == parentId }
+        if (!splits) return SeriesEdit(rewritten)
+        val head = rewritten.first()
+        // The new part repeats only if the series still did: a series the user already stopped
+        // must not start filling months again.
+        val newSeries = rewritten.map { row ->
+            if (row.id == head.id) row.copy(isRecurring = parent.isRecurring, parentTransactionId = row.id)
+            else row.copy(parentTransactionId = head.id)
+        }
+        return SeriesEdit(
+            updates = newSeries,
+            stopRepeating = setOf(parentId),
+            moveExclusions = ExclusionMove(fromParent = parentId, toParent = head.id, fromSlot = head.slot),
+        )
     }
 
     // ---- Deletion ------------------------------------------------------------------------

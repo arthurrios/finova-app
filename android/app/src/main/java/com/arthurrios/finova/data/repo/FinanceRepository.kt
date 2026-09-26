@@ -7,6 +7,7 @@ import com.arthurrios.finova.data.db.UserSettingsEntity
 import com.arthurrios.finova.domain.model.Budget
 import com.arthurrios.finova.domain.model.Transaction
 import com.arthurrios.finova.domain.series.SeriesDeleteOption
+import com.arthurrios.finova.domain.series.SeriesEdit
 import com.arthurrios.finova.domain.series.SeriesExclusion
 import com.arthurrios.finova.domain.series.SeriesRules
 import com.arthurrios.finova.domain.series.TransactionDraft
@@ -69,6 +70,31 @@ class FinanceRepository(private val db: FinovaDatabase) {
         val missing = SeriesRules.missingOccurrences(rows, excluded, today)
         if (missing.isNotEmpty()) db.transactions().insertAll(missing.map { it.toEntity() })
         missing.size
+    }
+
+    /** Saves an edited one-off. */
+    suspend fun update(transaction: Transaction) = db.transactions().update(transaction.toEntity())
+
+    /** Saves an edit to part of a recurring series (and a split, when it made one). */
+    suspend fun applyEdit(edit: SeriesEdit, today: LocalDate = LocalDate.now()) {
+        db.withTransaction {
+            if (edit.stopRepeating.isNotEmpty()) db.transactions().setRecurring(edit.stopRepeating.toList(), false)
+            edit.moveExclusions?.let { db.recurringExclusions().move(it.fromParent, it.toParent, it.fromSlot) }
+            db.transactions().updateAll(edit.updates.map { it.toEntity() })
+        }
+        // A new head (after a split) or a new day may leave months to fill in.
+        materializeRecurring(today)
+    }
+
+    /**
+     * Rebuilds an installment series from the edited values, like iOS
+     * `updateAllInstallmentTransactions`: the old rows go and the series is created again.
+     */
+    suspend fun replaceInstallments(seriesId: Long, draft: TransactionDraft, count: Int): Long = db.withTransaction {
+        val rows = db.transactions().getAll().map { it.toDomain() }
+        val old = rows.filter { it.id == seriesId || it.parentTransactionId == seriesId }.map { it.id }
+        db.transactions().deleteByIds(old)
+        addInstallments(draft, count)
     }
 
     /** Deletes a row, or part of its series, as [option] says. */

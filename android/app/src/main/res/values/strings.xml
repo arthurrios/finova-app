@@ -179,4 +179,31 @@
         <item>January</item><item>February</item><item>March</item><item>April</item><item>May</item><item>June</item>
         <item>July</item><item>August</item><item>September</item><item>October</item><item>November</item><item>December</item>
     </string-array>
+    <!-- Transaction details and editing -->
+    <string name="edit_transaction_title">Edit Transaction</string>
+    <string name="edit_transaction_save">Save</string>
+    <string name="edit_alert_recurring_title">Edit Recurring Transaction</string>
+    <string name="edit_alert_recurring_message">This is a recurring transaction. Do you want to edit only this occurrence or all future occurrences?</string>
+    <string name="edit_alert_installments_title">Edit Installment Transaction</string>
+    <string name="edit_alert_installments_message">This is an installment transaction. Do you want to edit only this installment or all installments?</string>
+    <string name="edit_alert_edit_single">Edit Only This One</string>
+    <string name="edit_alert_edit_future">Future Occurrences</string>
+    <string name="edit_alert_edit_all">Edit All</string>
+    <string name="details_header_title">Transaction Details</string>
+    <string name="details_header_subtitle">View and manage transaction information</string>
+    <string name="details_info_header">Transaction Information</string>
+    <string name="details_details_header">Additional Details</string>
+    <string name="details_installments_header">Related Installments</string>
+    <string name="details_label_date">Date</string>
+    <string name="details_label_type">Type</string>
+    <string name="details_label_total_value">Total Value</string>
+    <string name="details_label_last_installment">Last Installment</string>
+    <string name="details_type_expense">Expense</string>
+    <string name="details_type_income">Income</string>
+    <string name="details_edit">Edit</string>
+    <string name="details_delete">Delete</string>
+    <string name="transaction_mode_desc_normal">One-time transaction</string>
+    <string name="transaction_mode_desc_recurring">Recurring transaction</string>
+    <string name="transaction_mode_desc_installments">Installment transaction</string>
+    <string name="details_installment_row">Installment %1$d of %2$d</string>
 </resources>

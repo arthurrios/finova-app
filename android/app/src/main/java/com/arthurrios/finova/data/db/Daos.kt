@@ -28,6 +28,9 @@ interface TransactionDao {
     @Update
     suspend fun update(entity: TransactionEntity)
 
+    @Update
+    suspend fun updateAll(entities: List<TransactionEntity>)
+
     @Query("DELETE FROM transactions WHERE id IN (:ids)")
     suspend fun deleteByIds(ids: List<Long>)
 
@@ -63,6 +66,9 @@ interface RecurringExclusionDao {
 
     @Upsert
     suspend fun add(entity: RecurringExclusionEntity)
+
+    @Query("UPDATE recurring_exclusions SET parent_id = :toParent WHERE parent_id = :fromParent AND series_period >= :fromSlot")
+    suspend fun move(fromParent: Long, toParent: Long, fromSlot: YearMonth)
 
     @Query("DELETE FROM recurring_exclusions WHERE parent_id IN (:parentIds)")
     suspend fun deleteForParents(parentIds: List<Long>)
