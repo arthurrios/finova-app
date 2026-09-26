@@ -2,14 +2,7 @@ package com.arthurrios.finova.ui.addtransaction
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
-import androidx.compose.foundation.text.BasicText
-import androidx.compose.foundation.text.TextAutoSize
-import androidx.compose.ui.unit.sp
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.selection.selectable
-import androidx.compose.material3.RadioButton
-import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -75,6 +68,7 @@ import com.arthurrios.finova.domain.time.BusinessDayAdjuster
 import com.arthurrios.finova.ui.components.CurrencyTextField
 import com.arthurrios.finova.ui.components.FinovaButton
 import com.arthurrios.finova.ui.components.FinovaTextField
+import com.arthurrios.finova.ui.components.OptionTile
 import com.arthurrios.finova.ui.components.TransactionTypeSelector
 import com.arthurrios.finova.ui.dashboard.icon
 import com.arthurrios.finova.ui.dashboard.label
@@ -465,14 +459,14 @@ private fun PaymentMethodSection(
     Column(verticalArrangement = Arrangement.spacedBy(Spacing.S3), modifier = Modifier.padding(top = Spacing.S2)) {
         Text(stringResource(R.string.payment_method_title), style = FinovaType.TextSMBold, color = FinovaColors.Gray600)
         Row(horizontalArrangement = Arrangement.spacedBy(Spacing.S3)) {
-            PaymentOption(
+            OptionTile(
                 title = stringResource(R.string.payment_method_cash),
                 subtitle = stringResource(R.string.payment_method_cash_subtitle),
                 selected = !payWithCard,
                 onClick = { onPayWithCard(false) },
                 modifier = Modifier.weight(1f),
             )
-            PaymentOption(
+            OptionTile(
                 title = stringResource(R.string.payment_method_card),
                 subtitle = stringResource(R.string.payment_method_card_subtitle),
                 selected = payWithCard,
@@ -533,44 +527,6 @@ private fun PaymentMethodSection(
                     }
                 }
             }
-        }
-    }
-}
-
-@Composable
-private fun PaymentOption(title: String, subtitle: String, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
-    val shape = androidx.compose.foundation.shape.RoundedCornerShape(com.arthurrios.finova.ui.theme.CornerRadius.Large)
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = modifier
-            .height(Spacing.InputHeight)
-            .clip(shape)
-            .background(FinovaColors.Gray200)
-            .border(1.dp, if (selected) FinovaColors.MainMagenta else FinovaColors.Gray300, shape)
-            .selectable(selected = selected, role = androidx.compose.ui.semantics.Role.RadioButton, onClick = onClick)
-            .padding(horizontal = Spacing.S3),
-    ) {
-        RadioButton(
-            selected = selected,
-            onClick = null,
-            colors = RadioButtonDefaults.colors(selectedColor = FinovaColors.MainMagenta, unselectedColor = FinovaColors.Gray400),
-        )
-        Spacer(Modifier.width(Spacing.S2))
-        // The tile is half the sheet wide, so long labels ("Cartão de Crédito") shrink to fit
-        // instead of wrapping or being cut, as on iOS.
-        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            BasicText(
-                title,
-                style = FinovaType.TextSMBold.copy(color = FinovaColors.Gray700),
-                maxLines = 1,
-                autoSize = TextAutoSize.StepBased(minFontSize = 8.sp, maxFontSize = FinovaType.TextSMBold.fontSize),
-            )
-            BasicText(
-                subtitle,
-                style = FinovaType.TextXS.copy(color = FinovaColors.Gray500),
-                maxLines = 1,
-                autoSize = TextAutoSize.StepBased(minFontSize = 7.sp, maxFontSize = FinovaType.TextXS.fontSize),
-            )
         }
     }
 }
