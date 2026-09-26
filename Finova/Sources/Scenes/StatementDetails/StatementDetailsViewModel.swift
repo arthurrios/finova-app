@@ -48,6 +48,7 @@ final class StatementDetailsViewModel {
         transactions.sort { $0.date > $1.date }
         let settled = DBHelper.shared.settledInstallmentIds()
         earlyPaidIds = Set(transactions.compactMap { $0.id }.filter(settled.contains))
+        carriedCredit = CreditCardService().carriedCredit(intoStatementId: stmtId)
         delegate?.didLoadTransactions(transactions)
     }
 
@@ -58,14 +59,21 @@ final class StatementDetailsViewModel {
     /// money is charged on the early-payment debit instead.
     private(set) var earlyPaidIds: Set<Int> = []
 
+    /// Credit left over from the card's earlier statements: zero, or negative.
+    private(set) var carriedCredit = 0
+
     var statementTotal: Int {
         // Signed by type, mirroring `DBHelper.signedAmount`: a credit on the card (a refund, a
         // chargeback, or the estorno from a cancelled installment purchase) reduces what this
         // invoice charges rather than adding to it. Installments paid ahead drop out entirely —
         // that money is charged on the early-payment debit instead.
-        transactions
+        let own = transactions
             .filter { !($0.id.map(earlyPaidIds.contains) ?? false) }
             .reduce(0) { $1.type == .income ? $0 - $1.amount : $0 + $1.amount }
+        // What the invoice charges, so the same number as its dashboard row and its payment
+        // screen: credit carried from earlier statements lowers it, and a credit larger than the
+        // statement carries on to the next one rather than showing here as a negative total.
+        return max(0, own + carriedCredit)
     }
 
     func isEarlyPaid(_ transaction: Transaction) -> Bool {
@@ -74,7 +82,10 @@ final class StatementDetailsViewModel {
 
     var periodText: String {
         let formatter = DateFormatter.fullDateFormatter
-        let startStr = formatter.string(from: previousClosingDate())
+        // The cycle starts the day AFTER the previous closing: a purchase made on the closing day
+        // belongs to the statement closing that day (`CreditCardService.calculateClosingDate`).
+        let start = Calendar.current.date(byAdding: .day, value: 1, to: previousClosingDate())!
+        let startStr = formatter.string(from: start)
         let endStr = formatter.string(from: statement.closingDate)
         return "\(startStr) — \(endStr)"
     }

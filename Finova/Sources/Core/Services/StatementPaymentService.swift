@@ -69,11 +69,15 @@ final class StatementPaymentService {
     /// the number the invoice shows cannot drift. Credits already recorded against the statement —
     /// refunds, earlier payments — are subtracted by `signedAmount`, which is what makes a second
     /// partial payment see the reduced balance rather than the original one.
+    ///
+    /// Credit left over from the card's earlier statements counts too, as on the statement's
+    /// dashboard row: a statement that credit already covers owes nothing, and paying it would pay
+    /// the same money twice.
     func remainingBalance(statementId: Int) -> Int {
         guard let total = try? db.getTransactionSumForStatement(statementId: statementId) else {
             return 0
         }
-        return max(0, total)
+        return max(0, total + creditCardService.carriedCredit(intoStatementId: statementId))
     }
 
     // MARK: - Paying

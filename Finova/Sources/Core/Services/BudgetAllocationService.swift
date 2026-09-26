@@ -34,6 +34,20 @@ final class BudgetAllocationService {
 
     // MARK: - Create
 
+    /// Same-category allocations a new recurring series starting at `monthAnchor` would run into:
+    /// every later month when the series has no end, only the months through `recurrenceEndMonth`
+    /// when it has one. A month the series never reaches is no conflict, and "Overwrite" must not
+    /// delete it to make room.
+    static func recurringConflicts(
+        category: TransactionCategory, from monthAnchor: Int, through recurrenceEndMonth: Int?,
+        in allocations: [BudgetAllocation]
+    ) -> [BudgetAllocation] {
+        allocations.filter { allocation in
+            allocation.category.key == category.key && allocation.monthDate > monthAnchor
+                && recurrenceEndMonth.map { allocation.monthDate <= $0 } ?? true
+        }
+    }
+
     /// Creates a new budget allocation for a category in a given month.
     /// - Parameters:
     ///   - category: The transaction category to allocate budget for

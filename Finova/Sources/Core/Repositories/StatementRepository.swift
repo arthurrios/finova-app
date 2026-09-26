@@ -63,6 +63,11 @@ class StatementRepository {
         }
     }
 
+    func fetchCardId(forStatementId statementId: Int) -> Int? {
+        db.fetchSingleInt(
+            "SELECT credit_card_id FROM CreditCardStatements WHERE id = ?;", intBinding: statementId)
+    }
+
     func findStatement(creditCardId: Int, closingDate: Date) -> Int? {
         do {
             return try db.findStatement(

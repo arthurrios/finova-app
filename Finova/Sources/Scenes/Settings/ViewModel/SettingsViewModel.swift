@@ -305,14 +305,20 @@ final class SettingsViewModel {
 
   // MARK: - Account Deletion
 
+  /// Deletes the signed-in Firebase account. Replaceable so the order in `deleteAccount` can be
+  /// tested without a live Firebase session.
+  var deleteAuthAccount: (@escaping (Error?) -> Void) -> Void = { completion in
+    Auth.auth().currentUser?.delete(completion: completion)
+  }
+
   func deleteAccount() {
     delegate?.shouldShowLoading(true, message: "settings.delete.account.processing".localized)
 
-    // Step 1: Clear only current user's data (preserves other users' data)
-    clearCurrentUserDataForDeletion()
-
-    // Step 2: Delete Firebase user
-    Auth.auth().currentUser?.delete { [weak self] error in
+    // The account goes first; this device's copy of its data only once that has worked (see
+    // `handleSuccessfulAccountDeletion`). Clearing it up front meant any refusal (a
+    // `requiresRecentLogin`, which is common, or no network) left the account in place with its
+    // data already gone. Cancelling the re-authentication prompt did the same.
+    deleteAuthAccount { [weak self] error in
       DispatchQueue.main.async {
         self?.delegate?.shouldShowLoading(false, message: nil)
 
@@ -354,6 +360,10 @@ final class SettingsViewModel {
   }
 
   private func handleSuccessfulAccountDeletion() {
+    // Clear only current user's data (preserves other users' data). Before signing out, since it
+    // finds the data by the signed-in user.
+    clearCurrentUserDataForDeletion()
+
     // Sign out from authentication systems
     AuthenticationManager.shared.signOut()
 
