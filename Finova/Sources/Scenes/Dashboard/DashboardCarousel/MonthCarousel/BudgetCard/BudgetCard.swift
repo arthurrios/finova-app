@@ -828,8 +828,16 @@ final class BudgetCard: UIView {
     private func shortMonthDayString(day: Int) -> String {
         let formatter = DateFormatter()
         formatter.locale = .autoupdatingCurrent
+        let monthStart = Date.fromMonthAnchor(currentMonthAnchor)
+        // English reads "Sep 30th". Other languages put the day where they put it ("30 de set.")
+        // instead of an English-ordered "set. 30".
+        guard Locale.current.language.languageCode?.identifier == "en" else {
+            formatter.setLocalizedDateFormatFromTemplate("MMMd")
+            let date = Calendar.current.date(byAdding: .day, value: day - 1, to: monthStart) ?? monthStart
+            return formatter.string(from: date)
+        }
         formatter.setLocalizedDateFormatFromTemplate("MMM")
-        let month = formatter.string(from: Date.fromMonthAnchor(currentMonthAnchor))
+        let month = formatter.string(from: monthStart)
         return "\(month) \(day.localizedDayOfMonth)"
     }
 
