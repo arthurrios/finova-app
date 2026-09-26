@@ -2,6 +2,7 @@ package com.arthurrios.finova.ui.notifications
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -66,7 +67,11 @@ import java.time.format.FormatStyle
  * a dot until the screen is left; swipe left deletes one, Clear All empties the list.
  */
 @Composable
-fun NotificationHistoryScreen(store: NotificationHistoryStore, onBack: () -> Unit) {
+fun NotificationHistoryScreen(
+    store: NotificationHistoryStore,
+    onBack: () -> Unit,
+    onOpen: (com.arthurrios.finova.domain.notifications.NotificationTarget) -> Unit = {},
+) {
     val items by store.items.collectAsStateWithLifecycle()
     var confirmClear by remember { mutableStateOf(false) }
     // Seen once the list has been shown; marked on the way out so the dots are visible first.
@@ -94,7 +99,17 @@ fun NotificationHistoryScreen(store: NotificationHistoryStore, onBack: () -> Uni
                 verticalArrangement = Arrangement.spacedBy(Spacing.S2),
                 modifier = Modifier.fillMaxSize().navigationBarsPadding(),
             ) {
-                items(items, key = { it.id }) { item -> HistoryRow(item, onDelete = { store.delete(item.id) }) }
+                items(items, key = { it.id }) { item ->
+                    HistoryRow(
+                        item,
+                        // Tapping reads it and opens what it is about, as on iOS.
+                        onClick = {
+                            store.markRead(item.id)
+                            com.arthurrios.finova.domain.notifications.NotificationTarget.decode(item.target)?.let(onOpen)
+                        },
+                        onDelete = { store.delete(item.id) },
+                    )
+                }
             }
         }
     }
@@ -115,7 +130,7 @@ fun NotificationHistoryScreen(store: NotificationHistoryStore, onBack: () -> Uni
 }
 
 @Composable
-private fun HistoryRow(item: NotificationHistoryItem, onDelete: () -> Unit) {
+private fun HistoryRow(item: NotificationHistoryItem, onClick: () -> Unit, onDelete: () -> Unit) {
     @Suppress("DEPRECATION")
     val state = rememberSwipeToDismissBoxState(confirmValueChange = { if (it == SwipeToDismissBoxValue.EndToStart) onDelete(); false })
     val shape = RoundedCornerShape(CornerRadius.Large)
@@ -123,7 +138,8 @@ private fun HistoryRow(item: NotificationHistoryItem, onDelete: () -> Unit) {
         SwipeToDismissBox(state = state, enableDismissFromStartToEnd = false, backgroundContent = { DeleteBackground() }) {
             Row(
                 verticalAlignment = Alignment.Top,
-                modifier = Modifier.fillMaxWidth().background(FinovaColors.Gray100).border(1.dp, FinovaColors.Gray300, shape).padding(Spacing.S4),
+                modifier = Modifier.fillMaxWidth().background(FinovaColors.Gray100).border(1.dp, FinovaColors.Gray300, shape)
+                    .clickable(onClick = onClick).padding(Spacing.S4),
             ) {
                 Box(Modifier.size(32.dp).clip(CircleShape).background(FinovaColors.LowMagenta), contentAlignment = Alignment.Center) {
                     Icon(item.icon, contentDescription = null, tint = FinovaColors.MainMagenta, modifier = Modifier.size(18.dp))

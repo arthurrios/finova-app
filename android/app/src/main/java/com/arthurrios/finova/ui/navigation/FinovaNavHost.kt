@@ -36,6 +36,8 @@ import com.arthurrios.finova.ui.details.TransactionDetailsScreen
 import com.arthurrios.finova.ui.details.TransactionDetailsViewModel
 import com.arthurrios.finova.ui.budgets.BudgetsViewModel
 import androidx.navigation.compose.composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.arthurrios.finova.R
 import com.arthurrios.finova.auth.AuthRepository
@@ -94,9 +96,22 @@ object Routes {
 }
 
 @Composable
-fun FinovaNavHost(startRoute: String? = null) {
+fun FinovaNavHost(
+    startRoute: String? = null,
+    notificationTarget: String? = null,
+    onNotificationTargetOpened: () -> Unit = {},
+) {
     val navController = rememberNavController()
     val appContext = LocalContext.current.applicationContext
+    val currentEntry by navController.currentBackStackEntryAsState()
+    // A tapped notification opens its transaction or statement, on top of the dashboard, once the
+    // user is past the splash (and its sign-in and biometric checks), as iOS does.
+    LaunchedEffect(notificationTarget, currentEntry) {
+        val target = com.arthurrios.finova.domain.notifications.NotificationTarget.decode(notificationTarget) ?: return@LaunchedEffect
+        if (runCatching { navController.getBackStackEntry(Routes.DASHBOARD) }.isFailure) return@LaunchedEffect
+        navController.navigate(target.route())
+        onNotificationTargetOpened()
+    }
 
     NavHost(navController = navController, startDestination = startRoute ?: Routes.SPLASH) {
         composable(
@@ -382,7 +397,11 @@ fun FinovaNavHost(startRoute: String? = null) {
             com.arthurrios.finova.ui.notifications.NotificationSettingsScreen(appContext.appContainer.notificationSettings, onBack = { navController.popBackStack() })
         }
         composable(Routes.NOTIFICATIONS) {
-            com.arthurrios.finova.ui.notifications.NotificationHistoryScreen(appContext.appContainer.notificationHistory(), onBack = { navController.popBackStack() })
+            com.arthurrios.finova.ui.notifications.NotificationHistoryScreen(
+                appContext.appContainer.notificationHistory(),
+                onBack = { navController.popBackStack() },
+                onOpen = { navController.navigate(it.route()) },
+            )
         }
         composable(Routes.CARDS) {
             val viewModel: CreditCardsViewModel = viewModel(
@@ -426,4 +445,9 @@ fun FinovaNavHost(startRoute: String? = null) {
 private fun tagsViewModel(): com.arthurrios.finova.ui.tags.TagsViewModel {
     val appContext = LocalContext.current.applicationContext
     return viewModel(factory = viewModelFactory { initializer { com.arthurrios.finova.ui.tags.TagsViewModel(appContext.appContainer.tagRepository()) } })
+}
+
+private fun com.arthurrios.finova.domain.notifications.NotificationTarget.route(): String = when (this) {
+    is com.arthurrios.finova.domain.notifications.NotificationTarget.Transaction -> Routes.details(id)
+    is com.arthurrios.finova.domain.notifications.NotificationTarget.Statement -> Routes.statement(id)
 }

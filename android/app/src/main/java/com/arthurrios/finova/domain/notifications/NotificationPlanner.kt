@@ -21,15 +21,49 @@ data class NotificationPreferences(
     val cardStatements: Boolean = true,
 )
 
+/** Where tapping a notification (or its history row) goes. */
+sealed interface NotificationTarget {
+    data class Transaction(val id: Long) : NotificationTarget
+    data class Statement(val id: Long) : NotificationTarget
+
+    /** "transaction:12" / "statement:3", for intents and the stored history. */
+    fun encode(): String = when (this) {
+        is Transaction -> "transaction:$id"
+        is Statement -> "statement:$id"
+    }
+
+    companion object {
+        fun decode(value: String?): NotificationTarget? {
+            val (kind, id) = value?.split(":")?.takeIf { it.size == 2 } ?: return null
+            val number = id.toLongOrNull() ?: return null
+            return when (kind) {
+                "transaction" -> Transaction(number)
+                "statement" -> Statement(number)
+                else -> null
+            }
+        }
+    }
+}
+
 /** One reminder to send today, with what its text needs. */
 sealed interface PlannedNotification {
     /** Stable per event, so a second run on the same day never sends it twice. */
     val id: String
+    /** What tapping it opens, as iOS does; null opens the dashboard. */
+    val target: NotificationTarget? get() = null
 
-    data class TransactionDue(override val id: String, val title: String, val amount: Long, val type: TransactionType) : PlannedNotification
-    data class SeriesMonth(override val id: String, val kind: SeriesKind, val count: Int, val total: Long) : PlannedNotification
-    data class StatementClosed(override val id: String, val cardName: String, val amount: Long) : PlannedNotification
-    data class StatementDue(override val id: String, val cardName: String, val amount: Long) : PlannedNotification
+    data class TransactionDue(override val id: String, val title: String, val amount: Long, val type: TransactionType, val transactionId: Long) : PlannedNotification {
+        override val target get() = NotificationTarget.Transaction(transactionId)
+    }
+    data class SeriesMonth(override val id: String, val kind: SeriesKind, val count: Int, val total: Long, val firstTransactionId: Long) : PlannedNotification {
+        override val target get() = NotificationTarget.Transaction(firstTransactionId)
+    }
+    data class StatementClosed(override val id: String, val cardName: String, val amount: Long, val statementId: Long) : PlannedNotification {
+        override val target get() = NotificationTarget.Statement(statementId)
+    }
+    data class StatementDue(override val id: String, val cardName: String, val amount: Long, val statementId: Long) : PlannedNotification {
+        override val target get() = NotificationTarget.Statement(statementId)
+    }
     data class NegativeBalanceTomorrow(override val id: String, val day: LocalDate) : PlannedNotification
 }
 
@@ -56,7 +90,7 @@ object NotificationPlanner {
         if (prefs.transactions) {
             // One per transaction on its day (iOS "Upcoming debit/credit" at 8 AM).
             stored.filter { it.date == today && !it.isSettledEarly }.sortedBy { it.id }.forEach {
-                planned += PlannedNotification.TransactionDue("transaction_${it.id}_$today", it.title, it.amount, it.type)
+                planned += PlannedNotification.TransactionDue("transaction_${it.id}_$today", it.title, it.amount, it.type, it.id)
             }
         }
 
@@ -65,9 +99,10 @@ object NotificationPlanner {
         for (kind in listOf(SeriesKind.Installments, SeriesKind.Recurring)) {
             val month = YearMonth.from(today)
             val inMonth = stored.filter { SeriesRules.kindOf(it) == kind && YearMonth.from(it.date) == month && !it.isSettledEarly }
-            if (inMonth.isNotEmpty() && inMonth.minOf { it.date } == today) {
+            val first = inMonth.minWithOrNull(compareBy<Transaction> { it.date }.thenBy { it.id })
+            if (first != null && first.date == today) {
                 val prefix = if (kind == SeriesKind.Installments) "installment_month_" else "recurring_month_"
-                planned += PlannedNotification.SeriesMonth("$prefix$month", kind, inMonth.size, inMonth.sumOf { it.amount })
+                planned += PlannedNotification.SeriesMonth("$prefix$month", kind, inMonth.size, inMonth.sumOf { it.amount }, first.id)
             }
         }
 
@@ -79,8 +114,8 @@ object NotificationPlanner {
                 val amount = charges[statement.id] ?: 0
                 if (amount <= 0) return@forEach
                 val card = cards.firstOrNull { it.id == statement.creditCardId }?.name ?: return@forEach
-                if (statement.closingDate == today) planned += PlannedNotification.StatementClosed("statement_closed_${statement.id}", card, amount)
-                if (statement.dueDate == today) planned += PlannedNotification.StatementDue("statement_pay_${statement.id}", card, amount)
+                if (statement.closingDate == today) planned += PlannedNotification.StatementClosed("statement_closed_${statement.id}", card, amount, statement.id)
+                if (statement.dueDate == today) planned += PlannedNotification.StatementDue("statement_pay_${statement.id}", card, amount, statement.id)
             }
         }
 

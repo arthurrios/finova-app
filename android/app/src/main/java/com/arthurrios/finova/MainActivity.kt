@@ -14,6 +14,9 @@ import com.arthurrios.finova.ui.theme.FinovaTheme
 
 /** A FragmentActivity because BiometricPrompt needs one. */
 class MainActivity : FragmentActivity() {
+    /** What a tapped notification asked to open; the nav host opens it once signed in. */
+    private val notificationTarget = androidx.compose.runtime.mutableStateOf<String?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         // Drop the system launch screen the moment the app draws, with no fade: the Compose
         // splash shows the same picture, and a fade would dim the logo for a moment.
@@ -29,11 +32,30 @@ class MainActivity : FragmentActivity() {
                 androidx.work.OneTimeWorkRequestBuilder<com.arthurrios.finova.notifications.DailyNotificationWorker>().build(),
             )
         }
+        if (savedInstanceState == null) readNotificationTap(intent)
         setContent {
             FinovaTheme {
-                FinovaNavHost(startRoute = debugStartRoute())
+                FinovaNavHost(
+                    startRoute = debugStartRoute(),
+                    notificationTarget = notificationTarget.value,
+                    onNotificationTargetOpened = { notificationTarget.value = null },
+                )
             }
         }
+    }
+
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        readNotificationTap(intent)
+    }
+
+    /** A tapped notification is read, and its target (a transaction or statement) opens. */
+    private fun readNotificationTap(intent: android.content.Intent) {
+        intent.getStringExtra(com.arthurrios.finova.notifications.FinovaNotifier.EXTRA_NOTIFICATION_ID)?.let {
+            appContainer.notificationHistory().markRead(it)
+        }
+        notificationTarget.value = intent.getStringExtra(com.arthurrios.finova.notifications.FinovaNotifier.EXTRA_TARGET)
     }
 
     /**

@@ -42,6 +42,8 @@ data class NotificationHistoryItem(
     val timeMillis: Long,
     val type: String,
     val isRead: Boolean,
+    /** An encoded NotificationTarget, or null. */
+    val target: String? = null,
 )
 
 /**
@@ -55,14 +57,18 @@ class NotificationHistoryStore(context: Context, val uid: String) {
     val items: StateFlow<List<NotificationHistoryItem>> = state
 
     /** Adds an item; returns false when this id was already recorded (it was sent before). */
-    fun add(id: String, title: String, body: String, type: String, now: Long = System.currentTimeMillis()): Boolean {
+    fun add(id: String, title: String, body: String, type: String, target: String? = null, now: Long = System.currentTimeMillis()): Boolean {
         if (state.value.any { it.id == id }) return false
-        write((listOf(NotificationHistoryItem(id, title, body, now, type, false)) + state.value).take(MAX))
+        write((listOf(NotificationHistoryItem(id, title, body, now, type, false, target)) + state.value).take(MAX))
         return true
     }
 
     fun markAllRead() {
         if (state.value.any { !it.isRead }) write(state.value.map { it.copy(isRead = true) })
+    }
+
+    fun markRead(id: String) {
+        if (state.value.any { it.id == id && !it.isRead }) write(state.value.map { if (it.id == id) it.copy(isRead = true) else it })
     }
 
     fun delete(id: String) = write(state.value.filterNot { it.id == id })
@@ -77,6 +83,7 @@ class NotificationHistoryStore(context: Context, val uid: String) {
                     put(JSONObject().apply {
                         put("id", item.id); put("title", item.title); put("body", item.body)
                         put("time", item.timeMillis); put("type", item.type); put("read", item.isRead)
+                        item.target?.let { put("target", it) }
                     })
                 }
             }.toString())
@@ -87,7 +94,10 @@ class NotificationHistoryStore(context: Context, val uid: String) {
         val array = JSONArray(prefs.getString(key, null) ?: return emptyList())
         (0 until array.length()).map { i ->
             val o = array.getJSONObject(i)
-            NotificationHistoryItem(o.getString("id"), o.getString("title"), o.getString("body"), o.getLong("time"), o.optString("type"), o.optBoolean("read"))
+            NotificationHistoryItem(
+                o.getString("id"), o.getString("title"), o.getString("body"), o.getLong("time"), o.optString("type"), o.optBoolean("read"),
+                o.optString("target").takeIf { it.isNotEmpty() },
+            )
         }
     }.getOrDefault(emptyList())
 

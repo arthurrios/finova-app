@@ -31,14 +31,14 @@ class FinovaNotifier(private val context: Context) {
         planned.forEach { item ->
             val (title, body, type) = text(item, currencyCode)
             // Recorded first: an id already in the history was sent on an earlier run today.
-            if (!history.add(item.id, title, body, type)) return@forEach
+            if (!history.add(item.id, title, body, type, item.target?.encode())) return@forEach
             if (!allowed) return@forEach
             val notification = NotificationCompat.Builder(context, CHANNEL_ID)
                 .setSmallIcon(R.drawable.ic_bell)
                 .setContentTitle(title)
                 .setContentText(body)
                 .setStyle(NotificationCompat.BigTextStyle().bigText(body))
-                .setContentIntent(openApp())
+                .setContentIntent(openApp(item.id, item.target?.encode()))
                 .setAutoCancel(true)
                 .build()
             @Suppress("MissingPermission")
@@ -78,9 +78,13 @@ class FinovaNotifier(private val context: Context) {
         }
     }
 
-    private fun openApp(): PendingIntent = PendingIntent.getActivity(
-        context, 0,
-        Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
+    /** Opens the app on what the notification is about, and marks it read in the history. */
+    private fun openApp(notificationId: String, target: String?): PendingIntent = PendingIntent.getActivity(
+        context, notificationId.hashCode(),
+        Intent(context, MainActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            .putExtra(EXTRA_NOTIFICATION_ID, notificationId)
+            .putExtra(EXTRA_TARGET, target),
         PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
     )
 
@@ -94,5 +98,9 @@ class FinovaNotifier(private val context: Context) {
         }
     }
 
-    private companion object { const val CHANNEL_ID = "finova_reminders" }
+    companion object {
+        private const val CHANNEL_ID = "finova_reminders"
+        const val EXTRA_NOTIFICATION_ID = "finova.notification.id"
+        const val EXTRA_TARGET = "finova.notification.target"
+    }
 }
