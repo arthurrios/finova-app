@@ -135,4 +135,18 @@ final class DeletedCardStatementTests: XCTestCase {
         XCTAssertGreaterThan(target.closingDate, asOf)
         XCTAssertEqual(target.closingDate, date(2030, 7, 10))
     }
+
+    func testTheNextOpenStatementsDueDateIsReadWithoutCreatingIt() throws {
+        // The early payment screen's label read `nextOpenStatement`, which inserted the statement:
+        // opening the screen, or moving its date, left empty statements behind.
+        let card = try makeCard(name: "Label", closingDay: 10, dueDay: 20)
+        let cardId = try XCTUnwrap(card.id)
+        let asOf = date(2030, 6, 15)
+
+        let due = try XCTUnwrap(CreditCardService().nextOpenStatementDueDate(for: card, asOf: asOf))
+
+        XCTAssertTrue(StatementRepository().fetchStatements(forCardId: cardId).isEmpty, "Reading must not write")
+        let created = try XCTUnwrap(CreditCardService().nextOpenStatement(for: card, userId: uid, asOf: asOf))
+        XCTAssertEqual(due, created.dueDate, "The label names the statement the payment will land on")
+    }
 }
