@@ -62,6 +62,13 @@ struct TransactionFilters: Equatable {
     var hasDayFilter: Bool {
         return !useGlobalFilter && startDay != nil && endDay != nil && !(startDay == 1 && endDay == totalDaysInMonth)
     }
+
+    /// The filters the modal opens with. The global copy never carries a day range, so opening
+    /// the modal with it showed a Custom range as the whole month, and the next Apply dropped the
+    /// range. The opening cell still holds its range; use it when it has one.
+    static func toEdit(cellFilters: TransactionFilters, global: TransactionFilters) -> TransactionFilters {
+        return cellFilters.hasDayFilter ? cellFilters : global
+    }
 }
 
 class MonthCarouselCell: UICollectionViewCell {
