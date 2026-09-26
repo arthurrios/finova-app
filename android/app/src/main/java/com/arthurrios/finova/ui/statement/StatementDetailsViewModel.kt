@@ -34,10 +34,9 @@ data class StatementDetailsUiState(
     val valuesHidden: Boolean = false,
     /** True once the statement is gone (its last row was deleted). */
     val gone: Boolean = false,
-) {
-    /** The day after the previous cycle closed, through this closing date. */
-    val periodStart: LocalDate? get() = statement?.closingDate?.minusMonths(1)?.plusDays(1)
-}
+    /** The day after the previous cycle closed (see StatementPeriod.start). */
+    val periodStart: LocalDate? = null,
+)
 
 /** Port of StatementDetailsViewModel.swift. */
 class StatementDetailsViewModel(
@@ -67,6 +66,7 @@ class StatementDetailsViewModel(
                 total = charge?.charged ?: 0,
                 carriedIn = charge?.carriedIn ?: 0,
                 carriedOut = charge?.carriedOut ?: 0,
+                periodStart = com.arthurrios.finova.domain.card.StatementPeriod.start(statement, statements, card),
                 currencyCode = settings.currencyCode,
                 valuesHidden = hidden,
             )
