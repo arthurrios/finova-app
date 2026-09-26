@@ -1,6 +1,7 @@
 package com.arthurrios.finova.ui.dashboard
 
 import androidx.annotation.DrawableRes
+import com.arthurrios.finova.domain.series.SeriesKind
 import java.time.LocalDate
 import java.time.YearMonth
 
@@ -51,4 +52,6 @@ data class TransactionRowUi(
     val statementTransactionCount: Int? = null,
     /** An installment paid ahead of time: shown dimmed, not counted in the month. */
     val isSettledEarly: Boolean = false,
+    /** Decides which delete question the row gets. */
+    val seriesKind: SeriesKind = SeriesKind.Simple,
 )

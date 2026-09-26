@@ -36,6 +36,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.arthurrios.finova.R
+import com.arthurrios.finova.domain.series.SeriesDeleteOption
 import com.arthurrios.finova.ui.theme.FinovaColors
 import com.arthurrios.finova.ui.theme.FinovaTheme
 import com.arthurrios.finova.ui.theme.Spacing
@@ -55,7 +56,7 @@ interface DashboardActions {
     fun onDefineBudget(page: MonthPageUi) {}
     fun onFilter(page: MonthPageUi) {}
     fun onTransaction(row: TransactionRowUi) {}
-    fun onDeleteTransaction(row: TransactionRowUi) {}
+    fun onDeleteTransaction(row: TransactionRowUi, option: SeriesDeleteOption = SeriesDeleteOption.ThisOnly) {}
 }
 
 /** Port of DashboardView / DashboardViewController layout on iOS. */
@@ -112,19 +113,13 @@ fun DashboardScreen(state: DashboardUiState, actions: DashboardActions) {
     }
 
     pendingDelete?.let { row ->
-        AlertDialog(
-            onDismissRequest = { pendingDelete = null },
-            title = { Text(stringResource(R.string.transaction_delete_title)) },
-            text = { Text(stringResource(R.string.delete_confirmation)) },
-            confirmButton = {
-                TextButton(onClick = {
-                    pendingDelete = null
-                    actions.onDeleteTransaction(row)
-                }) { Text(stringResource(R.string.alert_delete), color = FinovaColors.MainRed) }
+        DeleteTransactionDialog(
+            kind = row.seriesKind,
+            onDelete = { option ->
+                pendingDelete = null
+                actions.onDeleteTransaction(row, option)
             },
-            dismissButton = {
-                TextButton(onClick = { pendingDelete = null }) { Text(stringResource(R.string.alert_cancel)) }
-            },
+            onDismiss = { pendingDelete = null },
         )
     }
 }

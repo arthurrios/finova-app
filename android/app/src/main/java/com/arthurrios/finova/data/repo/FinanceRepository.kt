@@ -1,20 +1,39 @@
 package com.arthurrios.finova.data.repo
 
+import androidx.room.withTransaction
 import com.arthurrios.finova.data.db.FinovaDatabase
+import com.arthurrios.finova.data.db.RecurringExclusionEntity
 import com.arthurrios.finova.data.db.UserSettingsEntity
 import com.arthurrios.finova.domain.model.Budget
 import com.arthurrios.finova.domain.model.Transaction
+import com.arthurrios.finova.domain.series.SeriesDeleteOption
+import com.arthurrios.finova.domain.series.SeriesExclusion
+import com.arthurrios.finova.domain.series.SeriesRules
+import com.arthurrios.finova.domain.series.TransactionDraft
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
+import java.time.LocalDate
 
 /**
- * The signed-in user's money data. Port of the parts of TransactionRepository, BudgetRepository
- * and the balance offset in UIDUserDefaultsManager that the dashboard uses.
+ * The signed-in user's money data. Port of the parts of TransactionRepository, BudgetRepository,
+ * RecurringTransactionManager and the balance offset in UIDUserDefaultsManager that the
+ * dashboard and the add sheet use.
  */
 class FinanceRepository(private val db: FinovaDatabase) {
 
-    /** Every stored row, series parents included (iOS `fetchAllTransactions`). */
-    val transactions: Flow<List<Transaction>> = db.transactions().observeAll().map { rows -> rows.map { it.toDomain() } }
+    private val exclusions: Flow<Set<SeriesExclusion>> =
+        db.recurringExclusions().observeAll().map { rows -> rows.map { SeriesExclusion(it.parentId, it.seriesPeriod) }.toSet() }
+
+    /**
+     * Every stored row, series parents included (iOS `fetchAllTransactions`), minus a recurring
+     * parent whose own month the user deleted: that row stays in the database so the series keeps
+     * generating, but it no longer shows or counts.
+     */
+    val transactions: Flow<List<Transaction>> =
+        combine(db.transactions().observeAll(), exclusions) { rows, excluded ->
+            rows.map { it.toDomain() }.filterNot { SeriesExclusion(it.id, it.slot) in excluded }
+        }
 
     val budgets: Flow<List<Budget>> = db.budgets().observeAll().map { rows -> rows.map { it.toDomain() } }
 
@@ -24,7 +43,44 @@ class FinanceRepository(private val db: FinovaDatabase) {
 
     suspend fun addAll(transactions: List<Transaction>): List<Long> = db.transactions().insertAll(transactions.map { it.toEntity() })
 
-    suspend fun delete(ids: List<Long>) = db.transactions().deleteByIds(ids)
+    /** A recurring series: the parent, linked to itself, and the months ahead. */
+    suspend fun addRecurring(draft: TransactionDraft, today: LocalDate = LocalDate.now()): Long {
+        val id = db.withTransaction {
+            val id = db.transactions().insert(SeriesRules.recurringParent(draft).toEntity())
+            db.transactions().setParent(id, id)
+            id
+        }
+        materializeRecurring(today)
+        return id
+    }
+
+    /** An installment purchase: the hidden parent and every installment, created together. */
+    suspend fun addInstallments(draft: TransactionDraft, count: Int): Long = db.withTransaction {
+        val (parent, children) = SeriesRules.installmentSeries(draft, count)
+        val parentId = db.transactions().insert(parent.toEntity())
+        db.transactions().insertAll(children.map { it.copy(parentTransactionId = parentId).toEntity() })
+        parentId
+    }
+
+    /** Fills in recurring months missing from the horizon. iOS runs this after every dashboard load. */
+    suspend fun materializeRecurring(today: LocalDate = LocalDate.now()): Int = db.withTransaction {
+        val rows = db.transactions().getAll().map { it.toDomain() }
+        val excluded = db.recurringExclusions().getAll().map { SeriesExclusion(it.parentId, it.seriesPeriod) }.toSet()
+        val missing = SeriesRules.missingOccurrences(rows, excluded, today)
+        if (missing.isNotEmpty()) db.transactions().insertAll(missing.map { it.toEntity() })
+        missing.size
+    }
+
+    /** Deletes a row, or part of its series, as [option] says. */
+    suspend fun delete(transactionId: Long, option: SeriesDeleteOption) = db.withTransaction {
+        val rows = db.transactions().getAll().map { it.toDomain() }
+        val target = rows.firstOrNull { it.id == transactionId } ?: return@withTransaction
+        val plan = SeriesRules.deletion(target, option, rows)
+        if (plan.clearExclusionsFor.isNotEmpty()) db.recurringExclusions().deleteForParents(plan.clearExclusionsFor.toList())
+        plan.addExclusions.forEach { db.recurringExclusions().add(RecurringExclusionEntity(it.parentId, it.slot)) }
+        if (plan.stopRepeating.isNotEmpty()) db.transactions().setRecurring(plan.stopRepeating.toList(), false)
+        if (plan.deleteIds.isNotEmpty()) db.transactions().deleteByIds(plan.deleteIds.toList())
+    }
 
     suspend fun setBudget(budget: Budget) = db.budgets().upsert(budget.toEntity())
 
