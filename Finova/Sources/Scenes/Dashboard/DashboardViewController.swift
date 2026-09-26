@@ -2987,7 +2987,9 @@ extension DashboardViewController: MonthCarouselCellDelegate {
             monthDate = Date()
         }
 
-        let filterModal = TransactionFilterModalViewController(currentFilters: globalFilters, monthDate: monthDate)
+        let filterModal = TransactionFilterModalViewController(
+            currentFilters: TransactionFilters.toEdit(cellFilters: cell.currentFilters, global: globalFilters),
+            monthDate: monthDate)
         filterModal.delegate = self
         present(filterModal, animated: false)
     }
