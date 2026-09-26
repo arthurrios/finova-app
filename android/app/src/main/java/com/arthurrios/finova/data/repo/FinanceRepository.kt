@@ -52,7 +52,7 @@ class FinanceRepository(
         db.statements().observeAll().map { rows -> rows.map { it.toModel() } }
 
     /** Every card, deleted ones too: their statements still charge the balance. */
-    private val allCards: Flow<List<CreditCard>> = db.creditCards().observeAll().map { rows -> rows.map { it.toModel() } }
+    val allCards: Flow<List<CreditCard>> = db.creditCards().observeAll().map { rows -> rows.map { it.toModel() } }
 
     /**
      * What the ledger and the dashboard list read: the stored rows plus one synthetic row per card
@@ -232,6 +232,21 @@ class FinanceRepository(
                 }
             }
         }
+    }
+
+    /**
+     * Moves a card purchase onto the statement that closes in [month] (created if needed), at the
+     * user's request. Flagged as moved by hand so re-routing never undoes it; its date and budget
+     * month stay, since the purchase was still made when it was made (iOS
+     * `moveTransactionToStatement`).
+     */
+    suspend fun moveToStatement(rowId: Long, month: java.time.YearMonth) = db.withTransaction {
+        val row = db.transactions().getById(rowId)?.toDomain() ?: return@withTransaction
+        val card = row.creditCardId?.let { db.creditCards().getById(it)?.toModel() } ?: return@withTransaction
+        val known = db.statements().forCard(card.id).map { it.toModel() }.toMutableList()
+        val target = stored(StatementBook.route(known, card, month.atDay(1), defaultRule()), known)
+        db.transactions().update(row.copy(statementId = target.id, isStatementOverridden = true).toEntity())
+        settleCardRows()
     }
 
     /**

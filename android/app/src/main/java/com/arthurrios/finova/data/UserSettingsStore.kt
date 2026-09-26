@@ -45,6 +45,11 @@ class UserSettingsStore(context: Context) {
         return prefs.getString(nameKey(uid), null)
     }
 
+    fun currentUserEmail(): String? {
+        val uid = prefs.getString(KEY_CURRENT_UID, null) ?: return null
+        return prefs.getString(emailKey(uid), null)
+    }
+
     /** Saves the signed-in user. A returning user keeps their saved name unless it was "User". */
     fun saveSignedInUser(user: AuthUser) {
         val savedName = prefs.getString(nameKey(user.firebaseUid), null)
@@ -60,6 +65,12 @@ class UserSettingsStore(context: Context) {
     /** Whether this user chose to stay signed in. A user with no record yet counts as saved. */
     fun isUserSaved(uid: String): Boolean = prefs.getBoolean(savedKey(uid), true)
 
+    /** Removes everything this device keeps about an account (account deletion, "clear data"). */
+    fun forgetUser(uid: String) = prefs.edit {
+        remove(nameKey(uid)); remove(emailKey(uid)); remove(savedKey(uid)); remove(lastSignInKey(uid))
+        if (prefs.getString(KEY_CURRENT_UID, null) == uid) remove(KEY_CURRENT_UID)
+    }
+
     /** Forgets who is signed in on this device (their per-user settings stay). */
     fun clearCurrentUser() = prefs.edit { remove(KEY_CURRENT_UID) }
 
@@ -73,7 +84,7 @@ class UserSettingsStore(context: Context) {
     private fun savedKey(uid: String) = "user_${uid}_is_saved"
     private fun lastSignInKey(uid: String) = "user_${uid}_last_sign_in"
 
-    private companion object {
+    companion object {
         const val KEY_CURRENT_UID = "current_user_uid"
         const val KEY_BIOMETRIC_ENABLED = "biometric_enabled"
         const val KEY_HIDE_VALUES = "hide_values"

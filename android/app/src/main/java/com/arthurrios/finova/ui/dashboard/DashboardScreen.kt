@@ -75,6 +75,8 @@ fun DashboardScreen(
     onOpenTransaction: (Long) -> Unit = {},
     onOpenStatement: (Long) -> Unit = {},
     onCreateCard: () -> Unit = {},
+    avatar: androidx.compose.ui.graphics.ImageBitmap? = null,
+    onOpenProfile: () -> Unit = {},
 ) {
     val pagerState = rememberPagerState(initialPage = state.selectedMonth) { state.months.size }
     val scope = rememberCoroutineScope()
@@ -109,8 +111,9 @@ fun DashboardScreen(
             DashboardHeader(
                 userName = state.userName,
                 unreadNotifications = state.unreadNotifications,
-                onProfile = actions::onProfile,
+                onProfile = onOpenProfile,
                 onNotifications = actions::onNotifications,
+                avatar = avatar,
             )
             if (state.months.isNotEmpty()) {
                 Spacer(Modifier.height(Spacing.S3))

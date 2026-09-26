@@ -42,6 +42,26 @@ class AuthRepository(private val context: Context) {
         FirebaseAuth.getInstance().signOut()
     }
 
+    enum class DeleteResult { Deleted, NeedsRecentLogin, NoAccount, Failed }
+
+    /**
+     * Deletes the Firebase account. Nothing local is touched here: the caller clears local data
+     * only after this says [DeleteResult.Deleted], so a refused deletion loses nothing.
+     */
+    suspend fun deleteAccount(): DeleteResult {
+        if (FirebaseApp.getApps(context).isEmpty()) return DeleteResult.NoAccount
+        val user = FirebaseAuth.getInstance().currentUser ?: return DeleteResult.NoAccount
+        return try {
+            user.delete().await()
+            DeleteResult.Deleted
+        } catch (e: com.google.firebase.auth.FirebaseAuthRecentLoginRequiredException) {
+            DeleteResult.NeedsRecentLogin
+        } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            DeleteResult.Failed
+        }
+    }
+
     suspend fun signInWithEmail(email: String, password: String): AuthUser = wrap {
         auth.signInWithEmailAndPassword(email, password).await().user.toAuthUser()
     }

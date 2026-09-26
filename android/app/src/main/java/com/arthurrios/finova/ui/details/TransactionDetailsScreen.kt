@@ -4,6 +4,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Undo
 import androidx.compose.material.icons.outlined.Cancel
+import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.EventAvailable
 import androidx.compose.ui.graphics.vector.ImageVector
 import com.arthurrios.finova.ui.dashboard.CardBody
@@ -81,6 +82,7 @@ fun TransactionDetailsScreen(
     val failure by viewModel.failure.collectAsStateWithLifecycle()
     var confirmCancel by rememberSaveable { mutableStateOf(false) }
     var confirmUndo by rememberSaveable { mutableStateOf(false) }
+    var movingStatement by rememberSaveable { mutableStateOf(false) }
     val cards by viewModel.cards.collectAsStateWithLifecycle()
     var showEdit by rememberSaveable { mutableStateOf(false) }
     var showDelete by rememberSaveable { mutableStateOf(false) }
@@ -114,6 +116,15 @@ fun TransactionDetailsScreen(
             InfoCard(row, state)
             DetailsCard(row, state)
             if (state.installments.isNotEmpty()) InstallmentsCard(row, state)
+            state.statementDue?.let { due ->
+                ActionRow(
+                    icon = Icons.Outlined.Description,
+                    label = stringResource(R.string.move_statement_row),
+                    value = due.format(DateTimeFormatter.ofPattern("MMMM yyyy", java.util.Locale.getDefault()))
+                        .replaceFirstChar { it.titlecase() },
+                    onClick = { movingStatement = true },
+                )
+            }
             EarlyPaymentAndCancellation(
                 state = state,
                 onPayEarly = onPayEarly,
@@ -160,6 +171,16 @@ fun TransactionDetailsScreen(
         pendingEdit = null
         if (state.kind == SeriesKind.Installments) viewModel.saveInstallments(request) else viewModel.saveRecurring(request, option)
     }, onDismiss = { pendingEdit = null }) }
+    if (movingStatement) {
+        MoveToStatementSheet(
+            options = state.moveOptions,
+            onPick = { month ->
+                movingStatement = false
+                viewModel.moveToStatement(month)
+            },
+            onDismiss = { movingStatement = false },
+        )
+    }
     if (confirmCancel) {
         val title = stringResource(R.string.cancel_transaction_title, state.row?.title.orEmpty())
         AlertDialog(
@@ -431,6 +452,39 @@ private fun CoveredInstallments(title: String, installments: List<Transaction>, 
                         Text(Money.formatMasked(item.amount, state.currencyCode, state.valuesHidden), style = FinovaType.TextSM, color = FinovaColors.Gray500)
                     }
                 }
+            }
+        }
+    }
+}
+
+/**
+ * "Move to Statement": iOS asks with an action sheet of months; this is the Android sheet. Each
+ * month is named by the due date of the statement it means.
+ */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@Composable
+private fun MoveToStatementSheet(
+    options: List<Pair<java.time.YearMonth, java.time.LocalDate>>,
+    onPick: (java.time.YearMonth) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val format = DateTimeFormatter.ofPattern("MMMM yyyy", java.util.Locale.getDefault())
+    androidx.compose.material3.ModalBottomSheet(onDismissRequest = onDismiss, containerColor = FinovaColors.Gray100) {
+        Column(Modifier.navigationBarsPadding().verticalScroll(rememberScrollState()).padding(bottom = Spacing.S4)) {
+            Text(stringResource(R.string.move_statement_title), style = FinovaType.TitleSM, color = FinovaColors.Gray700,
+                modifier = Modifier.padding(horizontal = Spacing.S6))
+            Text(stringResource(R.string.move_statement_message), style = FinovaType.TextSM, color = FinovaColors.Gray500,
+                modifier = Modifier.padding(start = Spacing.S6, end = Spacing.S6, top = Spacing.S1, bottom = Spacing.S3))
+            options.forEach { (month, due) ->
+                Text(
+                    due.format(format).replaceFirstChar { it.titlecase() },
+                    style = FinovaType.TextSM,
+                    color = FinovaColors.Gray700,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onPick(month) }
+                        .padding(horizontal = Spacing.S6, vertical = Spacing.S4),
+                )
             }
         }
     }
