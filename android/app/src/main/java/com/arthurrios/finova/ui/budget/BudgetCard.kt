@@ -88,16 +88,7 @@ fun BudgetCard(
     val monthNames = stringArrayResource(R.array.month_short)
     val summary = page.unallocated
     val hasContent = summary.totalBudget > 0 || page.allocations.isNotEmpty()
-    val projection = page.finalBalance?.let { base ->
-        AllocationBalanceProjection.of(
-            base = base,
-            allocations = page.allocations,
-            unallocatedSpending = summary.usedInUnallocatedCategories,
-            unallocatedHeadroom = summary.unallocated,
-            deferredCardSpending = page.deferredCardSpending,
-            tense = if (page.isPastMonth) AllocationBalanceProjection.Tense.Actual else AllocationBalanceProjection.Tense.Projected,
-        )
-    }
+    val projection = page.projection()
 
     Box(
         modifier = modifier
@@ -363,3 +354,18 @@ private fun CenterLabel(text: String) =
 
 @Composable
 private fun CenterValue(text: String) = Text(text, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = FinovaColors.Gray100, maxLines = 1)
+
+/**
+ * The card's projection, from the month's closing balance. Null when the month has no balance to
+ * project from; then the card hides the block and there is nothing to explain.
+ */
+fun MonthPageUi.projection(): AllocationBalanceProjection? = finalBalance?.let { base ->
+    AllocationBalanceProjection.of(
+        base = base,
+        allocations = allocations,
+        unallocatedSpending = unallocated.usedInUnallocatedCategories,
+        unallocatedHeadroom = unallocated.unallocated,
+        deferredCardSpending = deferredCardSpending,
+        tense = if (isPastMonth) AllocationBalanceProjection.Tense.Actual else AllocationBalanceProjection.Tense.Projected,
+    )
+}

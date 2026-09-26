@@ -45,6 +45,7 @@ class DashboardViewModel(
     // Kept for the day slider, which asks for balances as the user drags.
     private var latestRows: List<Transaction> = emptyList()
     private var latestOffset: Long = 0
+    private var latestAllocations: List<AllocationRow> = emptyList()
 
     private data class Inputs(
         val budgets: List<com.arthurrios.finova.domain.model.Budget>,
@@ -64,6 +65,7 @@ class DashboardViewModel(
         val stored = rows.filterNot { it.isCreditCardStatement }
         latestRows = rows
         latestOffset = offset
+        latestAllocations = allocations
         val day = today()
         val thisMonth = YearMonth.from(day)
         val months = SeriesMonths.carouselMonths(thisMonth)
@@ -161,6 +163,11 @@ class DashboardViewModel(
             if (index >= 0) selectedMonth.value = index
         }
     }
+
+    override fun spendHistories(page: MonthPageUi) =
+        com.arthurrios.finova.domain.allocation.CategorySpendHistory.of(
+            page.allocations.map { it.category }, page.month, latestAllocations, latestRows, YearMonth.from(today()),
+        )
 
     override fun createAllocation(
         category: com.arthurrios.finova.domain.model.TransactionCategory, amount: Long, month: YearMonth,

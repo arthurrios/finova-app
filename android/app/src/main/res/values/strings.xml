@@ -471,4 +471,23 @@
     <string name="alloc_status_near">Near</string>
     <string name="alloc_status_over">Over</string>
     <string name="alloc_warning_hidden">Over budget</string>
+    <string name="projection_open">How the projection is worked out</string>
+    <string name="projection_title">How this is worked out</string>
+    <string name="projection_formula_header">If fully used</string>
+    <string name="projection_formula_balance">Balance by %1$s</string>
+    <string name="projection_formula_card">Card spending not yet billed</string>
+    <string name="projection_formula_unspent">Budget still unspent</string>
+    <string name="projection_formula_result">If you spend the whole plan</string>
+    <string name="projection_formula_note">This assumes every budget gets spent in full. It is the cautious figure, so the month usually closes above it.</string>
+    <string name="projection_history_header">How much of each budget you usually use</string>
+    <string name="projection_history_empty">Once a few months have closed, this will show how much of each budget you actually tend to spend.</string>
+    <string name="projection_history_none">not enough history yet</string>
+    <string name="projection_history_range">%1$d–%2$d%%</string>
+    <string name="projection_history_single">about %1$d%%</string>
+    <string name="projection_history_varied">varies a lot</string>
+    <plurals name="projection_history_months">
+        <item quantity="one">%1$d closed month</item>
+        <item quantity="other">%1$d closed months</item>
+    </plurals>
+    <string name="budget_tags_manage">Tags</string>
 </resources>
