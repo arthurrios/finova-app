@@ -24,6 +24,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.foundation.clickable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -59,7 +60,7 @@ private val MonthFormat = DateTimeFormatter.ofPattern("MM/yyyy")
 
 /** Port of BudgetsView / BudgetsViewController on iOS 1.5.2 (the Tags link comes with allocations). */
 @Composable
-fun BudgetsScreen(viewModel: BudgetsViewModel, onBack: () -> Unit) {
+fun BudgetsScreen(viewModel: BudgetsViewModel, onBack: () -> Unit, onManageTags: () -> Unit = {}) {
     val budgets by viewModel.budgets.collectAsStateWithLifecycle()
     val hidden by viewModel.valuesHidden.collectAsStateWithLifecycle()
     val pending by viewModel.pendingOverwrite.collectAsStateWithLifecycle()
@@ -145,7 +146,17 @@ fun BudgetsScreen(viewModel: BudgetsViewModel, onBack: () -> Unit) {
                         .clip(RoundedCornerShape(topStart = CornerRadius.ExtraLarge, topEnd = CornerRadius.ExtraLarge))
                         .background(FinovaColors.Gray100)
                         .border(1.dp, FinovaColors.Gray300, RoundedCornerShape(topStart = CornerRadius.ExtraLarge, topEnd = CornerRadius.ExtraLarge)),
-                ) { CardHeader(stringResource(R.string.budgets_table_header_title)) }
+                ) {
+                    CardHeader(stringResource(R.string.budgets_table_header_title)) {
+                        // The only way to Tags when no month has any, since the dashboard strip then hides.
+                        Text(
+                            stringResource(R.string.budget_tags_manage),
+                            style = FinovaType.TitleXS,
+                            color = FinovaColors.MainMagenta,
+                            modifier = Modifier.clip(RoundedCornerShape(CornerRadius.Small)).clickable(onClick = onManageTags).padding(Spacing.S1),
+                        )
+                    }
+                }
                 val bottomShape = RoundedCornerShape(bottomStart = CornerRadius.ExtraLarge, bottomEnd = CornerRadius.ExtraLarge)
                 Box(Modifier.fillMaxWidth().clip(bottomShape).background(FinovaColors.Gray100).border(1.dp, FinovaColors.Gray300, bottomShape)) {
                     if (budgets.isEmpty()) {
@@ -210,9 +221,10 @@ fun BudgetsScreen(viewModel: BudgetsViewModel, onBack: () -> Unit) {
 }
 
 @Composable
-private fun CardHeader(title: String) {
-    Box(Modifier.fillMaxWidth().height(44.dp).padding(horizontal = Spacing.S5), contentAlignment = Alignment.CenterStart) {
-        Text(title.uppercase(), style = FinovaType.Title2XS, color = FinovaColors.Gray500)
+private fun CardHeader(title: String, trailing: (@Composable () -> Unit)? = null) {
+    Row(Modifier.fillMaxWidth().height(44.dp).padding(start = Spacing.S5, end = Spacing.S4), verticalAlignment = Alignment.CenterVertically) {
+        Text(title.uppercase(), style = FinovaType.Title2XS, color = FinovaColors.Gray500, modifier = Modifier.weight(1f))
+        trailing?.invoke()
     }
 }
 
