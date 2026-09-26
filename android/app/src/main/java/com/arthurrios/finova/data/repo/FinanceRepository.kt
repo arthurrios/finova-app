@@ -205,6 +205,17 @@ class FinanceRepository(
         settleCardRows()
     }
 
+    /**
+     * "Mark as Paid": the statement reads as paid from [date] on. Nothing moves in the balance;
+     * the statement row already charges it on the due date (iOS `markAsPaid`).
+     */
+    suspend fun markStatementPaid(statementId: Long, amount: Long, date: LocalDate) {
+        val statement = db.statements().getById(statementId) ?: return
+        db.statements().update(
+            statement.copy(isPaid = true, paidDate = date, paidAmount = amount, updatedAt = System.currentTimeMillis())
+        )
+    }
+
     suspend fun setBudget(budget: Budget) = db.budgets().upsert(budget.toEntity())
 
     suspend fun deleteBudget(month: java.time.YearMonth) = db.budgets().delete(month)

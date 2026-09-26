@@ -262,4 +262,20 @@
     <string name="payment_method_create_card">Criar Cartão</string>
     <string name="payment_method_statement_info">Vai para a fatura de %1$s — Vence: %2$s</string>
     <string name="add_transaction_card_rule_hint">Compras no cartão seguem o vencimento da fatura</string>
+    <!-- Statement details (StatementDetailsView) -->
+    <string name="statement_details_title">Fatura %1$s</string>
+    <string name="statement_details_card">Cartão</string>
+    <string name="statement_details_period">Período da Fatura</string>
+    <string name="statement_details_closing">Data de Fechamento</string>
+    <string name="statement_details_due">Data de Vencimento</string>
+    <string name="statement_details_total">Total</string>
+    <string name="statement_details_status">Status</string>
+    <string name="statement_details_paid_on">Paga em %1$s</string>
+    <string name="statement_details_mark_paid">Marcar como Paga</string>
+    <string name="statement_details_pay">Pagar Fatura</string>
+    <string name="statement_status_open">Aberta</string>
+    <string name="statement_status_closed">Aguardando Pagamento</string>
+    <string name="statement_status_paid">Paga</string>
+    <string name="statement_status_overdue">Vencida</string>
+    <string name="statement_status_scheduled">Pagamento Agendado</string>
 </resources>

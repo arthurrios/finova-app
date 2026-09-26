@@ -72,7 +72,7 @@ class DashboardViewModel(
                     currentBalance = summary.currentBalance,
                     transactions = listed[summary.month].orEmpty()
                         .sortedWith(compareByDescending<Transaction> { it.date }.thenByDescending { it.id })
-                        .map { it.toRow() },
+                        .map { it.toRowUi() },
                 )
             },
             selectedMonth = selected,
@@ -142,26 +142,4 @@ class DashboardViewModel(
     override fun onDeleteTransaction(row: TransactionRowUi, option: SeriesDeleteOption) {
         viewModelScope.launch { repository.delete(row.id, option) }
     }
-
-    private fun Transaction.toRow() = TransactionRowUi(
-        id = id,
-        title = title,
-        date = date,
-        amount = amount,
-        isIncome = type == TransactionType.Income,
-        icon = category.icon(type),
-        category = category,
-        mode = when (mode) {
-            TransactionMode.Recurring -> TransactionModeUi.Recurring
-            TransactionMode.Installments -> TransactionModeUi.Installments
-            TransactionMode.Normal -> TransactionModeUi.Normal
-        },
-        installmentNumber = installmentNumber,
-        totalInstallments = totalInstallments,
-        isCreditCard = creditCardId != null,
-        statementTransactionCount = if (isCreditCardStatement) totalInstallments else null,
-        statementId = statementId,
-        isSettledEarly = isSettledEarly,
-        seriesKind = SeriesRules.kindOf(this),
-    )
 }
