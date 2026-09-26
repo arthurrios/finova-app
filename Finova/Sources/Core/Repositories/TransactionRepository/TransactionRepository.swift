@@ -326,6 +326,11 @@ final class TransactionRepository: TransactionRepositoryProtocol {
         creditCardId: existing.creditCardId,
         statementId: existing.statementId,
         isCreditCardStatement: existing.isCreditCardStatement,
+        // Carried over, or the secure store silently resets them: the weekend rule to .exact
+        // and the series fields to nil, so later months were generated on the wrong day.
+        businessDayRule: existing.businessDayRule,
+        unadjustedDateTimestamp: existing.unadjustedDateTimestamp,
+        seriesPeriod: existing.storedSeriesPeriod,
         category: existing.category,
         type: existing.type
       )
@@ -366,6 +371,11 @@ final class TransactionRepository: TransactionRepositoryProtocol {
         creditCardId: creditCardId,
         statementId: statementId,
         isCreditCardStatement: isCreditCardStatement,
+        // Carried over, or the secure store silently resets them: the weekend rule to .exact
+        // and the series fields to nil, so later months were generated on the wrong day.
+        businessDayRule: existing.businessDayRule,
+        unadjustedDateTimestamp: existing.unadjustedDateTimestamp,
+        seriesPeriod: existing.storedSeriesPeriod,
         category: existing.category,
         type: existing.type
       )
@@ -399,6 +409,11 @@ final class TransactionRepository: TransactionRepositoryProtocol {
         creditCardId: nil,
         statementId: nil,
         isCreditCardStatement: nil,
+        // Carried over, or the secure store silently resets them: the weekend rule to .exact
+        // and the series fields to nil, so later months were generated on the wrong day.
+        businessDayRule: existing.businessDayRule,
+        unadjustedDateTimestamp: existing.unadjustedDateTimestamp,
+        seriesPeriod: existing.storedSeriesPeriod,
         category: existing.category,
         type: existing.type
       )
@@ -499,6 +514,11 @@ final class TransactionRepository: TransactionRepositoryProtocol {
         creditCardId: finalCreditCardId,
         statementId: finalStatementId,
         isCreditCardStatement: finalIsCreditCardStatement,
+        // Carried over, or the secure store silently resets them: the weekend rule to .exact
+        // and the series fields to nil, so later months were generated on the wrong day.
+        businessDayRule: existingTransaction.businessDayRule,
+        unadjustedDateTimestamp: existingTransaction.unadjustedDateTimestamp,
+        seriesPeriod: existingTransaction.storedSeriesPeriod,
         category: categoryEnum,
         type: typeEnum
       )
@@ -546,6 +566,14 @@ final class TransactionRepository: TransactionRepositoryProtocol {
         installmentNumber: existingTransaction.installmentNumber,
         totalInstallments: existingTransaction.totalInstallments,
         originalAmount: existingTransaction.originalAmount,
+        creditCardId: existingTransaction.creditCardId,
+        statementId: existingTransaction.statementId,
+        isCreditCardStatement: existingTransaction.isCreditCardStatement,
+        // Carried over, or the secure store silently resets them: the weekend rule to .exact
+        // and the series fields to nil, so later months were generated on the wrong day.
+        businessDayRule: existingTransaction.businessDayRule,
+        unadjustedDateTimestamp: existingTransaction.unadjustedDateTimestamp,
+        seriesPeriod: existingTransaction.storedSeriesPeriod,
         category: existingTransaction.category,
         type: existingTransaction.type
       )
@@ -842,6 +870,11 @@ final class TransactionRepository: TransactionRepositoryProtocol {
         creditCardId: existingTransaction.creditCardId,
         statementId: existingTransaction.statementId,
         isCreditCardStatement: existingTransaction.isCreditCardStatement,
+        // Carried over, or the secure store silently resets them: the weekend rule to .exact
+        // and the series fields to nil, so later months were generated on the wrong day.
+        businessDayRule: existingTransaction.businessDayRule,
+        unadjustedDateTimestamp: existingTransaction.unadjustedDateTimestamp,
+        seriesPeriod: existingTransaction.storedSeriesPeriod,
         category: category,
         type: type
       )
@@ -882,6 +915,14 @@ final class TransactionRepository: TransactionRepositoryProtocol {
         installmentNumber: existingTransaction.installmentNumber,
         totalInstallments: existingTransaction.totalInstallments,
         originalAmount: existingTransaction.originalAmount,
+        creditCardId: existingTransaction.creditCardId,
+        statementId: existingTransaction.statementId,
+        isCreditCardStatement: existingTransaction.isCreditCardStatement,
+        // Carried over, or the secure store silently resets them: the weekend rule to .exact
+        // and the series fields to nil, so later months were generated on the wrong day.
+        businessDayRule: existingTransaction.businessDayRule,
+        unadjustedDateTimestamp: existingTransaction.unadjustedDateTimestamp,
+        seriesPeriod: existingTransaction.storedSeriesPeriod,
         category: existingTransaction.category,
         type: existingTransaction.type
       )
@@ -917,6 +958,14 @@ final class TransactionRepository: TransactionRepositoryProtocol {
         installmentNumber: existingTransaction.installmentNumber,
         totalInstallments: existingTransaction.totalInstallments,
         originalAmount: existingTransaction.originalAmount,
+        creditCardId: existingTransaction.creditCardId,
+        statementId: existingTransaction.statementId,
+        isCreditCardStatement: existingTransaction.isCreditCardStatement,
+        // Carried over, or the secure store silently resets them: the weekend rule to .exact
+        // and the series fields to nil, so later months were generated on the wrong day.
+        businessDayRule: existingTransaction.businessDayRule,
+        unadjustedDateTimestamp: existingTransaction.unadjustedDateTimestamp,
+        seriesPeriod: existingTransaction.storedSeriesPeriod,
         category: existingTransaction.category,
         type: existingTransaction.type
       )
@@ -968,6 +1017,14 @@ final class TransactionRepository: TransactionRepositoryProtocol {
 
     switch option {
     case .currentSelection:
+      // Deleting only a series' first occurrence: hand the series to the next one first, or
+      // deleting the parent row would end the whole series.
+      if isRecurringTransaction, transaction.isRecurring == true,
+        transaction.parentTransactionId == nil || transaction.parentTransactionId == id
+      {
+        RecurringTransactionManager(transactionRepo: self)
+          .promoteNextOccurrenceBeforeDeletingParent(id)
+      }
       // Delete only the current transaction instance
       try delete(id: id)
 

@@ -61,6 +61,9 @@ struct Transaction: Codable {
     var unadjustedDateTimestamp: Int? { data.unadjustedDateTimestamp }
     /// The occurrence slot this row occupies, falling back to its accounting month.
     var seriesPeriod: Int { data.seriesPeriod ?? data.budgetMonthDate }
+    /// The slot exactly as stored (nil on rows written before the column existed). For copying a row
+    /// without changing it; readers want `seriesPeriod`.
+    var storedSeriesPeriod: Int? { data.seriesPeriod }
 
     /// The occurrence date before the business-day rule moved it, falling back to the stored date for
     /// rows written before the column existed. Regeneration derives from this, never from `date`.

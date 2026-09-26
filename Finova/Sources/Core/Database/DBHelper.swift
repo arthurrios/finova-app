@@ -30,6 +30,27 @@ class DBHelper {
         initializeDatabase()
     }
     
+    /// The indexes `createTransactionsTable` and `createCreditCardStatementsTable` meant to create.
+    ///
+    /// Both put `CREATE TABLE` and their `CREATE INDEX` lines in one string passed to
+    /// `sqlite3_prepare_v2`, which compiles only the first statement, so the indexes never existed on
+    /// any device and every date, category, parent and statement lookup scanned the whole table.
+    /// `sqlite3_exec` runs every statement in the string. Idempotent, so it runs on each launch.
+    private func createMissingIndexes() {
+        let sql = """
+            CREATE INDEX IF NOT EXISTS idx_tx_date              ON Transactions(date);
+            CREATE INDEX IF NOT EXISTS idx_tx_category          ON Transactions(category);
+            CREATE INDEX IF NOT EXISTS idx_tx_budget_month_date ON Transactions(budget_month_date);
+            CREATE INDEX IF NOT EXISTS idx_tx_parent_id         ON Transactions(parent_transaction_id);
+            CREATE INDEX IF NOT EXISTS idx_tx_recurring         ON Transactions(is_recurring);
+            CREATE INDEX IF NOT EXISTS idx_stmt_card_id         ON CreditCardStatements(credit_card_id);
+            CREATE INDEX IF NOT EXISTS idx_stmt_due_date        ON CreditCardStatements(due_date);
+            """
+        if sqlite3_exec(db, sql, nil, nil, nil) != SQLITE_OK {
+            logError("[DB] Could not create indexes: \(String(cString: sqlite3_errmsg(db)))")
+        }
+    }
+
     private func initializeDatabase() {
         do {
             try openDatabase()
@@ -44,6 +65,7 @@ class DBHelper {
             try migrateEarlyPaymentColumns()
             try migrateStatementPaymentColumns()
             try migrateBusinessDayColumns()
+            createMissingIndexes()
             isInitialized = true
             //            print("✅ Database initialized successfully")
         } catch {

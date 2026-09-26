@@ -48,10 +48,43 @@ final class RecurringTransactionManager {
   // AddTransactionModalViewModel each own one — so an anchor recorded by the manager that performed
   // the delete was invisible to whichever manager next ran lazy generation, and the occurrence the
   // user had just removed came straight back. The set belongs to the series, not to a manager.
-  private static var deletedInstanceAnchors: [Int: Set<Int>] = [:]
+  //
+  // STORED, per account, in UserDefaults. It used to live only in memory, so the month the user
+  // removed came back on the next launch, when the dashboard filled in the series again.
+  private static var deletedInstanceAnchors: [Int: Set<Int>] {
+    get { loadExclusions(kind: "recurringExcludedAnchors") }
+    set { saveExclusions(newValue, kind: "recurringExcludedAnchors") }
+  }
   /// The installment equivalent, keyed by installment number rather than month — see
   /// `trackDeletedInstallments`.
-  private static var deletedInstallmentNumbers: [Int: Set<Int>] = [:]
+  private static var deletedInstallmentNumbers: [Int: Set<Int>] {
+    get { loadExclusions(kind: "installmentExcludedNumbers") }
+    set { saveExclusions(newValue, kind: "installmentExcludedNumbers") }
+  }
+
+  private static func exclusionsKey(kind: String) -> String {
+    "\(kind)_v1_\(UIDUserDefaultsManager.shared.currentUserUID ?? "local")"
+  }
+
+  private static func loadExclusions(kind: String) -> [Int: Set<Int>] {
+    let stored = UserDefaults.standard.dictionary(forKey: exclusionsKey(kind: kind)) as? [String: [Int]] ?? [:]
+    var result: [Int: Set<Int>] = [:]
+    for (key, values) in stored {
+      if let id = Int(key) { result[id] = Set(values) }
+    }
+    return result
+  }
+
+  private static func saveExclusions(_ exclusions: [Int: Set<Int>], kind: String) {
+    let key = exclusionsKey(kind: kind)
+    let nonEmpty = exclusions.filter { !$0.value.isEmpty }
+    guard !nonEmpty.isEmpty else {
+      UserDefaults.standard.removeObject(forKey: key)
+      return
+    }
+    let stored = Dictionary(uniqueKeysWithValues: nonEmpty.map { (String($0.key), $0.value.sorted()) })
+    UserDefaults.standard.set(stored, forKey: key)
+  }
   private static let deletedAnchorsLock = NSLock()
 
   init(
@@ -63,10 +96,13 @@ final class RecurringTransactionManager {
     self.creditCardService = creditCardService
     self.creditCardRepo = creditCardRepo
 
-    // Usar calendar com fuso horário UTC para consistência com monthAnchor
-    var utcCalendar = Calendar(identifier: .gregorian)
-    utcCalendar.timeZone = TimeZone(abbreviation: "UTC")!
-    self.calendar = utcCalendar
+    // The phone's time zone, like `Date.monthAnchor` and every date the user picks. It was UTC,
+    // which read a series' anchor day from its local-midnight date: east of UTC that is still the
+    // previous day there, so every generated month landed a day early, and weekends were judged on
+    // the UTC day.
+    var localCalendar = Calendar(identifier: .gregorian)
+    localCalendar.timeZone = TimeZone.current
+    self.calendar = localCalendar
   }
 
   func generateRecurringTransactionsForRange(
@@ -373,6 +409,55 @@ final class RecurringTransactionManager {
     deletedInstallmentNumbers.removeAll()
   }
 
+  /// Keeps a series alive when only its first occurrence is deleted.
+  ///
+  /// The first occurrence IS the series' parent row, so deleting it on its own used to delete the
+  /// parent: the later months stayed, but nothing generated new ones, and the series quietly ended.
+  /// Instead, the next occurrence on the series' own day becomes the parent (the first one after a
+  /// short month would carry a clamped day, e.g. the 28th of a series on the 31st), every other
+  /// occurrence points at it, and the deleted months move over with them.
+  ///
+  /// Call before deleting `parentId`. Returns the new parent id, or nil when there is none.
+  @discardableResult
+  func promoteNextOccurrenceBeforeDeletingParent(_ parentId: Int) -> Int? {
+    let all = transactionRepo.fetchAllTransactions()
+    guard let parent = all.first(where: { $0.id == parentId }) else { return nil }
+    let children = all
+      .filter { $0.parentTransactionId == parentId && $0.id != parentId && $0.id != nil }
+      .sorted { $0.seriesPeriod < $1.seriesPeriod }
+    guard !children.isEmpty else { return nil }
+
+    let anchorDay = calendar.component(.day, from: parent.unadjustedDate)
+    let heir =
+      children.first { calendar.component(.day, from: $0.unadjustedDate) == anchorDay }
+      ?? children[0]
+    guard let heirId = heir.id else { return nil }
+
+    do {
+      try transactionRepo.updateIsRecurring(transactionId: heirId, isRecurring: true)
+      try transactionRepo.updateTransactionParentId(transactionId: heirId, parentId: heirId)
+      for child in children where child.id != heirId {
+        if let childId = child.id {
+          try transactionRepo.updateTransactionParentId(transactionId: childId, parentId: heirId)
+        }
+      }
+    } catch {
+      logError("[Recurring] Could not hand series \(parentId) over to \(heirId): \(error)")
+      return nil
+    }
+
+    Self.deletedAnchorsLock.lock()
+    let moved = Self.deletedInstanceAnchors[parentId] ?? []
+    var anchors = Self.deletedInstanceAnchors
+    anchors[parentId] = nil
+    if !moved.isEmpty { anchors[heirId, default: []].formUnion(moved) }
+    Self.deletedInstanceAnchors = anchors
+    Self.deletedAnchorsLock.unlock()
+
+    logInfo("[Recurring] Series \(parentId) continues from \(heirId)")
+    return heirId
+  }
+
   func cleanupRecurringInstancesFromDate(
     parentTransactionId: Int,
     selectedTransactionDate: Date,
@@ -437,6 +522,12 @@ final class RecurringTransactionManager {
       }
 
       // Perform deletions atomically
+      // Deleting only the first occurrence: hand the series to the next one first, or deleting the
+      // parent row would end the whole series.
+      if cleanupOption == .currentSelection, instancesToDelete.contains(parentTransactionId) {
+        self.promoteNextOccurrenceBeforeDeletingParent(parentTransactionId)
+      }
+
       for instanceId in instancesToDelete {
         do {
           try self.transactionRepo.delete(id: instanceId)
@@ -1056,10 +1147,8 @@ final class RecurringTransactionManager {
           // Which month this slot IS, read in the same timezone the anchor was written in.
           //
           // `targetAnchor` is local midnight on the 1st (`Date.monthAnchor` is `TimeZone.current`).
-          // Reading it back through this type's UTC calendar lands in the PREVIOUS month for any
-          // zone ahead of UTC, so the occurrence was generated for the wrong month while
-          // `budgetMonthDate` still said the right one. The date is still CONSTRUCTED with
-          // `self.calendar` below, so existing rows' timestamps keep their convention.
+          // Reading it back through a UTC calendar landed in the PREVIOUS month for any zone ahead
+          // of UTC. `self.calendar` is local now too; this stays explicit on purpose.
           let targetDate = Date(timeIntervalSince1970: TimeInterval(targetAnchor))
           var anchorCalendar = Calendar(identifier: .gregorian)
           anchorCalendar.timeZone = TimeZone.current

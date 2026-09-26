@@ -251,8 +251,10 @@ class CreditCardService {
 
                 let realCount = stmtTransactions.count
                 // Signed by type, mirroring `DBHelper.signedAmount`: a credit on the card reduces
-                // what the invoice charges.
-                let realTotal = stmtTransactions.reduce(0) {
+                // what the invoice charges. Installments already paid early are left out, as the
+                // stored statement total leaves them out: they were paid by their own debit, so
+                // counting them here charged the same money twice.
+                let realTotal = stmtTransactions.excludingEarlyPaidInstallments().reduce(0) {
                     $1.type == .income ? $0 - $1.amount : $0 + $1.amount
                 }
 

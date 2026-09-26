@@ -438,6 +438,46 @@ final class EarlyPaymentTests: XCTestCase {
             "The anticipated installment must drop out of its original statement's total")
     }
 
+    func testTheStatementRowLeavesOutAnInstallmentPaidEarly() throws {
+        // The dashboard's statement row used to add up every installment on the statement, paid
+        // early or not, while the early payment's own debit also left the balance: the same money
+        // came out twice.
+        let uid = try XCTUnwrap(SecureLocalDataManager.shared.getCurrentUserUID())
+        let card = try XCTUnwrap(makeCard(), "Could not create the card fixture")
+        let statement = try XCTUnwrap(
+            CreditCardService().getOrCreateStatement(
+                for: card,
+                transactionDate: Calendar.current.date(byAdding: .month, value: 1, to: Date())!,
+                userId: uid),
+            "Could not create the statement fixture")
+        let statementId = try XCTUnwrap(statement.id)
+
+        let series = makeInstallmentSeries(title: "Sofa", totalAmount: 50000, installments: 5)
+        let options = payable(from: series)
+        try XCTSkipIf(options.count < 2, "Need two payable installments")
+        let paidEarlyId = try XCTUnwrap(options[0].id)
+        let keptId = try XCTUnwrap(options[1].id)
+        for id in [paidEarlyId, keptId] {
+            try transactionRepo.updateCreditCardFields(
+                transactionId: id, creditCardId: try XCTUnwrap(card.id),
+                statementId: statementId, isCreditCardStatement: false)
+        }
+        TransactionRepository.invalidateCache()
+
+        let linked = try XCTUnwrap(payable(from: series).first { $0.id == paidEarlyId })
+        _ = try service.payEarly(
+            installments: [linked], paymentDate: Date(),
+            destination: .standalone, seriesTitle: "Sofa")
+        TransactionRepository.invalidateCache()
+
+        let kept = try XCTUnwrap(transactionRepo.fetchAllTransactions().first { $0.id == keptId })
+        let row = try XCTUnwrap(
+            CreditCardService().generateStatementTransactions(userId: uid)
+                .first { $0.statementId == statementId },
+            "The statement still has an unpaid installment, so it keeps its row")
+        XCTAssertEqual(row.amount, kept.amount, "Only the installment not paid early is charged")
+    }
+
     // MARK: - Reversing
 
     func testReleasingInstallmentsClearsTheirPointers() throws {
