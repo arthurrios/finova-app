@@ -40,6 +40,10 @@ import com.arthurrios.finova.R
 import com.arthurrios.finova.ui.addtransaction.AddTransactionRequest
 import com.arthurrios.finova.ui.addtransaction.AddTransactionSheet
 import com.arthurrios.finova.domain.series.SeriesDeleteOption
+import com.arthurrios.finova.ui.filter.TransactionFilterSheet
+import com.arthurrios.finova.ui.filter.TransactionFilters
+import com.arthurrios.finova.ui.filter.filtered
+import com.arthurrios.finova.ui.filter.filteredTotal
 import com.arthurrios.finova.ui.theme.FinovaColors
 import com.arthurrios.finova.ui.theme.FinovaTheme
 import com.arthurrios.finova.ui.theme.Spacing
@@ -58,7 +62,6 @@ interface DashboardActions {
     fun currentBalanceToday(): Long = 0
     fun onConfirmAdjustBalance(realBalance: Long, appBalance: Long) {}
     fun onBudgetView(page: MonthPageUi) {}
-    fun onFilter(page: MonthPageUi) {}
     fun onTransaction(row: TransactionRowUi) {}
     fun onDeleteTransaction(row: TransactionRowUi, option: SeriesDeleteOption = SeriesDeleteOption.ThisOnly) {}
 }
@@ -77,10 +80,20 @@ fun DashboardScreen(
     var pendingDelete by remember { mutableStateOf<TransactionRowUi?>(null) }
     var showAddSheet by rememberSaveable { mutableStateOf(false) }
     var adjustFrom by remember { mutableStateOf<Long?>(null) }
+    // Port of DashboardViewController.globalFilters: type, mode and category follow every month.
+    var globalFilters by remember { mutableStateOf(TransactionFilters()) }
+    // A Custom day range belongs to the month it was set on only, and iOS drops it once that
+    // month scrolls away, so it is kept apart with its month.
+    var dayFiltered by remember { mutableStateOf<Pair<YearMonth, TransactionFilters>?>(null) }
+    var filterFor by remember { mutableStateOf<MonthPageUi?>(null) }
+    fun filtersFor(page: MonthPageUi) = dayFiltered?.takeIf { it.first == page.month }?.second ?: globalFilters
 
     // The pager reports the settled page; the tabs follow it.
     LaunchedEffect(pagerState) {
-        snapshotFlow { pagerState.settledPage }.collect { actions.onSelectMonth(it) }
+        snapshotFlow { pagerState.settledPage }.collect { index ->
+            actions.onSelectMonth(index)
+            if (dayFiltered?.first != state.months.getOrNull(index)?.month) dayFiltered = null
+        }
     }
     // And when the app picks a month itself (after adding a transaction), the pager goes there.
     LaunchedEffect(state.selectedMonth) {
@@ -109,6 +122,8 @@ fun DashboardScreen(
                         page = state.months[index],
                         state = state,
                         actions = actions,
+                        filters = filtersFor(state.months[index]),
+                        onOpenFilter = { filterFor = it },
                         onRequestDelete = { pendingDelete = it },
                         onAdjustBalance = { adjustFrom = actions.currentBalanceToday() },
                         onOpenBudgets = onOpenBudgets,
@@ -156,6 +171,25 @@ fun DashboardScreen(
         )
     }
 
+    filterFor?.let { page ->
+        val days = page.month.lengthOfMonth()
+        TransactionFilterSheet(
+            current = filtersFor(page),
+            daysInMonth = days,
+            onApply = { filters ->
+                filterFor = null
+                globalFilters = filters.withoutDayFilter()
+                dayFiltered = if (filters.hasDayFilter(days)) page.month to filters else null
+            },
+            onClear = {
+                filterFor = null
+                globalFilters = TransactionFilters()
+                dayFiltered = null
+            },
+            onDismiss = { filterFor = null },
+        )
+    }
+
     pendingDelete?.let { row ->
         DeleteTransactionDialog(
             kind = row.seriesKind,
@@ -173,16 +207,18 @@ private fun MonthPage(
     page: MonthPageUi,
     state: DashboardUiState,
     actions: DashboardActions,
+    filters: TransactionFilters,
+    onOpenFilter: (MonthPageUi) -> Unit,
     onRequestDelete: (TransactionRowUi) -> Unit,
     onAdjustBalance: () -> Unit,
     onOpenBudgets: (YearMonth?) -> Unit,
     onOpenTransaction: (Long) -> Unit,
 ) {
     var query by rememberSaveable(page.month) { mutableStateOf("") }
-    val rows = remember(page.transactions, query) {
-        if (query.isBlank()) page.transactions
-        else page.transactions.filter { it.title.contains(query.trim(), ignoreCase = true) }
-    }
+    val rows = remember(page.transactions, query, filters) { page.transactions.filtered(query, filters) }
+    val filterActive = !filters.isEmpty(page.month.lengthOfMonth())
+    // iOS swaps the card's balance for the shown rows' total whenever a search or filter is on.
+    val filteredTotal = if (filterActive || query.isNotBlank()) rows.filteredTotal() else null
     // Like iOS, the card, the search bar and the list header stay put; only the rows scroll,
     // inside the rounded list box that fills the rest of the page.
     Column(
@@ -203,9 +239,15 @@ private fun MonthPage(
             // The gear opens every budget, "Set budget" opens this month's (as on iOS).
             onSettings = { onOpenBudgets(null) },
             onDefineBudget = { onOpenBudgets(page.month) },
+            filteredTotal = filteredTotal,
         )
         Spacer(Modifier.height(Spacing.S4))
-        TransactionSearchBar(query = query, onQueryChange = { query = it }, onFilter = { actions.onFilter(page) })
+        TransactionSearchBar(
+            query = query,
+            onQueryChange = { query = it },
+            onFilter = { onOpenFilter(page) },
+            filterActive = filterActive,
+        )
         Spacer(Modifier.height(Spacing.S3))
         TransactionListHeader(count = rows.size)
         if (rows.isEmpty()) {

@@ -52,7 +52,12 @@ private val BottomCorners = RoundedCornerShape(bottomStart = CornerRadius.ExtraL
 
 /** The search field and the round filter button under the month card. */
 @Composable
-fun TransactionSearchBar(query: String, onQueryChange: (String) -> Unit, onFilter: () -> Unit) {
+fun TransactionSearchBar(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    onFilter: () -> Unit,
+    filterActive: Boolean = false,
+) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.weight(1f)) {
             FinovaTextField(
@@ -68,10 +73,11 @@ fun TransactionSearchBar(query: String, onQueryChange: (String) -> Unit, onFilte
         Spacer(Modifier.width(Spacing.S2))
         OutlinedIconButton(
             onClick = onFilter,
-            border = BorderStroke(1.dp, FinovaColors.Gray300),
+            // Magenta and filled while a filter is on, like updateFilterButtonAppearance on iOS.
+            border = if (filterActive) null else BorderStroke(1.dp, FinovaColors.Gray300),
             colors = androidx.compose.material3.IconButtonDefaults.outlinedIconButtonColors(
-                containerColor = FinovaColors.Gray100,
-                contentColor = FinovaColors.Gray600,
+                containerColor = if (filterActive) FinovaColors.MainMagenta else FinovaColors.Gray100,
+                contentColor = if (filterActive) FinovaColors.Gray100 else FinovaColors.Gray600,
             ),
             modifier = Modifier.size(Spacing.InputHeight),
         ) {

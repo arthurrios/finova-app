@@ -78,6 +78,8 @@ fun MonthCard(
     onSettings: () -> Unit,
     onDefineBudget: () -> Unit,
     modifier: Modifier = Modifier,
+    /** Set while a search or filter is on: the card shows the shown rows' total instead. */
+    filteredTotal: Long? = null,
 ) {
     val daysInMonth = page.month.lengthOfMonth()
     val today = java.time.LocalDate.now().dayOfMonth
@@ -133,13 +135,26 @@ fun MonthCard(
             HorizontalDivider(color = FinovaColors.OpaqueWhite)
             Spacer(Modifier.height(Spacing.S3))
 
-            if (page.hasBudget) {
-                val balance = balanceForDay(selectedDay)
+            if (filteredTotal != null && !page.hasBudget) {
+                // No budget, so no balance row to borrow: the total takes the button's place.
+                FilteredLabel()
+                Spacer(Modifier.height(Spacing.S3))
                 Text(
-                    text = stringResource(R.string.month_card_balance_on_day, localizedDayOfMonth(selectedDay)),
-                    style = FinovaType.TextSM,
-                    color = FinovaColors.Gray400,
+                    text = Money.formatMasked(filteredTotal, currencyCode, valuesHidden),
+                    style = FinovaType.TitleLG,
+                    color = FinovaColors.Gray100,
                 )
+            } else if (page.hasBudget) {
+                val balance = filteredTotal ?: balanceForDay(selectedDay)
+                if (filteredTotal != null) {
+                    FilteredLabel()
+                } else {
+                    Text(
+                        text = stringResource(R.string.month_card_balance_on_day, localizedDayOfMonth(selectedDay)),
+                        style = FinovaType.TextSM,
+                        color = FinovaColors.Gray400,
+                    )
+                }
                 Spacer(Modifier.height(Spacing.S3))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
@@ -196,6 +211,26 @@ fun MonthCard(
                 modifier = Modifier.align(Alignment.BottomCenter),
             )
         }
+    }
+}
+
+/** MonthBudgetCard's filtered indicator: a small magenta filter badge and "Filtered total". */
+@Composable
+private fun FilteredLabel() {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier.size(20.dp).background(FinovaColors.MainMagenta, RoundedCornerShape(4.dp)),
+        ) {
+            Icon(
+                painterResource(R.drawable.ic_filter),
+                contentDescription = null,
+                tint = FinovaColors.Gray100,
+                modifier = Modifier.size(12.dp),
+            )
+        }
+        Spacer(Modifier.width(Spacing.S2))
+        Text(stringResource(R.string.filter_result_label), style = FinovaType.TextSM, color = FinovaColors.MainMagenta)
     }
 }
 

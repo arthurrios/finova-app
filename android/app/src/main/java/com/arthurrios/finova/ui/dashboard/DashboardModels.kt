@@ -2,6 +2,7 @@ package com.arthurrios.finova.ui.dashboard
 
 import androidx.annotation.DrawableRes
 import com.arthurrios.finova.domain.model.BusinessDayRule
+import com.arthurrios.finova.domain.model.TransactionCategory
 import com.arthurrios.finova.domain.series.SeriesKind
 import java.time.LocalDate
 import java.time.YearMonth
@@ -56,4 +57,6 @@ data class TransactionRowUi(
     val isSettledEarly: Boolean = false,
     /** Decides which delete question the row gets. */
     val seriesKind: SeriesKind = SeriesKind.Simple,
+    /** What the filter's category chips match against. */
+    val category: TransactionCategory = TransactionCategory.Miscellaneous,
 )
