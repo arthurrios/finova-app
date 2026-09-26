@@ -54,6 +54,27 @@ object Money {
         }
     }
 
+    /**
+     * Compact form for tight spots: "R$1,5k", "$2.3M" (CurrencyUtils.compactString on iOS). Below
+     * a thousand it is the whole amount without cents. The decimal mark follows the language; iOS
+     * always writes a point, so pt-BR read "R$1.5k".
+     */
+    fun compact(cents: Long, currencyCode: String, locale: Locale = Locale.getDefault()): String {
+        val currency = Currency.getInstance(currencyCode)
+        val amount = toMajor(kotlin.math.abs(cents), currencyCode).toDouble()
+        val sign = if (cents < 0) "-" else ""
+        val symbol = currency.getSymbol(locale)
+        fun num(value: Double, decimals: Int) = String.format(locale, "%.${decimals}f", value)
+        return sign + symbol + when {
+            amount >= 1_000_000 -> (amount / 1_000_000).let { if (it >= 10) num(it, 0) else num(it, 1) } + "M"
+            amount >= 1_000 -> (amount / 1_000).let { if (it >= 100) num(it, 0) else num(it, 1) } + "k"
+            else -> num(amount, 0)
+        }
+    }
+
+    fun compactMasked(cents: Long, currencyCode: String, hidden: Boolean): String =
+        if (hidden) HiddenValue else compact(cents, currencyCode)
+
     private fun formatter(currencyCode: String, locale: Locale): NumberFormat =
         NumberFormat.getCurrencyInstance(locale).apply {
             val currency = Currency.getInstance(currencyCode)

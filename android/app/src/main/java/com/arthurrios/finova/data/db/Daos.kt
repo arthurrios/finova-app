@@ -135,3 +135,30 @@ interface StatementDao {
     @Query("DELETE FROM credit_card_statements WHERE id = :id")
     suspend fun delete(id: Long)
 }
+
+@Dao
+interface AllocationDao {
+    @Query("SELECT * FROM budget_allocations")
+    fun observeAll(): Flow<List<BudgetAllocationEntity>>
+
+    @Query("SELECT * FROM budget_allocations")
+    suspend fun getAll(): List<BudgetAllocationEntity>
+
+    @Insert
+    suspend fun insert(allocation: BudgetAllocationEntity): Long
+
+    @Insert
+    suspend fun insertAll(allocations: List<BudgetAllocationEntity>)
+
+    @Query("UPDATE budget_allocations SET amount = :amount WHERE id IN (:ids)")
+    suspend fun setAmount(ids: List<Long>, amount: Long)
+
+    @Query("UPDATE budget_allocations SET is_deleted = 1 WHERE id IN (:ids)")
+    suspend fun tombstone(ids: List<Long>)
+
+    @Query("UPDATE budget_allocations SET is_recurring = :recurring WHERE id = :id")
+    suspend fun setRecurring(id: Long, recurring: Boolean)
+
+    @Query("DELETE FROM budget_allocations WHERE id IN (:ids)")
+    suspend fun delete(ids: List<Long>)
+}

@@ -236,7 +236,7 @@ private fun FilteredLabel() {
 
 /** The bar along the card's bottom edge: magenta under 75%, amber from 75%, red over the limit. */
 @Composable
-private fun BudgetStatusBar(used: Long, limit: Long, modifier: Modifier = Modifier) {
+internal fun BudgetStatusBar(used: Long, limit: Long, modifier: Modifier = Modifier) {
     val fraction = if (limit > 0) used.toFloat() / limit else 0f
     val color = when {
         fraction > 1f -> FinovaColors.MainRed
@@ -377,11 +377,11 @@ private val HideValuesButtonSize = 36.dp
  * which made the card taller than on iOS; these keep the iOS footprint instead.
  */
 @Composable
-private fun CompactIconButton(onClick: () -> Unit, size: Dp, content: @Composable () -> Unit) {
+internal fun CompactIconButton(onClick: () -> Unit, size: Dp, content: @Composable () -> Unit) {
     CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides Dp.Unspecified) {
         IconButton(onClick = onClick, modifier = Modifier.size(size), content = content)
     }
 }
 
 /** Colors.gradientBlack on iOS. */
-private val CardGradient = Brush.horizontalGradient(listOf(FinovaColors.Gray700, FinovaColors.GradientBlackEnd))
+internal val CardGradient = Brush.horizontalGradient(listOf(FinovaColors.Gray700, FinovaColors.GradientBlackEnd))

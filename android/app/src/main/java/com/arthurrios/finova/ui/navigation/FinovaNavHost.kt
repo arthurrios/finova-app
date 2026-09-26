@@ -173,7 +173,7 @@ fun FinovaNavHost(startRoute: String? = null) {
                 factory = viewModelFactory {
                     initializer {
                         val container = appContext.appContainer
-                        DashboardViewModel(container.financeRepository(), container.settings, container.cardRepository())
+                        DashboardViewModel(container.financeRepository(), container.settings, container.cardRepository(), container.allocationRepository())
                     }
                 }
             )

@@ -13,7 +13,7 @@ import java.security.MessageDigest
  * tags join here in later slices, so nothing leaks between accounts on the same phone.
  *
  * Nothing is released yet, but a debug build may already hold data, so every schema change is a
- * real migration: version 2 adds the card tables.
+ * real migration: version 2 adds the card tables, version 3 the budget allocations.
  */
 @Database(
     entities = [
@@ -23,10 +23,11 @@ import java.security.MessageDigest
         UserSettingsEntity::class,
         CreditCardEntity::class,
         StatementEntity::class,
+        BudgetAllocationEntity::class,
     ],
-    version = 2,
+    version = 3,
     exportSchema = true,
-    autoMigrations = [AutoMigration(from = 1, to = 2)],
+    autoMigrations = [AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3)],
 )
 @TypeConverters(Converters::class)
 abstract class FinovaDatabase : RoomDatabase() {
@@ -36,6 +37,7 @@ abstract class FinovaDatabase : RoomDatabase() {
     abstract fun userSettings(): UserSettingsDao
     abstract fun creditCards(): CreditCardDao
     abstract fun statements(): StatementDao
+    abstract fun allocations(): AllocationDao
 
     companion object {
         fun open(context: Context, uid: String): FinovaDatabase =

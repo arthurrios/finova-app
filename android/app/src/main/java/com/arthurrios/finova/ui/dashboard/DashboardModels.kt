@@ -2,6 +2,10 @@ package com.arthurrios.finova.ui.dashboard
 
 import androidx.annotation.DrawableRes
 import com.arthurrios.finova.domain.model.BusinessDayRule
+import com.arthurrios.finova.domain.allocation.AllocationRow
+import com.arthurrios.finova.domain.allocation.BudgetAllocation
+import com.arthurrios.finova.domain.allocation.UnallocatedSpending
+import com.arthurrios.finova.domain.allocation.UnallocatedSummary
 import com.arthurrios.finova.domain.model.CreditCard
 import com.arthurrios.finova.domain.model.Transaction
 import com.arthurrios.finova.domain.model.TransactionMode
@@ -24,6 +28,8 @@ data class DashboardUiState(
     val isLoading: Boolean = true,
     /** The cards the add sheet offers. */
     val cards: List<CreditCard> = emptyList(),
+    /** Every allocation (deleted series months included), for the allocation sheet's checks. */
+    val allocationRows: List<AllocationRow> = emptyList(),
 )
 
 /** One page of the month carousel: the month card plus that month's transactions. */
@@ -40,6 +46,13 @@ data class MonthPageUi(
     /** Balance today (current month only). */
     val currentBalance: Long?,
     val transactions: List<TransactionRowUi>,
+    /** This month's allocations with what was spent against each, biggest first. */
+    val allocations: List<BudgetAllocation> = emptyList(),
+    val unallocated: UnallocatedSummary = UnallocatedSummary(month, 0, 0, 0),
+    /** Categories spent in with no allocation, biggest first. */
+    val offPlan: List<UnallocatedSpending> = emptyList(),
+    /** Card spending counted this month but charged on a later statement. */
+    val deferredCardSpending: Long = 0,
 ) {
     val hasBudget: Boolean get() = (budgetLimit ?: 0) > 0
 }

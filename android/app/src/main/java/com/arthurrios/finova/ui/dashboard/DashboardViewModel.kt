@@ -3,7 +3,10 @@ package com.arthurrios.finova.ui.dashboard
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.arthurrios.finova.data.UserSettingsStore
+import com.arthurrios.finova.data.repo.AllocationRepository
 import com.arthurrios.finova.data.repo.CardRepository
+import com.arthurrios.finova.domain.allocation.AllocationRow
+import com.arthurrios.finova.domain.allocation.Allocations
 import com.arthurrios.finova.data.repo.FinanceRepository
 import com.arthurrios.finova.domain.ledger.LedgerCalculator
 import com.arthurrios.finova.domain.model.Transaction
@@ -32,6 +35,7 @@ class DashboardViewModel(
     private val repository: FinanceRepository,
     private val settings: UserSettingsStore,
     private val cardRepository: CardRepository,
+    private val allocationRepository: AllocationRepository,
     private val today: () -> LocalDate = LocalDate::now,
 ) : ViewModel(), DashboardActions {
 
@@ -42,12 +46,22 @@ class DashboardViewModel(
     private var latestRows: List<Transaction> = emptyList()
     private var latestOffset: Long = 0
 
+    private data class Inputs(
+        val budgets: List<com.arthurrios.finova.domain.model.Budget>,
+        val offset: Long,
+        val cards: List<com.arthurrios.finova.domain.model.CreditCard>,
+        val allocations: List<AllocationRow>,
+        val statements: List<com.arthurrios.finova.domain.model.CreditCardStatement>,
+    )
+
     val state: StateFlow<DashboardUiState> = combine(
         repository.ledgerRows,
-        combine(repository.budgets, repository.balanceOffset, cardRepository.activeCards, ::Triple),
+        combine(repository.budgets, repository.balanceOffset, cardRepository.activeCards, allocationRepository.all, repository.statements, ::Inputs),
         selectedMonth,
         valuesHidden,
-    ) { rows, (budgets, offset, cards), selected, hidden ->
+    ) { rows, (budgets, offset, cards, allocations, statements), selected, hidden ->
+        // Allocation spending counts stored rows only, never the synthetic statement rows.
+        val stored = rows.filterNot { it.isCreditCardStatement }
         latestRows = rows
         latestOffset = offset
         val day = today()
@@ -70,6 +84,10 @@ class DashboardViewModel(
                     budgetLimit = summary.budgetLimit,
                     finalBalance = summary.finalBalance,
                     currentBalance = summary.currentBalance,
+                    allocations = Allocations.withUsage(allocations, stored, summary.month).sortedByDescending { it.allocated },
+                    unallocated = Allocations.unallocatedSummary(allocations, stored, budgets, summary.month),
+                    offPlan = Allocations.unallocatedSpending(allocations, stored, summary.month),
+                    deferredCardSpending = Allocations.deferredCardSpending(stored, statements, summary.month),
                     transactions = listed[summary.month].orEmpty()
                         .sortedWith(compareByDescending<Transaction> { it.date }.thenByDescending { it.id })
                         .map { it.toRowUi() },
@@ -78,13 +96,18 @@ class DashboardViewModel(
             selectedMonth = selected,
             isLoading = false,
             cards = cards,
+            allocationRows = allocations,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DashboardUiState(selectedMonth = SeriesMonths.todayIndex()))
 
     init {
         // iOS fills in recurring months after every dashboard load; once per open is enough here,
         // since new series generate their months when they are created.
-        viewModelScope.launch { repository.materializeRecurring(today()) }
+        viewModelScope.launch {
+            repository.materializeRecurring(today())
+            // iOS also tops up repeating allocations after every dashboard load.
+            allocationRepository.materializeAll(today())
+        }
     }
 
     override fun onSelectMonth(index: Int) {
@@ -137,6 +160,20 @@ class DashboardViewModel(
             val index = SeriesMonths.carouselMonths(YearMonth.from(today())).indexOf(YearMonth.from(draft.date))
             if (index >= 0) selectedMonth.value = index
         }
+    }
+
+    override fun createAllocation(
+        category: com.arthurrios.finova.domain.model.TransactionCategory, amount: Long, month: YearMonth,
+        repeating: Boolean, endMonth: YearMonth?, overwrite: List<Long>,
+    ) {
+        viewModelScope.launch {
+            if (overwrite.isNotEmpty()) allocationRepository.deleteEach(overwrite)
+            allocationRepository.create(category, amount, month, repeating, endMonth, today())
+        }
+    }
+
+    override fun editAllocation(id: Long, amount: Long, scope: com.arthurrios.finova.domain.allocation.AllocationEditScope, through: YearMonth?) {
+        viewModelScope.launch { allocationRepository.edit(id, amount, scope, through) }
     }
 
     override fun onDeleteTransaction(row: TransactionRowUi, option: SeriesDeleteOption) {

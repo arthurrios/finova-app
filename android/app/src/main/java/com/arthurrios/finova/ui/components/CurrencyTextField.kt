@@ -25,7 +25,7 @@ fun CurrencyTextField(
     onCentsChange: (Long) -> Unit,
     currencyCode: String,
     modifier: Modifier = Modifier,
-    placeholder: String = "0,00",
+    placeholder: String = zeroAmount(currencyCode),
     isError: Boolean = false,
     imeAction: ImeAction = ImeAction.Done,
     keyboardActions: KeyboardActions = KeyboardActions.Default,
@@ -44,17 +44,25 @@ fun CurrencyTextField(
     )
 }
 
+/** Zero in the phone's number format ("0.00" or "0,00"), so the hint matches typed amounts. */
+fun zeroAmount(currencyCode: String): String = amountFormatter(currencyCode).format(0)
+
+private fun amountFormatter(currencyCode: String): NumberFormat {
+    val digits = runCatching { Currency.getInstance(currencyCode).defaultFractionDigits }.getOrDefault(2).coerceAtLeast(0)
+    return NumberFormat.getNumberInstance(Locale.getDefault()).apply {
+        minimumFractionDigits = digits
+        maximumFractionDigits = digits
+    }
+}
+
 fun currencySymbol(code: String): String =
     runCatching { Currency.getInstance(code).getSymbol(Locale.getDefault()) }.getOrDefault(code)
 
 private class CentsTransformation(private val currencyCode: String) : VisualTransformation {
     override fun filter(text: AnnotatedString): TransformedText {
         if (text.text.isEmpty()) return TransformedText(text, OffsetMapping.Identity)
-        val digits = runCatching { Currency.getInstance(currencyCode).defaultFractionDigits }.getOrDefault(2).coerceAtLeast(0)
-        val formatter = NumberFormat.getNumberInstance(Locale.getDefault()).apply {
-            minimumFractionDigits = digits
-            maximumFractionDigits = digits
-        }
+        val formatter = amountFormatter(currencyCode)
+        val digits = formatter.maximumFractionDigits
         val shown = formatter.format(BigDecimal.valueOf(text.text.toLong(), digits))
         return TransformedText(
             AnnotatedString(shown),

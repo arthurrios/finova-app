@@ -128,3 +128,20 @@ data class StatementEntity(
     @ColumnInfo(name = "created_at") val createdAt: Long = System.currentTimeMillis(),
     @ColumnInfo(name = "updated_at") val updatedAt: Long = System.currentTimeMillis(),
 )
+
+/**
+ * A budget allocation (docs/data-layer-spec.md 1.5). iOS keeps these in one UserDefaults blob
+ * shared by every account on the phone; here they live in the account's own database.
+ */
+@Entity(tableName = "budget_allocations", indices = [Index("month"), Index("parent_allocation_id")])
+data class BudgetAllocationEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val month: YearMonth,
+    /** TransactionCategory.key. */
+    val category: String,
+    val amount: Long,
+    @ColumnInfo(name = "is_recurring") val isRecurring: Boolean = false,
+    @ColumnInfo(name = "parent_allocation_id") val parentAllocationId: Long? = null,
+    /** A deleted month of a series, kept so the series does not recreate it. */
+    @ColumnInfo(name = "is_deleted") val isDeleted: Boolean = false,
+)
