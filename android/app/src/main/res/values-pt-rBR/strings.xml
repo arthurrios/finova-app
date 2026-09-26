@@ -1,6 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="placeholder_body">Esta tela ainda não foi portada do iOS.</string>
 
     <string name="input_email">E-mail</string>
     <string name="input_password">Senha</string>

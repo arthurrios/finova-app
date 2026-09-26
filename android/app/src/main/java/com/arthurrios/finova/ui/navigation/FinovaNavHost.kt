@@ -58,7 +58,7 @@ import com.arthurrios.finova.ui.theme.FinovaColors
 import com.arthurrios.finova.ui.theme.FinovaType
 import com.arthurrios.finova.ui.theme.Spacing
 
-/** Routes. Port of AppFlowController.swift; screens not yet ported show a placeholder. */
+/** Routes. Port of AppFlowController.swift. */
 object Routes {
     const val SPLASH = "splash"
     const val LOGIN = "login"
@@ -419,21 +419,6 @@ fun FinovaNavHost(startRoute: String? = null) {
                 onSaved = { navController.popBackStack() },
             )
         }
-    }
-}
-
-@Composable
-private fun PlaceholderScreen(name: String) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(FinovaColors.Gray100)
-            .safeDrawingPadding()
-            .padding(Spacing.S6),
-        verticalArrangement = Arrangement.spacedBy(Spacing.S2),
-    ) {
-        Text(text = name, style = FinovaType.TitleLG, color = FinovaColors.MainMagenta)
-        Text(text = stringResource(R.string.placeholder_body), style = FinovaType.TextSM, color = FinovaColors.Gray600)
     }
 }
 
