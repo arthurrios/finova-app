@@ -20,6 +20,10 @@ import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.navArgument
 import com.arthurrios.finova.ui.budgets.BudgetsScreen
+import com.arthurrios.finova.ui.cards.AddCreditCardScreen
+import com.arthurrios.finova.ui.cards.AddCreditCardViewModel
+import com.arthurrios.finova.ui.cards.CreditCardsScreen
+import com.arthurrios.finova.ui.cards.CreditCardsViewModel
 import com.arthurrios.finova.ui.details.TransactionDetailsScreen
 import com.arthurrios.finova.ui.details.TransactionDetailsViewModel
 import com.arthurrios.finova.ui.budgets.BudgetsViewModel
@@ -53,6 +57,10 @@ object Routes {
     const val BUDGETS = "budgets?month={month}"
     const val DETAILS = "details/{id}"
     fun details(id: Long) = "details/$id"
+    const val CARDS = "cards"
+    /** Add when id is 0, edit otherwise. */
+    const val CARD_FORM = "cards/form?id={id}"
+    fun cardForm(id: Long = 0) = "cards/form?id=$id"
     fun budgets(month: java.time.YearMonth?) = "budgets?month=" + (month?.let { it.year * 100 + it.monthValue } ?: 0)
 }
 
@@ -185,6 +193,41 @@ fun FinovaNavHost(startRoute: String? = null) {
                 }
             )
             BudgetsScreen(viewModel, onBack = { navController.popBackStack() })
+        }
+        composable(Routes.CARDS) {
+            val viewModel: CreditCardsViewModel = viewModel(
+                factory = viewModelFactory {
+                    initializer {
+                        val container = appContext.appContainer
+                        CreditCardsViewModel(container.cardRepository(), container.settings)
+                    }
+                }
+            )
+            CreditCardsScreen(
+                viewModel,
+                onBack = { navController.popBackStack() },
+                onAdd = { navController.navigate(Routes.cardForm()) },
+                onEdit = { navController.navigate(Routes.cardForm(it)) },
+            )
+        }
+        composable(
+            Routes.CARD_FORM,
+            arguments = listOf(navArgument("id") { type = NavType.LongType; defaultValue = 0L }),
+        ) { entry ->
+            val id = entry.arguments?.getLong("id")?.takeIf { it > 0 }
+            val viewModel: AddCreditCardViewModel = viewModel(
+                factory = viewModelFactory {
+                    initializer {
+                        val container = appContext.appContainer
+                        AddCreditCardViewModel(container.cardRepository(), container.settings, id)
+                    }
+                }
+            )
+            AddCreditCardScreen(
+                viewModel,
+                onBack = { navController.popBackStack() },
+                onSaved = { navController.popBackStack() },
+            )
         }
     }
 }

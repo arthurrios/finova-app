@@ -82,3 +82,50 @@ interface UserSettingsDao {
     @Upsert
     suspend fun save(entity: UserSettingsEntity)
 }
+
+@Dao
+interface CreditCardDao {
+    /** Live cards, newest first, as iOS `getCreditCards` orders them. */
+    @Query("SELECT * FROM credit_cards WHERE is_deleted = 0 ORDER BY created_at DESC, id DESC")
+    fun observeActive(): Flow<List<CreditCardEntity>>
+
+    /** Every card, deleted ones too: their statements still charge the balance. */
+    @Query("SELECT * FROM credit_cards")
+    suspend fun getAll(): List<CreditCardEntity>
+
+    @Query("SELECT * FROM credit_cards WHERE id = :id")
+    suspend fun getById(id: Long): CreditCardEntity?
+
+    @Insert
+    suspend fun insert(card: CreditCardEntity): Long
+
+    @Update
+    suspend fun update(card: CreditCardEntity)
+
+    @Query("UPDATE credit_cards SET is_default = 0, updated_at = :now WHERE is_default = 1")
+    suspend fun clearDefault(now: Long = System.currentTimeMillis())
+
+    @Query("UPDATE credit_cards SET is_deleted = 1, is_default = 0, updated_at = :now WHERE id = :id")
+    suspend fun softDelete(id: Long, now: Long = System.currentTimeMillis())
+}
+
+@Dao
+interface StatementDao {
+    @Query("SELECT * FROM credit_card_statements")
+    fun observeAll(): Flow<List<StatementEntity>>
+
+    @Query("SELECT * FROM credit_card_statements WHERE credit_card_id = :cardId ORDER BY closing_date")
+    suspend fun forCard(cardId: Long): List<StatementEntity>
+
+    @Query("SELECT * FROM credit_card_statements WHERE id = :id")
+    suspend fun getById(id: Long): StatementEntity?
+
+    @Insert
+    suspend fun insert(statement: StatementEntity): Long
+
+    @Update
+    suspend fun update(statement: StatementEntity)
+
+    @Query("DELETE FROM credit_card_statements WHERE id = :id")
+    suspend fun delete(id: Long)
+}

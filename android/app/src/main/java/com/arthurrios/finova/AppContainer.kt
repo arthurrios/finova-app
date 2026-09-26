@@ -5,6 +5,7 @@ import android.content.Context
 import com.arthurrios.finova.auth.AuthRepository
 import com.arthurrios.finova.data.UserSettingsStore
 import com.arthurrios.finova.data.db.UserDatabaseProvider
+import com.arthurrios.finova.data.repo.CardRepository
 import com.arthurrios.finova.data.repo.FinanceRepository
 import com.arthurrios.finova.security.Biometrics
 
@@ -16,10 +17,12 @@ class AppContainer(context: Context) {
     val databases = UserDatabaseProvider(context)
 
     /** The money data of whoever is signed in (or the local account in a build without Firebase). */
-    fun financeRepository(): FinanceRepository {
-        val uid = authRepository.currentUser()?.firebaseUid ?: UserDatabaseProvider.LOCAL_UID
-        return FinanceRepository(databases.forUser(uid))
-    }
+    fun financeRepository(): FinanceRepository = FinanceRepository(currentDatabase())
+
+    fun cardRepository(): CardRepository = CardRepository(currentDatabase())
+
+    private fun currentDatabase() =
+        databases.forUser(authRepository.currentUser()?.firebaseUid ?: UserDatabaseProvider.LOCAL_UID)
 }
 
 class FinovaApplication : Application() {
