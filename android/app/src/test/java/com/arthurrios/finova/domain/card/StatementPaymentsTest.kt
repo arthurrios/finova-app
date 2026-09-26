@@ -46,13 +46,13 @@ class StatementPaymentsTest {
 
     @Test fun aPartialPaymentLowersWhatIsLeft() {
         val rows = listOf(purchase) + paid(4_000, 10)
-        assertEquals(6_000L, StatementPayments.remaining(3, rows))
+        assertEquals(6_000L, StatementPayments.remaining(3, rows, listOf(statement)))
         assertEquals(4_000L, StatementPayments.totalPaid(3, rows))
     }
 
     @Test fun whatIsLeftNeverGoesNegative() {
         val refund = purchase.copy(id = 2, type = TransactionType.Income, amount = 15_000)
-        assertEquals(0L, StatementPayments.remaining(3, listOf(purchase, refund)))
+        assertEquals(0L, StatementPayments.remaining(3, listOf(purchase, refund), listOf(statement)))
     }
 
     @Test fun eachHalfFindsTheOther() {
@@ -65,7 +65,7 @@ class StatementPaymentsTest {
 
     @Test fun aFullPaymentLeavesNoStatementRowButTheDebitCharges() {
         val rows = listOf(purchase) + paid(10_000, 10)
-        assertEquals(0L, StatementPayments.remaining(3, rows))
+        assertEquals(0L, StatementPayments.remaining(3, rows, listOf(statement)))
         assertTrue(StatementBook.statementRows(listOf(com.arthurrios.finova.domain.model.CreditCard(id = 7, name = "N", lastFourDigits = "1", closingDay = 5, dueDay = 10)), listOf(statement), rows).isEmpty())
     }
 }

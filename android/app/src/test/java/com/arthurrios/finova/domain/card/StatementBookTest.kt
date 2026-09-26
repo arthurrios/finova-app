@@ -96,4 +96,34 @@ class StatementBookTest {
         val rows = listOf(purchase(1, 10_000, 3))
         assertEquals(1, StatementBook.statementRows(listOf(deleted), listOf(s), rows).size)
     }
+
+    @Test fun aCreditLargerThanItsStatementCarriesToTheNextOnes() {
+        // A cancelled 3 x 100 purchase: the 300 credit lands on the first statement.
+        val oct = stmt(3, d(2026, 10, 10))
+        val nov = stmt(4, d(2026, 11, 10))
+        val dec = stmt(5, d(2026, 12, 10))
+        val rows = listOf(
+            purchase(1, 10_000, 3), purchase(2, 10_000, 4), purchase(3, 10_000, 5),
+            purchase(4, 30_000, 3, type = TransactionType.Income),
+        )
+        val charges = StatementBook.charges(listOf(dec, oct, nov), rows)
+        assertEquals(0L, charges.getValue(3).charged)
+        assertEquals(-20_000L, charges.getValue(3).carriedOut)
+        assertEquals(-20_000L, charges.getValue(4).carriedIn)
+        assertEquals(0L, charges.getValue(4).charged)
+        assertEquals(-10_000L, charges.getValue(5).carriedIn)
+        assertEquals(0L, charges.getValue(5).charged)
+        // So nothing charges the balance: the credit and the three installments cancel out.
+        assertTrue(StatementBook.statementRows(listOf(card), listOf(oct, nov, dec), rows).isEmpty())
+    }
+
+    @Test fun carriedCreditOnlyLowersTheSameCard() {
+        val mine = stmt(3, d(2026, 10, 10))
+        val other = stmt(4, d(2026, 11, 10), cardId = 8)
+        val rows = listOf(
+            purchase(1, 5_000, 3, type = TransactionType.Income),
+            purchase(2, 10_000, 4).copy(creditCardId = 8),
+        )
+        assertEquals(10_000L, StatementBook.charges(listOf(mine, other), rows).getValue(4).charged)
+    }
 }

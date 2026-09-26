@@ -224,9 +224,10 @@ class FinanceRepository(
         // A statement that owes money again stops reading "paid".
         if (touchedStatements.isNotEmpty()) {
             val left = db.transactions().getAll().map { it.toDomain() }
+            val statementsLeft = db.statements().getAll().map { it.toModel() }
             for (id in touchedStatements) {
                 val statement = db.statements().getById(id) ?: continue
-                if (statement.isPaid && StatementPayments.remaining(id, left) > 0) {
+                if (statement.isPaid && StatementPayments.remaining(id, left, statementsLeft) > 0) {
                     db.statements().update(statement.copy(isPaid = false, paidDate = null, paidAmount = null, updatedAt = System.currentTimeMillis()))
                 }
             }
@@ -313,13 +314,14 @@ class FinanceRepository(
         db.withTransaction {
             val statement = db.statements().getById(statementId)?.toModel() ?: error("No statement $statementId")
             val rows = db.transactions().getAll().map { it.toDomain() }
-            require(amount in 1..StatementPayments.remaining(statementId, rows)) { "The amount is more than the statement owes" }
+            val statements = db.statements().getAll().map { it.toModel() }
+            require(amount in 1..StatementPayments.remaining(statementId, rows, statements)) { "The amount is more than the statement owes" }
             val (debit, credit) = StatementPayments.pair(statement, amount, date, debitTitle, creditTitle)
             val debitId = db.transactions().insert(debit.toEntity())
             db.transactions().insert(credit.copy(statementPaymentId = debitId).toEntity())
             settleCardRows()
             val after = db.transactions().getAll().map { it.toDomain() }
-            if (StatementPayments.remaining(statementId, after) == 0L) {
+            if (StatementPayments.remaining(statementId, after, statements) == 0L) {
                 db.statements().getById(statementId)?.let {
                     db.statements().update(
                         it.copy(isPaid = true, paidDate = date, paidAmount = StatementPayments.totalPaid(statementId, after), updatedAt = System.currentTimeMillis())

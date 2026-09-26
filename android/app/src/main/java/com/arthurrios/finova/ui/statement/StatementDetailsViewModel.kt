@@ -24,8 +24,12 @@ data class StatementDetailsUiState(
     val statement: CreditCardStatement? = null,
     /** The purchases and credits on the statement, newest first. */
     val rows: List<TransactionRowUi> = emptyList(),
-    /** Purchases minus credits, early-paid installments left out. */
+    /** What the statement charges: its purchases minus credits, less credit carried in. */
     val total: Long = 0,
+    /** Credit from the card's earlier statements that lowers this one (zero or negative). */
+    val carriedIn: Long = 0,
+    /** Credit this statement passes on to the next one (zero or negative). */
+    val carriedOut: Long = 0,
     val currencyCode: String = "BRL",
     val valuesHidden: Boolean = false,
     /** True once the statement is gone (its last row was deleted). */
@@ -53,13 +57,16 @@ class StatementDetailsViewModel(
                 ?: return@combine StatementDetailsUiState(gone = loaded, valuesHidden = hidden)
             loaded = true
             if (card?.id != statement.creditCardId) loadCard(statement.creditCardId)
+            val charge = StatementBook.charges(statements.filter { it.creditCardId == statement.creditCardId }, rows)[statementId]
             StatementDetailsUiState(
                 card = card,
                 statement = statement,
                 rows = StatementBook.members(statementId, rows)
                     .sortedWith(compareByDescending<com.arthurrios.finova.domain.model.Transaction> { it.date }.thenByDescending { it.id })
                     .map { it.toRowUi() },
-                total = StatementBook.total(statementId, rows),
+                total = charge?.charged ?: 0,
+                carriedIn = charge?.carriedIn ?: 0,
+                carriedOut = charge?.carriedOut ?: 0,
                 currencyCode = settings.currencyCode,
                 valuesHidden = hidden,
             )

@@ -60,8 +60,9 @@ class StatementPaymentViewModel(
 
     init {
         viewModelScope.launch {
-            val statement = repository.statements.first().firstOrNull { it.id == statementId } ?: return@launch
-            val remaining = StatementPayments.remaining(statementId, repository.transactions.first())
+            val statements = repository.statements.first()
+            val statement = statements.firstOrNull { it.id == statementId } ?: return@launch
+            val remaining = StatementPayments.remaining(statementId, repository.transactions.first(), statements)
             // The full balance is pre-filled, as on iOS.
             _state.update {
                 it.copy(card = cards.card(statement.creditCardId), statement = statement, remaining = remaining, amount = remaining)
