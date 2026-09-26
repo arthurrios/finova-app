@@ -92,6 +92,14 @@ class DashboardViewModel(
     override fun balanceForDay(page: MonthPageUi, day: Int): Long =
         LedgerCalculator.balanceOn(latestRows, latestOffset, page.month.atDay(day.coerceIn(1, page.month.lengthOfMonth())))
 
+    override fun currentBalanceToday(): Long = LedgerCalculator.balanceOn(latestRows, latestOffset, today())
+
+    /** Port of AdjustBalanceModalViewController.didTapConfirm: the gap goes into the offset. */
+    override fun onConfirmAdjustBalance(realBalance: Long, appBalance: Long) {
+        val newOffset = realBalance - appBalance + latestOffset
+        viewModelScope.launch { repository.setBalanceOffset(newOffset) }
+    }
+
     override fun onToggleValues() {
         val hidden = !valuesHidden.value
         settings.hideValues = hidden

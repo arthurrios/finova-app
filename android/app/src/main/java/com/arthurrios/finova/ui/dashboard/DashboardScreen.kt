@@ -44,6 +44,7 @@ import com.arthurrios.finova.ui.theme.FinovaColors
 import com.arthurrios.finova.ui.theme.FinovaTheme
 import com.arthurrios.finova.ui.theme.Spacing
 import kotlinx.coroutines.launch
+import java.time.YearMonth
 
 /** Everything the dashboard can ask its owner to do. */
 interface DashboardActions {
@@ -53,10 +54,10 @@ interface DashboardActions {
     fun onSaveTransaction(request: AddTransactionRequest) {}
     fun onProfile() {}
     fun onNotifications() {}
-    fun onAdjustBalance(page: MonthPageUi) {}
+    /** The balance today, which "Adjust balance" calibrates against. */
+    fun currentBalanceToday(): Long = 0
+    fun onConfirmAdjustBalance(realBalance: Long, appBalance: Long) {}
     fun onBudgetView(page: MonthPageUi) {}
-    fun onMonthSettings(page: MonthPageUi) {}
-    fun onDefineBudget(page: MonthPageUi) {}
     fun onFilter(page: MonthPageUi) {}
     fun onTransaction(row: TransactionRowUi) {}
     fun onDeleteTransaction(row: TransactionRowUi, option: SeriesDeleteOption = SeriesDeleteOption.ThisOnly) {}
@@ -64,12 +65,17 @@ interface DashboardActions {
 
 /** Port of DashboardView / DashboardViewController layout on iOS. */
 @Composable
-fun DashboardScreen(state: DashboardUiState, actions: DashboardActions) {
+fun DashboardScreen(
+    state: DashboardUiState,
+    actions: DashboardActions,
+    onOpenBudgets: (YearMonth?) -> Unit = {},
+) {
     val pagerState = rememberPagerState(initialPage = state.selectedMonth) { state.months.size }
     val scope = rememberCoroutineScope()
     // iOS always asks before deleting; a swipe or the trash icon only opens the question.
     var pendingDelete by remember { mutableStateOf<TransactionRowUi?>(null) }
     var showAddSheet by rememberSaveable { mutableStateOf(false) }
+    var adjustFrom by remember { mutableStateOf<Long?>(null) }
 
     // The pager reports the settled page; the tabs follow it.
     LaunchedEffect(pagerState) {
@@ -103,6 +109,8 @@ fun DashboardScreen(state: DashboardUiState, actions: DashboardActions) {
                         state = state,
                         actions = actions,
                         onRequestDelete = { pendingDelete = it },
+                        onAdjustBalance = { adjustFrom = actions.currentBalanceToday() },
+                        onOpenBudgets = onOpenBudgets,
                     )
                 }
             }
@@ -120,6 +128,18 @@ fun DashboardScreen(state: DashboardUiState, actions: DashboardActions) {
         ) {
             Icon(painterResource(R.drawable.ic_plus), contentDescription = stringResource(R.string.dashboard_add_transaction))
         }
+    }
+
+    adjustFrom?.let { appBalance ->
+        AdjustBalanceSheet(
+            currentBalance = appBalance,
+            currencyCode = state.currencyCode,
+            onConfirm = { real ->
+                adjustFrom = null
+                actions.onConfirmAdjustBalance(real, appBalance)
+            },
+            onDismiss = { adjustFrom = null },
+        )
     }
 
     if (showAddSheet) {
@@ -152,6 +172,8 @@ private fun MonthPage(
     state: DashboardUiState,
     actions: DashboardActions,
     onRequestDelete: (TransactionRowUi) -> Unit,
+    onAdjustBalance: () -> Unit,
+    onOpenBudgets: (YearMonth?) -> Unit,
 ) {
     var query by rememberSaveable(page.month) { mutableStateOf("") }
     val rows = remember(page.transactions, query) {
@@ -173,10 +195,11 @@ private fun MonthPage(
             valuesHidden = state.valuesHidden,
             balanceForDay = { actions.balanceForDay(page, it) },
             onToggleValues = actions::onToggleValues,
-            onAdjustBalance = { actions.onAdjustBalance(page) },
+            onAdjustBalance = onAdjustBalance,
             onBudgetView = { actions.onBudgetView(page) },
-            onSettings = { actions.onMonthSettings(page) },
-            onDefineBudget = { actions.onDefineBudget(page) },
+            // The gear opens every budget, "Set budget" opens this month's (as on iOS).
+            onSettings = { onOpenBudgets(null) },
+            onDefineBudget = { onOpenBudgets(page.month) },
         )
         Spacer(Modifier.height(Spacing.S4))
         TransactionSearchBar(query = query, onQueryChange = { query = it }, onFilter = { actions.onFilter(page) })

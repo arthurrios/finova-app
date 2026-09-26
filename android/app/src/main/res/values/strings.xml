@@ -156,4 +156,27 @@
     <string name="category_transfer">Transfer</string>
     <string name="category_bank_slip">Bank Slip</string>
     <string name="category_credit_card">Credit Card</string>
+    <!-- Budgets and adjust balance -->
+    <string name="budgets_header_title">Monthly Budgets</string>
+    <string name="budgets_header_subtitle">Organize your spending limits per month</string>
+    <string name="budgets_new_header_title">New budget</string>
+    <string name="budgets_table_header_title">Registered budgets</string>
+    <string name="budgets_save">Save</string>
+    <string name="budgets_empty_state_description">You have not yet recorded any budgets</string>
+    <string name="budgets_input_month_year">00/0000</string>
+    <string name="budgets_alert_exists_title">Budget already exists</string>
+    <string name="budgets_alert_exists_description">Do you wish to update the selected month\'s budget?</string>
+    <string name="budget_delete_title">Delete budget</string>
+    <string name="alert_update">Update</string>
+    <string name="back">Back</string>
+    <string name="month_picker_previous_year">Previous year</string>
+    <string name="month_picker_next_year">Next year</string>
+    <string name="adjust_balance_title">Adjust Balance</string>
+    <string name="adjust_balance_current">Current app balance</string>
+    <string name="adjust_balance_real">Your real balance</string>
+    <string name="adjust_balance_confirm">Adjust</string>
+    <string-array name="month_long">
+        <item>January</item><item>February</item><item>March</item><item>April</item><item>May</item><item>June</item>
+        <item>July</item><item>August</item><item>September</item><item>October</item><item>November</item><item>December</item>
+    </string-array>
 </resources>

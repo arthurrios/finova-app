@@ -149,4 +149,26 @@
     <string name="category_transfer">Transferência</string>
     <string name="category_bank_slip">Boleto</string>
     <string name="category_credit_card">Cartão de Crédito</string>
+    <string name="budgets_header_title">Orçamentos mensais</string>
+    <string name="budgets_header_subtitle">Organize seus limites de gastos por mês</string>
+    <string name="budgets_new_header_title">Novo orçamento</string>
+    <string name="budgets_table_header_title">Orçamentos cadastrados</string>
+    <string name="budgets_save">Salvar</string>
+    <string name="budgets_empty_state_description">Você ainda não registrou nenhum orçamento</string>
+    <string name="budgets_input_month_year">00/0000</string>
+    <string name="budgets_alert_exists_title">Orçamento já existe</string>
+    <string name="budgets_alert_exists_description">Você deseja atualizar o orçamento para o mês selecionado?</string>
+    <string name="budget_delete_title">Apagar orçamento</string>
+    <string name="alert_update">Atualizar</string>
+    <string name="back">Voltar</string>
+    <string name="month_picker_previous_year">Ano anterior</string>
+    <string name="month_picker_next_year">Próximo ano</string>
+    <string name="adjust_balance_title">Ajustar Saldo</string>
+    <string name="adjust_balance_current">Saldo atual no app</string>
+    <string name="adjust_balance_real">Seu saldo real</string>
+    <string name="adjust_balance_confirm">Ajustar</string>
+    <string-array name="month_long">
+        <item>Janeiro</item><item>Fevereiro</item><item>Março</item><item>Abril</item><item>Maio</item><item>Junho</item>
+        <item>Julho</item><item>Agosto</item><item>Setembro</item><item>Outubro</item><item>Novembro</item><item>Dezembro</item>
+    </string-array>
 </resources>
