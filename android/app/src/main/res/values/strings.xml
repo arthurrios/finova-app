@@ -360,4 +360,6 @@
     <string name="cancel_undo_title">Undo cancellation</string>
     <string name="cancel_undo_message">The credit will be removed and the purchase will no longer be marked as cancelled.</string>
     <string name="cancel_undo_action">Undo</string>
+    <string name="statement_details_carried_in">Credit from earlier statements</string>
+    <string name="statement_details_carried_out">Credit carried to the next statement</string>
 </resources>

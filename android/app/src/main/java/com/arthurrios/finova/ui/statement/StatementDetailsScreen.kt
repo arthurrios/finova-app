@@ -133,6 +133,15 @@ fun StatementDetailsScreen(
                         color = FinovaColors.Gray700,
                     )
                 }
+                // A credit larger than a statement carries on to the next ones (see StatementBook.charges).
+                if (state.carriedIn < 0) {
+                    InfoRow(R.string.statement_details_carried_in, Money.formatMasked(state.carriedIn, state.currencyCode, state.valuesHidden),
+                        valueColor = FinovaColors.MainGreen)
+                }
+                if (state.carriedOut < 0) {
+                    InfoRow(R.string.statement_details_carried_out, Money.formatMasked(-state.carriedOut, state.currencyCode, state.valuesHidden),
+                        valueColor = FinovaColors.MainGreen)
+                }
                 InfoRow(R.string.statement_details_status, stringResource(status.label), valueColor = status.color)
             }
             statement.paidDate?.takeIf { statement.isPaid }?.let { paid ->

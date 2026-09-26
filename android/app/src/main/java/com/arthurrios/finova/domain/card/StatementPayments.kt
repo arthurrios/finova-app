@@ -18,9 +18,15 @@ import java.time.YearMonth
  */
 object StatementPayments {
 
-    /** What the statement still owes, never negative. */
-    fun remaining(statementId: Long, rows: List<Transaction>): Long =
-        StatementBook.total(statementId, rows).coerceAtLeast(0)
+    /**
+     * What the statement still owes, never negative: its own total less any credit carried in from
+     * the card's earlier statements.
+     */
+    fun remaining(statementId: Long, rows: List<Transaction>, statements: List<CreditCardStatement>): Long {
+        val statement = statements.firstOrNull { it.id == statementId }
+            ?: return StatementBook.total(statementId, rows).coerceAtLeast(0)
+        return StatementBook.charges(statements.filter { it.creditCardId == statement.creditCardId }, rows)[statementId]?.charged ?: 0
+    }
 
     /** The two rows of a payment. The credit's [Transaction.statementPaymentId] is set on insert. */
     fun pair(

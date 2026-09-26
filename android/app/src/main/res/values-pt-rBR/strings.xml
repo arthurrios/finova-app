@@ -351,4 +351,6 @@
     <string name="cancel_undo_title">Desfazer cancelamento</string>
     <string name="cancel_undo_message">O crédito será removido e a compra deixará de ficar marcada como cancelada.</string>
     <string name="cancel_undo_action">Desfazer</string>
+    <string name="statement_details_carried_in">Crédito de faturas anteriores</string>
+    <string name="statement_details_carried_out">Crédito levado para a próxima fatura</string>
 </resources>
