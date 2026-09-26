@@ -2,7 +2,6 @@
 <!-- Keys and copy come from Localizable.xcstrings on iOS release/v1.5.2. -->
 <resources>
     <string name="app_name">Finova</string>
-    <string name="placeholder_body">This screen is not ported from iOS yet.</string>
 
     <string name="input_email">Email</string>
     <string name="input_password">Password</string>
