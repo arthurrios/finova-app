@@ -59,15 +59,14 @@ import com.arthurrios.finova.ui.theme.FinovaColors
 import com.arthurrios.finova.ui.theme.FinovaType
 import com.arthurrios.finova.ui.theme.Spacing
 import kotlin.math.atan2
+import kotlin.math.roundToInt
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.runtime.rememberUpdatedState
+import com.arthurrios.finova.ui.tags.arcColor
+import com.arthurrios.finova.ui.tags.TagIcon
+import com.arthurrios.finova.domain.tags.AllocationTagBook
+import com.arthurrios.finova.domain.tags.AllocationTagBreakdown
 import kotlin.math.hypot
-
-/** One slice of the donut: an allocation, off-plan spending, or budget no allocation covers. */
-private sealed interface Slice {
-    val amount: Long
-    data class Allocated(val category: TransactionCategory, override val amount: Long) : Slice
-    data class OffPlan(val category: TransactionCategory, override val amount: Long) : Slice
-    data class Headroom(override val amount: Long) : Slice
-}
 
 /**
  * The back of the month card: port of BudgetCard.swift. The month's allocations as a donut, the
@@ -84,6 +83,9 @@ fun BudgetCard(
     onDefineBudget: () -> Unit,
     onOpenCategory: (TransactionCategory) -> Unit,
     modifier: Modifier = Modifier,
+    breakdown: AllocationTagBreakdown? = null,
+    selectedTagId: String? = null,
+    onTagSelected: (String?) -> Unit = {},
 ) {
     val monthNames = stringArrayResource(R.array.month_short)
     val summary = page.unallocated
@@ -132,7 +134,8 @@ fun BudgetCard(
             }
 
             Box(Modifier.fillMaxWidth()) {
-                Donut(page, currencyCode, valuesHidden, onOpenCategory, Modifier.align(Alignment.Center).size(170.dp))
+                Donut(page, currencyCode, valuesHidden, onOpenCategory, Modifier.align(Alignment.Center).size(170.dp),
+                    breakdown ?: untaggedBreakdown(page), selectedTagId, onTagSelected)
                 page.finalBalance?.let { balance ->
                     CornerBlock(
                         caption = stringResource(R.string.budget_by_day, "${monthNames[page.month.monthValue - 1]} ${page.month.lengthOfMonth()}"),
@@ -224,10 +227,25 @@ private fun ProjectionBar(projection: AllocationBalanceProjection) {
     }
 }
 
+/** The donut's slices without tags: allocations, off-plan spending, then headroom. */
+private fun untaggedBreakdown(page: MonthPageUi) = AllocationTagBreakdown.of(
+    page.allocations, page.offPlan, page.unallocated.unallocated, page.unallocated.totalBudget, AllocationTagBook(),
+)
+
+/** Radii against the 85pt iOS design radius, so they hold at any size (BudgetDonutChartView). */
+private const val DesignRadius = 85f
+private const val TagRingOuter = 62f
+private const val TagRingInner = 55f
+private const val TagBandInner = 51f
+private const val TagBandOuter = 66f
+private const val CategoryInnerRatioTagged = 0.7765f
+private const val CategoryInnerRatio = 0.65f
+
 /**
- * Port of BudgetDonutChartView (without the tag ring). Slices: allocations biggest first, then
- * off-plan spending, then unallocated headroom. Tapping a slice shows it in the centre; tapping an
- * allocation again opens it.
+ * Port of BudgetDonutChartView. Slices come from [AllocationTagBreakdown], grouped by tag. With tags,
+ * the category ring narrows and a thin ring of tag colours sits inside it; tapping that ring (or a
+ * chip) selects a tag, and tapping it again clears it. Tapping a slice shows it in the centre;
+ * tapping an allocation again opens it.
  */
 @Composable
 private fun Donut(
@@ -236,65 +254,82 @@ private fun Donut(
     valuesHidden: Boolean,
     onOpenCategory: (TransactionCategory) -> Unit,
     modifier: Modifier,
+    breakdown: AllocationTagBreakdown,
+    selectedTagId: String?,
+    onTagSelected: (String?) -> Unit,
 ) {
-    val slices = remember(page.allocations, page.offPlan, page.unallocated) {
-        buildList<Slice> {
-            page.allocations.sortedWith(compareByDescending<com.arthurrios.finova.domain.allocation.BudgetAllocation> { it.allocated }.thenBy { it.category.key })
-                .forEach { add(Slice.Allocated(it.category, it.allocated)) }
-            page.offPlan.sortedWith(compareByDescending<com.arthurrios.finova.domain.allocation.UnallocatedSpending> { it.spent }.thenBy { it.category.key })
-                .forEach { add(Slice.OffPlan(it.category, it.spent)) }
-            page.unallocated.unallocated.takeIf { it > 0 }?.let { add(Slice.Headroom(it)) }
-        }
-    }
-    var selected by remember(page.month) { mutableStateOf<Slice?>(null) }
-    val total = slices.sumOf { it.amount }.coerceAtLeast(1)
+    val segments = breakdown.segments
+    val hasTags = breakdown.hasTags
+    var selectedId by remember(page.month) { mutableStateOf<String?>(null) }
+    // A slice outside the selected tag cannot stay selected.
+    val selected = segments.firstOrNull { it.id == selectedId }?.takeIf { selectedTagId == null || it.tagId == selectedTagId }
+    val total = segments.sumOf { it.amount }.coerceAtLeast(1)
     val maxAllocated = page.allocations.maxOfOrNull { it.allocated }?.coerceAtLeast(1) ?: 1
+    val innerRatio = if (hasTags) CategoryInnerRatioTagged else CategoryInnerRatio
+    val currentTag by rememberUpdatedState(selectedTagId)
 
     Box(modifier, contentAlignment = Alignment.Center) {
         Canvas(
             Modifier
                 .matchParentSize()
-                .pointerInput(slices) {
+                .pointerInput(segments, hasTags) {
                     detectTapGestures { tap ->
                         val center = Offset(size.width / 2f, size.height / 2f)
                         val radius = size.width / 2f
+                        val scale = radius / DesignRadius
                         val distance = hypot(tap.x - center.x, tap.y - center.y)
-                        if (distance < radius * 0.65f || distance > radius) {
-                            selected = null
-                            return@detectTapGestures
-                        }
                         // Angle from 12 o'clock, clockwise, as the slices are drawn.
                         var angle = Math.toDegrees(atan2((tap.y - center.y).toDouble(), (tap.x - center.x).toDouble())) + 90
                         if (angle < 0) angle += 360
-                        var start = 0.0
-                        val hit = slices.firstOrNull { slice ->
-                            val sweep = slice.amount.toDouble() / total * 360
-                            (angle >= start && angle < start + sweep).also { start += sweep }
+                        val fraction = angle / 360
+                        if (hasTags && distance >= TagBandInner * scale && distance <= TagBandOuter * scale) {
+                            val arc = breakdown.tagArcs.firstOrNull { fraction >= it.startFraction && fraction < it.endFraction }
+                            selectedId = null
+                            if (arc != null) onTagSelected(if (currentTag == arc.tag.id) null else arc.tag.id)
+                            return@detectTapGestures
                         }
-                        if (hit is Slice.Allocated && hit == selected) onOpenCategory(hit.category)
-                        selected = if (hit == selected) null else hit
+                        if (distance < radius * innerRatio || distance > radius) {
+                            selectedId = null
+                            return@detectTapGestures
+                        }
+                        var start = 0.0
+                        val hit = segments.firstOrNull { segment ->
+                            val sweep = segment.amount.toDouble() / total * 360
+                            (angle >= start && angle < start + sweep).also { start += sweep }
+                        } ?: return@detectTapGestures
+                        // While a tag is selected, slices outside it are out of reach.
+                        if (currentTag != null && hit.tagId != currentTag) return@detectTapGestures
+                        val kind = hit.kind
+                        if (kind is AllocationTagBreakdown.Kind.Allocated && hit.id == selectedId) onOpenCategory(kind.category)
+                        selectedId = if (hit.id == selectedId) null else hit.id
                     }
                 },
         ) {
-            val stroke = size.minDimension * 0.35f / 2f
+            val radius = size.minDimension / 2f
+            val stroke = radius * (1 - innerRatio)
             val arcSize = Size(size.width - stroke, size.height - stroke)
             val topLeft = Offset(stroke / 2, stroke / 2)
-            if (slices.isEmpty()) {
+            if (segments.isEmpty()) {
                 drawArc(FinovaColors.Gray600.copy(alpha = 0.5f), 0f, 360f, false, topLeft, arcSize, style = Stroke(stroke))
                 return@Canvas
             }
             var start = -90f
-            slices.forEach { slice ->
-                val sweep = slice.amount.toFloat() / total * 360f
-                val gap = if (slices.size > 1) 2f else 0f
-                val base = when (slice) {
-                    is Slice.Allocated -> allocationColor(slice.amount, maxAllocated)
-                    is Slice.OffPlan -> FinovaColors.Gray500.copy(alpha = 0.8f)
-                    is Slice.Headroom -> FinovaColors.Gray600.copy(alpha = 0.5f)
+            segments.forEach { segment ->
+                val sweep = segment.amount.toFloat() / total * 360f
+                val gap = if (segments.size > 1) 2f else 0f
+                val (base, baseAlpha) = when (val kind = segment.kind) {
+                    is AllocationTagBreakdown.Kind.Allocated -> allocationColor(segment.amount, maxAllocated) to 1f
+                    is AllocationTagBreakdown.Kind.OffPlan -> FinovaColors.Gray500 to 0.8f
+                    AllocationTagBreakdown.Kind.Headroom -> FinovaColors.Gray600 to 0.5f
                 }
-                val dimmed = selected != null && selected != slice
+                val alpha = when {
+                    selected != null -> if (segment.id == selected.id) (if (segment.kind == AllocationTagBreakdown.Kind.Headroom) 1f else baseAlpha) else 0.35f
+                    selectedTagId != null -> if (segment.kind != AllocationTagBreakdown.Kind.Headroom && segment.tagId == selectedTagId) baseAlpha
+                        else if (segment.kind == AllocationTagBreakdown.Kind.Headroom) 0.35f else 0.28f
+                    else -> baseAlpha
+                }
                 drawArc(
-                    color = if (dimmed) base.copy(alpha = base.alpha * 0.35f) else base,
+                    color = base.copy(alpha = alpha),
                     startAngle = start + gap / 2,
                     sweepAngle = (sweep - gap).coerceAtLeast(0.5f),
                     useCenter = false,
@@ -304,8 +339,31 @@ private fun Donut(
                 )
                 start += sweep
             }
+            if (hasTags) {
+                // Filled bands with square ends, like iOS: round caps on a thin band read as pills.
+                val scale = radius / DesignRadius
+                val bandStroke = (TagRingOuter - TagRingInner) * scale
+                val mid = (TagRingOuter + TagRingInner) / 2 * scale
+                val ringSize = Size(mid * 2, mid * 2)
+                val ringTopLeft = Offset(size.width / 2 - mid, size.height / 2 - mid)
+                val insetDegrees = Math.toDegrees(2.0 / (TagRingOuter * scale)).toFloat()
+                breakdown.tagArcs.forEach { arc ->
+                    val arcStart = -90f + (arc.startFraction * 360).toFloat()
+                    val arcSweep = ((arc.endFraction - arc.startFraction) * 360).toFloat()
+                    val inset = minOf(insetDegrees, (arcSweep / 2 - 0.05f).coerceAtLeast(0f))
+                    drawArc(
+                        color = arc.tag.color.arcColor.copy(alpha = if (selectedTagId == null || selectedTagId == arc.tag.id) 1f else 0.35f),
+                        startAngle = arcStart + inset,
+                        sweepAngle = (arcSweep - inset * 2).coerceAtLeast(0.1f),
+                        useCenter = false,
+                        topLeft = ringTopLeft,
+                        size = ringSize,
+                        style = Stroke(bandStroke, cap = StrokeCap.Butt),
+                    )
+                }
+            }
         }
-        DonutCenter(selected, page, currencyCode, valuesHidden)
+        DonutCenter(selected, selectedTagId?.let(breakdown::arc), breakdown, page, currencyCode, valuesHidden)
     }
 }
 
@@ -318,28 +376,47 @@ private fun allocationColor(amount: Long, max: Long): Color {
 }
 
 @Composable
-private fun DonutCenter(selected: Slice?, page: MonthPageUi, currencyCode: String, valuesHidden: Boolean) {
+private fun DonutCenter(
+    selected: AllocationTagBreakdown.Segment?,
+    arc: AllocationTagBreakdown.TagArc?,
+    breakdown: AllocationTagBreakdown,
+    page: MonthPageUi,
+    currencyCode: String,
+    valuesHidden: Boolean,
+) {
     Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(2.dp), modifier = Modifier.width(85.dp)) {
-        when (selected) {
-            is Slice.Allocated -> {
-                Icon(painterResource(selected.category.icon(TransactionType.Expense)), null, tint = FinovaColors.MainMagenta, modifier = Modifier.size(24.dp))
-                CenterLabel(stringResource(selected.category.label))
+        val kind = selected?.kind
+        when {
+            kind is AllocationTagBreakdown.Kind.Allocated -> {
+                Icon(painterResource(kind.category.icon(TransactionType.Expense)), null, tint = FinovaColors.MainMagenta, modifier = Modifier.size(24.dp))
+                CenterLabel(stringResource(kind.category.label))
                 CenterValue(Money.compactMasked(selected.amount, currencyCode, valuesHidden))
             }
-            is Slice.OffPlan -> {
-                Icon(painterResource(selected.category.icon(TransactionType.Expense)), null, tint = FinovaColors.Gray400, modifier = Modifier.size(24.dp))
-                CenterLabel(stringResource(selected.category.label))
+            kind is AllocationTagBreakdown.Kind.OffPlan -> {
+                Icon(painterResource(kind.category.icon(TransactionType.Expense)), null, tint = FinovaColors.Gray400, modifier = Modifier.size(24.dp))
+                CenterLabel(stringResource(kind.category.label))
                 CenterValue(Money.compactMasked(selected.amount, currencyCode, valuesHidden))
             }
-            is Slice.Headroom -> {
+            kind == AllocationTagBreakdown.Kind.Headroom -> {
                 Icon(Icons.AutoMirrored.Outlined.HelpOutline, null, tint = FinovaColors.Gray400, modifier = Modifier.size(24.dp))
                 CenterLabel(stringResource(R.string.budget_unallocated))
                 CenterValue(Money.compactMasked(selected.amount, currencyCode, valuesHidden))
             }
-            null -> if (page.allocations.isEmpty() && page.offPlan.isEmpty()) {
+            arc != null -> {
+                TagIcon(arc.tag, tint = arc.tag.color.arcColor, size = 24.dp)
+                CenterLabel(arc.tag.name)
+                CenterValue(Money.compactMasked(arc.bucket.allocated, currencyCode, valuesHidden))
+                // A share, not an amount, so it stays when values are hidden.
+                if (breakdown.totalBudget > 0) {
+                    Text(stringResource(R.string.tags_share_of_budget, (arc.bucket.share * 100).roundToInt()),
+                        fontSize = 9.sp, color = FinovaColors.Gray400, maxLines = 1)
+                }
+            }
+            page.allocations.isEmpty() && page.offPlan.isEmpty() -> {
                 Text("0%", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = FinovaColors.Gray400)
                 Text(stringResource(R.string.budget_allocated_label), fontSize = 11.sp, color = FinovaColors.Gray500)
-            } else {
+            }
+            else -> {
                 Text(Money.compactMasked(page.unallocated.totalBudget, currencyCode, valuesHidden), fontSize = 16.sp,
                     fontWeight = FontWeight.Bold, color = FinovaColors.Gray100, maxLines = 1)
                 Text(stringResource(R.string.budget_total_label), fontSize = 11.sp, color = FinovaColors.Gray400, maxLines = 1)

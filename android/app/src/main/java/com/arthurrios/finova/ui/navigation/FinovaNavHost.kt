@@ -80,6 +80,11 @@ object Routes {
     /** Add when id is 0, edit otherwise. */
     const val CARD_FORM = "cards/form?id={id}"
     fun cardForm(id: Long = 0) = "cards/form?id=$id"
+    const val TAGS = "tags"
+    const val TAG_EDIT = "tags/{id}"
+    fun tagEdit(id: String) = "tags/$id"
+    const val TAG_CATEGORIES = "tags/{id}/categories"
+    fun tagCategories(id: String) = "tags/$id/categories"
     /** A category's allocation (or unallocated spending) in a month; month is yyyyMM. */
     const val ALLOCATION = "allocation/{category}/{month}"
     fun allocation(month: java.time.YearMonth, category: com.arthurrios.finova.domain.model.TransactionCategory) =
@@ -177,7 +182,7 @@ fun FinovaNavHost(startRoute: String? = null) {
                 factory = viewModelFactory {
                     initializer {
                         val container = appContext.appContainer
-                        DashboardViewModel(container.financeRepository(), container.settings, container.cardRepository(), container.allocationRepository())
+                        DashboardViewModel(container.financeRepository(), container.settings, container.cardRepository(), container.allocationRepository(), container.tagRepository())
                     }
                 }
             )
@@ -199,6 +204,31 @@ fun FinovaNavHost(startRoute: String? = null) {
                 onCreateCard = { navController.navigate(Routes.cardForm()) },
                 onOpenStatement = { navController.navigate(Routes.statement(it)) },
                 onOpenAllocation = { month, category -> navController.navigate(Routes.allocation(month, category)) },
+                onOpenTags = { navController.navigate(Routes.TAGS) },
+                onEditTag = { navController.navigate(Routes.tagEdit(it)) },
+            )
+        }
+        composable(Routes.TAGS) {
+            com.arthurrios.finova.ui.tags.AllocationTagsScreen(
+                tagsViewModel(),
+                onBack = { navController.popBackStack() },
+                onEdit = { navController.navigate(Routes.tagEdit(it)) },
+            )
+        }
+        composable(Routes.TAG_EDIT) { entry ->
+            val id = entry.arguments?.getString("id").orEmpty()
+            com.arthurrios.finova.ui.tags.AllocationTagEditScreen(
+                tagsViewModel(),
+                tagId = id,
+                onBack = { navController.popBackStack() },
+                onCategories = { navController.navigate(Routes.tagCategories(id)) },
+            )
+        }
+        composable(Routes.TAG_CATEGORIES) { entry ->
+            com.arthurrios.finova.ui.tags.AllocationTagCategoriesScreen(
+                tagsViewModel(),
+                tagId = entry.arguments?.getString("id").orEmpty(),
+                onBack = { navController.popBackStack() },
             )
         }
         composable(
@@ -387,4 +417,10 @@ private fun PlaceholderScreen(name: String) {
         Text(text = name, style = FinovaType.TitleLG, color = FinovaColors.MainMagenta)
         Text(text = stringResource(R.string.placeholder_body), style = FinovaType.TextSM, color = FinovaColors.Gray600)
     }
+}
+
+@Composable
+private fun tagsViewModel(): com.arthurrios.finova.ui.tags.TagsViewModel {
+    val appContext = LocalContext.current.applicationContext
+    return viewModel(factory = viewModelFactory { initializer { com.arthurrios.finova.ui.tags.TagsViewModel(appContext.appContainer.tagRepository()) } })
 }

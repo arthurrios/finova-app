@@ -30,6 +30,8 @@ data class DashboardUiState(
     val cards: List<CreditCard> = emptyList(),
     /** Every allocation (deleted series months included), for the allocation sheet's checks. */
     val allocationRows: List<AllocationRow> = emptyList(),
+    /** The account's allocation tags (a lens over categories; see AllocationTagBook). */
+    val tagBook: com.arthurrios.finova.domain.tags.AllocationTagBook = com.arthurrios.finova.domain.tags.AllocationTagBook(),
 )
 
 /** One page of the month carousel: the month card plus that month's transactions. */

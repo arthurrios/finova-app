@@ -114,7 +114,7 @@ private fun CategoryRow(
 
 /** The empty state under the allocations header. */
 @Composable
-fun AllocationsEmpty() {
+fun AllocationsEmpty(message: String = stringResource(R.string.budget_allocations_empty)) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
@@ -125,6 +125,6 @@ fun AllocationsEmpty() {
             .border(1.dp, FinovaColors.Gray300, RoundedCornerShape(bottomStart = CornerRadius.ExtraLarge, bottomEnd = CornerRadius.ExtraLarge))
             .padding(horizontal = Spacing.S5),
     ) {
-        Text(stringResource(R.string.budget_allocations_empty), style = FinovaType.TextXS, color = FinovaColors.Gray500)
+        Text(message, style = FinovaType.TextXS, color = FinovaColors.Gray500)
     }
 }

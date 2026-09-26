@@ -36,6 +36,7 @@ class DashboardViewModel(
     private val settings: UserSettingsStore,
     private val cardRepository: CardRepository,
     private val allocationRepository: AllocationRepository,
+    private val tagRepository: com.arthurrios.finova.data.repo.TagRepository? = null,
     private val today: () -> LocalDate = LocalDate::now,
 ) : ViewModel(), DashboardActions {
 
@@ -60,7 +61,8 @@ class DashboardViewModel(
         combine(repository.budgets, repository.balanceOffset, cardRepository.activeCards, allocationRepository.all, repository.statements, ::Inputs),
         selectedMonth,
         valuesHidden,
-    ) { rows, (budgets, offset, cards, allocations, statements), selected, hidden ->
+        tagRepository?.book ?: kotlinx.coroutines.flow.flowOf(com.arthurrios.finova.domain.tags.AllocationTagBook()),
+    ) { rows, (budgets, offset, cards, allocations, statements), selected, hidden, tagBook ->
         // Allocation spending counts stored rows only, never the synthetic statement rows.
         val stored = rows.filterNot { it.isCreditCardStatement }
         latestRows = rows
@@ -99,6 +101,7 @@ class DashboardViewModel(
             isLoading = false,
             cards = cards,
             allocationRows = allocations,
+            tagBook = tagBook,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DashboardUiState(selectedMonth = SeriesMonths.todayIndex()))
 
@@ -163,6 +166,8 @@ class DashboardViewModel(
             if (index >= 0) selectedMonth.value = index
         }
     }
+
+    override fun createTag(name: String): String? = tagRepository?.create(name)?.id
 
     override fun spendHistories(page: MonthPageUi) =
         com.arthurrios.finova.domain.allocation.CategorySpendHistory.of(

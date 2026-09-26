@@ -490,4 +490,36 @@
         <item quantity="other">%1$d closed months</item>
     </plurals>
     <string name="budget_tags_manage">Tags</string>
+    <string name="tags_title">Allocation tags</string>
+    <string name="tags_subtitle">Group categories to see what a set costs</string>
+    <string name="tags_empty">No tags yet. Create one to group your categories.</string>
+    <string name="tags_create_title">New tag</string>
+    <string name="tags_create_message">Name this group of categories</string>
+    <string name="tags_create_placeholder">Essentials</string>
+    <string name="tags_create_button">Create</string>
+    <string name="tags_delete_title">Delete tag?</string>
+    <string name="tags_delete_message">Only the grouping is removed. Your allocations and transactions are untouched.</string>
+    <string name="tags_no_categories">No categories yet</string>
+    <plurals name="tags_category_count">
+        <item quantity="one">%1$d category</item>
+        <item quantity="other">%1$d categories</item>
+    </plurals>
+    <string name="tags_reorder_hint">Touch and hold, then drag to reorder</string>
+    <string name="tags_edit_title">Edit tag</string>
+    <string name="tags_edit_name">Name</string>
+    <string name="tags_edit_color">Color</string>
+    <string name="tags_edit_icon">Icon</string>
+    <string name="tags_edit_categories">Categories</string>
+    <string name="tags_edit_delete">Delete tag</string>
+    <string name="tags_name_required_title">Name required</string>
+    <string name="tags_name_required_message">Give this tag a name so you can recognise it.</string>
+    <string name="tags_categories_subtitle">Pick the categories this tag covers</string>
+    <string name="tags_in_other">In %1$s</string>
+    <string name="tags_move_title">Move category?</string>
+    <string name="tags_move_message">%1$s is currently in %2$s. It can belong to one tag at a time.</string>
+    <string name="tags_move_button">Move</string>
+    <string name="tags_strip_untagged">Untagged</string>
+    <string name="tags_strip_clear">Clear filter</string>
+    <string name="tags_share_of_budget">%1$d%% of budget</string>
+    <string name="budget_allocations_filtered_empty">No allocations in this tag</string>
 </resources>

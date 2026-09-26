@@ -63,6 +63,8 @@ interface DashboardActions : com.arthurrios.finova.ui.budget.AllocationSheetActi
     override fun createAllocation(category: com.arthurrios.finova.domain.model.TransactionCategory, amount: Long, month: YearMonth, repeating: Boolean, endMonth: YearMonth?, overwrite: List<Long>) {}
     override fun editAllocation(id: Long, amount: Long, scope: com.arthurrios.finova.domain.allocation.AllocationEditScope, through: YearMonth?) {}
     /** What the closed months before the page's month say about each allocated category. */
+    /** Creates a tag; returns its id so the caller can open it for editing. */
+    fun createTag(name: String): String? = null
     fun spendHistories(page: MonthPageUi): Map<com.arthurrios.finova.domain.model.TransactionCategory, com.arthurrios.finova.domain.allocation.CategorySpendHistory> = emptyMap()
     fun onSelectMonth(index: Int) {}
     fun balanceForDay(page: MonthPageUi, day: Int): Long = page.finalBalance ?: 0
@@ -91,6 +93,7 @@ fun DashboardScreen(
     /** An allocation (or a category spent in without one) for a month: opens its details. */
     onOpenAllocation: (YearMonth, com.arthurrios.finova.domain.model.TransactionCategory) -> Unit = { _, _ -> },
     onOpenTags: () -> Unit = {},
+    onEditTag: (String) -> Unit = {},
 ) {
     val pagerState = rememberPagerState(initialPage = state.selectedMonth) { state.months.size }
     val scope = rememberCoroutineScope()
@@ -155,6 +158,7 @@ fun DashboardScreen(
                         onFlip = { showingBudget = !showingBudget },
                         onOpenAllocation = onOpenAllocation,
                         onOpenTags = onOpenTags,
+                        onEditTag = onEditTag,
                     )
                 }
             }
@@ -264,9 +268,10 @@ private fun MonthPage(
     onFlip: () -> Unit,
     onOpenAllocation: (YearMonth, com.arthurrios.finova.domain.model.TransactionCategory) -> Unit,
     onOpenTags: () -> Unit,
+    onEditTag: (String) -> Unit,
 ) {
     if (showingBudget) {
-        BudgetFace(page, state, actions, onFlip, onOpenBudgets, onOpenAllocation, onOpenTags)
+        BudgetFace(page, state, actions, onFlip, onOpenBudgets, onOpenAllocation, onOpenTags, onEditTag)
         return
     }
     var query by rememberSaveable(page.month) { mutableStateOf("") }
@@ -347,8 +352,22 @@ private fun BudgetFace(
     onOpenBudgets: (YearMonth?) -> Unit,
     onOpenAllocation: (YearMonth, com.arthurrios.finova.domain.model.TransactionCategory) -> Unit,
     onOpenTags: () -> Unit,
+    onEditTag: (String) -> Unit,
 ) {
     var explaining by remember { mutableStateOf(false) }
+    var creatingTag by remember { mutableStateOf(false) }
+    val breakdown = remember(page, state.tagBook) {
+        com.arthurrios.finova.domain.tags.AllocationTagBreakdown.of(
+            page.allocations, page.offPlan, page.unallocated.unallocated, page.unallocated.totalBudget, state.tagBook,
+        )
+    }
+    var chosenTag by rememberSaveable(page.month) { mutableStateOf<String?>(null) }
+    // A tag with no money this month (or deleted) cannot stay selected.
+    val selectedTag = chosenTag?.takeIf { breakdown.arc(it) != null }
+    val allocations = if (selectedTag == null) page.allocations
+        else page.allocations.filter { breakdown.segmentBelongsTo("alloc-${it.category.key}", selectedTag) }
+    val offPlan = if (selectedTag == null) page.offPlan
+        else page.offPlan.filter { breakdown.segmentBelongsTo("offplan-${it.category.key}", selectedTag) }
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -364,9 +383,13 @@ private fun BudgetFace(
             onSettings = { onOpenBudgets(null) },
             onDefineBudget = { onOpenBudgets(page.month) },
             onOpenCategory = { onOpenAllocation(page.month, it) },
+            breakdown = breakdown,
+            selectedTagId = selectedTag,
+            onTagSelected = { chosenTag = it },
         )
         Spacer(Modifier.height(Spacing.S4))
-        val count = page.allocations.size + page.offPlan.size
+        // The count beside a filtered list is the filtered count, as on iOS.
+        val count = allocations.size + offPlan.size
         val projection = page.projection()
         CardHeader(stringResource(R.string.budget_allocations_title), count) {
             // Silent without a projection: the card hides the block it would explain.
@@ -398,22 +421,43 @@ private fun BudgetFace(
                 onDismiss = { explaining = false },
             )
         }
+        if (breakdown.hasTags) {
+            com.arthurrios.finova.ui.tags.TagStrip(
+                breakdown = breakdown,
+                selectedTagId = selectedTag,
+                currencyCode = state.currencyCode,
+                valuesHidden = state.valuesHidden,
+                onSelect = { chosenTag = it },
+                onCreate = { creatingTag = true },
+            )
+        }
+        if (creatingTag) {
+            com.arthurrios.finova.ui.tags.CreateTagDialog(
+                onCreate = { name ->
+                    creatingTag = false
+                    actions.createTag(name)?.let(onEditTag)
+                },
+                onDismiss = { creatingTag = false },
+            )
+        }
         if (count == 0) {
-            com.arthurrios.finova.ui.budget.AllocationsEmpty()
+            com.arthurrios.finova.ui.budget.AllocationsEmpty(
+                stringResource(if (selectedTag == null) R.string.budget_allocations_empty else R.string.budget_allocations_filtered_empty),
+            )
         } else {
             // A new allocation lands at the top; show it instead of keeping the old first row in view.
             val listState = androidx.compose.foundation.lazy.rememberLazyListState()
             LaunchedEffect(page.allocations.size) { listState.scrollToItem(0) }
             TransactionListBox(modifier = Modifier.weight(1f)) {
                 LazyColumn(state = listState, contentPadding = PaddingValues(bottom = 72.dp), modifier = Modifier.fillMaxSize()) {
-                    itemsIndexed(page.allocations, key = { _, a -> "a${a.id}" }) { index, allocation ->
+                    itemsIndexed(allocations, key = { _, a -> "a${a.id}" }) { index, allocation ->
                         if (index > 0) HorizontalDivider(color = FinovaColors.Gray300)
                         com.arthurrios.finova.ui.budget.AllocationRowView(allocation, state.currencyCode, state.valuesHidden) {
                             onOpenAllocation(page.month, allocation.category)
                         }
                     }
-                    itemsIndexed(page.offPlan, key = { _, o -> "o${o.category.key}" }) { index, spending ->
-                        if (index > 0 || page.allocations.isNotEmpty()) HorizontalDivider(color = FinovaColors.Gray300)
+                    itemsIndexed(offPlan, key = { _, o -> "o${o.category.key}" }) { index, spending ->
+                        if (index > 0 || allocations.isNotEmpty()) HorizontalDivider(color = FinovaColors.Gray300)
                         com.arthurrios.finova.ui.budget.OffPlanRowView(spending, state.currencyCode, state.valuesHidden) {
                             onOpenAllocation(page.month, spending.category)
                         }
