@@ -23,6 +23,12 @@ class MainActivity : FragmentActivity() {
         if (isDebuggable() && intent.getBooleanExtra("finova.debug.seed", false)) {
             lifecycleScope.launch { DebugSeeder.seedIfEmpty(appContainer.financeRepository()) }
         }
+        // `--ez finova.debug.notify true` runs the morning reminder job now (debug builds).
+        if (isDebuggable() && intent.getBooleanExtra("finova.debug.notify", false)) {
+            androidx.work.WorkManager.getInstance(this).enqueue(
+                androidx.work.OneTimeWorkRequestBuilder<com.arthurrios.finova.notifications.DailyNotificationWorker>().build(),
+            )
+        }
         setContent {
             FinovaTheme {
                 FinovaNavHost(startRoute = debugStartRoute())

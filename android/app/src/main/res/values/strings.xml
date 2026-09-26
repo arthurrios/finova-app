@@ -522,4 +522,45 @@
     <string name="tags_strip_clear">Clear filter</string>
     <string name="tags_share_of_budget">%1$d%% of budget</string>
     <string name="budget_allocations_filtered_empty">No allocations in this tag</string>
+    <string name="notif_channel_name">Reminders</string>
+    <string name="notif_transaction_title_income">Upcoming credit</string>
+    <string name="notif_transaction_title_expense">Upcoming debit</string>
+    <string name="notif_transaction_body">%1$s of %2$s</string>
+    <string name="notif_installment_title">Installment Payment Due</string>
+    <plurals name="notif_installment_body">
+        <item quantity="one">You have 1 installment due this month totaling %2$s</item>
+        <item quantity="other">You have %1$d installments due this month totaling %2$s</item>
+    </plurals>
+    <string name="notif_recurring_title">Recurring Transaction Due</string>
+    <plurals name="notif_recurring_body">
+        <item quantity="one">You have 1 recurring transaction due this month totaling %2$s</item>
+        <item quantity="other">You have %1$d recurring transactions due this month totaling %2$s</item>
+    </plurals>
+    <string name="notif_statement_closed_title">Statement Closed</string>
+    <string name="notif_statement_closed_body">Your %1$s statement closed at %2$s. Due date is coming up.</string>
+    <string name="notif_statement_due_title">Payment Due Today</string>
+    <string name="notif_statement_due_body">Your %1$s statement of %2$s is due today. Don\'t forget to pay!</string>
+    <string name="notif_negative_title">⚠️ Negative Balance Alert</string>
+    <string name="notif_negative_tomorrow">According to your monthly calculations, your balance goes negative tomorrow (%1$s). Check your transactions and adjust your budget.</string>
+    <string name="notif_settings_title">Notifications</string>
+    <string name="notif_settings_general">General</string>
+    <string name="notif_settings_local">Local Notifications</string>
+    <string name="notif_settings_push">Push Notifications</string>
+    <string name="notif_settings_all_title">Disable All</string>
+    <string name="notif_settings_all_description">Turn off all notifications from Finova</string>
+    <string name="notif_settings_transactions_title">Transaction Reminders</string>
+    <string name="notif_settings_transactions_description">Reminders for upcoming transactions (credits and debits)</string>
+    <string name="notif_settings_negative_title">Negative Balance Warning</string>
+    <string name="notif_settings_negative_description">Get warned when your balance is projected to go negative</string>
+    <string name="notif_settings_statements_title">Credit Card Statements</string>
+    <string name="notif_settings_statements_description">Reminders for upcoming statement due dates</string>
+    <string name="notif_settings_updates_title">App Updates</string>
+    <string name="notif_settings_updates_description">Get notified when a new version of Finova is available</string>
+    <string name="notif_history_title">Notifications</string>
+    <string name="notif_history_clear">Clear All</string>
+    <string name="notif_history_clear_title">Clear All Notifications</string>
+    <string name="notif_history_clear_message">Are you sure you want to clear all notifications? This action cannot be undone.</string>
+    <string name="notif_history_empty_title">No notifications</string>
+    <string name="notif_history_empty_subtitle">Your notification history will appear here</string>
+    <string name="notif_history_yesterday">Yesterday</string>
 </resources>

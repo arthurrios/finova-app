@@ -94,6 +94,7 @@ fun DashboardScreen(
     onOpenAllocation: (YearMonth, com.arthurrios.finova.domain.model.TransactionCategory) -> Unit = { _, _ -> },
     onOpenTags: () -> Unit = {},
     onEditTag: (String) -> Unit = {},
+    onOpenNotifications: () -> Unit = actions::onNotifications,
 ) {
     val pagerState = rememberPagerState(initialPage = state.selectedMonth) { state.months.size }
     val scope = rememberCoroutineScope()
@@ -132,7 +133,7 @@ fun DashboardScreen(
                 userName = state.userName,
                 unreadNotifications = state.unreadNotifications,
                 onProfile = onOpenProfile,
-                onNotifications = actions::onNotifications,
+                onNotifications = onOpenNotifications,
                 avatar = avatar,
             )
             if (state.months.isNotEmpty()) {
