@@ -61,7 +61,33 @@ final class RecurringTransactionManager {
   // Static + lock-guarded so every manager instance AND the repository's delete path
   // share the same view (previously each instance had its own copy, so a delete on one
   // instance didn't stop regeneration driven by another).
-  private static var deletedInstanceAnchors: [Int: Set<Int>] = [:]
+  //
+  // STORED, per account, in UserDefaults. It used to live only in memory, so the month the user
+  // removed came back on the next launch, when the dashboard filled in the series again. It is
+  // local to this device: another device that fills in the series does not know about it.
+  private static var deletedInstanceAnchors: [Int: Set<Int>] {
+    get {
+      let stored = UserDefaults.standard.dictionary(forKey: exclusionsKey) as? [String: [Int]] ?? [:]
+      var result: [Int: Set<Int>] = [:]
+      for (key, values) in stored {
+        if let id = Int(key) { result[id] = Set(values) }
+      }
+      return result
+    }
+    set {
+      let nonEmpty = newValue.filter { !$0.value.isEmpty }
+      guard !nonEmpty.isEmpty else {
+        UserDefaults.standard.removeObject(forKey: exclusionsKey)
+        return
+      }
+      let stored = Dictionary(uniqueKeysWithValues: nonEmpty.map { (String($0.key), $0.value.sorted()) })
+      UserDefaults.standard.set(stored, forKey: exclusionsKey)
+    }
+  }
+
+  private static var exclusionsKey: String {
+    "recurringExcludedAnchors_v1_\(UIDUserDefaultsManager.shared.currentUserUID ?? "local")"
+  }
   private static let deletedAnchorsLock = NSLock()
 
   init(
@@ -75,10 +101,13 @@ final class RecurringTransactionManager {
     self.creditCardRepo = creditCardRepo
     self.db = db
 
-    // Usar calendar com fuso horário UTC para consistência com monthAnchor
-    var utcCalendar = Calendar(identifier: .gregorian)
-    utcCalendar.timeZone = TimeZone(abbreviation: "UTC")!
-    self.calendar = utcCalendar
+    // The phone's time zone, like `Date.monthAnchor` and every date the user picks. It was UTC,
+    // which read a series' anchor day from its local-midnight date: east of UTC that is still the
+    // previous day there, so every generated month landed a day early, and weekends were judged on
+    // the UTC day.
+    var localCalendar = Calendar(identifier: .gregorian)
+    localCalendar.timeZone = TimeZone.current
+    self.calendar = localCalendar
   }
 
   // MARK: - Eager Materialization
@@ -266,6 +295,64 @@ final class RecurringTransactionManager {
     deletedAnchorsLock.lock()
     defer { deletedAnchorsLock.unlock() }
     return deletedInstanceAnchors[parentId] ?? []
+  }
+
+  /// Keeps a series alive when only its first occurrence is deleted.
+  ///
+  /// The first occurrence IS the series' parent row, so deleting it on its own used to delete the
+  /// parent: the later months stayed, but nothing generated new ones, and the series quietly ended.
+  /// Instead, the next occurrence on the series' own day becomes the parent (the first one after a
+  /// short month would carry a clamped day, e.g. the 28th of a series on the 31st), every other
+  /// occurrence points at it, and the deleted months move over with them. The updates mark the rows
+  /// for sync, so other devices follow.
+  ///
+  /// Only for a series whose rows all belong to this user: re-pointing rows someone else created in
+  /// a shared group is not ours to do (see the group ownership rules), so those keep the old
+  /// behaviour.
+  ///
+  /// Call before deleting `parentId`. Returns the new parent id, or nil when there is none.
+  @discardableResult
+  func promoteNextOccurrenceBeforeDeletingParent(_ parentId: Int) -> Int? {
+    let all = transactionRepo.fetchAllTransactions()
+    guard let parent = all.first(where: { $0.id == parentId }) else { return nil }
+    let children = all
+      .filter { $0.parentTransactionId == parentId && $0.id != parentId && $0.id != nil }
+      .sorted { $0.seriesPeriod < $1.seriesPeriod }
+    guard !children.isEmpty else { return nil }
+
+    let me = UIDUserDefaultsManager.shared.currentUserUID
+    let ownsSeries = ([parent] + children).allSatisfy { $0.createdByUid == nil || $0.createdByUid == me }
+    guard ownsSeries else { return nil }
+
+    let anchorDay = calendar.component(.day, from: parent.unadjustedDate)
+    let heir =
+      children.first { calendar.component(.day, from: $0.unadjustedDate) == anchorDay }
+      ?? children[0]
+    guard let heirId = heir.id else { return nil }
+
+    do {
+      try transactionRepo.updateIsRecurring(transactionId: heirId, isRecurring: true)
+      try transactionRepo.updateTransactionParentId(transactionId: heirId, parentId: heirId)
+      for child in children where child.id != heirId {
+        if let childId = child.id {
+          try transactionRepo.updateTransactionParentId(transactionId: childId, parentId: heirId)
+        }
+      }
+    } catch {
+      logError("[Recurring] Could not hand series \(parentId) over to \(heirId): \(error)")
+      return nil
+    }
+
+    Self.deletedAnchorsLock.lock()
+    var anchors = Self.deletedInstanceAnchors
+    let moved = anchors[parentId] ?? []
+    anchors[parentId] = nil
+    if !moved.isEmpty { anchors[heirId, default: []].formUnion(moved) }
+    Self.deletedInstanceAnchors = anchors
+    Self.deletedAnchorsLock.unlock()
+
+    logInfo("[Recurring] Series \(parentId) continues from \(heirId)")
+    return heirId
   }
 
   /// Single serialized entry point for deleting a recurring OR installment transaction
@@ -865,10 +952,8 @@ final class RecurringTransactionManager {
           // Which month this slot IS, read in the same timezone the anchor was written in.
           //
           // `targetAnchor` is local midnight on the 1st (`Date.monthAnchor` is `TimeZone.current`).
-          // Reading it back through this type's UTC calendar lands in the PREVIOUS month for any zone
-          // ahead of UTC, so the occurrence was generated for the wrong month while
-          // `budgetMonthDate` still said the right one. The date is still CONSTRUCTED with
-          // `self.calendar` below, so existing rows' timestamps keep their convention.
+          // Reading it back through a UTC calendar landed in the PREVIOUS month for any zone ahead
+          // of UTC. `self.calendar` is local now too; this stays explicit on purpose.
           let targetDate = Date(timeIntervalSince1970: TimeInterval(targetAnchor))
           var anchorCalendar = Calendar(identifier: .gregorian)
           anchorCalendar.timeZone = TimeZone.current

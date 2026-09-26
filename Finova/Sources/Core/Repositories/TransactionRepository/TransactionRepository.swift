@@ -661,6 +661,14 @@ final class TransactionRepository: TransactionRepositoryProtocol {
 
     switch option {
     case .currentSelection:
+      // Deleting only a series' first occurrence: hand the series to the next one first, or
+      // deleting the parent row would end the whole series.
+      if isRecurringTransaction, transaction.isRecurring == true,
+        transaction.parentTransactionId == nil || transaction.parentTransactionId == id
+      {
+        RecurringTransactionManager(transactionRepo: self)
+          .promoteNextOccurrenceBeforeDeletingParent(id)
+      }
       try delete(id: id)
       // For a recurring instance, record the deleted month so lazy generation
       // doesn't immediately recreate it.

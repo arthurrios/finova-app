@@ -194,7 +194,7 @@ class ValidatedInput: UIView {
                 missingRequirements.append("• " + "password.validation.hasUppercase".localized)
             }
             if !hasLowercase {
-                missingRequirements.append("• " + "password.validation.hasUppercase".localized)
+                missingRequirements.append("• " + "password.validation.hasLowercase".localized)
             }
             if !hasNumber {
                 missingRequirements.append("• " + "password.validation.hasNumber".localized)
