@@ -51,7 +51,9 @@ import kotlinx.coroutines.launch
 import java.time.YearMonth
 
 /** Everything the dashboard can ask its owner to do. */
-interface DashboardActions {
+interface DashboardActions : com.arthurrios.finova.ui.budget.AllocationSheetActions {
+    override fun createAllocation(category: com.arthurrios.finova.domain.model.TransactionCategory, amount: Long, month: YearMonth, repeating: Boolean, endMonth: YearMonth?, overwrite: List<Long>) {}
+    override fun editAllocation(id: Long, amount: Long, scope: com.arthurrios.finova.domain.allocation.AllocationEditScope, through: YearMonth?) {}
     fun onSelectMonth(index: Int) {}
     fun balanceForDay(page: MonthPageUi, day: Int): Long = page.finalBalance ?: 0
     fun onToggleValues() {}
@@ -61,7 +63,6 @@ interface DashboardActions {
     /** The balance today, which "Adjust balance" calibrates against. */
     fun currentBalanceToday(): Long = 0
     fun onConfirmAdjustBalance(realBalance: Long, appBalance: Long) {}
-    fun onBudgetView(page: MonthPageUi) {}
     fun onTransaction(row: TransactionRowUi) {}
     fun onDeleteTransaction(row: TransactionRowUi, option: SeriesDeleteOption = SeriesDeleteOption.ThisOnly) {}
 }
@@ -77,12 +78,17 @@ fun DashboardScreen(
     onCreateCard: () -> Unit = {},
     avatar: androidx.compose.ui.graphics.ImageBitmap? = null,
     onOpenProfile: () -> Unit = {},
+    /** An allocation (or a category spent in without one) for a month: opens its details. */
+    onOpenAllocation: (YearMonth, com.arthurrios.finova.domain.model.TransactionCategory) -> Unit = { _, _ -> },
 ) {
     val pagerState = rememberPagerState(initialPage = state.selectedMonth) { state.months.size }
     val scope = rememberCoroutineScope()
     // iOS always asks before deleting; a swipe or the trash icon only opens the question.
     var pendingDelete by remember { mutableStateOf<TransactionRowUi?>(null) }
     var showAddSheet by rememberSaveable { mutableStateOf(false) }
+    // The budget face, shown on every month at once (iOS isGlobalBudgetViewActive).
+    var showingBudget by rememberSaveable { mutableStateOf(false) }
+    var addAllocationFor by remember { mutableStateOf<YearMonth?>(null) }
     var adjustFrom by remember { mutableStateOf<Long?>(null) }
     // Port of DashboardViewController.globalFilters: type, mode and category follow every month.
     var globalFilters by remember { mutableStateOf(TransactionFilters()) }
@@ -134,12 +140,19 @@ fun DashboardScreen(
                         onOpenBudgets = onOpenBudgets,
                         onOpenTransaction = onOpenTransaction,
                         onOpenStatement = onOpenStatement,
+                        showingBudget = showingBudget,
+                        onFlip = { showingBudget = !showingBudget },
+                        onOpenAllocation = onOpenAllocation,
                     )
                 }
             }
         }
         FloatingActionButton(
-            onClick = { showAddSheet = true },
+            // On the budget face the add button adds an allocation, as on iOS.
+            onClick = {
+                if (showingBudget) addAllocationFor = state.months.getOrNull(pagerState.currentPage)?.month
+                else showAddSheet = true
+            },
             shape = CircleShape,
             containerColor = FinovaColors.Gray100,
             contentColor = FinovaColors.MainMagenta,
@@ -162,6 +175,16 @@ fun DashboardScreen(
                 actions.onConfirmAdjustBalance(real, appBalance)
             },
             onDismiss = { adjustFrom = null },
+        )
+    }
+
+    addAllocationFor?.let { month ->
+        com.arthurrios.finova.ui.budget.AllocationSheet(
+            month = month,
+            allocations = state.allocationRows,
+            currencyCode = state.currencyCode,
+            actions = actions,
+            onDismiss = { addAllocationFor = null },
         )
     }
 
@@ -225,7 +248,14 @@ private fun MonthPage(
     onOpenBudgets: (YearMonth?) -> Unit,
     onOpenTransaction: (Long) -> Unit,
     onOpenStatement: (Long) -> Unit,
+    showingBudget: Boolean,
+    onFlip: () -> Unit,
+    onOpenAllocation: (YearMonth, com.arthurrios.finova.domain.model.TransactionCategory) -> Unit,
 ) {
+    if (showingBudget) {
+        BudgetFace(page, state, onFlip, onOpenBudgets, onOpenAllocation)
+        return
+    }
     var query by rememberSaveable(page.month) { mutableStateOf("") }
     val rows = remember(page.transactions, query, filters) { page.transactions.filtered(query, filters) }
     val filterActive = !filters.isEmpty(page.month.lengthOfMonth())
@@ -247,7 +277,7 @@ private fun MonthPage(
             balanceForDay = { actions.balanceForDay(page, it) },
             onToggleValues = actions::onToggleValues,
             onAdjustBalance = onAdjustBalance,
-            onBudgetView = { actions.onBudgetView(page) },
+            onBudgetView = onFlip,
             // The gear opens every budget, "Set budget" opens this month's (as on iOS).
             onSettings = { onOpenBudgets(null) },
             onDefineBudget = { onOpenBudgets(page.month) },
@@ -284,6 +314,63 @@ private fun MonthPage(
                             },
                             onDelete = { onRequestDelete(row) },
                         )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * The budget side of a month: the budget card, then its allocations and the categories spent in
+ * without one. Like the transaction side, only the rows scroll.
+ */
+@Composable
+private fun BudgetFace(
+    page: MonthPageUi,
+    state: DashboardUiState,
+    onFlip: () -> Unit,
+    onOpenBudgets: (YearMonth?) -> Unit,
+    onOpenAllocation: (YearMonth, com.arthurrios.finova.domain.model.TransactionCategory) -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(start = Spacing.S4, end = Spacing.S4, top = Spacing.S4)
+            .navigationBarsPadding()
+            .padding(bottom = Spacing.S2),
+    ) {
+        com.arthurrios.finova.ui.budget.BudgetCard(
+            page = page,
+            currencyCode = state.currencyCode,
+            valuesHidden = state.valuesHidden,
+            onFlipBack = onFlip,
+            onSettings = { onOpenBudgets(null) },
+            onDefineBudget = { onOpenBudgets(page.month) },
+            onOpenCategory = { onOpenAllocation(page.month, it) },
+        )
+        Spacer(Modifier.height(Spacing.S4))
+        val count = page.allocations.size + page.offPlan.size
+        CardHeader(stringResource(R.string.budget_allocations_title), count)
+        if (count == 0) {
+            com.arthurrios.finova.ui.budget.AllocationsEmpty()
+        } else {
+            // A new allocation lands at the top; show it instead of keeping the old first row in view.
+            val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+            LaunchedEffect(page.allocations.size) { listState.scrollToItem(0) }
+            TransactionListBox(modifier = Modifier.weight(1f)) {
+                LazyColumn(state = listState, contentPadding = PaddingValues(bottom = 72.dp), modifier = Modifier.fillMaxSize()) {
+                    itemsIndexed(page.allocations, key = { _, a -> "a${a.id}" }) { index, allocation ->
+                        if (index > 0) HorizontalDivider(color = FinovaColors.Gray300)
+                        com.arthurrios.finova.ui.budget.AllocationRowView(allocation, state.currencyCode, state.valuesHidden) {
+                            onOpenAllocation(page.month, allocation.category)
+                        }
+                    }
+                    itemsIndexed(page.offPlan, key = { _, o -> "o${o.category.key}" }) { index, spending ->
+                        if (index > 0 || page.allocations.isNotEmpty()) HorizontalDivider(color = FinovaColors.Gray300)
+                        com.arthurrios.finova.ui.budget.OffPlanRowView(spending, state.currencyCode, state.valuesHidden) {
+                            onOpenAllocation(page.month, spending.category)
+                        }
                     }
                 }
             }

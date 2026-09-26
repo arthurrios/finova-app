@@ -6,6 +6,7 @@ import com.arthurrios.finova.auth.AuthRepository
 import com.arthurrios.finova.data.ProfileImageStore
 import com.arthurrios.finova.data.UserSettingsStore
 import com.arthurrios.finova.data.db.UserDatabaseProvider
+import com.arthurrios.finova.data.repo.AllocationRepository
 import com.arthurrios.finova.data.repo.CardRepository
 import com.arthurrios.finova.data.repo.FinanceRepository
 import com.arthurrios.finova.security.Biometrics
@@ -26,6 +27,8 @@ class AppContainer(private val context: Context) {
         FinanceRepository(currentDatabase()) { settings.defaultBusinessDayRule }
 
     fun cardRepository(): CardRepository = CardRepository(currentDatabase())
+
+    fun allocationRepository(): AllocationRepository = AllocationRepository(currentDatabase())
 
     private fun currentDatabase() = databases.forUser(currentUid())
 
