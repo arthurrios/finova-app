@@ -328,6 +328,7 @@ fun FinovaNavHost(
                 onBack = { navController.popBackStack() },
                 onCreateCard = { navController.navigate(Routes.cardForm()) },
                 onPayEarly = { navController.navigate(Routes.early(id)) },
+                onOpenTransaction = { navController.navigate(Routes.details(it)) },
             )
         }
         composable(Routes.EARLY, arguments = listOf(navArgument("id") { type = NavType.LongType })) { entry ->
@@ -340,7 +341,15 @@ fun FinovaNavHost(
                     }
                 }
             )
-            EarlyPaymentScreen(viewModel, onBack = { navController.popBackStack() })
+            EarlyPaymentScreen(
+                viewModel,
+                onBack = { navController.popBackStack() },
+                // The selection is replaced by the payment made, so back returns to the transaction
+                // the user started from, as on iOS.
+                onPaid = { paymentId ->
+                    navController.navigate(Routes.details(paymentId)) { popUpTo(Routes.EARLY) { inclusive = true } }
+                },
+            )
         }
         composable(
             Routes.BUDGETS,

@@ -381,7 +381,7 @@ private fun BudgetFace(
             currencyCode = state.currencyCode,
             valuesHidden = state.valuesHidden,
             onFlipBack = onFlip,
-            onSettings = { onOpenBudgets(null) },
+            onSettings = { onOpenBudgets(page.month) },
             onDefineBudget = { onOpenBudgets(page.month) },
             onOpenCategory = { onOpenAllocation(page.month, it) },
             breakdown = breakdown,

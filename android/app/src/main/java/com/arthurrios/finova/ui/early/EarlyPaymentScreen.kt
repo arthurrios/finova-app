@@ -61,12 +61,12 @@ private val MonthYear: DateTimeFormatter get() = DateTimeFormatter.ofPattern("MM
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun EarlyPaymentScreen(viewModel: EarlyPaymentViewModel, onBack: () -> Unit) {
+fun EarlyPaymentScreen(viewModel: EarlyPaymentViewModel, onBack: () -> Unit, onPaid: (Long) -> Unit = { onBack() }) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     var confirming by rememberSaveable { mutableStateOf(false) }
     var pickingDate by rememberSaveable { mutableStateOf(false) }
 
-    LaunchedEffect(state.done) { if (state.done) onBack() }
+    LaunchedEffect(state.done) { if (state.done) state.paymentId?.let(onPaid) ?: onBack() }
 
     Column(Modifier.fillMaxSize().background(FinovaColors.Gray200)) {
         ScreenHeader(title = stringResource(R.string.early_title), subtitle = null, onBack = onBack)

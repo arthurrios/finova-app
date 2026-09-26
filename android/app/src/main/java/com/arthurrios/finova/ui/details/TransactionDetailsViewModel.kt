@@ -49,6 +49,8 @@ data class TransactionDetailsUiState(
     val refundedInstallments: List<Transaction>? = null,
     /** For a card purchase: the due date of the statement it is on. */
     val statementDue: LocalDate? = null,
+    /** For a card transaction: "Nubank ****1234" (deleted cards too). */
+    val paymentMethod: String? = null,
     /** Where it can be moved: a closing month and that statement's due date (6 back, 2 ahead). */
     val moveOptions: List<Pair<java.time.YearMonth, LocalDate>> = emptyList(),
 )
@@ -100,6 +102,7 @@ class TransactionDetailsViewModel(
             cancelCount = refundable.size,
             earlyPaidInstallments = if (row.isEarlyPayment) rows.filter { it.settledByTransactionId == row.id }.sortedBy { it.installmentNumber } else null,
             statementDue = statements.firstOrNull { it.id == row.statementId }?.dueDate,
+            paymentMethod = allCards.firstOrNull { it.id == row.creditCardId }?.let { "${it.name} ****${it.lastFourDigits}" },
             moveOptions = moveOptions(row, statements, allCards),
             refundedInstallments = if (row.isCancellationRefund) rows.filter { it.cancelledByTransactionId == row.id }.sortedBy { it.installmentNumber } else null,
         )
@@ -172,10 +175,19 @@ class TransactionDetailsViewModel(
         _failure.value = null
     }
 
+    /** The refund credit a cancellation just made; the screen opens it, as iOS does. */
+    private val _createdRefund = MutableStateFlow<Long?>(null)
+    val createdRefund: StateFlow<Long?> = _createdRefund
+
+    fun refundShown() {
+        _createdRefund.value = null
+    }
+
     /** Port of TransactionDetailsViewModel.cancelPurchase. */
     fun cancelPurchase(title: String, @androidx.annotation.StringRes errorRes: Int) {
         viewModelScope.launch {
             runCatching { repository.cancelInstallmentPurchase(transactionId, title, today()) }
+                .onSuccess { _createdRefund.value = it }
                 .onFailure { _failure.value = errorRes }
         }
     }
