@@ -63,8 +63,9 @@ private val DateFormat = DateTimeFormatter.ofPattern("dd/MM/yyyy")
 
 /** Port of TransactionDetailsView / ViewController on iOS 1.5.2 (cards and payments come later). */
 @Composable
-fun TransactionDetailsScreen(viewModel: TransactionDetailsViewModel, onBack: () -> Unit) {
+fun TransactionDetailsScreen(viewModel: TransactionDetailsViewModel, onBack: () -> Unit, onCreateCard: () -> Unit = {}) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val cards by viewModel.cards.collectAsStateWithLifecycle()
     var showEdit by rememberSaveable { mutableStateOf(false) }
     var showDelete by rememberSaveable { mutableStateOf(false) }
     var pendingEdit by remember { mutableStateOf<AddTransactionRequest?>(null) }
@@ -115,8 +116,13 @@ fun TransactionDetailsScreen(viewModel: TransactionDetailsViewModel, onBack: () 
     if (showEdit && state.editRequest != null) {
         AddTransactionSheet(
             currencyCode = state.currencyCode,
-            defaultRule = state.editRequest!!.draft.rule,
+            defaultRule = viewModel.defaultRule,
             editing = state.editRequest,
+            cards = cards,
+            onCreateCard = {
+                showEdit = false
+                onCreateCard()
+            },
             onSave = { request ->
                 showEdit = false
                 when (state.kind) {

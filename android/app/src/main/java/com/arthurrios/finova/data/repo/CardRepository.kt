@@ -67,6 +67,18 @@ internal fun CreditCard.toEntity(createdAt: Long = System.currentTimeMillis()) =
     updatedAt = System.currentTimeMillis(),
 )
 
+internal fun CreditCardStatement.toEntity() = StatementEntity(
+    id = id,
+    creditCardId = creditCardId,
+    closingDate = closingDate,
+    dueDate = dueDate,
+    totalAmount = totalAmount,
+    isPaid = isPaid,
+    paidDate = paidDate,
+    paidAmount = paidAmount,
+    isDatesOverridden = isDatesOverridden,
+)
+
 internal fun StatementEntity.toModel() = CreditCardStatement(
     id = id,
     creditCardId = creditCardId,

@@ -76,6 +76,7 @@
     <string name="transactions_search_placeholder">Buscar lançamentos...</string>
     <string name="transactions_filter">Filtrar</string>
     <string name="transactions_empty_state_description">Você ainda não registrou despesas ou receitas neste mês</string>
+    <string name="credit_card_statement_title">Fatura %1$s</string>
     <string name="credit_card_statement_subtitle">%1$d transações · Toque para ver</string>
     <string name="credit_card_statement_subtitle_singular">%1$d transação · Toque para ver</string>
     <string name="early_payment_badge_settled">Antecipada</string>
@@ -250,4 +251,15 @@
     <string name="card_color_platinum">Platina</string>
     <string name="card_color_red">Vermelho</string>
     <string name="card_color_orange">Laranja</string>
+    <!-- Payment method (AddTransactionModalView) -->
+    <string name="payment_method_title">Método de Pagamento</string>
+    <string name="payment_method_cash">Dinheiro / Débito</string>
+    <string name="payment_method_cash_subtitle">Afeta o saldo imediatamente</string>
+    <string name="payment_method_card">Cartão de Crédito</string>
+    <string name="payment_method_card_subtitle">Vai para a fatura do cartão</string>
+    <string name="payment_method_select_card">Selecionar Cartão</string>
+    <string name="payment_method_no_cards">Nenhum cartão cadastrado</string>
+    <string name="payment_method_create_card">Criar Cartão</string>
+    <string name="payment_method_statement_info">Vai para a fatura de %1$s — Vence: %2$s</string>
+    <string name="add_transaction_card_rule_hint">Compras no cartão seguem o vencimento da fatura</string>
 </resources>

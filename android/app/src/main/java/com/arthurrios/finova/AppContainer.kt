@@ -17,7 +17,8 @@ class AppContainer(context: Context) {
     val databases = UserDatabaseProvider(context)
 
     /** The money data of whoever is signed in (or the local account in a build without Firebase). */
-    fun financeRepository(): FinanceRepository = FinanceRepository(currentDatabase())
+    fun financeRepository(): FinanceRepository =
+        FinanceRepository(currentDatabase()) { settings.defaultBusinessDayRule }
 
     fun cardRepository(): CardRepository = CardRepository(currentDatabase())
 

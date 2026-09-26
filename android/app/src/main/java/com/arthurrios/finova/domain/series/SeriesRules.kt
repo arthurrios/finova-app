@@ -54,6 +54,8 @@ data class TransactionDraft(
     /** The picked date, before any weekend shift. */
     val date: LocalDate,
     val rule: BusinessDayRule = BusinessDayRule.Exact,
+    /** Paid with this card; null means cash or debit. */
+    val creditCardId: Long? = null,
 )
 
 /**
@@ -91,6 +93,7 @@ object SeriesRules {
             // iOS files the series under the picked (unadjusted) month.
             budgetMonth = month,
             isRecurring = true,
+            creditCardId = draft.creditCardId,
             businessDayRule = draft.rule,
             unadjustedDate = draft.date,
             seriesPeriod = month,
@@ -131,6 +134,8 @@ object SeriesRules {
                 originalAmount = draft.amount,
                 installmentNumber = number,
                 totalInstallments = count,
+                // The repository moves card installments onto their statements' due dates.
+                creditCardId = draft.creditCardId,
                 businessDayRule = draft.rule,
                 unadjustedDate = unadjusted,
                 seriesPeriod = slot,
@@ -206,8 +211,18 @@ object SeriesRules {
             businessDayRule = draft.rule,
             unadjustedDate = draft.date,
             seriesPeriod = YearMonth.from(date),
+            creditCardId = draft.creditCardId,
+            statementId = keptStatement(row, draft.creditCardId, draft.date),
+            isStatementOverridden = row.isStatementOverridden && draft.creditCardId == row.creditCardId,
         )
     }
+
+    /**
+     * A card row keeps its statement only while its card and picked date stay the same; otherwise
+     * the repository routes it again, as iOS reassigns it on edit.
+     */
+    private fun keptStatement(row: Transaction, cardId: Long?, picked: LocalDate): Long? =
+        row.statementId.takeIf { cardId != null && cardId == row.creditCardId && picked == row.unadjusted }
 
     /**
      * Port of `editRecurringTransactionsFromDate`: each chosen occurrence takes the new title,
@@ -238,6 +253,8 @@ object SeriesRules {
                 type = draft.type,
                 amount = draft.amount,
                 businessDayRule = draft.rule,
+                creditCardId = draft.creditCardId,
+                statementId = row.statementId.takeIf { draft.creditCardId != null && draft.creditCardId == row.creditCardId },
             )
             if (keepDates) base
             else {
@@ -247,6 +264,8 @@ object SeriesRules {
                     unadjustedDate = unadjusted,
                     budgetMonth = row.slot,
                     seriesPeriod = row.slot,
+                    // A new day can fall in another billing cycle.
+                    statementId = base.statementId.takeIf { unadjusted == row.unadjusted },
                 )
             }
         }

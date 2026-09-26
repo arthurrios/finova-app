@@ -154,7 +154,7 @@ fun FinovaNavHost(startRoute: String? = null) {
                 factory = viewModelFactory {
                     initializer {
                         val container = appContext.appContainer
-                        DashboardViewModel(container.financeRepository(), container.settings)
+                        DashboardViewModel(container.financeRepository(), container.settings, container.cardRepository())
                     }
                 }
             )
@@ -164,6 +164,7 @@ fun FinovaNavHost(startRoute: String? = null) {
                 viewModel,
                 onOpenBudgets = { navController.navigate(Routes.budgets(it)) },
                 onOpenTransaction = { navController.navigate(Routes.details(it)) },
+                onCreateCard = { navController.navigate(Routes.cardForm()) },
             )
         }
         composable(Routes.DETAILS, arguments = listOf(navArgument("id") { type = NavType.LongType })) { entry ->
@@ -172,11 +173,15 @@ fun FinovaNavHost(startRoute: String? = null) {
                 factory = viewModelFactory {
                     initializer {
                         val container = appContext.appContainer
-                        TransactionDetailsViewModel(container.financeRepository(), container.settings, id)
+                        TransactionDetailsViewModel(container.financeRepository(), container.settings, id, container.cardRepository())
                     }
                 }
             )
-            TransactionDetailsScreen(viewModel, onBack = { navController.popBackStack() })
+            TransactionDetailsScreen(
+                viewModel,
+                onBack = { navController.popBackStack() },
+                onCreateCard = { navController.navigate(Routes.cardForm()) },
+            )
         }
         composable(
             Routes.BUDGETS,
