@@ -481,4 +481,36 @@
         <item quantity="other">%1$d meses fechados</item>
     </plurals>
     <string name="budget_tags_manage">Etiquetas</string>
+    <string name="tags_title">Etiquetas de alocação</string>
+    <string name="tags_subtitle">Agrupe categorias para ver quanto um conjunto custa</string>
+    <string name="tags_empty">Nenhuma etiqueta ainda. Crie uma para agrupar suas categorias.</string>
+    <string name="tags_create_title">Nova etiqueta</string>
+    <string name="tags_create_message">Dê um nome a este grupo de categorias</string>
+    <string name="tags_create_placeholder">Essenciais</string>
+    <string name="tags_create_button">Criar</string>
+    <string name="tags_delete_title">Excluir etiqueta?</string>
+    <string name="tags_delete_message">Apenas o agrupamento é removido. Suas alocações e transações não são afetadas.</string>
+    <string name="tags_no_categories">Nenhuma categoria ainda</string>
+    <plurals name="tags_category_count">
+        <item quantity="one">%1$d categoria</item>
+        <item quantity="other">%1$d categorias</item>
+    </plurals>
+    <string name="tags_reorder_hint">Toque e mantenha pressionado e arraste para reordenar</string>
+    <string name="tags_edit_title">Editar etiqueta</string>
+    <string name="tags_edit_name">Nome</string>
+    <string name="tags_edit_color">Cor</string>
+    <string name="tags_edit_icon">Ícone</string>
+    <string name="tags_edit_categories">Categorias</string>
+    <string name="tags_edit_delete">Excluir etiqueta</string>
+    <string name="tags_name_required_title">Nome obrigatório</string>
+    <string name="tags_name_required_message">Dê um nome a esta etiqueta para poder reconhecê-la.</string>
+    <string name="tags_categories_subtitle">Escolha as categorias que esta etiqueta cobre</string>
+    <string name="tags_in_other">Em %1$s</string>
+    <string name="tags_move_title">Mover categoria?</string>
+    <string name="tags_move_message">%1$s está em %2$s. Ela pode pertencer a apenas uma etiqueta por vez.</string>
+    <string name="tags_move_button">Mover</string>
+    <string name="tags_strip_untagged">Sem etiqueta</string>
+    <string name="tags_strip_clear">Limpar filtro</string>
+    <string name="tags_share_of_budget">%1$d%% do orçamento</string>
+    <string name="budget_allocations_filtered_empty">Nenhuma alocação nesta etiqueta</string>
 </resources>

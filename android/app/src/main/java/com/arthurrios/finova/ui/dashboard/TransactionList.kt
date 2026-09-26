@@ -323,7 +323,7 @@ private fun RowContent(
 }
 
 @Composable
-private fun DeleteBackground() {
+internal fun DeleteBackground() {
     Row(
         modifier = Modifier.fillMaxSize().background(FinovaColors.MainMagenta).padding(end = Spacing.S5),
         horizontalArrangement = Arrangement.End,
