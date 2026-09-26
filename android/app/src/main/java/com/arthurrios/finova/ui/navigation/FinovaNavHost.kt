@@ -262,7 +262,7 @@ fun FinovaNavHost(startRoute: String? = null) {
                 factory = viewModelFactory {
                     initializer {
                         val container = appContext.appContainer
-                        AddCreditCardViewModel(container.cardRepository(), container.settings, id)
+                        AddCreditCardViewModel(container.cardRepository(), container.financeRepository(), container.settings, id)
                     }
                 }
             )
