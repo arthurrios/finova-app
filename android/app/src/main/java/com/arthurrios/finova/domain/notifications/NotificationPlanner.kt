@@ -113,7 +113,8 @@ object NotificationPlanner {
                 // Nothing owed: "your statement of R$ 0,00 is due" is the wrong message.
                 val amount = charges[statement.id] ?: 0
                 if (amount <= 0) return@forEach
-                val card = cards.firstOrNull { it.id == statement.creditCardId }?.name ?: return@forEach
+                // A deleted card's statements still count in the balance but send no reminders, as on iOS.
+                val card = cards.firstOrNull { it.id == statement.creditCardId && !it.isDeleted }?.name ?: return@forEach
                 if (statement.closingDate == today) planned += PlannedNotification.StatementClosed("statement_closed_${statement.id}", card, amount, statement.id)
                 if (statement.dueDate == today) planned += PlannedNotification.StatementDue("statement_pay_${statement.id}", card, amount, statement.id)
             }
