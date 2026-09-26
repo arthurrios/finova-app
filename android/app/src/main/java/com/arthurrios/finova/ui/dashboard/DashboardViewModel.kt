@@ -8,6 +8,8 @@ import com.arthurrios.finova.domain.ledger.LedgerCalculator
 import com.arthurrios.finova.domain.model.Transaction
 import com.arthurrios.finova.domain.model.TransactionMode
 import com.arthurrios.finova.domain.model.TransactionType
+import com.arthurrios.finova.domain.series.SeriesDeleteOption
+import com.arthurrios.finova.domain.series.SeriesRules
 import com.arthurrios.finova.domain.time.SeriesMonths
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -73,6 +75,12 @@ class DashboardViewModel(
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DashboardUiState(selectedMonth = SeriesMonths.todayIndex()))
 
+    init {
+        // iOS fills in recurring months after every dashboard load; once per open is enough here,
+        // since new series generate their months when they are created.
+        viewModelScope.launch { repository.materializeRecurring(today()) }
+    }
+
     override fun onSelectMonth(index: Int) {
         selectedMonth.value = index
     }
@@ -86,9 +94,8 @@ class DashboardViewModel(
         valuesHidden.value = hidden
     }
 
-    override fun onDeleteTransaction(row: TransactionRowUi) {
-        // Series rows get the iOS "this one / this and later / all" choice with the recurring port.
-        viewModelScope.launch { repository.delete(listOf(row.id)) }
+    override fun onDeleteTransaction(row: TransactionRowUi, option: SeriesDeleteOption) {
+        viewModelScope.launch { repository.delete(row.id, option) }
     }
 
     private fun Transaction.toRow() = TransactionRowUi(
@@ -107,5 +114,6 @@ class DashboardViewModel(
         totalInstallments = totalInstallments,
         isCreditCard = creditCardId != null,
         isSettledEarly = isSettledEarly,
+        seriesKind = SeriesRules.kindOf(this),
     )
 }

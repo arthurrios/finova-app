@@ -90,4 +90,14 @@
     <string name="transaction_delete_title">Apagar transação</string>
     <string name="delete_confirmation">Tem certeza?</string>
     <string name="alert_delete">Apagar</string>
+    <string name="recurring_delete_title">Excluir Transação Recorrente?</string>
+    <string name="recurring_delete_message">Esta é uma transação recorrente. Escolha como deseja excluí-la.</string>
+    <string name="recurring_delete_current">Excluir Apenas Esta Transação</string>
+    <string name="recurring_delete_future">Excluir Esta e Transações Futuras</string>
+    <string name="recurring_delete_all">Excluir Todas as Ocorrências</string>
+    <string name="installment_delete_title">Excluir Transação Parcelada?</string>
+    <string name="installment_delete_message">Esta é uma transação parcelada. Escolha como deseja excluí-la.</string>
+    <string name="installment_delete_current">Excluir Apenas Esta Parcela</string>
+    <string name="installment_delete_remaining">Excluir Esta e Parcelas Restantes</string>
+    <string name="installment_delete_all">Excluir Todas as Parcelas</string>
 </resources>

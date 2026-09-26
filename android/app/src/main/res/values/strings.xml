@@ -96,4 +96,14 @@
     <string name="transaction_delete_title">Delete transaction</string>
     <string name="delete_confirmation">Are you sure?</string>
     <string name="alert_delete">Delete</string>
+    <string name="recurring_delete_title">Delete Recurring Transaction?</string>
+    <string name="recurring_delete_message">This is a recurring transaction. Choose how you want to delete it.</string>
+    <string name="recurring_delete_current">Delete This Transaction Only</string>
+    <string name="recurring_delete_future">Delete This &amp; Future Transactions</string>
+    <string name="recurring_delete_all">Delete All Occurrences</string>
+    <string name="installment_delete_title">Delete Installment Transaction?</string>
+    <string name="installment_delete_message">This is an installment transaction. Choose how you want to delete it.</string>
+    <string name="installment_delete_current">Delete This Installment Only</string>
+    <string name="installment_delete_remaining">Delete This &amp; Remaining Installments</string>
+    <string name="installment_delete_all">Delete All Installments</string>
 </resources>

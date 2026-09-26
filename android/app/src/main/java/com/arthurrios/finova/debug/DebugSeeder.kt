@@ -5,6 +5,7 @@ import com.arthurrios.finova.domain.model.Budget
 import com.arthurrios.finova.domain.model.Transaction
 import com.arthurrios.finova.domain.model.TransactionCategory
 import com.arthurrios.finova.domain.model.TransactionType
+import com.arthurrios.finova.domain.series.TransactionDraft
 import java.time.LocalDate
 import java.time.YearMonth
 
@@ -24,12 +25,19 @@ object DebugSeeder {
                 row("Rent", TransactionCategory.HomeMaintenance, TransactionType.Expense, 2_400_00, month, 10),
                 row("Supermarket", TransactionCategory.Groceries, TransactionType.Expense, 612_35, month, 12),
                 row("Electricity", TransactionCategory.Utilities, TransactionType.Expense, 238_90, month, 15),
-                row("Streaming", TransactionCategory.Subscriptions, TransactionType.Expense, 55_90, month, 18),
                 row("Dinner out", TransactionCategory.Meals, TransactionType.Expense, 184_00, month, 21),
                 row("Gym", TransactionCategory.Fitness, TransactionType.Expense, 129_00, month, 25),
             )
         }
         repository.addAll(rows)
+        repository.addRecurring(
+            TransactionDraft("Netflix", TransactionCategory.Subscriptions, TransactionType.Expense, 55_90, thisMonth.minusMonths(3).atDay(8)),
+            today,
+        )
+        repository.addInstallments(
+            TransactionDraft("Smart TV", TransactionCategory.Entertainment, TransactionType.Expense, 3_600_00, thisMonth.minusMonths(1).atDay(20)),
+            count = 10,
+        )
         (-2..1).forEach { repository.setBudget(Budget(thisMonth.plusMonths(it.toLong()), 5_000_00)) }
         repository.setBalanceOffset(1_250_00)
     }

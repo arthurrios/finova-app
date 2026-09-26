@@ -31,6 +31,12 @@ interface TransactionDao {
     @Query("DELETE FROM transactions WHERE id IN (:ids)")
     suspend fun deleteByIds(ids: List<Long>)
 
+    @Query("UPDATE transactions SET parent_transaction_id = :parentId WHERE id = :id")
+    suspend fun setParent(id: Long, parentId: Long)
+
+    @Query("UPDATE transactions SET is_recurring = :recurring WHERE id IN (:ids)")
+    suspend fun setRecurring(ids: List<Long>, recurring: Boolean)
+
     @Query("SELECT COUNT(*) FROM transactions")
     suspend fun count(): Int
 }
@@ -52,8 +58,14 @@ interface RecurringExclusionDao {
     @Query("SELECT * FROM recurring_exclusions")
     suspend fun getAll(): List<RecurringExclusionEntity>
 
+    @Query("SELECT * FROM recurring_exclusions")
+    fun observeAll(): Flow<List<RecurringExclusionEntity>>
+
     @Upsert
     suspend fun add(entity: RecurringExclusionEntity)
+
+    @Query("DELETE FROM recurring_exclusions WHERE parent_id IN (:parentIds)")
+    suspend fun deleteForParents(parentIds: List<Long>)
 }
 
 @Dao
