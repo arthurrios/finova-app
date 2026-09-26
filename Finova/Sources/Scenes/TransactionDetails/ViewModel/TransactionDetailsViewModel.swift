@@ -123,16 +123,37 @@ final class TransactionDetailsViewModel {
   ///
   /// Six months back through two forward: far enough to file a receipt found late, not so far that
   /// the list stops being scannable.
+  ///
+  /// Each option is named by the DUE month of the statement it moves to, as the details row names
+  /// the current one. Naming it by the month itself (the closing month) gave two statements the
+  /// same name on a card due on or before its closing day (closes the 25th, due the 5th): the row
+  /// said "November" while "November" in the list meant the invoice due in December. The option
+  /// that lands on the current statement is left out, since it moves nothing.
   func getMonthOptionsForMove() -> [(label: String, firstOfMonth: Date)] {
     let calendar = Calendar.current
     let formatter = DateFormatter.monthYearFormatter
+    let card = getCreditCard()
+    let service = CreditCardService()
     var options: [(label: String, firstOfMonth: Date)] = []
 
     for offset in -6...2 {
       guard let refDate = calendar.date(byAdding: .month, value: offset, to: Date()) else { continue }
       let components = calendar.dateComponents([.year, .month], from: refDate)
       guard let firstOfMonth = calendar.date(from: components) else { continue }
-      options.append((label: formatter.string(from: firstOfMonth), firstOfMonth: firstOfMonth))
+
+      var labelDate = firstOfMonth
+      if let card = card {
+        // Looked up, never created: the target is only created once the user picks it.
+        if let target = service.getExistingStatement(for: card, transactionDate: firstOfMonth) {
+          if target.id == transaction.statementId { continue }
+          labelDate = target.dueDate
+        } else {
+          labelDate = service.calculateDueDate(
+            closingDate: service.calculateClosingDate(card: card, transactionDate: firstOfMonth),
+            card: card)
+        }
+      }
+      options.append((label: formatter.string(from: labelDate), firstOfMonth: firstOfMonth))
     }
 
     return options

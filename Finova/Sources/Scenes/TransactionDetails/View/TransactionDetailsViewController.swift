@@ -101,11 +101,9 @@ extension TransactionDetailsViewController: TransactionDetailsViewDelegate {
   }
 
   func didTapMoveToStatement() {
+    // Already leaves out the option that lands on the current statement.
     let monthOptions = viewModel.getMonthOptionsForMove()
     guard !monthOptions.isEmpty else { return }
-
-    let currentStatement = viewModel.getCurrentStatement()
-    let calendar = Calendar.current
 
     let alert = UIAlertController(
       title: "transactionDetails.moveToStatement.title".localized,
@@ -114,13 +112,6 @@ extension TransactionDetailsViewController: TransactionDetailsViewDelegate {
     )
 
     for option in monthOptions {
-      // The month it is already on is not a move.
-      if let currentClosing = currentStatement?.closingDate,
-        calendar.isDate(option.firstOfMonth, equalTo: currentClosing, toGranularity: .month)
-      {
-        continue
-      }
-
       alert.addAction(
         UIAlertAction(title: option.label, style: .default) { [weak self] _ in
           guard let self = self else { return }

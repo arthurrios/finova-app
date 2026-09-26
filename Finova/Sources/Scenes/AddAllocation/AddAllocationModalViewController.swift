@@ -149,11 +149,13 @@ extension AddAllocationModalViewController: AddAllocationModalViewDelegate {
         } else {
             // Create mode - check for conflicts if recurring
             if isRecurring {
-                let conflicts = checkForFutureAllocationConflicts(category: category)
+                let conflicts = checkForFutureAllocationConflicts(
+                    category: category, recurrenceEndMonth: recurrenceEndMonth)
                 if !conflicts.months.isEmpty {
                     showRecurringConflictAlert(
                         category: category,
                         amount: amount,
+                        recurrenceEndMonth: recurrenceEndMonth,
                         conflictingMonths: conflicts.months,
                         conflictingAllocationIds: conflicts.allocationIds
                     )
@@ -182,34 +184,34 @@ extension AddAllocationModalViewController: AddAllocationModalViewDelegate {
 
     /// Checks if creating a recurring allocation would conflict with existing allocations in future months
     /// Returns tuple with month names for display and allocation IDs for deletion
-    private func checkForFutureAllocationConflicts(category: TransactionCategory) -> (months: [String], allocationIds: [Int]) {
-        let allAllocations = BudgetAllocationRepository().fetchAllAllocations()
-
-        // Find allocations for the same category in months AFTER the current month
-        let futureConflicts = allAllocations.filter { allocation in
-            allocation.category.key == category.key && allocation.monthDate > monthAnchor
-        }
+    private func checkForFutureAllocationConflicts(
+        category: TransactionCategory, recurrenceEndMonth: Int?
+    ) -> (months: [String], allocationIds: [Int]) {
+        // Only the months the new series will actually reach — see `recurringConflicts`.
+        let futureConflicts = BudgetAllocationService.recurringConflicts(
+            category: category, from: monthAnchor, through: recurrenceEndMonth,
+            in: BudgetAllocationRepository().fetchAllAllocations())
 
         // Collect allocation IDs for deletion
         let allocationIds = futureConflicts.compactMap { $0.dbId }
 
-        // Convert to month names for display
+        // Convert to month names for display, in calendar order: sorting the formatted names put
+        // "April 2027" before "December 2026".
         let dateFormatter = DateFormatter()
         dateFormatter.dateFormat = "MMMM yyyy"
 
-        let conflictingMonths = futureConflicts.map { allocation -> String in
-            let date = Date(timeIntervalSince1970: TimeInterval(allocation.monthDate))
-            return dateFormatter.string(from: date)
-        }.sorted()
+        let conflictingMonths = Set(futureConflicts.map(\.monthDate)).sorted().map { anchor in
+            dateFormatter.string(from: Date(timeIntervalSince1970: TimeInterval(anchor)))
+        }
 
-        // Remove duplicates and return unique months
-        return (Array(Set(conflictingMonths)).sorted(), allocationIds)
+        return (conflictingMonths, allocationIds)
     }
 
     /// Shows alert when recurring allocation would conflict with existing future allocations
     private func showRecurringConflictAlert(
         category: TransactionCategory,
         amount: Int,
+        recurrenceEndMonth: Int?,
         conflictingMonths: [String],
         conflictingAllocationIds: [Int]
     ) {
@@ -241,12 +243,14 @@ extension AddAllocationModalViewController: AddAllocationModalViewDelegate {
                     try repository.deleteAllocation(id: allocationId)
                 }
 
-                // Now create the recurring allocation
+                // Now create the recurring allocation, keeping the end the user picked: the
+                // overload without one created a series that never stops.
                 try self.allocationService.createAllocation(
                     category: category,
                     amount: amount,
                     monthAnchor: self.monthAnchor,
-                    isRecurring: true
+                    isRecurring: true,
+                    recurrenceEndMonth: recurrenceEndMonth
                 )
                 self.flowDelegate?.didSaveAllocation()
             } catch {
@@ -269,7 +273,8 @@ extension AddAllocationModalViewController: AddAllocationModalViewDelegate {
                     category: category,
                     amount: amount,
                     monthAnchor: self.monthAnchor,
-                    isRecurring: true
+                    isRecurring: true,
+                    recurrenceEndMonth: recurrenceEndMonth
                 )
                 self.flowDelegate?.didSaveAllocation()
             } catch {

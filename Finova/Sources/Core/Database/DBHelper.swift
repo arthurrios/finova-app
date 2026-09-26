@@ -2321,6 +2321,20 @@ class DBHelper {
 
     /// What this invoice actually charges. Installments paid ahead drop out — that money is charged
     /// on the early-payment debit instead, and counting it here would bill the user twice.
+    func getCreditCardId(forStatementId statementId: Int) throws -> Int? {
+        guard isInitialized else { return nil }
+        let query = "SELECT credit_card_id FROM CreditCardStatements WHERE id = ?;"
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK else {
+            let msg = String(cString: sqlite3_errmsg(db))
+            throw DBError.prepareFailed(message: msg)
+        }
+        defer { sqlite3_finalize(statement) }
+        sqlite3_bind_int64(statement, 1, Int64(statementId))
+        guard sqlite3_step(statement) == SQLITE_ROW else { return nil }
+        return Int(sqlite3_column_int64(statement, 0))
+    }
+
     func getTransactionSumForStatement(statementId: Int) throws -> Int {
         guard isInitialized else { return 0 }
         let query = """

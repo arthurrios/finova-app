@@ -48,6 +48,15 @@ class StatementRepository {
         }
     }
 
+    func fetchCardId(forStatementId statementId: Int) -> Int? {
+        do {
+            return try DBHelper.shared.getCreditCardId(forStatementId: statementId)
+        } catch {
+            logError("Failed to fetch statement card: \(error)")
+            return nil
+        }
+    }
+
     func findStatement(creditCardId: Int, closingDate: Date) -> Int? {
         do {
             return try DBHelper.shared.findStatement(

@@ -127,6 +127,25 @@ class CreditCardService {
         return created
     }
 
+    /// The statement `getOrCreateStatement` would return for this card and date, if it exists yet.
+    /// Never creates one. Same lookup order, minus the create step.
+    func getExistingStatement(for card: CreditCard, transactionDate: Date) -> CreditCardStatement? {
+        let statements = stmtRepo.fetchStatements(forCardId: card.id!)
+
+        let closingDate = calculateClosingDate(card: card, transactionDate: transactionDate)
+
+        if let existingId = stmtRepo.findStatement(creditCardId: card.id!, closingDate: closingDate),
+           let exact = statements.first(where: { $0.id == existingId }) {
+            return exact
+        }
+
+        let calendar = Calendar.current
+        return statements
+            .filter { calendar.isDate($0.closingDate, equalTo: closingDate, toGranularity: .month) }
+            .sorted { ($0.id ?? Int.max) < ($1.id ?? Int.max) }
+            .first
+    }
+
     func recalculateStatementTotal(statementId: Int) {
         stmtRepo.recalculateTotal(statementId: statementId)
 
@@ -234,29 +253,38 @@ class CreditCardService {
 
     /// Generates synthetic statement transactions for the dashboard.
     func generateStatementTransactions(userId: String) -> [Transaction] {
-        let cards = cardRepo.fetchAllCards(userId: userId)
         var statementTransactions: [Transaction] = []
 
         // Use the same source as the ViewModel to avoid stale DB vs secure store mismatch
         let allSecureTransactions = SecureLocalDataManager.shared.loadTransactions()
 
+        let liveCards = cardRepo.fetchAllCards(userId: userId)
+        let cards = liveCards + deletedCards(chargedBy: allSecureTransactions, liveCards: liveCards)
+
         for card in cards {
             let statements = stmtRepo.fetchStatements(forCardId: card.id!)
 
+            // Count and sum from the secure store (consistent with what StatementDetailsViewModel shows)
+            var rowsByStatement: [Int: [Transaction]] = [:]
             for stmt in statements {
-                // Count and sum from the secure store (consistent with what StatementDetailsViewModel shows)
-                let stmtTransactions = allSecureTransactions.filter {
-                    $0.statementId == stmt.id && $0.isCreditCardStatement != true
+                guard let stmtId = stmt.id else { continue }
+                rowsByStatement[stmtId] = allSecureTransactions.filter {
+                    $0.statementId == stmtId && $0.isCreditCardStatement != true
                 }
-
-                let realCount = stmtTransactions.count
-                // Signed by type, mirroring `DBHelper.signedAmount`: a credit on the card reduces
-                // what the invoice charges. Installments already paid early are left out, as the
-                // stored statement total leaves them out: they were paid by their own debit, so
-                // counting them here charged the same money twice.
-                let realTotal = stmtTransactions.excludingEarlyPaidInstallments().reduce(0) {
+            }
+            // Signed by type, mirroring `DBHelper.signedAmount`: a credit on the card reduces
+            // what the invoice charges. Installments already paid early are left out, as the
+            // stored statement total leaves them out: they were paid by their own debit, so
+            // counting them here charged the same money twice.
+            let charges = Self.statementCharges(statements) { stmt in
+                (rowsByStatement[stmt.id ?? -1] ?? []).excludingEarlyPaidInstallments().reduce(0) {
                     $1.type == .income ? $0 - $1.amount : $0 + $1.amount
                 }
+            }
+
+            for stmt in statements {
+                let stmtTransactions = rowsByStatement[stmt.id!] ?? []
+                let realCount = stmtTransactions.count
 
                 // Clean up stale statements with no transactions
                 if realCount == 0 {
@@ -264,7 +292,8 @@ class CreditCardService {
                     continue
                 }
 
-                guard realTotal > 0 else { continue }
+                let charged = charges[stmt.id!]?.charged ?? 0
+                guard charged > 0 else { continue }
 
                 let title = String(format: "creditCard.statement.title".localized, card.name)
                 let dueTimestamp = Int(stmt.dueDate.timeIntervalSince1970)
@@ -272,7 +301,7 @@ class CreditCardService {
                 let data = UITransactionData(
                     id: -(stmt.id! * 1000 + (card.id ?? 0)),
                     title: title,
-                    amount: realTotal,
+                    amount: charged,
                     dateTimestamp: dueTimestamp,
                     budgetMonthDate: stmt.closingDate.monthAnchor,
                     isRecurring: false,
@@ -280,7 +309,7 @@ class CreditCardService {
                     parentTransactionId: nil,
                     installmentNumber: nil,
                     totalInstallments: realCount,
-                    originalAmount: realTotal,
+                    originalAmount: charged,
                     creditCardId: card.id,
                     statementId: stmt.id,
                     isCreditCardStatement: true,
@@ -294,6 +323,65 @@ class CreditCardService {
         }
 
         return statementTransactions
+    }
+
+    /// What each of one card's statements charges once credit left over from its earlier statements
+    /// is counted in, keyed by statement id. `ownTotal` is a statement's own charges minus its own
+    /// credits.
+    ///
+    /// A credit larger than its own statement (a cancelled installment purchase, a big return) is not
+    /// lost: the rest carries to the card's next statements, as a bank does. Skipping that statement
+    /// used to drop it, so a cancelled 3 x 100 purchase credited 300 on one statement, which then
+    /// charged nothing, while the next two still charged 100 each.
+    static func statementCharges(
+        _ statements: [CreditCardStatement], ownTotal: (CreditCardStatement) -> Int
+    ) -> [Int: (charged: Int, carriedIn: Int)] {
+        let ordered = statements.sorted {
+            ($0.closingDate, $0.id ?? Int.max) < ($1.closingDate, $1.id ?? Int.max)
+        }
+        var carry = 0
+        var charges: [Int: (charged: Int, carriedIn: Int)] = [:]
+        for stmt in ordered {
+            guard let stmtId = stmt.id else { continue }
+            let net = ownTotal(stmt) + carry
+            charges[stmtId] = (charged: max(0, net), carriedIn: carry)
+            carry = min(0, net)
+        }
+        return charges
+    }
+
+    /// Credit left over from the card's statements before this one: zero, or negative. What the
+    /// statement owes is its own sum plus this, never below zero, which is what its dashboard row
+    /// charges. Summed with the SQL the stored `total_amount` is recalculated from.
+    func carriedCredit(intoStatementId statementId: Int) -> Int {
+        guard let cardId = stmtRepo.fetchCardId(forStatementId: statementId) else { return 0 }
+        let charges = Self.statementCharges(stmtRepo.fetchStatements(forCardId: cardId)) { stmt in
+            stmt.id.flatMap { try? DBHelper.shared.getTransactionSumForStatement(statementId: $0) } ?? 0
+        }
+        return charges[statementId]?.carriedIn ?? 0
+    }
+
+    /// Deleted cards that still have purchases on a statement.
+    ///
+    /// `fetchAllCards` hides deleted cards, which is right for every list and picker, but not for the
+    /// balance: the purchases on a deleted card happened, the delete prompt promises they are kept,
+    /// and a card purchase reaches the balance only through its statement row. Leaving the card out
+    /// of `generateStatementTransactions` erased its whole spend from the balance history.
+    ///
+    /// Found through the purchases that still point at a card, so a deleted card nobody used adds
+    /// nothing. A card that is live but not in `liveCards` is left out, as it always was.
+    private func deletedCards(chargedBy transactions: [Transaction], liveCards: [CreditCard]) -> [CreditCard] {
+        let liveCardIds = Set(liveCards.compactMap(\.id))
+        let cardIds = Set(transactions.compactMap { tx -> Int? in
+            guard let cardId = tx.creditCardId, tx.statementId != nil,
+                  tx.isCreditCardStatement != true, !liveCardIds.contains(cardId)
+            else { return nil }
+            return cardId
+        })
+        return cardIds.sorted().compactMap { cardId in
+            guard let card = cardRepo.fetchCard(byId: cardId), card.isDeleted else { return nil }
+            return card
+        }
     }
 
     /// Reshapes a card's FUTURE billing cycles after its closingDay or dueDay changed.
@@ -534,7 +622,10 @@ class CreditCardService {
                 continue
             }
 
-            let transactionDate = Date(timeIntervalSince1970: TimeInterval(tx.dateTimestamp))
+            // The day it was made, as creation routes it — not the date a business-day rule moved it
+            // to. A purchase made on a Saturday closing day and shown on Monday still belongs to the
+            // cycle that closed on Saturday; routing by Monday moved it a month later on every load.
+            let transactionDate = tx.unadjustedDate
 
             if onlyFutureCycles,
                 calculateClosingDate(card: card, transactionDate: transactionDate) <= now
@@ -596,7 +687,8 @@ class CreditCardService {
                   let txId = tx.id,
                   let card = cardRepo.fetchCard(byId: cardId) else { continue }
 
-            let transactionDate = Date(timeIntervalSince1970: TimeInterval(tx.dateTimestamp))
+            // Routed by the unadjusted date, as creation and `reassignCardTransactions` route it.
+            let transactionDate = tx.unadjustedDate
             if let statement = getOrCreateStatement(for: card, transactionDate: transactionDate, userId: userId) {
                 do {
                     try transactionRepo.updateCreditCardFields(
@@ -615,17 +707,31 @@ class CreditCardService {
 
     /// The statement for the billing cycle after `current`, creating it if it does not exist yet.
     func nextStatement(after current: CreditCardStatement, for card: CreditCard, userId: String) -> CreditCardStatement? {
-        guard let cardId = card.id else { return nil }
+        statement(
+            closingOn: closingDate(inMonthAfter: current.closingDate, card: card),
+            for: card, userId: userId)
+    }
+
+    /// The card's closing date in the calendar month after `date`'s.
+    private func closingDate(inMonthAfter date: Date, card: CreditCard) -> Date {
         let calendar = Calendar.current
 
-        let currentMonth = calendar.component(.month, from: current.closingDate)
-        let currentYear = calendar.component(.year, from: current.closingDate)
+        let currentMonth = calendar.component(.month, from: date)
+        let currentYear = calendar.component(.year, from: date)
         var nextMonth = currentMonth + 1
         var nextYear = currentYear
         if nextMonth > 12 { nextMonth = 1; nextYear += 1 }
 
         let nextClosingDay = min(card.closingDay, daysInMonth(month: nextMonth, year: nextYear))
-        let nextClosingDate = calendar.date(from: DateComponents(year: nextYear, month: nextMonth, day: nextClosingDay))!
+        return calendar.date(from: DateComponents(year: nextYear, month: nextMonth, day: nextClosingDay))!
+    }
+
+    /// The statement for the cycle closing on `nextClosingDate`, creating it if it does not exist yet.
+    private func statement(
+        closingOn nextClosingDate: Date, for card: CreditCard, userId: String
+    ) -> CreditCardStatement? {
+        guard let cardId = card.id else { return nil }
+        let calendar = Calendar.current
         let nextDueDate = calculateDueDate(closingDate: nextClosingDate, card: card)
 
         let statements = stmtRepo.fetchStatements(forCardId: cardId)
@@ -674,7 +780,9 @@ class CreditCardService {
     /// the 1st, date routing returns the statement closing that same day, so the amount would be
     /// attached to an invoice already issued and the user would never see it.
     ///
-    /// Creates the following cycle only when every existing statement has already closed.
+    /// Creates a statement only when no existing one is open, and then only the one it returns: the
+    /// first cycle closing after `date` that also comes after every existing statement. The cycles in
+    /// between are skipped, not filled with empty statements.
     func nextOpenStatement(for card: CreditCard, userId: String, asOf date: Date = Date())
         -> CreditCardStatement?
     {
@@ -688,11 +796,24 @@ class CreditCardService {
             return open
         }
 
-        if let latest = statements.max(by: { $0.closingDate < $1.closingDate }) {
-            return nextStatement(after: latest, for: card, userId: userId)
+        // Neither "the cycle after the latest statement" nor "the cycle `date` routes to" is enough
+        // on its own. On a card left unused, the latest statement may have closed months ago, so the
+        // cycle after it has closed too and the money landed on an invoice already issued. And on
+        // the closing day, date routing returns the cycle that closed at the start of that day.
+        var closingDate = calculateClosingDate(card: card, transactionDate: date)
+        if closingDate <= date {
+            closingDate = self.closingDate(inMonthAfter: closingDate, card: card)
+        }
+        // And past every existing statement, all of which are closed or paid by now. The cycle after
+        // the latest one still closes after `date`: it is in a later month than `closingDate`.
+        if let latest = statements.max(by: { $0.closingDate < $1.closingDate }),
+           Calendar.current.compare(closingDate, to: latest.closingDate, toGranularity: .month)
+            != .orderedDescending
+        {
+            closingDate = self.closingDate(inMonthAfter: latest.closingDate, card: card)
         }
 
-        return getOrCreateStatement(for: card, transactionDate: date, userId: userId)
+        return statement(closingOn: closingDate, for: card, userId: userId)
     }
 
     private func daysInMonth(month: Int, year: Int) -> Int {

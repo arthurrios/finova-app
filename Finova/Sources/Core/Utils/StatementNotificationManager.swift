@@ -78,11 +78,13 @@ final class StatementNotificationManager {
     for card in cards where !card.isDeleted {
       guard let cardId = card.id else { continue }
       let statements = statementRepo.fetchStatements(forCardId: cardId)
+      let charges = Self.charges(of: statements)
 
       for statement in statements {
         guard let statementId = statement.id else { continue }
         scheduleStatement(
-          statement, statementId: statementId, cardId: cardId, cardName: card.name, now: now)
+          statement, statementId: statementId, cardId: cardId, cardName: card.name,
+          amount: charges[statementId] ?? statement.totalAmount, now: now)
       }
     }
   }
@@ -94,8 +96,16 @@ final class StatementNotificationManager {
     guard NotificationPreferencesManager.shared.shouldShowNotification(type: .creditCardStatement)
     else { return }
     guard let statementId = statement.id, let cardId = card.id else { return }
+    let charges = Self.charges(of: StatementRepository().fetchStatements(forCardId: cardId))
     scheduleStatement(
-      statement, statementId: statementId, cardId: cardId, cardName: card.name, now: Date())
+      statement, statementId: statementId, cardId: cardId, cardName: card.name,
+      amount: charges[statementId] ?? statement.totalAmount, now: Date())
+  }
+
+  /// What each statement charges once credit carried from the card's earlier statements is counted
+  /// in, the amount its dashboard row shows. A statement that credit covers gets no reminder.
+  private static func charges(of statements: [CreditCardStatement]) -> [Int: Int] {
+    CreditCardService.statementCharges(statements) { $0.totalAmount }.mapValues { $0.charged }
   }
 
   /// Reschedules all statement notifications.
@@ -141,14 +151,15 @@ final class StatementNotificationManager {
   // MARK: - Private
 
   private func scheduleStatement(
-    _ statement: CreditCardStatement, statementId: Int, cardId: Int, cardName: String, now: Date
+    _ statement: CreditCardStatement, statementId: Int, cardId: Int, cardName: String,
+    amount: Int, now: Date
   ) {
     let planned = StatementNotificationPlan.plan(
       statementId: statementId,
       cardName: cardName,
       closingDate: statement.closingDate,
       dueDate: statement.dueDate,
-      totalAmount: statement.totalAmount,
+      totalAmount: amount,
       isPaid: statement.isPaid,
       calendar: calendar,
       now: now)
