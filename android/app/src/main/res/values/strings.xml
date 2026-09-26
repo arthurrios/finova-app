@@ -467,4 +467,8 @@
     <string name="alloc_unallocated_subtitle">Unallocated Spending</string>
     <string name="alloc_unallocated_spent">Spent</string>
     <string name="alloc_unallocated_warning">This spending is not tracked against any budget allocation</string>
+    <string name="alloc_status_under">Under</string>
+    <string name="alloc_status_near">Near</string>
+    <string name="alloc_status_over">Over</string>
+    <string name="alloc_warning_hidden">Over budget</string>
 </resources>

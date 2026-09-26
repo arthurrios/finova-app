@@ -458,4 +458,8 @@
     <string name="alloc_unallocated_subtitle">Gasto Não Alocado</string>
     <string name="alloc_unallocated_spent">Gasto</string>
     <string name="alloc_unallocated_warning">Este gasto não está sendo rastreado por nenhuma alocação de orçamento</string>
+    <string name="alloc_status_under">Abaixo</string>
+    <string name="alloc_status_near">Próximo</string>
+    <string name="alloc_status_over">Excedido</string>
+    <string name="alloc_warning_hidden">Acima do orçamento</string>
 </resources>
