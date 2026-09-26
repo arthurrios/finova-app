@@ -155,7 +155,7 @@ fun TransactionListBox(modifier: Modifier = Modifier, content: @Composable () ->
 
 /** Shown in place of the rows when the month has none. */
 @Composable
-fun TransactionEmptyState() {
+fun TransactionEmptyState(message: String = stringResource(R.string.transactions_empty_state_description)) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -174,7 +174,7 @@ fun TransactionEmptyState() {
         )
         Spacer(Modifier.width(Spacing.S5))
         Text(
-            stringResource(R.string.transactions_empty_state_description),
+            message,
             style = FinovaType.TextXS,
             color = FinovaColors.Gray500,
         )

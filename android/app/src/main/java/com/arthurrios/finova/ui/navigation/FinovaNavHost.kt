@@ -80,6 +80,10 @@ object Routes {
     /** Add when id is 0, edit otherwise. */
     const val CARD_FORM = "cards/form?id={id}"
     fun cardForm(id: Long = 0) = "cards/form?id=$id"
+    /** A category's allocation (or unallocated spending) in a month; month is yyyyMM. */
+    const val ALLOCATION = "allocation/{category}/{month}"
+    fun allocation(month: java.time.YearMonth, category: com.arthurrios.finova.domain.model.TransactionCategory) =
+        "allocation/${category.key}/${month.year * 100 + month.monthValue}"
     fun budgets(month: java.time.YearMonth?) = "budgets?month=" + (month?.let { it.year * 100 + it.monthValue } ?: 0)
 }
 
@@ -194,6 +198,32 @@ fun FinovaNavHost(startRoute: String? = null) {
                 onOpenTransaction = { navController.navigate(Routes.details(it)) },
                 onCreateCard = { navController.navigate(Routes.cardForm()) },
                 onOpenStatement = { navController.navigate(Routes.statement(it)) },
+                onOpenAllocation = { month, category -> navController.navigate(Routes.allocation(month, category)) },
+            )
+        }
+        composable(
+            Routes.ALLOCATION,
+            arguments = listOf(navArgument("category") { type = NavType.StringType }, navArgument("month") { type = NavType.IntType }),
+        ) { entry ->
+            val key = entry.arguments?.getString("category").orEmpty()
+            val packed = entry.arguments?.getInt("month") ?: 0
+            val category = com.arthurrios.finova.domain.model.TransactionCategory.entries.firstOrNull { it.key == key }
+                ?: com.arthurrios.finova.domain.model.TransactionCategory.entries.first()
+            val month = java.time.YearMonth.of(packed / 100, (packed % 100).coerceIn(1, 12))
+            val viewModel: com.arthurrios.finova.ui.allocation.AllocationDetailsViewModel = viewModel(
+                factory = viewModelFactory {
+                    initializer {
+                        val container = appContext.appContainer
+                        com.arthurrios.finova.ui.allocation.AllocationDetailsViewModel(
+                            container.financeRepository(), container.allocationRepository(), container.settings, category, month,
+                        )
+                    }
+                }
+            )
+            com.arthurrios.finova.ui.allocation.AllocationDetailsScreen(
+                viewModel,
+                onBack = { navController.popBackStack() },
+                onOpenTransaction = { navController.navigate(Routes.details(it)) },
             )
         }
         composable(Routes.STATEMENT, arguments = listOf(navArgument("id") { type = NavType.LongType })) { entry ->
