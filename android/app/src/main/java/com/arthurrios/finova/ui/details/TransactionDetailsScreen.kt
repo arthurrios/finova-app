@@ -1,5 +1,13 @@
 package com.arthurrios.finova.ui.details
 
+import androidx.compose.foundation.clickable
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.Undo
+import androidx.compose.material.icons.outlined.Cancel
+import androidx.compose.material.icons.outlined.EventAvailable
+import androidx.compose.ui.graphics.vector.ImageVector
+import com.arthurrios.finova.ui.dashboard.CardBody
+import com.arthurrios.finova.ui.dashboard.CardHeader
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -63,8 +71,16 @@ private val DateFormat = DateTimeFormatter.ofPattern("dd/MM/yyyy")
 
 /** Port of TransactionDetailsView / ViewController on iOS 1.5.2 (cards and payments come later). */
 @Composable
-fun TransactionDetailsScreen(viewModel: TransactionDetailsViewModel, onBack: () -> Unit, onCreateCard: () -> Unit = {}) {
+fun TransactionDetailsScreen(
+    viewModel: TransactionDetailsViewModel,
+    onBack: () -> Unit,
+    onCreateCard: () -> Unit = {},
+    onPayEarly: () -> Unit = {},
+) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val failure by viewModel.failure.collectAsStateWithLifecycle()
+    var confirmCancel by rememberSaveable { mutableStateOf(false) }
+    var confirmUndo by rememberSaveable { mutableStateOf(false) }
     val cards by viewModel.cards.collectAsStateWithLifecycle()
     var showEdit by rememberSaveable { mutableStateOf(false) }
     var showDelete by rememberSaveable { mutableStateOf(false) }
@@ -98,6 +114,12 @@ fun TransactionDetailsScreen(viewModel: TransactionDetailsViewModel, onBack: () 
             InfoCard(row, state)
             DetailsCard(row, state)
             if (state.installments.isNotEmpty()) InstallmentsCard(row, state)
+            EarlyPaymentAndCancellation(
+                state = state,
+                onPayEarly = onPayEarly,
+                onCancel = { confirmCancel = true },
+                onUndo = { confirmUndo = true },
+            )
         }
         // Edit and Delete stay at the bottom, like the iOS footer.
         Column(
@@ -138,6 +160,52 @@ fun TransactionDetailsScreen(viewModel: TransactionDetailsViewModel, onBack: () 
         pendingEdit = null
         if (state.kind == SeriesKind.Installments) viewModel.saveInstallments(request) else viewModel.saveRecurring(request, option)
     }, onDismiss = { pendingEdit = null }) }
+    if (confirmCancel) {
+        val title = stringResource(R.string.cancel_transaction_title, state.row?.title.orEmpty())
+        AlertDialog(
+            onDismissRequest = { confirmCancel = false },
+            title = { Text(stringResource(R.string.cancel_confirm_title)) },
+            text = {
+                Text(
+                    stringResource(
+                        if (state.cancelCount == 1) R.string.cancel_confirm_one else R.string.cancel_confirm_other,
+                        state.cancelCount,
+                        Money.format(state.cancelAmount, state.currencyCode),
+                    )
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmCancel = false
+                    viewModel.cancelPurchase(title, R.string.cancel_error)
+                }) { Text(stringResource(R.string.cancel_confirm_action), color = FinovaColors.MainRed) }
+            },
+            dismissButton = { TextButton(onClick = { confirmCancel = false }) { Text(stringResource(R.string.alert_cancel)) } },
+        )
+    }
+    if (confirmUndo) {
+        val early = state.earlyPaidInstallments != null
+        AlertDialog(
+            onDismissRequest = { confirmUndo = false },
+            title = { Text(stringResource(if (early) R.string.early_undo_title else R.string.cancel_undo_title)) },
+            text = { Text(stringResource(if (early) R.string.early_undo_message else R.string.cancel_undo_message)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmUndo = false
+                    viewModel.undo()
+                }) { Text(stringResource(if (early) R.string.early_undo_action else R.string.cancel_undo_action), color = FinovaColors.MainRed) }
+            },
+            dismissButton = { TextButton(onClick = { confirmUndo = false }) { Text(stringResource(R.string.alert_cancel)) } },
+        )
+    }
+    failure?.let { message ->
+        AlertDialog(
+            onDismissRequest = viewModel::clearFailure,
+            title = { Text(stringResource(R.string.alert_error)) },
+            text = { Text(stringResource(message)) },
+            confirmButton = { TextButton(onClick = viewModel::clearFailure) { Text(stringResource(R.string.alert_ok)) } },
+        )
+    }
     if (showDelete) {
         DeleteTransactionDialog(
             kind = state.kind,
@@ -268,6 +336,101 @@ private fun InstallmentsCard(row: Transaction, state: TransactionDetailsUiState)
                     Text(item.date.format(DateFormat), style = FinovaType.TextXS, color = FinovaColors.Gray500)
                 }
                 Text(Money.formatMasked(item.amount, state.currencyCode, state.valuesHidden), style = FinovaType.TextSM, color = FinovaColors.Gray700)
+            }
+        }
+    }
+}
+
+/**
+ * The early-payment and cancellation parts of iOS TransactionDetailsView: the entry rows on an
+ * installment with installments still to bill, and on a debit or credit the installments it
+ * covers plus the undo row.
+ */
+@Composable
+private fun EarlyPaymentAndCancellation(
+    state: TransactionDetailsUiState,
+    onPayEarly: () -> Unit,
+    onCancel: () -> Unit,
+    onUndo: () -> Unit,
+) {
+    if (state.payableCount > 0) {
+        ActionRow(
+            icon = Icons.Outlined.EventAvailable,
+            label = stringResource(R.string.early_entry),
+            value = stringResource(
+                if (state.payableCount == 1) R.string.early_entry_count_one else R.string.early_entry_count_other,
+                state.payableCount,
+            ),
+            onClick = onPayEarly,
+        )
+    }
+    state.earlyPaidInstallments?.let { covered ->
+        CoveredInstallments(stringResource(R.string.early_included_header), covered, state)
+        ActionRow(Icons.AutoMirrored.Outlined.Undo, stringResource(R.string.early_undo_title), null, onUndo, danger = true)
+    }
+    if (state.cancelCount > 0) {
+        ActionRow(
+            icon = Icons.Outlined.Cancel,
+            label = stringResource(R.string.cancel_entry),
+            value = Money.formatMasked(state.cancelAmount, state.currencyCode, state.valuesHidden),
+            onClick = onCancel,
+        )
+    }
+    state.refundedInstallments?.let { covered ->
+        CoveredInstallments(stringResource(R.string.cancel_refunded_header), covered, state)
+        Text(stringResource(R.string.cancel_note), style = FinovaType.TextXS, color = FinovaColors.Gray500)
+        ActionRow(Icons.AutoMirrored.Outlined.Undo, stringResource(R.string.cancel_undo_title), null, onUndo, danger = true)
+    }
+}
+
+/** A settings-style row: icon, label, optional value, chevron (makeActionRow on iOS). */
+@Composable
+private fun ActionRow(icon: ImageVector, label: String, value: String?, onClick: () -> Unit, danger: Boolean = false) {
+    val shape = RoundedCornerShape(CornerRadius.Large)
+    val tint = if (danger) FinovaColors.MainRed else FinovaColors.Gray600
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(FinovaColors.Gray100)
+            .clickable(onClick = onClick)
+            .padding(horizontal = Spacing.S4, vertical = Spacing.S4),
+    ) {
+        Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(22.dp))
+        Spacer(Modifier.width(Spacing.S3))
+        Text(label, style = FinovaType.TitleSM, color = if (danger) FinovaColors.MainRed else FinovaColors.Gray700, modifier = Modifier.weight(1f))
+        if (value != null) {
+            Spacer(Modifier.width(Spacing.S3))
+            Text(value, style = FinovaType.TextSM, color = FinovaColors.Gray500)
+        }
+        Spacer(Modifier.width(Spacing.S2))
+        Icon(painterResource(R.drawable.ic_chevron_right), contentDescription = null, tint = FinovaColors.Gray500, modifier = Modifier.size(14.dp))
+    }
+}
+
+/** The read-only list of installments an early payment paid or a cancellation refunds. */
+@Composable
+private fun CoveredInstallments(title: String, installments: List<Transaction>, state: TransactionDetailsUiState) {
+    val monthYear = DateTimeFormatter.ofPattern("MMM/yy", java.util.Locale.getDefault())
+    Column {
+        CardHeader(title, installments.size)
+        if (installments.isNotEmpty()) {
+            CardBody {
+                installments.forEachIndexed { index, item ->
+                    if (index > 0) HorizontalDivider(color = FinovaColors.Gray300)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            if (item.installmentNumber != null && item.totalInstallments != null)
+                                stringResource(R.string.early_row, item.installmentNumber, item.totalInstallments, item.date.format(monthYear))
+                            else item.title,
+                            style = FinovaType.TextSMBold,
+                            color = FinovaColors.Gray700,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Text(Money.formatMasked(item.amount, state.currencyCode, state.valuesHidden), style = FinovaType.TextSM, color = FinovaColors.Gray500)
+                    }
+                }
             }
         }
     }
