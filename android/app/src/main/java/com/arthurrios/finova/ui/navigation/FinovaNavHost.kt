@@ -21,6 +21,8 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.navArgument
 import com.arthurrios.finova.ui.budgets.BudgetsScreen
 import com.arthurrios.finova.ui.cards.AddCreditCardScreen
+import com.arthurrios.finova.ui.statement.StatementDetailsScreen
+import com.arthurrios.finova.ui.statement.StatementDetailsViewModel
 import com.arthurrios.finova.ui.cards.AddCreditCardViewModel
 import com.arthurrios.finova.ui.cards.CreditCardsScreen
 import com.arthurrios.finova.ui.cards.CreditCardsViewModel
@@ -58,6 +60,8 @@ object Routes {
     const val DETAILS = "details/{id}"
     fun details(id: Long) = "details/$id"
     const val CARDS = "cards"
+    const val STATEMENT = "statement/{id}"
+    fun statement(id: Long) = "statement/$id"
     /** Add when id is 0, edit otherwise. */
     const val CARD_FORM = "cards/form?id={id}"
     fun cardForm(id: Long = 0) = "cards/form?id=$id"
@@ -165,6 +169,23 @@ fun FinovaNavHost(startRoute: String? = null) {
                 onOpenBudgets = { navController.navigate(Routes.budgets(it)) },
                 onOpenTransaction = { navController.navigate(Routes.details(it)) },
                 onCreateCard = { navController.navigate(Routes.cardForm()) },
+                onOpenStatement = { navController.navigate(Routes.statement(it)) },
+            )
+        }
+        composable(Routes.STATEMENT, arguments = listOf(navArgument("id") { type = NavType.LongType })) { entry ->
+            val id = entry.arguments?.getLong("id") ?: 0L
+            val viewModel: StatementDetailsViewModel = viewModel(
+                factory = viewModelFactory {
+                    initializer {
+                        val container = appContext.appContainer
+                        StatementDetailsViewModel(container.financeRepository(), container.cardRepository(), container.settings, id)
+                    }
+                }
+            )
+            StatementDetailsScreen(
+                viewModel,
+                onBack = { navController.popBackStack() },
+                onOpenTransaction = { navController.navigate(Routes.details(it)) },
             )
         }
         composable(Routes.DETAILS, arguments = listOf(navArgument("id") { type = NavType.LongType })) { entry ->

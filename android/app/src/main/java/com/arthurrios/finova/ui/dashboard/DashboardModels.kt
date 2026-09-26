@@ -3,6 +3,10 @@ package com.arthurrios.finova.ui.dashboard
 import androidx.annotation.DrawableRes
 import com.arthurrios.finova.domain.model.BusinessDayRule
 import com.arthurrios.finova.domain.model.CreditCard
+import com.arthurrios.finova.domain.model.Transaction
+import com.arthurrios.finova.domain.model.TransactionMode
+import com.arthurrios.finova.domain.model.TransactionType
+import com.arthurrios.finova.domain.series.SeriesRules
 import com.arthurrios.finova.domain.model.TransactionCategory
 import com.arthurrios.finova.domain.series.SeriesKind
 import java.time.LocalDate
@@ -64,4 +68,27 @@ data class TransactionRowUi(
     val statementId: Long? = null,
     /** What the filter's category chips match against. */
     val category: TransactionCategory = TransactionCategory.Miscellaneous,
+)
+
+/** How a stored (or statement) row shows in a list. Shared by the dashboard and statement details. */
+fun Transaction.toRowUi() = TransactionRowUi(
+    id = id,
+    title = title,
+    date = date,
+    amount = amount,
+    isIncome = type == TransactionType.Income,
+    icon = category.icon(type),
+    category = category,
+    mode = when (mode) {
+        TransactionMode.Recurring -> TransactionModeUi.Recurring
+        TransactionMode.Installments -> TransactionModeUi.Installments
+        TransactionMode.Normal -> TransactionModeUi.Normal
+    },
+    installmentNumber = installmentNumber,
+    totalInstallments = totalInstallments,
+    isCreditCard = creditCardId != null,
+    statementTransactionCount = if (isCreditCardStatement) totalInstallments else null,
+    statementId = statementId,
+    isSettledEarly = isSettledEarly,
+    seriesKind = SeriesRules.kindOf(this),
 )

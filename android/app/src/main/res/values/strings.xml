@@ -271,4 +271,20 @@
     <string name="payment_method_create_card">Create Card</string>
     <string name="payment_method_statement_info">Goes to %1$s statement — Due: %2$s</string>
     <string name="add_transaction_card_rule_hint">Card purchases follow the statement due date</string>
+    <!-- Statement details (StatementDetailsView) -->
+    <string name="statement_details_title">%1$s Statement</string>
+    <string name="statement_details_card">Card</string>
+    <string name="statement_details_period">Statement Period</string>
+    <string name="statement_details_closing">Closing Date</string>
+    <string name="statement_details_due">Due Date</string>
+    <string name="statement_details_total">Total</string>
+    <string name="statement_details_status">Status</string>
+    <string name="statement_details_paid_on">Paid on %1$s</string>
+    <string name="statement_details_mark_paid">Mark as Paid</string>
+    <string name="statement_details_pay">Pay Statement</string>
+    <string name="statement_status_open">Open</string>
+    <string name="statement_status_closed">Awaiting Payment</string>
+    <string name="statement_status_paid">Paid</string>
+    <string name="statement_status_overdue">Overdue</string>
+    <string name="statement_status_scheduled">Payment Scheduled</string>
 </resources>
