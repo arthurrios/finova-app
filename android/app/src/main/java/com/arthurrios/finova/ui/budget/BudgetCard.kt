@@ -165,12 +165,10 @@ fun BudgetCard(
                         },
                         alignEnd = true,
                         modifier = Modifier.align(Alignment.TopEnd),
+                        // Under the projected value, as on iOS: the bar explains that figure.
+                        bar = { ProjectionBar(p) },
                     )
                 }
-            }
-            projection?.let {
-                Spacer(Modifier.height(Spacing.S3))
-                ProjectionBar(it)
             }
             Spacer(Modifier.height(Spacing.S3))
             Row {
@@ -202,7 +200,14 @@ fun BudgetCard(
 }
 
 @Composable
-private fun CornerBlock(caption: String, value: String, color: Color, alignEnd: Boolean, modifier: Modifier) {
+private fun CornerBlock(
+    caption: String,
+    value: String,
+    color: Color,
+    alignEnd: Boolean,
+    modifier: Modifier,
+    bar: (@Composable () -> Unit)? = null,
+) {
     Column(
         horizontalAlignment = if (alignEnd) Alignment.End else Alignment.Start,
         verticalArrangement = Arrangement.spacedBy(Spacing.S1),
@@ -210,10 +215,11 @@ private fun CornerBlock(caption: String, value: String, color: Color, alignEnd: 
     ) {
         Text(caption, style = FinovaType.Title2XS, color = FinovaColors.Gray400, maxLines = 2, textAlign = if (alignEnd) TextAlign.End else TextAlign.Start)
         Text(value, style = FinovaType.TextSMBold, color = color, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        bar?.invoke()
     }
 }
 
-/** Projected (magenta), saved (green) and overspent (red) shares, on the gray track. */
+/** Projected (magenta), saved (green) and overspent (red) shares, on the gray track (72 x 4, as on iOS). */
 @Composable
 private fun ProjectionBar(projection: AllocationBalanceProjection) {
     val (projected, saved, overspent) = projection.barShares
