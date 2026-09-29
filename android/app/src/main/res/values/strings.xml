@@ -111,7 +111,6 @@
     <string name="add_transaction_close">Close</string>
     <string name="add_transaction_input_title">Transaction title</string>
     <string name="add_transaction_input_category">Category</string>
-    <string name="add_transaction_input_money">0,00</string>
     <string name="add_transaction_input_date">00/00/0000</string>
     <string name="add_transaction_total_value">Total value</string>
     <string name="add_transaction_installments_suffix">installment(s)</string>
