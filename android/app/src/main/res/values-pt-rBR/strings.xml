@@ -104,7 +104,6 @@
     <string name="add_transaction_close">Fechar</string>
     <string name="add_transaction_input_title">Título da transação</string>
     <string name="add_transaction_input_category">Categoria</string>
-    <string name="add_transaction_input_money">0,00</string>
     <string name="add_transaction_input_date">00/00/0000</string>
     <string name="add_transaction_total_value">Valor total</string>
     <string name="add_transaction_installments_suffix">parcela(s)</string>

@@ -205,7 +205,6 @@ fun AddTransactionSheet(
                         cents = amount,
                         onCentsChange = { amount = it },
                         currencyCode = currencyCode,
-                        placeholder = stringResource(R.string.add_transaction_input_money),
                         isError = amountError,
                         keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() }),
                     )
