@@ -2,6 +2,10 @@
   "hosting": {
     "public": "public",
     "cleanUrls": true,
-    "ignore": ["firebase.json", "**/.*"]
+    "ignore": ["firebase.json", "**/.*"],
+    "redirects": [
+      { "source": "/excluir-conta", "destination": "/delete-account", "type": 301 },
+      { "source": "/privacidade", "destination": "https://finova-privacy-policy.vercel.app/", "type": 301 }
+    ]
   }
 }
