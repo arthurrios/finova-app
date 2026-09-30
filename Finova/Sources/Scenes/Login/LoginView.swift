@@ -59,6 +59,16 @@ final class LoginView: UIView {
     let emailTextField = Input(type: .email, placeholder: "input.email".localized)
     let passwordTextField = Input(type: .password, placeholder: "input.password".localized)
     
+    let forgotPasswordButton: UIButton = {
+        let button = UIButton(type: .system)
+        button.setTitle("login.forgotPassword".localized, for: .normal)
+        button.setTitleColor(Colors.mainMagenta, for: .normal)
+        button.titleLabel?.font = Fonts.textSM.font
+        button.contentHorizontalAlignment = .trailing
+        button.translatesAutoresizingMaskIntoConstraints = false
+        return button
+    }()
+    
     let separator: UIView = {
         let view = UIView()
         view.backgroundColor = Colors.gray300
@@ -162,6 +172,8 @@ final class LoginView: UIView {
             self, action: #selector(handleGoogleSignInTapped), for: .touchUpInside)
         registerLinkButton.addTarget(
             self, action: #selector(handleRegisterLinkTapped), for: .touchUpInside)
+        forgotPasswordButton.addTarget(
+            self, action: #selector(handleForgotPasswordTapped), for: .touchUpInside)
         
         backgroundColor = Colors.gray100
         
@@ -178,6 +190,7 @@ final class LoginView: UIView {
         addSubview(containerView)
         containerView.addSubview(emailTextField)
         containerView.addSubview(passwordTextField)
+        containerView.addSubview(forgotPasswordButton)
         containerView.addSubview(welcomeTitleLabel)
         containerView.addSubview(welcomeSubtitleLabel)
         containerView.addSubview(separator)
@@ -217,8 +230,12 @@ final class LoginView: UIView {
             passwordTextField.leadingAnchor.constraint(equalTo: emailTextField.leadingAnchor),
             passwordTextField.trailingAnchor.constraint(equalTo: emailTextField.trailingAnchor),
             
+            forgotPasswordButton.topAnchor.constraint(equalTo: passwordTextField.bottomAnchor),
+            forgotPasswordButton.trailingAnchor.constraint(equalTo: passwordTextField.trailingAnchor),
+            forgotPasswordButton.heightAnchor.constraint(equalToConstant: 36),
+            
             separator.topAnchor.constraint(
-                equalTo: passwordTextField.bottomAnchor, constant: Metrics.spacing3),
+                equalTo: forgotPasswordButton.bottomAnchor, constant: Metrics.spacing1),
             separator.leadingAnchor.constraint(equalTo: passwordTextField.leadingAnchor),
             separator.trailingAnchor.constraint(equalTo: passwordTextField.trailingAnchor),
             
@@ -312,6 +329,11 @@ final class LoginView: UIView {
     @objc
     private func handleRegisterLinkTapped() {
         delegate?.navigateToRegister()
+    }
+    
+    @objc
+    private func handleForgotPasswordTapped() {
+        delegate?.forgotPassword(email: emailTextField.textField.text ?? "")
     }
     
     @objc

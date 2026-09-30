@@ -70,8 +70,29 @@ fun LoginRoute(
         onPasswordChange = viewModel::onPasswordChange,
         onLogin = viewModel::signInWithEmail,
         onGoogle = { activity?.let(viewModel::signInWithGoogle) },
+        onForgotPassword = viewModel::onForgotPassword,
         onRegister = onRegister,
     )
+
+    state.resetEmail?.let { email ->
+        ForgotPasswordDialog(
+            email = email,
+            sending = state.resetSending,
+            onEmailChange = viewModel::onResetEmailChange,
+            onSend = viewModel::sendPasswordReset,
+            onDismiss = viewModel::dismissReset,
+        )
+    }
+    state.resetSentTo?.let { email ->
+        AlertDialog(
+            onDismissRequest = viewModel::dismissResetSent,
+            title = { Text(stringResource(R.string.login_forgot_password_sent_title)) },
+            text = { Text(stringResource(R.string.login_forgot_password_sent_message, email)) },
+            confirmButton = {
+                TextButton(onClick = viewModel::dismissResetSent) { Text(stringResource(R.string.alert_ok)) }
+            },
+        )
+    }
 
     state.error?.let { AuthErrorDialog(error = it, onDismiss = viewModel::dismissError) }
 
@@ -106,6 +127,7 @@ fun LoginScreen(
     onPasswordChange: (String) -> Unit,
     onLogin: () -> Unit,
     onGoogle: () -> Unit,
+    onForgotPassword: () -> Unit,
     onRegister: () -> Unit,
 ) {
     val focusManager = LocalFocusManager.current
@@ -186,7 +208,20 @@ fun LoginScreen(
                 imeAction = ImeAction.Done,
                 keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() }),
             )
-            Spacer(Modifier.height(Spacing.S3))
+            TextButton(
+                onClick = {
+                    focusManager.clearFocus()
+                    onForgotPassword()
+                },
+                enabled = !busy,
+                modifier = Modifier.align(Alignment.End),
+            ) {
+                Text(
+                    text = stringResource(R.string.login_forgot_password),
+                    style = FinovaType.TextSM,
+                    color = FinovaColors.MainMagenta,
+                )
+            }
             HorizontalDivider(color = FinovaColors.Gray300)
             Spacer(Modifier.height(Spacing.S3))
             FinovaButton(
@@ -231,6 +266,44 @@ fun LoginScreen(
     }
 }
 
+/** The iOS alert with an email field: sends a Firebase password reset link. */
+@Composable
+private fun ForgotPasswordDialog(
+    email: String,
+    sending: Boolean,
+    onEmailChange: (String) -> Unit,
+    onSend: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = { if (!sending) onDismiss() },
+        title = { Text(stringResource(R.string.login_forgot_password_title)) },
+        text = {
+            Column {
+                Text(stringResource(R.string.login_forgot_password_message))
+                Spacer(Modifier.height(Spacing.S3))
+                FinovaTextField(
+                    value = email,
+                    onValueChange = onEmailChange,
+                    placeholder = stringResource(R.string.input_email),
+                    type = FinovaTextFieldType.Email,
+                    enabled = !sending,
+                    imeAction = ImeAction.Send,
+                    keyboardActions = KeyboardActions(onSend = { onSend() }),
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onSend, enabled = !sending) {
+                Text(stringResource(R.string.login_forgot_password_send))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss, enabled = !sending) { Text(stringResource(R.string.alert_cancel)) }
+        },
+    )
+}
+
 /** Metrics.loginHeroHeight on iOS. */
 internal val LoginHeroHeight = 360.dp
 
@@ -238,6 +311,6 @@ internal val LoginHeroHeight = 360.dp
 @Composable
 private fun LoginScreenPreview() {
     FinovaTheme {
-        LoginScreen(LoginUiState(), {}, {}, {}, {}, {})
+        LoginScreen(LoginUiState(), {}, {}, {}, {}, {}, {})
     }
 }

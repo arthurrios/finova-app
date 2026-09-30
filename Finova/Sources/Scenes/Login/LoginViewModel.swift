@@ -29,6 +29,20 @@ class LoginViewModel {
     func signInWithApple() {
         authManager.signInWithApple()
     }
+
+    /// Completion gets nil on success, or an error title and message.
+    func sendPasswordReset(email: String, completion: @escaping ((title: String, message: String)?) -> Void) {
+        authManager.sendPasswordReset(email: email) { error in
+            guard let error else {
+                completion(nil)
+                return
+            }
+            completion((
+                FirebaseErrorHandler.localizedTitle(for: error),
+                FirebaseErrorHandler.localizedMessage(for: error)
+            ))
+        }
+    }
 }
 
 extension LoginViewModel: AuthenticationManagerDelegate {

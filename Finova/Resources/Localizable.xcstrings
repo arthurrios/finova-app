@@ -6655,6 +6655,108 @@
         }
       }
     },
+    "login.forgotPassword": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forgot password?"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esqueci minha senha"
+          }
+        }
+      }
+    },
+    "login.forgotPassword.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enter your account email. We will send you a link to create a new password."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Digite o e-mail da sua conta. Vamos enviar um link para você criar uma nova senha."
+          }
+        }
+      }
+    },
+    "login.forgotPassword.send": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send link"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enviar link"
+          }
+        }
+      }
+    },
+    "login.forgotPassword.sent.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "If there is an account for %@, a reset link is on its way. Check your spam folder too."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se existir uma conta com %@, o link já está a caminho. Confira também a caixa de spam."
+          }
+        }
+      }
+    },
+    "login.forgotPassword.sent.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Check your email"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Confira seu e-mail"
+          }
+        }
+      }
+    },
+    "login.forgotPassword.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reset password"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Redefinir senha"
+          }
+        }
+      }
+    },
     "login.googleSignIn": {
       "extractionState": "manual",
       "localizations": {

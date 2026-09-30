@@ -66,6 +66,21 @@ class AuthRepository(private val context: Context) {
         auth.signInWithEmailAndPassword(email, password).await().user.toAuthUser()
     }
 
+    /**
+     * Emails a password reset link, written in the phone's language. Firebase does not say
+     * whether the account exists, so returning only means the request was accepted.
+     */
+    suspend fun sendPasswordReset(email: String) {
+        try {
+            val firebaseAuth = auth
+            firebaseAuth.useAppLanguage()
+            firebaseAuth.sendPasswordResetEmail(email).await()
+        } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            throw AuthError.from(e)
+        }
+    }
+
     /** Creates the account, then stores the name on the Firebase profile, like iOS. */
     suspend fun register(name: String, email: String, password: String): AuthUser = wrap {
         val user = auth.createUserWithEmailAndPassword(email, password).await().user

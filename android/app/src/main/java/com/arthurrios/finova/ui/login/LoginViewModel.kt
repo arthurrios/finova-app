@@ -3,6 +3,7 @@ package com.arthurrios.finova.ui.login
 import android.app.Activity
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.arthurrios.finova.R
 import com.arthurrios.finova.auth.AuthError
 import com.arthurrios.finova.auth.AuthRepository
 import com.arthurrios.finova.auth.AuthUser
@@ -29,6 +30,11 @@ data class LoginUiState(
     val error: AuthError? = null,
     val biometricDialog: BiometricDialog? = null,
     val signedIn: Boolean = false,
+    /** Non-null while the "Forgot password?" dialog is open; holds the email typed there. */
+    val resetEmail: String? = null,
+    val resetSending: Boolean = false,
+    /** The address a reset link was just sent to; shows the "check your email" dialog. */
+    val resetSentTo: String? = null,
 )
 
 /** Port of LoginViewModel.swift plus the post-login flow in LoginViewController.swift. */
@@ -61,6 +67,35 @@ class LoginViewModel(
         signIn(SignInMethod.Google) { authRepository.signInWithGoogle(activity) }
 
     fun dismissError() = _state.update { it.copy(error = null) }
+
+    /** Opens the reset dialog with the email already typed on the login form, like iOS. */
+    fun onForgotPassword() = _state.update { it.copy(resetEmail = it.email.trim()) }
+
+    fun onResetEmailChange(value: String) = _state.update { it.copy(resetEmail = value) }
+
+    fun dismissReset() = _state.update { it.copy(resetEmail = null) }
+
+    fun dismissResetSent() = _state.update { it.copy(resetSentTo = null) }
+
+    fun sendPasswordReset() {
+        val current = _state.value
+        if (current.resetSending) return
+        val email = current.resetEmail?.trim().orEmpty()
+        if (email.isEmpty()) {
+            val invalid = AuthError(R.string.auth_error_title, R.string.auth_error_invalid_email)
+            _state.update { it.copy(resetEmail = null, error = invalid) }
+            return
+        }
+        _state.update { it.copy(resetSending = true) }
+        viewModelScope.launch {
+            try {
+                authRepository.sendPasswordReset(email)
+                _state.update { it.copy(resetSending = false, resetEmail = null, resetSentTo = email) }
+            } catch (e: AuthError) {
+                _state.update { it.copy(resetSending = false, resetEmail = null, error = e) }
+            }
+        }
+    }
 
     fun onEnableBiometrics() {
         settings.setCurrentUserSaved(true)
