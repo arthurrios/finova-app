@@ -12,4 +12,5 @@ public protocol LoginViewDelegate: AnyObject {
     func signInWithGoogle()
     func signInWithApple()
     func navigateToRegister()
+    func forgotPassword(email: String)
 }

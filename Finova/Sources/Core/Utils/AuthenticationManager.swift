@@ -73,6 +73,16 @@ class AuthenticationManager: NSObject {
         }
     }
     
+    /// Emails a password reset link. Firebase does not say whether the account exists, so a
+    /// nil error only means the request was accepted.
+    func sendPasswordReset(email: String, completion: @escaping (Error?) -> Void) {
+        // The email is written in the app's language.
+        Auth.auth().useAppLanguage()
+        Auth.auth().sendPasswordReset(withEmail: email) { error in
+            DispatchQueue.main.async { completion(error) }
+        }
+    }
+
     func register(name: String, email: String, password: String) {
         isHandlingAuthentication = true
 

@@ -12,6 +12,12 @@
     <string name="login_google_sign_in">Entrar com Google</string>
     <string name="login_dont_have_account">Ainda não possui uma conta?</string>
     <string name="login_register_link">Criar Conta</string>
+    <string name="login_forgot_password">Esqueci minha senha</string>
+    <string name="login_forgot_password_title">Redefinir senha</string>
+    <string name="login_forgot_password_message">Digite o e-mail da sua conta. Vamos enviar um link para você criar uma nova senha.</string>
+    <string name="login_forgot_password_send">Enviar link</string>
+    <string name="login_forgot_password_sent_title">Confira seu e-mail</string>
+    <string name="login_forgot_password_sent_message">Se existir uma conta com %1$s, o link já está a caminho. Confira também a caixa de spam.</string>
 
     <string name="error_try_again">Tentar novamente</string>
     <string name="skip">Pular</string>

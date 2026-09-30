@@ -199,4 +199,50 @@ extension LoginViewController: LoginViewDelegate {
     func navigateToRegister() {
         flowDelegate?.navigateToRegister()
     }
+
+    func forgotPassword(email: String) {
+        let alert = UIAlertController(
+            title: "login.forgotPassword.title".localized,
+            message: "login.forgotPassword.message".localized,
+            preferredStyle: .alert
+        )
+        alert.addTextField { textField in
+            textField.text = email.trimmingCharacters(in: .whitespaces)
+            textField.placeholder = "input.email".localized
+            textField.keyboardType = .emailAddress
+            textField.textContentType = .emailAddress
+            textField.autocapitalizationType = .none
+            textField.autocorrectionType = .no
+        }
+        alert.addAction(UIAlertAction(title: "alert.cancel".localized, style: .cancel))
+        alert.addAction(UIAlertAction(title: "login.forgotPassword.send".localized, style: .default) {
+            [weak self, weak alert] _ in
+            let typed = alert?.textFields?.first?.text?.trimmingCharacters(in: .whitespaces) ?? ""
+            self?.sendPasswordReset(email: typed)
+        })
+        present(alert, animated: true)
+    }
+
+    private func sendPasswordReset(email: String) {
+        guard !email.isEmpty else {
+            presentErrorAlert(title: "auth.error.title".localized, message: "auth.error.invalidEmail".localized)
+            return
+        }
+        LoadingManager.shared.showLoading(on: self)
+        viewModel.sendPasswordReset(email: email) { [weak self] error in
+            LoadingManager.shared.hideLoading()
+            guard let self else { return }
+            if let error {
+                self.presentErrorAlert(title: error.title, message: error.message)
+                return
+            }
+            let sent = UIAlertController(
+                title: "login.forgotPassword.sent.title".localized,
+                message: String(format: "login.forgotPassword.sent.message".localized, email),
+                preferredStyle: .alert
+            )
+            sent.addAction(UIAlertAction(title: "alert.ok".localized, style: .default))
+            self.present(sent, animated: true)
+        }
+    }
 }
