@@ -305,7 +305,7 @@ private fun ForgotPasswordDialog(
 }
 
 /** Metrics.loginHeroHeight on iOS. */
-internal val LoginHeroHeight = 360.dp
+internal val LoginHeroHeight = 324.dp
 
 @Preview(showBackground = true, heightDp = 915)
 @Composable
