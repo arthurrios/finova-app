@@ -29,6 +29,10 @@ struct DemoSeedGenerator {
     /// The dataset on disk ("BRL" or "USD" — `DemoDataset.currency`), not the app currency.
     private static let seededDatasetKey = "demoSeededDataset"
     private static let seededMonthKey = "demoSeededMonth"
+    /// Bumped when the showcase itself changes, so an install seeded by an older build is redone.
+    /// 2: no family group (this version has none).
+    private static let seedVersionKey = "demoSeedVersion"
+    private static let seedVersion = 2
     private static let seedQueue = DispatchQueue(label: "com.finova.demoseed", qos: .userInitiated)
     private static let lock = NSLock()
     private static var _isSeeding = false
@@ -55,11 +59,13 @@ struct DemoSeedGenerator {
     }
 
     /// Whether the ledger on disk is not the one for the current currency and month — i.e. first
-    /// launch, a switch between BRL and anything else, or a new month (so "this month" is never empty).
+    /// launch, a switch between BRL and anything else, a new month (so "this month" is never empty),
+    /// or a seed written by an older showcase.
     static var needsSeed: Bool {
         UserDefaults.standard.string(forKey: seededDatasetKey)
             != DemoDataset.forCurrency(AppConfig.currencyCode).currency
             || UserDefaults.standard.integer(forKey: seededMonthKey) != Date().monthAnchor
+            || UserDefaults.standard.integer(forKey: seedVersionKey) != seedVersion
     }
 
     #if DEMO
@@ -116,6 +122,7 @@ struct DemoSeedGenerator {
 
             UserDefaults.standard.set(dataset.currency, forKey: seededDatasetKey)
             UserDefaults.standard.set(Date().monthAnchor, forKey: seededMonthKey)
+            UserDefaults.standard.set(seedVersion, forKey: seedVersionKey)
             setSeeding(false)
             TransactionRepository.invalidateCache()
             StatementNotificationManager.shared.rescheduleAllNotifications()
