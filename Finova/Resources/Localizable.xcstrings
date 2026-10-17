@@ -4022,6 +4022,42 @@
         }
       }
     },
+    "budgetHistory.a11y.chooseFilter": {
+      "comment": "VoiceOver label for the button that opens the category list.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose what to show"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Escolher o que mostrar"
+          }
+        }
+      }
+    },
+    "budgetHistory.a11y.nextMonth": {
+      "comment": "VoiceOver label for the arrow that selects the month after.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Next month"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Próximo mês"
+          }
+        }
+      }
+    },
     "budgetHistory.a11y.open": {
       "comment": "VoiceOver label for the history button on the budget card.",
       "extractionState": "manual",
@@ -4036,6 +4072,24 @@
           "stringUnit": {
             "state": "translated",
             "value": "Histórico do orçamento"
+          }
+        }
+      }
+    },
+    "budgetHistory.a11y.previousMonth": {
+      "comment": "VoiceOver label for the arrow that selects the month before.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Previous month"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mês anterior"
           }
         }
       }
@@ -4382,24 +4436,6 @@
         }
       }
     },
-    "budgetHistory.months.header": {
-      "comment": "Header of the month list.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Months"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Meses"
-          }
-        }
-      }
-    },
     "budgetHistory.percent.format": {
       "comment": "Share of the plan used. %d is a whole percent.",
       "extractionState": "manual",
@@ -4414,6 +4450,24 @@
           "stringUnit": {
             "state": "translated",
             "value": "%d%% do plano"
+          }
+        }
+      }
+    },
+    "budgetHistory.picker.title": {
+      "comment": "Title of the sheet that picks the whole month or a category.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show history for"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ver histórico de"
           }
         }
       }
@@ -4522,6 +4576,132 @@
           "stringUnit": {
             "state": "translated",
             "value": "6M"
+          }
+        }
+      }
+    },
+    "budgetHistory.savings.detail.format": {
+      "comment": "Under the net savings. First: what months under plan left. Second: what months over plan overspent.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ saved · %2$@ over"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ economizado · %2$@ acima"
+          }
+        }
+      }
+    },
+    "budgetHistory.savings.months.format": {
+      "comment": "How many months the savings count, plural.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d closed months"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d meses fechados"
+          }
+        }
+      }
+    },
+    "budgetHistory.savings.months.one": {
+      "comment": "How many months the savings count, singular.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 closed month"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 mês fechado"
+          }
+        }
+      }
+    },
+    "budgetHistory.savings.none": {
+      "comment": "Savings card when there is nothing to count.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No closed month with a plan yet"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ainda não há mês fechado com plano"
+          }
+        }
+      }
+    },
+    "budgetHistory.savings.since.format": {
+      "comment": "Savings start. %@ is a month and year, e.g. March 2026.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Since %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desde %@"
+          }
+        }
+      }
+    },
+    "budgetHistory.savings.since.start": {
+      "comment": "Savings start option: count every closed month that had a plan.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Since the start"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desde o início"
+          }
+        }
+      }
+    },
+    "budgetHistory.savings.title": {
+      "comment": "Header of the card with what was saved in closed months.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saved"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Economizado"
           }
         }
       }

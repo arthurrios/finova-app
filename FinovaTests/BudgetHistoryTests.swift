@@ -121,6 +121,46 @@ final class BudgetHistoryTests: XCTestCase {
         XCTAssertNil(series([(0, 50), (100, 10)]).usageRange)
     }
 
+    // MARK: - Savings
+
+    func testSavingsNetWhatMonthsLeftAgainstWhatOthersOverspent() {
+        // 100 left, 30 over, 50 left; the open month's 90 left is not saved yet.
+        let savings = series([(200, 100), (100, 130), (100, 50), (100, 10)]).savings()
+        XCTAssertEqual(savings.saved, 150)
+        XCTAssertEqual(savings.overspent, 30)
+        XCTAssertEqual(savings.net, 120)
+        XCTAssertEqual(savings.months, 3)
+    }
+
+    func testSavingsSkipMonthsWithoutAPlan() {
+        // Unplanned spending is not an overspend of anything.
+        let savings = series([(0, 500), (100, 40), (100, 10)]).savings()
+        XCTAssertEqual(savings.net, 60)
+        XCTAssertEqual(savings.months, 1)
+    }
+
+    func testSavingsCountFromTheStartMonthOnward() {
+        let history = series([(100, 0), (100, 0), (100, 150), (100, 80), (100, 10)])
+        XCTAssertEqual(history.savings(from: anchors[2]).net, -30)
+        XCTAssertEqual(history.savings(from: anchors[2]).months, 2)
+        XCTAssertEqual(history.savings(from: nil).net, 170)
+    }
+
+    func testSavingsCanBeNegative() {
+        XCTAssertEqual(series([(100, 180), (100, 10)]).savings().net, -80)
+    }
+
+    func testNothingToCountIsNone() {
+        XCTAssertEqual(series([(0, 0), (100, 10)]).savings(), .none)
+    }
+
+    func testClosedMonthAnchorsLeaveOutTheOpenMonth() {
+        let history = BudgetHistory(
+            monthAnchors: anchors, currentAnchor: current, allocations: [], spentByCategory: [:],
+            monthTotals: [:])
+        XCTAssertEqual(history.closedMonthAnchors, Array(anchors.dropLast()))
+    }
+
     // MARK: - Trimming and windows
 
     func testLeadingEmptyMonthsAreTrimmedButGapsInsideAreKept() {

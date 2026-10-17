@@ -8,35 +8,41 @@
 import SwiftUI
 import UIKit
 
-/// Everything under the header: filter chips, the selected month's readout, the chart, three
-/// insight tiles and the month list. The list repeats the chart as text, so nothing on the chart is
-/// reachable only by touch.
+/// Everything under the header: what is shown and over how long, the selected month with the chart,
+/// what the selection saved, and three insight tiles.
+///
+/// Every control that changes the readout sits in or above the card it changes. An earlier version had
+/// a month list far below the chart that also selected months, and selecting in one place moved
+/// something out of sight in the other.
 struct BudgetHistoryContentView: View {
     @ObservedObject var viewModel: BudgetHistoryViewModel
 
+    @State private var isPickerPresented = false
     private let selectionFeedback = UISelectionFeedbackGenerator()
 
     var body: some View {
         if viewModel.isEmpty {
             emptyState
         } else {
-            ScrollViewReader { proxy in
-                ScrollView {
-                    VStack(alignment: .leading, spacing: Metrics.spacing4) {
-                        filterChips
-                            .id(Self.topID)
-                        chartCard
-                        insights
-                        monthList(proxy: proxy)
-                    }
-                    .padding(.vertical, Metrics.spacing4)
+            ScrollView {
+                VStack(alignment: .leading, spacing: Metrics.spacing4) {
+                    controls
+                    chartCard
+                    savingsCard
+                    insights
                 }
-                .scrollIndicators(.hidden)
+                .padding(.vertical, Metrics.spacing4)
+            }
+            .scrollIndicators(.hidden)
+            .sheet(isPresented: $isPickerPresented) {
+                FilterPickerSheet(viewModel: viewModel) { filter in
+                    selectionFeedback.selectionChanged()
+                    isPickerPresented = false
+                    withAnimation(.snappy(duration: 0.3)) { viewModel.select(filter: filter) }
+                }
             }
         }
     }
-
-    private static let topID = "budgetHistory.top"
 
     private var hidden: Bool { viewModel.isValuesHidden }
 
@@ -48,84 +54,47 @@ struct BudgetHistoryContentView: View {
         }
     }
 
-    // MARK: - Filter chips
+    // MARK: - Controls
 
-    private var filterChips: some View {
-        ScrollViewReader { proxy in
-            ScrollView(.horizontal) {
+    /// What is shown, and over how long. One button opens the full list, so reaching the last of 26
+    /// categories is a tap and a glance rather than a long sideways scroll.
+    private var controls: some View {
+        HStack(spacing: Metrics.spacing3) {
+            SwiftUI.Button {
+                isPickerPresented = true
+            } label: {
                 HStack(spacing: Metrics.spacing2) {
-                    ForEach(viewModel.filters, id: \.self) { filter in
-                        chip(for: filter).id(filter.id)
-                    }
+                    FilterIcon(filter: viewModel.filter)
+                        .frame(width: 16, height: 16)
+                    Text(BudgetHistoryViewModel.title(for: viewModel.filter))
+                        .font(Font(Fonts.textSMBold.font))
+                        .lineLimit(1)
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 11, weight: .bold))
                 }
+                .foregroundStyle(Color(Colors.gray700))
                 .padding(.horizontal, Metrics.spacing4)
+                .frame(height: 36)
+                .background(Capsule().fill(Color(Colors.gray100)))
+                .overlay(Capsule().stroke(Color(Colors.gray300), lineWidth: 1))
             }
-            .scrollIndicators(.hidden)
-            // Opened from a category's details, its chip may sit past the edge.
-            .onAppear { proxy.scrollTo(viewModel.filter.id, anchor: .center) }
-        }
-    }
+            .buttonStyle(.plain)
+            .accessibilityLabel("budgetHistory.a11y.chooseFilter".localized)
+            .accessibilityValue(BudgetHistoryViewModel.title(for: viewModel.filter))
 
-    private func chip(for filter: BudgetHistoryFilter) -> some View {
-        let isSelected = filter == viewModel.filter
-        return SwiftUI.Button {
-            selectionFeedback.selectionChanged()
-            withAnimation(.snappy(duration: 0.3)) { viewModel.select(filter: filter) }
-        } label: {
-            HStack(spacing: Metrics.spacing1 + 2) {
-                chipIcon(for: filter)
-                    .frame(width: 14, height: 14)
-                Text(BudgetHistoryViewModel.title(for: filter))
-                    .font(Font(Fonts.textXS.font))
-                    .fontWeight(isSelected ? .bold : .regular)
-                    .lineLimit(1)
-            }
-            .foregroundStyle(isSelected ? Color.white : Color(Colors.gray600))
-            .padding(.horizontal, Metrics.spacing3)
-            .frame(height: 32)
-            .background(
-                Capsule().fill(isSelected ? Color(Colors.mainMagenta) : Color(Colors.gray100))
-            )
-            .overlay(
-                Capsule().stroke(isSelected ? Color.clear : Color(Colors.gray300), lineWidth: 1)
-            )
-        }
-        .buttonStyle(.plain)
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
-    }
+            Spacer(minLength: 0)
 
-    @ViewBuilder
-    private func chipIcon(for filter: BudgetHistoryFilter) -> some View {
-        switch filter {
-        case .wholeMonth:
-            Image(systemName: "calendar")
-                .font(.system(size: 12, weight: .semibold))
-        case .category(let category):
-            if let icon = UIImage(named: category.iconName) {
-                Image(uiImage: icon).resizable().renderingMode(.template).scaledToFit()
+            if viewModel.offersLongerRange {
+                rangePicker
             }
         }
+        .padding(.horizontal, Metrics.spacing4)
     }
 
     // MARK: - Chart card
 
     private var chartCard: some View {
         VStack(alignment: .leading, spacing: Metrics.spacing4) {
-            HStack(alignment: .center) {
-                Text(BudgetHistoryViewModel.title(for: viewModel.filter))
-                    .font(Font(Fonts.title2XS.font))
-                    .textCase(.uppercase)
-                    .foregroundStyle(Color(Colors.gray500))
-                    .lineLimit(1)
-                Spacer(minLength: Metrics.spacing3)
-                if viewModel.offersLongerRange {
-                    rangePicker
-                }
-            }
-            // Holds the row at the picker's height whether or not it shows, so the card does not jump
-            // when a chip with less history is chosen.
-            .frame(minHeight: 28)
-
             if let month = viewModel.selectedMonth {
                 readout(for: month)
             }
@@ -155,29 +124,32 @@ struct BudgetHistoryContentView: View {
                 } label: {
                     Text(range.label)
                         .font(.system(size: 11, weight: .bold))
-                        .foregroundStyle(isSelected ? Color(Colors.gray700) : Color(Colors.gray500))
-                        .frame(width: 40, height: 24)
-                        .background(
-                            Capsule().fill(isSelected ? Color(Colors.gray100) : Color.clear)
-                                .shadow(color: .black.opacity(isSelected ? 0.08 : 0), radius: 2, y: 1)
-                        )
+                        .foregroundStyle(isSelected ? Color.white : Color(Colors.gray500))
+                        .frame(width: 40, height: 28)
+                        .background(Capsule().fill(isSelected ? Color(Colors.mainMagenta) : Color.clear))
                 }
                 .buttonStyle(.plain)
                 .accessibilityAddTraits(isSelected ? .isSelected : [])
             }
         }
-        .padding(2)
-        .background(Capsule().fill(Color(Colors.gray200)))
+        .padding(3)
+        .background(Capsule().fill(Color(Colors.gray100)))
+        .overlay(Capsule().stroke(Color(Colors.gray300), lineWidth: 1))
     }
 
     /// The selected month in words and figures. Updates as a finger scrubs the chart - the pattern
     /// the donut's centre readout uses for a selected slice.
     private func readout(for month: BudgetHistoryMonth) -> some View {
         VStack(alignment: .leading, spacing: Metrics.spacing1) {
-            HStack(spacing: Metrics.spacing2) {
+            HStack(spacing: Metrics.spacing1) {
+                stepButton(by: -1)
                 Text(BudgetHistoryViewModel.longMonth(month.monthAnchor))
-                    .font(Font(Fonts.textXS.font))
-                    .foregroundStyle(Color(Colors.gray500))
+                    .font(Font(Fonts.textSMBold.font))
+                    .foregroundStyle(Color(Colors.gray600))
+                    .contentTransition(.numericText())
+                stepButton(by: 1)
+                Spacer(minLength: Metrics.spacing2)
+                // Right-aligned, in the same column as the status pill under it.
                 if month.isCurrent {
                     Text("budgetHistory.status.inProgress".localized)
                         .font(.system(size: 10, weight: .semibold))
@@ -203,7 +175,27 @@ struct BudgetHistoryContentView: View {
                 .font(Font(Fonts.textXS.font))
                 .foregroundStyle(Color(Colors.gray500))
         }
-        .accessibilityElement(children: .combine)
+    }
+
+    /// One month back or forward, within the bars on screen. Next to the month name so the month being
+    /// read and the way to change it are in one place.
+    private func stepButton(by offset: Int) -> some View {
+        let target = viewModel.neighbour(by: offset)
+        return SwiftUI.Button {
+            if let target { select(month: target) }
+        } label: {
+            Image(systemName: offset < 0 ? "chevron.left" : "chevron.right")
+                .font(.system(size: 12, weight: .bold))
+                .foregroundStyle(target == nil ? Color(Colors.gray300) : Color(Colors.mainMagenta))
+                // The back arrow's glyph sits on the card's left edge, in line with the amount
+                // under it; the tap area still extends 28pt to the right of it.
+                .frame(width: offset < 0 ? 20 : 28, height: 28, alignment: offset < 0 ? .leading : .center)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(target == nil)
+        .accessibilityLabel(
+            (offset < 0 ? "budgetHistory.a11y.previousMonth" : "budgetHistory.a11y.nextMonth").localized)
     }
 
     private func planLine(for month: BudgetHistoryMonth) -> String {
@@ -288,34 +280,94 @@ struct BudgetHistoryContentView: View {
         .padding(.horizontal, Metrics.spacing4)
     }
 
-    // MARK: - Month list
+    // MARK: - Savings
 
-    private func monthList(proxy: ScrollViewProxy) -> some View {
-        let months = Array(viewModel.series.months.reversed())
-        return VStack(alignment: .leading, spacing: 0) {
-            Text("budgetHistory.months.header".localized)
-                .font(Font(Fonts.title2XS.font))
-                .textCase(.uppercase)
-                .foregroundStyle(Color(Colors.gray500))
-                .padding(.horizontal, Metrics.spacing5)
-                .frame(height: 40)
+    /// What the chosen filter saved in closed months, from a start month the user picks.
+    private var savingsCard: some View {
+        let savings = viewModel.savings
+        return VStack(alignment: .leading, spacing: Metrics.spacing2) {
+            HStack(alignment: .center) {
+                Text("budgetHistory.savings.title".localized)
+                    .font(Font(Fonts.title2XS.font))
+                    .textCase(.uppercase)
+                    .foregroundStyle(Color(Colors.gray500))
+                Spacer(minLength: Metrics.spacing2)
+                savingsStartMenu
+            }
 
-            ForEach(Array(months.enumerated()), id: \.element.id) { index, month in
-                Divider().overlay(Color(Colors.gray300))
-                MonthRow(
-                    month: month,
-                    isSelected: month.monthAnchor == viewModel.selectedMonth?.monthAnchor,
-                    hidden: hidden
-                ) {
-                    select(month: month.monthAnchor)
-                    withAnimation(.easeInOut(duration: 0.3)) {
-                        proxy.scrollTo(Self.topID, anchor: .top)
+            if savings.months == 0 {
+                Text("budgetHistory.savings.none".localized)
+                    .font(Font(Fonts.textSM.font))
+                    .foregroundStyle(Color(Colors.gray500))
+            } else {
+                Text(savings.net.maskedSignedCurrencyString(hidden: hidden))
+                    .font(.custom(Fonts.titleLG.font.fontName, size: 24))
+                    .foregroundStyle(
+                        hidden ? Color(Colors.gray700)
+                            : savings.net >= 0 ? Color(Colors.mainGreen) : Color(Colors.mainRed))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
+                    .contentTransition(.numericText())
+                VStack(alignment: .leading, spacing: 2) {
+                    if let split = savingsSplit(savings) {
+                        Text(split)
                     }
+                    Text(savings.months == 1
+                        ? "budgetHistory.savings.months.one".localized
+                        : String(format: "budgetHistory.savings.months.format".localized, savings.months))
                 }
+                .font(Font(Fonts.textXS.font))
+                .foregroundStyle(Color(Colors.gray500))
             }
         }
+        .padding(Metrics.spacing5)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .cardBackground()
         .padding(.horizontal, Metrics.spacing4)
+        .accessibilityElement(children: .contain)
+    }
+
+    /// "R$ 5.119,06 saved · R$ 1.350,09 over", leaving out a side that is zero. Nil while values are
+    /// hidden, or when only one side has anything - the net above already says it.
+    private func savingsSplit(_ savings: BudgetHistorySeries.Savings) -> String? {
+        guard !hidden, savings.saved > 0, savings.overspent > 0 else { return nil }
+        return String(
+            format: "budgetHistory.savings.detail.format".localized,
+            savings.saved.currencyString, savings.overspent.currencyString)
+    }
+
+    private var savingsStartMenu: some View {
+        Menu {
+            startOption(nil)
+            Divider()
+            ForEach(viewModel.savingsStartOptions.reversed(), id: \.self) { anchor in
+                startOption(anchor)
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Text(BudgetHistoryViewModel.savingsStartTitle(viewModel.savingsStart))
+                    .font(.system(size: 12, weight: .semibold))
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.system(size: 9, weight: .bold))
+            }
+            .foregroundStyle(Color(Colors.mainMagenta))
+        }
+    }
+
+    @ViewBuilder
+    private func startOption(_ anchor: Int?) -> some View {
+        let title = anchor.map(BudgetHistoryViewModel.longMonth)
+            ?? "budgetHistory.savings.since.start".localized
+        SwiftUI.Button {
+            selectionFeedback.selectionChanged()
+            withAnimation(.snappy(duration: 0.3)) { viewModel.select(savingsStart: anchor) }
+        } label: {
+            if viewModel.savingsStart == anchor {
+                Label(title, systemImage: "checkmark")
+            } else {
+                Text(title)
+            }
+        }
     }
 
     // MARK: - Empty
@@ -413,67 +465,99 @@ private struct InsightTile: View {
     }
 }
 
-private struct MonthRow: View {
-    let month: BudgetHistoryMonth
-    let isSelected: Bool
-    let hidden: Bool
-    let onTap: () -> Void
-
-    private var barColor: Color {
-        switch month.status {
-        case .over: return Color(Colors.mainRed)
-        case .noPlan, .empty: return Color(Colors.gray400)
-        case .within, .inProgress: return Color(Colors.mainMagenta)
-        }
-    }
-
-    private var amounts: String {
-        let spent = month.spent.maskedCurrencyString(hidden: hidden)
-        guard month.hasPlan else { return spent }
-        return spent + " / " + month.planned.maskedCurrencyString(hidden: hidden)
-    }
+/// The icon a filter is shown with: a calendar for the whole month, the category's own otherwise.
+private struct FilterIcon: View {
+    let filter: BudgetHistoryFilter
 
     var body: some View {
-        SwiftUI.Button(action: onTap) {
-            VStack(alignment: .leading, spacing: Metrics.spacing2) {
-                HStack(alignment: .center) {
-                    Text(BudgetHistoryViewModel.longMonth(month.monthAnchor))
-                        .font(Font(isSelected ? Fonts.textSMBold.font : Fonts.textSM.font))
-                        .foregroundStyle(Color(Colors.gray700))
-                    Spacer(minLength: Metrics.spacing2)
-                    StatusPill(month: month, hidden: hidden)
-                }
-                HStack(spacing: Metrics.spacing3) {
-                    GeometryReader { geometry in
-                        let fraction = min(month.ratio ?? (month.spent > 0 ? 1 : 0), 1)
-                        ZStack(alignment: .leading) {
-                            Capsule().fill(Color(Colors.gray200))
-                            Capsule().fill(barColor.opacity(month.isCurrent ? 0.6 : 1))
-                                .frame(width: geometry.size.width * fraction)
-                        }
+        switch filter {
+        case .wholeMonth:
+            Image(systemName: "calendar")
+                .resizable()
+                .scaledToFit()
+        case .category(let category):
+            if let icon = UIImage(named: category.iconName) {
+                Image(uiImage: icon).resizable().renderingMode(.template).scaledToFit()
+            }
+        }
+    }
+}
+
+/// Every filter in one vertical list, each with what it saved since the chosen start month - so the
+/// list that picks a category also compares them.
+private struct FilterPickerSheet: View {
+    @ObservedObject var viewModel: BudgetHistoryViewModel
+    let onPick: (BudgetHistoryFilter) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: Metrics.spacing1) {
+                Text("budgetHistory.picker.title".localized)
+                    .font(Font(Fonts.titleMD.font))
+                    .foregroundStyle(Color(Colors.gray700))
+                Text("budgetHistory.savings.title".localized + " · "
+                    + BudgetHistoryViewModel.savingsStartTitle(viewModel.savingsStart))
+                    .font(Font(Fonts.textXS.font))
+                    .foregroundStyle(Color(Colors.gray500))
+            }
+            .padding(.horizontal, Metrics.spacing5)
+            .padding(.top, Metrics.spacing6)
+            .padding(.bottom, Metrics.spacing3)
+
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    ForEach(viewModel.filters, id: \.self) { filter in
+                        row(for: filter)
+                        Divider().overlay(Color(Colors.gray300)).padding(.leading, 64)
                     }
-                    .frame(height: 4)
-                    Text(amounts)
-                        .font(.system(size: 11))
-                        .foregroundStyle(Color(Colors.gray500))
-                        .lineLimit(1)
-                        .fixedSize()
                 }
+            }
+        }
+        .background(Color(Colors.gray100))
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
+        .presentationCornerRadius(CornerRadius.bottomSheet)
+    }
+
+    private func row(for filter: BudgetHistoryFilter) -> some View {
+        let isSelected = filter == viewModel.filter
+        let savings = viewModel.savings(for: filter)
+        let hidden = viewModel.isValuesHidden
+        return SwiftUI.Button {
+            onPick(filter)
+        } label: {
+            HStack(spacing: Metrics.spacing3) {
+                FilterIcon(filter: filter)
+                    .frame(width: 18, height: 18)
+                    .foregroundStyle(isSelected ? Color(Colors.mainMagenta) : Color(Colors.gray600))
+                    .frame(width: 36, height: 36)
+                    .background(
+                        RoundedRectangle(cornerRadius: CornerRadius.medium)
+                            .fill(isSelected ? Color(Colors.mainMagenta).opacity(0.1) : Color(Colors.gray200)))
+                Text(BudgetHistoryViewModel.title(for: filter))
+                    .font(Font(isSelected ? Fonts.textSMBold.font : Fonts.textSM.font))
+                    .foregroundStyle(Color(Colors.gray700))
+                    .lineLimit(1)
+                Spacer(minLength: Metrics.spacing2)
+                Text(savings.months == 0
+                    ? "budgetHistory.insight.none".localized
+                    : savings.net.maskedSignedCurrencyString(hidden: hidden))
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(
+                        savings.months == 0 || hidden ? Color(Colors.gray500)
+                            : savings.net >= 0 ? Color(Colors.mainGreen) : Color(Colors.mainRed))
+                    .lineLimit(1)
+                    .fixedSize()
+                Image(systemName: "checkmark")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(Color(Colors.mainMagenta))
+                    .opacity(isSelected ? 1 : 0)
             }
             .padding(.horizontal, Metrics.spacing5)
             .padding(.vertical, Metrics.spacing3)
-            .background(isSelected ? Color(Colors.mainMagenta).opacity(0.06) : Color.clear)
-            .overlay(alignment: .leading) {
-                if isSelected {
-                    Rectangle().fill(Color(Colors.mainMagenta)).frame(width: 3)
-                }
-            }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(BudgetHistoryViewModel.longMonth(month.monthAnchor))
-        .accessibilityValue(BudgetHistoryViewModel.accessibilityValue(for: month, hidden: hidden))
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
     }
 }

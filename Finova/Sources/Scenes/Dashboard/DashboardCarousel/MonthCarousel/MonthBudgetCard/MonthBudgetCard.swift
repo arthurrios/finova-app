@@ -76,7 +76,9 @@ class MonthBudgetCard: UIView {
     private lazy var headerHorizontalStackView = UIStackView(
         axis: .horizontal,
         alignment: .center,
-        arrangedSubviews: [headerDateStackView, headerHideValuesButton, budgetViewToggleButton, configIcon])
+        arrangedSubviews: [
+            headerDateStackView, headerHideValuesButton, budgetViewToggleButton, historyButton, configIcon,
+        ])
     
     private lazy var headerDateStackView = UIStackView(
         axis: .horizontal, spacing: Metrics.spacing2, alignment: .center,
@@ -241,6 +243,19 @@ class MonthBudgetCard: UIView {
         return button
     }()
     
+    /// The same history button as the budget face, so both faces carry the same controls. Opens the
+    /// whole-month history with this card's month selected.
+    private lazy var historyButton: UIButton = {
+        let button = UIButton(type: .system)
+        let config = UIImage.SymbolConfiguration(pointSize: 16, weight: .medium)
+        button.setImage(UIImage(systemName: "chart.bar.xaxis", withConfiguration: config), for: .normal)
+        button.tintColor = Colors.gray100
+        button.accessibilityLabel = "budgetHistory.a11y.open".localized
+        button.addTarget(self, action: #selector(historyTapped), for: .touchUpInside)
+        button.translatesAutoresizingMaskIntoConstraints = false
+        return button
+    }()
+
     private let configIcon: UIImageView = {
         let imageView = UIImageView(image: UIImage(named: "settingsIcon"))
         imageView.contentMode = .scaleAspectFit
@@ -614,6 +629,7 @@ class MonthBudgetCard: UIView {
         // Add spacing between header icons
         headerHorizontalStackView.setCustomSpacing(Metrics.spacing2, after: headerHideValuesButton)
         headerHorizontalStackView.setCustomSpacing(Metrics.spacing3, after: budgetViewToggleButton)
+        headerHorizontalStackView.setCustomSpacing(Metrics.spacing3, after: historyButton)
         
         // Set high priority to prevent compression of the main stack view
         mainStackView.setContentHuggingPriority(.required, for: .vertical)
@@ -823,6 +839,12 @@ class MonthBudgetCard: UIView {
         delegate?.didRequestBalanceAdjustment()
     }
     
+    @objc
+    private func historyTapped() {
+        guard let anchor = currentMonthData?.date.monthAnchor else { return }
+        flipDelegate?.didTapBudgetHistory(forMonth: anchor)
+    }
+
     @objc
     private func toggleBudgetView() {
         flipDelegate?.didRequestFlip(isShowingBudgetView: !isShowingBudgetView)

@@ -107,6 +107,32 @@ struct BudgetHistorySeries: Equatable {
         return (low, high)
     }
 
+    /// What closed months left over against their plan, netted: a month under its plan adds what it did
+    /// not spend, a month over it takes the overspend back off.
+    struct Savings: Equatable {
+        /// Sum of what months under their plan left unspent.
+        let saved: Int
+        /// Sum of how far months over their plan went. Positive.
+        let overspent: Int
+        /// Closed months with a plan that were counted.
+        let months: Int
+
+        var net: Int { saved - overspent }
+
+        static let none = Savings(saved: 0, overspent: 0, months: 0)
+    }
+
+    /// Savings over the closed months with a plan, from `start` (inclusive) on, or over all of them
+    /// when `start` is nil. The open month is never counted: what it has left is not saved yet, and
+    /// counting it would show a figure that shrinks as the month goes on.
+    func savings(from start: Int? = nil) -> Savings {
+        let counted = scoredMonths.filter { start == nil || $0.monthAnchor >= start! }
+        return Savings(
+            saved: counted.reduce(0) { $0 + max(0, $1.difference) },
+            overspent: counted.reduce(0) { $0 + max(0, -$1.difference) },
+            months: counted.count)
+    }
+
     /// Nothing planned and nothing spent in any month of the series.
     var isEmpty: Bool {
         months.allSatisfy { $0.status == .empty }
@@ -132,8 +158,17 @@ struct BudgetHistorySeries: Equatable {
 /// Every series a history screen can show, for one ledger. Pure: no repository, no `Date()`.
 struct BudgetHistory: Equatable {
 
-    /// Twelve closed months plus the open one - the same past the dashboard carousel reaches.
-    static let windowMonths = 13
+    /// Twelve closed months plus the open one - the most the chart shows. A ledger with older plans
+    /// gets a longer window, so "saved since the start" counts every month that had a plan.
+    static let minimumWindowMonths = 13
+
+    /// Ten years. Only a bound against a corrupt month date stretching the read without limit.
+    static let maximumWindowMonths = 120
+
+    /// Closed months, oldest first: what the savings start can be set to.
+    var closedMonthAnchors: [Int] {
+        monthAnchors.filter { $0 != currentAnchor }
+    }
 
     /// The month totals the dashboard card shows: the budget row and the "used" figure.
     struct MonthTotal: Equatable {

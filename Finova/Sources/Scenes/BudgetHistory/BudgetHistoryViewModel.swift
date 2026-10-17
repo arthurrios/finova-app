@@ -30,12 +30,24 @@ final class BudgetHistoryViewModel: ObservableObject {
     @Published var filter: BudgetHistoryFilter
     @Published var range: Span = .sixMonths
     @Published var selectedAnchor: Int
+    /// First closed month counted in "saved". Nil counts from the first month that had a plan.
+    ///
+    /// Remembered per ledger and changed only by the user picking another one - a running total whose
+    /// start moved by itself would stop being comparable from one visit to the next.
+    @Published private(set) var savingsStart: Int?
     @Published private(set) var isValuesHidden: Bool = ValueMask.isActive
 
     let ledgerScope: LedgerScope
-    private let service: BudgetHistoryService
+    private let service: BudgetHistoryReading
     private let reference: () -> Date
     private var visibilityObservation: ValueVisibilityObservation?
+    private let defaults: UserDefaults
+
+    /// One remembered start per ledger: a group's plan started on its own date, not the user's.
+    /// Personal is keyed by the signed-in user, so two accounts on one phone keep their own.
+    private var savingsStartKey: String {
+        "budgetHistory.savingsStart." + (ledgerScope.groupId ?? "personal.\(ledgerScope.localUid ?? "")")
+    }
 
     /// - Parameters:
     ///   - filter: what the screen opens on. A category with no plan in the window falls back to the
@@ -45,14 +57,17 @@ final class BudgetHistoryViewModel: ObservableObject {
         ledgerScope: LedgerScope,
         filter: BudgetHistoryFilter = .wholeMonth,
         monthAnchor: Int? = nil,
-        service: BudgetHistoryService = BudgetHistoryService(),
-        reference: @escaping () -> Date = Date.init
+        service: BudgetHistoryReading = BudgetHistoryService(),
+        reference: @escaping () -> Date = Date.init,
+        defaults: UserDefaults = .standard
     ) {
         self.ledgerScope = ledgerScope
         self.filter = filter
         self.service = service
         self.reference = reference
+        self.defaults = defaults
         self.selectedAnchor = monthAnchor ?? reference().monthAnchor
+        self.savingsStart = defaults.object(forKey: savingsStartKey) as? Int
         visibilityObservation = ValueVisibilityStore.shared.observe { [weak self] hidden in
             self?.isValuesHidden = hidden
         }
@@ -60,7 +75,7 @@ final class BudgetHistoryViewModel: ObservableObject {
 
     /// Reads the ledger again. Called on appear, so an edit made from a pushed screen shows on return.
     func load() {
-        history = service.history(in: ledgerScope, asOf: reference())
+        history = service.history(in: ledgerScope, includeWholeMonth: true, asOf: reference())
         if history.series(for: filter) == nil {
             filter = .wholeMonth
         }
@@ -102,7 +117,44 @@ final class BudgetHistoryViewModel: ObservableObject {
 
     var isEmpty: Bool { history.isEmpty }
 
+    /// What the chosen filter saved since `savingsStart`.
+    var savings: BudgetHistorySeries.Savings {
+        savings(for: filter)
+    }
+
+    func savings(for filter: BudgetHistoryFilter) -> BudgetHistorySeries.Savings {
+        history.series(for: filter)?.savings(from: savingsStart) ?? .none
+    }
+
+    /// Closed months a savings start can be set to: from the first month any filter had a plan. A
+    /// start before that counts nothing more than "since the start" does.
+    var savingsStartOptions: [Int] {
+        let firstPlanned = ([history.wholeMonth] + history.categories)
+            .compactMap { $0.scoredMonths.first?.monthAnchor }
+            .min()
+        guard let firstPlanned else { return [] }
+        return history.closedMonthAnchors.filter { $0 >= firstPlanned }
+    }
+
+    /// The month the arrows step to, or nil at either end of the bars on screen.
+    func neighbour(by offset: Int) -> Int? {
+        let months = series.months
+        guard let index = months.firstIndex(where: { $0.monthAnchor == selectedMonth?.monthAnchor })
+        else { return nil }
+        let target = index + offset
+        return months.indices.contains(target) ? months[target].monthAnchor : nil
+    }
+
     // MARK: - Intents
+
+    func select(savingsStart start: Int?) {
+        savingsStart = start
+        if let start {
+            defaults.set(start, forKey: savingsStartKey)
+        } else {
+            defaults.removeObject(forKey: savingsStartKey)
+        }
+    }
 
     func select(filter newFilter: BudgetHistoryFilter) {
         guard newFilter != filter else { return }
@@ -165,6 +217,12 @@ extension BudgetHistoryViewModel {
         return "’" + String(format: "%02d", parts.year % 100)
     }
 
+    /// "Since the start" or "Since March 2026".
+    static func savingsStartTitle(_ start: Int?) -> String {
+        guard let start else { return "budgetHistory.savings.since.start".localized }
+        return String(format: "budgetHistory.savings.since.format".localized, longMonth(start))
+    }
+
     /// "October 2026".
     static func longMonth(_ anchor: Int) -> String {
         let parts = monthIndex(anchor)
@@ -175,10 +233,10 @@ extension BudgetHistoryViewModel {
     static func statusText(for month: BudgetHistoryMonth, hidden: Bool) -> String {
         switch month.status {
         case .within, .inProgress:
+            // Hidden, an open month still reads "On plan" so far: the readout already carries an
+            // "In progress" badge beside it, and saying it twice tells the reader nothing.
             return hidden
-                ? (month.status == .inProgress
-                    ? "budgetHistory.status.inProgress".localized
-                    : "budgetHistory.status.within".localized)
+                ? "budgetHistory.status.within".localized
                 : String(
                     format: "budgetHistory.status.left.format".localized,
                     month.difference.currencyString)
@@ -210,8 +268,7 @@ extension BudgetHistoryViewModel {
             parts.append(String(format: "budgetHistory.percent.format".localized, percent))
         }
         parts.append(statusText(for: month, hidden: hidden))
-        // Hidden, an open month's status already reads "In progress".
-        if month.isCurrent && !(hidden && month.status == .inProgress) {
+        if month.isCurrent {
             parts.append("budgetHistory.status.inProgress".localized)
         }
         return parts.joined(separator: ", ")

@@ -7,6 +7,12 @@
 
 import Foundation
 
+/// What the budget history screen reads its months through. A seam so the screen's navigation can be
+/// tested against a fixed history instead of the database.
+protocol BudgetHistoryReading: AnyObject {
+    func history(in scope: LedgerScope, includeWholeMonth: Bool, asOf reference: Date) -> BudgetHistory
+}
+
 /// Reads a ledger's past months for the budget history screen.
 ///
 /// Every figure comes from the same source the dashboard already shows for that month, so a bar here
@@ -17,7 +23,7 @@ import Foundation
 ///   mirrors `BudgetAllocationService.calculateUsageByCategory`. Change one and change both.
 ///
 /// Read once on screen open, never on a render path.
-final class BudgetHistoryService {
+final class BudgetHistoryService: BudgetHistoryReading {
 
     private let allocationRepo: BudgetAllocationRepositoryProtocol
     private let transactionRepo: TransactionRepository
@@ -40,14 +46,25 @@ final class BudgetHistoryService {
     func history(
         in scope: LedgerScope, includeWholeMonth: Bool = true, asOf reference: Date = Date()
     ) -> BudgetHistory {
-        let count = BudgetHistory.windowMonths
-        let anchors = (0..<count).reversed().map { reference.monthAnchor(offsetByMonths: -$0) }
         let current = reference.monthAnchor
+        let scopedAllocations = scope.groupId.map { allocationRepo.fetchAllocationsForGroup(groupId: $0) }
+            ?? allocationRepo.fetchAllAllocations()
+        let budgets = scope.groupId.map { budgetRepo.fetchBudgetsForGroup(groupId: $0) }
+            ?? budgetRepo.fetchBudgets()
+
+        // Back to the first month that had a plan, so savings "since the start" are complete.
+        // Future months are ignored: recurring allocations are materialised years ahead.
+        let firstPlanned = (scopedAllocations.filter { $0.allocatedAmount > 0 }.map(\.monthDate)
+            + budgets.filter { $0.amount > 0 }.map(\.monthDate))
+            .filter { $0 <= current }
+            .min()
+        let count = min(
+            max(BudgetHistory.minimumWindowMonths, firstPlanned.map { Self.months(from: $0, to: current) + 1 } ?? 0),
+            BudgetHistory.maximumWindowMonths)
+        let anchors = (0..<count).reversed().map { reference.monthAnchor(offsetByMonths: -$0) }
         let window = Set(anchors)
 
-        let allocations = (scope.groupId.map { allocationRepo.fetchAllocationsForGroup(groupId: $0) }
-            ?? allocationRepo.fetchAllAllocations())
-            .filter { window.contains($0.monthDate) }
+        let allocations = scopedAllocations.filter { window.contains($0.monthDate) }
 
         let transactions = scope.groupId.map { transactionRepo.fetchTransactionsForGroup(groupId: $0) }
             ?? transactionRepo.fetchAllTransactions()
@@ -69,6 +86,15 @@ final class BudgetHistoryService {
             spentByCategory: spentByCategory,
             monthTotals: includeWholeMonth
                 ? monthTotals(in: scope, count: count, reference: reference) : [:])
+    }
+
+    /// Whole months from one anchor to another, in the calendar every anchor is written with.
+    private static func months(from start: Int, to end: Int) -> Int {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone.current
+        return calendar.dateComponents(
+            [.month], from: Date.fromMonthAnchor(start), to: Date.fromMonthAnchor(end)
+        ).month ?? 0
     }
 
     /// The month card's own numbers, from the service that renders it.
