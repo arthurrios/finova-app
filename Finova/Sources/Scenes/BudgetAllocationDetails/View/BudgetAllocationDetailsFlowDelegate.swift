@@ -14,4 +14,5 @@ protocol BudgetAllocationDetailsFlowDelegate: AnyObject {
     func createAllocation(forCategory category: TransactionCategory, monthAnchor: Int)
     func didUpdateAllocation()
     func didDeleteAllocation()
+    func navigateToBudgetHistory(category: TransactionCategory, monthAnchor: Int, ledgerScope: LedgerScope)
 }

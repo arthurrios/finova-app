@@ -14,6 +14,7 @@ protocol BudgetAllocationDetailsViewDelegate: AnyObject {
     func didTapBack()
     func didTapTransaction(_ transaction: Transaction)
     func didRequestDeleteTransaction(_ transaction: Transaction, completion: @escaping (Bool) -> Void)
+    func didTapHistory()
 }
 
 final class BudgetAllocationDetailsView: UIView {
@@ -228,6 +229,21 @@ final class BudgetAllocationDetailsView: UIView {
         return label
     }()
 
+    // MARK: - History Section
+
+    private lazy var historyPreviewView: AllocationHistoryPreviewView = {
+        let view = AllocationHistoryPreviewView()
+        view.isHidden = true
+        view.translatesAutoresizingMaskIntoConstraints = false
+        view.onTap = { [weak self] in self?.delegate?.didTapHistory() }
+        return view
+    }()
+
+    /// Pins the transactions header under the history section while it shows, and straight under the
+    /// summary while it does not. Only one is active at a time.
+    private var transactionsBelowHistoryConstraint: NSLayoutConstraint?
+    private var transactionsBelowSummaryConstraint: NSLayoutConstraint?
+
     // MARK: - Transactions Section
 
     private lazy var transactionsHeaderView = CardHeader(
@@ -421,6 +437,9 @@ final class BudgetAllocationDetailsView: UIView {
         contentView.addSubview(summaryHeaderView)
         contentView.addSubview(summaryContentView)
         setupSummaryContent()
+
+        // History section
+        contentView.addSubview(historyPreviewView)
 
         // Transactions section
         contentView.addSubview(transactionsHeaderView)
@@ -642,9 +661,15 @@ final class BudgetAllocationDetailsView: UIView {
             summaryContentView.leadingAnchor.constraint(equalTo: summaryHeaderView.leadingAnchor),
             summaryContentView.trailingAnchor.constraint(equalTo: summaryHeaderView.trailingAnchor),
 
-            // Transactions section
-            transactionsHeaderView.topAnchor.constraint(
+            // History section
+            historyPreviewView.topAnchor.constraint(
                 equalTo: summaryContentView.bottomAnchor, constant: Metrics.spacing6),
+            historyPreviewView.leadingAnchor.constraint(
+                equalTo: contentView.leadingAnchor, constant: Metrics.spacing4),
+            historyPreviewView.trailingAnchor.constraint(
+                equalTo: contentView.trailingAnchor, constant: -Metrics.spacing4),
+
+            // Transactions section
             transactionsHeaderView.leadingAnchor.constraint(
                 equalTo: contentView.leadingAnchor, constant: Metrics.spacing4),
             transactionsHeaderView.trailingAnchor.constraint(
@@ -678,6 +703,12 @@ final class BudgetAllocationDetailsView: UIView {
             actionButtonsStackView.trailingAnchor.constraint(equalTo: actionButtonsContainerView.trailingAnchor),
             actionButtonsStackView.bottomAnchor.constraint(equalTo: safeAreaLayoutGuide.bottomAnchor)
         ])
+
+        transactionsBelowHistoryConstraint = transactionsHeaderView.topAnchor.constraint(
+            equalTo: historyPreviewView.bottomAnchor, constant: Metrics.spacing6)
+        transactionsBelowSummaryConstraint = transactionsHeaderView.topAnchor.constraint(
+            equalTo: summaryContentView.bottomAnchor, constant: Metrics.spacing6)
+        transactionsBelowSummaryConstraint?.isActive = true
 
         // Setup dynamic table height constraint
         transactionsTableHeightConstraint = transactionsTableView.heightAnchor.constraint(equalToConstant: 0)
@@ -798,6 +829,25 @@ final class BudgetAllocationDetailsView: UIView {
     }
 
     // MARK: - Public Methods
+
+    /// Shows the history section for `series`, or removes it when there is none - a category never
+    /// planned in the window has no history worth a card.
+    func configureHistory(series: BudgetHistorySeries?, selectedAnchor: Int) {
+        let shows = series.map { !$0.months.isEmpty && !$0.isEmpty } ?? false
+        historyPreviewView.isHidden = !shows
+        if shows, let series {
+            historyPreviewView.configure(
+                series: series, selectedAnchor: selectedAnchor, isValuesHidden: ValueMask.isActive)
+        }
+        // Deactivate first so the two are never active together.
+        if shows {
+            transactionsBelowSummaryConstraint?.isActive = false
+            transactionsBelowHistoryConstraint?.isActive = true
+        } else {
+            transactionsBelowHistoryConstraint?.isActive = false
+            transactionsBelowSummaryConstraint?.isActive = true
+        }
+    }
 
     func refreshTransactions(with viewModel: BudgetAllocationDetailsViewModel) {
         self.currentViewModel = viewModel

@@ -15,5 +15,6 @@ protocol MonthCardFlipDelegate: AnyObject {
     func didTapAllocation(_ allocation: BudgetAllocation)
     func didTapUnallocatedSpending(_ spending: UnallocatedCategorySpending)
     func didTapBudgetsConfig(forMonth monthAnchor: Int)
+    func didTapBudgetHistory(forMonth monthAnchor: Int)
     func didTapDefineBudget(forMonth monthAnchor: Int)
 }

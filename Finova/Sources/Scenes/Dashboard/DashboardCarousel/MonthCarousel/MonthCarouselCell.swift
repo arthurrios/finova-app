@@ -81,6 +81,7 @@ class MonthCarouselCell: UICollectionViewCell {
     var onAllocationTapped: ((BudgetAllocation) -> Void)?
     var onUnallocatedSpendingTapped: ((UnallocatedCategorySpending) -> Void)?
     var onBudgetsConfigTapped: ((Int) -> Void)?
+    var onBudgetHistoryTapped: ((Int) -> Void)?
     var onDefineBudgetTapped: ((Int) -> Void)?
     var onBudgetViewStateChanged: ((Int, Bool) -> Void)?  // (monthAnchor, isShowingBudgetView)
     var onManageTagsTapped: (() -> Void)?
@@ -1626,6 +1627,10 @@ extension MonthCarouselCell: MonthCardFlipDelegate {
 
     func didTapBudgetsConfig(forMonth monthAnchor: Int) {
         onBudgetsConfigTapped?(monthAnchor)
+    }
+
+    func didTapBudgetHistory(forMonth monthAnchor: Int) {
+        onBudgetHistoryTapped?(monthAnchor)
     }
 
     func didTapDefineBudget(forMonth monthAnchor: Int) {

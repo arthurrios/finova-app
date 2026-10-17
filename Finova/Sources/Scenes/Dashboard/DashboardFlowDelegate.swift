@@ -16,6 +16,9 @@ protocol DashboardFlowDelegate: AnyObject {
     func navigateToNotificationHistory()
     func navigateToTransactionDetails(transaction: Transaction)
     func navigateToAllocationDetails(allocation: BudgetAllocation)
+    /// Past months of the budget and its allocations against their plans, opened on `filter` with
+    /// `monthAnchor` selected.
+    func navigateToBudgetHistory(ledgerScope: LedgerScope, filter: BudgetHistoryFilter, monthAnchor: Int?)
     func navigateToUnallocatedDetails(unallocatedSpending: UnallocatedCategorySpending)
     func navigateToStatementDetails(card: CreditCard, statement: CreditCardStatement)
     func openAdjustBalanceModal(currentBalance: Int, context: DataContext)

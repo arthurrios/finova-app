@@ -289,6 +289,24 @@ final class ViewControllersFactory: ViewControllersFactoryProtocol {
         return BudgetAllocationDetailsViewController(unallocatedSpending: unallocatedSpending)
     }
 
+    // MARK: - Budget History
+
+    /// - Parameters:
+    ///   - filter: the chip the screen opens on.
+    ///   - monthAnchor: the month to select first - the card or allocation the user came from.
+    ///   - contextName: the ledger's name, shown under the title so a group's history is never
+    ///     mistaken for the personal one.
+    static func makeBudgetHistoryViewController(
+        ledgerScope: LedgerScope,
+        filter: BudgetHistoryFilter,
+        monthAnchor: Int?,
+        contextName: String
+    ) -> BudgetHistoryViewController {
+        let viewModel = BudgetHistoryViewModel(
+            ledgerScope: ledgerScope, filter: filter, monthAnchor: monthAnchor)
+        return BudgetHistoryViewController(viewModel: viewModel, subtitle: contextName)
+    }
+
     // MARK: - Projection Explainer
 
     /// Takes the projection rather than the inputs to build one: the card has already computed it, and

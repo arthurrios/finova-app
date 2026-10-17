@@ -1,0 +1,224 @@
+//
+//  BudgetHistoryTests.swift
+//  FinovaTests
+//
+//  The budget history screen's arithmetic: where each month landed against its plan, the scores the
+//  insight tiles show, and how allocations and spending become one series per filter.
+//
+//  All pure - `BudgetHistory` takes arrays and dictionaries, so nothing here touches the database.
+//
+
+import Foundation
+import XCTest
+
+@testable import Finova
+
+final class BudgetHistoryTests: XCTestCase {
+
+    /// Arbitrary, evenly spaced anchors. The types only key by them; they never read a date.
+    private let anchors = (0..<6).map { 1_767_225_600 + $0 * 2_678_400 }
+    private var current: Int { anchors.last! }
+
+    private func month(
+        _ index: Int, planned: Int, spent: Int, isCurrent: Bool = false
+    ) -> BudgetHistoryMonth {
+        BudgetHistoryMonth(
+            monthAnchor: anchors[index], planned: planned, spent: spent, isCurrent: isCurrent)
+    }
+
+    /// A series over `anchors`, the last month open. Each pair is (planned, spent).
+    private func series(_ pairs: [(Int, Int)]) -> BudgetHistorySeries {
+        BudgetHistorySeries(
+            filter: .wholeMonth,
+            months: pairs.enumerated().map { index, pair in
+                month(index, planned: pair.0, spent: pair.1, isCurrent: index == pairs.count - 1)
+            })
+    }
+
+    // MARK: - Month status
+
+    func testClosedMonthAtOrUnderItsPlanIsWithin() {
+        XCTAssertEqual(month(0, planned: 100, spent: 100).status, .within)
+        XCTAssertEqual(month(0, planned: 100, spent: 0).status, .within)
+    }
+
+    func testMonthPastItsPlanIsOverEvenWhileOpen() {
+        // An open month already over cannot be rescued by the days left in it.
+        XCTAssertEqual(month(0, planned: 100, spent: 101).status, .over)
+        XCTAssertEqual(month(0, planned: 100, spent: 101, isCurrent: true).status, .over)
+    }
+
+    func testOpenMonthUnderItsPlanIsInProgressNotWithin() {
+        XCTAssertEqual(month(0, planned: 100, spent: 40, isCurrent: true).status, .inProgress)
+    }
+
+    func testSpendingWithNoPlanIsNoPlanAndNothingAtAllIsEmpty() {
+        XCTAssertEqual(month(0, planned: 0, spent: 50).status, .noPlan)
+        XCTAssertEqual(month(0, planned: 0, spent: 0).status, .empty)
+    }
+
+    func testSplitDrawsTheOverspendAsItsOwnPiece() {
+        let over = month(0, planned: 100, spent: 130)
+        XCTAssertEqual(over.spentWithinPlan, 100)
+        XCTAssertEqual(over.spentOverPlan, 30)
+        XCTAssertEqual(over.difference, -30)
+        XCTAssertEqual(over.percentUsed, 130)
+
+        let under = month(0, planned: 100, spent: 70)
+        XCTAssertEqual(under.spentWithinPlan, 70)
+        XCTAssertEqual(under.spentOverPlan, 0)
+        XCTAssertEqual(under.difference, 30)
+    }
+
+    func testNoPlanHasNoRatioAndDrawsAllSpendingAsOnePiece() {
+        let unplanned = month(0, planned: 0, spent: 50)
+        XCTAssertNil(unplanned.ratio)
+        XCTAssertNil(unplanned.percentUsed)
+        XCTAssertEqual(unplanned.spentWithinPlan, 50)
+        XCTAssertEqual(unplanned.spentOverPlan, 0)
+    }
+
+    // MARK: - Scores
+
+    func testOpenMonthIsNeverScored() {
+        // Five closed months on plan and an open month already over: the score is still 5 of 5.
+        let history = series([(100, 90), (100, 90), (100, 90), (100, 90), (100, 90), (100, 200)])
+        XCTAssertEqual(history.scoredMonths.count, 5)
+        XCTAssertEqual(history.monthsOnPlan, 5)
+        XCTAssertEqual(history.streak, 5)
+        XCTAssertEqual(history.usageRange?.low, 90)
+        XCTAssertEqual(history.usageRange?.high, 90)
+    }
+
+    func testMonthsWithoutAPlanAreLeftOutOfTheScore() {
+        let history = series([(0, 80), (100, 90), (100, 120), (0, 0), (100, 50), (100, 10)])
+        XCTAssertEqual(history.scoredMonths.count, 3)
+        XCTAssertEqual(history.monthsOnPlan, 2)
+    }
+
+    func testStreakCountsBackFromTheLatestClosedMonthAndStopsAtAMiss() {
+        let history = series([(100, 90), (100, 120), (100, 90), (100, 80), (100, 70), (100, 10)])
+        XCTAssertEqual(history.streak, 3)
+    }
+
+    func testStreakIsZeroWhenTheLastClosedMonthWentOver() {
+        let history = series([(100, 90), (100, 90), (100, 90), (100, 90), (100, 120), (100, 10)])
+        XCTAssertEqual(history.streak, 0)
+    }
+
+    func testAMonthWithNoPlanEndsTheStreak() {
+        let history = series([(100, 90), (100, 90), (100, 90), (0, 50), (100, 90), (100, 10)])
+        XCTAssertEqual(history.streak, 1)
+    }
+
+    func testUsageRangeIsUnclampedSoOverspendShowsPastAHundred() {
+        let history = series([(100, 60), (100, 140), (100, 95), (100, 10)])
+        XCTAssertEqual(history.usageRange?.low, 60)
+        XCTAssertEqual(history.usageRange?.high, 140)
+    }
+
+    func testNoScoredMonthsMeansNoRange() {
+        XCTAssertNil(series([(0, 50), (100, 10)]).usageRange)
+    }
+
+    // MARK: - Trimming and windows
+
+    func testLeadingEmptyMonthsAreTrimmedButGapsInsideAreKept() {
+        let trimmed = series([(0, 0), (0, 0), (100, 50), (0, 0), (100, 60), (100, 10)])
+            .trimmingLeadingEmptyMonths()
+        XCTAssertEqual(trimmed.months.map(\.monthAnchor), Array(anchors[2...]))
+    }
+
+    func testTrimmingAlwaysKeepsTheOpenMonth() {
+        let trimmed = series([(0, 0), (0, 0), (0, 0)]).trimmingLeadingEmptyMonths()
+        XCTAssertEqual(trimmed.months.map(\.monthAnchor), [anchors[2]])
+    }
+
+    func testSuffixKeepsTheMostRecentMonths() {
+        let lastThree = series([(1, 1), (2, 2), (3, 3), (4, 4), (5, 5), (6, 6)]).suffix(3)
+        XCTAssertEqual(lastThree.months.map(\.monthAnchor), Array(anchors[3...]))
+    }
+
+    // MARK: - Building from the ledger
+
+    private func allocation(
+        _ category: TransactionCategory, _ index: Int, _ amount: Int
+    ) -> BudgetAllocation {
+        BudgetAllocation(monthDate: anchors[index], category: category, allocatedAmount: amount)
+    }
+
+    func testCategoryMonthsPairTheirAllocationWithTheirSpending() {
+        let history = BudgetHistory(
+            monthAnchors: anchors, currentAnchor: current,
+            allocations: [allocation(.groceries, 4, 500), allocation(.groceries, 5, 500)],
+            spentByCategory: ["groceries": [anchors[4]: 650, anchors[5]: 120]],
+            monthTotals: [:])
+
+        let groceries = history.series(for: .category(.groceries))
+        XCTAssertEqual(groceries?.month(anchors[4])?.status, .over)
+        XCTAssertEqual(groceries?.month(anchors[4])?.spent, 650)
+        XCTAssertEqual(groceries?.month(anchors[5])?.status, .inProgress)
+        XCTAssertEqual(groceries?.month(anchors[3])?.status, .empty)
+    }
+
+    func testTwoRowsForOneCategoryAndMonthAreSummed() {
+        // A legacy ledger can hold a pair; measuring against one would judge spending by half a plan.
+        let history = BudgetHistory(
+            monthAnchors: anchors, currentAnchor: current,
+            allocations: [allocation(.meals, 2, 100), allocation(.meals, 2, 50)],
+            spentByCategory: [:], monthTotals: [:])
+        XCTAssertEqual(history.series(for: .category(.meals))?.month(anchors[2])?.planned, 150)
+    }
+
+    func testCategoriesWithNoPlanInTheWindowGetNoChip() {
+        let outside = BudgetAllocation(
+            monthDate: anchors[0] - 2_678_400, category: .travel, allocatedAmount: 900)
+        let history = BudgetHistory(
+            monthAnchors: anchors, currentAnchor: current,
+            allocations: [outside, allocation(.gifts, 1, 0)],
+            spentByCategory: ["travel": [anchors[1]: 300], "gifts": [anchors[1]: 20]],
+            monthTotals: [:])
+
+        XCTAssertNil(history.series(for: .category(.travel)))
+        XCTAssertNil(history.series(for: .category(.gifts)))
+        XCTAssertEqual(history.filters, [.wholeMonth])
+    }
+
+    func testCategoriesAreOrderedByThisMonthsPlanThenByTheWindowsTotal() {
+        let history = BudgetHistory(
+            monthAnchors: anchors, currentAnchor: current,
+            allocations: [
+                allocation(.meals, 5, 200),
+                allocation(.groceries, 5, 800),
+                // No plan this month, but the biggest plan across the window.
+                allocation(.travel, 1, 5_000),
+                allocation(.gifts, 1, 10),
+            ],
+            spentByCategory: [:], monthTotals: [:])
+
+        XCTAssertEqual(
+            history.filters,
+            [.wholeMonth, .category(.groceries), .category(.meals), .category(.travel), .category(.gifts)])
+    }
+
+    func testWholeMonthComesFromTheMonthTotals() {
+        let history = BudgetHistory(
+            monthAnchors: anchors, currentAnchor: current, allocations: [], spentByCategory: [:],
+            monthTotals: [
+                anchors[3]: .init(budget: 1_000, used: 1_200),
+                anchors[4]: .init(budget: nil, used: 300),
+            ])
+
+        XCTAssertEqual(history.wholeMonth.month(anchors[3])?.status, .over)
+        XCTAssertEqual(history.wholeMonth.month(anchors[4])?.status, .noPlan)
+        XCTAssertEqual(history.wholeMonth.month(anchors[0])?.status, .empty)
+        XCTAssertFalse(history.isEmpty)
+    }
+
+    func testANewLedgerIsEmpty() {
+        let history = BudgetHistory(
+            monthAnchors: anchors, currentAnchor: current, allocations: [], spentByCategory: [:],
+            monthTotals: [:])
+        XCTAssertTrue(history.isEmpty)
+    }
+}

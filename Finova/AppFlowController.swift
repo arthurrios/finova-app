@@ -807,11 +807,40 @@ extension AppFlowController: StatementPaymentFlowDelegate {
     }
 }
 
+// MARK: - Budget History
+
+extension AppFlowController: BudgetHistoryFlowDelegate {
+    func navigateToBudgetHistory(
+        ledgerScope: LedgerScope, filter: BudgetHistoryFilter, monthAnchor: Int?
+    ) {
+        // Named from the scope itself, so the subtitle can never name a different ledger than the
+        // one the bars are read from.
+        let contextName = ledgerScope.groupId
+            .flatMap { BudgetGroupRepository().fetchGroup(byId: $0) }
+            .map { DataContext.group($0).displayName }
+            ?? DataContext.personal.displayName
+        let viewController = ViewControllersFactory.makeBudgetHistoryViewController(
+            ledgerScope: ledgerScope, filter: filter, monthAnchor: monthAnchor,
+            contextName: contextName)
+        viewController.flowDelegate = self
+        navigationController?.pushViewController(viewController, animated: true)
+    }
+
+    func dismissBudgetHistory() {
+        navigationController?.popViewController(animated: true)
+    }
+}
+
 // MARK: - BudgetAllocationDetailsFlowDelegate
 
 extension AppFlowController: BudgetAllocationDetailsFlowDelegate {
     func dismissAllocationDetails() {
         navigationController?.popViewController(animated: true)
+    }
+
+    func navigateToBudgetHistory(category: TransactionCategory, monthAnchor: Int, ledgerScope: LedgerScope) {
+        navigateToBudgetHistory(
+            ledgerScope: ledgerScope, filter: .category(category), monthAnchor: monthAnchor)
     }
 
     func editAllocation(_ allocation: BudgetAllocation) {

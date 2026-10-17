@@ -184,6 +184,18 @@ final class BudgetAllocationDetailsViewModel {
         "\(usagePercentage)%"
     }
 
+    /// This category's last six months for the history preview, ending at the month on screen when it
+    /// is in the window. Nil when the category had no plan anywhere in the window.
+    func historyPreviewSeries(service: BudgetHistoryService = BudgetHistoryService()) -> BudgetHistorySeries? {
+        let history = service.history(in: ledgerScope, includeWholeMonth: false)
+        guard let series = history.series(for: .category(category)) else { return nil }
+        // A past month shows the six months up to it, so the month being read is the last bar.
+        let end = series.months.firstIndex { $0.monthAnchor == monthDate } ?? (series.months.count - 1)
+        let months = series.months.prefix(through: end).suffix(6)
+        return BudgetHistorySeries(filter: series.filter, months: Array(months))
+            .trimmingLeadingEmptyMonths()
+    }
+
     var monthYearString: String {
         let date = Date(timeIntervalSince1970: TimeInterval(monthDate))
         let formatter = DateFormatter()

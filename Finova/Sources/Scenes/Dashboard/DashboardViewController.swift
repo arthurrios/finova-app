@@ -1866,6 +1866,14 @@ extension DashboardViewController: UICollectionViewDataSource {
                 let date = Date.fromMonthAnchor(monthAnchor)
                 self?.flowDelegate?.navigateToBudgets(date: date)
             }
+            cell.onBudgetHistoryTapped = { [weak self] monthAnchor in
+                guard let self else { return }
+                // The same scope the card renders, so the history is the ledger the user is looking at.
+                self.flowDelegate?.navigateToBudgetHistory(
+                    ledgerScope: LedgerScope(self.viewModel.currentContext),
+                    filter: .wholeMonth,
+                    monthAnchor: monthAnchor)
+            }
             cell.onDefineBudgetTapped = { [weak self] monthAnchor in
                 let date = Date.fromMonthAnchor(monthAnchor)
                 self?.flowDelegate?.navigateToBudgets(date: date)

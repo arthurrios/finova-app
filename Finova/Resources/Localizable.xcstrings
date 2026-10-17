@@ -89,6 +89,24 @@
         }
       }
     },
+    "Month": {
+      "comment": "Accessibility name of the month axis in the budget history chart.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Month"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mês"
+          }
+        }
+      }
+    },
     "Unallocated": {
       "comment": "Description of a budget allocation category when the allocated amount is zero.",
       "extractionState": "manual",
@@ -3982,6 +4000,672 @@
           "stringUnit": {
             "state": "translated",
             "value": "Convite de Grupo"
+          }
+        }
+      }
+    },
+    "budgetHistory.a11y.back": {
+      "comment": "VoiceOver label for the back button.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Back"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Voltar"
+          }
+        }
+      }
+    },
+    "budgetHistory.a11y.open": {
+      "comment": "VoiceOver label for the history button on the budget card.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Budget history"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Histórico do orçamento"
+          }
+        }
+      }
+    },
+    "budgetHistory.a11y.spentOf.format": {
+      "comment": "VoiceOver: spent amount of planned amount.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "spent %1$@ of %2$@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "gasto %1$@ de %2$@"
+          }
+        }
+      }
+    },
+    "budgetHistory.empty.message": {
+      "comment": "Empty state message.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Set a monthly budget or an allocation, and each month will show up here."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Defina um orçamento mensal ou uma alocação, e cada mês vai aparecer aqui."
+          }
+        }
+      }
+    },
+    "budgetHistory.empty.title": {
+      "comment": "Empty state title.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No history yet"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ainda sem histórico"
+          }
+        }
+      }
+    },
+    "budgetHistory.filter.wholeMonth": {
+      "comment": "Filter chip: the whole monthly budget rather than one category.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Whole month"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mês inteiro"
+          }
+        }
+      }
+    },
+    "budgetHistory.hero.noPlan": {
+      "comment": "Under the spent amount when the month had no plan.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nothing planned this month"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nada planejado neste mês"
+          }
+        }
+      }
+    },
+    "budgetHistory.hero.of.format": {
+      "comment": "Under the spent amount. %@ is the planned amount.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "of %@ planned"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "de %@ planejado"
+          }
+        }
+      }
+    },
+    "budgetHistory.insight.none": {
+      "comment": "Insight tile value when there is not enough history.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "—"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "—"
+          }
+        }
+      }
+    },
+    "budgetHistory.insight.onPlan.caption": {
+      "comment": "Insight tile caption under the on-plan count.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "closed months"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "meses fechados"
+          }
+        }
+      }
+    },
+    "budgetHistory.insight.onPlan.title": {
+      "comment": "Insight tile title: how many closed months stayed inside the plan.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On plan"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No plano"
+          }
+        }
+      }
+    },
+    "budgetHistory.insight.onPlan.value.format": {
+      "comment": "Insight tile value. First number: months on plan. Second: closed months with a plan.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$d of %2$d"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$d de %2$d"
+          }
+        }
+      }
+    },
+    "budgetHistory.insight.range.caption": {
+      "comment": "Insight tile caption under the percent range.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "of the plan used"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "do plano usado"
+          }
+        }
+      }
+    },
+    "budgetHistory.insight.range.title": {
+      "comment": "Insight tile title: lowest to highest share of the plan used.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usual range"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Faixa usual"
+          }
+        }
+      }
+    },
+    "budgetHistory.insight.streak.caption": {
+      "comment": "Insight tile caption under the streak.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "on plan in a row"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "no plano seguidos"
+          }
+        }
+      }
+    },
+    "budgetHistory.insight.streak.title": {
+      "comment": "Insight tile title: closed months on plan in a row.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Streak"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sequência"
+          }
+        }
+      }
+    },
+    "budgetHistory.insight.streak.value.format": {
+      "comment": "Insight tile value: a streak of %d months (zero or more than one).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d months"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d meses"
+          }
+        }
+      }
+    },
+    "budgetHistory.insight.streak.value.one": {
+      "comment": "Insight tile value: a one-month streak.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 month"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 mês"
+          }
+        }
+      }
+    },
+    "budgetHistory.legend.over": {
+      "comment": "Chart legend: spending past the plan.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Over plan"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Acima do plano"
+          }
+        }
+      }
+    },
+    "budgetHistory.legend.plan": {
+      "comment": "Chart legend: the planned amount.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plan"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plano"
+          }
+        }
+      }
+    },
+    "budgetHistory.legend.spent": {
+      "comment": "Chart legend: spending inside the plan.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spent"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gasto"
+          }
+        }
+      }
+    },
+    "budgetHistory.months.header": {
+      "comment": "Header of the month list.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Months"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Meses"
+          }
+        }
+      }
+    },
+    "budgetHistory.percent.format": {
+      "comment": "Share of the plan used. %d is a whole percent.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d%% of plan"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d%% do plano"
+          }
+        }
+      }
+    },
+    "budgetHistory.preview.cta": {
+      "comment": "Link to the full budget history.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "See history"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ver histórico"
+          }
+        }
+      }
+    },
+    "budgetHistory.preview.header": {
+      "comment": "Section header on the allocation details screen.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "History"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Histórico"
+          }
+        }
+      }
+    },
+    "budgetHistory.preview.notEnough": {
+      "comment": "Preview summary before any month has closed with a plan.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "See how this category went in other months"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Veja como esta categoria foi em outros meses"
+          }
+        }
+      }
+    },
+    "budgetHistory.preview.summary.format": {
+      "comment": "Preview summary. First number: months on plan. Second: closed months with a plan.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On plan in %1$d of the last %2$d months"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No plano em %1$d dos últimos %2$d meses"
+          }
+        }
+      }
+    },
+    "budgetHistory.range.12m": {
+      "comment": "Range picker: last twelve months.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "12M"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "12M"
+          }
+        }
+      }
+    },
+    "budgetHistory.range.6m": {
+      "comment": "Range picker: last six months.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "6M"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "6M"
+          }
+        }
+      }
+    },
+    "budgetHistory.status.empty": {
+      "comment": "Status pill: nothing planned and nothing spent.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No activity"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sem movimento"
+          }
+        }
+      }
+    },
+    "budgetHistory.status.inProgress": {
+      "comment": "The current month, which has not closed yet.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In progress"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Em andamento"
+          }
+        }
+      }
+    },
+    "budgetHistory.status.left.format": {
+      "comment": "Status pill. %@ is the amount still inside the plan.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ left"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ restante"
+          }
+        }
+      }
+    },
+    "budgetHistory.status.noPlan": {
+      "comment": "Status pill: spending in a month with nothing planned.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No plan"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sem plano"
+          }
+        }
+      }
+    },
+    "budgetHistory.status.over.format": {
+      "comment": "Status pill. %@ is how far past the plan the month went.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ over"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ acima"
+          }
+        }
+      }
+    },
+    "budgetHistory.status.overPlain": {
+      "comment": "Status pill when values are hidden: the month went past its plan.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Over plan"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Acima do plano"
+          }
+        }
+      }
+    },
+    "budgetHistory.status.within": {
+      "comment": "Status pill when values are hidden: the month stayed inside its plan.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On plan"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No plano"
+          }
+        }
+      }
+    },
+    "budgetHistory.title": {
+      "comment": "Title of the budget history screen.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Budget history"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Histórico do orçamento"
           }
         }
       }

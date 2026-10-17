@@ -57,6 +57,8 @@ final class BudgetAllocationDetailsViewController: UIViewController {
         // Refresh data when returning from transaction details (in case transaction was edited/deleted)
         viewModel.refreshAllocation()
         mainView.configure(with: viewModel)
+        mainView.configureHistory(
+            series: viewModel.historyPreviewSeries(), selectedAnchor: viewModel.monthDate)
     }
 
     // MARK: - Public Methods
@@ -64,6 +66,8 @@ final class BudgetAllocationDetailsViewController: UIViewController {
     func refreshAfterEdit() {
         viewModel.refreshAllocation()
         mainView.configure(with: viewModel)
+        mainView.configureHistory(
+            series: viewModel.historyPreviewSeries(), selectedAnchor: viewModel.monthDate)
     }
 }
 
@@ -93,6 +97,12 @@ extension BudgetAllocationDetailsViewController: BudgetAllocationDetailsViewDele
 
     func didTapBack() {
         flowDelegate?.dismissAllocationDetails()
+    }
+
+    func didTapHistory() {
+        flowDelegate?.navigateToBudgetHistory(
+            category: viewModel.category, monthAnchor: viewModel.monthDate,
+            ledgerScope: viewModel.ledgerScope)
     }
 
     func didTapTransaction(_ transaction: Transaction) {

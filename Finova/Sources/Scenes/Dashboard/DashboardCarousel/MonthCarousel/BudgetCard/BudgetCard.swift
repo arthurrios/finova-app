@@ -101,6 +101,19 @@ final class BudgetCard: UIView {
         return button
     }()
 
+    /// Opens the budget history on the whole month, with this card's month selected. Sits beside the
+    /// config gear: both are about the plan, and the history is where the plan is checked.
+    private lazy var historyButton: UIButton = {
+        let button = UIButton(type: .system)
+        let config = UIImage.SymbolConfiguration(pointSize: 16, weight: .medium)
+        button.setImage(UIImage(systemName: "chart.bar.xaxis", withConfiguration: config), for: .normal)
+        button.tintColor = Colors.gray100
+        button.accessibilityLabel = "budgetHistory.a11y.open".localized
+        button.addTarget(self, action: #selector(historyTapped), for: .touchUpInside)
+        button.translatesAutoresizingMaskIntoConstraints = false
+        return button
+    }()
+
     private let headerSeparator: UIView = {
         let view = UIView()
         view.backgroundColor = Colors.opaqueWhite
@@ -348,9 +361,11 @@ final class BudgetCard: UIView {
         headerHorizontalStackView.addArrangedSubview(UIView()) // Spacer
         headerHorizontalStackView.addArrangedSubview(hideValuesButton)
         headerHorizontalStackView.addArrangedSubview(flipBackButton)
+        headerHorizontalStackView.addArrangedSubview(historyButton)
         headerHorizontalStackView.addArrangedSubview(configButton)
         headerHorizontalStackView.setCustomSpacing(Metrics.spacing2, after: hideValuesButton)
         headerHorizontalStackView.setCustomSpacing(Metrics.spacing3, after: flipBackButton)
+        headerHorizontalStackView.setCustomSpacing(Metrics.spacing3, after: historyButton)
 
         // Footer setup - two columns: Remaining (potential savings), Saved (actual performance)
         unallocatedStackView.addArrangedSubview(unallocatedTextLabel)
@@ -498,6 +513,10 @@ final class BudgetCard: UIView {
 
     @objc private func configTapped() {
         delegate?.didTapBudgetsConfig(forMonth: currentMonthAnchor)
+    }
+
+    @objc private func historyTapped() {
+        delegate?.didTapBudgetHistory(forMonth: currentMonthAnchor)
     }
 
     @objc private func defineBudgetTapped() {
