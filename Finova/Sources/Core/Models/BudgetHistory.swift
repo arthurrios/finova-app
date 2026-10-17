@@ -317,9 +317,12 @@ struct BudgetHistory: Equatable {
     /// What `outsideTiming` is made of, so the Saved card can name it instead of one vague line.
     struct OutsideDifference: Equatable {
         enum Reason: Equatable {
-            /// Months whose categories were given more than the month's budget. They have no
-            /// unallocated budget, so the outside series cannot count them.
+            /// Months whose categories were given more than the month's budget: the amount by which
+            /// they went over it. Those months have no unallocated budget for the outside series.
             case categoriesAboveBudget
+            /// What those same months spent outside every category - with no unallocated budget left,
+            /// all of it is over.
+            case spentOutsideWithNoRoom
             /// Months with allocations but no month budget, which the whole month does not count.
             case noMonthBudget
             /// What is left: purchases the month card counts by date and allocations by budget month.
@@ -336,6 +339,7 @@ struct BudgetHistory: Equatable {
     func outsideDifferences(from start: Int?, through end: Int?) -> [OutsideDifference] {
         guard let outside else { return [] }
         var above: (months: [Int], amount: Int) = ([], 0)
+        var spentNoRoom: (months: [Int], amount: Int) = ([], 0)
         var noBudget: (months: [Int], amount: Int) = ([], 0)
         var other = 0
         for anchor in closedMonthAnchors
@@ -355,14 +359,27 @@ struct BudgetHistory: Equatable {
                 noBudget.months.append(anchor)
                 noBudget.amount += remainder
             } else if allocated >= budget && budget > 0 {
-                above.months.append(anchor)
-                above.amount += remainder
+                // remainder = (budget - allocated) - (spent outside categories) - (date-clock gap).
+                // Each part gets its own line, so every line has one true reason.
+                let gap = budget - allocated
+                if gap != 0 {
+                    above.months.append(anchor)
+                    above.amount += gap
+                }
+                let outsideSpent = outsideMonth?.spent ?? 0
+                if outsideSpent != 0 {
+                    spentNoRoom.months.append(anchor)
+                    spentNoRoom.amount -= outsideSpent
+                }
+                other += remainder - gap + outsideSpent
             } else {
                 other += remainder
             }
         }
         return [
             OutsideDifference(reason: .categoriesAboveBudget, months: above.months, amount: above.amount),
+            OutsideDifference(
+                reason: .spentOutsideWithNoRoom, months: spentNoRoom.months, amount: spentNoRoom.amount),
             OutsideDifference(reason: .noMonthBudget, months: noBudget.months, amount: noBudget.amount),
             OutsideDifference(reason: .otherMonth, months: [], amount: other),
         ].filter { $0.amount != 0 }

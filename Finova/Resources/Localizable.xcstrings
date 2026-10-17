@@ -4292,6 +4292,42 @@
         }
       }
     },
+    "budgetHistory.explain.inCategories": {
+      "comment": "Under an opened Outside allocations month: what the categories were given, taken off the month budget.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "− In categories"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "− Nas categorias"
+          }
+        }
+      }
+    },
+    "budgetHistory.explain.outside.unspent": {
+      "comment": "Under an opened Outside allocations month that saved money.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No expense made this: it is budget not given to any category and not spent."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nenhum gasto formou este valor: é orçamento que não foi para nenhuma categoria e não foi gasto."
+          }
+        }
+      }
+    },
     "budgetHistory.explain.plan.category.format": {
       "comment": "Under an opened month: its plan, for a category. %@ is the category.",
       "extractionState": "manual",
@@ -4677,13 +4713,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@: categories took the whole budget"
+            "value": "%@: categories above budget"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@: categorias usaram todo o orçamento"
+            "value": "%@: categorias acima do orçamento"
           }
         }
       }
@@ -4702,6 +4738,24 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@: sem orçamento do mês"
+          }
+        }
+      }
+    },
+    "budgetHistory.outside.diff.spentNoRoom.format": {
+      "comment": "Part of the Outside allocations remainder: spending outside categories in months with no budget left. %@ lists months.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: spent outside categories"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: gasto fora das categorias"
           }
         }
       }

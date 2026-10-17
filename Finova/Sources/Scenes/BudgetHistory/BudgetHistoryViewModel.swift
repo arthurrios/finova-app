@@ -141,10 +141,26 @@ final class BudgetHistoryViewModel: ObservableObject {
 
     /// One month of the chosen filter, as the detail under a month row: its plan, what was spent and
     /// across how many expenses, and the three biggest of them. Zero-amount rows never count.
-    func monthDetail(_ anchor: Int) -> (month: BudgetHistoryMonth, expenseCount: Int, biggest: [Transaction])? {
+    func monthDetail(_ anchor: Int) -> MonthDetail? {
         guard let month = history.series(for: filter)?.month(anchor) else { return nil }
         let listed = history.transactions(for: filter, month: anchor, in: expenses).filter { $0.amount > 0 }
-        return (month, listed.count, Array(listed.prefix(3)))
+        // For Outside allocations the plan is itself a subtraction - the month budget minus what the
+        // categories were given - and showing it is what explains a large number with no expense.
+        var budgetSplit: (budget: Int, inCategories: Int)?
+        if filter == .outsideAllocations, let budget = history.wholeMonth.month(anchor)?.planned, budget > 0 {
+            let inCategories = history.categories.reduce(0) { $0 + ($1.month(anchor)?.planned ?? 0) }
+            budgetSplit = (budget, inCategories)
+        }
+        return MonthDetail(
+            month: month, expenseCount: listed.count, biggest: Array(listed.prefix(3)),
+            budgetSplit: budgetSplit)
+    }
+
+    struct MonthDetail {
+        let month: BudgetHistoryMonth
+        let expenseCount: Int
+        let biggest: [Transaction]
+        let budgetSplit: (budget: Int, inCategories: Int)?
     }
 
     /// The named parts of the outside remainder, shown under the Saved card while that filter is on.

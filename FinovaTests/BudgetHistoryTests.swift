@@ -410,11 +410,14 @@ final class BudgetHistoryTests: XCTestCase {
             ])
 
         let differences = history.outsideDifferences(from: nil, through: nil)
-        XCTAssertEqual(differences.map(\.reason), [.categoriesAboveBudget, .otherMonth])
-        // Month 2: whole -200, groceries +100 -> -300 the outside series cannot hold.
-        XCTAssertEqual(differences.first?.months, [anchors[2]])
-        XCTAssertEqual(differences.first?.amount, -300)
-        XCTAssertEqual(differences.last?.amount, -150)
+        XCTAssertEqual(
+            differences.map(\.reason), [.categoriesAboveBudget, .spentOutsideWithNoRoom, .otherMonth])
+        // Month 2's -300 is two true parts: categories 100 above the budget, and 200 spent on travel
+        // with no budget left for it.
+        XCTAssertEqual(differences[0].months, [anchors[2]])
+        XCTAssertEqual(differences[0].amount, -100)
+        XCTAssertEqual(differences[1].amount, -200)
+        XCTAssertEqual(differences[2].amount, -150)
         XCTAssertEqual(differences.reduce(0) { $0 + $1.amount }, history.outsideTiming(from: nil, through: nil))
     }
 

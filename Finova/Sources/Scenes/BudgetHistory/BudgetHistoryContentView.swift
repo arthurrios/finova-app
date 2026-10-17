@@ -405,6 +405,8 @@ struct BudgetHistoryContentView: View {
         switch difference.reason {
         case .categoriesAboveBudget:
             return String(format: "budgetHistory.outside.diff.aboveBudget.format".localized, months)
+        case .spentOutsideWithNoRoom:
+            return String(format: "budgetHistory.outside.diff.spentNoRoom.format".localized, months)
         case .noMonthBudget:
             return String(format: "budgetHistory.outside.diff.noBudget.format".localized, months)
         case .otherMonth:
@@ -552,7 +554,19 @@ struct BudgetHistoryContentView: View {
     private func monthDetail(_ anchor: Int) -> some View {
         if let detail = viewModel.monthDetail(anchor) {
             VStack(alignment: .leading, spacing: 0) {
-                detailLine(planLabel, detail.month.planned.maskedCurrencyString(hidden: hidden))
+                if let split = detail.budgetSplit {
+                    detailLine(
+                        "budgetHistory.explain.plan.wholeMonth".localized,
+                        split.budget.maskedCurrencyString(hidden: hidden))
+                    detailLine(
+                        "budgetHistory.explain.inCategories".localized,
+                        (-split.inCategories).maskedSignedCurrencyString(hidden: hidden))
+                    detailLine(
+                        "= " + planLabel, detail.month.planned.maskedCurrencyString(hidden: hidden),
+                        bold: true)
+                } else {
+                    detailLine(planLabel, detail.month.planned.maskedCurrencyString(hidden: hidden))
+                }
                 detailLine(
                     String(format: "budgetHistory.explain.spent.format".localized, detail.expenseCount),
                     (-detail.month.spent).maskedSignedCurrencyString(hidden: hidden))
@@ -561,6 +575,14 @@ struct BudgetHistoryContentView: View {
                     detail.month.difference.maskedSignedCurrencyString(hidden: hidden),
                     tint: hidden ? nil : (detail.month.difference >= 0 ? Colors.mainGreen : Colors.mainRed),
                     bold: true)
+                if detail.budgetSplit != nil && detail.month.difference > 0 {
+                    // The question this answers: which expense made this number? None did.
+                    Text("budgetHistory.explain.outside.unspent".localized)
+                        .font(.system(size: 11))
+                        .foregroundStyle(Color(Colors.gray500))
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.top, Metrics.spacing1)
+                }
                 if !detail.biggest.isEmpty {
                     Text("budgetHistory.contrib.topExpenses".localized)
                         .font(.system(size: 11, weight: .semibold))
