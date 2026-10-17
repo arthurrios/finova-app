@@ -154,6 +154,42 @@ final class BudgetHistoryTests: XCTestCase {
         XCTAssertEqual(series([(0, 0), (100, 10)]).savings(), .none)
     }
 
+    func testOutsideAllocationsMakesTheCategoriesAddUpToTheWholeMonth() {
+        // Closed months 3 and 4: budget 1_000, all spending 800 -> whole month saves 200 a month.
+        // Groceries plans 500 and spends 450 (+50), meals plans 300 and spends 330 (-30).
+        let history = BudgetHistory(
+            monthAnchors: anchors, currentAnchor: current,
+            allocations: [
+                allocation(.groceries, 3, 500), allocation(.groceries, 4, 500),
+                allocation(.meals, 3, 300), allocation(.meals, 4, 300),
+            ],
+            spentByCategory: [
+                "groceries": [anchors[3]: 450, anchors[4]: 450],
+                "meals": [anchors[3]: 330, anchors[4]: 330],
+            ],
+            monthTotals: [
+                anchors[3]: .init(budget: 1_000, used: 800),
+                anchors[4]: .init(budget: 1_000, used: 800),
+            ])
+
+        let categories = history.categories.reduce(0) { $0 + $1.savings(from: nil).net }
+        let outside = history.outsideAllocations(from: nil)
+        XCTAssertEqual(categories, 40)
+        XCTAssertEqual(outside, 360)
+        XCTAssertEqual(categories + (outside ?? 0), history.wholeMonth.savings(from: nil).net)
+        // From month 4 on, each side halves.
+        XCTAssertEqual(history.outsideAllocations(from: anchors[4]), 180)
+    }
+
+    func testNothingOutsideWhenTheWholeMonthHasNothingToCount() {
+        let history = BudgetHistory(
+            monthAnchors: anchors, currentAnchor: current,
+            allocations: [allocation(.groceries, 3, 500)],
+            spentByCategory: ["groceries": [anchors[3]: 450]],
+            monthTotals: [:])
+        XCTAssertNil(history.outsideAllocations(from: nil))
+    }
+
     func testClosedMonthAnchorsLeaveOutTheOpenMonth() {
         let history = BudgetHistory(
             monthAnchors: anchors, currentAnchor: current, allocations: [], spentByCategory: [:],

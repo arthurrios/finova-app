@@ -197,6 +197,19 @@ struct BudgetHistory: Equatable {
         wholeMonth.isEmpty && categories.isEmpty
     }
 
+    /// What the whole month saved that no category accounts for: the whole month's net minus every
+    /// category's net. Shown as its own row so the category list adds up to the whole month.
+    ///
+    /// It is a remainder, and that is the point - it gathers everything the two measures do not share:
+    /// budget never put into a category, spending in categories with no allocation, and purchases the
+    /// month card counts by date while allocations count them by budget month. Nil when the whole
+    /// month has nothing to count.
+    func outsideAllocations(from start: Int?) -> Int? {
+        let whole = wholeMonth.savings(from: start)
+        guard whole.months > 0 else { return nil }
+        return whole.net - categories.reduce(0) { $0 + $1.savings(from: start).net }
+    }
+
     static let empty = BudgetHistory(
         monthAnchors: [], currentAnchor: 0,
         wholeMonth: BudgetHistorySeries(filter: .wholeMonth, months: []), categories: [])

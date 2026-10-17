@@ -136,6 +136,13 @@ final class BudgetHistoryViewModel: ObservableObject {
         return history.closedMonthAnchors.filter { $0 >= firstPlanned }
     }
 
+    /// The remainder row under the categories, since `savingsStart`. Nil with no categories: then the
+    /// whole month is the only row and there is nothing to reconcile.
+    var outsideAllocations: Int? {
+        guard !history.categories.isEmpty else { return nil }
+        return history.outsideAllocations(from: savingsStart)
+    }
+
     /// The month the arrows step to, or nil at either end of the bars on screen.
     func neighbour(by offset: Int) -> Int? {
         let months = series.months

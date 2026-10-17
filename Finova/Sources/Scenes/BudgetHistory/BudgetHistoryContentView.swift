@@ -510,6 +510,9 @@ private struct FilterPickerSheet: View {
                         row(for: filter)
                         Divider().overlay(Color(Colors.gray300)).padding(.leading, 64)
                     }
+                    if let outside = viewModel.outsideAllocations {
+                        outsideRow(outside)
+                    }
                 }
             }
         }
@@ -517,6 +520,45 @@ private struct FilterPickerSheet: View {
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
         .presentationCornerRadius(CornerRadius.bottomSheet)
+    }
+
+    /// The remainder, so the category rows plus this one add up to the whole month. Not a filter: there
+    /// is no chart for it, so it is a plain row with no button and no checkmark.
+    private func outsideRow(_ amount: Int) -> some View {
+        let hidden = viewModel.isValuesHidden
+        return HStack(spacing: Metrics.spacing3) {
+            Image(systemName: "square.dashed")
+                .font(.system(size: 16, weight: .regular))
+                .foregroundStyle(Color(Colors.gray500))
+                .frame(width: 36, height: 36)
+                .background(
+                    RoundedRectangle(cornerRadius: CornerRadius.medium)
+                        .stroke(Color(Colors.gray300), style: StrokeStyle(lineWidth: 1, dash: [3, 3])))
+            VStack(alignment: .leading, spacing: 2) {
+                Text("budgetHistory.outside.title".localized)
+                    .font(Font(Fonts.textSM.font))
+                    .foregroundStyle(Color(Colors.gray700))
+                Text("budgetHistory.outside.caption".localized)
+                    .font(.system(size: 11))
+                    .foregroundStyle(Color(Colors.gray500))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: Metrics.spacing2)
+            Text(amount.maskedSignedCurrencyString(hidden: hidden))
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(
+                    hidden ? Color(Colors.gray500)
+                        : amount >= 0 ? Color(Colors.mainGreen) : Color(Colors.mainRed))
+                .lineLimit(1)
+                .fixedSize()
+            // Keeps the amount in the same column as the rows above, which reserve a checkmark slot.
+            Image(systemName: "checkmark")
+                .font(.system(size: 12, weight: .bold))
+                .opacity(0)
+        }
+        .padding(.horizontal, Metrics.spacing5)
+        .padding(.vertical, Metrics.spacing3)
+        .accessibilityElement(children: .combine)
     }
 
     private func row(for filter: BudgetHistoryFilter) -> some View {

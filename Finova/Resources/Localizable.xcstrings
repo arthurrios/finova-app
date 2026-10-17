@@ -4436,6 +4436,42 @@
         }
       }
     },
+    "budgetHistory.outside.caption": {
+      "comment": "Under 'Outside allocations': what the remainder is made of.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unallocated budget, unplanned spending and timing"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Orçamento não alocado, gastos sem plano e diferenças de mês"
+          }
+        }
+      }
+    },
+    "budgetHistory.outside.title": {
+      "comment": "Last row of the category list: what the whole month saved that no category accounts for.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Outside allocations"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fora das alocações"
+          }
+        }
+      }
+    },
     "budgetHistory.percent.format": {
       "comment": "Share of the plan used. %d is a whole percent.",
       "extractionState": "manual",
