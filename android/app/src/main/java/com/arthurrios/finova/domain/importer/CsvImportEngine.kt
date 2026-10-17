@@ -31,7 +31,7 @@ object CsvImportEngine {
         val table = readTable(input.data)
         // A file that IS a table but whose columns could not be identified comes back with an unusable
         // schema and zero confidence: a file the user maps by hand, not an error.
-        val inferred = SchemaInferencer.infer(table.rows) ?: throw ImportError.NotTabular(diagnostics(table))
+        val inferred = SchemaInferencer.infer(table.rows, if (table.isWorkbook) NumberFormatSpec.EnUS else NumberFormatSpec.PtBR) ?: throw ImportError.NotTabular(diagnostics(table))
         var schema = inferred.schema
         // Workbook readers write numbers with a POSIX point and no grouping, so the format is KNOWN.
         // Inferring it fails: `-50.5` matches neither pattern, and pt-BR would read the dot as

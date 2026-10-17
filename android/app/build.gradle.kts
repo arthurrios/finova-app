@@ -29,7 +29,7 @@ android {
         applicationId = "com.arthurrios.finova"
         minSdk = 26
         targetSdk = 36
-        // Kept in step with the iOS feature line this build ports (release/v1.5.2).
+        // Kept in step with the iOS feature line this build ports (release/v1.6.0).
         versionCode = 3
         versionName = "1.6.0"
     }

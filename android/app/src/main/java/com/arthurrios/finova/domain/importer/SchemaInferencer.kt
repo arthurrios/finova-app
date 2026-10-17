@@ -50,7 +50,13 @@ object SchemaInferencer {
         ColumnRole.DirectionFlag to listOf("d/c", "dc", "tipo", "natureza", "debito/credito"),
     )
 
-    fun infer(rows: List<SourceRow>): Result? {
+    /**
+     * @param valueFormat how the cells write numbers while columns are profiled. Unknown for a CSV, so
+     *   the pt-BR reading is assumed, as on iOS; a workbook's readers write a POSIX point, so the
+     *   engine passes en-US there. (iOS profiles workbooks as pt-BR too, which reads `1069.65` as
+     *   106965 and so never proves a spreadsheet's running balance.)
+     */
+    fun infer(rows: List<SourceRow>, valueFormat: NumberFormatSpec = NumberFormatSpec.PtBR): Result? {
         if (rows.isEmpty()) return null
         val (modalCount, _) = CsvTokenizer.modalFieldCount(rows)
         if (modalCount < 2) return null
@@ -65,7 +71,7 @@ object SchemaInferencer {
         val dataRows = if (hasHeader) shaped.drop(1) else shaped
         if (dataRows.isEmpty()) return null
 
-        val profiles = (0 until modalCount).map { profile(it, headerRow?.cells?.getOrNull(it), dataRows) }
+        val profiles = (0 until modalCount).map { profile(it, headerRow?.cells?.getOrNull(it), dataRows, valueFormat) }
         val roles = mutableMapOf<Int, ColumnRole>()
 
         // 1. The date, by content. A file where no column reads as dates is not an error: it is a file
@@ -95,7 +101,7 @@ object SchemaInferencer {
 
         // 2. The amount shape.
         val numericColumns = profiles.filter { it.index != dateIndex && it.numericHitRate >= 0.8 }.sortedBy { it.index }
-        val shape = resolveAmountShape(numericColumns, profiles)
+        val shape = resolveAmountShape(numericColumns, profiles, valueFormat)
         roles.putAll(shape.roles)
         val foundAnAmount = shape.roles.values.any { it == ColumnRole.Amount || it == ColumnRole.Debit || it == ColumnRole.Credit }
 
@@ -170,11 +176,11 @@ object SchemaInferencer {
 
     // ---- Profiling -----------------------------------------------------------------------------
 
-    private fun profile(index: Int, header: String?, rows: List<SourceRow>): ColumnProfile {
+    private fun profile(index: Int, header: String?, rows: List<SourceRow>, format: NumberFormatSpec): ColumnProfile {
         val values = rows.map { it.cells.getOrNull(index) ?: "" }
         val nonEmpty = values.filter { it.isNotBlank() }
         val total = maxOf(values.size, 1).toDouble()
-        val parsed = nonEmpty.mapNotNull { AmountParser.parseOrNull(it, NumberFormatSpec.PtBR) }
+        val parsed = nonEmpty.mapNotNull { AmountParser.parseOrNull(it, format) }
         val letters = nonEmpty.count { value -> value.any { it.isLetter() } }
         val tokens = nonEmpty.map { it.split(' ').filter { t -> t.isNotEmpty() }.size.toDouble() }
         val flagValues = nonEmpty.map { it.uppercase().trim() }.toSet()
@@ -250,9 +256,9 @@ object SchemaInferencer {
         val signConfidence: SubConfidence,
     )
 
-    private fun resolveAmountShape(numeric: List<ColumnProfile>, profiles: List<ColumnProfile>): AmountShape {
+    private fun resolveAmountShape(numeric: List<ColumnProfile>, profiles: List<ColumnProfile>, format: NumberFormatSpec): AmountShape {
         // A. A split debit/credit pair. Exclusivity beats any keyword, and works unlabeled.
-        findMutuallyExclusivePair(numeric)?.let { (a, b) ->
+        findMutuallyExclusivePair(numeric, format)?.let { (a, b) ->
             val debitFirst = headerMatches(a, ColumnRole.Debit) || headerMatches(b, ColumnRole.Credit)
             val debit = if (debitFirst) a else b
             val credit = if (debitFirst) b else a
@@ -264,7 +270,7 @@ object SchemaInferencer {
             )
         }
         // B. A running balance proves the amount column and its sign, by arithmetic.
-        findBalanceProof(numeric)?.let { (amount, balance, positiveIsIncome) ->
+        findBalanceProof(numeric, format)?.let { (amount, balance, positiveIsIncome) ->
             val roles = mutableMapOf(amount.index to ColumnRole.Amount, balance.index to ColumnRole.Balance)
             profiles.firstOrNull { it.looksLikeDirectionFlag }?.let { roles[it.index] = ColumnRole.DirectionFlag }
             return AmountShape(
@@ -305,23 +311,23 @@ object SchemaInferencer {
         )
     }
 
-    private fun findMutuallyExclusivePair(columns: List<ColumnProfile>): Pair<ColumnProfile, ColumnProfile>? {
+    private fun findMutuallyExclusivePair(columns: List<ColumnProfile>, format: NumberFormatSpec): Pair<ColumnProfile, ColumnProfile>? {
         for (i in columns.indices) for (j in i + 1 until columns.size) {
             val a = columns[i]
             val b = columns[j]
             val rowCount = minOf(a.values.size, b.values.size)
             if (rowCount < 4) continue
-            val exclusive = (0 until rowCount).count { isNonZeroNumber(a.values[it]) != isNonZeroNumber(b.values[it]) }
+            val exclusive = (0 until rowCount).count { isNonZeroNumber(a.values[it], format) != isNonZeroNumber(b.values[it], format) }
             if (exclusive.toDouble() / rowCount >= 0.9) return a to b
         }
         return null
     }
 
-    private fun findBalanceProof(columns: List<ColumnProfile>): Triple<ColumnProfile, ColumnProfile, Boolean>? {
+    private fun findBalanceProof(columns: List<ColumnProfile>, format: NumberFormatSpec): Triple<ColumnProfile, ColumnProfile, Boolean>? {
         for (balanceColumn in columns) for (amountColumn in columns) {
             if (amountColumn.index == balanceColumn.index) continue
-            val balances = balanceColumn.values.map { AmountParser.parseOrNull(it, NumberFormatSpec.PtBR) }
-            val amounts = amountColumn.values.map { AmountParser.parseOrNull(it, NumberFormatSpec.PtBR) }
+            val balances = balanceColumn.values.map { AmountParser.parseOrNull(it, format) }
+            val amounts = amountColumn.values.map { AmountParser.parseOrNull(it, format) }
             // Three rows give two consecutive deltas, the minimum the check needs. Short files (one
             // quiet month) are common, and an unproven sign parks every row for a decision.
             val rowCount = minOf(balances.size, amounts.size)
@@ -344,7 +350,7 @@ object SchemaInferencer {
         return null
     }
 
-    private fun isNonZeroNumber(value: String) = (AmountParser.parseOrNull(value, NumberFormatSpec.PtBR)?.cents ?: 0L) != 0L
+    private fun isNonZeroNumber(value: String, format: NumberFormatSpec) = (AmountParser.parseOrNull(value, format)?.cents ?: 0L) != 0L
 
     private fun scoreForAmount(profile: ColumnProfile): Double {
         var score = profile.numericHitRate
