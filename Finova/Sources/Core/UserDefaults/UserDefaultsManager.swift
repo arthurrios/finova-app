@@ -92,6 +92,8 @@ class UserDefaultsManager {
   }
 
   static func getSyncEnabled() -> Bool {
+    // Finova Demo has no iCloud: sync is off no matter what was stored.
+    guard CloudKitManager.isCloudKitEnabled else { return false }
     if UserDefaults.standard.object(forKey: syncEnabledKey) == nil {
       // Default to OFF — user must explicitly enable sync or use clean cloud.
       // This prevents destructive auto-sync on fresh login / recovery scenarios.

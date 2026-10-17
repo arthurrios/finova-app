@@ -259,10 +259,12 @@ final class SettingsView: UIView {
         contentStackView.addArrangedSubview(downloadLanguagesContainer)
         contentStackView.addArrangedSubview(translateTagsFooterLabel)
 
-        // Sharing section
-        contentStackView.addArrangedSubview(sharingHeaderView)
-        setupSyncSettingsContainer()
-        contentStackView.addArrangedSubview(syncSettingsContainer)
+        // Sharing section (iCloud sync) — absent in Finova Demo, which has no iCloud
+        if CloudKitManager.isCloudKitEnabled {
+            contentStackView.addArrangedSubview(sharingHeaderView)
+            setupSyncSettingsContainer()
+            contentStackView.addArrangedSubview(syncSettingsContainer)
+        }
 
         // Data section
         contentStackView.addArrangedSubview(dataHeaderView)

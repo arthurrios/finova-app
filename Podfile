@@ -1,5 +1,8 @@
 platform :ios, '15.0'
 
+# `Demo` is the Finova Demo app variant (separate bundle ID, no iCloud) — build its pods as release.
+project 'Finova', 'Demo' => :release
+
 target 'Finova' do
   use_frameworks!
 

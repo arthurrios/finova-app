@@ -32,6 +32,11 @@ final class GroupNotificationService {
         targetRecordName: String? = nil,
         completion: ((Result<Void, Error>) -> Void)? = nil
     ) {
+        // Finova Demo: group activity is a CloudKit record, so there is nothing to log.
+        guard CloudKitManager.isCloudKitEnabled else {
+            completion?(.success(()))
+            return
+        }
         // Use BudgetGroupService (not raw repository) to apply ownerId repair (email → UID)
         let allGroups = BudgetGroupService.shared.fetchAllGroups()
         let group = allGroups.first(where: { $0.id == groupId })

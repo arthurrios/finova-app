@@ -338,3 +338,91 @@ final class RealCloudKitOperations: CloudKitOperationsProvider {
         operation.configuration.timeoutIntervalForResource = 60
     }
 }
+
+// MARK: - DisabledCloudKitOperations
+
+#if DEMO
+/// The Finova Demo build's stand-in for `RealCloudKitOperations`. Never touches `CloudKitManager`:
+/// it reports no iCloud account and fails every operation, so the sync engine cannot run a cycle
+/// even if something re-enables sync.
+final class DisabledCloudKitOperations: CloudKitOperationsProvider {
+    private var disabled: Error { CloudKitManager.disabledError }
+
+    var isAvailable: Bool { false }
+
+    func checkAccountStatus(completion: @escaping (CloudKitAccountStatus) -> Void) {
+        DispatchQueue.main.async { completion(.noAccount) }
+    }
+
+    func ensureZoneExists(completion: @escaping (Result<Void, Error>) -> Void) {
+        completion(.failure(disabled))
+    }
+
+    func setupSubscriptions(email: String?) {}
+
+    func fetchDatabaseChanges(
+        token: CKServerChangeToken?,
+        changedZoneHandler: @escaping (CKRecordZone.ID) -> Void,
+        completion: @escaping (Result<CKServerChangeToken?, Error>) -> Void
+    ) {
+        completion(.failure(disabled))
+    }
+
+    func fetchDatabaseChanges(
+        database: CKDatabase.Scope,
+        token: CKServerChangeToken?,
+        changedZoneHandler: @escaping (CKRecordZone.ID) -> Void,
+        completion: @escaping (Result<CKServerChangeToken?, Error>) -> Void
+    ) {
+        completion(.failure(disabled))
+    }
+
+    func fetchAllZones(
+        database: CKDatabase.Scope,
+        completion: @escaping (Result<[CKRecordZone.ID], Error>) -> Void
+    ) {
+        completion(.failure(disabled))
+    }
+
+    func queryRecords(
+        recordType: String,
+        zoneID: CKRecordZone.ID,
+        database: CKDatabase.Scope,
+        recordHandler: @escaping (CKRecord) -> Void,
+        completion: @escaping (Result<Void, Error>) -> Void
+    ) {
+        completion(.failure(disabled))
+    }
+
+    func fetchZoneChanges(
+        zoneIDs: [CKRecordZone.ID],
+        database: CKDatabase.Scope,
+        tokenForZone: @escaping (CKRecordZone.ID) -> CKServerChangeToken?,
+        recordHandler: @escaping (CKRecord) -> Void,
+        deleteHandler: @escaping (CKRecord.ID, String) -> Void,
+        zoneTokenHandler: @escaping (CKRecordZone.ID, CKServerChangeToken?) -> Void,
+        completion: @escaping (Result<Void, Error>) -> Void
+    ) {
+        completion(.failure(disabled))
+    }
+
+    func saveRecords(
+        _ records: [CKRecord],
+        database: CKDatabase.Scope,
+        savePolicy: CKModifyRecordsOperation.RecordSavePolicy,
+        perRecordHandler: @escaping (CKRecord.ID, Result<CKRecord, Error>) -> Void,
+        completion: @escaping (Result<Void, Error>) -> Void
+    ) {
+        completion(.failure(disabled))
+    }
+
+    func deleteRecords(
+        _ recordIDs: [CKRecord.ID],
+        database: CKDatabase.Scope,
+        perRecordHandler: @escaping (CKRecord.ID, Result<Void, Error>) -> Void,
+        completion: @escaping (Result<Void, Error>) -> Void
+    ) {
+        completion(.failure(disabled))
+    }
+}
+#endif

@@ -13,6 +13,9 @@ final class BudgetGroupService {
 
     private let repository = BudgetGroupRepository()
     private let cloudKit = CloudKitManager.shared
+    // Every CloudKit entry point below starts with `guard CloudKitManager.isCloudKitEnabled`. In
+    // Finova Demo that is false: groups, members and invitations then live only in the local database,
+    // and the pushes report success so the screens behave as they would with a synced group.
 
     func createGroup(name: String, completion: @escaping (Result<BudgetGroup, Error>) -> Void) {
         guard let user = AuthenticationManager.shared.currentUser else {
@@ -108,6 +111,7 @@ final class BudgetGroupService {
     /// Safe to call when the zone is already gone (`.zoneNotFound` / `.userDeletedZone` are treated
     /// as success), so a retry after a failed delete converges.
     private func deleteGroupZone(groupId: String) {
+        guard CloudKitManager.isCloudKitEnabled else { return }
         let zoneID = CKRecordZone.ID(zoneName: "Group-\(groupId)", ownerName: CKCurrentUserDefaultName)
         let op = CKModifyRecordZonesOperation(recordZonesToSave: nil, recordZoneIDsToDelete: [zoneID])
         op.modifyRecordZonesResultBlock = { result in
@@ -132,6 +136,7 @@ final class BudgetGroupService {
     /// Called by SyncEngine to ensure invitations have the share URL.
     /// Fix 1d: Includes retry logic for network failures.
     func propagateShareUrl(groupId: String, newUrl: String, retryCount: Int = 0) {
+        guard CloudKitManager.isCloudKitEnabled else { return }
         let maxRetries = 2
 
         // Query public DB by groupId (now queryable) and update any records missing the share URL
@@ -358,6 +363,7 @@ final class BudgetGroupService {
     /// invitation's email addresses and group name from sitting in a world-readable database
     /// indefinitely.
     func deletePublicInvitations(forGroupId groupId: String, inviteeEmail: String) {
+        guard CloudKitManager.isCloudKitEnabled else { return }
         let predicate = NSPredicate(format: "groupId == %@ AND inviteeEmail == %@", groupId, inviteeEmail)
         let query = CKQuery(recordType: "GroupInvitation", predicate: predicate)
 
@@ -398,6 +404,7 @@ final class BudgetGroupService {
         zoneOwner: String,
         completion: @escaping (Result<Void, Error>) -> Void
     ) {
+        guard CloudKitManager.isCloudKitEnabled else { return completion(.success(())) }
         let zoneID = CKRecordZone.ID(zoneName: "Group-\(groupId)", ownerName: zoneOwner)
         let recordID = CKRecord.ID(recordName: "groupMember-\(member.id)", zoneID: zoneID)
         let record = CKRecord(recordType: "GroupMember", recordID: recordID)
@@ -446,6 +453,7 @@ final class BudgetGroupService {
         groupId: String,
         completion: @escaping (Result<Void, Error>) -> Void
     ) {
+        guard CloudKitManager.isCloudKitEnabled else { return completion(.success(())) }
         let zoneID = CKRecordZone.ID(zoneName: "Group-\(groupId)", ownerName: CKCurrentUserDefaultName)
         let recordID = CKRecord.ID(recordName: "groupMember-\(member.id)", zoneID: zoneID)
         let record = CKRecord(recordType: "GroupMember", recordID: recordID)
@@ -492,6 +500,7 @@ final class BudgetGroupService {
     /// widened by earlier builds are still live in CloudKit, so this pass actively narrows them back
     /// to `.none`; access is granted only to explicitly invited participants.
     private func upgradeExistingSharePermissions(groups: [BudgetGroup]) {
+        guard CloudKitManager.isCloudKitEnabled else { return }
         let ownedGroups = groups.filter { $0.isOwner && $0.ckShareUrl != nil }
         guard !ownedGroups.isEmpty else { return }
 
@@ -714,6 +723,7 @@ final class BudgetGroupService {
         for group: BudgetGroup,
         completion: @escaping (Result<BudgetGroup, Error>) -> Void
     ) {
+        guard CloudKitManager.isCloudKitEnabled else { return completion(.failure(CloudKitManager.disabledError)) }
         let zoneID = CKRecordZone.ID(zoneName: "Group-\(group.id)", ownerName: CKCurrentUserDefaultName)
         let zone = CKRecordZone(zoneID: zoneID)
 
@@ -792,6 +802,7 @@ final class BudgetGroupService {
         group: BudgetGroup,
         completion: @escaping (Result<Void, Error>) -> Void
     ) {
+        guard CloudKitManager.isCloudKitEnabled else { return completion(.success(())) }
         func participantFailure(_ reason: String) -> Error {
             NSError(domain: "BudgetGroupService", code: 3, userInfo: [
                 NSLocalizedDescriptionKey: "groupInvite.error.participant".localized,
@@ -886,6 +897,7 @@ final class BudgetGroupService {
     // MARK: - Public Database Invitation
 
     private func saveInvitationToPublicDB(_ invitation: GroupInvitation, completion: @escaping (Result<Void, Error>) -> Void) {
+        guard CloudKitManager.isCloudKitEnabled else { return completion(.success(())) }
         let recordID = CKRecord.ID(recordName: "invitation-\(invitation.id)")
         let record = CKRecord(recordType: "GroupInvitation", recordID: recordID)
 
@@ -914,6 +926,7 @@ final class BudgetGroupService {
     }
 
     func fetchRemoteInvitations(completion: @escaping () -> Void) {
+        guard CloudKitManager.isCloudKitEnabled else { return completion() }
         // Suppress invitation fetching until initial pull completes.
         // On a new device, groups haven't been discovered from shared zones yet,
         // so the dedup check can't filter stale invitations.

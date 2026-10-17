@@ -171,7 +171,12 @@ final class SyncEngine {
 
     private init() {
         self.injectedDB = nil
+        #if DEMO
+        // No iCloud entitlement in the demo build: RealCloudKitOperations would trap creating the container.
+        self.cloudKitOps = DisabledCloudKitOperations()
+        #else
         self.cloudKitOps = RealCloudKitOperations()
+        #endif
         self.stateManager = SyncStateManager.shared
         self.postSyncActions = RealPostSyncActions()
         setupObservers()

@@ -56,6 +56,11 @@ final class BalanceMonitorManager {
   }
 
   @objc private func handleTransactionDataChanged() {
+    #if DEMO
+    // The demo seed writes thousands of rows; recomputing (and rescheduling) once per row is what
+    // stalled its first launch.
+    guard !DemoSeedGenerator.isSeeding else { return }
+    #endif
     DispatchQueue.global(qos: .utility).async { [weak self] in
       self?.monitorCurrentMonthBalance()
     }

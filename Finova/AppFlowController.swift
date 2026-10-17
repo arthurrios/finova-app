@@ -527,11 +527,13 @@ extension AppFlowController: DashboardFlowDelegate, SettingsFlowDelegate, Profil
     }
 
     func navigateToSyncSettingsFromDashboard() {
+        guard CloudKitManager.isCloudKitEnabled else { return }  // Finova Demo: no iCloud to manage
         let viewController = viewControllersFactory.makeSyncSettingsViewController(flowDelegate: self)
         navigationController?.pushViewController(viewController, animated: true)
     }
 
     func navigateToSyncSettings() {
+        guard CloudKitManager.isCloudKitEnabled else { return }
         let viewController = viewControllersFactory.makeSyncSettingsViewController(flowDelegate: self)
         navigationController?.pushViewController(viewController, animated: true)
     }

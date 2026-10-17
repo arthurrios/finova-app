@@ -147,6 +147,7 @@ class UIDUserDefaultsManager {
   // MARK: - CloudKit Balance Offset Sync
 
   private func pushBalanceOffsetToCloud(_ offset: Int, key: String, uid: String) {
+    guard CloudKitManager.isCloudKitEnabled else { return }  // Finova Demo: the offset stays local
     // HYDRATION GATE: never push the balance offset until this device has completed a verified
     // full pull. A fresh/re-installed device starts with offset 0; pushing that 0 (with a fresh
     // timestamp) would win last-writer-wins and overwrite the other device's real value. The
@@ -188,6 +189,7 @@ class UIDUserDefaultsManager {
   }
 
   private func pushBalanceOffsetToGroupZone(_ offset: Int, groupId: String, uid: String) {
+    guard CloudKitManager.isCloudKitEnabled else { return }
     // HYDRATION GATE (see pushBalanceOffsetToCloud): don't push a pre-hydration offset to the
     // group zone either — it would overwrite the owner's authoritative group value on all devices.
     guard UserDefaults.standard.bool(forKey: "syncFullPullVerified_v2") else {
@@ -231,6 +233,7 @@ class UIDUserDefaultsManager {
   }
 
   func fetchBalanceOffsetsFromCloud(completion: @escaping () -> Void) {
+    guard CloudKitManager.isCloudKitEnabled else { return completion() }
     guard let uid = currentUserUID else {
       completion()
       return

@@ -242,6 +242,11 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void
   ) {
     logWarning("AppDelegate: didReceiveRemoteNotification called")
+    // Finova Demo has no push entitlement and no CloudKit; everything below reads CloudKit.
+    guard CloudKitManager.isCloudKitEnabled else {
+      completionHandler(.noData)
+      return
+    }
 
     // Log raw payload structure for diagnosis
     if let ck = userInfo["ck"] as? [String: Any] {

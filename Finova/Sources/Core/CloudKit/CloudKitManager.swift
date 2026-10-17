@@ -24,10 +24,35 @@ protocol CloudKitManagerDelegate: AnyObject {
 final class CloudKitManager {
     static let shared = CloudKitManager()
 
+    /// False only in the Finova Demo build (`DEMO`). That build ships without any iCloud entitlement,
+    /// and `CKContainer(identifier:)` traps at launch without one, so every CloudKit entry point that
+    /// the demo can reach checks this first and bails. Compiled in, so the real app is unaffected.
+    #if DEMO
+    static let isCloudKitEnabled = false
+    #else
+    static let isCloudKitEnabled = true
+    #endif
+
+    #if DEMO
+    // Never created in the demo. A CloudKit call that slips past the guards stops here, loudly,
+    // instead of ever reaching a real container.
+    var container: CKContainer { Self.cloudKitUnavailable() }
+    var privateDatabase: CKDatabase { Self.cloudKitUnavailable() }
+    var sharedDatabase: CKDatabase { Self.cloudKitUnavailable() }
+    var publicDatabase: CKDatabase { Self.cloudKitUnavailable() }
+
+    private static func cloudKitUnavailable() -> Never {
+        fatalError("Finova Demo has no iCloud: a CloudKit call got past the isCloudKitEnabled guards")
+    }
+    #else
     let container: CKContainer
     let privateDatabase: CKDatabase
     let sharedDatabase: CKDatabase
     let publicDatabase: CKDatabase
+    #endif
+
+    /// Handed to completions when `isCloudKitEnabled` is false.
+    static let disabledError = CKError(.notAuthenticated)
 
     private(set) var accountStatus: CloudKitAccountStatus = .couldNotDetermine
     private(set) var isCloudKitAvailable: Bool = false
@@ -39,16 +64,24 @@ final class CloudKitManager {
         ownerName: CKCurrentUserDefaultName
     )
 
+    #if DEMO
+    private init() {}
+    #else
     private init() {
         container = CKContainer(identifier: "iCloud.com.arthurrios.Finova")
         privateDatabase = container.privateCloudDatabase
         sharedDatabase = container.sharedCloudDatabase
         publicDatabase = container.publicCloudDatabase
     }
+    #endif
 
     // MARK: - Account Status
 
     func checkAccountStatus(completion: @escaping (CloudKitAccountStatus) -> Void) {
+        guard Self.isCloudKitEnabled else {
+            DispatchQueue.main.async { completion(.noAccount) }
+            return
+        }
         container.accountStatus { [weak self] status, error in
             guard let self = self else { return }
 
@@ -92,6 +125,7 @@ final class CloudKitManager {
     // MARK: - Zone Creation
 
     func createPrivateZoneIfNeeded(completion: @escaping (Result<Void, Error>) -> Void) {
+        guard Self.isCloudKitEnabled else { return completion(.failure(Self.disabledError)) }
         let zone = CKRecordZone(zoneID: CloudKitManager.privateZoneID)
         let operation = CKModifyRecordZonesOperation(
             recordZonesToSave: [zone],
@@ -114,6 +148,7 @@ final class CloudKitManager {
     // MARK: - Subscriptions
 
     func setupPrivateDatabaseSubscription(completion: @escaping (Result<Void, Error>) -> Void) {
+        guard Self.isCloudKitEnabled else { return completion(.failure(Self.disabledError)) }
         let subscriptionID = "finova-private-changes"
         let subscription = CKDatabaseSubscription(subscriptionID: subscriptionID)
 
@@ -144,6 +179,7 @@ final class CloudKitManager {
     }
 
     func setupPublicInvitationSubscription(email: String, completion: @escaping (Result<Void, Error>) -> Void) {
+        guard Self.isCloudKitEnabled else { return completion(.failure(Self.disabledError)) }
         let oldSubscriptionIDs = [
             "finova-public-invitations-\(email.hashValue)",
             "finova-public-invitations-v2-\(email.hashValue)",
@@ -202,6 +238,7 @@ final class CloudKitManager {
     }
 
     func setupSharedDatabaseSubscription(completion: @escaping (Result<Void, Error>) -> Void) {
+        guard Self.isCloudKitEnabled else { return completion(.failure(Self.disabledError)) }
         let subscriptionID = "finova-shared-changes"
         let subscription = CKDatabaseSubscription(subscriptionID: subscriptionID)
 
@@ -235,6 +272,7 @@ final class CloudKitManager {
     /// Creates CKQuerySubscription for GroupActivity records in each group zone.
     /// Uses visible alerts so iOS delivers push notifications immediately in background.
     func setupGroupActivitySubscriptions() {
+        guard Self.isCloudKitEnabled else { return }
         let groups = BudgetGroupService.shared.fetchAllGroups().filter { !$0.isDeleted }
         guard !groups.isEmpty else { return }
         guard let currentUser = AuthenticationManager.shared.currentUser else { return }
@@ -339,6 +377,7 @@ final class CloudKitManager {
     // MARK: - User Record ID
 
     func fetchCurrentUserRecordID(completion: @escaping (Result<CKRecord.ID, Error>) -> Void) {
+        guard Self.isCloudKitEnabled else { return completion(.failure(Self.disabledError)) }
         container.fetchUserRecordID { recordID, error in
             if let error = error {
                 DispatchQueue.main.async { completion(.failure(error)) }

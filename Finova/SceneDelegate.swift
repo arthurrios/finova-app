@@ -73,6 +73,7 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     _ windowScene: UIWindowScene,
     userDidAcceptCloudKitShareWith cloudKitShareMetadata: CKShare.Metadata
   ) {
+    guard CloudKitManager.isCloudKitEnabled else { return }  // Finova Demo: no iCloud
     CloudKitManager.shared.container.accept(cloudKitShareMetadata) { share, error in
       guard error == nil else {
         logError("Failed to accept CloudKit share: \(error!)")

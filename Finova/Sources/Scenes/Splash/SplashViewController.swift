@@ -17,7 +17,7 @@ final class SplashViewController: UIViewController {
 
   private let gradientLayer = Colors.gradientBlack
 
-  #if DEBUG
+  #if DEBUG || DEMO
   /// Set to `true` to skip login and go straight to Dashboard with test credentials.
   /// Disable this (or set to `false`) when you want to test the normal auth flow.
   private let autoLoginEnabled = false
@@ -26,6 +26,20 @@ final class SplashViewController: UIViewController {
   private let seedDemoData = false
   private let debugEmail = "jack@email.com"
   private let debugPassword = "Test@123"
+  #endif
+
+  #if DEMO
+  /// Finova Demo always signs in as the demo account and seeds it, whatever the two switches above
+  /// say. Safe only because that build has its own bundle ID (its own sandbox) and no iCloud.
+  /// Seeds on first launch, when the month turns and when the currency changes (`DemoSeedGenerator`).
+  private var shouldAutoLogin: Bool { true }
+  private var shouldSeedDemoData: Bool {
+    DemoSeedGenerator.applyDemoDefaultsIfNeeded()
+    return DemoSeedGenerator.needsSeed
+  }
+  #elseif DEBUG
+  private var shouldAutoLogin: Bool { autoLoginEnabled }
+  private var shouldSeedDemoData: Bool { seedDemoData }
   #endif
 
   init(contentView: SplashView, flowDelegate: SplashFlowDelegate) {
@@ -50,8 +64,8 @@ final class SplashViewController: UIViewController {
   }
 
   private func decideNavigationFlow() {
-    #if DEBUG
-    if autoLoginEnabled {
+    #if DEBUG || DEMO
+    if shouldAutoLogin {
       performDebugAutoLogin()
       return
     }
@@ -437,11 +451,20 @@ extension SplashViewController {
 }
 
 // MARK: - DEBUG Auto-Login
-#if DEBUG
+#if DEBUG || DEMO
 extension SplashViewController {
   /// Signs in with test credentials and navigates directly to Dashboard,
   /// skipping splash animations, Face ID prompts, and the login screen entirely.
   private func performDebugAutoLogin() {
+    #if DEMO
+    DemoSeedGenerator.startWatchingCurrencyChanges()
+    // Reuse the saved demo session: no network round-trip, and the demo still opens offline.
+    if let firebaseUser = Auth.auth().currentUser, firebaseUser.email == debugEmail {
+      finishDebugAutoLogin(
+        uid: firebaseUser.uid, email: firebaseUser.email, displayName: firebaseUser.displayName)
+      return
+    }
+    #endif
     logInfo("[DEBUG] Auto-login: signing in with \(debugEmail)")
 
     Auth.auth().signIn(withEmail: debugEmail, password: debugPassword) { [weak self] result, error in
@@ -464,55 +487,66 @@ extension SplashViewController {
       }
 
       logInfo("[DEBUG] Auto-login succeeded for UID: \(firebaseUser.uid)")
+      self.finishDebugAutoLogin(
+        uid: firebaseUser.uid, email: firebaseUser.email, displayName: firebaseUser.displayName)
+    }
+  }
 
-      // Replicate the same setup that LoginViewModel.authenticationDidComplete performs
-      UIDUserDefaultsManager.shared.currentUserUID = firebaseUser.uid
-      DBHelper.shared.backfillUserIds(uid: firebaseUser.uid)
-      let didCleanup = Self.performCloudGhostCleanupIfNeeded()
-      if !didCleanup && UserDefaultsManager.getSyncEnabled() {
-        SyncEngine.shared.performFullSync(forceFullFetch: true)
-      }
+  private func finishDebugAutoLogin(uid: String, email: String?, displayName: String?) {
+    // Replicate the same setup that LoginViewModel.authenticationDidComplete performs
+    UIDUserDefaultsManager.shared.currentUserUID = uid
+    DBHelper.shared.backfillUserIds(uid: uid)
+    let didCleanup = Self.performCloudGhostCleanupIfNeeded()
+    if !didCleanup && UserDefaultsManager.getSyncEnabled() {
+      SyncEngine.shared.performFullSync(forceFullFetch: true)
+    }
 
-      let existingSettings = UIDUserDefaultsManager.shared.getUserSettings(for: firebaseUser.uid)
+    let existingSettings = UIDUserDefaultsManager.shared.getUserSettings(for: uid)
 
-      let user: User
-      if let settings = existingSettings {
-        var updatedSettings = settings
-        updatedSettings.lastSignIn = Date()
-        UIDUserDefaultsManager.shared.saveUserSettings(for: firebaseUser.uid, settings: updatedSettings)
+    let user: User
+    if let settings = existingSettings {
+      var updatedSettings = settings
+      updatedSettings.lastSignIn = Date()
+      UIDUserDefaultsManager.shared.saveUserSettings(for: uid, settings: updatedSettings)
 
-        user = User(
-          firebaseUID: firebaseUser.uid,
-          name: settings.name,
-          email: settings.email,
-          isUserSaved: settings.isUserSaved,
-          hasFaceIdEnabled: settings.hasFaceIdEnabled
-        )
+      user = User(
+        firebaseUID: uid,
+        name: settings.name,
+        email: settings.email,
+        isUserSaved: settings.isUserSaved,
+        hasFaceIdEnabled: settings.hasFaceIdEnabled
+      )
+    } else {
+      user = User(
+        firebaseUID: uid,
+        name: displayName ?? "User",
+        email: email ?? "",
+        isUserSaved: true,
+        hasFaceIdEnabled: false
+      )
+    }
+
+    UserDefaultsManager.saveUserWithUID(user: user)
+    UserDefaultsManager.updateCurrentUserSavedStatus(saved: true)
+
+    let navigate: () -> Void = {
+      #if DEMO
+      // Finova Demo gets handed to other people: straight in, no Face ID offer.
+      self.flowDelegate?.navigateDirectlyToDashboard()
+      #else
+      if FaceIDManager.shared.deviceSupportsBiometrics && !UserDefaultsManager.getBiometricEnabled() {
+        self.askToEnableFaceIDAfterAutoLogin(for: user)
       } else {
-        let displayName = firebaseUser.displayName ?? "User"
-        user = User(
-          firebaseUID: firebaseUser.uid,
-          name: displayName,
-          email: firebaseUser.email ?? "",
-          isUserSaved: true,
-          hasFaceIdEnabled: false
-        )
+        self.flowDelegate?.navigateDirectlyToDashboard()
       }
+      #endif
+    }
 
-      UserDefaultsManager.saveUserWithUID(user: user)
-      UserDefaultsManager.updateCurrentUserSavedStatus(saved: true)
-
-      if self.seedDemoData {
-        DemoSeedGenerator.seed(for: firebaseUser.uid)
-      }
-
-      DispatchQueue.main.async {
-        if FaceIDManager.shared.deviceSupportsBiometrics && !UserDefaultsManager.getBiometricEnabled() {
-          self.askToEnableFaceIDAfterAutoLogin(for: user)
-        } else {
-          self.flowDelegate?.navigateDirectlyToDashboard()
-        }
-      }
+    if self.shouldSeedDemoData {
+      // Seeds off the main queue and answers on it.
+      DemoSeedGenerator.seed(for: uid, completion: navigate)
+    } else {
+      DispatchQueue.main.async(execute: navigate)
     }
   }
 

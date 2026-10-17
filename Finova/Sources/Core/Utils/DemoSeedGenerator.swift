@@ -5,627 +5,476 @@
 //  Created by Arthur Rios on 12/02/26.
 //
 
-#if DEBUG
+#if DEBUG || DEMO
 import Foundation
+import UIKit
+import UserNotifications
 
+/// Wipes the local ledger and writes a showcase one: six months of history, the next three months
+/// planned, two credit cards with paid, closed and open statements, installment purchases (one paid
+/// early, one cancelled), recurring bills, category allocations and monthly budgets, and a budget
+/// group with members and a pending invitation. The content comes from `DemoDataset`: the Brazilian
+/// ledger for BRL (the default), the American one for any other currency.
+///
+/// Everything is written through the paths the app itself uses (`AddTransactionModalViewModel`,
+/// `StatementPaymentService`, `BudgetAllocationService`...), so statements, installment due dates
+/// and totals agree the way they would after a user typed it all in.
+///
+/// Destructive by design: only ever run it in a sandbox whose data is disposable (Finova Demo, or a
+/// DEBUG build with the seed switch on).
 struct DemoSeedGenerator {
+
+    // MARK: - State
+
+    /// The dataset on disk ("BRL" or "USD" — `DemoDataset.currency`), not the app currency.
+    private static let seededDatasetKey = "demoSeededDataset"
+    private static let seededMonthKey = "demoSeededMonth"
+    private static let seedQueue = DispatchQueue(label: "com.finova.demoseed", qos: .userInitiated)
+    private static let lock = NSLock()
+    private static var _isSeeding = false
+
+    /// True while a seed is writing. Lets per-row observers (the balance monitor) sit it out instead
+    /// of recomputing — and rescheduling notifications — once per inserted row.
+    static var isSeeding: Bool {
+        lock.lock(); defer { lock.unlock() }
+        return _isSeeding
+    }
+
+    private static func setSeeding(_ value: Bool) {
+        lock.lock(); _isSeeding = value; lock.unlock()
+    }
+
+    // MARK: - Demo policy
+
+    /// Finova Demo's first launch picks BRL, so the default showcase is the Brazilian one. After that
+    /// the user's own choice in Settings (including "auto") is left alone.
+    static func applyDemoDefaultsIfNeeded() {
+        guard UserDefaults.standard.string(forKey: seededDatasetKey) == nil,
+              UserDefaultsManager.isUsingAutoCurrency() else { return }
+        UserDefaultsManager.setCurrencyCode("BRL")
+    }
+
+    /// Whether the ledger on disk is not the one for the current currency and month — i.e. first
+    /// launch, a switch between BRL and anything else, or a new month (so "this month" is never empty).
+    static var needsSeed: Bool {
+        UserDefaults.standard.string(forKey: seededDatasetKey)
+            != DemoDataset.forCurrency(AppConfig.currencyCode).currency
+            || UserDefaults.standard.integer(forKey: seededMonthKey) != Date().monthAnchor
+    }
+
+    #if DEMO
+    private static var isWatchingCurrency = false
+
+    /// In Finova Demo, switching the currency in Settings swaps in that currency's showcase. The
+    /// reseed runs from a fresh splash so no data screen is alive while the rows are rewritten.
+    static func startWatchingCurrencyChanges() {
+        guard !isWatchingCurrency else { return }
+        isWatchingCurrency = true
+        NotificationCenter.default.addObserver(
+            forName: .currencyDidChange, object: nil, queue: .main
+        ) { _ in
+            guard needsSeed else { return }
+            logInfo("[DemoSeed] Currency is now \(AppConfig.currencyCode) — restarting to reseed")
+            restartAppFlow()
+        }
+    }
+
+    private static func restartAppFlow() {
+        guard let scene = UIApplication.shared.connectedScenes
+            .compactMap({ $0 as? UIWindowScene }).first,
+              let sceneDelegate = scene.delegate as? SceneDelegate,
+              let window = sceneDelegate.window
+        else { return }
+        let restart = {
+            let flow = AppFlowController()
+            sceneDelegate.flowController = flow
+            window.rootViewController = flow.startFlow()
+        }
+        if let presented = window.rootViewController?.presentedViewController {
+            presented.dismiss(animated: false, completion: restart)
+        } else {
+            restart()
+        }
+    }
+    #endif
 
     // MARK: - Entry Point
 
-    static func seed(for userUID: String) {
-        logInfo("[DemoSeed] Starting seed for UID: \(userUID)")
+    /// Seeds on a background queue and calls `completion` on the main queue when done. Background
+    /// because creating a recurring card charge completes asynchronously on the main queue, and
+    /// because a few thousand rows would otherwise freeze the splash.
+    static func seed(for userUID: String, completion: @escaping () -> Void) {
+        seedQueue.async {
+            let started = Date()
+            setSeeding(true)
+            waitForLegacyCleanup()
+            let dataset = DemoDataset.forCurrency(AppConfig.currencyCode)
+            logInfo("[DemoSeed] Seeding \(dataset.currency) for UID: \(userUID)")
 
-        clearAll(userUID: userUID)
-        seedData(userUID: userUID)
+            clearAll()
+            Writer(dataset: dataset, userUID: userUID).run()
 
-        logInfo("[DemoSeed] Seed complete")
+            UserDefaults.standard.set(dataset.currency, forKey: seededDatasetKey)
+            UserDefaults.standard.set(Date().monthAnchor, forKey: seededMonthKey)
+            setSeeding(false)
+            TransactionRepository.invalidateCache()
+            StatementNotificationManager.shared.rescheduleAllNotifications()
+            logInfo("[DemoSeed] Seed complete in \(String(format: "%.1f", Date().timeIntervalSince(started)))s")
+
+            DispatchQueue.main.async {
+                for name: Notification.Name in [
+                    .transactionDataChanged, .budgetDataChanged, .creditCardDataChanged,
+                    .allocationDataChanged, .budgetGroupDataChanged,
+                ] {
+                    NotificationCenter.default.post(name: name, object: nil)
+                }
+                completion()
+            }
+        }
+    }
+
+    /// `DataCleanupManager` runs a one-time "delete every global row" pass in the background on a
+    /// fresh install. It raced the first seed and wiped whatever had been written so far (budgets,
+    /// recurring bills), so the seed waits for it to finish first.
+    private static func waitForLegacyCleanup() {
+        let deadline = Date().addingTimeInterval(15)
+        while !UserDefaults.standard.bool(forKey: "global_sqlite_cleanup_completed"), Date() < deadline {
+            Thread.sleep(forTimeInterval: 0.1)
+        }
     }
 
     // MARK: - Clear Phase
 
-    private static func clearAll(userUID: String) {
-        logInfo("[DemoSeed] Clearing existing data…")
+    /// Hard-deletes the whole ledger in a handful of statements. Going row by row through the
+    /// repositories cancelled each row's notifications with its own synchronous XPC round-trip —
+    /// the ~90 s first-launch stall — so notifications are dropped in one call instead.
+    private static func clearAll() {
+        UNUserNotificationCenter.current().removeAllPendingNotificationRequests()
 
-        // Transactions (SQLite + secure storage)
-        TransactionRepository().clearAllTransactionsForTesting()
-
-        // User data
-        if let uid = UIDUserDefaultsManager.shared.currentUserUID {
-            DBHelper.shared.deleteAllTransactions(forUser: uid)
-            DBHelper.shared.deleteAllBudgets(forUser: uid)
-            ProfileImageManager.shared.removeProfileImage()
+        let db = DBHelper.shared
+        for table in [
+            "Transactions", "Budgets", "BudgetAllocations", "CreditCardStatements", "CreditCards",
+            "GroupMembers", "GroupInvitations", "BudgetGroups", "ImportBatchRows", "ImportBatches",
+        ] {
+            db.executeSyncUpdate("DELETE FROM \(table);")
         }
-
-        // Budgets
-        try? DBHelper.shared.deleteAllBudgets()
-
-        // Budget allocations
         UserDefaults.standard.removeObject(forKey: "budgetAllocations")
+        ProfileImageManager.shared.removeProfileImage()
+        UIDUserDefaultsManager.shared.setCurrentUserBalanceOffset(0)
+        TransactionRepository.invalidateCache()
+    }
+}
 
-        // Credit cards & statements
-        let cardRepo = CreditCardRepository()
-        let stmtRepo = StatementRepository()
-        let existingCards = cardRepo.fetchAllCards(userId: userUID)
-        for card in existingCards {
-            if let cardId = card.id {
-                let stmts = stmtRepo.fetchStatements(forCardId: cardId)
-                for stmt in stmts {
-                    if let stmtId = stmt.id {
-                        _ = stmtRepo.deleteStatement(statementId: stmtId)
-                    }
-                }
-                _ = cardRepo.deleteCard(id: cardId)
+// MARK: - Writer
+
+private struct Writer {
+    let dataset: DemoDataset
+    let userUID: String
+
+    private let cal = Calendar.current
+    private let now = Date()
+    private let txRepo = TransactionRepository()
+    private let cardRepo = CreditCardRepository()
+    private let stmtRepo = StatementRepository()
+    private let groupRepo = BudgetGroupRepository()
+    private let historyOffsets = Array(-5...0)
+    private let seededOffsets = Array(-5...3)
+
+    init(dataset: DemoDataset, userUID: String) {
+        self.dataset = dataset
+        self.userUID = userUID
+    }
+
+    func run() {
+        let viewModel = AddTransactionModalViewModel(transactionRepo: txRepo)
+        let cards = insertCards()
+
+        for item in dataset.items {
+            write(item, cards: cards, viewModel: viewModel)
+        }
+        payEarly()
+        cancelPurchase()
+        payPastStatements(cards: cards)
+        insertAllocationsAndBudgets()
+        insertGroup()
+    }
+
+    // MARK: Dates
+
+    private var firstOfThisMonth: Date {
+        cal.date(from: cal.dateComponents([.year, .month], from: now)) ?? now
+    }
+
+    private func date(day: Int, monthOffset: Int) -> Date {
+        let month = cal.date(byAdding: .month, value: monthOffset, to: firstOfThisMonth) ?? now
+        let days = cal.range(of: .day, in: .month, for: month)?.count ?? 28
+        var comps = cal.dateComponents([.year, .month], from: month)
+        comps.day = min(max(day, 1), days)
+        comps.hour = 12
+        return cal.date(from: comps) ?? month
+    }
+
+    private func dateString(_ date: Date) -> String {
+        DateFormatter.fullDateFormatter.string(from: date)
+    }
+
+    private func minor(_ amount: Double) -> Int {
+        DemoAmounts.minor(amount, currency: dataset.currency)
+    }
+
+    /// Day-to-day spending: the base amount with a stable wobble.
+    private func variedMinor(_ item: DemoDataset.Item, salt: Int) -> Int {
+        minor(item.amount * DemoAmounts.jitter(item.title, salt))
+    }
+
+    // MARK: Cards
+
+    /// Closing and due days are chosen from today, so on any date the `.open` card's current
+    /// statement is still open and the `.closed` card's has closed but is not yet due.
+    private func insertCards() -> [CreditCard] {
+        let today = cal.component(.day, from: now)
+        func wrap(_ day: Int) -> Int { ((day - 1) % 28 + 28) % 28 + 1 }
+
+        return dataset.cards.enumerated().compactMap { index, def in
+            let closing = def.role == .open ? wrap(today + 7) : wrap(today - 5)
+            let due = wrap(closing + (def.role == .open ? 7 : 9))
+            let card = CreditCard(
+                id: nil, name: def.name, lastFourDigits: def.lastFour, cardBrand: def.brand,
+                closingDay: closing, dueDay: due, creditLimit: minor(def.limit),
+                cardColor: def.color, userId: userUID, isDeleted: false, isDefault: index == 0,
+                createdAt: now, updatedAt: now)
+            guard let id = cardRepo.insertCard(card) else {
+                logError("[DemoSeed] Failed to insert card \(def.name)")
+                return nil
+            }
+            return cardRepo.fetchCard(byId: id)
+        }
+    }
+
+    private func cardId(_ index: Int?, _ cards: [CreditCard]) -> Int? {
+        guard let index = index, cards.indices.contains(index) else { return nil }
+        return cards[index].id
+    }
+
+    // MARK: Items
+
+    private func write(_ item: DemoDataset.Item, cards: [CreditCard],
+                       viewModel: AddTransactionModalViewModel) {
+        let typeRaw = String(describing: item.type)
+        let categoryKey = item.category.key
+
+        func addOneOff(_ date: Date, amount: Int, card: Int?) {
+            let result = viewModel.addTransaction(
+                title: item.title, amount: amount, dateString: dateString(date),
+                categoryKey: categoryKey, typeRaw: typeRaw, creditCardId: cardId(card, cards))
+            if case .failure(let error) = result {
+                logError("[DemoSeed] '\(item.title)' failed: \(error)")
             }
         }
 
-        // Budget groups & invitations
-        let groupRepo = BudgetGroupRepository()
-        for group in groupRepo.fetchAllGroups() {
-            groupRepo.softDeleteGroup(id: group.id)
+        switch item.schedule {
+        case .recurring(let day, let card):
+            let start = dateString(date(day: day, monthOffset: historyOffsets[0]))
+            if let id = cardId(card, cards) {
+                // The only creation path that puts a recurring charge on a card. It finishes on the
+                // main queue, which is free because the seed runs on its own queue.
+                let done = DispatchSemaphore(value: 0)
+                viewModel.addRecurringTransactionAsync(
+                    title: item.title, amount: minor(item.amount), dateString: start,
+                    categoryKey: categoryKey, typeRaw: typeRaw, creditCardId: id
+                ) { result in
+                    if case .failure(let error) = result {
+                        logError("[DemoSeed] recurring '\(item.title)' failed: \(error)")
+                    }
+                    done.signal()
+                }
+                _ = done.wait(timeout: .now() + 60)
+            } else {
+                let result = viewModel.addTransaction(
+                    title: item.title, amount: minor(item.amount), dateString: start,
+                    categoryKey: categoryKey, typeRaw: typeRaw, isRecurring: true)
+                if case .failure(let error) = result {
+                    logError("[DemoSeed] recurring '\(item.title)' failed: \(error)")
+                }
+            }
+
+        case .monthly(let days, let months, let card):
+            for offset in historyOffsets where months?.contains(offset) ?? true {
+                for (index, day) in days.enumerated() {
+                    let when = date(day: day, monthOffset: offset)
+                    guard when <= now else { continue }
+                    addOneOff(when, amount: variedMinor(item, salt: offset * 31 + index), card: card)
+                }
+            }
+
+        case .installments(let count, let monthOffset, let day, let card):
+            let data = InstallmentTransactionData(
+                title: item.title, totalAmount: minor(item.amount),
+                date: dateString(date(day: day, monthOffset: monthOffset)),
+                category: categoryKey, transactionType: typeRaw, installments: count,
+                creditCardId: cardId(card, cards))
+            if case .failure(let error) = viewModel.addTransactionWithInstallments(data) {
+                logError("[DemoSeed] installments '\(item.title)' failed: \(error)")
+            }
+
+        case .yearly(let month, let day, let card):
+            for offset in seededOffsets {
+                let when = date(day: day, monthOffset: offset)
+                guard cal.component(.month, from: when) == month else { continue }
+                addOneOff(when, amount: minor(item.amount), card: card)
+            }
         }
-        groupRepo.deleteAllInvitations()
-
-        // Balance offset
-        UIDUserDefaultsManager.shared.setCurrentUserBalanceOffset(0)
-
-        // In-memory cache
-        TransactionRepository.invalidateCache()
     }
 
-    // MARK: - Seed Phase
+    // MARK: Early payment & cancellation
 
-    private static func seedData(userUID: String) {
-        let cal = Calendar.current
-        let now = Date()
-        let txRepo = TransactionRepository()
+    private func firstInstallment(titled title: String?) -> Transaction? {
+        guard let title = title else { return nil }
+        return txRepo.fetchAllTransactions()
+            .filter { $0.title == title && $0.installmentNumber != nil }
+            .min { ($0.installmentNumber ?? 0) < ($1.installmentNumber ?? 0) }
+    }
+
+    /// Pays the last two installments of one purchase ahead of time.
+    private func payEarly() {
+        guard let title = dataset.earlyPaidTitle, let installment = firstInstallment(titled: title)
+        else { return }
+        let service = EarlyPaymentService(transactionRepo: txRepo)
+        let lastTwo = Array(service.payableInstallments(for: installment).suffix(2))
+        guard !lastTwo.isEmpty else { return }
+        let paidOn = cal.date(byAdding: .day, value: -3, to: now) ?? now
+        do {
+            try service.payEarly(installments: lastTwo, paymentDate: paidOn,
+                                 destination: .standalone, seriesTitle: title)
+        } catch {
+            logError("[DemoSeed] Early payment of '\(title)' failed: \(error)")
+        }
+    }
+
+    /// Cancels one purchase after its first installments, which books the estorno on the card.
+    private func cancelPurchase() {
+        guard let installment = firstInstallment(titled: dataset.cancelledTitle) else { return }
+        do {
+            try InstallmentCancellationService(transactionRepo: txRepo).cancelPurchase(for: installment)
+        } catch {
+            logError("[DemoSeed] Cancelling '\(installment.title)' failed: \(error)")
+        }
+    }
+
+    // MARK: Statements
+
+    /// Every statement already due is paid in full two days before its due date, through the same
+    /// service the "Pay statement" screen uses. What remains: the `.closed` card's current statement
+    /// (closed, awaiting payment) and every open or future one.
+    private func payPastStatements(cards: [CreditCard]) {
+        let service = StatementPaymentService(transactionRepo: txRepo, statementRepo: stmtRepo)
+        for card in cards {
+            guard let cardId = card.id else { continue }
+            for statement in stmtRepo.fetchStatements(forCardId: cardId)
+            where statement.dueDate < now && !statement.isPaid {
+                guard let id = statement.id else { continue }
+                let owed = service.remainingBalance(statementId: id)
+                guard owed > 0 else { continue }
+                let paidOn = min(cal.date(byAdding: .day, value: -2, to: statement.dueDate) ?? statement.dueDate, now)
+                do {
+                    try service.pay(statement: statement, card: card, amount: owed, paymentDate: paidOn)
+                } catch {
+                    logError("[DemoSeed] Paying statement \(id) failed: \(error)")
+                }
+            }
+        }
+    }
+
+    // MARK: Allocations & budgets
+
+    /// Allocations are sized from what the history actually spent in each category, then pulled
+    /// tight on the everyday categories (so some months go over) and left roomy on the rest. The
+    /// monthly budget sits a little above the average month, so most months land just under it.
+    private func insertAllocationsAndBudgets() {
+        let historyAnchors = Set(historyOffsets.map { date(day: 1, monthOffset: $0).monthAnchor })
+        let spending = txRepo.fetchAllTransactions().filter {
+            $0.type == .expense && $0.category != .creditCard && $0.isCreditCardStatement != true
+                && historyAnchors.contains($0.budgetMonthDate) && $0.amount > 0
+        }
+        let months = Double(historyAnchors.count)
+        let perCategory = Dictionary(grouping: spending, by: { $0.category })
+            .mapValues { Double($0.reduce(0) { $0 + $1.amount }) / months }
+        let digits = Double(CurrencyUtils.fractionDigits(for: dataset.currency))
+        let scale = pow(10, digits)
+        let tight: Set<TransactionCategory> = [.meals, .transportation, .entertainment, .clothing, .groceries]
+
+        let service = BudgetAllocationService(transactionRepo: txRepo)
+        let startAnchor = date(day: 1, monthOffset: historyOffsets[0]).monthAnchor
+        for (category, average) in perCategory.sorted(by: { $0.key.key < $1.key.key }) {
+            let major = DemoAmounts.round(average / scale * (tight.contains(category) ? 0.9 : 1.15))
+            guard major > 0 else { continue }
+            _ = try? service.createAllocation(
+                category: category, amount: minor(major), monthAnchor: startAnchor, isRecurring: true)
+        }
+
+        // The dashboard's "used" also counts card-statement payments, so the budget has to as well.
+        let allSpending = txRepo.fetchAllTransactions().filter {
+            $0.type == .expense && $0.isCreditCardStatement != true
+                && historyAnchors.contains($0.budgetMonthDate)
+        }
+        let averageMonth = Double(allSpending.reduce(0) { $0 + $1.amount }) / months / scale
+        let budget = minor(DemoAmounts.round(averageMonth * 1.08))
         let budgetRepo = BudgetRepository()
-        let allocRepo = BudgetAllocationRepository()
-
-        // Compute 6 month anchors: current month (index 0) + 5 past months
-        var monthDates: [(date: Date, anchor: Int)] = []
-        for i in 0..<6 {
-            guard let monthDate = cal.date(byAdding: .month, value: -i, to: now) else { continue }
-            monthDates.append((monthDate, monthDate.monthAnchor))
+        for offset in seededOffsets {
+            try? budgetRepo.insert(budget: BudgetModel(
+                monthDate: date(day: 1, monthOffset: offset).monthAnchor, amount: budget))
         }
-        // Reverse so index 0 = oldest, index 5 = current
-        monthDates.reverse()
-
-        // --- Monthly budgets ---
-        seedBudgets(monthDates: monthDates, budgetRepo: budgetRepo)
-
-        // --- Budget allocations ---
-        seedAllocations(monthDates: monthDates, allocRepo: allocRepo)
-
-        // --- Recurring transactions ---
-        seedRecurringTransactions(monthDates: monthDates, txRepo: txRepo, cal: cal)
-
-        // --- One-off transactions ---
-        seedOneOffTransactions(monthDates: monthDates, txRepo: txRepo, cal: cal)
-
-        // --- Credit cards & statements ---
-        seedCreditCards(userUID: userUID, monthDates: monthDates, txRepo: txRepo, cal: cal)
-
-        // --- Budget groups & members ---
-        seedBudgetGroups(userUID: userUID)
-
-        // Refresh cache
-        TransactionRepository.invalidateCache()
     }
 
-    // MARK: - Budgets
+    // MARK: Group
 
-    private static func seedBudgets(
-        monthDates: [(date: Date, anchor: Int)],
-        budgetRepo: BudgetRepository
-    ) {
-        for m in monthDates {
-            let budget = BudgetModel(monthDate: m.anchor, amount: 800_000)
+    /// A group this user owns, with members and a few shared expenses. Everything here is local —
+    /// no CloudKit share is involved — so it works in Finova Demo too. Group activity is a CloudKit
+    /// record and is therefore not seeded.
+    private func insertGroup() {
+        let def = dataset.group
+        let user = AuthenticationManager.shared.currentUser
+        let userName = UserDefaultsManager.getUser()?.name ?? user?.displayName ?? "Jack"
+        let userEmail = user?.email ?? "jack@email.com"
+
+        let group = BudgetGroup(name: def.name, ownerId: userUID, ownerName: userName,
+                                ownerEmail: userEmail, currency: AppConfig.currencyCode)
+        groupRepo.insertGroup(group)
+        groupRepo.insertMember(GroupMember(
+            groupId: group.id, userId: userUID, name: userName, email: userEmail,
+            role: .owner, permissions: .fullAccess, lastActive: now))
+
+        let permissions: [GroupPermissions] = [.canAdd, .viewOnly, .memberDefault, .canAdd]
+        for (index, member) in def.members.enumerated() {
+            groupRepo.insertMember(GroupMember(
+                groupId: group.id, userId: "demo-user-\(index)", name: member.name, email: member.email,
+                role: .member, permissions: permissions[index % permissions.count],
+                lastActive: cal.date(byAdding: .hour, value: -(index + 1) * 7, to: now)))
+        }
+
+        let viewModel = AddTransactionModalViewModel(transactionRepo: txRepo)
+        viewModel.activeContext = .group(group)
+        for item in def.items {
+            write(item, cards: [], viewModel: viewModel)
+        }
+
+        // The group's own monthly budget: its shared bills plus some room.
+        let groupMonthly = def.items.reduce(0.0) { total, item in
+            guard item.type == .expense, case .monthly(let days, _, _) = item.schedule else { return total }
+            return total + item.amount * Double(days.count)
+        }
+        let budgetRepo = BudgetRepository()
+        for offset in seededOffsets {
+            var budget = BudgetModel(
+                monthDate: date(day: 1, monthOffset: offset).monthAnchor,
+                amount: minor(DemoAmounts.round(groupMonthly * 1.2)))
+            budget.sharedGroupId = group.id
             try? budgetRepo.insert(budget: budget)
         }
-        logInfo("[DemoSeed] Inserted \(monthDates.count) budgets")
-    }
 
-    // MARK: - Budget Allocations
-
-    private static func seedAllocations(
-        monthDates: [(date: Date, anchor: Int)],
-        allocRepo: BudgetAllocationRepository
-    ) {
-        let categories: [(key: String, amount: Int)] = [
-            ("market", 200_000),
-            ("meals", 80_000),
-            ("transportation", 30_000),
-            ("utilities", 25_000),
-            ("entertainment", 40_000),
-            ("subscriptions", 10_000),
-            ("fitness", 10_000),
-        ]
-
-        var count = 0
-        for m in monthDates {
-            for cat in categories {
-                let model = BudgetAllocationModel(
-                    monthDate: m.anchor,
-                    categoryKey: cat.key,
-                    allocatedAmount: cat.amount
-                )
-                _ = try? allocRepo.insertAllocation(model)
-                count += 1
-            }
-        }
-        logInfo("[DemoSeed] Inserted \(count) budget allocations")
-    }
-
-    // MARK: - Recurring Transactions
-
-    private static func seedRecurringTransactions(
-        monthDates: [(date: Date, anchor: Int)],
-        txRepo: TransactionRepository,
-        cal: Calendar
-    ) {
-        struct RecurringDef {
-            let title: String
-            let category: String
-            let type: String
-            let amount: Int
-            let day: Int
-        }
-
-        let defs: [RecurringDef] = [
-            RecurringDef(title: "Salário", category: "salary", type: "income", amount: 550_000, day: 5),
-            RecurringDef(title: "Netflix", category: "subscriptions", type: "expense", amount: 4_490, day: 15),
-            RecurringDef(title: "Academia", category: "fitness", type: "expense", amount: 9_990, day: 1),
-        ]
-
-        for def in defs {
-            // Parent transaction (amount: 0, isRecurring: true)
-            let parentDate = monthDates[0].date
-            let parentTimestamp = Int(dateForDay(def.day, in: parentDate, cal: cal).timeIntervalSince1970)
-
-            let parentModel = TransactionModel(
-                title: def.title,
-                category: def.category,
-                amount: 0,
-                type: def.type,
-                dateTimestamp: parentTimestamp,
-                budgetMonthDate: monthDates[0].anchor,
-                isRecurring: true
-            )
-
-            guard let parentId = try? txRepo.insertTransactionAndGetId(parentModel) else {
-                logError("[DemoSeed] Failed to insert recurring parent: \(def.title)")
-                continue
-            }
-
-            // Instances
-            for (idx, m) in monthDates.enumerated() {
-                let instanceDate = dateForDay(def.day, in: m.date, cal: cal)
-                let instanceTimestamp = Int(instanceDate.timeIntervalSince1970)
-
-                let instance = TransactionModel(
-                    title: def.title,
-                    category: def.category,
-                    amount: def.amount,
-                    type: def.type,
-                    dateTimestamp: instanceTimestamp,
-                    budgetMonthDate: m.anchor,
-                    isRecurring: false,
-                    parentTransactionId: parentId
-                )
-                do {
-                    try txRepo.insertTransaction(instance)
-                } catch {
-                    logError("[DemoSeed] Failed to insert recurring instance \(def.title) month \(idx): \(error)")
-                }
-            }
-        }
-        logInfo("[DemoSeed] Inserted recurring transactions")
-    }
-
-    // MARK: - One-off Transactions
-
-    private static func seedOneOffTransactions(
-        monthDates: [(date: Date, anchor: Int)],
-        txRepo: TransactionRepository,
-        cal: Calendar
-    ) {
-        struct OneOffDef {
-            let category: String
-            let title: String
-            let baseAmount: Int
-            let type: String
-            let day: Int
-            let activeMonths: Set<Int> // indices where this transaction appears
-        }
-
-        let allMonths: Set<Int> = [0, 1, 2, 3, 4, 5]
-
-        let defs: [OneOffDef] = [
-            OneOffDef(category: "market", title: "Supermercado", baseAmount: 35_000, type: "expense", day: 8, activeMonths: allMonths),
-            OneOffDef(category: "meals", title: "Restaurante", baseAmount: 8_500, type: "expense", day: 12, activeMonths: allMonths),
-            OneOffDef(category: "transportation", title: "Uber", baseAmount: 2_500, type: "expense", day: 18, activeMonths: allMonths),
-            OneOffDef(category: "utilities", title: "Energia elétrica", baseAmount: 18_000, type: "expense", day: 20, activeMonths: allMonths),
-            OneOffDef(category: "entertainment", title: "Cinema", baseAmount: 4_000, type: "expense", day: 22, activeMonths: [0, 1, 3, 5]),
-            OneOffDef(category: "healthcare", title: "Farmácia", baseAmount: 6_000, type: "expense", day: 14, activeMonths: [1, 3, 4]),
-            OneOffDef(category: "clothing", title: "Roupas", baseAmount: 15_000, type: "expense", day: 10, activeMonths: [2, 4]),
-            OneOffDef(category: "transfer", title: "Transferência recebida", baseAmount: 20_000, type: "income", day: 25, activeMonths: [1, 4]),
-        ]
-
-        var count = 0
-        for (idx, m) in monthDates.enumerated() {
-            for def in defs {
-                guard def.activeMonths.contains(idx) else { continue }
-
-                let amount = def.baseAmount + (idx * 1_500)
-                let txDate = dateForDay(def.day, in: m.date, cal: cal)
-                let timestamp = Int(txDate.timeIntervalSince1970)
-
-                let model = TransactionModel(
-                    title: def.title,
-                    category: def.category,
-                    amount: amount,
-                    type: def.type,
-                    dateTimestamp: timestamp,
-                    budgetMonthDate: m.anchor
-                )
-                do {
-                    try txRepo.insertTransaction(model)
-                    count += 1
-                } catch {
-                    logError("[DemoSeed] Failed to insert one-off \(def.title) month \(idx): \(error)")
-                }
-            }
-        }
-        logInfo("[DemoSeed] Inserted \(count) one-off transactions")
-    }
-
-    // MARK: - Credit Cards & Statements (v1.5.0)
-
-    private static func seedCreditCards(
-        userUID: String,
-        monthDates: [(date: Date, anchor: Int)],
-        txRepo: TransactionRepository,
-        cal: Calendar
-    ) {
-        let cardRepo = CreditCardRepository()
-        let stmtRepo = StatementRepository()
-
-        // --- Nubank Ultravioleta ---
-        let chase = CreditCard(
-            id: nil,
-            name: "Nubank Ultravioleta",
-            lastFourDigits: "4321",
-            cardBrand: .mastercard,
-            closingDay: 25,
-            dueDay: 28,
-            creditLimit: 800_000,
-            cardColor: .purple,
-            userId: userUID,
-            isDeleted: false,
-            isDefault: true,
-            createdAt: Date(),
-            updatedAt: Date()
-        )
-
-        // --- Itaú Personnalité ---
-        let amex = CreditCard(
-            id: nil,
-            name: "Itaú Personnalité",
-            lastFourDigits: "8765",
-            cardBrand: .visa,
-            closingDay: 15,
-            dueDay: 22,
-            creditLimit: 1_500_000,
-            cardColor: .black,
-            userId: userUID,
-            isDeleted: false,
-            isDefault: false,
-            createdAt: Date(),
-            updatedAt: Date()
-        )
-
-        guard let chaseId = cardRepo.insertCard(chase),
-              let amexId = cardRepo.insertCard(amex)
-        else {
-            logError("[DemoSeed] Failed to insert credit cards")
-            return
-        }
-
-        logInfo("[DemoSeed] Inserted credit cards: Chase(\(chaseId)), Amex(\(amexId))")
-
-        // --- Statements for each card ---
-        let chaseStmtIds = insertStatements(
-            cardId: chaseId, closingDay: 25, dueDay: 28,
-            userUID: userUID, monthDates: monthDates, stmtRepo: stmtRepo, cal: cal
-        )
-        let amexStmtIds = insertStatements(
-            cardId: amexId, closingDay: 15, dueDay: 22,
-            userUID: userUID, monthDates: monthDates, stmtRepo: stmtRepo, cal: cal
-        )
-
-        logInfo("[DemoSeed] Inserted statements: Chase(\(chaseStmtIds.count)), Amex(\(amexStmtIds.count))")
-
-        // --- Credit card transactions ---
-        // Chase: Restaurant, Cinema, Netflix instances
-        // Amex: Clothes, larger purchases
-        seedCreditCardTransactions(
-            chaseId: chaseId, amexId: amexId,
-            chaseStmtIds: chaseStmtIds, amexStmtIds: amexStmtIds,
-            monthDates: monthDates, txRepo: txRepo, cal: cal
-        )
-    }
-
-    private static func insertStatements(
-        cardId: Int,
-        closingDay: Int,
-        dueDay: Int,
-        userUID: String,
-        monthDates: [(date: Date, anchor: Int)],
-        stmtRepo: StatementRepository,
-        cal: Calendar
-    ) -> [Int] {
-        var stmtIds: [Int] = []
-
-        for (idx, m) in monthDates.enumerated() {
-            let comps = cal.dateComponents([.year, .month], from: m.date)
-            guard let year = comps.year, let month = comps.month else { continue }
-
-            let closingDate = makeDateFromComponents(year: year, month: month, day: closingDay, cal: cal)
-            let dueDate = makeDateFromComponents(year: year, month: month, day: dueDay, cal: cal)
-
-            let isCurrentMonth = (idx == monthDates.count - 1)
-
-            let stmt = CreditCardStatement(
-                id: nil,
-                creditCardId: cardId,
-                closingDate: closingDate,
-                dueDate: dueDate,
-                totalAmount: 0,
-                isPaid: false,
-                paidDate: nil,
-                paidAmount: nil,
-                isDatesOverridden: false,
-                userId: userUID,
-                createdAt: Date(),
-                updatedAt: Date()
-            )
-
-            if let stmtId = stmtRepo.insertStatement(stmt) {
-                // Mark past months as paid
-                if !isCurrentMonth {
-                    let paidDate = cal.date(byAdding: .day, value: -2, to: dueDate) ?? dueDate
-                    _ = stmtRepo.markAsPaid(statementId: stmtId, paidAmount: nil, paidDate: paidDate)
-                }
-                stmtIds.append(stmtId)
-            }
-        }
-
-        return stmtIds
-    }
-
-    private static func seedCreditCardTransactions(
-        chaseId: Int,
-        amexId: Int,
-        chaseStmtIds: [Int],
-        amexStmtIds: [Int],
-        monthDates: [(date: Date, anchor: Int)],
-        txRepo: TransactionRepository,
-        cal: Calendar
-    ) {
-        // Chase: Restaurant (every month), Cinema (months 0,1,3,5), Netflix recurring instances
-        // Amex: Clothes, larger purchases
-        struct CCTxDef {
-            let title: String
-            let category: String
-            let baseAmount: Int
-            let day: Int
-            let activeMonths: Set<Int>
-            let cardId: Int
-        }
-
-        let chaseTxDefs: [CCTxDef] = [
-            CCTxDef(title: "iFood", category: "meals", baseAmount: 7_390, day: 12, activeMonths: [0, 1, 2, 3, 4, 5], cardId: chaseId),
-            CCTxDef(title: "Cinemark", category: "entertainment", baseAmount: 5_290, day: 22, activeMonths: [0, 1, 3, 5], cardId: chaseId),
-        ]
-
-        let amexTxDefs: [CCTxDef] = [
-            CCTxDef(title: "Renner", category: "clothing", baseAmount: 17_900, day: 10, activeMonths: [2, 4], cardId: amexId),
-        ]
-
-        var count = 0
-
-        for def in chaseTxDefs + amexTxDefs {
-            for (idx, m) in monthDates.enumerated() {
-                guard def.activeMonths.contains(idx) else { continue }
-
-                let stmtIds = def.cardId == chaseId ? chaseStmtIds : amexStmtIds
-                guard idx < stmtIds.count else { continue }
-
-                let amount = def.baseAmount + (idx * 1_500)
-                let txDate = dateForDay(def.day, in: m.date, cal: cal)
-                let timestamp = Int(txDate.timeIntervalSince1970)
-
-                let model = TransactionModel(
-                    title: def.title,
-                    category: def.category,
-                    amount: amount,
-                    type: "expense",
-                    dateTimestamp: timestamp,
-                    budgetMonthDate: m.anchor,
-                    creditCardId: def.cardId,
-                    statementId: stmtIds[idx],
-                    isCreditCardStatement: false
-                )
-                do {
-                    try txRepo.insertTransaction(model)
-                    count += 1
-                } catch {
-                    logError("[DemoSeed] Failed to insert CC tx \(def.title) month \(idx): \(error)")
-                }
-            }
-        }
-
-        // Also link Netflix recurring instances to Chase
-        linkNetflixToChase(chaseId: chaseId, chaseStmtIds: chaseStmtIds, monthDates: monthDates, txRepo: txRepo)
-
-        // Recalculate statement totals
-        let stmtRepo = StatementRepository()
-        for stmtId in chaseStmtIds + amexStmtIds {
-            stmtRepo.recalculateTotal(statementId: stmtId)
-        }
-
-        logInfo("[DemoSeed] Inserted \(count) credit card transactions")
-    }
-
-    private static func linkNetflixToChase(
-        chaseId: Int,
-        chaseStmtIds: [Int],
-        monthDates: [(date: Date, anchor: Int)],
-        txRepo: TransactionRepository
-    ) {
-        // Find Netflix transactions and link them to Chase
-        let allTx = txRepo.fetchAllTransactions()
-        let netflixTxs = allTx.filter { $0.title == "Netflix" && $0.parentTransactionId != nil }
-
-        for tx in netflixTxs {
-            guard let txId = tx.id else { continue }
-
-            // Match to the right statement by month
-            for (idx, m) in monthDates.enumerated() {
-                if tx.budgetMonthDate == m.anchor, idx < chaseStmtIds.count {
-                    try? txRepo.updateCreditCardFields(
-                        transactionId: txId,
-                        creditCardId: chaseId,
-                        statementId: chaseStmtIds[idx],
-                        isCreditCardStatement: false
-                    )
-                    break
-                }
-            }
-        }
-    }
-
-    // MARK: - Budget Groups
-
-    private static func seedBudgetGroups(userUID: String) {
-        let repo = BudgetGroupRepository()
-
-        let userName = AuthenticationManager.shared.currentUser?.displayName ?? "Você"
-        let userEmail = AuthenticationManager.shared.currentUser?.email ?? "arthur@email.com"
-
-        let groupId = UUID().uuidString
-
-        let group = BudgetGroup(
-            id: groupId,
-            name: "Orçamento da Família",
-            ownerId: userUID,
-            ownerName: userName,
-            ownerEmail: userEmail,
-            currency: "BRL"
-        )
-        repo.insertGroup(group)
-
-        // Owner member
-        let ownerMember = GroupMember(
-            groupId: groupId,
-            userId: userUID,
-            name: userName,
-            email: userEmail,
-            role: .owner,
-            permissions: .fullAccess,
-            lastActive: Date()
-        )
-        repo.insertMember(ownerMember)
-
-        // Regular member (for testing permissions screen)
-        let regularMember = GroupMember(
-            groupId: groupId,
-            userId: "demo-user-ana",
-            name: "Ana",
-            email: "ana@email.com",
-            role: .member,
-            permissions: .canAdd,
-            lastActive: Calendar.current.date(byAdding: .hour, value: -3, to: Date())
-        )
-        repo.insertMember(regularMember)
-
-        // Another member
-        let viewOnlyMember = GroupMember(
-            groupId: groupId,
-            userId: "demo-user-bruno",
-            name: "Bruno",
-            email: "bruno@email.com",
-            role: .member,
-            permissions: .viewOnly,
-            lastActive: Calendar.current.date(byAdding: .day, value: -2, to: Date())
-        )
-        repo.insertMember(viewOnlyMember)
-
-        // Extra members to test "+N" indicator and scrolling
-        let carol = GroupMember(
-            groupId: groupId,
-            userId: "demo-user-carla",
-            name: "Carla",
-            email: "carla@email.com",
-            role: .member,
-            permissions: .canAdd,
-            lastActive: Calendar.current.date(byAdding: .hour, value: -12, to: Date())
-        )
-        repo.insertMember(carol)
-
-        let dave = GroupMember(
-            groupId: groupId,
-            userId: "demo-user-diego",
-            name: "Diego",
-            email: "diego@email.com",
-            role: .member,
-            permissions: .memberDefault,
-            lastActive: Calendar.current.date(byAdding: .day, value: -5, to: Date())
-        )
-        repo.insertMember(dave)
-
-        // Pending invitation (for testing GroupInvitation screen)
-        let pendingInvitation = GroupInvitation(
-            groupId: UUID().uuidString,
-            groupName: "Despesas da República",
-            inviterName: "Marina",
-            inviterEmail: "marina@email.com",
-            inviteeEmail: userEmail
-        )
-        repo.insertInvitation(pendingInvitation)
-
-        logInfo("[DemoSeed] Inserted 1 budget group with 5 members + 1 pending invitation")
-    }
-
-    // MARK: - Date Helpers
-
-    private static func dateForDay(_ day: Int, in monthDate: Date, cal: Calendar) -> Date {
-        var comps = cal.dateComponents([.year, .month], from: monthDate)
-        comps.day = day
-        comps.hour = 12
-
-        // Clamp to the last day of the month
-        if let range = cal.range(of: .day, in: .month, for: monthDate) {
-            comps.day = min(day, range.upperBound - 1)
-        }
-
-        return cal.date(from: comps) ?? monthDate
-    }
-
-    private static func makeDateFromComponents(year: Int, month: Int, day: Int, cal: Calendar) -> Date {
-        var comps = DateComponents()
-        comps.year = year
-        comps.month = month
-        comps.day = day
-        comps.hour = 12
-
-        // Clamp day to valid range
-        if let date = cal.date(from: DateComponents(year: year, month: month)),
-           let range = cal.range(of: .day, in: .month, for: date) {
-            comps.day = min(day, range.upperBound - 1)
-        }
-
-        return cal.date(from: comps) ?? Date()
+        groupRepo.insertInvitation(GroupInvitation(
+            groupId: UUID().uuidString, groupName: def.invitationGroupName,
+            inviterName: def.inviterName, inviterEmail: def.inviterEmail, inviteeEmail: userEmail))
     }
 }
 #endif

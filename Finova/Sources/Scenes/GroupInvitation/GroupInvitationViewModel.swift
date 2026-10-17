@@ -131,6 +131,7 @@ final class GroupInvitationViewModel {
         member: GroupMember,
         completion: @escaping (Bool) -> Void
     ) {
+        guard CloudKitManager.isCloudKitEnabled else { return completion(false) }
         CloudKitManager.shared.container.fetchShareMetadata(with: url) { [weak self] metadata, error in
             guard let self = self else { completion(false); return }
             guard let metadata = metadata else {
@@ -186,6 +187,7 @@ final class GroupInvitationViewModel {
     /// Fetches the latest share URL for a group from the public DB invitation records.
     /// Uses inviteeEmail (queryable) instead of groupId (not queryable), then filters client-side.
     private func fetchLatestShareUrl(for groupId: String, completion: @escaping (String?) -> Void) {
+        guard CloudKitManager.isCloudKitEnabled else { return completion(nil) }
         guard let email = AuthenticationManager.shared.currentUser?.email else {
             completion(nil)
             return
@@ -239,6 +241,7 @@ final class GroupInvitationViewModel {
     /// and normally fails. The authoritative record of "I already answered this" is the resolved
     /// invitation ledger in `BudgetGroupService`; this call is a bonus for when the owner reads it.
     private func updateRemoteInvitationStatus(_ status: String) {
+        guard CloudKitManager.isCloudKitEnabled else { return }
         let recordID = CKRecord.ID(recordName: "invitation-\(invitation.id)")
         CloudKitManager.shared.publicDatabase.fetch(withRecordID: recordID) { record, error in
             guard let record = record else {
