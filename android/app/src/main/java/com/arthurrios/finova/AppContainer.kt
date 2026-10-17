@@ -31,6 +31,9 @@ class AppContainer(private val context: Context) {
 
     fun allocationRepository(): AllocationRepository = AllocationRepository(currentDatabase())
 
+    fun importRepository(): com.arthurrios.finova.data.repo.ImportRepository =
+        com.arthurrios.finova.data.repo.ImportRepository(currentDatabase(), financeRepository())
+
     private fun currentDatabase() = databases.forUser(currentUid())
 
     private var tags: TagRepository? = null

@@ -40,6 +40,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.arthurrios.finova.R
+import com.arthurrios.finova.ui.dashboard.label
 import com.arthurrios.finova.auth.AuthRepository
 import com.arthurrios.finova.data.UserSettingsStore
 import com.arthurrios.finova.security.Biometrics
@@ -96,6 +97,10 @@ object Routes {
     const val HISTORY = "history?category={category}&month={month}"
     fun history(month: java.time.YearMonth?, category: com.arthurrios.finova.domain.model.TransactionCategory? = null) =
         "history?category=${category?.key.orEmpty()}&month=" + (month?.let { it.year * 100 + it.monthValue } ?: 0)
+    /** Statement import: the history (and file picker), then the column check and the review. */
+    const val IMPORT = "import"
+    const val IMPORT_MAPPING = "import/mapping"
+    const val IMPORT_REVIEW = "import/review"
     fun budgets(month: java.time.YearMonth?) = "budgets?month=" + (month?.let { it.year * 100 + it.monthValue } ?: 0)
 }
 
@@ -437,7 +442,43 @@ fun FinovaNavHost(
                 onBack = { navController.popBackStack() },
                 onNotifications = { navController.navigate(Routes.NOTIFICATION_SETTINGS) },
                 onSignedOut = { navController.navigate(Routes.LOGIN) { popUpTo(0) { inclusive = true } } },
+                onImport = { navController.navigate(Routes.IMPORT) },
             )
+        }
+        composable(Routes.IMPORT) { entry ->
+            val viewModel = importViewModel(entry, appContext)
+            val onStep: (com.arthurrios.finova.ui.importer.ImportStep) -> Unit = { step ->
+                when (step) {
+                    com.arthurrios.finova.ui.importer.ImportStep.Mapping -> navController.navigate(Routes.IMPORT_MAPPING)
+                    com.arthurrios.finova.ui.importer.ImportStep.Review -> navController.navigate(Routes.IMPORT_REVIEW)
+                    com.arthurrios.finova.ui.importer.ImportStep.Finished -> navController.popBackStack(Routes.IMPORT, inclusive = false)
+                }
+            }
+            com.arthurrios.finova.ui.importer.ImportHistoryScreen(viewModel, onBack = { navController.popBackStack() }, onStep = onStep)
+        }
+        // The column check and the review share the history screen's view model: one flow, one plan.
+        composable(Routes.IMPORT_MAPPING) {
+            val parent = androidx.compose.runtime.remember(it) { navController.getBackStackEntry(Routes.IMPORT) }
+            val viewModel = importViewModel(parent, appContext)
+            com.arthurrios.finova.ui.importer.ImportMappingScreen(
+                viewModel,
+                onBack = { navController.popBackStack() },
+                onStep = { step ->
+                    if (step == com.arthurrios.finova.ui.importer.ImportStep.Review) {
+                        navController.navigate(Routes.IMPORT_REVIEW) { popUpTo(Routes.IMPORT_MAPPING) { inclusive = true } }
+                    }
+                },
+            )
+        }
+        composable(Routes.IMPORT_REVIEW) {
+            val parent = androidx.compose.runtime.remember(it) { navController.getBackStackEntry(Routes.IMPORT) }
+            val viewModel = importViewModel(parent, appContext)
+            val backToHistory = {
+                viewModel.reset()
+                navController.popBackStack(Routes.IMPORT, inclusive = false)
+                Unit
+            }
+            com.arthurrios.finova.ui.importer.ImportReviewScreen(viewModel, onDiscard = backToHistory, onFinished = backToHistory)
         }
         composable(Routes.NOTIFICATION_SETTINGS) {
             com.arthurrios.finova.ui.notifications.NotificationSettingsScreen(appContext.appContainer.notificationSettings, onBack = { navController.popBackStack() })
@@ -496,4 +537,24 @@ private fun tagsViewModel(): com.arthurrios.finova.ui.tags.TagsViewModel {
 private fun com.arthurrios.finova.domain.notifications.NotificationTarget.route(): String = when (this) {
     is com.arthurrios.finova.domain.notifications.NotificationTarget.Transaction -> Routes.details(id)
     is com.arthurrios.finova.domain.notifications.NotificationTarget.Statement -> Routes.statement(id)
+}
+
+/** The import flow's view model, scoped to the history screen's entry so all three screens share it. */
+@Composable
+private fun importViewModel(owner: androidx.navigation.NavBackStackEntry, appContext: android.content.Context): com.arthurrios.finova.ui.importer.ImportViewModel {
+    val names = com.arthurrios.finova.domain.model.TransactionCategory.entries.associateWith {
+        androidx.compose.ui.res.stringResource(it.label)
+    }
+    val untitled = androidx.compose.ui.res.stringResource(R.string.import_untitled)
+    return viewModel(
+        viewModelStoreOwner = owner,
+        factory = viewModelFactory {
+            initializer {
+                val container = appContext.appContainer
+                com.arthurrios.finova.ui.importer.ImportViewModel(
+                    container.importRepository(), container.financeRepository(), container.settings, names, untitled,
+                )
+            }
+        },
+    )
 }

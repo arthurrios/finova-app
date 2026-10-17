@@ -21,6 +21,7 @@ import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Fingerprint
 import androidx.compose.material.icons.outlined.Info
@@ -74,6 +75,7 @@ fun SettingsScreen(
     onBack: () -> Unit,
     onNotifications: () -> Unit,
     onSignedOut: () -> Unit,
+    onImport: () -> Unit = {},
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val activity = androidx.activity.compose.LocalActivity.current as? FragmentActivity
@@ -115,6 +117,8 @@ fun SettingsScreen(
                     Spacer(Modifier.width(Spacing.S2))
                     Chevron()
                 }
+                Section(stringResource(R.string.settings_section_data))
+                Row(Icons.Outlined.FileDownload, stringResource(R.string.settings_import_title), onClick = onImport) { Chevron() }
                 Section(stringResource(R.string.settings_section_notifications))
                 Row(Icons.Outlined.Notifications, stringResource(R.string.settings_notifications), onClick = onNotifications) { Chevron() }
                 Section(stringResource(R.string.settings_section_about))

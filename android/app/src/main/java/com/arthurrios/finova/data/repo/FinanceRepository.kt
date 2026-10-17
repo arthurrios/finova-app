@@ -20,6 +20,7 @@ import com.arthurrios.finova.domain.series.SeriesExclusion
 import com.arthurrios.finova.domain.series.SeriesRules
 import com.arthurrios.finova.domain.series.TransactionDraft
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import java.time.LocalDate
@@ -71,6 +72,24 @@ class FinanceRepository(
     }
 
     suspend fun addAll(transactions: List<Transaction>): List<Long> = db.transactions().insertAll(transactions.map { it.toEntity() })
+
+    /**
+     * Removes rows a statement import created, for an undo. Plain rows (what an import writes) go in
+     * one statement; a row the user since put on a card or into a series takes the full delete path.
+     */
+    suspend fun deleteImported(ids: List<Long>) {
+        if (ids.isEmpty()) return
+        val wanted = ids.toSet()
+        val rows = db.transactions().getAll().map { it.toDomain() }.filter { it.id in wanted }
+        val (plain, linked) = rows.partition {
+            it.creditCardId == null && it.statementId == null && it.parentTransactionId == null && !it.isRecurring && !it.hasInstallments
+        }
+        db.withTransaction {
+            // Nothing points at a plain row, so nothing needs releasing first.
+            if (plain.isNotEmpty()) db.transactions().deleteByIds(plain.map { it.id })
+        }
+        linked.forEach { delete(it.id, SeriesDeleteOption.ThisOnly) }
+    }
 
     /** A recurring series: the parent, linked to itself, and the months ahead. */
     suspend fun addRecurring(draft: TransactionDraft, today: LocalDate = LocalDate.now()): Long {
@@ -364,6 +383,9 @@ class FinanceRepository(
     suspend fun setBalanceOffset(value: Long) = db.userSettings().save(UserSettingsEntity(balanceOffset = value))
 
     suspend fun isEmpty(): Boolean = db.transactions().count() == 0
+
+    /** Every stored row now, as [transactions] streams them: the ledger snapshot an import is planned against. */
+    suspend fun storedRows(): List<Transaction> = transactions.first()
 
     companion object {
         /**
