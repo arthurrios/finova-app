@@ -45,7 +45,7 @@ final class MoveToStatementOptionsTests: XCTestCase {
             service.getOrCreateStatement(for: card, transactionDate: Date(), userId: uid))
 
         let txId = try transactionRepo.insertTransactionAndGetId(
-            CloudKitSyncTestHelpers.makeTransactionModel(title: "Purchase", amount: 5000))
+            TransactionTestFixtures.makeTransactionModel(title: "Purchase", amount: 5000))
         try transactionRepo.updateCreditCardFields(
             transactionId: txId, creditCardId: cardId,
             statementId: try XCTUnwrap(current.id), isCreditCardStatement: false)

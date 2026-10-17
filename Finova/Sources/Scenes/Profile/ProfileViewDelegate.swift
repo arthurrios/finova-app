@@ -9,7 +9,6 @@ protocol ProfileViewDelegate: AnyObject {
     func handleDidTapBackButton()
     func didTapAvatar()
     func didTapCreditCards()
-    func didTapBudgetGroups()
     func didTapSettings()
     func didTapLogout()
 }

@@ -120,7 +120,7 @@ final class DeferredCardSpendingTests: XCTestCase {
     ) -> Int {
         let month = budgetMonth ?? thisMonth
         try? txRepo.insertTransaction(
-            CloudKitSyncTestHelpers.makeTransactionModel(
+            TransactionTestFixtures.makeTransactionModel(
                 title: title,
                 category: category.key,
                 amount: amount,
@@ -290,7 +290,7 @@ final class DeferredCardSpendingTests: XCTestCase {
         let stmt = statement(dueIn: nextMonth, closingIn: thisMonth)
         spend(15_000, title: "My own card buy", onCard: true, statementId: stmt, group: nil)
 
-        XCTAssertEqual(deferred(.group(groupId)), 0)
+        XCTAssertEqual(deferred(LedgerScope(groupId: groupId, localUid: UIDUserDefaultsManager.shared.currentUserUID)), 0)
         XCTAssertEqual(deferred(.personal), 15_000)
     }
 
@@ -299,7 +299,7 @@ final class DeferredCardSpendingTests: XCTestCase {
         spend(21_000, title: "Group card buy", onCard: true, statementId: stmt, group: groupId)
 
         XCTAssertEqual(deferred(.personal), 0)
-        XCTAssertEqual(deferred(.group(groupId)), 21_000)
+        XCTAssertEqual(deferred(LedgerScope(groupId: groupId, localUid: UIDUserDefaultsManager.shared.currentUserUID)), 21_000)
     }
 
     // MARK: - Bounds

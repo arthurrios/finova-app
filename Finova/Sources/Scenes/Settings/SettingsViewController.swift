@@ -179,23 +179,8 @@ extension SettingsViewController: SettingsViewDelegate {
         flowDelegate?.navigateToNotificationSettings()
     }
 
-    func didTapSyncSettings() {
-        flowDelegate?.navigateToSyncSettings()
-    }
-
     func didTapImportData() {
         flowDelegate?.navigateToImportData()
-    }
-
-    func didToggleTransparency(_ isEnabled: Bool) {
-        viewModel.toggleTransparency(isEnabled)
-    }
-
-    func didTapTransparencyGroupPicker() {
-        let groups = viewModel.availableGroups
-        if !groups.isEmpty {
-            showGroupSelectionSheet(groups: groups)
-        }
     }
 
     func handleDidTapBackButton() {
@@ -290,20 +275,6 @@ extension SettingsViewController: SettingsViewModelDelegate {
             LoadingManager.shared.hideLoading()
         }
     }
-    
-    func didUpdateTransparency(isEnabled: Bool, groupName: String?) {
-        contentView.transparencySwitch.isOn = isEnabled
-        contentView.transparencyGroupContainer.isHidden = !isEnabled
-        if let groupName = groupName {
-            contentView.transparencyGroupLabel.text = groupName
-        } else {
-            contentView.transparencyGroupLabel.text = "settings.transparency.noGroup".localized
-        }
-    }
-
-    func didRequestGroupSelection(groups: [BudgetGroup]) {
-        showGroupSelectionSheet(groups: groups)
-    }
 }
 
 // MARK: - Currency Picker
@@ -348,44 +319,6 @@ extension SettingsViewController {
         if let popoverController = alert.popoverPresentationController {
             popoverController.sourceView = contentView.currencyValueLabel
             popoverController.sourceRect = contentView.currencyValueLabel.bounds
-        }
-
-        present(alert, animated: true)
-    }
-}
-
-// MARK: - Group Sharing — Group Selection
-extension SettingsViewController {
-
-    private func showGroupSelectionSheet(groups: [BudgetGroup]) {
-        let alert = UIAlertController(
-            title: "settings.transparency.selectGroup.title".localized,
-            message: "settings.transparency.selectGroup.message".localized,
-            preferredStyle: .actionSheet
-        )
-
-        for group in groups {
-            let action = UIAlertAction(title: group.name, style: .default) { [weak self] _ in
-                self?.viewModel.selectTransparencyGroup(group)
-            }
-            if self.viewModel.isPublishing(to: group) {
-                action.setValue(true, forKey: "checked")
-            }
-            alert.addAction(action)
-        }
-
-        alert.addAction(UIAlertAction(title: "alert.cancel".localized, style: .cancel) { [weak self] _ in
-            // If the user cancels without selecting a group and sharing was just toggled on,
-            // revert the toggle since no group was selected
-            if !(self?.viewModel.isPublishingToAnyGroup ?? false) {
-                self?.contentView.transparencySwitch.isOn = false
-                self?.contentView.transparencyGroupContainer.isHidden = true
-            }
-        })
-
-        if let popoverController = alert.popoverPresentationController {
-            popoverController.sourceView = contentView.transparencyGroupContainer
-            popoverController.sourceRect = contentView.transparencyGroupContainer.bounds
         }
 
         present(alert, animated: true)

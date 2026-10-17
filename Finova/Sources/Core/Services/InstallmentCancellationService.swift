@@ -98,10 +98,6 @@ final class InstallmentCancellationService {
         let installmentIds = refundable.compactMap { $0.id }
         let card = locator.card(for: transaction)
 
-        // The credit inherits the series' ledger, or a group's statement total would drop with nothing
-        // in that ledger accounting for it.
-        let groupId = installmentIds.compactMap { db.getSharedGroupId(transactionId: $0) }.first
-
         // Without a card there is no statement to credit, so the refund simply falls on today.
         let refundDate = Date()
 
@@ -131,10 +127,6 @@ final class InstallmentCancellationService {
 
             guard db.setCancellationRefund(transactionId: refundId, isRefund: true) else {
                 throw InstallmentCancellationError.couldNotMarkCancelled
-            }
-
-            if let groupId = groupId {
-                transactionRepo.updateSharedGroupId(transactionId: refundId, groupId: groupId)
             }
 
             if let card = card, let cardId = card.id {
@@ -169,7 +161,7 @@ final class InstallmentCancellationService {
         }
 
         finishMutation(
-            refundId: refundId, model: model, statementIds: statementsToRecalculate, groupId: groupId)
+            refundId: refundId, model: model, statementIds: statementsToRecalculate)
 
         return refundId
     }
@@ -241,7 +233,7 @@ final class InstallmentCancellationService {
     }
 
     private func finishMutation(
-        refundId: Int, model: TransactionModel, statementIds: Set<Int>, groupId: String?
+        refundId: Int, model: TransactionModel, statementIds: Set<Int>
     ) {
         TransactionRepository.invalidateCache()
 
@@ -252,14 +244,7 @@ final class InstallmentCancellationService {
         TransactionNotificationManager.shared.scheduleNotification(
             transactionId: refundId, model: model)
 
-        if let groupId = groupId {
-            GroupNotificationService.shared.logActivity(
-                action: .transactionCreated, groupId: groupId, detail: model.data.title,
-                targetRecordName: transactionRepo.fetchCKRecordName(for: refundId))
-        }
-
         NotificationCenter.default.post(name: .transactionDataChanged, object: nil)
         NotificationCenter.default.post(name: .creditCardDataChanged, object: nil)
-        SyncEngine.shared.pushPendingChangesNow()
     }
 }

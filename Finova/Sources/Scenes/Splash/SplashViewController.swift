@@ -72,43 +72,9 @@ final class SplashViewController: UIViewController {
     #endif
 
     if let firebaseUser = AuthenticationManager.shared.currentUser {
-      // Set current user UID BEFORE sync starts — sync post-actions need UID
       UIDUserDefaultsManager.shared.currentUserUID = firebaseUser.uid
-      // Auto-enable sync on fresh installs (key never set).
-      // InitialSync screen now guarantees pull-first, so auto-sync is safe.
-      if UserDefaults.standard.object(forKey: "syncEnabled") == nil {
-        UserDefaultsManager.setSyncEnabled(true)
-      }
-      // Backfill syncFullPullVerified_v2 for existing devices that already synced
-      // successfully before this flag was introduced. Without this, established
-      // devices would be routed through InitialSync and get a disruptive full re-fetch.
-      if !UserDefaults.standard.bool(forKey: "syncFullPullVerified_v2"),
-         SyncStateManager.shared.changeToken(for: "privateDB", database: "private") != nil {
-        UserDefaults.standard.set(true, forKey: "syncFullPullVerified_v2")
-      }
       DBHelper.shared.backfillUserIds(uid: firebaseUser.uid)
 
-      // One-time cleanup of ghost records inserted by CloudKit sync
-      let didCleanup = Self.performCloudGhostCleanupIfNeeded()
-
-      // One-time fix: tag credit cards + missed transactions with shared_group_id for mirror mode
-
-      // One-time: wipe local transactions and rebuild from CloudKit (fixes duplicates)
-      let needsRebuild = Self.performTransactionRebuildIfNeeded()
-
-      // Trigger iCloud sync on launch (skip if cleanup just ran to prevent re-corruption)
-      if !didCleanup {
-        let needsRePush = Self.performSyncRePushIfNeeded()
-        let forceFullFetch = needsRePush || needsRebuild
-        if needsRePush {
-          // Ensure balance offset is pushed to CloudKit during re-push
-          Self.pushBalanceOffsetIfNeeded(uid: firebaseUser.uid)
-        }
-        let isNewDevice = !UserDefaults.standard.bool(forKey: "syncFullPullVerified_v2")
-        if UserDefaultsManager.getSyncEnabled() && !isNewDevice {
-          SyncEngine.shared.performFullSync(forceFullFetch: forceFullFetch, forceRePush: needsRePush)
-        }
-      }
       BudgetAllocationRepository.migrateFromUserDefaultsIfNeeded()
 
       // One-time: migrate existing CC installment dates to statement due dates
@@ -496,10 +462,6 @@ extension SplashViewController {
     // Replicate the same setup that LoginViewModel.authenticationDidComplete performs
     UIDUserDefaultsManager.shared.currentUserUID = uid
     DBHelper.shared.backfillUserIds(uid: uid)
-    let didCleanup = Self.performCloudGhostCleanupIfNeeded()
-    if !didCleanup && UserDefaultsManager.getSyncEnabled() {
-      SyncEngine.shared.performFullSync(forceFullFetch: true)
-    }
 
     let existingSettings = UIDUserDefaultsManager.shared.getUserSettings(for: uid)
 
@@ -607,75 +569,3 @@ extension SplashViewController {
   }
 }
 #endif
-
-// MARK: - One-Time Transaction Rebuild
-
-extension SplashViewController {
-  private static let txRebuildKey = "hasPerformedTxRebuild_v1"
-
-  /// DISABLED (data-safety): this previously ran `DELETE FROM Transactions` and reset sync
-  /// tokens to "rebuild from CloudKit". That wiped ALL local transactions on any device that
-  /// hadn't yet consumed the key — including a freshly-logged-in second device — BEFORE a full
-  /// pull was verified. If the pull was partial (network drop, token expiry, quota) or the
-  /// cloud copy had already been damaged by another destructive path, the wipe was permanent.
-  /// Duplicate cleanup must never pre-delete local rows; the sync engine now reconciles
-  /// non-destructively. Kept as a consumed no-op so the one-time key stays set.
-  static func performTransactionRebuildIfNeeded() -> Bool {
-    guard !UserDefaults.standard.bool(forKey: txRebuildKey) else { return false }
-    UserDefaults.standard.set(true, forKey: txRebuildKey)
-    logWarning("[TxRebuild] Skipped destructive local wipe — rebuilds are now non-destructive")
-    return false
-  }
-}
-
-// MARK: - One-Time Sync Re-Push
-
-extension SplashViewController {
-  private static let syncRePushKey = "hasPerformedSyncRePush_v5"
-
-  /// One-time: resets all sync_status to 'pending' so data gets re-pushed to CloudKit.
-  /// Returns `true` if the re-push was triggered.
-  static func performSyncRePushIfNeeded() -> Bool {
-    guard !UserDefaults.standard.bool(forKey: syncRePushKey) else {
-      return false
-    }
-    logWarning("[SyncRePush] Triggering one-time full re-push of all data to CloudKit")
-    UserDefaults.standard.set(true, forKey: syncRePushKey)
-    return true
-  }
-
-  /// Pushes the local balance offset to CloudKit so the other device gets the correct value.
-  static func pushBalanceOffsetIfNeeded(uid: String) {
-    let personalOffset = UserDefaults.standard.integer(forKey: "balanceOffset_\(uid)")
-    if personalOffset != 0 {
-      logWarning("[SyncRePush] Pushing personal balance offset to CloudKit: \(personalOffset)")
-      UIDUserDefaultsManager.shared.setCurrentUserBalanceOffset(personalOffset)
-    }
-  }
-
-
-}
-
-// MARK: - One-Time Cloud Ghost Cleanup
-
-extension SplashViewController {
-  private static let cloudGhostCleanupKey = "hasPerformedCloudGhostCleanup_v5"
-
-  /// DISABLED (data-safety): this previously called `removeCloudInsertedRecords()`, which ran
-  /// `DELETE FROM Transactions WHERE ck_record_id IS NOT NULL` and then stripped `ck_record_id`
-  /// from the survivors. On a freshly-logged-in second device (which hasn't consumed the key)
-  /// this destroyed every cloud-linked row and detached the survivors from their CloudKit
-  /// identity — so they re-uploaded as DUPLICATES while the originals became orphan-cleanup
-  /// candidates. This is the primary second-device data-loss vector. Ghost/duplicate cleanup
-  /// is now handled non-destructively by the sync engine. Kept as a consumed no-op returning
-  /// `false` so normal sync still runs.
-  @discardableResult
-  static func performCloudGhostCleanupIfNeeded() -> Bool {
-    guard !UserDefaults.standard.bool(forKey: cloudGhostCleanupKey) else {
-      return false
-    }
-    UserDefaults.standard.set(true, forKey: cloudGhostCleanupKey)
-    logWarning("[GhostCleanup] Skipped destructive SQLite delete — cleanup is now non-destructive")
-    return false
-  }
-}

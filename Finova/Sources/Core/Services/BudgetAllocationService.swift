@@ -131,8 +131,6 @@ final class BudgetAllocationService {
             if recurrenceEndMonth != nil {
                 try? allocationRepo.updateIsRecurring(allocationId: newId, isRecurring: false)
             }
-
-            SyncEngine.shared.pushPendingChangesNow()
         }
 
         return newId
@@ -217,12 +215,6 @@ final class BudgetAllocationService {
         )
 
         try allocationRepo.updateAllocation(updated)
-
-        if let groupId = updated.sharedGroupId {
-            let categoryName = TransactionCategory.allCases.first(where: { $0.key == updated.categoryKey })?.displayName ?? updated.categoryKey
-            GroupNotificationService.shared.logActivity(
-                action: .allocationEdited, groupId: groupId, detail: categoryName)
-        }
     }
 
     /// Updates a recurring allocation with the specified option.
@@ -261,8 +253,6 @@ final class BudgetAllocationService {
         }
         logDebug("BudgetAllocationService: Edit option: \(option), newAmount: \(newAmount)")
 
-        let allocation = allAllocations.first(where: { $0.dbId == id })
-
         switch option {
         case .currentOnly:
             // Update only this specific allocation
@@ -272,30 +262,15 @@ final class BudgetAllocationService {
             // Update this and all future recurring allocations
             logDebug("BudgetAllocationService: Calling updateRecurringAllocationAndFuture for id \(id)")
             try allocationRepo.updateRecurringAllocationAndFuture(id: id, newAmount: newAmount)
-            if let groupId = allocation?.sharedGroupId {
-                let categoryName = allocation?.category.displayName ?? ""
-                GroupNotificationService.shared.logActivity(
-                    action: .allocationEdited, groupId: groupId, detail: categoryName)
-            }
         case .throughMonth(let endMonth):
             // Update this occurrence and every later one up to (and including) endMonth
             logDebug("BudgetAllocationService: Calling updateRecurringAllocationsThrough for id \(id), endMonth \(endMonth)")
             try allocationRepo.updateRecurringAllocationsThrough(
                 id: id, newAmount: newAmount, endMonth: endMonth)
-            if let groupId = allocation?.sharedGroupId {
-                let categoryName = allocation?.category.displayName ?? ""
-                GroupNotificationService.shared.logActivity(
-                    action: .allocationEdited, groupId: groupId, detail: categoryName)
-            }
         case .all:
             // Update all allocations in this recurring series (past, present, future)
             logDebug("BudgetAllocationService: Calling updateAllRecurringAllocations for id \(id)")
             try allocationRepo.updateAllRecurringAllocations(id: id, newAmount: newAmount)
-            if let groupId = allocation?.sharedGroupId {
-                let categoryName = allocation?.category.displayName ?? ""
-                GroupNotificationService.shared.logActivity(
-                    action: .allocationEdited, groupId: groupId, detail: categoryName)
-            }
         }
     }
 
@@ -321,8 +296,6 @@ final class BudgetAllocationService {
         } else {
             try allocationRepo.deleteAllocation(id: id)
         }
-
-        SyncEngine.shared.pushPendingChangesNow()
     }
 
     // MARK: - Fetch
@@ -725,14 +698,6 @@ final class BudgetAllocationService {
     /// Runs on a serial queue and answers on it. Idempotent, so re-running costs one query.
     func materializeAllSeries(completion: ((Int) -> Void)? = nil) {
         Self.materializationQueue.async { [self] in
-            // HYDRATION GATE: a device that has not completed a verified full pull lacks the
-            // tombstones to know what was deleted elsewhere, so it would resurrect deletions and
-            // diverge. Creation of a brand-new series is series-scoped and stays ungated.
-            guard UserDefaults.standard.bool(forKey: "syncFullPullVerified_v2") else {
-                completion?(0)
-                return
-            }
-
             let created = allocationRepo.materializeAllSeries()
             if created > 0 {
                 logWarning("[Materialize] created \(created) allocation occurrence(s)")

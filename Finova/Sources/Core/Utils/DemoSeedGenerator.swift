@@ -12,8 +12,8 @@ import UserNotifications
 
 /// Wipes the local ledger and writes a showcase one: six months of history, the next three months
 /// planned, two credit cards with paid, closed and open statements, installment purchases (one paid
-/// early, one cancelled), recurring bills, category allocations and monthly budgets, and a budget
-/// group with members and a pending invitation. The content comes from `DemoDataset`: the Brazilian
+/// early, one cancelled), recurring bills, category allocations and monthly budgets. No family group
+/// and no sync data: this version has neither. The content comes from `DemoDataset`: the Brazilian
 /// ledger for BRL (the default), the American one for any other currency.
 ///
 /// Everything is written through the paths the app itself uses (`AddTransactionModalViewModel`,
@@ -124,7 +124,7 @@ struct DemoSeedGenerator {
             DispatchQueue.main.async {
                 for name: Notification.Name in [
                     .transactionDataChanged, .budgetDataChanged, .creditCardDataChanged,
-                    .allocationDataChanged, .budgetGroupDataChanged,
+                    .allocationDataChanged,
                 ] {
                     NotificationCenter.default.post(name: name, object: nil)
                 }
@@ -152,6 +152,8 @@ struct DemoSeedGenerator {
         UNUserNotificationCenter.current().removeAllPendingNotificationRequests()
 
         let db = DBHelper.shared
+        // The group tables are emptied too: an install seeded by a build that had family groups keeps
+        // no group, member or invitation after a reseed.
         for table in [
             "Transactions", "Budgets", "BudgetAllocations", "CreditCardStatements", "CreditCards",
             "GroupMembers", "GroupInvitations", "BudgetGroups", "ImportBatchRows", "ImportBatches",
@@ -176,7 +178,6 @@ private struct Writer {
     private let txRepo = TransactionRepository()
     private let cardRepo = CreditCardRepository()
     private let stmtRepo = StatementRepository()
-    private let groupRepo = BudgetGroupRepository()
     private let historyOffsets = Array(-5...0)
     private let seededOffsets = Array(-5...3)
 
@@ -196,7 +197,6 @@ private struct Writer {
         cancelPurchase()
         payPastStatements(cards: cards)
         insertAllocationsAndBudgets()
-        insertGroup()
     }
 
     // MARK: Dates
@@ -424,57 +424,6 @@ private struct Writer {
             try? budgetRepo.insert(budget: BudgetModel(
                 monthDate: date(day: 1, monthOffset: offset).monthAnchor, amount: budget))
         }
-    }
-
-    // MARK: Group
-
-    /// A group this user owns, with members and a few shared expenses. Everything here is local —
-    /// no CloudKit share is involved — so it works in Finova Demo too. Group activity is a CloudKit
-    /// record and is therefore not seeded.
-    private func insertGroup() {
-        let def = dataset.group
-        let user = AuthenticationManager.shared.currentUser
-        let userName = UserDefaultsManager.getUser()?.name ?? user?.displayName ?? "Jack"
-        let userEmail = user?.email ?? "jack@email.com"
-
-        let group = BudgetGroup(name: def.name, ownerId: userUID, ownerName: userName,
-                                ownerEmail: userEmail, currency: AppConfig.currencyCode)
-        groupRepo.insertGroup(group)
-        groupRepo.insertMember(GroupMember(
-            groupId: group.id, userId: userUID, name: userName, email: userEmail,
-            role: .owner, permissions: .fullAccess, lastActive: now))
-
-        let permissions: [GroupPermissions] = [.canAdd, .viewOnly, .memberDefault, .canAdd]
-        for (index, member) in def.members.enumerated() {
-            groupRepo.insertMember(GroupMember(
-                groupId: group.id, userId: "demo-user-\(index)", name: member.name, email: member.email,
-                role: .member, permissions: permissions[index % permissions.count],
-                lastActive: cal.date(byAdding: .hour, value: -(index + 1) * 7, to: now)))
-        }
-
-        let viewModel = AddTransactionModalViewModel(transactionRepo: txRepo)
-        viewModel.activeContext = .group(group)
-        for item in def.items {
-            write(item, cards: [], viewModel: viewModel)
-        }
-
-        // The group's own monthly budget: its shared bills plus some room.
-        let groupMonthly = def.items.reduce(0.0) { total, item in
-            guard item.type == .expense, case .monthly(let days, _, _) = item.schedule else { return total }
-            return total + item.amount * Double(days.count)
-        }
-        let budgetRepo = BudgetRepository()
-        for offset in seededOffsets {
-            var budget = BudgetModel(
-                monthDate: date(day: 1, monthOffset: offset).monthAnchor,
-                amount: minor(DemoAmounts.round(groupMonthly * 1.2)))
-            budget.sharedGroupId = group.id
-            try? budgetRepo.insert(budget: budget)
-        }
-
-        groupRepo.insertInvitation(GroupInvitation(
-            groupId: UUID().uuidString, groupName: def.invitationGroupName,
-            inviterName: def.inviterName, inviterEmail: def.inviterEmail, inviteeEmail: userEmail))
     }
 }
 #endif

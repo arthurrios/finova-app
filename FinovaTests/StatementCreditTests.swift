@@ -49,7 +49,7 @@ final class StatementCreditTests: XCTestCase {
     private func attach(
         title: String, amount: Int, type: String, to statementId: Int, card: CreditCard
     ) throws {
-        let model = CloudKitSyncTestHelpers.makeTransactionModel(
+        let model = TransactionTestFixtures.makeTransactionModel(
             title: title, category: "market", amount: amount, type: type)
         let id = try transactionRepo.insertTransactionAndGetId(model)
         try transactionRepo.updateCreditCardFields(
@@ -65,7 +65,7 @@ final class StatementCreditTests: XCTestCase {
         try attach(title: "Refund", amount: 20000, type: "income", to: statementId, card: card)
 
         let totals = DBHelper.shared.statementTotals(
-            statementId: statementId, scope: LedgerScope(.personal))
+            statementId: statementId, scope: LedgerScope.personal)
 
         XCTAssertEqual(
             totals.total, 30000,
@@ -79,7 +79,7 @@ final class StatementCreditTests: XCTestCase {
         try attach(title: "Refund", amount: 25000, type: "income", to: statementId, card: card)
 
         let totals = DBHelper.shared.statementTotals(
-            statementId: statementId, scope: LedgerScope(.personal))
+            statementId: statementId, scope: LedgerScope.personal)
 
         XCTAssertEqual(
             totals.total, -25000,

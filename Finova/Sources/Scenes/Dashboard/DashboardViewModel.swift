@@ -21,9 +21,6 @@ final class DashboardViewModel {
   private let monthRange: ClosedRange<Int>
   private let notificationCenter = UNUserNotificationCenter.current()
 
-  /// Current viewing context — restored from last session or defaults to personal
-  var currentContext: DataContext
-
   var onCleanupChoiceNeeded: ((RecurringCleanupOption) -> Void)?
 
   /// Callback to notify UI that data has changed and needs refresh
@@ -52,84 +49,20 @@ final class DashboardViewModel {
       transactionRepo: transactionRepo, budgetRepo: budgetRepo)
     self.transactionLedger = TransactionLedgerService(
       transactionRepo: transactionRepo, budgetRepo: budgetRepo)
-    self.currentContext = UIDUserDefaultsManager.shared.getLastContext()
   }
 
   func getStatementTransactions() -> [Transaction] {
-    switch currentContext {
-    case .personal:
-      guard let uid = AuthenticationManager.shared.currentUser?.uid else { return [] }
-      return creditCardService.generateStatementTransactions(userId: uid)
-    case .group(let group):
-      let sharedCards = CreditCardRepository().fetchCardsForGroup(groupId: group.id)
-      return sharedCards.flatMap {
-        creditCardService.generateStatementTransactions(forCard: $0, in: LedgerScope(currentContext))
-      }
-    }
+    guard let uid = AuthenticationManager.shared.currentUser?.uid else { return [] }
+    return creditCardService.generateStatementTransactions(userId: uid)
   }
 
   func loadMonthlyCards() -> [MonthBudgetCardType] {
-    switch currentContext {
-    case .personal:
-      // Repair passes no longer run here. Rewriting financial rows on every dashboard load marked
-      // them pending, so two devices pushed their own repair results over each other's. They now
-      // live behind an explicit action in Sync Settings (DataRepairService).
+    let monthlyData = transactionLedger.calculateMonthlyData(for: monthRange)
 
-      // Use the transaction ledger service for all calculations
-      let monthlyData = transactionLedger.calculateMonthlyData(for: monthRange)
+    // Trigger lazy generation AFTER returning data (non-blocking)
+    materializeAllSeriesInBackground()
 
-      // Trigger lazy generation AFTER returning data (non-blocking)
-      materializeAllSeriesInBackground()
-
-      return monthlyData
-
-    case .group(let group):
-      // OWNERSHIP INVARIANT: do NOT run destructive credit-card repairs in group context.
-      // These operate on fetchAllTransactions()/fetchAllCards(), which include the group
-      // OWNER's shared records that a member's DB holds. Consolidating/reassigning/deleting
-      // them marks the owner's records pending/pendingDelete and pushes those edits/deletes
-      // into the shared zone — corrupting or deleting the owner's data for every member.
-      // Group records are repaired only by their author, in that author's own personal context.
-      logWarning("[CCRepair] Skipping ALL destructive CC repairs in group context (protects other members' data)")
-
-      // Lazy-generate recurring instances for group context too,
-      // so future months show the same instances as personal view.
-      materializeAllSeriesInBackground()
-
-      return transactionLedger.calculateMonthlyDataForGroup(
-        groupId: group.id, for: monthRange
-      )
-    }
-  }
-
-  func switchContext(to context: DataContext) {
-    currentContext = context
-    UIDUserDefaultsManager.shared.saveLastContext(context)
-    transactionLedger.invalidateCache()
-    onDataNeedsRefresh?()
-
-    // When switching to a group context, directly fetch that group's zone so the latest data is
-    // loaded on demand (bypasses CKShare/replication propagation gaps). Members read the owner's
-    // SHARED zone; the owner (and their other same-account devices) read the OWN group zone in the
-    // PRIVATE DB — without this, a second device that missed the incremental force-include shows
-    // the owner's group empty.
-    if case .group(let group) = context {
-      let onFetched: (Int) -> Void = { [weak self] count in
-        if count > 0 {
-          self?.transactionLedger.invalidateCache()
-          self?.onDataNeedsRefresh?()
-        }
-      }
-      if !group.isOwner, let zoneOwner = group.ckZoneOwner {
-        SyncEngine.shared.fetchSharedGroupZone(groupId: group.id, zoneOwner: zoneOwner, completion: onFetched)
-      } else if group.isOwner {
-        SyncEngine.shared.fetchOwnedGroupZone(groupId: group.id, completion: onFetched)
-      }
-    }
-  }
-
-  func getAvailableGroups() -> [BudgetGroup] {
-    return BudgetGroupService.shared.fetchAllGroups()
+    return monthlyData
   }
 
   /// The rolling top-up: materializes every recurring series — transactions AND allocations — that is
@@ -140,16 +73,6 @@ final class DashboardViewModel {
   /// series that arrived from another device, or that predate a horizon change. Both passes are
   /// series-anchored and idempotent, so re-running is free when there is nothing to do.
   private func materializeAllSeriesInBackground() {
-    // HYDRATION GATE: never materialize recurring instances before this device has completed a
-    // verified full pull. Otherwise a freshly-logged-in device regenerates "deleted" future
-    // instances from a cloud parent that still reads isRecurring=true (a fresh device has no
-    // tombstones to suppress it), making a deleted series reappear. Once the authoritative
-    // parent state is pulled, generation resumes on the next dashboard refresh.
-    guard UserDefaults.standard.bool(forKey: "syncFullPullVerified_v2") else {
-      logWarning("[Materialize] Skipping — full pull not yet verified on this device")
-      return
-    }
-
     materializationLock.lock()
     guard !isMaterializationInProgress else {
       materializationLock.unlock()
@@ -314,9 +237,6 @@ final class DashboardViewModel {
         return .failure(TransactionError.transactionNotFound)
       }
 
-      // Capture group ID before deletion (needed for activity log)
-      let groupId = transactionRepo.fetchSharedGroupId(for: id)
-
       // Handle simple transactions directly
       if transaction.isRecurring != true && transaction.parentTransactionId == nil
         && transaction.hasInstallments != true
@@ -341,13 +261,6 @@ final class DashboardViewModel {
         // forceTriggerBalanceMonitoring bypasses the 5-min throttle so the
         // notification is updated immediately rather than waiting for the next foreground event.
         BalanceMonitorManager.shared.forceTriggerBalanceMonitoring()
-
-        // Log group activity if transaction belonged to a group
-        if let groupId = groupId {
-          GroupNotificationService.shared.logActivity(
-            action: .transactionDeleted, groupId: groupId, detail: transaction.title)
-          SyncEngine.shared.pushPendingChangesNow()
-        }
 
         return .success(())
       }
@@ -384,9 +297,6 @@ final class DashboardViewModel {
           return
         }
 
-        // Capture group ID before deletion (needed for activity log)
-        let groupId = self.transactionRepo.fetchSharedGroupId(for: transactionId)
-
         // Use mode property to correctly identify transaction type
         // This is more reliable than looking up parent transactions
         switch transaction.mode {
@@ -412,11 +322,6 @@ final class DashboardViewModel {
             // Invalidate ledger cache since transactions changed
             self.transactionLedger.invalidateCache()
             BalanceMonitorManager.shared.forceTriggerBalanceMonitoring()
-            if let groupId = groupId {
-              GroupNotificationService.shared.logActivity(
-                action: .transactionDeleted, groupId: groupId, detail: transaction.title)
-              SyncEngine.shared.pushPendingChangesNow()
-            }
             completion(.success(()))
           }
           return
@@ -431,11 +336,6 @@ final class DashboardViewModel {
           }
           self.transactionLedger.invalidateCache()
           BalanceMonitorManager.shared.forceTriggerBalanceMonitoring()
-          if let groupId = groupId {
-            GroupNotificationService.shared.logActivity(
-              action: .transactionDeleted, groupId: groupId, detail: transaction.title)
-            SyncEngine.shared.pushPendingChangesNow()
-          }
           DispatchQueue.main.async {
             completion(.success(()))
           }

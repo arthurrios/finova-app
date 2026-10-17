@@ -28,8 +28,6 @@ final class AccountDeletionOrderTests: XCTestCase {
         func didEncounterBiometricError(title: String, message: String) {}
         func didCompleteAccountDeletion() {}
         func shouldShowLoading(_ show: Bool, message: String?) {}
-        func didUpdateTransparency(isEnabled: Bool, groupName: String?) {}
-        func didRequestGroupSelection(groups: [BudgetGroup]) {}
     }
 
     private var transactionRepo: TransactionRepository!
@@ -40,7 +38,7 @@ final class AccountDeletionOrderTests: XCTestCase {
         transactionRepo = TransactionRepository()
         transactionRepo.clearAllTransactionsForTesting()
         _ = try? transactionRepo.insertTransactionAndGetId(
-            CloudKitSyncTestHelpers.makeTransactionModel(title: "Groceries", amount: 5000))
+            TransactionTestFixtures.makeTransactionModel(title: "Groceries", amount: 5000))
     }
 
     override func tearDown() {

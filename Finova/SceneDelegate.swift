@@ -5,7 +5,6 @@
 //  Created by Arthur Rios on 07/05/25.
 //
 
-import CloudKit
 import GoogleSignIn
 import UIKit
 
@@ -28,7 +27,6 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     self.window = window
     self.window?.makeKeyAndVisible()
 
-    setupSyncToastObserver()
     AllocationTagTranslationCoordinator.shared.start()
   }
 
@@ -51,9 +49,6 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     // Sync delivered notifications from notification center to history
     // This captures notifications that arrived while app was in background
     NotificationHistoryManager.shared.syncDeliveredNotifications()
-
-    // Touch the GroupNotificationManager singleton so it registers its observers.
-    _ = GroupNotificationManager.shared
   }
 
   func sceneWillResignActive(_ scene: UIScene) {
@@ -65,81 +60,13 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     // Called as the scene transitions from the background to the foreground.
     // Use this method to undo the changes made on entering the background.
     logInfo("Scene will enter foreground - triggering app refresh")
-    SyncEngine.shared.performFullSync()
     triggerAppRefresh()
   }
 
-  func windowScene(
-    _ windowScene: UIWindowScene,
-    userDidAcceptCloudKitShareWith cloudKitShareMetadata: CKShare.Metadata
-  ) {
-    guard CloudKitManager.isCloudKitEnabled else { return }  // Finova Demo: no iCloud
-    CloudKitManager.shared.container.accept(cloudKitShareMetadata) { share, error in
-      guard error == nil else {
-        logError("Failed to accept CloudKit share: \(error!)")
-        return
-      }
-
-      // Store zone owner name so the member can route writes to the shared DB.
-      // Fix 1b: If no local group row exists yet (new device), insert a placeholder
-      // so that updateZoneOwner has a row to update and subsequent sync can discover data.
-      if let share = share {
-        let ownerName = share.recordID.zoneID.ownerName
-        let zoneName = share.recordID.zoneID.zoneName
-        if zoneName.hasPrefix("Group-") {
-          let groupId = String(zoneName.dropFirst("Group-".count))
-          let repo = BudgetGroupRepository()
-          if repo.fetchGroup(byId: groupId) == nil {
-            logWarning("[SceneDelegate] Group \(groupId) not found locally — inserting placeholder for share acceptance")
-            var placeholder = BudgetGroup(
-              id: groupId,
-              name: "Shared Group",
-              ownerId: "",
-              ownerName: "",
-              ownerEmail: ""
-            )
-            placeholder.ckZoneOwner = ownerName
-            repo.insertGroup(placeholder)
-          } else {
-            repo.updateZoneOwner(groupId: groupId, zoneOwner: ownerName)
-          }
-        }
-      }
-
-      SyncEngine.shared.performFullSync()
-
-      DispatchQueue.main.async {
-        NotificationCenter.default.post(name: .budgetGroupDataChanged, object: nil)
-      }
-    }
-  }
-
   func sceneDidEnterBackground(_ scene: UIScene) {
-    logWarning("[AppLifecycle] Scene did enter background — flushing pending sync data")
-
-    let application = UIApplication.shared
-    var backgroundTaskID: UIBackgroundTaskIdentifier = .invalid
-
-    backgroundTaskID = application.beginBackgroundTask(withName: "com.finova.backgroundSyncFlush") {
-      logWarning("[AppLifecycle] Background sync flush task expired by system")
-      if backgroundTaskID != .invalid {
-        application.endBackgroundTask(backgroundTaskID)
-        backgroundTaskID = .invalid
-      }
-    }
-
-    guard backgroundTaskID != .invalid else {
-      logWarning("[AppLifecycle] Failed to begin background task — cannot flush")
-      return
-    }
-
-    SyncEngine.shared.flushPendingChanges { _ in
-      logWarning("[AppLifecycle] Background sync flush finished")
-      if backgroundTaskID != .invalid {
-        application.endBackgroundTask(backgroundTaskID)
-        backgroundTaskID = .invalid
-      }
-    }
+    // Called as the scene transitions from the foreground to the background.
+    // Use this method to save data, release shared resources, and store enough scene-specific state information
+    // to restore the scene back to its current state.
   }
 
   // MARK: - App Refresh on Foreground
@@ -211,59 +138,6 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     }
   }
 
-  // MARK: - Sync Toast
-
-  /// Observes sync status changes and shows the toast for all sync triggers
-  private func setupSyncToastObserver() {
-    NotificationCenter.default.addObserver(
-      self,
-      selector: #selector(handleSyncStatusForToast(_:)),
-      name: .syncStatusDidChange,
-      object: nil
-    )
-  }
-
-  @objc private func handleSyncStatusForToast(_ notification: Notification) {
-    guard let status = notification.object as? SyncStatus else { return }
-
-    switch status {
-    case .syncing:
-      // Don't show toast if user is on screens with their own sync UI
-      guard !isOnSyncDedicatedScreen() else { return }
-      showSyncToastOnCurrentWindow()
-    case .synced, .error, .idle:
-      break
-    }
-  }
-
-  private func isOnSyncDedicatedScreen() -> Bool {
-    guard let nav = window?.rootViewController as? UINavigationController else { return false }
-    let top = nav.topViewController
-    return top is SyncSettingsViewController || top is InitialSyncViewController
-  }
-
-  /// Shows the sync toast on the current window
-  private func showSyncToastOnCurrentWindow() {
-    guard let window = window else { return }
-
-    // Don't show duplicate
-    if window.viewWithTag(SyncToastWindowTag) != nil { return }
-
-    let container = SyncToastContainer()
-    container.tag = SyncToastWindowTag
-    container.translatesAutoresizingMaskIntoConstraints = false
-
-    window.addSubview(container)
-    NSLayoutConstraint.activate([
-      container.topAnchor.constraint(equalTo: window.topAnchor),
-      container.leadingAnchor.constraint(equalTo: window.leadingAnchor),
-      container.trailingAnchor.constraint(equalTo: window.trailingAnchor),
-      container.bottomAnchor.constraint(equalTo: window.bottomAnchor),
-    ])
-
-    container.showSyncToast()
-  }
-
   /// Shows the update toast on the current window regardless of which screen is visible
   private func showUpdateToastOnCurrentWindow() {
     guard let window = window else {
@@ -305,7 +179,6 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
 
 // MARK: - Constants
 
-private let SyncToastWindowTag = 99998
 private let UpdateToastWindowTag = 99999
 
 // MARK: - Associated Keys for objc_setAssociatedObject

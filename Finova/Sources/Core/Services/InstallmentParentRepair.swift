@@ -179,12 +179,6 @@ enum InstallmentParentRepair {
     let key = "hasRepairedOrphanedInstallmentParents_v1_\(userId)"
     guard !UserDefaults.standard.bool(forKey: key) else { return }
 
-    // The hydration rule every repair obeys: a half-pulled device may simply not have the parent YET,
-    // and would "repair" a link the next pull resolves properly. With sync off there is nothing
-    // left to arrive.
-    let hydrated = UserDefaults.standard.bool(forKey: "syncFullPullVerified_v2")
-    guard hydrated || !UserDefaultsManager.getSyncEnabled() else { return }
-
     DBHelper.shared.snapshotDatabase(tag: "pre-installment-parent-repair")
     let result = run(transactionRepo: transactionRepo, userId: userId)
 

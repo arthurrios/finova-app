@@ -50,7 +50,7 @@ final class StatementCreditRolloverTests: XCTestCase {
     private func attach(
         title: String, amount: Int, type: String, to statementId: Int, cardId: Int
     ) throws {
-        let model = CloudKitSyncTestHelpers.makeTransactionModel(
+        let model = TransactionTestFixtures.makeTransactionModel(
             title: title, category: "market", amount: amount, type: type)
         let id = try transactionRepo.insertTransactionAndGetId(model)
         try transactionRepo.updateCreditCardFields(

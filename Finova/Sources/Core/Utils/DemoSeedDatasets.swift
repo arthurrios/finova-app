@@ -51,16 +51,6 @@ struct DemoDataset {
         let schedule: Schedule
     }
 
-    struct Group {
-        let name: String
-        let members: [(name: String, email: String)]
-        /// Monthly one-offs booked into the group's ledger.
-        let items: [Item]
-        let invitationGroupName: String
-        let inviterName: String
-        let inviterEmail: String
-    }
-
     let currency: String
     let cards: [Card]
     let items: [Item]
@@ -68,7 +58,6 @@ struct DemoDataset {
     let earlyPaidTitle: String?
     /// An installment purchase that gets cancelled (estorno) after the first installments.
     let cancelledTitle: String?
-    let group: Group
 
     // MARK: - Lookup
 
@@ -172,22 +161,7 @@ struct DemoDataset {
             yearly("Restituição do IR", .taxes, 1_380, month: 6, day: 30, income: true),
         ],
         earlyPaidTitle: "Geladeira Brastemp – Magalu",
-        cancelledTitle: "Fone JBL Tune – Americanas",
-        group: Group(
-            name: "Casa – Jack & Ana",
-            members: [("Ana", "ana@email.com"), ("Bruno", "bruno@email.com"),
-                      ("Carla", "carla@email.com"), ("Diego", "diego@email.com")],
-            items: [
-                monthly("Mercado Extra", .market, 540, days: [8], months: [-2, -1, 0]),
-                monthly("Comgás", .utilities, 110, days: [18], months: [-2, -1, 0]),
-                monthly("Faxina – Dona Rosa", .homeMaintenance, 220, days: [15], months: [-2, -1, 0]),
-                monthly("Pix da Ana – Metade das contas", .transfer, 450, days: [5], months: [-2, -1, 0], income: true),
-                monthly("Aporte Jack – Conta da casa", .transfer, 500, days: [5], months: [-2, -1, 0], income: true),
-            ],
-            invitationGroupName: "Despesas da República",
-            inviterName: "Marina",
-            inviterEmail: "marina@email.com"
-        )
+        cancelledTitle: "Fone JBL Tune – Americanas"
     )
 
     // MARK: - United States (USD)
@@ -256,22 +230,7 @@ struct DemoDataset {
             yearly("Christmas gifts", .gifts, 600, month: 12, day: 20, card: 0),
         ],
         earlyPaidTitle: "LG Refrigerator – Best Buy",
-        cancelledTitle: "Bose QuietComfort – Amazon",
-        group: Group(
-            name: "Home – Jack & Emma",
-            members: [("Emma", "emma@email.com"), ("Liam", "liam@email.com"),
-                      ("Olivia", "olivia@email.com"), ("Noah", "noah@email.com")],
-            items: [
-                monthly("Costco run", .market, 180, days: [8], months: [-2, -1, 0]),
-                monthly("National Grid – Gas", .utilities, 64, days: [18], months: [-2, -1, 0]),
-                monthly("House cleaning – Maria", .homeMaintenance, 140, days: [15], months: [-2, -1, 0]),
-                monthly("Venmo from Emma – Half of bills", .transfer, 200, days: [5], months: [-2, -1, 0], income: true),
-                monthly("Jack – House account top-up", .transfer, 220, days: [5], months: [-2, -1, 0], income: true),
-            ],
-            invitationGroupName: "Lake House Trip",
-            inviterName: "Sophia",
-            inviterEmail: "sophia@email.com"
-        )
+        cancelledTitle: "Bose QuietComfort – Amazon"
     )
 }
 

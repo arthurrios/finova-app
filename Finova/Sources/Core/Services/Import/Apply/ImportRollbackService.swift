@@ -32,7 +32,7 @@ final class ImportRollbackService {
         db: DBHelper = .shared,
         transactionRepo: TransactionRepository? = nil,
         batchRepo: ImportBatchRepository? = nil,
-        isSyncInProgress: @escaping () -> Bool = { SyncEngine.shared.isSyncInProgress }
+        isSyncInProgress: @escaping () -> Bool = { false }
     ) {
         self.db = db
         self.transactionRepo = transactionRepo ?? TransactionRepository(db: db)

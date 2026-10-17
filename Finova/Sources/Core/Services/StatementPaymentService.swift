@@ -103,15 +103,6 @@ final class StatementPaymentService {
         }
         guard Self.currentUserId() != nil else { throw StatementPaymentError.missingUser }
 
-        // Both rows inherit the invoice's ledger. Without this, paying a group card's statement would
-        // create a personal debit while the credit stayed in the group — the group's invoice would
-        // drop with nothing in the group accounting for it.
-        let groupId = transactionRepo.fetchAllTransactions()
-            .filter { $0.statementId == stmtId && $0.isCreditCardStatement != true }
-            .compactMap { $0.id }
-            .compactMap { db.getSharedGroupId(transactionId: $0) }
-            .first
-
         let statementLabel = DateFormatter.monthYearShortFormatter.string(from: statement.dueDate)
         let debitModel = TransactionModel(
             title: String(
@@ -177,19 +168,13 @@ final class StatementPaymentService {
             guard db.setStatementPaymentLink(transactionId: creditId, paymentId: paymentId) else {
                 throw StatementPaymentError.couldNotLink
             }
-
-            if let groupId = groupId {
-                transactionRepo.updateSharedGroupId(transactionId: paymentId, groupId: groupId)
-                transactionRepo.updateSharedGroupId(transactionId: creditId, groupId: groupId)
-            }
         }
 
         finishMutation(
             paymentId: paymentId,
             model: debitModel,
             statementId: stmtId,
-            paymentDate: paymentDate,
-            groupId: groupId
+            paymentDate: paymentDate
         )
 
         return paymentId
@@ -305,8 +290,7 @@ final class StatementPaymentService {
         paymentId: Int,
         model: TransactionModel,
         statementId: Int,
-        paymentDate: Date,
-        groupId: String?
+        paymentDate: Date
     ) {
         TransactionRepository.invalidateCache()
         creditCardService.recalculateStatementTotal(statementId: statementId)
@@ -325,14 +309,7 @@ final class StatementPaymentService {
         TransactionNotificationManager.shared.scheduleNotification(
             transactionId: paymentId, model: model)
 
-        if let groupId = groupId {
-            GroupNotificationService.shared.logActivity(
-                action: .transactionCreated, groupId: groupId, detail: model.data.title,
-                targetRecordName: transactionRepo.fetchCKRecordName(for: paymentId))
-        }
-
         Self.announceDataChanged()
-        SyncEngine.shared.pushPendingChangesNow()
     }
 
     /// Both entry points run off the main thread — the screen dispatches `pay` to a background queue,

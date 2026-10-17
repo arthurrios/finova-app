@@ -34,20 +34,11 @@ final class MonthBudgetCardAdjustAffordanceTests: XCTestCase {
         )
     }
 
-    private func makeGroup() -> BudgetGroup {
-        BudgetGroup(
-            name: "House",
-            ownerId: "someone-else",
-            ownerName: "Someone Else",
-            ownerEmail: "someone@else.com")
-    }
-
     /// Builds a laid-out card. The host pins three edges only — never a height — so the card keeps
     /// its own fitting size, exactly as `MonthCarouselCell` leaves it.
     private func makeLaidOutCard(
         width: CGFloat,
         budgetLimit: Int? = 350_000,
-        context: DataContext = .personal,
         filterActive: Bool = false
     ) -> MonthBudgetCard {
         let card = MonthBudgetCard()
@@ -61,7 +52,6 @@ final class MonthBudgetCardAdjustAffordanceTests: XCTestCase {
             card.trailingAnchor.constraint(equalTo: host.trailingAnchor),
         ])
 
-        card.dataContext = context
         card.configure(data: makeMonthData(budgetLimit: budgetLimit))
         if filterActive {
             card.updateFilteredState(isActive: true, sum: 42_000)
@@ -102,22 +92,6 @@ final class MonthBudgetCardAdjustAffordanceTests: XCTestCase {
     }
 
     // MARK: - Where it must not appear
-
-    /// A group member who is not the owner may not rewrite the balance. The version this replaces
-    /// left the long press wired up for them: it fired the haptic and then returned silently,
-    /// which reads as a broken card.
-    ///
-    /// `BudgetGroup.isOwner` resolves false with no signed-in Firebase user, which is the state
-    /// under test — the assertion holds for the same reason it does for a real member.
-    func testPencilIsCollapsedForAGroupMemberWhoIsNotTheOwner() {
-        let card = makeLaidOutCard(width: 402, context: .group(makeGroup()))
-        let button = adjustButton(in: card)
-
-        XCTAssertTrue(button?.isHidden ?? false, "a non-owner was offered the adjustment")
-        XCTAssertEqual(
-            button?.bounds.width ?? -1, 0,
-            "the collapsed pencil still holds width the balance could use")
-    }
 
     /// Filtering swaps the balance for a filtered sum. Reconciling against that figure would write
     /// an offset derived from a number that is not a balance.

@@ -12,9 +12,6 @@ class AppFlowController {
     // MARK: - Properties
     private var navigationController: UINavigationController?
     private let viewControllersFactory: ViewControllersFactoryProtocol
-    /// Tracks whether a pending large-sync notification needs to show InitialSync
-    /// once the dashboard becomes visible (handles race condition).
-    private var pendingLargeSyncDetected = false
     // MARK: - init
     public init() {
         viewControllersFactory = ViewControllersFactory()
@@ -50,27 +47,6 @@ class AppFlowController {
             self,
             selector: #selector(handleNavigateToStatementDetails(_:)),
             name: .navigateToStatementDetails,
-            object: nil
-        )
-
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(handlePendingInvitations),
-            name: .groupInvitationReceived,
-            object: nil
-        )
-
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(handleNavigateToGroupInvitation(_:)),
-            name: .navigateToGroupInvitation,
-            object: nil
-        )
-
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(handleLargeSyncDetected),
-            name: .syncRequiresLoadingScreen,
             object: nil
         )
     }
@@ -156,38 +132,6 @@ class AppFlowController {
         }
     }
 
-    /// Handles pending group invitations received from CloudKit
-    @objc private func handlePendingInvitations() {
-        // Only auto-present if user is on the dashboard (not splash/login)
-        guard navigationController?.topViewController is DashboardViewController else { return }
-
-        let invitations = BudgetGroupService.shared.fetchPendingInvitations()
-        guard let first = invitations.first else { return }
-
-        // Avoid presenting over an existing modal
-        guard navigationController?.presentedViewController == nil else { return }
-
-        presentGroupInvitation(first)
-    }
-
-    /// Handles navigation to group invitation from notification tap
-    @objc private func handleNavigateToGroupInvitation(_ notification: Notification) {
-        guard let invitationId = notification.userInfo?["invitationId"] as? String else { return }
-
-        let repo = BudgetGroupRepository()
-        guard let invitation = repo.fetchInvitation(byId: invitationId),
-              invitation.status == "pending" else { return }
-
-        // Dismiss any existing modals first
-        guard navigationController?.presentedViewController == nil else {
-            navigationController?.dismiss(animated: false) { [weak self] in
-                self?.presentGroupInvitation(invitation)
-            }
-            return
-        }
-        presentGroupInvitation(invitation)
-    }
-
     /// Handles app foreground refresh notification
     @objc private func handleAppDidEnterForeground() {
         logDebug("AppFlowController: Handling app foreground refresh")
@@ -214,54 +158,6 @@ class AppFlowController {
         }
     }
     
-    // MARK: - Initial Sync Detection
-
-    private func needsInitialSync() -> Bool {
-        guard UserDefaultsManager.getSyncEnabled() else { return false }
-        return !UserDefaults.standard.bool(forKey: "syncFullPullVerified_v2")
-    }
-
-    @objc private func handleLargeSyncDetected() {
-        pendingLargeSyncDetected = true
-        presentInitialSyncIfReady(attempt: 0)
-    }
-
-    /// Attempts to show InitialSync screen when the dashboard is visible.
-    /// Retries with delay to handle the race condition where the notification
-    /// fires while navigation to the dashboard is still in progress.
-    private func presentInitialSyncIfReady(attempt: Int) {
-        guard pendingLargeSyncDetected else { return }
-        guard let topVC = navigationController?.topViewController else {
-            retryPresentInitialSync(attempt: attempt)
-            return
-        }
-        // Already on InitialSync — no-op
-        if topVC is InitialSyncViewController {
-            pendingLargeSyncDetected = false
-            return
-        }
-        // Dashboard visible — show InitialSync
-        if topVC is DashboardViewController {
-            pendingLargeSyncDetected = false
-            let syncVC = InitialSyncViewController()
-            syncVC.flowDelegate = self
-            navigationController?.pushViewController(syncVC, animated: true)
-            return
-        }
-        // Some other VC (Splash transitioning, modal, etc.) — retry
-        retryPresentInitialSync(attempt: attempt)
-    }
-
-    private func retryPresentInitialSync(attempt: Int) {
-        guard attempt < 10 else {
-            pendingLargeSyncDetected = false
-            return
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-            self?.presentInitialSyncIfReady(attempt: attempt + 1)
-        }
-    }
-
     deinit {
         NotificationCenter.default.removeObserver(self)
     }
@@ -271,15 +167,9 @@ class AppFlowController {
 extension AppFlowController: CommonFlowDelegate {
     func navigateToDashboard() {
         navigationController?.dismiss(animated: false)
-        if needsInitialSync() {
-            let vc = InitialSyncViewController()
-            vc.flowDelegate = self
-            navigationController?.pushViewController(vc, animated: true)
-        } else {
-            let dashboardViewController = viewControllersFactory.makeDashboardViewController(
-                flowDelegate: self)
-            navigationController?.pushViewController(dashboardViewController, animated: true)
-        }
+        let dashboardViewController = viewControllersFactory.makeDashboardViewController(
+            flowDelegate: self)
+        navigationController?.pushViewController(dashboardViewController, animated: true)
     }
 }
 
@@ -296,14 +186,8 @@ extension AppFlowController: SplashFlowDelegate {
     
     func navigateDirectlyToDashboard() {
         navigationController?.dismiss(animated: false)
-        if needsInitialSync() {
-            let vc = InitialSyncViewController()
-            vc.flowDelegate = self
-            navigationController?.pushViewController(vc, animated: true)
-        } else {
-            let viewController = viewControllersFactory.makeDashboardViewController(flowDelegate: self)
-            navigationController?.pushViewController(viewController, animated: true)
-        }
+        let viewController = viewControllersFactory.makeDashboardViewController(flowDelegate: self)
+        navigationController?.pushViewController(viewController, animated: true)
     }
 }
 
@@ -334,7 +218,7 @@ extension AppFlowController: RegisterFlowDelegate {
 }
 
 // MARK: - Dashboard Flow
-extension AppFlowController: DashboardFlowDelegate, SettingsFlowDelegate, ProfileFlowDelegate, NotificationSettingsFlowDelegate, NotificationHistoryFlowDelegate, SyncSettingsFlowDelegate {
+extension AppFlowController: DashboardFlowDelegate, SettingsFlowDelegate, ProfileFlowDelegate, NotificationSettingsFlowDelegate, NotificationHistoryFlowDelegate {
     func navigateToAllocationDetails(allocation: BudgetAllocation) {
         let viewController = ViewControllersFactory.makeBudgetAllocationDetailsViewController(allocation: allocation)
         viewController.flowDelegate = self
@@ -426,18 +310,6 @@ extension AppFlowController: DashboardFlowDelegate, SettingsFlowDelegate, Profil
         navigateToStatementDetails(card: card, statement: statement)
     }
 
-    func navigateToGroupInvitationFromNotificationHistory(invitationId: String) {
-        let repo = BudgetGroupRepository()
-        guard let invitation = repo.fetchInvitation(byId: invitationId) else { return }
-
-        guard invitation.status == "pending" else {
-            // Invitation already responded to — just pop back
-            navigationController?.popViewController(animated: true)
-            return
-        }
-        presentGroupInvitation(invitation)
-    }
-
     func navigateToTransactionDetailsFromNotificationHistory(transactionId: Int) {
         // Find the transaction by ID
         let transactionRepo = TransactionRepository()
@@ -455,11 +327,9 @@ extension AppFlowController: DashboardFlowDelegate, SettingsFlowDelegate, Profil
         navigationController?.pushViewController(viewController, animated: true)
     }
     
-    func openAddTransactionModal(context: DataContext) {
-        logWarning("openAddTransactionModal: context=\(context), groupId=\(context.groupId ?? "nil")")
+    func openAddTransactionModal() {
         let viewController = viewControllersFactory.makeAddTransactionModalViewController(
             flowDelegate: self)
-        viewController.viewModel.activeContext = context
         viewController.modalPresentationStyle = .overCurrentContext
         viewController.modalTransitionStyle = .crossDissolve
         navigationController?.present(viewController, animated: false) {
@@ -467,8 +337,8 @@ extension AppFlowController: DashboardFlowDelegate, SettingsFlowDelegate, Profil
         }
     }
 
-    func openAdjustBalanceModal(currentBalance: Int, context: DataContext) {
-        let viewController = AdjustBalanceModalViewController(currentBalance: currentBalance, context: context)
+    func openAdjustBalanceModal(currentBalance: Int) {
+        let viewController = AdjustBalanceModalViewController(currentBalance: currentBalance)
         viewController.flowDelegate = self
         viewController.modalPresentationStyle = .overCurrentContext
         viewController.modalTransitionStyle = .crossDissolve
@@ -521,36 +391,9 @@ extension AppFlowController: DashboardFlowDelegate, SettingsFlowDelegate, Profil
         navigationController?.popViewController(animated: true)
     }
 
-    func navigateToBudgetGroups() {
-        let viewController = viewControllersFactory.makeBudgetGroupsViewController(flowDelegate: self)
-        navigationController?.pushViewController(viewController, animated: true)
-    }
-
-    func navigateToSyncSettingsFromDashboard() {
-        guard CloudKitManager.isCloudKitEnabled else { return }  // Finova Demo: no iCloud to manage
-        let viewController = viewControllersFactory.makeSyncSettingsViewController(flowDelegate: self)
-        navigationController?.pushViewController(viewController, animated: true)
-    }
-
-    func navigateToSyncSettings() {
-        guard CloudKitManager.isCloudKitEnabled else { return }
-        let viewController = viewControllersFactory.makeSyncSettingsViewController(flowDelegate: self)
-        navigationController?.pushViewController(viewController, animated: true)
-    }
-
     func navigateToImportData() {
         let viewController = viewControllersFactory.makeImportHistoryViewController(flowDelegate: self)
         navigationController?.pushViewController(viewController, animated: true)
-    }
-
-    func dismissSyncSettings() {
-        navigationController?.popViewController(animated: true)
-    }
-
-    func navigateToInitialSync() {
-        let syncVC = InitialSyncViewController()
-        syncVC.flowDelegate = self
-        navigationController?.setViewControllers([syncVC], animated: true)
     }
 }
 
@@ -815,12 +658,7 @@ extension AppFlowController: BudgetHistoryFlowDelegate {
     func navigateToBudgetHistory(
         ledgerScope: LedgerScope, filter: BudgetHistoryFilter, monthAnchor: Int?
     ) {
-        // Named from the scope itself, so the subtitle can never name a different ledger than the
-        // one the bars are read from.
-        let contextName = ledgerScope.groupId
-            .flatMap { BudgetGroupRepository().fetchGroup(byId: $0) }
-            .map { DataContext.group($0).displayName }
-            ?? DataContext.personal.displayName
+        let contextName = "dashboard.context.personal".localized
         let viewController = ViewControllersFactory.makeBudgetHistoryViewController(
             ledgerScope: ledgerScope, filter: filter, monthAnchor: monthAnchor,
             contextName: contextName)
@@ -1020,105 +858,6 @@ extension AppFlowController: AdjustBalanceModalFlowDelegate {
     }
 }
 
-// MARK: - Budget Groups Flow
-extension AppFlowController: BudgetGroupsFlowDelegate {
-    func dismissBudgetGroups() {
-        navigationController?.popViewController(animated: true)
-    }
-
-    func navigateToGroupDetails(group: BudgetGroup) {
-        let viewController = viewControllersFactory.makeGroupDetailsViewController(flowDelegate: self, group: group)
-        navigationController?.pushViewController(viewController, animated: true)
-    }
-
-    func openCreateGroupModal() {
-        // Handled inline by BudgetGroupsViewController via alert
-    }
-
-    func presentGroupInvitationFromGroups(invitation: GroupInvitation) {
-        presentGroupInvitation(invitation)
-    }
-}
-
-// MARK: - Group Details Flow
-extension AppFlowController: GroupDetailsFlowDelegate {
-    func dismissGroupDetails() {
-        navigationController?.popViewController(animated: true)
-    }
-
-    func navigateToMemberPermissions(member: GroupMember, group: BudgetGroup) {
-        let viewController = viewControllersFactory.makeMemberPermissionsViewController(
-            flowDelegate: self, member: member, group: group)
-        navigationController?.pushViewController(viewController, animated: true)
-    }
-
-    func openInviteMemberModal(group: BudgetGroup) {
-        let vc = viewControllersFactory.makeInviteMemberViewController(flowDelegate: self, group: group)
-        vc.modalPresentationStyle = .pageSheet
-        if let sheet = vc.sheetPresentationController {
-            let defaultDetent = UISheetPresentationController.Detent.custom(
-                identifier: InviteMemberViewController.defaultDetentIdentifier
-            ) { context in
-                return context.maximumDetentValue * 0.50
-            }
-            // Only set default detent initially — VC manages adding/removing
-            // expanded detent dynamically to prevent keyboard auto-expansion
-            sheet.detents = [defaultDetent]
-            sheet.selectedDetentIdentifier = InviteMemberViewController.defaultDetentIdentifier
-            sheet.prefersGrabberVisible = true
-            sheet.preferredCornerRadius = CornerRadius.bottomSheet
-        }
-        navigationController?.present(vc, animated: true)
-    }
-}
-
-// MARK: - InviteMemberFlowDelegate
-extension AppFlowController: InviteMemberFlowDelegate {
-    func dismissInviteMember() {
-        navigationController?.dismiss(animated: true)
-    }
-}
-
-// MARK: - MemberPermissionsFlowDelegate
-extension AppFlowController: MemberPermissionsFlowDelegate {
-    func dismissMemberPermissions() {
-        navigationController?.popViewController(animated: true)
-    }
-}
-
-// MARK: - GroupInvitationFlowDelegate
-extension AppFlowController: GroupInvitationFlowDelegate {
-    func presentGroupInvitation(_ invitation: GroupInvitation) {
-        let vc = viewControllersFactory.makeGroupInvitationViewController(
-            flowDelegate: self, invitation: invitation)
-        vc.modalPresentationStyle = .pageSheet
-        if let sheet = vc.sheetPresentationController {
-            sheet.detents = [.medium()]
-            sheet.prefersGrabberVisible = true
-            sheet.preferredCornerRadius = CornerRadius.bottomSheet
-        }
-        navigationController?.topViewController?.present(vc, animated: true)
-    }
-
-    func didAcceptInvitation() {
-        navigationController?.dismiss(animated: true) { [weak self] in
-            guard let self = self else { return }
-            // Show InitialSync screen to wait for full group data sync
-            let syncVC = InitialSyncViewController()
-            syncVC.flowDelegate = self
-            self.navigationController?.pushViewController(syncVC, animated: true)
-        }
-    }
-
-    func didDeclineInvitation() {
-        navigationController?.dismiss(animated: true)
-    }
-
-    func didDismissInvitation() {
-        navigationController?.dismiss(animated: true)
-    }
-}
-
 // MARK: - AddAllocationModalFlowDelegate
 
 extension AppFlowController: AddAllocationModalFlowDelegate {
@@ -1172,16 +911,6 @@ extension AppFlowController: AddAllocationModalFlowDelegate {
                 }
             }
         }
-    }
-}
-
-// MARK: - InitialSyncFlowDelegate
-
-extension AppFlowController: InitialSyncFlowDelegate {
-    func initialSyncDidComplete() {
-        pendingLargeSyncDetected = false
-        let dashboardVC = viewControllersFactory.makeDashboardViewController(flowDelegate: self)
-        navigationController?.setViewControllers([dashboardVC], animated: true)
     }
 }
 

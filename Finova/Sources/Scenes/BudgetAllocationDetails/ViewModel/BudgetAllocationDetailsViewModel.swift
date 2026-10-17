@@ -51,7 +51,7 @@ final class BudgetAllocationDetailsViewModel {
         transactionRepository: TransactionRepositoryProtocol = TransactionRepository(),
         allocationRepository: BudgetAllocationRepositoryProtocol = BudgetAllocationRepository(),
         allocationService: BudgetAllocationService = BudgetAllocationService(),
-        ledgerScope: LedgerScope = .current
+        ledgerScope: LedgerScope = .personal
     ) {
         self.mode = .allocated(allocation)
         self.allocation = allocation
@@ -68,7 +68,7 @@ final class BudgetAllocationDetailsViewModel {
         transactionRepository: TransactionRepositoryProtocol = TransactionRepository(),
         allocationRepository: BudgetAllocationRepositoryProtocol = BudgetAllocationRepository(),
         allocationService: BudgetAllocationService = BudgetAllocationService(),
-        ledgerScope: LedgerScope = .current
+        ledgerScope: LedgerScope = .personal
     ) {
         self.mode = .unallocated(unallocatedSpending)
         self.allocation = nil
@@ -400,7 +400,6 @@ final class BudgetAllocationDetailsViewModel {
                 try allocationRepository.deleteAllRecurringAllocations(id: dbId)
             }
             logDebug("BudgetAllocationDetailsVM: Deletion successful for option: \(option)")
-            SyncEngine.shared.pushPendingChangesNow()
             return .success(())
         } catch {
             logError("BudgetAllocationDetailsVM: Deletion failed with error: \(error)")

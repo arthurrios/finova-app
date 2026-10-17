@@ -119,7 +119,7 @@ final class CategorySpendHistoryReadTests: XCTestCase {
         group: String? = nil
     ) -> Int {
         try? txRepo.insertTransaction(
-            CloudKitSyncTestHelpers.makeTransactionModel(
+            TransactionTestFixtures.makeTransactionModel(
                 title: title,
                 category: category.key,
                 amount: amount,
@@ -393,7 +393,7 @@ final class CategorySpendHistoryReadTests: XCTestCase {
         }
 
         XCTAssertEqual(read(scope: .personal).sampleCount, 4)
-        XCTAssertEqual(read(scope: .group(groupId)), .none)
+        XCTAssertEqual(read(scope: LedgerScope(groupId: groupId, localUid: UIDUserDefaultsManager.shared.currentUserUID)), .none)
     }
 
     func testGroupHistoryDoesNotLeakIntoThePersonalRead() {
@@ -405,7 +405,7 @@ final class CategorySpendHistoryReadTests: XCTestCase {
 
         XCTAssertEqual(read(scope: .personal), .none)
 
-        let group = read(scope: .group(groupId))
+        let group = read(scope: LedgerScope(groupId: groupId, localUid: UIDUserDefaultsManager.shared.currentUserUID))
         XCTAssertEqual(group.sampleCount, 4)
         XCTAssertEqual(group.highestRatio, 0.3, accuracy: 0.0001)
     }

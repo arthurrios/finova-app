@@ -12,7 +12,6 @@ protocol TransactionDetailsViewDelegate: AnyObject {
   func didTapEdit()
   func didTapDelete()
   func didTapBack()
-  func didTapMoveToGroup()
   func didTapMoveToStatement()
   /// Open the selection screen to bring future installments of this series forward.
   func didTapPayInstallmentsEarly()
@@ -323,43 +322,6 @@ final class TransactionDetailsView: UIView {
     return stack
   }()
 
-  // MARK: - Move to Group Row
-  private lazy var moveToGroupContainer: UIView = {
-    let container = UIView()
-    container.backgroundColor = Colors.gray100
-    container.layer.cornerRadius = CornerRadius.large
-    container.isUserInteractionEnabled = true
-    container.translatesAutoresizingMaskIntoConstraints = false
-    container.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(didTapMoveToGroup)))
-    return container
-  }()
-
-  private let moveToGroupIcon: UIImageView = {
-    let iv = UIImageView()
-    iv.image = UIImage(systemName: "arrow.right.arrow.left")
-    iv.tintColor = Colors.gray600
-    iv.contentMode = .scaleAspectFit
-    iv.translatesAutoresizingMaskIntoConstraints = false
-    return iv
-  }()
-
-  private let moveToGroupLabel: UILabel = {
-    let label = UILabel()
-    label.font = Fonts.titleSM.font
-    label.textColor = Colors.gray700
-    label.translatesAutoresizingMaskIntoConstraints = false
-    return label
-  }()
-
-  private let moveToGroupChevron: UIImageView = {
-    let iv = UIImageView()
-    iv.image = UIImage(systemName: "chevron.right")
-    iv.tintColor = Colors.gray500
-    iv.contentMode = .scaleAspectFit
-    iv.translatesAutoresizingMaskIntoConstraints = false
-    return iv
-  }()
-
   // MARK: - Move to Statement Row
   private lazy var moveToStatementContainer: UIView = {
     let container = UIView()
@@ -607,12 +569,6 @@ final class TransactionDetailsView: UIView {
     moveToStatementContainer.isHidden = true
     tailStackView.addArrangedSubview(moveToStatementContainer)
 
-    moveToGroupContainer.addSubview(moveToGroupIcon)
-    moveToGroupContainer.addSubview(moveToGroupLabel)
-    moveToGroupContainer.addSubview(moveToGroupChevron)
-    moveToGroupContainer.isHidden = true
-    tailStackView.addArrangedSubview(moveToGroupContainer)
-
     payEarlyRow.container.isHidden = true
     payEarlyRow.container.addGestureRecognizer(
       UITapGestureRecognizer(target: self, action: #selector(didTapPayInstallmentsEarly)))
@@ -786,25 +742,6 @@ final class TransactionDetailsView: UIView {
       moveToStatementChevron.centerYAnchor.constraint(equalTo: moveToStatementContainer.centerYAnchor),
       moveToStatementChevron.widthAnchor.constraint(equalToConstant: 12),
       moveToStatementChevron.heightAnchor.constraint(equalToConstant: 12),
-
-      // Move to group row
-      moveToGroupContainer.heightAnchor.constraint(equalToConstant: Metrics.buttonHeight),
-
-      moveToGroupIcon.leadingAnchor.constraint(
-        equalTo: moveToGroupContainer.leadingAnchor, constant: Metrics.spacing4),
-      moveToGroupIcon.centerYAnchor.constraint(equalTo: moveToGroupContainer.centerYAnchor),
-      moveToGroupIcon.widthAnchor.constraint(equalToConstant: 20),
-      moveToGroupIcon.heightAnchor.constraint(equalToConstant: 20),
-
-      moveToGroupLabel.leadingAnchor.constraint(
-        equalTo: moveToGroupIcon.trailingAnchor, constant: Metrics.spacing3),
-      moveToGroupLabel.centerYAnchor.constraint(equalTo: moveToGroupContainer.centerYAnchor),
-
-      moveToGroupChevron.trailingAnchor.constraint(
-        equalTo: moveToGroupContainer.trailingAnchor, constant: -Metrics.spacing4),
-      moveToGroupChevron.centerYAnchor.constraint(equalTo: moveToGroupContainer.centerYAnchor),
-      moveToGroupChevron.widthAnchor.constraint(equalToConstant: 12),
-      moveToGroupChevron.heightAnchor.constraint(equalToConstant: 12),
     ])
 
     NSLayoutConstraint.activate([
@@ -1033,15 +970,6 @@ final class TransactionDetailsView: UIView {
       }
     }
 
-    // Apply permission checks for group context
-    let group = viewModel.getGroup()
-    let canEdit = viewModel.canEditTransaction(in: group)
-    let canDelete = viewModel.canDeleteTransaction(in: group)
-    editButton.isEnabled = canEdit
-    editButton.alpha = canEdit ? 1.0 : 0.5
-    deleteButton.isEnabled = canDelete
-    deleteButton.alpha = canDelete ? 1.0 : 0.5
-
     // Configure move-to-statement row (only for CC transactions)
     let isCCTransaction = viewModel.isCreditCardTransaction()
     moveToStatementContainer.isHidden = !isCCTransaction
@@ -1050,14 +978,6 @@ final class TransactionDetailsView: UIView {
       let formatter = DateFormatter.monthYearFormatter
       moveToStatementValueLabel.text = formatter.string(from: stmt.dueDate)
     }
-
-    // Configure move-to-group row
-    let isInGroup = viewModel.isInGroup()
-    let hasGroups = !viewModel.getAvailableGroups().isEmpty
-    moveToGroupContainer.isHidden = !hasGroups && !isInGroup
-    moveToGroupLabel.text = isInGroup
-      ? "transactionDetails.moveToPersonal".localized
-      : "transactionDetails.moveToGroup".localized
 
     configureEarlyPaymentSections(with: viewModel)
   }
@@ -1210,10 +1130,6 @@ final class TransactionDetailsView: UIView {
 
   @objc private func didTapBack() {
     delegate?.didTapBack()
-  }
-
-  @objc private func didTapMoveToGroup() {
-    delegate?.didTapMoveToGroup()
   }
 
   @objc private func didTapMoveToStatement() {

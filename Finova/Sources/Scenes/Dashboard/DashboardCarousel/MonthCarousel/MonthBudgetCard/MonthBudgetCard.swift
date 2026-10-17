@@ -24,13 +24,6 @@ class MonthBudgetCard: UIView {
     weak var delegate: MonthBudgetCardDelegate?
     weak var flipDelegate: MonthCardFlipDelegate?
     var ledgerService: TransactionLedgerService?
-    /// Assigned by the dashboard on every cell configure, in no guaranteed order relative to
-    /// `configure(data:)` — hence the observer rather than a read at configure time. The pencil's
-    /// visibility depends on it, and a card reused from a group the user owns into one they do not
-    /// would otherwise keep offering the adjustment.
-    var dataContext: DataContext = .personal {
-        didSet { applyAdjustAffordanceVisibility() }
-    }
     private var budgetDate: Date?
     
     private var displayMode: BalanceDisplayMode = .final
@@ -220,18 +213,6 @@ class MonthBudgetCard: UIView {
     }()
 
     private var adjustBalanceButtonWidth: NSLayoutConstraint?
-
-    /// Whether this card's ledger is one the user may rewrite the balance of.
-    ///
-    /// Group members who are not the owner may not, and the affordance is collapsed for them rather
-    /// than left to respond and do nothing — the version this replaces fired the haptic and then
-    /// silently returned, which reads as a broken card.
-    private var canAdjustBalance: Bool {
-        switch dataContext {
-        case .personal: return true
-        case .group(let group): return group.isOwner
-        }
-    }
 
     private lazy var budgetViewToggleButton: UIButton = {
         let button = UIButton(type: .system)
@@ -822,7 +803,7 @@ class MonthBudgetCard: UIView {
 
     @objc
     private func handleBalanceLongPress(_ gesture: UILongPressGestureRecognizer) {
-        guard gesture.state == .began, canAdjustBalance else { return }
+        guard gesture.state == .began else { return }
 
         // A press that starts on the pencil belongs to the button: it opens the menu on its own,
         // and without this the same press would also fire the modal behind it.
@@ -835,7 +816,6 @@ class MonthBudgetCard: UIView {
     }
 
     private func requestBalanceAdjustment() {
-        guard canAdjustBalance else { return }
         delegate?.didRequestBalanceAdjustment()
     }
     
@@ -911,7 +891,7 @@ class MonthBudgetCard: UIView {
     /// a nonsense offset.
     private func applyAdjustAffordanceVisibility() {
         let hasBudget = (currentMonthData?.budgetLimit ?? 0) > 0
-        let shows = hasBudget && !isFilterActive && canAdjustBalance
+        let shows = hasBudget && !isFilterActive
 
         adjustBalanceButton.isHidden = !shows
         adjustBalanceButtonWidth?.constant = shows ? Metrics.hideValuesButtonSize : 0
@@ -1245,16 +1225,8 @@ class MonthBudgetCard: UIView {
         let monthAnchor = data.date.monthAnchor
         let previousBalance = data.previousBalance ?? 0
 
-        switch dataContext {
-        case .personal:
-            return ledgerService.calculateBalanceForDay(
-                day: day, monthAnchor: monthAnchor, previousMonthBalance: previousBalance)
-
-        case .group(let group):
-            return ledgerService.calculateBalanceForDayForGroup(
-                day: day, monthAnchor: monthAnchor, previousMonthBalance: previousBalance,
-                groupId: group.id)
-        }
+        return ledgerService.calculateBalanceForDay(
+            day: day, monthAnchor: monthAnchor, previousMonthBalance: previousBalance)
     }
     
     override func layoutSubviews() {

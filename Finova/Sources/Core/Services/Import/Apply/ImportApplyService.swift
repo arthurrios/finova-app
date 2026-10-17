@@ -73,7 +73,7 @@ final class ImportApplyService {
         transactionRepo: TransactionRepository? = nil,
         batchRepo: ImportBatchRepository? = nil,
         currentUserId: @escaping () -> String? = { UIDUserDefaultsManager.shared.currentUserUID },
-        isSyncInProgress: @escaping () -> Bool = { SyncEngine.shared.isSyncInProgress }
+        isSyncInProgress: @escaping () -> Bool = { false }
     ) {
         self.db = db
         self.transactionRepo = transactionRepo ?? TransactionRepository(db: db)

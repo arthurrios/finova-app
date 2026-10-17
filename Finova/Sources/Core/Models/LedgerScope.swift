@@ -2,16 +2,11 @@
 //  LedgerScope.swift
 //  Finova
 //
-//  Which ledger a read is against: the user's own, or a group's.
+//  Which ledger a read is against. This build has only the user's own ledger.
 //
-//  `DataContext` answers this for the UI (it carries a whole `BudgetGroup`, for titles and chips).
-//  `LedgerScope` is its resolved form for queries: the two values a scoped predicate actually needs.
-//  A bare `String?` group id cannot express it — a personal read filters on `user_id` and a group
-//  read on `shared_group_id`, so the local uid has to travel alongside.
-//
-//  Resolve it ONCE per render pass and thread it down. Re-resolving per call site is how reads
-//  drift apart: several already do, which is why a group could render a budget from one scope and
-//  allocations from another.
+//  The database still holds rows tagged with a `shared_group_id` from builds that had family
+//  groups. A personal read must keep excluding them (`groupId == nil` filters on `user_id` and an
+//  untagged group column), so the scope keeps its group field even though nothing sets it.
 //
 
 import Foundation
@@ -31,19 +26,5 @@ struct LedgerScope: Equatable {
 
     static var personal: LedgerScope {
         LedgerScope(groupId: nil, localUid: UIDUserDefaultsManager.shared.currentUserUID)
-    }
-
-    static func group(_ groupId: String) -> LedgerScope {
-        LedgerScope(groupId: groupId, localUid: UIDUserDefaultsManager.shared.currentUserUID)
-    }
-
-    init(_ context: DataContext) {
-        self.init(groupId: context.groupId, localUid: UIDUserDefaultsManager.shared.currentUserUID)
-    }
-
-    /// The user's last active context. Use only where no context is being rendered — a screen that
-    /// knows what it is showing should pass that context rather than consult this.
-    static var current: LedgerScope {
-        LedgerScope(UIDUserDefaultsManager.shared.getLastContext())
     }
 }

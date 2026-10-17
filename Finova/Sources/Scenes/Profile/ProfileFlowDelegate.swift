@@ -9,6 +9,5 @@ protocol ProfileFlowDelegate: AnyObject {
     func dismissProfile()
     func navigateToSettings()
     func navigateToCreditCards()
-    func navigateToBudgetGroups()
     func logout()
 }

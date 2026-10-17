@@ -53,7 +53,7 @@ final class ImportPersistenceTests: XCTestCase {
     private func makeRows(_ count: Int, titlePrefix: String = "Row") -> [ImportableRow] {
         (0..<count).map { i in
             ImportableRow(
-                model: CloudKitSyncTestHelpers.makeTransactionModel(
+                model: TransactionTestFixtures.makeTransactionModel(
                     title: "\(titlePrefix) \(i)", amount: 1000 + i),
                 fingerprint: "fp-\(titlePrefix)-\(i)",
                 sourceLine: i + 2
@@ -107,20 +107,6 @@ final class ImportPersistenceTests: XCTestCase {
                  WHERE type = 'trigger' AND lower(tbl_name) LIKE 'importbatch%';
                 """),
             0, "the import tables must carry none of the syncable-table machinery")
-    }
-
-    /// The cheapest possible guard against reintroducing a full-app sync outage. An `import`-prefixed
-    /// field that production CloudKit does not have makes the server reject the whole record and
-    /// abandon every remaining batch.
-    func testTransactionCKRecordCarriesNoImportField() throws {
-        let batch = try applyService.apply(makeRequest(rows: makeRows(1)))
-        let tx = try XCTUnwrap(txRepo.fetchAllTransactions().first)
-        let record = tx.toCKRecord(in: CloudKitManager.privateZoneID, storedRecordName: nil, db: db)
-
-        XCTAssertFalse(
-            record.allKeys().contains { $0.lowercased().contains("import") },
-            "no import field may ever reach CloudKit — see CloudKitSchemaFlags")
-        XCTAssertEqual(batch.status, .applied)
     }
 
     // MARK: - Apply
@@ -177,15 +163,6 @@ final class ImportPersistenceTests: XCTestCase {
         XCTAssertFalse(seen.isEmpty)
         XCTAssertEqual(seen, seen.sorted())
         XCTAssertEqual(seen.last, 450)
-    }
-
-    /// The regression guard for the decision not to reach for `SyncChangeTracker.isSuppressed`. It is
-    /// a plain non-atomic Bool already written from the CloudKit callback queue; a third writer races,
-    /// and a throw would strand it `true` and silently kill sync for the session.
-    func testApplyLeavesSyncSuppressionUntouched() throws {
-        XCTAssertFalse(SyncChangeTracker.shared.isSuppressed)
-        _ = try applyService.apply(makeRequest(rows: makeRows(300)))
-        XCTAssertFalse(SyncChangeTracker.shared.isSuppressed)
     }
 
     func testApplyPostsExactlyOneTransactionDataChanged() throws {

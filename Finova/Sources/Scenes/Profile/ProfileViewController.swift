@@ -57,10 +57,6 @@ extension ProfileViewController: ProfileViewDelegate {
         flowDelegate?.navigateToCreditCards()
     }
 
-    func didTapBudgetGroups() {
-        flowDelegate?.navigateToBudgetGroups()
-    }
-
     func didTapSettings() {
         flowDelegate?.navigateToSettings()
     }

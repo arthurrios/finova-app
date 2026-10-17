@@ -32,9 +32,6 @@ protocol BudgetAllocationRepositoryProtocol {
     func materializeAllSeries() -> Int
     /// Batches a multi-row mutation into one transaction + one change notification.
     func performBulk(_ work: () throws -> Void) throws
-    func fetchPersonalAllocationsCount() -> Int
-    func fetchImportableAllocationsCount() -> Int
-    func migrateAllocationsToGroup(groupId: String) -> Int
 }
 
 // MARK: - Implementation
@@ -597,44 +594,6 @@ final class BudgetAllocationRepository: BudgetAllocationRepositoryProtocol {
                 intBindings: [allocationId]
             )
         }
-    }
-
-    // MARK: - Group Migration
-
-    func fetchPersonalAllocationsCount() -> Int {
-        let models = db.fetchAllBudgetAllocations(userId: UIDUserDefaultsManager.shared.currentUserUID)
-        return models.filter { $0.sharedGroupId == nil }.count
-    }
-
-    func fetchImportableAllocationsCount() -> Int {
-        let models = db.fetchAllBudgetAllocations(userId: UIDUserDefaultsManager.shared.currentUserUID)
-        let activeGroupIds = Set(BudgetGroupRepository().fetchAllGroups().map { $0.id })
-        return models.filter { model in
-            model.sharedGroupId == nil || !activeGroupIds.contains(model.sharedGroupId ?? "")
-        }.count
-    }
-
-    func migrateAllocationsToGroup(groupId: String) -> Int {
-        let models = db.fetchAllBudgetAllocations(userId: UIDUserDefaultsManager.shared.currentUserUID)
-        let activeGroupIds = Set(BudgetGroupRepository().fetchAllGroups().map { $0.id })
-        var migratedCount = 0
-
-        for model in models {
-            let isImportable = model.sharedGroupId == nil || !activeGroupIds.contains(model.sharedGroupId ?? "")
-            guard isImportable, let id = model.id else { continue }
-            db.executeSyncUpdate(
-                "UPDATE BudgetAllocations SET shared_group_id = ?, sync_status = 'pending' WHERE id = ?;",
-                textBindings: [groupId],
-                intBindings: [id]
-            )
-            migratedCount += 1
-        }
-
-        if migratedCount > 0 {
-            logDebug("BudgetAllocationRepository: Migrated \(migratedCount) allocations to group \(groupId)")
-        }
-
-        return migratedCount
     }
 
     // MARK: - CloudKit Sync Methods

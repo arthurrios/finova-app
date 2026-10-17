@@ -257,7 +257,7 @@ final class InstallmentCancellationTests: XCTestCase {
 
         // A credit attached to a statement has to bring the invoice DOWN. Summing amounts without
         // regard to type made an income row raise it instead.
-        let refundModel = CloudKitSyncTestHelpers.makeTransactionModel(
+        let refundModel = TransactionTestFixtures.makeTransactionModel(
             title: "Refund", category: "creditCard", amount: 25000, type: "income")
         let refundId = try transactionRepo.insertTransactionAndGetId(refundModel)
         try transactionRepo.updateCreditCardFields(
@@ -266,7 +266,7 @@ final class InstallmentCancellationTests: XCTestCase {
         TransactionRepository.invalidateCache()
 
         let totals = DBHelper.shared.statementTotals(
-            statementId: statementId, scope: LedgerScope(.personal))
+            statementId: statementId, scope: LedgerScope.personal)
 
         XCTAssertEqual(
             totals.total, -25000,

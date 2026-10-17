@@ -84,32 +84,6 @@ final class SettingsViewModel {
     ("SAR", "Saudi Riyal")
   ]
 
-  // MARK: - Transparent Mode
-  //
-  // Mirror Mode moved your personal ledger into the group, which by the app's own rule stopped
-  // those rows being personal. This publishes a COPY and leaves the originals alone, so turning it
-  // off simply withdraws the copies. The user-facing wording says so explicitly — someone deciding
-  // whether to enable it needs to know their own records are not going anywhere.
-
-  var isPublishingToAnyGroup: Bool {
-    return !TransparencyManager.shared.publishedGroupIds().isEmpty
-  }
-
-  var publishedGroupNames: String? {
-    let names = TransparencyManager.shared.publishedGroupIds()
-      .compactMap { BudgetGroupService.shared.fetchGroup(byId: $0)?.name }
-    return names.isEmpty ? nil : names.joined(separator: ", ")
-  }
-
-  /// Every group the user belongs to, not just the ones they own.
-  ///
-  /// Mirror Mode was owner-only, because moving your ledger into someone else's group would have
-  /// handed them your records. Publishing a copy carries no such risk, so any member may choose to
-  /// be transparent to their own group.
-  var availableGroups: [BudgetGroup] {
-    return BudgetGroupService.shared.fetchAllGroups().filter { !$0.isDeleted }
-  }
-
   // MARK: - Initialization
 
   init() {
@@ -120,7 +94,6 @@ final class SettingsViewModel {
 
   private func configureInitialSettings() {
     updateBiometricUI()
-    updateTransparencyUI()
     delegate?.didUpdateAppVersion(version: appVersionString)
   }
 
@@ -148,50 +121,7 @@ final class SettingsViewModel {
     updateBiometricUI()
     updateCurrencyUI()
     updateTagTranslationUI()
-    updateTransparencyUI()
     delegate?.didUpdateAppVersion(version: appVersionString)
-  }
-
-  // MARK: - Group Sharing Management
-
-  private func updateTransparencyUI() {
-    delegate?.didUpdateTransparency(
-      isEnabled: isPublishingToAnyGroup,
-      groupName: publishedGroupNames
-    )
-  }
-
-  func toggleTransparency(_ enabled: Bool) {
-    if enabled {
-      let groups = availableGroups
-      if groups.isEmpty {
-        delegate?.didUpdateTransparency(isEnabled: false, groupName: nil)
-        return
-      }
-      if groups.count == 1, let group = groups.first {
-        selectTransparencyGroup(group)
-      } else {
-        delegate?.didRequestGroupSelection(groups: groups)
-      }
-    } else {
-      // Stop publishing everywhere. No financial row is touched: the next sync withdraws the
-      // projections from the group zones and the personal ledger is left exactly as it was.
-      for groupId in TransparencyManager.shared.publishedGroupIds() {
-        TransparencyManager.shared.setPublishing(false, forGroup: groupId)
-      }
-      SyncEngine.shared.pushPendingChangesNow()
-      updateTransparencyUI()
-    }
-  }
-
-  func selectTransparencyGroup(_ group: BudgetGroup) {
-    TransparencyManager.shared.setPublishing(true, forGroup: group.id)
-    SyncEngine.shared.pushPendingChangesNow()
-    updateTransparencyUI()
-  }
-
-  func isPublishing(to group: BudgetGroup) -> Bool {
-    TransparencyManager.shared.isPublishing(toGroup: group.id)
   }
 
   // MARK: - Tag Translation

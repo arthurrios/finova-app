@@ -131,19 +131,6 @@ final class SettingsView: UIView {
     /// stalled.
     private let translateTagsFooterLabel = createSectionFooter()
 
-    // Sharing Section
-    private let sharingHeaderView = createSectionHeader(title: "settings.section.sharing".localized)
-
-    private let syncSettingsContainer: UIView = {
-        let container = createSettingContainer()
-        container.isUserInteractionEnabled = true
-        return container
-    }()
-    private let syncSettingsIconView = createIconView(imageName: "icloud")
-    private let syncSettingsLabel = createSettingLabel(text: "settings.sync.title".localized)
-    let syncStatusDetailLabel = createDetailLabel(text: "")
-    private let syncSettingsChevron = createChevronView()
-
     // Data Section
     private let dataHeaderView = createSectionHeader(title: "settings.section.data".localized)
 
@@ -155,29 +142,6 @@ final class SettingsView: UIView {
     private let importDataIconView = createIconView(imageName: "square.and.arrow.down")
     private let importDataLabel = createSettingLabel(text: "settings.import.title".localized)
     private let importDataChevron = createChevronView()
-
-    // Group Sharing (Transparent Mode) Section
-    private let transparencyHeaderView = createSectionHeader(title: "settings.section.transparency".localized)
-
-    let transparencyContainer = createSettingContainer()
-    private let transparencyIconView = createIconView(imageName: "eye")
-    let transparencyLabel = createSettingLabel(text: "settings.transparency.title".localized)
-    let transparencySwitch: UISwitch = {
-        let toggle = UISwitch()
-        toggle.onTintColor = Colors.mainMagenta
-        toggle.translatesAutoresizingMaskIntoConstraints = false
-        return toggle
-    }()
-
-    let transparencyGroupContainer: UIView = {
-        let container = createSettingContainer()
-        container.isUserInteractionEnabled = true
-        container.isHidden = true
-        return container
-    }()
-    private let transparencyGroupIconView = createIconView(imageName: "person.2")
-    let transparencyGroupLabel = createSettingLabel(text: "settings.transparency.noGroup".localized)
-    private let transparencyGroupChevron = createChevronView()
 
     // Notifications Section
     private let notificationsHeaderView = createSectionHeader(title: "settings.section.notifications".localized)
@@ -259,24 +223,10 @@ final class SettingsView: UIView {
         contentStackView.addArrangedSubview(downloadLanguagesContainer)
         contentStackView.addArrangedSubview(translateTagsFooterLabel)
 
-        // Sharing section (iCloud sync) — absent in Finova Demo, which has no iCloud
-        if CloudKitManager.isCloudKitEnabled {
-            contentStackView.addArrangedSubview(sharingHeaderView)
-            setupSyncSettingsContainer()
-            contentStackView.addArrangedSubview(syncSettingsContainer)
-        }
-
         // Data section
         contentStackView.addArrangedSubview(dataHeaderView)
         setupImportDataContainer()
         contentStackView.addArrangedSubview(importDataContainer)
-
-        // Group Sharing section
-        contentStackView.addArrangedSubview(transparencyHeaderView)
-        setupTransparencyContainer()
-        contentStackView.addArrangedSubview(transparencyContainer)
-        setupTransparencyGroupContainer()
-        contentStackView.addArrangedSubview(transparencyGroupContainer)
 
         // Notifications section
         contentStackView.addArrangedSubview(notificationsHeaderView)
@@ -490,27 +440,6 @@ final class SettingsView: UIView {
         downloadLanguagesIconView.layer.add(rotation, forKey: "rotationAnimation")
     }
 
-    private func setupSyncSettingsContainer() {
-        syncSettingsContainer.addSubview(syncSettingsIconView)
-        syncSettingsContainer.addSubview(syncSettingsLabel)
-        syncSettingsContainer.addSubview(syncStatusDetailLabel)
-        syncSettingsContainer.addSubview(syncSettingsChevron)
-
-        NSLayoutConstraint.activate([
-            syncSettingsIconView.leadingAnchor.constraint(equalTo: syncSettingsContainer.leadingAnchor, constant: Metrics.spacing4),
-            syncSettingsIconView.centerYAnchor.constraint(equalTo: syncSettingsContainer.centerYAnchor),
-
-            syncSettingsLabel.leadingAnchor.constraint(equalTo: syncSettingsIconView.trailingAnchor, constant: Metrics.spacing3),
-            syncSettingsLabel.centerYAnchor.constraint(equalTo: syncSettingsContainer.centerYAnchor),
-
-            syncSettingsChevron.trailingAnchor.constraint(equalTo: syncSettingsContainer.trailingAnchor, constant: -Metrics.spacing4),
-            syncSettingsChevron.centerYAnchor.constraint(equalTo: syncSettingsContainer.centerYAnchor),
-
-            syncStatusDetailLabel.trailingAnchor.constraint(equalTo: syncSettingsChevron.leadingAnchor, constant: -Metrics.spacing2),
-            syncStatusDetailLabel.centerYAnchor.constraint(equalTo: syncSettingsContainer.centerYAnchor)
-        ])
-    }
-
     private func setupImportDataContainer() {
         importDataContainer.addSubview(importDataIconView)
         importDataContainer.addSubview(importDataLabel)
@@ -525,40 +454,6 @@ final class SettingsView: UIView {
 
             importDataChevron.trailingAnchor.constraint(equalTo: importDataContainer.trailingAnchor, constant: -Metrics.spacing4),
             importDataChevron.centerYAnchor.constraint(equalTo: importDataContainer.centerYAnchor)
-        ])
-    }
-
-    private func setupTransparencyContainer() {
-        transparencyContainer.addSubview(transparencyIconView)
-        transparencyContainer.addSubview(transparencyLabel)
-        transparencyContainer.addSubview(transparencySwitch)
-
-        NSLayoutConstraint.activate([
-            transparencyIconView.leadingAnchor.constraint(equalTo: transparencyContainer.leadingAnchor, constant: Metrics.spacing4),
-            transparencyIconView.centerYAnchor.constraint(equalTo: transparencyContainer.centerYAnchor),
-
-            transparencyLabel.leadingAnchor.constraint(equalTo: transparencyIconView.trailingAnchor, constant: Metrics.spacing3),
-            transparencyLabel.centerYAnchor.constraint(equalTo: transparencyContainer.centerYAnchor),
-
-            transparencySwitch.trailingAnchor.constraint(equalTo: transparencyContainer.trailingAnchor, constant: -Metrics.spacing4),
-            transparencySwitch.centerYAnchor.constraint(equalTo: transparencyContainer.centerYAnchor)
-        ])
-    }
-
-    private func setupTransparencyGroupContainer() {
-        transparencyGroupContainer.addSubview(transparencyGroupIconView)
-        transparencyGroupContainer.addSubview(transparencyGroupLabel)
-        transparencyGroupContainer.addSubview(transparencyGroupChevron)
-
-        NSLayoutConstraint.activate([
-            transparencyGroupIconView.leadingAnchor.constraint(equalTo: transparencyGroupContainer.leadingAnchor, constant: Metrics.spacing4),
-            transparencyGroupIconView.centerYAnchor.constraint(equalTo: transparencyGroupContainer.centerYAnchor),
-
-            transparencyGroupLabel.leadingAnchor.constraint(equalTo: transparencyGroupIconView.trailingAnchor, constant: Metrics.spacing3),
-            transparencyGroupLabel.centerYAnchor.constraint(equalTo: transparencyGroupContainer.centerYAnchor),
-
-            transparencyGroupChevron.trailingAnchor.constraint(equalTo: transparencyGroupContainer.trailingAnchor, constant: -Metrics.spacing4),
-            transparencyGroupChevron.centerYAnchor.constraint(equalTo: transparencyGroupContainer.centerYAnchor)
         ])
     }
 
@@ -687,16 +582,8 @@ final class SettingsView: UIView {
         let notificationsTap = UITapGestureRecognizer(target: self, action: #selector(notificationsTapped))
         notificationsContainer.addGestureRecognizer(notificationsTap)
 
-        let syncSettingsTap = UITapGestureRecognizer(target: self, action: #selector(syncSettingsTapped))
-        syncSettingsContainer.addGestureRecognizer(syncSettingsTap)
-
         let importDataTap = UITapGestureRecognizer(target: self, action: #selector(importDataTapped))
         importDataContainer.addGestureRecognizer(importDataTap)
-
-        transparencySwitch.addTarget(self, action: #selector(transparencyToggled), for: .valueChanged)
-
-        let transparencyGroupTap = UITapGestureRecognizer(target: self, action: #selector(transparencyGroupTapped))
-        transparencyGroupContainer.addGestureRecognizer(transparencyGroupTap)
     }
 
     @objc
@@ -737,21 +624,6 @@ final class SettingsView: UIView {
     @objc
     private func handleDidTapBackButton() {
         delegate?.handleDidTapBackButton()
-    }
-
-    @objc
-    private func syncSettingsTapped() {
-        delegate?.didTapSyncSettings()
-    }
-
-    @objc
-    private func transparencyToggled() {
-        delegate?.didToggleTransparency(transparencySwitch.isOn)
-    }
-
-    @objc
-    private func transparencyGroupTapped() {
-        delegate?.didTapTransparencyGroupPicker()
     }
 }
 

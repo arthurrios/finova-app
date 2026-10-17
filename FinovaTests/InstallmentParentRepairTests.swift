@@ -35,7 +35,7 @@ final class InstallmentParentRepairTests: XCTestCase {
 
   private func insertParent(title: String, total: Int, ckName: String) throws -> Int {
     let id = try transactionRepo.insertTransactionAndGetId(
-      CloudKitSyncTestHelpers.makeTransactionModel(
+      TransactionTestFixtures.makeTransactionModel(
         title: title, amount: 0, hasInstallments: true, totalInstallments: total))
     transactionRepo.setCKRecordId(for: id, ckRecordName: ckName)
     return id
@@ -46,7 +46,7 @@ final class InstallmentParentRepairTests: XCTestCase {
     card: Int? = nil
   ) throws -> Int {
     let id = try transactionRepo.insertTransactionAndGetId(
-      CloudKitSyncTestHelpers.makeTransactionModel(
+      TransactionTestFixtures.makeTransactionModel(
         title: title, amount: 1_000, parentTransactionId: danglingParent,
         installmentNumber: number, totalInstallments: total, creditCardId: card))
     if let ckParent {

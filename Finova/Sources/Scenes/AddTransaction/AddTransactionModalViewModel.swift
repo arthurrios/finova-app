@@ -27,16 +27,6 @@ final class AddTransactionModalViewModel {
     )
   }
 
-  /// Current context for transaction creation — determines which group (if any) the transaction belongs to
-  var activeContext: DataContext = .personal
-
-  // MARK: - Permission Checks
-
-  func canAddTransaction(in group: BudgetGroup?) -> Bool {
-    guard let group = group else { return true }
-    return BudgetGroupService.shared.currentUserCan(\.canCreateTransactions, in: group)
-  }
-
   func addTransaction(
     title: String,
     amount: Int,
@@ -100,14 +90,6 @@ final class AddTransactionModalViewModel {
         transactionRepo.setCKRecordId(for: insertedId, ckRecordName: ckRecordName)
 
         // Assign to group if in group context
-        logWarning("CREATE (recurring): activeContext=\(activeContext), groupId=\(activeContext.groupId ?? "nil")")
-        if let groupId = activeContext.groupId {
-          transactionRepo.updateSharedGroupId(transactionId: insertedId, groupId: groupId)
-          GroupNotificationService.shared.logActivity(
-            action: .transactionCreated, groupId: groupId, detail: title,
-            targetRecordName: ckRecordName)
-          SyncEngine.shared.pushPendingChangesNow()
-        }
 
         // THE SERIES this row belongs to — which is NOT always the row just inserted. When it links
         // into an existing series, the new row becomes a CHILD, and generation only ever runs for
@@ -139,7 +121,6 @@ final class AddTransactionModalViewModel {
         let created = recurringManager.materializeSeries(parentId: seriesParentId)
         logWarning("[RecurringCreate] '\(title)' series \(seriesParentId) materialized \(created) occurrence(s)")
         invalidateLedgerCache()
-        SyncEngine.shared.pushPendingChangesNow()
 
         return .success(())
       } catch {
@@ -168,14 +149,6 @@ final class AddTransactionModalViewModel {
         transactionRepo.setCKRecordId(for: insertedId, ckRecordName: ckRecordName)
 
         // Assign to group if in group context
-        logWarning("CREATE: activeContext=\(activeContext), groupId=\(activeContext.groupId ?? "nil")")
-        if let groupId = activeContext.groupId {
-          transactionRepo.updateSharedGroupId(transactionId: insertedId, groupId: groupId)
-          GroupNotificationService.shared.logActivity(
-            action: .transactionCreated, groupId: groupId, detail: title,
-            targetRecordName: ckRecordName)
-          SyncEngine.shared.pushPendingChangesNow()
-        }
 
         // Handle credit card statement assignment
         if let cardId = creditCardId, let card = creditCardRepo.fetchCard(byId: cardId) {
@@ -268,14 +241,6 @@ final class AddTransactionModalViewModel {
       transactionRepo.setCKRecordId(for: insertedId, ckRecordName: ckRecordName)
 
       // Assign to group if in group context or mirror mode
-      logWarning("CREATE (recurringAsync): activeContext=\(self.activeContext), groupId=\(self.activeContext.groupId ?? "nil")")
-      if let groupId = self.activeContext.groupId {
-        self.transactionRepo.updateSharedGroupId(transactionId: insertedId, groupId: groupId)
-        GroupNotificationService.shared.logActivity(
-          action: .transactionCreated, groupId: groupId, detail: title,
-          targetRecordName: ckRecordName)
-        SyncEngine.shared.pushPendingChangesNow()
-      }
 
       // THE SERIES this row belongs to — see the same block in `addTransaction`. When it links into
       // an existing series the new row becomes a CHILD, and generation only ever runs for parents,
@@ -332,7 +297,6 @@ final class AddTransactionModalViewModel {
 
         guard let self = self else {
           DispatchQueue.main.async {
-            SyncEngine.shared.pushPendingChangesNow()
             completion(.success(()))
           }
           return
@@ -343,7 +307,6 @@ final class AddTransactionModalViewModel {
         self.invalidateLedgerCache()
 
         DispatchQueue.main.async {
-          SyncEngine.shared.pushPendingChangesNow()
           completion(.success(()))
         }
       }
@@ -404,14 +367,6 @@ final class AddTransactionModalViewModel {
       transactionRepo.setCKRecordId(for: parentId, ckRecordName: ckRecordName)
 
       // Assign parent to group if in group context or mirror mode
-      let groupId: String? = activeContext.groupId
-      if let groupId = groupId {
-        transactionRepo.updateSharedGroupId(transactionId: parentId, groupId: groupId)
-        GroupNotificationService.shared.logActivity(
-          action: .transactionCreated, groupId: groupId, detail: data.title,
-          targetRecordName: ckRecordName)
-        SyncEngine.shared.pushPendingChangesNow()
-      }
 
       // UPFRONT GENERATION: Create ALL installments at once for cloud sync consistency
       let immediateInstallmentCount = totalInstallments
@@ -458,9 +413,6 @@ final class AddTransactionModalViewModel {
         let installmentId = try transactionRepo.insertTransactionAndGetId(installmentModel)
 
         // Assign installment to group
-        if let groupId = groupId {
-          transactionRepo.updateSharedGroupId(transactionId: installmentId, groupId: groupId)
-        }
 
         // Assign installment to correct credit card statement + remap date to due date
         if let cardId = data.creditCardId, let card = creditCardRepo.fetchCard(byId: cardId) {
@@ -505,9 +457,6 @@ final class AddTransactionModalViewModel {
 
       // Invalidate ledger cache since transactions changed
       invalidateLedgerCache()
-
-      // Push immediately so sync happens right after creation (all installments are eager).
-      SyncEngine.shared.pushPendingChangesNow()
 
       return .success(())
     } catch {
@@ -577,13 +526,6 @@ final class AddTransactionModalViewModel {
         self.transactionRepo.setCKRecordId(for: parentId, ckRecordName: ckRecordName)
 
         // Assign parent to group if in group context or mirror mode
-        let groupId: String? = self.activeContext.groupId
-        if let groupId = groupId {
-          self.transactionRepo.updateSharedGroupId(transactionId: parentId, groupId: groupId)
-          GroupNotificationService.shared.logActivity(
-            action: .transactionCreated, groupId: groupId, detail: data.title,
-            targetRecordName: ckRecordName)
-        }
 
         // UPFRONT GENERATION: Create ALL installments at once for cloud sync consistency
         let immediateInstallmentCount = totalInstallments
@@ -630,9 +572,6 @@ final class AddTransactionModalViewModel {
           allInstallments.append(installmentModel)
 
           // Assign installment to group
-          if let groupId = groupId {
-            self.transactionRepo.updateSharedGroupId(transactionId: insertedInstallmentId, groupId: groupId)
-          }
 
           // Assign installment to correct credit card statement + remap date to due date
           if let cardId = data.creditCardId, let card = self.creditCardRepo.fetchCard(byId: cardId) {
@@ -670,8 +609,6 @@ final class AddTransactionModalViewModel {
 
         DispatchQueue.main.async {
           self.invalidateLedgerCache()
-          // Push immediately so sync happens right after creation (all installments are eager).
-          SyncEngine.shared.pushPendingChangesNow()
           completion(.success(()))
         }
 
@@ -785,18 +722,6 @@ final class AddTransactionModalViewModel {
       // `pending` (see the note in `DBHelper.updateTransaction`).
       try transactionRepo.updateTransaction(updatedTransaction)
 
-      // Log group activity if transaction belongs to a group (or mirror mode)
-      let fetchedGroupId = transactionRepo.fetchSharedGroupId(for: id)
-      logWarning("EDIT: fetchSharedGroupId=\(fetchedGroupId ?? "nil"), activeContext=\(activeContext)")
-      let editGroupId = fetchedGroupId
-      if let groupId = editGroupId {
-        let ckRecordName = transactionRepo.fetchCKRecordName(for: id)
-        GroupNotificationService.shared.logActivity(
-          action: .transactionEdited, groupId: groupId, detail: title,
-          targetRecordName: ckRecordName)
-        SyncEngine.shared.pushPendingChangesNow()
-      }
-
       // Recalculate old statement if transaction moved away from it
       if let oldStmtId = originalStatementId, oldStmtId != newStatementId {
         creditCardService.recalculateStatementTotal(statementId: oldStmtId)
@@ -805,11 +730,6 @@ final class AddTransactionModalViewModel {
       // Recalculate new statement
       if let newStmtId = newStatementId {
         creditCardService.recalculateStatementTotal(statementId: newStmtId)
-      }
-
-      // Push CC statement changes to cloud (even for personal transactions)
-      if newCreditCardId != nil || originalCreditCardId != nil {
-        SyncEngine.shared.pushPendingChangesNow()
       }
 
       invalidateLedgerCache()
@@ -900,12 +820,6 @@ final class AddTransactionModalViewModel {
         // The reminders carry the title.
         InstallmentNotificationManager.shared.rescheduleNotifications(parentTransactionId: seriesId)
 
-        if let groupId = transactionRepo.fetchSharedGroupId(for: seriesId) {
-          GroupNotificationService.shared.logActivity(
-            action: .transactionEdited, groupId: groupId, detail: data.title,
-            targetRecordName: transactionRepo.fetchCKRecordName(for: seriesId))
-        }
-        SyncEngine.shared.pushPendingChangesNow()
         invalidateLedgerCache()
         return .success(())
       }
@@ -1080,21 +994,6 @@ final class AddTransactionModalViewModel {
       do {
         try transactionRepo.updateTransaction(updatedTransaction)
 
-        // Log group activity if transaction belongs to a group (or mirror mode)
-        let txId = mainInstallmentTransaction.id ?? id
-        let installEditGroupId = transactionRepo.fetchSharedGroupId(for: txId)
-        if let groupId = installEditGroupId {
-          let ckRecordName = transactionRepo.fetchCKRecordName(for: txId)
-          GroupNotificationService.shared.logActivity(
-            action: .transactionEdited, groupId: groupId, detail: data.title,
-            targetRecordName: ckRecordName)
-        }
-
-        // Push CC statement changes to cloud (even for personal transactions)
-        if data.creditCardId != nil {
-          SyncEngine.shared.pushPendingChangesNow()
-        }
-
         invalidateLedgerCache()
         return .success(())
       } catch {
@@ -1206,20 +1105,6 @@ final class AddTransactionModalViewModel {
         creditCardService.recalculateStatementTotal(statementId: newStmtId)
       }
 
-      // Log group activity if transaction belongs to a group (or mirror mode)
-      let singleEditGroupId = transactionRepo.fetchSharedGroupId(for: id)
-      if let groupId = singleEditGroupId {
-        let ckRecordName = transactionRepo.fetchCKRecordName(for: id)
-        GroupNotificationService.shared.logActivity(
-          action: .transactionEdited, groupId: groupId, detail: title,
-          targetRecordName: ckRecordName)
-      }
-
-      // Push CC statement changes to cloud (even for personal transactions)
-      if creditCardId != nil || originalCreditCardId != nil {
-        SyncEngine.shared.pushPendingChangesNow()
-      }
-
       invalidateLedgerCache()
       return .success(())
 
@@ -1280,20 +1165,6 @@ final class AddTransactionModalViewModel {
             newBudgetMonthDate: statement.dueDate.monthAnchor
           )
         }
-      }
-
-      // Log group activity if transaction belongs to a group (or mirror mode)
-      let singleInstallEditGroupId = transactionRepo.fetchSharedGroupId(for: id)
-      if let groupId = singleInstallEditGroupId {
-        let ckRecordName = transactionRepo.fetchCKRecordName(for: id)
-        GroupNotificationService.shared.logActivity(
-          action: .transactionEdited, groupId: groupId, detail: data.title,
-          targetRecordName: ckRecordName)
-      }
-
-      // Push CC statement changes to cloud (even for personal transactions)
-      if data.creditCardId != nil {
-        SyncEngine.shared.pushPendingChangesNow()
       }
 
       invalidateLedgerCache()
@@ -1392,15 +1263,6 @@ final class AddTransactionModalViewModel {
         editOption: editOption,
         newData: newTransactionData
       )
-
-      // Log group activity if transaction belongs to a group (or mirror mode)
-      let recurEditGroupId = transactionRepo.fetchSharedGroupId(for: id)
-      if let groupId = recurEditGroupId {
-        let ckRecordName = transactionRepo.fetchCKRecordName(for: id)
-        GroupNotificationService.shared.logActivity(
-          action: .transactionEdited, groupId: groupId, detail: title,
-          targetRecordName: ckRecordName)
-      }
 
       invalidateLedgerCache()
       return .success(())
@@ -1511,19 +1373,7 @@ final class AddTransactionModalViewModel {
         newData: newTransactionData
       ) { [weak self] result in
         if case .success = result {
-          // Log group activity if transaction belongs to a group (or mirror mode)
-          let asyncRecurEditGroupId = self?.transactionRepo.fetchSharedGroupId(for: id)
-          if let groupId = asyncRecurEditGroupId {
-            let ckRecordName = self?.transactionRepo.fetchCKRecordName(for: id)
-            GroupNotificationService.shared.logActivity(
-              action: .transactionEdited, groupId: groupId, detail: title,
-              targetRecordName: ckRecordName)
-          }
           self?.invalidateLedgerCache()
-          // Outside the group branch: a personal series edit touches every occurrence of the
-          // series and must push too. Gated on `groupId`, personal edits sat pending until some
-          // unrelated trigger fired a sync.
-          SyncEngine.shared.pushPendingChangesNow()
         }
         completion(result)
       }

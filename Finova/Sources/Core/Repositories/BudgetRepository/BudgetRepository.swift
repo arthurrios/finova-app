@@ -32,15 +32,6 @@ final class BudgetRepository: BudgetRepositoryProtocol {
       "UPDATE Budgets SET sync_status = 'pending' WHERE month_date = ?;",
       intBindings: [budget.monthDate]
     )
-    let groupId = db.fetchSingleString(
-      "SELECT shared_group_id FROM Budgets WHERE month_date = ?;",
-      intBinding: budget.monthDate
-    )
-    if let groupId = groupId {
-      GroupNotificationService.shared.logActivity(
-        action: .budgetEdited, groupId: groupId, detail: "")
-    }
-
     NotificationCenter.default.post(name: .budgetDataChanged, object: nil)
   }
 

@@ -299,33 +299,6 @@ final class AddTransactionModalView: UIView {
     return button
   }()
 
-  // MARK: - Group Context Banner
-  let groupContextBanner: UIView = {
-    let view = UIView()
-    view.backgroundColor = Colors.mainMagenta.withAlphaComponent(0.1)
-    view.layer.cornerRadius = CornerRadius.medium
-    view.isHidden = true
-    view.translatesAutoresizingMaskIntoConstraints = false
-    return view
-  }()
-
-  private let groupBannerIcon: UIImageView = {
-    let iv = UIImageView()
-    iv.image = UIImage(systemName: "person.3.fill")
-    iv.tintColor = Colors.mainMagenta
-    iv.contentMode = .scaleAspectFit
-    iv.translatesAutoresizingMaskIntoConstraints = false
-    return iv
-  }()
-
-  let groupBannerLabel: UILabel = {
-    let label = UILabel()
-    label.font = Fonts.textXS.font
-    label.textColor = Colors.mainMagenta
-    label.translatesAutoresizingMaskIntoConstraints = false
-    return label
-  }()
-
   private let transactionTitleTextField = Input(
     placeholder: "addTransactionModal.input.transactionTitle".localized)
   let categoryPickerView = Input(
@@ -445,8 +418,7 @@ final class AddTransactionModalView: UIView {
     scrollView.addSubview(contentStackView)
     closeIconButton.addTarget(self, action: #selector(didTapClose), for: .touchUpInside)
 
-    // Setup group context banner
-    setupGroupBanner()
+    contentStackView.setCustomSpacing(Metrics.spacing3, after: headerStackView)
 
     saveButton.addTarget(self, action: #selector(didTapSaveTransaction), for: .touchUpInside)
 
@@ -502,38 +474,6 @@ final class AddTransactionModalView: UIView {
   @objc private func dateDidChange() {
     // Refreshes the business-day hint too — see `updateStatementInfoBanner`.
     updateStatementInfoBanner()
-  }
-
-  private func setupGroupBanner() {
-    groupContextBanner.addSubview(groupBannerIcon)
-    groupContextBanner.addSubview(groupBannerLabel)
-
-    NSLayoutConstraint.activate([
-      groupContextBanner.heightAnchor.constraint(equalToConstant: 32),
-
-      groupBannerIcon.leadingAnchor.constraint(equalTo: groupContextBanner.leadingAnchor, constant: Metrics.spacing3),
-      groupBannerIcon.centerYAnchor.constraint(equalTo: groupContextBanner.centerYAnchor),
-      groupBannerIcon.widthAnchor.constraint(equalToConstant: 16),
-      groupBannerIcon.heightAnchor.constraint(equalToConstant: 16),
-
-      groupBannerLabel.leadingAnchor.constraint(equalTo: groupBannerIcon.trailingAnchor, constant: Metrics.spacing2),
-      groupBannerLabel.centerYAnchor.constraint(equalTo: groupContextBanner.centerYAnchor),
-      groupBannerLabel.trailingAnchor.constraint(lessThanOrEqualTo: groupContextBanner.trailingAnchor, constant: -Metrics.spacing3),
-    ])
-
-    // Insert banner after the header in the content stack
-    contentStackView.insertArrangedSubview(groupContextBanner, at: 1)
-    contentStackView.setCustomSpacing(Metrics.spacing3, after: headerStackView)
-  }
-
-  func configureGroupContext(_ context: DataContext) {
-    switch context {
-    case .personal:
-      groupContextBanner.isHidden = true
-    case .group(let group):
-      groupContextBanner.isHidden = false
-      groupBannerLabel.text = String(format: "dashboard.context.addingTo".localized, group.name)
-    }
   }
 
   private func setupTransactionModeControl() {

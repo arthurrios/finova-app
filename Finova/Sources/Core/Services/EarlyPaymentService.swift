@@ -107,11 +107,6 @@ final class EarlyPaymentService {
         let total = installments.reduce(0) { $0 + $1.amount }
         let installmentIds = installments.compactMap { $0.id }
 
-        // The debit inherits the series' ledger. Without this an early payment made inside a group
-        // would be created as a personal expense while the installments it settles stay in the
-        // group — the group's statement total would drop with nothing to account for it.
-        let groupId = installmentIds.compactMap { db.getSharedGroupId(transactionId: $0) }.first
-
         // Categorised as `.creditCard` rather than inheriting the purchase's category: what leaves
         // the account is a card payment, and this is what puts it in the Credit Card row of the
         // budget-allocation screen for the month it is actually paid.
@@ -143,10 +138,6 @@ final class EarlyPaymentService {
 
             guard db.setEarlyPayment(transactionId: paymentId, isEarlyPayment: true) else {
                 throw EarlyPaymentError.couldNotMarkSettled
-            }
-
-            if let groupId = groupId {
-                transactionRepo.updateSharedGroupId(transactionId: paymentId, groupId: groupId)
             }
 
             // The owning user is only needed to stamp a NEWLY created statement, so it is resolved
@@ -186,8 +177,7 @@ final class EarlyPaymentService {
             paymentId: paymentId,
             model: model,
             statementIds: statementsToRecalculate,
-            installmentIds: installmentIds,
-            groupId: groupId
+            installmentIds: installmentIds
         )
 
         return paymentId
@@ -263,8 +253,7 @@ final class EarlyPaymentService {
         paymentId: Int,
         model: TransactionModel,
         statementIds: Set<Int>,
-        installmentIds: [Int],
-        groupId: String?
+        installmentIds: [Int]
     ) {
         TransactionRepository.invalidateCache()
 
@@ -277,15 +266,8 @@ final class EarlyPaymentService {
         rescheduleInstallmentNotifications(
             for: installmentIds, in: transactionRepo.fetchAllTransactions())
 
-        if let groupId = groupId {
-            GroupNotificationService.shared.logActivity(
-                action: .transactionCreated, groupId: groupId, detail: model.data.title,
-                targetRecordName: transactionRepo.fetchCKRecordName(for: paymentId))
-        }
-
         NotificationCenter.default.post(name: .transactionDataChanged, object: nil)
         NotificationCenter.default.post(name: .creditCardDataChanged, object: nil)
-        SyncEngine.shared.pushPendingChangesNow()
     }
 
     /// Installment reminders are bucketed per series, so the whole series has to be rescheduled —

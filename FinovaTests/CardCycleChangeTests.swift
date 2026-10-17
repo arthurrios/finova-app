@@ -206,7 +206,7 @@ final class CardCycleChangeTests: XCTestCase {
       cardId: cardId, closing: day(1, monthsFromNow: 1), due: day(5, monthsFromNow: 1))
 
     let strandedId = try transactionRepo.insertTransactionAndGetId(
-      CloudKitSyncTestHelpers.makeTransactionModel(
+      TransactionTestFixtures.makeTransactionModel(
         title: "HBO Max", category: "meals", amount: 3_490, type: "expense",
         dateTimestamp: Int(ghost.dueDate.timeIntervalSince1970),
         budgetMonthDate: ghost.dueDate.monthAnchor,
@@ -215,7 +215,7 @@ final class CardCycleChangeTests: XCTestCase {
 
     // On the surviving statement, but still dated on the OLD due day.
     let staleId = try transactionRepo.insertTransactionAndGetId(
-      CloudKitSyncTestHelpers.makeTransactionModel(
+      TransactionTestFixtures.makeTransactionModel(
         title: "Seguro Song", category: "meals", amount: 51_443, type: "expense",
         dateTimestamp: Int(ghost.dueDate.timeIntervalSince1970),
         budgetMonthDate: ghost.dueDate.monthAnchor,
@@ -255,14 +255,14 @@ final class CardCycleChangeTests: XCTestCase {
     var realRows: [Int] = []
     for n in 1...3 {
       let id = try transactionRepo.insertTransactionAndGetId(
-        CloudKitSyncTestHelpers.makeTransactionModel(
+        TransactionTestFixtures.makeTransactionModel(
           title: "Seguro \(n)", category: "meals", amount: 1_000, type: "expense",
           dateTimestamp: 0, budgetMonthDate: 0, installmentNumber: n, totalInstallments: 10))
       try link(id, to: real, cardId: cardId)
       realRows.append(id)
     }
     let hboId = try transactionRepo.insertTransactionAndGetId(
-      CloudKitSyncTestHelpers.makeTransactionModel(
+      TransactionTestFixtures.makeTransactionModel(
         title: "HBO Max", category: "meals", amount: 3_490, type: "expense",
         dateTimestamp: 0, budgetMonthDate: 0, installmentNumber: 5, totalInstallments: 12))
     try link(hboId, to: ghost, cardId: cardId)
@@ -287,7 +287,7 @@ final class CardCycleChangeTests: XCTestCase {
       cardId: cardId, closing: day(6, monthsFromNow: 2), due: day(13, monthsFromNow: 2))
 
     let txId = try transactionRepo.insertTransactionAndGetId(
-      CloudKitSyncTestHelpers.makeTransactionModel(
+      TransactionTestFixtures.makeTransactionModel(
         title: "HBO Max", category: "meals", amount: 3_490, type: "expense",
         dateTimestamp: 0, budgetMonthDate: 0,
         installmentNumber: 6, totalInstallments: 12))
@@ -313,7 +313,7 @@ final class CardCycleChangeTests: XCTestCase {
       service.getOrCreateStatement(for: card, transactionDate: day(3, monthsFromNow: 1), userId: uid))
 
     let txId = try transactionRepo.insertTransactionAndGetId(
-      CloudKitSyncTestHelpers.makeTransactionModel(
+      TransactionTestFixtures.makeTransactionModel(
         title: "Nike", category: "meals", amount: 45_499, type: "expense",
         dateTimestamp: 0, budgetMonthDate: 0,
         installmentNumber: 2, totalInstallments: 4))

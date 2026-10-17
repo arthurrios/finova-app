@@ -72,7 +72,7 @@ final class CardSpendingMonthTests: XCTestCase {
     let firstStatement = try XCTUnwrap(
       service.getOrCreateStatement(for: card, transactionDate: purchaseDate, userId: uid))
     let txId = try transactionRepo.insertTransactionAndGetId(
-      CloudKitSyncTestHelpers.makeTransactionModel(
+      TransactionTestFixtures.makeTransactionModel(
         title: "Lunch", category: "meals", amount: 4_500, type: "expense",
         dateTimestamp: Int(purchaseDate.timeIntervalSince1970),
         budgetMonthDate: purchaseMonth))
@@ -178,7 +178,7 @@ final class CardSpendingMonthTests: XCTestCase {
       service.getOrCreateStatement(for: card, transactionDate: purchaseDate, userId: uid))
 
     let txId = try transactionRepo.insertTransactionAndGetId(
-      CloudKitSyncTestHelpers.makeTransactionModel(
+      TransactionTestFixtures.makeTransactionModel(
         title: "Dinner", category: "meals", amount: 7_000, type: "expense",
         dateTimestamp: Int(purchaseDate.timeIntervalSince1970),
         budgetMonthDate: purchaseMonth))
@@ -207,7 +207,7 @@ final class CardSpendingMonthTests: XCTestCase {
     let statement = try XCTUnwrap(
       service.getOrCreateStatement(for: card, transactionDate: Date(), userId: uid))
     let txId = try transactionRepo.insertTransactionAndGetId(
-      CloudKitSyncTestHelpers.makeTransactionModel(
+      TransactionTestFixtures.makeTransactionModel(
         title: "Coffee", category: "meals", amount: 900, type: "expense"))
     try transactionRepo.updateCreditCardFields(
       transactionId: txId, creditCardId: try XCTUnwrap(card.id),
@@ -233,7 +233,7 @@ final class CardSpendingMonthTests: XCTestCase {
     let statement = try XCTUnwrap(
       service.getOrCreateStatement(for: card, transactionDate: Date(), userId: uid))
     let txId = try transactionRepo.insertTransactionAndGetId(
-      CloudKitSyncTestHelpers.makeTransactionModel(
+      TransactionTestFixtures.makeTransactionModel(
         title: "Groceries", category: "market", amount: 12_000, type: "expense"))
     try transactionRepo.updateCreditCardFields(
       transactionId: txId, creditCardId: try XCTUnwrap(card.id),
@@ -267,7 +267,7 @@ final class CardSpendingMonthTests: XCTestCase {
     XCTAssertNotEqual(dueMonth, purchaseMonth, "Fixture is only meaningful if the months differ")
 
     let txId = try transactionRepo.insertTransactionAndGetId(
-      CloudKitSyncTestHelpers.makeTransactionModel(
+      TransactionTestFixtures.makeTransactionModel(
         title: "Finclass", category: "education", amount: 25_000, type: "expense",
         dateTimestamp: Int(statement.dueDate.timeIntervalSince1970),
         budgetMonthDate: purchaseMonth,
@@ -295,7 +295,7 @@ final class CardSpendingMonthTests: XCTestCase {
     let statement = try XCTUnwrap(
       service.getOrCreateStatement(for: card, transactionDate: Date(), userId: uid))
     let txId = try transactionRepo.insertTransactionAndGetId(
-      CloudKitSyncTestHelpers.makeTransactionModel(
+      TransactionTestFixtures.makeTransactionModel(
         title: "Lunch", category: "meals", amount: 4_500, type: "expense"))
     try transactionRepo.updateCreditCardFields(
       transactionId: txId, creditCardId: try XCTUnwrap(card.id),

@@ -14,7 +14,6 @@ class UserDefaultsManager {
   private static let biometricEnabledKey = "biometricEnabled"
   private static let hideValuesKey = "hideValues"
   private static let currencyCodeKey = "currencyCode"
-  private static let syncEnabledKey = "syncEnabled"
   private static let defaultBusinessDayRuleKey = "defaultBusinessDayRule"
   private static let tagTranslationEnabledKey = "allocationTagTranslationEnabled"
 
@@ -83,23 +82,6 @@ class UserDefaultsManager {
 
   static func getHideValues() -> Bool {
     return UserDefaults.standard.bool(forKey: hideValuesKey)
-  }
-
-  // MARK: - Sync Settings
-
-  static func setSyncEnabled(_ isEnabled: Bool) {
-    UserDefaults.standard.set(isEnabled, forKey: syncEnabledKey)
-  }
-
-  static func getSyncEnabled() -> Bool {
-    // Finova Demo has no iCloud: sync is off no matter what was stored.
-    guard CloudKitManager.isCloudKitEnabled else { return false }
-    if UserDefaults.standard.object(forKey: syncEnabledKey) == nil {
-      // Default to OFF — user must explicitly enable sync or use clean cloud.
-      // This prevents destructive auto-sync on fresh login / recovery scenarios.
-      return false
-    }
-    return UserDefaults.standard.bool(forKey: syncEnabledKey)
   }
 
   // MARK: - Currency Settings

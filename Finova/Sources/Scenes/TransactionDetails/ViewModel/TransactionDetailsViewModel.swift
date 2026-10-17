@@ -25,17 +25,8 @@ final class TransactionDetailsViewModel {
           userInfo: [NSLocalizedDescriptionKey: "Invalid transaction ID"]))
     }
 
-    // Capture group ID before deletion (needed for activity log)
-    let groupId = getSharedGroupId()
-
     do {
       try transactionRepository.deleteTransactionAndRelated(id: transactionId)
-
-      if let groupId = groupId {
-        GroupNotificationService.shared.logActivity(
-          action: .transactionDeleted, groupId: groupId, detail: transaction.title)
-        SyncEngine.shared.pushPendingChangesNow()
-      }
 
       return .success(())
     } catch {
@@ -53,9 +44,6 @@ final class TransactionDetailsViewModel {
         return .failure(TransactionError.transactionNotFound)
       }
 
-      // Capture group ID before deletion (needed for activity log)
-      let groupId = getSharedGroupId()
-
       // Handle simple transactions directly
       if transaction.isRecurring != true && transaction.parentTransactionId == nil
         && transaction.hasInstallments != true
@@ -64,12 +52,6 @@ final class TransactionDetailsViewModel {
       } else {
         // For complex transactions, use the repository method that handles cleanup properly
         try transactionRepository.deleteTransactionWithOption(id: transactionId, option: option)
-      }
-
-      if let groupId = groupId {
-        GroupNotificationService.shared.logActivity(
-          action: .transactionDeleted, groupId: groupId, detail: transaction.title)
-        SyncEngine.shared.pushPendingChangesNow()
       }
 
       return .success(())
@@ -210,7 +192,6 @@ final class TransactionDetailsViewModel {
     // Refresh transaction from DB to pick up the new statementId
     refreshTransaction()
 
-    SyncEngine.shared.pushPendingChangesNow()
   }
 
   func getTransactionModeDescription() -> String {
@@ -406,79 +387,6 @@ final class TransactionDetailsViewModel {
     }
 
     return .simple
-  }
-
-  // MARK: - Permission Checks
-
-  func canEditTransaction(in group: BudgetGroup?) -> Bool {
-    guard let group = group else { return true }
-    return BudgetGroupService.shared.currentUserCan(
-      \.canEditTransactions,
-      own: \.canEditOwnTransactions,
-      createdByUid: transaction.createdByUid,
-      in: group
-    )
-  }
-
-  func canDeleteTransaction(in group: BudgetGroup?) -> Bool {
-    guard let group = group else { return true }
-    return BudgetGroupService.shared.currentUserCan(
-      \.canDeleteTransactions,
-      own: \.canDeleteOwnTransactions,
-      createdByUid: transaction.createdByUid,
-      in: group
-    )
-  }
-
-  /// Returns the BudgetGroup this transaction belongs to, if any.
-  func getGroup() -> BudgetGroup? {
-    guard let groupId = getSharedGroupId() else { return nil }
-    return BudgetGroupService.shared.fetchGroup(byId: groupId)
-  }
-
-  // MARK: - Group Context
-
-  func getSharedGroupId() -> String? {
-    guard let txId = transaction.id else { return nil }
-    return DBHelper.shared.getSharedGroupId(transactionId: txId)
-  }
-
-  func isInGroup() -> Bool {
-    return getSharedGroupId() != nil
-  }
-
-  func getAvailableGroups() -> [BudgetGroup] {
-    return BudgetGroupService.shared.fetchAllGroups()
-  }
-
-  func moveTransactionToGroup(_ groupId: String) {
-    guard let txId = transaction.id else { return }
-    let repo = transactionRepository as? TransactionRepository
-    repo?.updateSharedGroupId(transactionId: txId, groupId: groupId)
-    let ckRecordName = repo?.fetchCKRecordName(for: txId)
-
-    GroupNotificationService.shared.logActivity(
-      action: .transactionCreated,
-      groupId: groupId,
-      detail: transaction.title,
-      targetRecordName: ckRecordName
-    )
-    SyncEngine.shared.pushPendingChangesNow()
-  }
-
-  func moveTransactionToPersonal() {
-    guard let txId = transaction.id else { return }
-    let groupId = getSharedGroupId()
-    if let groupId = groupId {
-      GroupNotificationService.shared.logActivity(
-        action: .transactionDeleted,
-        groupId: groupId,
-        detail: transaction.title
-      )
-      SyncEngine.shared.pushPendingChangesNow()
-    }
-    let repo = transactionRepository as? TransactionRepository
-    repo?.updateSharedGroupId(transactionId: txId, groupId: nil)
   }
 
   func refreshTransaction() {

@@ -15,7 +15,6 @@ protocol NotificationHistoryViewModelDelegate: AnyObject {
   func didRequestOpenAppStore()
   func didRequestNavigateToTransaction(id: Int)
   func didRequestNavigateToStatement(statementId: Int)
-  func didRequestNavigateToGroupInvitation(invitationId: String)
 }
 
 final class NotificationHistoryViewModel {
@@ -86,15 +85,9 @@ final class NotificationHistoryViewModel {
          let statementId = Int(statementIdString) {
         delegate?.didRequestNavigateToStatement(statementId: statementId)
       }
-    case .groupInvitation:
-      // Extract invitationId from ID (format: group_invitation_<id>)
-      let id = notification.id
-      if id.hasPrefix("group_invitation_") {
-        let invitationId = String(id.dropFirst("group_invitation_".count))
-        delegate?.didRequestNavigateToGroupInvitation(invitationId: invitationId)
-      }
-    case .monthly, .other:
-      // No navigation for these types
+    case .monthly, .groupInvitation, .other:
+      // No navigation for these types. `.groupInvitation` entries can still sit in the saved history
+      // from a build that had family groups; this one has nowhere to send them.
       break
     }
   }

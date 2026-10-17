@@ -47,10 +47,8 @@ final class BudgetHistoryService: BudgetHistoryReading {
         in scope: LedgerScope, includeWholeMonth: Bool = true, asOf reference: Date = Date()
     ) -> BudgetHistory {
         let current = reference.monthAnchor
-        let scopedAllocations = scope.groupId.map { allocationRepo.fetchAllocationsForGroup(groupId: $0) }
-            ?? allocationRepo.fetchAllAllocations()
-        let budgets = scope.groupId.map { budgetRepo.fetchBudgetsForGroup(groupId: $0) }
-            ?? budgetRepo.fetchBudgets()
+        let scopedAllocations = allocationRepo.fetchAllAllocations()
+        let budgets = budgetRepo.fetchBudgets()
 
         // Back to the first month that had a plan, so savings "since the start" are complete.
         // Future months are ignored: recurring allocations are materialised years ahead.
@@ -66,8 +64,7 @@ final class BudgetHistoryService: BudgetHistoryReading {
 
         let allocations = scopedAllocations.filter { window.contains($0.monthDate) }
 
-        let transactions = scope.groupId.map { transactionRepo.fetchTransactionsForGroup(groupId: $0) }
-            ?? transactionRepo.fetchAllTransactions()
+        let transactions = transactionRepo.fetchAllTransactions()
         let expenses = transactions.filter {
             $0.type == .expense && window.contains($0.budgetMonthDate)
         }
@@ -103,9 +100,7 @@ final class BudgetHistoryService: BudgetHistoryReading {
     ) -> [Int: BudgetHistory.MonthTotal] {
         let ledger = TransactionLedgerService(transactionRepo: transactionRepo, budgetRepo: budgetRepo)
         let range = -(count - 1)...0
-        let months = scope.groupId.map {
-            ledger.calculateMonthlyDataForGroup(groupId: $0, for: range, referenceDate: reference)
-        } ?? ledger.calculateMonthlyData(for: range, referenceDate: reference)
+        let months = ledger.calculateMonthlyData(for: range, referenceDate: reference)
 
         return months.reduce(into: [:]) { totals, month in
             totals[month.date.monthAnchor] = BudgetHistory.MonthTotal(

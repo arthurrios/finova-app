@@ -48,7 +48,7 @@ final class DeletedCardStatementTests: XCTestCase {
     }
 
     private func attachPurchase(amount: Int, to statementId: Int, card: CreditCard) throws {
-        let model = CloudKitSyncTestHelpers.makeTransactionModel(
+        let model = TransactionTestFixtures.makeTransactionModel(
             title: "Purchase", category: "market", amount: amount, type: "expense")
         let id = try transactionRepo.insertTransactionAndGetId(model)
         try transactionRepo.updateCreditCardFields(

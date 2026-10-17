@@ -16,6 +16,4 @@ protocol SettingsViewModelDelegate: AnyObject {
   func didCompleteAccountDeletion()
   func didFailAccountDeletion(title: String, message: String)
   func shouldShowLoading(_ show: Bool, message: String?)
-  func didUpdateTransparency(isEnabled: Bool, groupName: String?)
-  func didRequestGroupSelection(groups: [BudgetGroup])
 }

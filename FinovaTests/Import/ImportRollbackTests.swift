@@ -69,7 +69,7 @@ final class ImportRollbackTests: XCTestCase {
     private func applyBatch(_ count: Int, filename: String = "extrato.csv") throws -> ImportBatch {
         let rows = (0..<count).map { i in
             ImportableRow(
-                model: CloudKitSyncTestHelpers.makeTransactionModel(title: "Row \(i)", amount: 1000 + i),
+                model: TransactionTestFixtures.makeTransactionModel(title: "Row \(i)", amount: 1000 + i),
                 fingerprint: "fp-\(filename)-\(i)",
                 sourceLine: i + 2)
         }
@@ -333,7 +333,7 @@ final class ImportRollbackTests: XCTestCase {
         // Simulate a pull handing back a row whose delete never reached the cloud.
         let resurrected = try XCTUnwrap(uuids.first)
         let localId = try db.insertTransaction(
-            CloudKitSyncTestHelpers.makeTransactionModel(title: "Back from the dead", amount: 1000))
+            TransactionTestFixtures.makeTransactionModel(title: "Back from the dead", amount: 1000))
         db.executeSyncUpdate("UPDATE Transactions SET uuid = ? WHERE id = ?;",
                              textBindings: [resurrected], intBindings: [localId])
         // Written straight through `db`, bypassing the repository that would normally invalidate its

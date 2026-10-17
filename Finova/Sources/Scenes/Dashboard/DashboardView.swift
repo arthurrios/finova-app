@@ -109,17 +109,6 @@ final class DashboardView: UIView {
     return label
   }()
 
-  let syncErrorButton: UIButton = {
-    let btn = UIButton(type: .system)
-    let config = UIImage.SymbolConfiguration(pointSize: 14, weight: .medium)
-    btn.setImage(UIImage(systemName: "exclamationmark.icloud", withConfiguration: config), for: .normal)
-    btn.tintColor = Colors.mainRed
-    btn.alpha = 0
-    btn.isHidden = true
-    btn.translatesAutoresizingMaskIntoConstraints = false
-    return btn
-  }()
-
   lazy var monthSelectorView: MonthSelectorView = {
     let sel = MonthSelectorView()
     sel.alpha = 0
@@ -258,7 +247,6 @@ final class DashboardView: UIView {
     headerItemsView.addSubview(notificationButton)
     headerItemsView.addSubview(notificationBadge)
     notificationBadge.addSubview(notificationBadgeLabel)
-    headerItemsView.addSubview(syncErrorButton)
     headerItemsView.addSubview(profileTapButton)
 
     addSubview(monthSelectorShimmerView)
@@ -277,11 +265,6 @@ final class DashboardView: UIView {
     notificationButton.addTarget(
       self,
       action: #selector(notificationsTapped),
-      for: .touchUpInside)
-
-    syncErrorButton.addTarget(
-      self,
-      action: #selector(syncErrorTapped),
       for: .touchUpInside)
 
     addTransactionButton.addTarget(
@@ -376,11 +359,6 @@ final class DashboardView: UIView {
       notificationButton.heightAnchor.constraint(equalToConstant: Metrics.logoutButtonSize),
       notificationButton.widthAnchor.constraint(equalToConstant: Metrics.logoutButtonSize),
 
-      syncErrorButton.centerYAnchor.constraint(equalTo: avatar.centerYAnchor),
-      syncErrorButton.trailingAnchor.constraint(equalTo: notificationButton.leadingAnchor, constant: -Metrics.spacing3),
-      syncErrorButton.heightAnchor.constraint(equalToConstant: Metrics.logoutButtonSize),
-      syncErrorButton.widthAnchor.constraint(equalToConstant: Metrics.logoutButtonSize),
-
       notificationBadge.topAnchor.constraint(equalTo: notificationButton.topAnchor, constant: -2),
       notificationBadge.trailingAnchor.constraint(equalTo: notificationButton.trailingAnchor, constant: 4),
       notificationBadge.widthAnchor.constraint(greaterThanOrEqualToConstant: 18),
@@ -473,25 +451,6 @@ final class DashboardView: UIView {
     delegate?.didTapNotifications()
   }
 
-  @objc private func syncErrorTapped() {
-    delegate?.didTapSyncError()
-  }
-
-  func setSyncErrorVisible(_ visible: Bool) {
-    if visible {
-      syncErrorButton.isHidden = false
-      UIView.animate(withDuration: 0.25) {
-        self.syncErrorButton.alpha = 1
-      }
-    } else {
-      UIView.animate(withDuration: 0.25, animations: {
-        self.syncErrorButton.alpha = 0
-      }, completion: { _ in
-        self.syncErrorButton.isHidden = true
-      })
-    }
-  }
-
   /// Updates the notification badge visibility and count
   func updateNotificationBadge(count: Int) {
     notificationBadge.isHidden = count == 0
@@ -504,41 +463,8 @@ final class DashboardView: UIView {
 
   private func setupContextTapGesture() {
     let tapGesture = UITapGestureRecognizer(
-      target: self, action: #selector(handleContextTap))
+      target: self, action: #selector(handleProfileTap))
     contextTapArea.addGestureRecognizer(tapGesture)
-  }
-
-  @objc private func handleContextTap() {
-    if currentHasGroups {
-      delegate?.didTapContextSwitch()
-    } else {
-      delegate?.didTapProfile()
-    }
-  }
-
-  private var currentHasGroups: Bool = false
-
-  func configureContextChip(currentContext: DataContext, hasGroups: Bool) {
-    currentHasGroups = hasGroups
-
-    if hasGroups {
-      accountContextChevron.image = UIImage(
-        systemName: "chevron.down",
-        withConfiguration: UIImage.SymbolConfiguration(pointSize: 10, weight: .semibold))
-    } else {
-      accountContextChevron.image = UIImage(
-        systemName: "chevron.right",
-        withConfiguration: UIImage.SymbolConfiguration(pointSize: 10, weight: .semibold))
-    }
-
-    switch currentContext {
-    case .personal:
-      accountContextLabel.text = hasGroups
-        ? "dashboard.context.personal".localized
-        : "dashboard.context.label".localized
-    case .group(let group):
-      accountContextLabel.text = group.name
-    }
   }
 
   @objc

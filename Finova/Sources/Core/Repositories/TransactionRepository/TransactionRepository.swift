@@ -107,11 +107,8 @@ final class TransactionRepository: TransactionRepositoryProtocol {
 
     Self.invalidateCache()
 
-    // Exactly one wake-up for the whole batch, and only now that every chunk has committed — never
-    // from inside `inTransaction`, where it could wake the sync engine into a write that joins our
-    // open BEGIN.
+    // One notification for the whole batch, posted once every chunk has committed.
     if !inserted.isEmpty {
-      SyncChangeTracker.shared.markDirty()
       NotificationCenter.default.post(name: .transactionDataChanged, object: nil)
     }
 

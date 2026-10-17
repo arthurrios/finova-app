@@ -1061,16 +1061,9 @@ final class RecurringTransactionManager {
   /// appears — and consumes its category's allocation — in the month the money is actually debited.
   private func assignToStatement(transactionId: Int, creditCardId: Int, transactionDate: Date, userId: String, remapToStatementDueDate: Bool = false) {
     guard let card = creditCardRepo.fetchCard(byId: creditCardId) else { return }
-    // On non-original devices, only link to existing statements (never create new ones).
-    // Statements should already exist from cloud sync.
-    let isOriginalDevice = UserDefaults.standard.bool(forKey: "hasCompletedInitialCloudPush_v1")
-    let statement: CreditCardStatement?
-    if isOriginalDevice {
-        statement = creditCardService.getOrCreateStatement(for: card, transactionDate: transactionDate, userId: userId)
-    } else {
-        statement = creditCardService.getExistingStatement(for: card, transactionDate: transactionDate)
-    }
-    guard let statement = statement else { return }
+    guard let statement = creditCardService.getOrCreateStatement(
+      for: card, transactionDate: transactionDate, userId: userId)
+    else { return }
     do {
       try transactionRepo.updateCreditCardFields(
         transactionId: transactionId,

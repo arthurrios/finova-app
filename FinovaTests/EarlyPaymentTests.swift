@@ -421,7 +421,7 @@ final class EarlyPaymentTests: XCTestCase {
             statementId: statementId, isCreditCardStatement: false)
         TransactionRepository.invalidateCache()
 
-        let scope = LedgerScope(.personal)
+        let scope = LedgerScope.personal
         let before = DBHelper.shared.statementTotals(statementId: statementId, scope: scope)
         XCTAssertEqual(
             before.total, target.amount,

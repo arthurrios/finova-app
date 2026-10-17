@@ -87,178 +87,12 @@ final class TransactionLedgerService {
   }
 
   /// First month whose transactions count toward this account's balance; nil counts them all.
-  /// Waits for a verified full pull before deciding, so a fresh device cannot decide on partial data.
+  /// The local database is the whole ledger, so it can always decide.
   private func balanceHistoryStart() -> Int? {
     BalanceHistoryStart.anchor(
       uid: UIDUserDefaultsManager.shared.currentUserUID,
       offset: UIDUserDefaultsManager.shared.getCurrentUserBalanceOffset(),
-      canDecide: !CloudKitManager.isCloudKitEnabled
-        || UserDefaults.standard.bool(forKey: "syncFullPullVerified_v2"))
-  }
-
-  // MARK: - Group-Aware Fetching
-
-  /// Fetches transactions for group context — includes ALL members' transactions
-  private func fetchGroupTransactionsIncludingStatements(groupId: String) -> [Transaction] {
-    var transactions = transactionRepo.fetchTransactionsForGroup(groupId: groupId)
-      .excludingEarlyPaidInstallments()
-
-    let sharedCards = CreditCardRepository().fetchCardsForGroup(groupId: groupId)
-    for card in sharedCards {
-      let statementTxs = creditCardService.generateStatementTransactions(
-        forCard: card,
-        in: .group(groupId)
-      )
-      transactions.append(contentsOf: statementTxs)
-    }
-    return transactions
-  }
-
-  /// Group-aware monthly data calculation
-  func calculateMonthlyDataForGroup(
-    groupId: String,
-    for monthRange: ClosedRange<Int>,
-    referenceDate: Date = Date()
-  ) -> [MonthBudgetCardType] {
-    let currentComponents = calendar.dateComponents([.year, .month], from: referenceDate)
-    let currentYear = currentComponents.year!
-    let currentMonth = currentComponents.month!
-
-    var anchors: [Int] = []
-    for offset in monthRange {
-      let targetMonth = currentMonth + offset
-      let targetYear = currentYear + (targetMonth - 1) / 12
-      let normalizedMonth = ((targetMonth - 1) % 12) + 1
-
-      var components = DateComponents()
-      components.year = targetYear
-      components.month = normalizedMonth
-      components.day = 1
-      components.hour = 0
-      components.minute = 0
-      components.second = 0
-
-      guard let monthDate = calendar.date(from: components) else { continue }
-      anchors.append(monthDate.monthAnchor)
-    }
-
-    let allTransactions = fetchGroupTransactionsIncludingStatements(groupId: groupId)
-    let budgetsByAnchor = budgetRepo.fetchBudgetsForGroup(groupId: groupId)
-      .reduce(into: [:]) { acc, entry in acc[entry.monthDate] = entry.amount }
-
-    // Group balances are new in this version, so they count the whole history: the offset plus
-    // every cash transaction before the first month of the range (see BalanceHistoryStart).
-    var previousAvailable = UIDUserDefaultsManager.shared.getGroupBalanceOffset(groupId: groupId)
-    if let firstAnchor = anchors.first {
-      previousAvailable += BalanceHistoryStart.netBefore(
-        anchor: firstAnchor, start: nil, transactions: allTransactions)
-    }
-
-    return anchors.map { anchor in
-      var cal = Calendar(identifier: .gregorian)
-      cal.timeZone = TimeZone.current
-      let anchorDate = Date(timeIntervalSince1970: TimeInterval(anchor))
-      let components = cal.dateComponents([.year, .month], from: anchorDate)
-
-      guard let date = cal.date(from: components) else {
-        return MonthBudgetCardType(
-          date: Date(timeIntervalSince1970: TimeInterval(anchor)),
-          month: "Unknown", usedValue: 0, budgetLimit: nil,
-          finalBalance: 0, currentBalance: 0, previousBalance: 0)
-      }
-
-      let month = DateFormatter.monthFormatter.string(from: date)
-      let localizedMonth = "month.\(month.lowercased())".localized
-
-      let transactionsForMonth = allTransactions.filter { transaction in
-        let txDate = Date(timeIntervalSince1970: TimeInterval(transaction.dateTimestamp))
-        return txDate.monthAnchor == anchor
-      }
-
-      let cashTransactions = transactionsForMonth.filter { tx in
-        tx.creditCardId == nil || tx.isCreditCardStatement == true
-      }
-      let expense = cashTransactions.filter { $0.type == .expense }.reduce(0) { $0 + $1.amount }
-      let income = cashTransactions.filter { $0.type == .income }.reduce(0) { $0 + $1.amount }
-      let budgetLimit = budgetsByAnchor[anchor]
-
-      // usedValue counts individual CC transactions in the month they were created
-      // (same logic as personal path). Statement synthetics only affect balance.
-      let usedTransactions = transactionsForMonth.filter { tx in
-        tx.isCreditCardStatement != true
-      }
-      let usedValue = usedTransactions.filter { $0.type == .expense }.reduce(0) { $0 + $1.amount }
-
-      let net = income - expense
-      let available = previousAvailable + net
-
-      // Calculate current balance (balance up to current date) for groups too
-      let currentBalance = calculateCurrentBalanceForGroupMonth(
-        anchor: anchor, previousBalance: previousAvailable,
-        transactions: allTransactions)
-
-      let monthData = MonthBudgetCardType(
-        date: date,
-        month: localizedMonth,
-        usedValue: usedValue,
-        budgetLimit: budgetLimit,
-        finalBalance: available,
-        currentBalance: currentBalance,
-        previousBalance: previousAvailable
-      )
-
-      previousAvailable = available
-      return monthData
-    }
-  }
-
-  /// Calculate the balance up to the current date for a group month
-  private func calculateCurrentBalanceForGroupMonth(
-    anchor: Int, previousBalance: Int, transactions: [Transaction]
-  ) -> Int {
-    let today = Date()
-    let monthDate = Date(timeIntervalSince1970: TimeInterval(anchor))
-
-    let transactionsInMonth = transactions.filter { transaction in
-      let transactionDate = Date(timeIntervalSince1970: TimeInterval(transaction.dateTimestamp))
-      return transactionDate.monthAnchor == anchor
-    }
-
-    let isCurrentMonth = calendar.isDate(monthDate, equalTo: today, toGranularity: .month)
-    let isPastMonth = monthDate < today && !isCurrentMonth
-
-    let cashTransactions = transactionsInMonth.filter { tx in
-      tx.creditCardId == nil || tx.isCreditCardStatement == true
-    }
-
-    if isPastMonth {
-      let netForMonth = cashTransactions.reduce(0) { result, transaction in
-        transaction.type == .income ? result + transaction.amount : result - transaction.amount
-      }
-      return previousBalance + netForMonth
-    }
-
-    if !isCurrentMonth {
-      return previousBalance
-    }
-
-    // Current month: only include transactions up to today
-    let todayComponents = calendar.dateComponents([.year, .month, .day], from: today)
-    let todayStart = calendar.date(from: todayComponents) ?? today
-
-    let transactionsUpToToday = cashTransactions.filter { transaction in
-      let transactionDate = Date(timeIntervalSince1970: TimeInterval(transaction.dateTimestamp))
-      let transactionComponents = calendar.dateComponents(
-        [.year, .month, .day], from: transactionDate)
-      let transactionDateOnly = calendar.date(from: transactionComponents) ?? transactionDate
-      return transactionDateOnly <= todayStart
-    }
-
-    let netUpToToday = transactionsUpToToday.reduce(0) { result, transaction in
-      transaction.type == .income ? result + transaction.amount : result - transaction.amount
-    }
-
-    return previousBalance + netUpToToday
+      canDecide: true)
   }
 
   // MARK: - Monthly Calculations
@@ -622,15 +456,6 @@ final class TransactionLedgerService {
   /// This matches the same accumulation logic used by calculateMonthlyData.
   func calculateBalanceForDay(day: Int, monthAnchor: Int, previousMonthBalance: Int, transactions: [Transaction]? = nil) -> Int {
     let allTransactions = transactions ?? fetchAllTransactionsIncludingStatements()
-    return computeDayBalance(
-      day: day, monthAnchor: monthAnchor, previousMonthBalance: previousMonthBalance,
-      transactions: allTransactions)
-  }
-
-  /// Calculate balance for a specific day within a month — group context.
-  /// Uses previousMonthBalance + net of this month's cash transactions up to the target day.
-  func calculateBalanceForDayForGroup(day: Int, monthAnchor: Int, previousMonthBalance: Int, transactions: [Transaction]? = nil, groupId: String) -> Int {
-    let allTransactions = transactions ?? fetchGroupTransactionsIncludingStatements(groupId: groupId)
     return computeDayBalance(
       day: day, monthAnchor: monthAnchor, previousMonthBalance: previousMonthBalance,
       transactions: allTransactions)

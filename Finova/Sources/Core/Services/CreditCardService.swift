@@ -378,9 +378,6 @@ class CreditCardService {
     func repairBudgetMonthToSpendingMonthIfNeeded(transactionRepo: TransactionRepository) {
         let key = "hasRepairedCCBudgetMonthToSpendingMonth_v1"
         guard !UserDefaults.standard.bool(forKey: key) else { return }
-        // Same hydration rule every repair obeys: a device missing records would "repair" against a
-        // partial view and then upload the damage.
-        guard UserDefaults.standard.bool(forKey: "syncFullPullVerified_v2") else { return }
 
         repairBudgetMonthToSpendingMonth(transactionRepo: transactionRepo)
         UserDefaults.standard.set(true, forKey: key)
@@ -448,13 +445,6 @@ class CreditCardService {
     func repairInstallmentBudgetMonthToDueMonthIfNeeded(transactionRepo: TransactionRepository) {
         let key = "hasRepairedInstallmentBudgetMonthToDueMonth_v2"
         guard !UserDefaults.standard.bool(forKey: key) else { return }
-
-        // The hydration rule every repair obeys: a half-pulled device would "repair" against a
-        // partial view and then upload the damage. A device with sync OFF has no partial view and
-        // nothing to upload — its local database is the whole truth — so the gate would only keep
-        // it broken. Either condition is enough.
-        let hydrated = UserDefaults.standard.bool(forKey: "syncFullPullVerified_v2")
-        guard hydrated || !UserDefaultsManager.getSyncEnabled() else { return }
 
         repairInstallmentBudgetMonthToDueMonth(transactionRepo: transactionRepo)
         UserDefaults.standard.set(true, forKey: key)
@@ -1009,11 +999,6 @@ class CreditCardService {
         // mark the other as done.
         let key = "hasRepairedCardCycleChange_v1_\(userId)"
         guard !UserDefaults.standard.bool(forKey: key) else { return }
-
-        // Same hydration rule as every repair that deletes: a half-pulled device must not act on a
-        // partial view. A device with sync OFF has no partial view.
-        let hydrated = UserDefaults.standard.bool(forKey: "syncFullPullVerified_v2")
-        guard hydrated || !UserDefaultsManager.getSyncEnabled() else { return }
 
         for card in cardRepo.fetchAllCards(userId: userId) where !card.isDeleted {
             recalculateStatementDatesForCard(

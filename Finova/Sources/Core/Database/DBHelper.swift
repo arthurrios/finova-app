@@ -620,7 +620,6 @@ class DBHelper {
             throw DBError.stepFailed(message: msg)
         }
 
-        SyncChangeTracker.shared.markDirty()
         return Int(sqlite3_last_insert_rowid(db))
     }
 
@@ -1014,7 +1013,6 @@ class DBHelper {
             let msg = String(cString: sqlite3_errmsg(db))
             throw DBError.stepFailed(message: msg)
         }
-        SyncChangeTracker.shared.markDirty()
     }
 
     func getTransactionWithParent(id: Int) throws -> (transaction: Transaction?, parent: Transaction?)
@@ -1220,7 +1218,6 @@ class DBHelper {
             let msg = String(cString: sqlite3_errmsg(db))
             throw DBError.stepFailed(message: msg)
         }
-        SyncChangeTracker.shared.markDirty()
     }
 
     func updateSingleTransaction(_ transaction: TransactionModel) throws {
@@ -1264,7 +1261,6 @@ class DBHelper {
             let msg = String(cString: sqlite3_errmsg(db))
             throw DBError.stepFailed(message: msg)
         }
-        SyncChangeTracker.shared.markDirty()
     }
 
     // MARK: - Recurring Transaction Updates
@@ -1973,7 +1969,6 @@ class DBHelper {
             let msg = String(cString: sqlite3_errmsg(db))
             throw DBError.stepFailed(message: msg)
         }
-        SyncChangeTracker.shared.markDirty()
     }
 
     func updateStatementDates(statementId: Int, closingDate: Int, dueDate: Int, isDatesOverridden: Bool = false) throws {
@@ -2035,7 +2030,6 @@ class DBHelper {
             let msg = String(cString: sqlite3_errmsg(db))
             throw DBError.stepFailed(message: msg)
         }
-        SyncChangeTracker.shared.markDirty()
     }
 
     func setStatementOverridden(transactionId: Int, overridden: Bool) {
@@ -2156,7 +2150,6 @@ class DBHelper {
                 "[Installments] \(pointer.intColumn) write matched no row for transaction \(transactionId)")
             return false
         }
-        SyncChangeTracker.shared.markDirty()
         TransactionRepository.invalidateCache()
         return true
     }
@@ -2384,7 +2377,6 @@ class DBHelper {
         sqlite3_bind_int64(stmt, 2, isPayer ? 1 : 0)
         sqlite3_bind_text(stmt, 3, ckRecordName, -1, SQLITE_TRANSIENT)
         sqlite3_step(stmt)
-        SyncChangeTracker.shared.markDirty()
         TransactionRepository.invalidateCache()
     }
 
@@ -2464,7 +2456,6 @@ class DBHelper {
             let msg = String(cString: sqlite3_errmsg(db))
             throw DBError.stepFailed(message: msg)
         }
-        SyncChangeTracker.shared.markDirty()
     }
 
     func getSharedGroupId(transactionId: Int) -> String? {
@@ -4121,7 +4112,6 @@ class DBHelper {
         }
 
         sqlite3_step(statement)
-        SyncChangeTracker.shared.markDirty()
     }
 
     /// Same as `executeSyncUpdate` but returns the number of rows affected.
@@ -4144,7 +4134,6 @@ class DBHelper {
 
         sqlite3_step(statement)
         let changes = Int(sqlite3_changes(db))
-        if changes > 0 { SyncChangeTracker.shared.markDirty() }
         return changes
     }
 
@@ -4936,7 +4925,7 @@ class DBHelper {
         return results
     }
 
-    // MARK: - BudgetGroup CRUD Helpers
+    // MARK: - Bound Write Helpers
 
     /// Fire-and-forget variant, kept for call sites that genuinely cannot fail.
     /// Prefer `executeGroupWriteChecked` for anything that writes a record — see its docs.
@@ -4991,129 +4980,6 @@ class DBHelper {
         query.split(separator: "\n").first.map(String.init)?.trimmingCharacters(in: .whitespaces) ?? "?"
     }
 
-    func fetchBudgetGroupRows(_ query: String, textBindings: [String] = []) -> [BudgetGroup] {
-        guard isInitialized else { return [] }
-        var statement: OpaquePointer?
-        guard sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK else { return [] }
-        defer { sqlite3_finalize(statement) }
-
-        for (index, value) in textBindings.enumerated() {
-            sqlite3_bind_text(statement, Int32(index + 1), value, -1, SQLITE_TRANSIENT)
-        }
-
-        var results: [BudgetGroup] = []
-        while sqlite3_step(statement) == SQLITE_ROW {
-            let id = String(cString: sqlite3_column_text(statement, 0))
-            let name = String(cString: sqlite3_column_text(statement, 1))
-            let ownerId = String(cString: sqlite3_column_text(statement, 2))
-            let ownerName = String(cString: sqlite3_column_text(statement, 3))
-            let ownerEmail = String(cString: sqlite3_column_text(statement, 4))
-            let currency = String(cString: sqlite3_column_text(statement, 5))
-
-            let ckRecordId: String? = sqlite3_column_type(statement, 6) == SQLITE_NULL
-                ? nil : String(cString: sqlite3_column_text(statement, 6))
-            let ckShareUrl: String? = sqlite3_column_type(statement, 7) == SQLITE_NULL
-                ? nil : String(cString: sqlite3_column_text(statement, 7))
-            let ckZoneOwner: String? = sqlite3_column_type(statement, 8) == SQLITE_NULL
-                ? nil : String(cString: sqlite3_column_text(statement, 8))
-
-            let createdAt = Date(timeIntervalSince1970: TimeInterval(sqlite3_column_int64(statement, 9)))
-            let updatedAt = Date(timeIntervalSince1970: TimeInterval(sqlite3_column_int64(statement, 10)))
-            let isDeleted = sqlite3_column_int(statement, 11) == 1
-
-            var group = BudgetGroup(
-                id: id, name: name, ownerId: ownerId,
-                ownerName: ownerName, ownerEmail: ownerEmail,
-                currency: currency,
-                createdAt: createdAt, updatedAt: updatedAt,
-                isDeleted: isDeleted
-            )
-            group.ckRecordId = ckRecordId
-            group.ckShareUrl = ckShareUrl
-            group.ckZoneOwner = ckZoneOwner
-            results.append(group)
-        }
-        return results
-    }
-
-    func fetchGroupMemberRows(_ query: String, textBindings: [String] = []) -> [GroupMember] {
-        guard isInitialized else { return [] }
-        var statement: OpaquePointer?
-        guard sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK else { return [] }
-        defer { sqlite3_finalize(statement) }
-
-        for (index, value) in textBindings.enumerated() {
-            sqlite3_bind_text(statement, Int32(index + 1), value, -1, SQLITE_TRANSIENT)
-        }
-
-        var results: [GroupMember] = []
-        while sqlite3_step(statement) == SQLITE_ROW {
-            let id = String(cString: sqlite3_column_text(statement, 0))
-            let groupId = String(cString: sqlite3_column_text(statement, 1))
-            let userId = String(cString: sqlite3_column_text(statement, 2))
-            let name = String(cString: sqlite3_column_text(statement, 3))
-            let email = String(cString: sqlite3_column_text(statement, 4))
-            let roleStr = String(cString: sqlite3_column_text(statement, 5))
-            let permissionsJson = String(cString: sqlite3_column_text(statement, 6))
-
-            let lastActive: Date? = sqlite3_column_type(statement, 7) == SQLITE_NULL
-                ? nil : Date(timeIntervalSince1970: TimeInterval(sqlite3_column_int64(statement, 7)))
-            let joinedAt = Date(timeIntervalSince1970: TimeInterval(sqlite3_column_int64(statement, 8)))
-            let isRemoved = sqlite3_column_int(statement, 9) == 1
-
-            let member = GroupMember(
-                id: id, groupId: groupId, userId: userId,
-                name: name, email: email,
-                role: GroupRole(rawValue: roleStr) ?? .member,
-                permissions: GroupPermissions.fromJSON(permissionsJson),
-                lastActive: lastActive,
-                joinedAt: joinedAt,
-                isRemoved: isRemoved
-            )
-            results.append(member)
-        }
-        return results
-    }
-
-    func fetchGroupInvitationRows(_ query: String, textBindings: [String] = []) -> [GroupInvitation] {
-        guard isInitialized else { return [] }
-        var statement: OpaquePointer?
-        guard sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK else { return [] }
-        defer { sqlite3_finalize(statement) }
-
-        for (index, value) in textBindings.enumerated() {
-            sqlite3_bind_text(statement, Int32(index + 1), value, -1, SQLITE_TRANSIENT)
-        }
-
-        var results: [GroupInvitation] = []
-        while sqlite3_step(statement) == SQLITE_ROW {
-            let id = String(cString: sqlite3_column_text(statement, 0))
-            let groupId = String(cString: sqlite3_column_text(statement, 1))
-            let groupName = String(cString: sqlite3_column_text(statement, 2))
-            let inviterName = String(cString: sqlite3_column_text(statement, 3))
-            let inviterEmail = String(cString: sqlite3_column_text(statement, 4))
-            let inviteeEmail = String(cString: sqlite3_column_text(statement, 5))
-            let status = String(cString: sqlite3_column_text(statement, 6))
-
-            let ckShareUrl: String? = sqlite3_column_type(statement, 7) == SQLITE_NULL
-                ? nil : String(cString: sqlite3_column_text(statement, 7))
-            let createdAt = Date(timeIntervalSince1970: TimeInterval(sqlite3_column_int64(statement, 8)))
-            let respondedAt: Date? = sqlite3_column_type(statement, 9) == SQLITE_NULL
-                ? nil : Date(timeIntervalSince1970: TimeInterval(sqlite3_column_int64(statement, 9)))
-
-            var invitation = GroupInvitation(
-                id: id, groupId: groupId, groupName: groupName,
-                inviterName: inviterName, inviterEmail: inviterEmail,
-                inviteeEmail: inviteeEmail, status: status,
-                createdAt: createdAt
-            )
-            invitation.ckShareUrl = ckShareUrl
-            invitation.respondedAt = respondedAt
-            results.append(invitation)
-        }
-        return results
-    }
-
     // MARK: - Phase 6: One-time sync fix migration
 
     private func performSyncFixMigration() {
@@ -5157,10 +5023,22 @@ class DBHelper {
         }
 
         // 3. Reset sync tokens to force full re-fetch
-        SyncStateManager.shared.resetAllTokens()
+        Self.resetCloudChangeTokens()
 
         UserDefaults.standard.set(true, forKey: key)
         logInfo("[SyncFix] One-time sync fix migration completed")
+    }
+
+    /// Forgets the stored CloudKit change tokens (UserDefaults only; nothing is sent anywhere).
+    /// This build does not sync, but the two migrations above reset them before marking themselves
+    /// done. Doing the same here keeps that promise for a later build that syncs again: it starts
+    /// with a full fetch rather than an incremental one from a stale token.
+    private static func resetCloudChangeTokens() {
+        let defaults = UserDefaults.standard
+        for key in defaults.dictionaryRepresentation().keys
+        where key.hasPrefix("ck_changeToken_") || key.hasPrefix("ck_lastSync_") {
+            defaults.removeObject(forKey: key)
+        }
     }
 
     /// One-time migration to fix orphaned parent IDs and deduplicate recurring instances.
@@ -5188,7 +5066,7 @@ class DBHelper {
         // to guess from content afterwards, and nothing should.
 
         // Reset sync tokens so the next sync pushes the corrected data
-        SyncStateManager.shared.resetAllTokens()
+        Self.resetCloudChangeTokens()
 
         UserDefaults.standard.set(true, forKey: key)
         logInfo("[SyncFix] Parent ID fix migration v3 completed")
@@ -5513,7 +5391,6 @@ class DBHelper {
         defer { sqlite3_finalize(statement) }
         sqlite3_step(statement)
         let changes = Int(sqlite3_changes(db))
-        if changes > 0 { SyncChangeTracker.shared.markDirty() }
         return changes
     }
 

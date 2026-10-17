@@ -11,7 +11,5 @@ protocol DashboardViewDelegate: AnyObject {
   func didTapAddTransaction()
   func didTapProfile()
   func didTapNotifications()
-  func didTapSyncError()
-  func didTapContextSwitch()
   func dashboardViewDidRequestRefresh(_ dashboardView: DashboardView)
 }

@@ -5,7 +5,6 @@
 //  Created by Arthur Rios on 09/05/25.
 //
 
-import CloudKit
 import Foundation
 import ShimmerView
 import UIKit
@@ -42,64 +41,6 @@ final class DashboardViewController: UIViewController {
         return transactions + statementTxs
     }
 
-    private func logMirrorDiff(groupId: String, context: String) {
-        TransactionRepository.invalidateCache()
-        let repo = viewModel.transactionRepo
-
-        // Personal: all user transactions (display-filtered)
-        let personal = repo.fetchTransactions()
-        // Group: all group-tagged transactions (display-filtered)
-        let group = repo.fetchDisplayTransactionsForGroup(groupId: groupId)
-        // Raw counts (before display filter)
-        let personalRaw = repo.fetchAllTransactions()
-        let groupRaw = repo.fetchTransactionsForGroup(groupId: groupId)
-
-        logWarning("[MirrorDiff] === \(context) ===")
-        logWarning("[MirrorDiff] Personal: \(personal.count) display, \(personalRaw.count) raw")
-        logWarning("[MirrorDiff] Group:    \(group.count) display, \(groupRaw.count) raw")
-
-        // Find IDs in personal but not in group
-        let personalIds = Set(personal.compactMap { $0.id })
-        let groupIds = Set(group.compactMap { $0.id })
-        let missingFromGroup = personalIds.subtracting(groupIds)
-        let extraInGroup = groupIds.subtracting(personalIds)
-
-        if !missingFromGroup.isEmpty {
-            logWarning("[MirrorDiff] \(missingFromGroup.count) tx(s) in personal but NOT in group")
-            // Log details for first 20 missing
-            let missing = personal.filter { missingFromGroup.contains($0.id ?? -1) }
-            for tx in missing.prefix(20) {
-                let hasGroupTag = groupRaw.contains(where: { $0.id == tx.id })
-                logWarning("[MirrorDiff]   MISSING id=\(tx.id ?? -1) '\(tx.title)' amt=\(tx.amount) recurring=\(tx.isRecurring ?? false) hasInstall=\(tx.hasInstallments ?? false) parentId=\(tx.parentTransactionId ?? -1) ccId=\(tx.creditCardId ?? -1) stmtId=\(tx.statementId ?? -1) inGroupRaw=\(hasGroupTag)")
-            }
-            if missingFromGroup.count > 20 {
-                logWarning("[MirrorDiff]   ... and \(missingFromGroup.count - 20) more")
-            }
-        }
-
-        if !extraInGroup.isEmpty {
-            logWarning("[MirrorDiff] \(extraInGroup.count) tx(s) in group but NOT in personal")
-        }
-
-        // Check DB directly for untagged transactions
-        let db = DBHelper.shared
-        if let uid = UIDUserDefaultsManager.shared.currentUserUID {
-            let untagged = db.fetchSingleInt(
-                "SELECT COUNT(*) FROM Transactions WHERE user_id = ? AND (shared_group_id IS NULL OR shared_group_id = '') AND (is_deleted IS NULL OR is_deleted = 0);",
-                textBinding: uid
-            ) ?? -1
-            let totalForUser = db.fetchSingleInt(
-                "SELECT COUNT(*) FROM Transactions WHERE user_id = ? AND (is_deleted IS NULL OR is_deleted = 0);",
-                textBinding: uid
-            ) ?? -1
-            let totalForGroup = db.fetchSingleInt(
-                "SELECT COUNT(*) FROM Transactions WHERE shared_group_id = ? AND (is_deleted IS NULL OR is_deleted = 0);",
-                textBinding: groupId
-            ) ?? -1
-            logWarning("[MirrorDiff] DB: totalForUser=\(totalForUser), totalForGroup=\(totalForGroup), untagged=\(untagged)")
-        }
-    }
-    
     // MARK: - Shimmer State Tracking
     private var cardsWithActiveShimmer: Set<Int> = []
 
@@ -176,13 +117,6 @@ final class DashboardViewController: UIViewController {
         // Update notification badge count
         updateNotificationBadge()
 
-        // Show/hide sync error indicator based on current status
-        if case .error = SyncEngine.shared.status {
-            contentView.setSyncErrorVisible(true)
-        } else {
-            contentView.setSyncErrorVisible(false)
-        }
-
         // Refresh avatar in case it was changed in Profile screen (async to avoid blocking main thread)
         DispatchQueue.global(qos: .userInitiated).async {
             let userImage = ProfileImageManager.shared.loadProfileImage()
@@ -219,8 +153,8 @@ final class DashboardViewController: UIViewController {
         let monthAnchor = syncedViewModel.monthData[syncedViewModel.selectedIndex].date.monthAnchor
         if isGlobalBudgetViewActive {
             let allocationService = BudgetAllocationService()
-            let allocations = allocationService.getAllocationsWithUsage(forMonth: monthAnchor, in: LedgerScope(viewModel.currentContext))
-            let summary = allocationService.getUnallocatedSummary(forMonth: monthAnchor, in: LedgerScope(viewModel.currentContext))
+            let allocations = allocationService.getAllocationsWithUsage(forMonth: monthAnchor, in: .personal)
+            let summary = allocationService.getUnallocatedSummary(forMonth: monthAnchor, in: .personal)
             cell.restoreBudgetViewState(allocations: allocations, summary: summary)
         }
     }
@@ -250,27 +184,13 @@ final class DashboardViewController: UIViewController {
     }
 
     private func performDashboardRefresh() {
-        // Skip refresh while sync is active — data is changing mid-cycle and would
-        // show inconsistent state. The final refresh comes from the post-sync
-        // .transactionDataChanged notification after all data is settled.
-        if SyncEngine.shared.isSyncInProgress {
-            return
-        }
-
         // Invalidate caches so we get fresh data
         viewModel.transactionLedger.invalidateCache()
         TransactionRepository.invalidateCache()
 
         // Load fresh data from repositories
         let monthData = viewModel.loadMonthlyCards()
-        let transactions: [Transaction]
-        switch viewModel.currentContext {
-        case .personal:
-            transactions = viewModel.transactionRepo.fetchTransactions()
-        case .group(let group):
-            transactions = viewModel.transactionRepo.fetchDisplayTransactionsForGroup(groupId: group.id)
-            logMirrorDiff(groupId: group.id, context: "performDashboardRefresh")
-        }
+        let transactions = viewModel.transactionRepo.fetchTransactions()
 
         // Update the view models with fresh data
         syncedViewModel.setMonthData(monthData)
@@ -291,8 +211,8 @@ final class DashboardViewController: UIViewController {
 
                 if shouldShowBudgetView {
                     let allocationService = BudgetAllocationService()
-                    let allocations = allocationService.getAllocationsWithUsage(forMonth: monthAnchor, in: LedgerScope(viewModel.currentContext))
-                    let summary = allocationService.getUnallocatedSummary(forMonth: monthAnchor, in: LedgerScope(viewModel.currentContext))
+                    let allocations = allocationService.getAllocationsWithUsage(forMonth: monthAnchor, in: .personal)
+                    let summary = allocationService.getUnallocatedSummary(forMonth: monthAnchor, in: .personal)
 
                     // Restore budget view if not already showing, then refresh
                     if !currentCell.isShowingBudgetView {
@@ -378,8 +298,8 @@ final class DashboardViewController: UIViewController {
                     if shouldShowBudgetView {
                         // Refresh budget view data
                         let allocationService = BudgetAllocationService()
-                        let allocations = allocationService.getAllocationsWithUsage(forMonth: monthAnchor, in: LedgerScope(viewModel.currentContext))
-                        let summary = allocationService.getUnallocatedSummary(forMonth: monthAnchor, in: LedgerScope(viewModel.currentContext))
+                        let allocations = allocationService.getAllocationsWithUsage(forMonth: monthAnchor, in: .personal)
+                        let summary = allocationService.getUnallocatedSummary(forMonth: monthAnchor, in: .personal)
 
                         if !cell.isShowingBudgetView {
                             cell.restoreBudgetViewState(allocations: allocations, summary: summary)
@@ -462,8 +382,8 @@ final class DashboardViewController: UIViewController {
                 }
 
                 let monthAnchor = cell.currentMonthAnchor
-                let allocations = allocationService.getAllocationsWithUsage(forMonth: monthAnchor, in: LedgerScope(viewModel.currentContext))
-                let summary = allocationService.getUnallocatedSummary(forMonth: monthAnchor, in: LedgerScope(viewModel.currentContext))
+                let allocations = allocationService.getAllocationsWithUsage(forMonth: monthAnchor, in: .personal)
+                let summary = allocationService.getUnallocatedSummary(forMonth: monthAnchor, in: .personal)
 
                 if cell.isShowingBudgetView {
                     // Already showing budget view, just refresh data
@@ -497,8 +417,8 @@ final class DashboardViewController: UIViewController {
 
             if isGlobalBudgetViewActive {
                 // Flip to budget view
-                let allocations = allocationService.getAllocationsWithUsage(forMonth: monthAnchor, in: LedgerScope(viewModel.currentContext))
-                let summary = allocationService.getUnallocatedSummary(forMonth: monthAnchor, in: LedgerScope(viewModel.currentContext))
+                let allocations = allocationService.getAllocationsWithUsage(forMonth: monthAnchor, in: .personal)
+                let summary = allocationService.getUnallocatedSummary(forMonth: monthAnchor, in: .personal)
                 cell.flipToBudgetView(allocations: allocations, summary: summary)
             } else {
                 // Flip back to transaction view
@@ -575,8 +495,6 @@ final class DashboardViewController: UIViewController {
         // Use slight delay to ensure collection view layout is complete
         DispatchQueue.main.async { [weak self] in
             self?.restoreBudgetViewStateForCurrentCell()
-            self?.showSyncingStateIfHydrating()
-            self?.mountGlobalSyncToastIfNeeded()
         }
 
         // Check if we should show notification success alert
@@ -744,88 +662,6 @@ final class DashboardViewController: UIViewController {
             object: nil
         )
 
-        // Listen for group data changes to update context chip (e.g., groups restored from CloudKit)
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(handleGroupDataChanged),
-            name: .budgetGroupDataChanged,
-            object: nil
-        )
-
-        // Listen for sync status changes to show shimmer overlay during cloud download
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(handleSyncStatusChanged(_:)),
-            name: .syncStatusDidChange,
-            object: nil
-        )
-
-    }
-
-    @objc private func handleSyncStatusChanged(_ notification: Notification) {
-        guard let status = notification.object as? SyncStatus else { return }
-        switch status {
-        case .syncing:
-            DispatchQueue.main.async { [weak self] in
-                self?.showSyncDownloadShimmer()
-            }
-        case .error:
-            DispatchQueue.main.async { [weak self] in
-                self?.contentView.setSyncErrorVisible(true)
-            }
-        case .synced, .idle:
-            DispatchQueue.main.async { [weak self] in
-                self?.contentView.setSyncErrorVisible(false)
-                // Clear the syncing shimmer as soon as the cycle finishes (previously it relied
-                // only on the 10s safety timeout). The post-sync .transactionDataChanged refresh
-                // then populates the freshly-pulled data.
-                self?.hideShimmerOnAllCards()
-            }
-        }
-    }
-
-    /// On a device still completing its first full pull, the dashboard can appear AFTER the
-    /// `.syncing` status was posted (the first sync runs in the InitialSync scene, before this
-    /// screen exists), so it would otherwise show momentarily-empty content. Proactively show the
-    /// sync shimmer while a sync is in progress and hydration isn't verified. Bounded by
-    /// `isSyncInProgress` and the shimmer's own timeout, so it can never get stuck; it clears on
-    /// the next `.synced`/`.idle` status.
-    private func showSyncingStateIfHydrating() {
-        guard SyncEngine.shared.isSyncInProgress,
-              !UserDefaults.standard.bool(forKey: "syncFullPullVerified_v2") else { return }
-        showSyncDownloadShimmer()
-    }
-
-    /// Mounts a persistent, window-level sync toast (tag 99998) that auto-shows "Syncing… (batch
-    /// x/y)" whenever a push is in flight — notably the first-launch backfill of the eager
-    /// recurring/allocation horizons, which otherwise uploads hundreds of records with no visible
-    /// affordance. Idempotent; InitialSyncViewController dismisses it by the same tag.
-    private func mountGlobalSyncToastIfNeeded() {
-        guard let window = view.window else { return }
-        if window.viewWithTag(99998) != nil { return }
-        let container = SyncToastContainer(frame: window.bounds)
-        container.tag = 99998
-        container.isPersistent = true
-        container.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        window.addSubview(container)
-        container.beginObserving()
-    }
-
-    private func showSyncDownloadShimmer() {
-        guard viewIfLoaded?.window != nil else { return }
-        guard let currentCell = currentCell else { return }
-
-        let visibleIndexPaths = contentView.monthCarousel.indexPathsForVisibleItems
-        if let currentIndexPath = visibleIndexPaths.first {
-            showShimmerLoadingOnCard(currentCell.monthCard)
-            showShimmerLoadingOnTable(currentCell.transactionTableView)
-            cardsWithActiveShimmer.insert(currentIndexPath.item)
-        }
-
-        // Safety timeout: syncs can take longer than local operations
-        DispatchQueue.main.asyncAfter(deadline: .now() + 10.0) { [weak self] in
-            self?.hideShimmerOnAllCards()
-        }
     }
 
     @objc private func handleCurrencyDidChange() {
@@ -837,23 +673,6 @@ final class DashboardViewController: UIViewController {
         }
     }
 
-    @objc private func handleGroupDataChanged() {
-        DispatchQueue.main.async { [weak self] in
-            guard let self = self else { return }
-
-            // If current context is a group that was deleted/left, switch to personal
-            if case .group(let currentGroup) = self.viewModel.currentContext {
-                let availableGroups = self.viewModel.getAvailableGroups()
-                if !availableGroups.contains(where: { $0.id == currentGroup.id }) {
-                    self.switchToContext(.personal)
-                    return
-                }
-            }
-
-            self.updateContextChip()
-        }
-    }
-    
     private func setupUpdateToast() {
         updateToastManager.delegate = self
         updateToastContainer.translatesAutoresizingMaskIntoConstraints = false
@@ -956,10 +775,8 @@ final class DashboardViewController: UIViewController {
             viewModel.forceRefreshCurrentMonthBalance()
         }
 
-        // Refresh the dashboard data and context chip (groups may have been discovered during sync)
         DispatchQueue.main.async {
             self.refreshDashboardData()
-            self.updateContextChip()
         }
     }
     
@@ -1047,11 +864,6 @@ final class DashboardViewController: UIViewController {
             self.migrateAllDataToNewTimezone()
         }
 
-        let syncDiagnosticAction = UIAlertAction(title: "☁️ Sync Diagnostic", style: .default) {
-            _ in
-            self.runSyncDiagnostic()
-        }
-
         let repairStatementsAction = UIAlertAction(title: "🔧 Repair Missing Statements", style: .default) {
             _ in
             self.repairMissingStatements()
@@ -1073,7 +885,6 @@ final class DashboardViewController: UIViewController {
         alertController.addAction(forceRefreshBalanceAction)
         alertController.addAction(migrateBudgetsAction)
         alertController.addAction(migrateAllDataAction)
-        alertController.addAction(syncDiagnosticAction)
         alertController.addAction(repairStatementsAction)
         alertController.addAction(cancelAction)
         
@@ -1120,161 +931,6 @@ final class DashboardViewController: UIViewController {
             })
 
         present(alert, animated: true)
-    }
-
-    private func runSyncDiagnostic() {
-        let db = DBHelper.shared
-        let txRepo = TransactionRepository()
-        let uid = UIDUserDefaultsManager.shared.currentUserUID ?? "nil"
-
-        let totalInDB = db.fetchSingleInt(
-            "SELECT COUNT(*) FROM Transactions WHERE user_id = ? AND (is_deleted IS NULL OR is_deleted = 0);",
-            textBinding: uid) ?? 0
-        let pendingSync = db.fetchSingleInt(
-            "SELECT COUNT(*) FROM Transactions WHERE user_id = ? AND sync_status = 'pending' AND (is_deleted IS NULL OR is_deleted = 0);",
-            textBinding: uid) ?? 0
-        let pendingDelete = db.fetchSingleInt(
-            "SELECT COUNT(*) FROM Transactions WHERE user_id = ? AND sync_status = 'pendingDelete';",
-            textBinding: uid) ?? 0
-        let unsyncedInstances = db.fetchSingleInt(
-            "SELECT COUNT(*) FROM Transactions WHERE user_id = ? AND ck_record_id IS NULL AND parent_transaction_id IS NOT NULL AND (is_deleted IS NULL OR is_deleted = 0);",
-            textBinding: uid) ?? 0
-        let syncedCount = db.fetchSingleInt(
-            "SELECT COUNT(*) FROM Transactions WHERE user_id = ? AND sync_status = 'synced' AND (is_deleted IS NULL OR is_deleted = 0);",
-            textBinding: uid) ?? 0
-        let tombstones = db.fetchSingleInt(
-            "SELECT COUNT(*) FROM Transactions WHERE user_id = ? AND is_deleted = 1;",
-            textBinding: uid) ?? 0
-
-        let groupTagged = db.fetchSingleInt(
-            "SELECT COUNT(*) FROM Transactions WHERE user_id = ? AND shared_group_id IS NOT NULL AND shared_group_id != '' AND (is_deleted IS NULL OR is_deleted = 0);",
-            textBinding: uid) ?? 0
-
-        let localMsg = """
-        User: \(uid.prefix(8))...
-
-        --- LOCAL DB ---
-        Total in DB: \(totalInDB)
-        Synced: \(syncedCount)
-        Pending sync: \(pendingSync)
-        Pending delete: \(pendingDelete)
-        Unsynced instances: \(unsyncedInstances)
-        Tombstones: \(tombstones)
-        Group-tagged: \(groupTagged)
-        """
-
-        logWarning("[SyncDiag] \(localMsg)")
-
-        // Find any group to query
-        var diagGroupId: String?
-        var diagZoneOwner: String = CKCurrentUserDefaultName
-        if let firstGroup = BudgetGroupRepository().fetchAllGroups().first(where: { !$0.isDeleted }) {
-            diagGroupId = firstGroup.id
-            diagZoneOwner = firstGroup.ckZoneOwner ?? CKCurrentUserDefaultName
-        }
-        if let gid = diagGroupId {
-            let zoneID = CKRecordZone.ID(zoneName: "Group-\(gid)", ownerName: diagZoneOwner)
-            let database = diagZoneOwner == CKCurrentUserDefaultName
-                ? CloudKitManager.shared.privateDatabase
-                : CloudKitManager.shared.sharedDatabase
-            let query = CKQuery(recordType: "Transaction", predicate: NSPredicate(value: true))
-
-            // Paginate through all results to get accurate count
-            var totalCloudCount = 0
-            let operation = CKQueryOperation(query: query)
-            operation.zoneID = zoneID
-            operation.desiredKeys = ["title"] // minimal data
-            operation.resultsLimit = CKQueryOperation.maximumResults
-
-            operation.recordMatchedBlock = { _, _ in
-                totalCloudCount += 1
-            }
-            operation.queryResultBlock = { [weak self] result in
-                switch result {
-                case .success(let cursor):
-                    if let cursor = cursor {
-                        self?.continueCounting(cursor: cursor, zoneID: zoneID, database: database, count: totalCloudCount, localMsg: localMsg)
-                    } else {
-                        let cloudMsg = "\(totalCloudCount) transactions in group zone"
-                        logWarning("[SyncDiag] Cloud: \(cloudMsg)")
-                        DispatchQueue.main.async {
-                            let alert = UIAlertController(
-                                title: "Sync Diagnostic",
-                                message: localMsg + "\n--- CLOUD ---\n\(cloudMsg)",
-                                preferredStyle: .alert
-                            )
-                            alert.addAction(UIAlertAction(title: "OK", style: .default))
-                            self?.present(alert, animated: true)
-                        }
-                    }
-                case .failure(let error):
-                    let cloudMsg = "Error: \(error.localizedDescription)"
-                    logWarning("[SyncDiag] Cloud: \(cloudMsg)")
-                    DispatchQueue.main.async {
-                        let alert = UIAlertController(
-                            title: "Sync Diagnostic",
-                            message: localMsg + "\n--- CLOUD ---\n\(cloudMsg)",
-                            preferredStyle: .alert
-                        )
-                        alert.addAction(UIAlertAction(title: "OK", style: .default))
-                        self?.present(alert, animated: true)
-                    }
-                }
-            }
-            logWarning("[SyncDiag] Querying cloud: zone=Group-\(gid), owner=\(diagZoneOwner == CKCurrentUserDefaultName ? "self" : diagZoneOwner.prefix(8)+"..."), db=\(diagZoneOwner == CKCurrentUserDefaultName ? "private" : "shared")")
-            database.add(operation)
-        } else {
-            let alert = UIAlertController(
-                title: "Sync Diagnostic",
-                message: localMsg + "\n(No group zone to query)",
-                preferredStyle: .alert
-            )
-            alert.addAction(UIAlertAction(title: "OK", style: .default))
-            present(alert, animated: true)
-        }
-    }
-
-    private func continueCounting(cursor: CKQueryOperation.Cursor, zoneID: CKRecordZone.ID, database: CKDatabase, count: Int, localMsg: String) {
-        var runningCount = count
-        let nextOp = CKQueryOperation(cursor: cursor)
-        nextOp.desiredKeys = ["title"]
-        nextOp.resultsLimit = CKQueryOperation.maximumResults
-        nextOp.recordMatchedBlock = { _, _ in
-            runningCount += 1
-        }
-        nextOp.queryResultBlock = { [weak self] result in
-            switch result {
-            case .success(let nextCursor):
-                if let nextCursor = nextCursor {
-                    self?.continueCounting(cursor: nextCursor, zoneID: zoneID, database: database, count: runningCount, localMsg: localMsg)
-                } else {
-                    let cloudMsg = "\(runningCount) transactions in group zone"
-                    logWarning("[SyncDiag] Cloud: \(cloudMsg)")
-                    DispatchQueue.main.async {
-                        let alert = UIAlertController(
-                            title: "Sync Diagnostic",
-                            message: localMsg + "\n--- CLOUD ---\n\(cloudMsg)",
-                            preferredStyle: .alert
-                        )
-                        alert.addAction(UIAlertAction(title: "OK", style: .default))
-                        self?.present(alert, animated: true)
-                    }
-                }
-            case .failure(let error):
-                let cloudMsg = "\(runningCount) counted before error: \(error.localizedDescription)"
-                logWarning("[SyncDiag] Cloud: \(cloudMsg)")
-                DispatchQueue.main.async {
-                    let alert = UIAlertController(
-                        title: "Sync Diagnostic",
-                        message: localMsg + "\n--- CLOUD ---\n\(cloudMsg)",
-                        preferredStyle: .alert
-                    )
-                    alert.addAction(UIAlertAction(title: "OK", style: .default))
-                    self?.present(alert, animated: true)
-                }
-            }
-        }
-        database.add(nextOp)
     }
 
     private func repairMissingStatements() {
@@ -1669,22 +1325,13 @@ final class DashboardViewController: UIViewController {
         }
 
         // Safely load transactions with authentication check
-        switch viewModel.currentContext {
-        case .personal:
-            transactions = viewModel.transactionRepo.fetchTransactions()
-        case .group(let group):
-            transactions = viewModel.transactionRepo.fetchDisplayTransactionsForGroup(groupId: group.id)
-            logMirrorDiff(groupId: group.id, context: "initialLoad")
-        }
+        transactions = viewModel.transactionRepo.fetchTransactions()
 
         // Safely load monthly cards data
         let monthData = viewModel.loadMonthlyCards()
         
         syncedViewModel.setMonthData(monthData)
         syncedViewModel.setTransactions(mergeWithStatementTransactions(transactions))
-
-        // Configure context chip
-        updateContextChip()
 
         contentView.monthCarousel.layoutIfNeeded()
 
@@ -1734,72 +1381,15 @@ extension DashboardViewController: DashboardViewDelegate {
             isGlobalBudgetViewActive = true
             self.flowDelegate?.openAddAllocationModal(forMonth: monthAnchor, preselectedCategory: nil)
         } else {
-            self.flowDelegate?.openAddTransactionModal(context: viewModel.currentContext)
+            self.flowDelegate?.openAddTransactionModal()
         }
     }
     
-    func didTapContextSwitch() {
-        let groups = viewModel.getAvailableGroups()
-        guard !groups.isEmpty else { return }
-
-        let alert = UIAlertController(
-            title: "dashboard.context.switch".localized,
-            message: nil,
-            preferredStyle: .actionSheet
-        )
-
-        // Personal option
-        let personalAction = UIAlertAction(
-            title: "dashboard.context.personal".localized,
-            style: .default
-        ) { [weak self] _ in
-            self?.switchToContext(.personal)
-        }
-        if viewModel.currentContext == .personal {
-            personalAction.setValue(true, forKey: "checked")
-        }
-        alert.addAction(personalAction)
-
-        // Group options
-        for group in groups {
-            let action = UIAlertAction(title: group.name, style: .default) { [weak self] _ in
-                self?.switchToContext(.group(group))
-            }
-            if case .group(let current) = viewModel.currentContext, current.id == group.id {
-                action.setValue(true, forKey: "checked")
-            }
-            alert.addAction(action)
-        }
-
-        alert.addAction(UIAlertAction(title: "alert.cancel".localized, style: .cancel))
-        present(alert, animated: true)
-    }
-
-    private func switchToContext(_ context: DataContext) {
-        viewModel.switchContext(to: context)
-        updateContextChip()
-    }
-
-    func updateContextChip() {
-        let hasGroups = !viewModel.getAvailableGroups().isEmpty
-        contentView.configureContextChip(
-            currentContext: viewModel.currentContext,
-            hasGroups: hasGroups
-        )
-    }
-
     func didTapNotifications() {
         self.flowDelegate?.navigateToNotificationHistory()
     }
 
-    func didTapSyncError() {
-        self.flowDelegate?.navigateToSyncSettingsFromDashboard()
-    }
-    
     func dashboardViewDidRequestRefresh(_ dashboardView: DashboardView) {
-        // Trigger iCloud sync on pull-to-refresh
-        SyncEngine.shared.performFullSync()
-
         // Refresh dashboard data and recalculate current day with animation
         refreshDashboardData()
         
@@ -1870,7 +1460,7 @@ extension DashboardViewController: UICollectionViewDataSource {
                 guard let self else { return }
                 // The same scope the card renders, so the history is the ledger the user is looking at.
                 self.flowDelegate?.navigateToBudgetHistory(
-                    ledgerScope: LedgerScope(self.viewModel.currentContext),
+                    ledgerScope: .personal,
                     filter: .wholeMonth,
                     monthAnchor: monthAnchor)
             }
@@ -1900,7 +1490,7 @@ extension DashboardViewController: UICollectionViewDataSource {
                     monthAnchor: monthAnchor,
                     // The same expression the cell's own `ledgerScope` is set from, so the history
                     // in the sheet is read from the ledger whose allocations it lists.
-                    ledgerScope: LedgerScope(self.viewModel.currentContext))
+                    ledgerScope: .personal)
             }
 
             cell.transactionTableView.dataSource = self
@@ -1928,9 +1518,8 @@ extension DashboardViewController: UICollectionViewDataSource {
             cell.setMonthAnchor(monthAnchor)
 
             cell.monthCard.ledgerService = viewModel.transactionLedger
-            cell.monthCard.dataContext = viewModel.currentContext
             // Same scope the card displays, so its budget view can't read a different ledger.
-            cell.ledgerScope = LedgerScope(viewModel.currentContext)
+            cell.ledgerScope = .personal
             // Read the balance live from the synced month data rather than handing over a
             // snapshot: this array is the only cumulative, scope-aware source of finalBalance,
             // and it is refreshed on paths that deliberately skip monthCard.refresh(with:).
@@ -1945,8 +1534,8 @@ extension DashboardViewController: UICollectionViewDataSource {
             // Restore budget view state if global budget view is active
             if isGlobalBudgetViewActive {
                 let allocationService = BudgetAllocationService()
-                let allocations = allocationService.getAllocationsWithUsage(forMonth: monthAnchor, in: LedgerScope(viewModel.currentContext))
-                let summary = allocationService.getUnallocatedSummary(forMonth: monthAnchor, in: LedgerScope(viewModel.currentContext))
+                let allocations = allocationService.getAllocationsWithUsage(forMonth: monthAnchor, in: .personal)
+                let summary = allocationService.getUnallocatedSummary(forMonth: monthAnchor, in: .personal)
                 cell.restoreBudgetViewState(allocations: allocations, summary: summary)
             }
 
@@ -1985,8 +1574,8 @@ extension DashboardViewController: UICollectionViewDelegate {
         let monthAnchor = syncedViewModel.monthData[indexPath.item].date.monthAnchor
         if isGlobalBudgetViewActive && !monthCell.isShowingBudgetView {
             let allocationService = BudgetAllocationService()
-            let allocations = allocationService.getAllocationsWithUsage(forMonth: monthAnchor, in: LedgerScope(viewModel.currentContext))
-            let summary = allocationService.getUnallocatedSummary(forMonth: monthAnchor, in: LedgerScope(viewModel.currentContext))
+            let allocations = allocationService.getAllocationsWithUsage(forMonth: monthAnchor, in: .personal)
+            let summary = allocationService.getUnallocatedSummary(forMonth: monthAnchor, in: .personal)
             monthCell.restoreBudgetViewState(allocations: allocations, summary: summary)
         } else if !isGlobalBudgetViewActive && monthCell.isShowingBudgetView {
             monthCell.flipToTransactionView()
@@ -2114,8 +1703,8 @@ extension DashboardViewController: UIScrollViewDelegate {
                     let monthAnchor = model.date.monthAnchor
                     if isGlobalBudgetViewActive && !firstCell.isShowingBudgetView {
                         let allocationService = BudgetAllocationService()
-                        let allocations = allocationService.getAllocationsWithUsage(forMonth: monthAnchor, in: LedgerScope(viewModel.currentContext))
-                        let summary = allocationService.getUnallocatedSummary(forMonth: monthAnchor, in: LedgerScope(viewModel.currentContext))
+                        let allocations = allocationService.getAllocationsWithUsage(forMonth: monthAnchor, in: .personal)
+                        let summary = allocationService.getUnallocatedSummary(forMonth: monthAnchor, in: .personal)
                         firstCell.restoreBudgetViewState(allocations: allocations, summary: summary)
                     } else if !isGlobalBudgetViewActive && firstCell.isShowingBudgetView {
                         firstCell.flipToTransactionView()
@@ -2261,16 +1850,11 @@ extension DashboardViewController: MonthBudgetCardDelegate {
     }
     
     func didRequestBalanceAdjustment() {
-        // The card already hides the affordance for non-owners; this is the enforcement, and it
-        // reads the live context rather than the one the card was configured with.
-        if case .group(let group) = viewModel.currentContext, !group.isOwner {
-            return
-        }
         let selectedIndex = syncedViewModel.selectedIndex
         guard selectedIndex < syncedViewModel.monthData.count else { return }
         let monthData = syncedViewModel.monthData[selectedIndex]
         let currentBalance = monthData.currentBalance ?? monthData.finalBalance ?? 0
-        flowDelegate?.openAdjustBalanceModal(currentBalance: currentBalance, context: viewModel.currentContext)
+        flowDelegate?.openAdjustBalanceModal(currentBalance: currentBalance)
     }
 
     func refreshAfterBalanceAdjustment() {
