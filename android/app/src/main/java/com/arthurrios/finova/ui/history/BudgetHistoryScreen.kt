@@ -179,11 +179,13 @@ private fun FilterIcon(filter: BudgetHistoryFilter, tint: Color, size: androidx.
 private fun Controls(state: BudgetHistoryUiState, onPick: () -> Unit, onSpan: (HistorySpan) -> Unit) {
     val chooseLabel = stringResource(R.string.history_a11y_choose_filter)
     Row(verticalAlignment = Alignment.CenterVertically) {
+        // The button keeps its own width; the box around it takes the room the switch leaves, so the
+        // switch sits on the right edge and a long category name truncates instead of pushing it off.
+        Box(Modifier.weight(1f)) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(Spacing.S2),
             modifier = Modifier
-                .weight(1f, fill = false)
                 .height(36.dp)
                 .clip(CircleShape)
                 .background(FinovaColors.Gray100)
@@ -195,8 +197,11 @@ private fun Controls(state: BudgetHistoryUiState, onPick: () -> Unit, onSpan: (H
             Text(state.filter.title(), style = FinovaType.TextSMBold, color = FinovaColors.Gray700, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Icon(Icons.Filled.KeyboardArrowDown, null, tint = FinovaColors.Gray700, modifier = Modifier.size(16.dp))
         }
-        Spacer(Modifier.weight(0.01f).width(Spacing.S3))
-        if (state.offersLongerSpan) SpanPicker(state.span, onSpan)
+        }
+        if (state.offersLongerSpan) {
+            Spacer(Modifier.width(Spacing.S3))
+            SpanPicker(state.span, onSpan)
+        }
     }
 }
 
@@ -280,9 +285,9 @@ private fun Readout(state: BudgetHistoryUiState, month: BudgetHistoryMonth, onSe
             Text(
                 Money.formatMasked(month.spent, state.currencyCode, hidden),
                 style = FinovaType.TitleLG.copy(fontSize = 24.sp), color = FinovaColors.Gray700,
-                maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false),
+                maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
             )
-            Spacer(Modifier.weight(0.01f).width(Spacing.S2))
+            Spacer(Modifier.width(Spacing.S2))
             StatusPill(month, hidden, state.currencyCode)
         }
         Text(planLine(month, hidden, state.currencyCode), style = FinovaType.TextXS, color = FinovaColors.Gray500)
