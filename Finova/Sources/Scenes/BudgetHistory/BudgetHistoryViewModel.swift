@@ -139,9 +139,23 @@ final class BudgetHistoryViewModel: ObservableObject {
         history.contributors(for: filter, from: savingsStart, through: savingsEnd)
     }
 
-    /// One month's three biggest expenses for the chosen filter - the detail under a month row.
-    func biggestExpenses(in anchor: Int) -> [Transaction] {
-        Array(history.transactions(for: filter, month: anchor, in: expenses).prefix(3))
+    /// One month of the chosen filter, as the detail under a month row: its plan, what was spent and
+    /// across how many expenses, and the three biggest of them. Zero-amount rows never count.
+    func monthDetail(_ anchor: Int) -> (month: BudgetHistoryMonth, expenseCount: Int, biggest: [Transaction])? {
+        guard let month = history.series(for: filter)?.month(anchor) else { return nil }
+        let listed = history.transactions(for: filter, month: anchor, in: expenses).filter { $0.amount > 0 }
+        return (month, listed.count, Array(listed.prefix(3)))
+    }
+
+    /// The named parts of the outside remainder, shown under the Saved card while that filter is on.
+    var outsideDifferences: [BudgetHistory.OutsideDifference] {
+        guard outsideTiming != nil else { return [] }
+        return history.outsideDifferences(from: savingsStart, through: savingsEnd)
+    }
+
+    /// "Aug, Sep".
+    static func monthList(_ anchors: [Int]) -> String {
+        anchors.map(shortMonth).joined(separator: ", ")
     }
 
     /// "May to Sep 2026", or one month's name: the months a Saved figure covers.

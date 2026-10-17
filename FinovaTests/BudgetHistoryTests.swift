@@ -259,13 +259,15 @@ final class BudgetHistoryTests: XCTestCase {
 
     private func expense(
         _ title: String, _ category: TransactionCategory, amount: Int,
-        dated dateIndex: Int, budgetMonth budgetIndex: Int, statement: Bool = false, day: Int = 15
+        dated dateIndex: Int, budgetMonth budgetIndex: Int, statement: Bool = false, day: Int = 15,
+        installmentParent: Bool = false
     ) -> Transaction {
         // Mid-month by default, so the date's month does not depend on the time zone.
         let date = anchors[dateIndex] + day * 86_400
         let model = TransactionModel(
             title: title, category: category.key, amount: amount, type: "expense",
             dateTimestamp: date, budgetMonthDate: anchors[budgetIndex],
+            hasInstallments: installmentParent ? true : nil,
             isCreditCardStatement: statement ? true : nil)
         return Transaction(data: try! UITransactionData(from: model.data))
     }
@@ -374,6 +376,57 @@ final class BudgetHistoryTests: XCTestCase {
         XCTAssertEqual(result?.overspenders, [.init(part: .month(anchors[2]), net: -20)])
         XCTAssertEqual(result?.total, 380)
         XCTAssertNil(history.contributors(for: .category(.groceries), from: anchors[4], through: nil))
+    }
+
+    func testParentInstallmentsNeverShow() {
+        let history = BudgetHistory(
+            monthAnchors: anchors, currentAnchor: current,
+            allocations: [allocation(.education, 3, 500)], spentByCategory: [:], monthTotals: [:])
+        let expenses = [
+            expense("Student card", .education, amount: 0, dated: 3, budgetMonth: 3, installmentParent: true),
+            expense("Course", .education, amount: 120, dated: 3, budgetMonth: 3),
+        ]
+        XCTAssertEqual(
+            history.transactions(for: .category(.education), month: anchors[3], in: expenses).map(\.title),
+            ["Course"])
+        XCTAssertEqual(
+            history.transactions(for: .wholeMonth, month: anchors[3], in: expenses).map(\.title), ["Course"])
+    }
+
+    func testOutsideDifferencesNameTheirReasonAndAddUp() {
+        // Month 1: budget 1_000, groceries 500 -> 500 unallocated, outside spends 100 -> +400.
+        //   The card used 700 against groceries 450 + outside 100 = 550: 150 counted in another month.
+        // Month 2: budget 1_000, groceries 1_100 -> categories above the budget, no outside plan.
+        let history = BudgetHistory(
+            monthAnchors: anchors, currentAnchor: current,
+            allocations: [allocation(.groceries, 1, 500), allocation(.groceries, 2, 1_100)],
+            spentByCategory: [
+                "groceries": [anchors[1]: 450, anchors[2]: 1_000],
+                "travel": [anchors[1]: 100, anchors[2]: 200],
+            ],
+            monthTotals: [
+                anchors[1]: .init(budget: 1_000, used: 700),
+                anchors[2]: .init(budget: 1_000, used: 1_200),
+            ])
+
+        let differences = history.outsideDifferences(from: nil, through: nil)
+        XCTAssertEqual(differences.map(\.reason), [.categoriesAboveBudget, .otherMonth])
+        // Month 2: whole -200, groceries +100 -> -300 the outside series cannot hold.
+        XCTAssertEqual(differences.first?.months, [anchors[2]])
+        XCTAssertEqual(differences.first?.amount, -300)
+        XCTAssertEqual(differences.last?.amount, -150)
+        XCTAssertEqual(differences.reduce(0) { $0 + $1.amount }, history.outsideTiming(from: nil, through: nil))
+    }
+
+    func testOthersKeepsItsPartsBiggestFirst() {
+        // Five closed months: +50, +40, +30, +20, -10. Others holds the +20.
+        let wrapped = BudgetHistory(
+            monthAnchors: anchors, currentAnchor: current,
+            wholeMonth: series([(100, 50), (100, 60), (100, 70), (100, 80), (100, 110), (100, 1)]),
+            categories: [])
+        let result = wrapped.contributors(for: .wholeMonth, from: nil, through: nil)
+        XCTAssertEqual(result?.rest.map(\.net), [20])
+        XCTAssertEqual(result?.others, 20)
     }
 
     func testClosedMonthAnchorsLeaveOutTheOpenMonth() {

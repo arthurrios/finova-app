@@ -319,20 +319,25 @@ struct BudgetHistoryContentView: View {
                 .foregroundStyle(Color(Colors.gray500))
             }
 
-            if let timing = viewModel.outsideTiming, timing != 0 {
+            // What the chart does not explain, each part with its reason, so the card plus these lines
+            // equal the Outside allocations row in the list.
+            let differences = viewModel.outsideDifferences
+            if !differences.isEmpty {
                 Divider().overlay(Color(Colors.gray300)).padding(.vertical, Metrics.spacing1)
-                HStack(alignment: .firstTextBaseline) {
-                    Text("budgetHistory.outside.timing".localized)
-                        .font(Font(Fonts.textXS.font))
-                        .foregroundStyle(Color(Colors.gray500))
-                        .fixedSize(horizontal: false, vertical: true)
-                    Spacer(minLength: Metrics.spacing2)
-                    Text(timing.maskedSignedCurrencyString(hidden: hidden))
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(Color(Colors.gray600))
-                        .fixedSize()
+                ForEach(Array(differences.enumerated()), id: \.offset) { _, difference in
+                    HStack(alignment: .firstTextBaseline) {
+                        Text(differenceLabel(difference))
+                            .font(Font(Fonts.textXS.font))
+                            .foregroundStyle(Color(Colors.gray500))
+                            .fixedSize(horizontal: false, vertical: true)
+                        Spacer(minLength: Metrics.spacing2)
+                        Text(difference.amount.maskedSignedCurrencyString(hidden: hidden))
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(Color(Colors.gray600))
+                            .fixedSize()
+                    }
+                    .accessibilityElement(children: .combine)
                 }
-                .accessibilityElement(children: .combine)
             }
         }
         .padding(Metrics.spacing5)
@@ -395,9 +400,22 @@ struct BudgetHistoryContentView: View {
         return BudgetHistoryViewModel.savingsEndTitle(end) + " · " + months
     }
 
+    private func differenceLabel(_ difference: BudgetHistory.OutsideDifference) -> String {
+        let months = BudgetHistoryViewModel.monthList(difference.months)
+        switch difference.reason {
+        case .categoriesAboveBudget:
+            return String(format: "budgetHistory.outside.diff.aboveBudget.format".localized, months)
+        case .noMonthBudget:
+            return String(format: "budgetHistory.outside.diff.noBudget.format".localized, months)
+        case .otherMonth:
+            return "budgetHistory.outside.timing".localized
+        }
+    }
+
     // MARK: - What made Saved
 
     @State private var expandedMonth: Int?
+    @State private var showsOthers = false
 
     /// What made the Saved figure: the few parts that moved it most, then everything else in one line,
     /// then the total - which is the Saved figure. Categories for the whole month, months otherwise.
@@ -433,11 +451,31 @@ struct BudgetHistoryContentView: View {
                 }
                 if contributors.othersCount > 0 {
                     Divider().overlay(Color(Colors.gray300)).padding(.top, Metrics.spacing2)
-                    ExplanationLine(
-                        label: String(format: "budgetHistory.contrib.others.format".localized,
-                            contributors.othersCount),
-                        value: contributors.others.maskedSignedCurrencyString(hidden: hidden),
-                        tint: hidden ? nil : Colors.gray600)
+                    // Opens to the parts it sums, biggest effect first, so nothing stays hidden.
+                    SwiftUI.Button {
+                        withAnimation(.easeInOut(duration: 0.2)) { showsOthers.toggle() }
+                    } label: {
+                        HStack(spacing: Metrics.spacing2) {
+                            ExplanationLine(
+                                label: String(format: "budgetHistory.contrib.others.format".localized,
+                                    contributors.othersCount),
+                                value: contributors.others.maskedSignedCurrencyString(hidden: hidden),
+                                // Coloured by direction like every named line, so it is clear which
+                                // way the remainder moved Saved.
+                                tint: hidden ? nil
+                                    : (contributors.others >= 0 ? Colors.mainGreen : Colors.mainRed))
+                                .padding(.trailing, -Metrics.spacing5)
+                            Image(systemName: showsOthers ? "chevron.up" : "chevron.down")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(Color(Colors.gray400))
+                                .padding(.trailing, Metrics.spacing5)
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    if showsOthers {
+                        ForEach(contributors.rest, id: \.part) { contributorRow($0) }
+                    }
                 }
                 Divider().overlay(Color(Colors.gray300))
                 ExplanationLine(
@@ -450,7 +488,10 @@ struct BudgetHistoryContentView: View {
             }
             .cardBackground()
             .padding(.horizontal, Metrics.spacing4)
-            .onChange(of: viewModel.filter) { _, _ in expandedMonth = nil }
+            .onChange(of: viewModel.filter) { _, _ in
+                expandedMonth = nil
+                showsOthers = false
+            }
         }
     }
 
@@ -491,51 +532,85 @@ struct BudgetHistoryContentView: View {
                 withAnimation(.easeInOut(duration: 0.2)) { expandedMonth = isOpen ? nil : anchor }
             }
             if isOpen {
-                biggestExpenses(in: anchor)
+                monthDetail(anchor)
             }
         }
     }
 
-    /// Only the three biggest: enough to see what drove the month, without repeating the dashboard list.
-    private func biggestExpenses(in anchor: Int) -> some View {
-        let expenses = viewModel.biggestExpenses(in: anchor)
-        return VStack(alignment: .leading, spacing: 0) {
-            Text("budgetHistory.contrib.topExpenses".localized)
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(Color(Colors.gray500))
-                .padding(.bottom, Metrics.spacing1)
-            if expenses.isEmpty {
-                Text("budgetHistory.transactions.empty".localized)
-                    .font(.system(size: 12))
-                    .foregroundStyle(Color(Colors.gray500))
-            }
-            ForEach(Array(expenses.enumerated()), id: \.offset) { _, transaction in
-                SwiftUI.Button {
-                    viewModel.onOpenTransaction?(transaction)
-                } label: {
-                    HStack {
-                        Text(transaction.title)
-                            .font(.system(size: 12))
-                            .foregroundStyle(Color(Colors.gray700))
-                            .lineLimit(1)
-                        Spacer(minLength: Metrics.spacing2)
-                        Text((-transaction.amount).maskedSignedCurrencyString(hidden: hidden))
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundStyle(Color(Colors.gray600))
-                            .fixedSize()
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 10, weight: .semibold))
-                            .foregroundStyle(Color(Colors.gray400))
-                    }
-                    .padding(.vertical, 6)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-            }
+    private var planLabel: String {
+        switch viewModel.filter {
+        case .wholeMonth: return "budgetHistory.explain.plan.wholeMonth".localized
+        case .category(let category):
+            return String(format: "budgetHistory.explain.plan.category.format".localized, category.displayName)
+        case .outsideAllocations: return "budgetHistory.explain.plan.outside".localized
         }
-        .padding(.leading, 56 + Metrics.spacing5)
-        .padding(.trailing, Metrics.spacing5)
-        .padding(.bottom, Metrics.spacing2)
+    }
+
+    /// The month's own sum first - plan, spent, result - so its number adds up on the spot, then only
+    /// the three biggest expenses: enough to see what drove it, without repeating the dashboard list.
+    @ViewBuilder
+    private func monthDetail(_ anchor: Int) -> some View {
+        if let detail = viewModel.monthDetail(anchor) {
+            VStack(alignment: .leading, spacing: 0) {
+                detailLine(planLabel, detail.month.planned.maskedCurrencyString(hidden: hidden))
+                detailLine(
+                    String(format: "budgetHistory.explain.spent.format".localized, detail.expenseCount),
+                    (-detail.month.spent).maskedSignedCurrencyString(hidden: hidden))
+                detailLine(
+                    "= " + BudgetHistoryViewModel.longMonth(anchor),
+                    detail.month.difference.maskedSignedCurrencyString(hidden: hidden),
+                    tint: hidden ? nil : (detail.month.difference >= 0 ? Colors.mainGreen : Colors.mainRed),
+                    bold: true)
+                if !detail.biggest.isEmpty {
+                    Text("budgetHistory.contrib.topExpenses".localized)
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(Color(Colors.gray500))
+                        .padding(.top, Metrics.spacing2)
+                        .padding(.bottom, Metrics.spacing1)
+                }
+                ForEach(Array(detail.biggest.enumerated()), id: \.offset) { _, transaction in
+                    SwiftUI.Button {
+                        viewModel.onOpenTransaction?(transaction)
+                    } label: {
+                        HStack {
+                            Text(transaction.title)
+                                .font(.system(size: 12))
+                                .foregroundStyle(Color(Colors.gray700))
+                                .lineLimit(1)
+                            Spacer(minLength: Metrics.spacing2)
+                            Text((-transaction.amount).maskedSignedCurrencyString(hidden: hidden))
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundStyle(Color(Colors.gray600))
+                                .fixedSize()
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundStyle(Color(Colors.gray400))
+                        }
+                        .padding(.vertical, 6)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.leading, 56 + Metrics.spacing5)
+            .padding(.trailing, Metrics.spacing5)
+            .padding(.bottom, Metrics.spacing2)
+        }
+    }
+
+    private func detailLine(_ label: String, _ value: String, tint: UIColor? = nil, bold: Bool = false) -> some View {
+        HStack {
+            Text(label)
+                .font(.system(size: 12, weight: bold ? .semibold : .regular))
+                .foregroundStyle(Color(Colors.gray700))
+            Spacer(minLength: Metrics.spacing2)
+            Text(value)
+                .font(.system(size: 12, weight: bold ? .semibold : .medium))
+                .foregroundStyle(Color(tint ?? Colors.gray600))
+                .fixedSize()
+        }
+        .padding(.vertical, 3)
+        .accessibilityElement(children: .combine)
     }
 
     // MARK: - Empty

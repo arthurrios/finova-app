@@ -188,6 +188,8 @@ struct SavingsContributors {
     /// Everything not named, so savers + overspenders + others = total.
     let others: Int
     let othersCount: Int
+    /// The parts summed into `others`, biggest effect first - what the Others line opens to.
+    let rest: [Item]
     let total: Int
     /// The months the Saved figure counts, first and last.
     let firstMonth: Int?
@@ -204,6 +206,7 @@ struct SavingsContributors {
         self.overspenders = overspenders
         self.others = total - (savers + overspenders).reduce(0) { $0 + $1.net }
         self.othersCount = rest.count
+        self.rest = rest.sorted { abs($0.net) > abs($1.net) }
         self.total = total
         self.firstMonth = firstMonth
         self.lastMonth = lastMonth
@@ -311,6 +314,60 @@ struct BudgetHistory: Equatable {
             firstMonth: counted.first?.monthAnchor, lastMonth: counted.last?.monthAnchor)
     }
 
+    /// What `outsideTiming` is made of, so the Saved card can name it instead of one vague line.
+    struct OutsideDifference: Equatable {
+        enum Reason: Equatable {
+            /// Months whose categories were given more than the month's budget. They have no
+            /// unallocated budget, so the outside series cannot count them.
+            case categoriesAboveBudget
+            /// Months with allocations but no month budget, which the whole month does not count.
+            case noMonthBudget
+            /// What is left: purchases the month card counts by date and allocations by budget month.
+            case otherMonth
+        }
+        let reason: Reason
+        /// The months behind the first two reasons, oldest first. Empty for `otherMonth`.
+        let months: [Int]
+        let amount: Int
+    }
+
+    /// `outsideTiming`, split by why each month's remainder is not in the outside series. Only the
+    /// non-zero parts, and they always sum to `outsideTiming`.
+    func outsideDifferences(from start: Int?, through end: Int?) -> [OutsideDifference] {
+        guard let outside else { return [] }
+        var above: (months: [Int], amount: Int) = ([], 0)
+        var noBudget: (months: [Int], amount: Int) = ([], 0)
+        var other = 0
+        for anchor in closedMonthAnchors
+        where (start == nil || anchor >= start!) && (end == nil || anchor <= end!) {
+            let whole = wholeMonth.month(anchor)
+            let wholeNet = whole?.hasPlan == true ? whole!.difference : 0
+            let categoryMonths = categories.compactMap { $0.month(anchor) }.filter(\.hasPlan)
+            let categoriesNet = categoryMonths.reduce(0) { $0 + $1.difference }
+            let outsideMonth = outside.month(anchor)
+            let outsideNet = outsideMonth?.hasPlan == true ? outsideMonth!.difference : 0
+            let remainder = wholeNet - categoriesNet - outsideNet
+            guard remainder != 0 else { continue }
+
+            let budget = whole?.planned ?? 0
+            let allocated = categoryMonths.reduce(0) { $0 + $1.planned }
+            if budget == 0 && allocated > 0 {
+                noBudget.months.append(anchor)
+                noBudget.amount += remainder
+            } else if allocated >= budget && budget > 0 {
+                above.months.append(anchor)
+                above.amount += remainder
+            } else {
+                other += remainder
+            }
+        }
+        return [
+            OutsideDifference(reason: .categoriesAboveBudget, months: above.months, amount: above.amount),
+            OutsideDifference(reason: .noMonthBudget, months: noBudget.months, amount: noBudget.amount),
+            OutsideDifference(reason: .otherMonth, months: [], amount: other),
+        ].filter { $0.amount != 0 }
+    }
+
     /// The expenses one bar is made of, biggest first. Each filter uses the clock its bar uses:
     /// - the whole month: every expense dated in the month except statement payments, which is how
     ///   the month card's "used" counts (by date, card purchases included);
@@ -343,7 +400,9 @@ struct BudgetHistory: Equatable {
             }
         }
         return matching
-            .filter { $0.type == .expense }
+            // The parent row of an installment purchase is a R$ 0 summary of its installments, which
+            // are listed themselves - the same rule the statement screen uses to hide it.
+            .filter { $0.type == .expense && !($0.hasInstallments == true && $0.parentTransactionId == nil) }
             .sorted { $0.amount != $1.amount ? $0.amount > $1.amount : $0.dateTimestamp > $1.dateTimestamp }
     }
 

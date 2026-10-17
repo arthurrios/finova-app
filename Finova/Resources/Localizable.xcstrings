@@ -4292,6 +4292,78 @@
         }
       }
     },
+    "budgetHistory.explain.plan.category.format": {
+      "comment": "Under an opened month: its plan, for a category. %@ is the category.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ allocation"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alocação de %@"
+          }
+        }
+      }
+    },
+    "budgetHistory.explain.plan.outside": {
+      "comment": "Under an opened month: its plan for Outside allocations - budget not put into any category.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not in any category"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fora das categorias"
+          }
+        }
+      }
+    },
+    "budgetHistory.explain.plan.wholeMonth": {
+      "comment": "Under an opened month: its plan, for the whole month.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Month budget"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Orçamento do mês"
+          }
+        }
+      }
+    },
+    "budgetHistory.explain.spent.format": {
+      "comment": "Under an opened month: what it spent. %d is how many expenses.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spent (%d)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gasto (%d)"
+          }
+        }
+      }
+    },
     "budgetHistory.filter.wholeMonth": {
       "comment": "Filter chip: the whole monthly budget rather than one category.",
       "extractionState": "manual",
@@ -4598,6 +4670,42 @@
         }
       }
     },
+    "budgetHistory.outside.diff.aboveBudget.format": {
+      "comment": "Part of the Outside allocations remainder. %@ lists months, e.g. 'Aug, Sep'.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: categories took the whole budget"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: categorias usaram todo o orçamento"
+          }
+        }
+      }
+    },
+    "budgetHistory.outside.diff.noBudget.format": {
+      "comment": "Part of the Outside allocations remainder. %@ lists months.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: no month budget"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: sem orçamento do mês"
+          }
+        }
+      }
+    },
     "budgetHistory.outside.timing": {
       "comment": "Under the Saved card of 'Outside allocations': the part the chart does not explain.",
       "extractionState": "manual",
@@ -4605,13 +4713,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Month timing and other differences"
+            "value": "Purchases counted in another month"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diferenças de mês e outras"
+            "value": "Compras contadas em outro mês"
           }
         }
       }
