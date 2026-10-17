@@ -552,11 +552,13 @@ final class TransactionRepository: TransactionRepositoryProtocol {
             )
             newStatementIds.insert(stmtId)
 
-            // Ledger date only — the budget month stays on `installment.unadjusted`, set above.
+            // Remap the installment onto the statement due date, BOTH columns: the month it is
+            // billed in is also the month whose allocation it consumes.
             let dueDateTimestamp = Int(statement.dueDate.timeIntervalSince1970)
-            updateStatementDueDate(
+            updateDateAndBudgetMonth(
               transactionId: insertedId,
-              newDateTimestamp: dueDateTimestamp
+              newDateTimestamp: dueDateTimestamp,
+              newBudgetMonthDate: statement.dueDate.monthAnchor
             )
 
             previousStatement = statement

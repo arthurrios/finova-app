@@ -317,36 +317,30 @@ class CreditCardService {
             .first
     }
 
-    /// The month a damaged card transaction was SPENT in — the one whose category allocation it
-    /// consumes — recovered from columns the statement remap never wrote.
+    /// The month a moved card transaction was SPENT in — the one whose category allocation it
+    /// consumes — recovered from a column the statement remap never wrote.
     ///
-    /// For an installment, `date` IS the due date, so it is unusable: the occurrence slot
-    /// (`series_period`) is the canonical answer, with the unadjusted purchase date behind it. For a
-    /// transaction that was merely moved between statements, `date` was never touched and is the
-    /// purchase date. Returns nil when a row offers nothing trustworthy, so the repair leaves it
-    /// exactly as it is rather than guessing.
+    /// `moveTransactionToStatement` never touched `date`, so `date` is still the purchase date and
+    /// is therefore the answer. Installments are NOT part of this population: an installment's
+    /// `date` IS its due date, and the due month is the month it is meant to count in — see
+    /// `installmentBudgetMonthIsStatementDueMonth` below.
     private func spendingMonth(of tx: Transaction) -> Int? {
-        if tx.installmentNumber != nil {
-            if let slot = tx.storedSeriesPeriod { return slot }
-            guard let unadjusted = tx.unadjustedDateTimestamp else { return nil }
-            return Date(timeIntervalSince1970: TimeInterval(unadjusted)).monthAnchor
-        }
-        return Date(timeIntervalSince1970: TimeInterval(tx.dateTimestamp)).monthAnchor
+        Date(timeIntervalSince1970: TimeInterval(tx.dateTimestamp)).monthAnchor
     }
 
     /// Puts a damaged card transaction's `budget_month_date` back on the month it was spent in.
     /// Returns how many rows moved.
     ///
-    /// Exactly two paths used to stamp the statement's DUE month onto that column: the installment
-    /// remap (which rewrote `date` and `budget_month_date` together) and `moveTransactionToStatement`
-    /// (which flags the row `is_statement_overridden`). A due date almost always lands in the month
-    /// AFTER the purchase, so every affected expense — in every category — was charged to the
-    /// following month's allocation, leaving its own month looking underspent and the next one over.
+    /// `moveTransactionToStatement` used to stamp the target statement's DUE month onto that column.
+    /// A due date almost always lands in the month AFTER the purchase, so every transaction the user
+    /// had moved between statements — in every category — was charged to the following month's
+    /// allocation, leaving its own month looking underspent and the next one over.
     ///
-    /// **Scoped to those two populations on purpose.** A plain card purchase already carries the
-    /// right month, and for one created under a business-day rule the right month is the ADJUSTED
-    /// one — recomputing it from the unadjusted date or the occurrence slot would move a row that
-    /// was never broken. Repairs earn their keep by touching only what is damaged.
+    /// **Scoped to that one population on purpose**: rows flagged `is_statement_overridden`, which is
+    /// the flag that path sets. A plain card purchase already carries the right month, and for one
+    /// created under a business-day rule the right month is the ADJUSTED one — recomputing it would
+    /// move a row that was never broken. An installment is excluded too, and deliberately: the due
+    /// month is where it belongs. Repairs earn their keep by touching only what is damaged.
     ///
     /// Deterministic, not heuristic: it recomputes from columns every device holds identically, so
     /// two devices repairing the same row agree on the answer instead of pushing rival guesses at
@@ -356,8 +350,7 @@ class CreditCardService {
         let statementLinked = transactionRepo.fetchAllTransactions().filter { tx in
             guard let txId = tx.id, tx.statementId != nil, tx.isCreditCardStatement != true
             else { return false }
-            return tx.installmentNumber != nil
-                || DBHelper.shared.isStatementOverridden(transactionId: txId)
+            return DBHelper.shared.isStatementOverridden(transactionId: txId)
         }
         guard !statementLinked.isEmpty else { return 0 }
 
@@ -390,6 +383,80 @@ class CreditCardService {
         guard UserDefaults.standard.bool(forKey: "syncFullPullVerified_v2") else { return }
 
         repairBudgetMonthToSpendingMonth(transactionRepo: transactionRepo)
+        UserDefaults.standard.set(true, forKey: key)
+    }
+
+    /// Puts every card installment's `budget_month_date` back on its statement's DUE month.
+    /// Returns how many rows moved.
+    ///
+    /// An installment is not a purchase that lands in one month; it is a commitment the card bills
+    /// one invoice at a time. Splitting a course into twelve does not consume twelve months of
+    /// September's Education allocation — it consumes one month's allocation per invoice, starting
+    /// with the invoice that first carries it. So the month an installment counts in is the month
+    /// its invoice falls due, which is the month its `date` already shows and the statement the
+    /// detail screen already names.
+    ///
+    /// This undoes the installment arm of `repairBudgetMonthToSpendingMonth`, which moved these rows
+    /// onto the purchase anniversary and left the first one sitting in the purchase month while its
+    /// own date and its statement both said the month after.
+    ///
+    /// Scoped to installments attached to a live statement: with no statement there is no due month
+    /// to move to, so the row is left exactly as it is rather than guessed at. Deterministic — it
+    /// reads a statement every device holds identically, so two devices agree on the answer instead
+    /// of pushing rival guesses at each other.
+    @discardableResult
+    func repairInstallmentBudgetMonthToDueMonth(transactionRepo: TransactionRepository) -> Int {
+        let installments = transactionRepo.fetchAllTransactions().filter { tx in
+            tx.installmentNumber != nil && tx.statementId != nil && tx.creditCardId != nil
+                && tx.isCreditCardStatement != true
+        }
+        guard !installments.isEmpty else { return 0 }
+
+        // One fetch per card rather than per row: this runs at launch over the whole ledger.
+        var statementsByCard: [Int: [CreditCardStatement]] = [:]
+        var fixCount = 0
+
+        for tx in installments {
+            guard let txId = tx.id, let cardId = tx.creditCardId, let stmtId = tx.statementId
+            else { continue }
+
+            if statementsByCard[cardId] == nil {
+                statementsByCard[cardId] = stmtRepo.fetchStatements(forCardId: cardId)
+            }
+            guard let statement = statementsByCard[cardId]?.first(where: { $0.id == stmtId })
+            else { continue }
+
+            let dueMonth = statement.dueDate.monthAnchor
+            guard dueMonth != tx.budgetMonthDate else { continue }
+
+            transactionRepo.updateBudgetMonthDate(transactionId: txId, newBudgetMonthDate: dueMonth)
+            transactionRepo.markSyncPending(for: txId)
+            fixCount += 1
+            logWarning(
+                "[CCRepair] installment \(txId) ('\(tx.title)') budgetMonth \(tx.budgetMonthDate) -> \(dueMonth) (its invoice's due month)"
+            )
+        }
+
+        if fixCount > 0 {
+            logWarning("[CCRepair] Moved \(fixCount) installment(s) onto their invoice's due month")
+            NotificationCenter.default.post(name: .transactionDataChanged, object: nil)
+        }
+        return fixCount
+    }
+
+    /// One-time launch repair, run once per device. See `repairInstallmentBudgetMonthToDueMonth`.
+    func repairInstallmentBudgetMonthToDueMonthIfNeeded(transactionRepo: TransactionRepository) {
+        let key = "hasRepairedInstallmentBudgetMonthToDueMonth_v2"
+        guard !UserDefaults.standard.bool(forKey: key) else { return }
+
+        // The hydration rule every repair obeys: a half-pulled device would "repair" against a
+        // partial view and then upload the damage. A device with sync OFF has no partial view and
+        // nothing to upload — its local database is the whole truth — so the gate would only keep
+        // it broken. Either condition is enough.
+        let hydrated = UserDefaults.standard.bool(forKey: "syncFullPullVerified_v2")
+        guard hydrated || !UserDefaultsManager.getSyncEnabled() else { return }
+
+        repairInstallmentBudgetMonthToDueMonth(transactionRepo: transactionRepo)
         UserDefaults.standard.set(true, forKey: key)
     }
 
@@ -892,9 +959,8 @@ class CreditCardService {
         return removed
     }
 
-    /// Puts every installment on an OPEN statement of this card onto that statement's due date.
-    /// Ledger date only — the budget month stays on the month it was spent in (see
-    /// `TransactionRepository.updateStatementDueDate`). Returns how many rows moved.
+    /// Puts every installment on an OPEN statement of this card onto that statement's due date —
+    /// ledger date and budget month together. Returns how many rows moved.
     ///
     /// A closed or paid statement is history and keeps whatever its installments already say.
     @discardableResult
@@ -912,9 +978,11 @@ class CreditCardService {
         where tx.creditCardId == cardId && tx.installmentNumber != nil && tx.isCreditCardStatement != true {
             guard let txId = tx.id, let stmtId = tx.statementId, let stmt = openById[stmtId] else { continue }
             let dueTimestamp = Int(stmt.dueDate.timeIntervalSince1970)
-            guard tx.dateTimestamp != dueTimestamp else { continue }
+            let dueMonth = stmt.dueDate.monthAnchor
+            guard tx.dateTimestamp != dueTimestamp || tx.budgetMonthDate != dueMonth else { continue }
 
-            transactionRepo.updateStatementDueDate(transactionId: txId, newDateTimestamp: dueTimestamp)
+            transactionRepo.updateDateAndBudgetMonth(
+                transactionId: txId, newDateTimestamp: dueTimestamp, newBudgetMonthDate: dueMonth)
             if let parentId = tx.parentTransactionId { parentIds.insert(parentId) }
             moved += 1
         }
@@ -1080,15 +1148,13 @@ class CreditCardService {
                         statementId: stmtId,
                         isCreditCardStatement: false
                     )
+                    // Date and budget month move together: an installment counts in the month its
+                    // invoice falls due, which is the same month its ledger date shows.
                     let dueDateTimestamp = Int(statement.dueDate.timeIntervalSince1970)
-                    transactionRepo.updateStatementDueDate(
+                    transactionRepo.updateDateAndBudgetMonth(
                         transactionId: childId,
-                        newDateTimestamp: dueDateTimestamp
-                    )
-                    // The month it is SPENT in, not the month it is billed in.
-                    transactionRepo.updateBudgetMonthDate(
-                        transactionId: childId,
-                        newBudgetMonthDate: targetDate.monthAnchor
+                        newDateTimestamp: dueDateTimestamp,
+                        newBudgetMonthDate: statement.dueDate.monthAnchor
                     )
                     recalculateStatementTotal(statementId: stmtId)
                     fixedCount += 1
@@ -1147,13 +1213,10 @@ class CreditCardService {
                             isCreditCardStatement: false
                         )
                         let dueDateTimestamp = Int(childStmt.dueDate.timeIntervalSince1970)
-                        transactionRepo.updateStatementDueDate(
+                        transactionRepo.updateDateAndBudgetMonth(
                             transactionId: childId,
-                            newDateTimestamp: dueDateTimestamp
-                        )
-                        transactionRepo.updateBudgetMonthDate(
-                            transactionId: childId,
-                            newBudgetMonthDate: targetDate.monthAnchor
+                            newDateTimestamp: dueDateTimestamp,
+                            newBudgetMonthDate: childStmt.dueDate.monthAnchor
                         )
                         recalculateStatementTotal(statementId: childStmtId)
                         fixedCount += 1
@@ -1266,13 +1329,10 @@ class CreditCardService {
                             isCreditCardStatement: false
                         )
                         let dueDateTimestamp = Int(stmt.dueDate.timeIntervalSince1970)
-                        transactionRepo.updateStatementDueDate(
+                        transactionRepo.updateDateAndBudgetMonth(
                             transactionId: childId,
-                            newDateTimestamp: dueDateTimestamp
-                        )
-                        transactionRepo.updateBudgetMonthDate(
-                            transactionId: childId,
-                            newBudgetMonthDate: targetDate.monthAnchor
+                            newDateTimestamp: dueDateTimestamp,
+                            newBudgetMonthDate: stmt.dueDate.monthAnchor
                         )
                         recalculateStatementTotal(statementId: stmtId)
                         fixedCount += 1
@@ -1463,15 +1523,10 @@ class CreditCardService {
                         statementId: correctStmtId,
                         isCreditCardStatement: false
                     )
-                    transactionRepo.updateStatementDueDate(
+                    transactionRepo.updateDateAndBudgetMonth(
                         transactionId: childId,
-                        newDateTimestamp: correctDueTimestamp
-                    )
-                    // `installmentDate` is this occurrence's own month, recomputed from the
-                    // parent's start date — the month whose allocation it spends.
-                    transactionRepo.updateBudgetMonthDate(
-                        transactionId: childId,
-                        newBudgetMonthDate: installmentDate.monthAnchor
+                        newDateTimestamp: correctDueTimestamp,
+                        newBudgetMonthDate: correctStatement.dueDate.monthAnchor
                     )
                     recalculateStatementTotal(statementId: correctStmtId)
                     if let oldId = oldStmtId, oldId != correctStmtId {
@@ -1624,13 +1679,10 @@ class CreditCardService {
                             statementId: correctStmtId,
                             isCreditCardStatement: false
                         )
-                        transactionRepo.updateStatementDueDate(
+                        transactionRepo.updateDateAndBudgetMonth(
                             transactionId: txId,
-                            newDateTimestamp: correctDueTimestamp
-                        )
-                        transactionRepo.updateBudgetMonthDate(
-                            transactionId: txId,
-                            newBudgetMonthDate: correctDate.monthAnchor
+                            newDateTimestamp: correctDueTimestamp,
+                            newBudgetMonthDate: correctStatement.dueDate.monthAnchor
                         )
                         recalculateStatementTotal(statementId: correctStmtId)
                         if let oldId = oldStmtId, oldId != correctStmtId {

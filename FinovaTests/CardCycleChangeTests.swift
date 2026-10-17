@@ -239,6 +239,7 @@ final class CardCycleChangeTests: XCTestCase {
     XCTAssertEqual(
       stale.dateTimestamp, Int(current.dueDate.timeIntervalSince1970),
       "An installment shows its invoice's due date, not the old one")
+    XCTAssertEqual(stale.budgetMonthDate, current.dueDate.monthAnchor)
   }
 
   /// The reporter's exact shape: the ghost is OLDER (lower id) than the real invoice, and the card

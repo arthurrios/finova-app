@@ -100,14 +100,18 @@ final class CardSpendingMonthTests: XCTestCase {
 
   // MARK: - Installments
 
-  /// Each installment's ledger date is moved onto its statement's due date — that is when the money
-  /// leaves — while its budget month stays on its own occurrence month.
+  /// An installment's ledger date AND its budget month both sit on its statement's due date.
   ///
-  /// The remap is exercised through `updateStatementDueDate`, which is the single writer every
-  /// production path now uses. Creating the series with a `creditCardId` would not do: statement
+  /// Unlike a one-off card purchase, an installment is not spending that happened in one month: it
+  /// is one slice of a commitment the card bills one invoice at a time. Splitting a course into
+  /// twelve does not consume twelve months of the purchase month's allocation — it consumes one
+  /// month's allocation per invoice.
+  ///
+  /// The remap is exercised through `updateDateAndBudgetMonth`, which is the writer every production
+  /// path uses for installments. Creating the series with a `creditCardId` would not do: statement
   /// assignment there is gated on `AuthenticationManager.shared.currentUser`, which no unit test has,
   /// so the children would come back with no card at all and the test would prove nothing.
-  func testInstallmentsAreBudgetedInTheirOwnMonthNotTheDueMonth() throws {
+  func testInstallmentsAreBudgetedInTheirInvoicesDueMonth() throws {
     let card = try makeCard()
     // The 20th: after it, this card's cycle closes on the 28th and falls due on the 5th of the
     // NEXT month, so due-month and purchase-month genuinely differ.
@@ -146,20 +150,21 @@ final class CardSpendingMonthTests: XCTestCase {
       try transactionRepo.updateCreditCardFields(
         transactionId: childId, creditCardId: try XCTUnwrap(card.id),
         statementId: try XCTUnwrap(statement.id), isCreditCardStatement: false)
-      transactionRepo.updateStatementDueDate(
+      transactionRepo.updateDateAndBudgetMonth(
         transactionId: childId,
-        newDateTimestamp: Int(statement.dueDate.timeIntervalSince1970))
+        newDateTimestamp: Int(statement.dueDate.timeIntervalSince1970),
+        newBudgetMonthDate: statement.dueDate.monthAnchor)
 
       let remapped = try transaction(id: childId)
       XCTAssertEqual(
         remapped.dateTimestamp, Int(statement.dueDate.timeIntervalSince1970),
         "Installment #\(number) leaves the account when its invoice falls due")
       XCTAssertEqual(
-        remapped.budgetMonthDate, start.monthAnchor(offsetByMonths: number - 1),
-        "Installment #\(number) is spent in its own month, not the month its invoice falls due")
+        remapped.budgetMonthDate, statement.dueDate.monthAnchor,
+        "Installment #\(number) consumes the allocation of the month its invoice falls due")
       XCTAssertNotEqual(
-        statement.dueDate.monthAnchor, remapped.budgetMonthDate,
-        "Fixture is only meaningful while the due month and the spending month differ")
+        remapped.budgetMonthDate, start.monthAnchor(offsetByMonths: number - 1),
+        "Fixture is only meaningful while the due month and the purchase anniversary differ")
     }
   }
 
@@ -238,6 +243,68 @@ final class CardSpendingMonthTests: XCTestCase {
     XCTAssertEqual(
       service.repairBudgetMonthToSpendingMonth(transactionRepo: transactionRepo), 0,
       "A plain, never-moved card purchase is not part of the damaged population")
+    XCTAssertEqual(try transaction(id: txId).budgetMonthDate, before)
+  }
+
+  // MARK: - Repair of installments stamped with the purchase month
+
+  /// The reported bug, end to end: an installment listed on 5 October, sitting on the October
+  /// statement, but eating September's allocation.
+  func testRepairMovesAnInstallmentOntoItsInvoicesDueMonth() throws {
+    let card = try makeCard()
+    // The 20th: past this card's 28th closing is still ahead, so the invoice closes on the 28th of
+    // this month and falls due on the 5th of the NEXT one.
+    let purchaseDate = try XCTUnwrap(
+      Calendar.current.date(
+        from: DateComponents(
+          year: Calendar.current.component(.year, from: Date()),
+          month: Calendar.current.component(.month, from: Date()),
+          day: 20)))
+    let purchaseMonth = purchaseDate.monthAnchor
+    let statement = try XCTUnwrap(
+      service.getOrCreateStatement(for: card, transactionDate: purchaseDate, userId: uid))
+    let dueMonth = statement.dueDate.monthAnchor
+    XCTAssertNotEqual(dueMonth, purchaseMonth, "Fixture is only meaningful if the months differ")
+
+    let txId = try transactionRepo.insertTransactionAndGetId(
+      CloudKitSyncTestHelpers.makeTransactionModel(
+        title: "Finclass", category: "education", amount: 25_000, type: "expense",
+        dateTimestamp: Int(statement.dueDate.timeIntervalSince1970),
+        budgetMonthDate: purchaseMonth,
+        installmentNumber: 1,
+        totalInstallments: 12))
+    try transactionRepo.updateCreditCardFields(
+      transactionId: txId, creditCardId: try XCTUnwrap(card.id),
+      statementId: try XCTUnwrap(statement.id), isCreditCardStatement: false)
+
+    let fixed = service.repairInstallmentBudgetMonthToDueMonth(transactionRepo: transactionRepo)
+
+    XCTAssertEqual(fixed, 1, "The stamped installment should be the one row repaired")
+    XCTAssertEqual(
+      try transaction(id: txId).budgetMonthDate, dueMonth,
+      "The installment consumes the allocation of the month its invoice falls due")
+    XCTAssertEqual(
+      service.repairInstallmentBudgetMonthToDueMonth(transactionRepo: transactionRepo), 0,
+      "A second pass has nothing left to move")
+  }
+
+  /// The bound: a plain card purchase is not an installment, so this repair must not touch it even
+  /// though it sits on the very same statement.
+  func testInstallmentRepairLeavesAPlainCardPurchaseAlone() throws {
+    let card = try makeCard()
+    let statement = try XCTUnwrap(
+      service.getOrCreateStatement(for: card, transactionDate: Date(), userId: uid))
+    let txId = try transactionRepo.insertTransactionAndGetId(
+      CloudKitSyncTestHelpers.makeTransactionModel(
+        title: "Lunch", category: "meals", amount: 4_500, type: "expense"))
+    try transactionRepo.updateCreditCardFields(
+      transactionId: txId, creditCardId: try XCTUnwrap(card.id),
+      statementId: try XCTUnwrap(statement.id), isCreditCardStatement: false)
+    let before = try transaction(id: txId).budgetMonthDate
+
+    XCTAssertEqual(
+      service.repairInstallmentBudgetMonthToDueMonth(transactionRepo: transactionRepo), 0,
+      "A one-off card purchase still belongs to the month it was spent in")
     XCTAssertEqual(try transaction(id: txId).budgetMonthDate, before)
   }
 }

@@ -480,14 +480,15 @@ final class AddTransactionModalViewModel {
               )
               creditCardService.recalculateStatementTotal(statementId: statement.id!)
 
-              // Remap the installment's LEDGER date to the statement due date. Its budget month
-              // stays on `installment.unadjusted` (set at insert): the instalment is charged when
-              // the statement falls due, but it is spent — and consumes its category's allocation —
-              // in its own month.
+              // Remap the installment onto the statement due date, BOTH columns. An installment is
+              // charged when its invoice falls due, and that is also the month whose allocation it
+              // consumes: a purchase split into twelve spends one month's plan per invoice, not
+              // twelve months of the month it was bought in.
               let dueDateTimestamp = Int(statement.dueDate.timeIntervalSince1970)
-              transactionRepo.updateStatementDueDate(
+              transactionRepo.updateDateAndBudgetMonth(
                 transactionId: installmentId,
-                newDateTimestamp: dueDateTimestamp
+                newDateTimestamp: dueDateTimestamp,
+                newBudgetMonthDate: statement.dueDate.monthAnchor
               )
 
               previousStatement = statement
@@ -651,11 +652,12 @@ final class AddTransactionModalViewModel {
               )
               self.creditCardService.recalculateStatementTotal(statementId: statement.id!)
 
-              // Ledger date only — the budget month stays on the installment's own month.
+              // Date and budget month together — see the note on the sync path above.
               let dueDateTimestamp = Int(statement.dueDate.timeIntervalSince1970)
-              self.transactionRepo.updateStatementDueDate(
+              self.transactionRepo.updateDateAndBudgetMonth(
                 transactionId: insertedInstallmentId,
-                newDateTimestamp: dueDateTimestamp
+                newDateTimestamp: dueDateTimestamp,
+                newBudgetMonthDate: statement.dueDate.monthAnchor
               )
 
               previousStatement = statement
@@ -1272,9 +1274,10 @@ final class AddTransactionModalViewModel {
           creditCardService.recalculateStatementTotal(statementId: statement.id!)
 
           let dueDateTimestamp = Int(statement.dueDate.timeIntervalSince1970)
-          transactionRepo.updateStatementDueDate(
+          transactionRepo.updateDateAndBudgetMonth(
             transactionId: id,
-            newDateTimestamp: dueDateTimestamp
+            newDateTimestamp: dueDateTimestamp,
+            newBudgetMonthDate: statement.dueDate.monthAnchor
           )
         }
       }

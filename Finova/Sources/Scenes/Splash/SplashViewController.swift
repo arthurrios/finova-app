@@ -116,6 +116,11 @@ final class SplashViewController: UIViewController {
       // installments still showing the old due date onto their statement's new one.
       ccService.repairCardCycleChangeIfNeeded(userId: firebaseUser.uid, transactionRepo: ccTransactionRepo)
 
+      // One-time: put installments back on their invoice's due month. The repair above used to
+      // cover them too, which left the first installment in the purchase month while its own date
+      // and its statement both said the month after. Runs last so it sees the final statement links.
+      ccService.repairInstallmentBudgetMonthToDueMonthIfNeeded(transactionRepo: ccTransactionRepo)
+
       // Check if this user has existing settings
       let existingSettings = UIDUserDefaultsManager.shared.getUserSettings(for: firebaseUser.uid)
       var localUser: User?
