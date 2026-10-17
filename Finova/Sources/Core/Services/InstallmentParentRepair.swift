@@ -178,6 +178,7 @@ enum InstallmentParentRepair {
   static func runIfNeeded(transactionRepo: TransactionRepository, userId: String) {
     let key = "hasRepairedOrphanedInstallmentParents_v1_\(userId)"
     guard !UserDefaults.standard.bool(forKey: key) else { return }
+    guard LegacySyncState.canRunLocalRepairs else { return }
 
     DBHelper.shared.snapshotDatabase(tag: "pre-installment-parent-repair")
     let result = run(transactionRepo: transactionRepo, userId: userId)

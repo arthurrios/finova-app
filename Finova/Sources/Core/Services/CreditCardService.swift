@@ -378,6 +378,7 @@ class CreditCardService {
     func repairBudgetMonthToSpendingMonthIfNeeded(transactionRepo: TransactionRepository) {
         let key = "hasRepairedCCBudgetMonthToSpendingMonth_v1"
         guard !UserDefaults.standard.bool(forKey: key) else { return }
+        guard LegacySyncState.canRunHydratedOnlyPasses else { return }
 
         repairBudgetMonthToSpendingMonth(transactionRepo: transactionRepo)
         UserDefaults.standard.set(true, forKey: key)
@@ -445,6 +446,7 @@ class CreditCardService {
     func repairInstallmentBudgetMonthToDueMonthIfNeeded(transactionRepo: TransactionRepository) {
         let key = "hasRepairedInstallmentBudgetMonthToDueMonth_v2"
         guard !UserDefaults.standard.bool(forKey: key) else { return }
+        guard LegacySyncState.canRunLocalRepairs else { return }
 
         repairInstallmentBudgetMonthToDueMonth(transactionRepo: transactionRepo)
         UserDefaults.standard.set(true, forKey: key)
@@ -999,6 +1001,7 @@ class CreditCardService {
         // mark the other as done.
         let key = "hasRepairedCardCycleChange_v1_\(userId)"
         guard !UserDefaults.standard.bool(forKey: key) else { return }
+        guard LegacySyncState.canRunLocalRepairs else { return }
 
         for card in cardRepo.fetchAllCards(userId: userId) where !card.isDeleted {
             recalculateStatementDatesForCard(

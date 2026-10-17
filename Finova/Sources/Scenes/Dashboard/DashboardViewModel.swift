@@ -73,6 +73,13 @@ final class DashboardViewModel {
   /// series that arrived from another device, or that predate a horizon change. Both passes are
   /// series-anchored and idempotent, so re-running is free when there is nothing to do.
   private func materializeAllSeriesInBackground() {
+    // Off only on a device that synced under an earlier build and never finished its first full
+    // pull: it lacks the tombstones that stop deleted occurrences coming back. See LegacySyncState.
+    guard LegacySyncState.canRunHydratedOnlyPasses else {
+      logWarning("[Materialize] Skipping — this device synced before and never completed a full pull")
+      return
+    }
+
     materializationLock.lock()
     guard !isMaterializationInProgress else {
       materializationLock.unlock()

@@ -87,12 +87,13 @@ final class TransactionLedgerService {
   }
 
   /// First month whose transactions count toward this account's balance; nil counts them all.
-  /// The local database is the whole ledger, so it can always decide.
+  /// The decision is stored for good, so it waits on a device that synced before and never finished
+  /// a full pull (see LegacySyncState). Every other device decides at once.
   private func balanceHistoryStart() -> Int? {
     BalanceHistoryStart.anchor(
       uid: UIDUserDefaultsManager.shared.currentUserUID,
       offset: UIDUserDefaultsManager.shared.getCurrentUserBalanceOffset(),
-      canDecide: true)
+      canDecide: LegacySyncState.canRunHydratedOnlyPasses)
   }
 
   // MARK: - Monthly Calculations

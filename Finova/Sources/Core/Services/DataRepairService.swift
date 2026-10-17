@@ -43,6 +43,10 @@ enum DataRepairService {
         guard let uid = UIDUserDefaultsManager.shared.currentUserUID else {
             return Result(ran: false, summary: "repair.notSignedIn".localized)
         }
+        guard LegacySyncState.canRunHydratedOnlyPasses else {
+            logWarning("[Repair] Refused — this device synced before and never completed a full pull")
+            return Result(ran: false, summary: "repair.notHydrated".localized)
+        }
 
         let db = DBHelper.shared
         db.snapshotDatabase(tag: "pre-manual-repair")
@@ -119,6 +123,10 @@ enum DataRepairService {
     static func consolidateDuplicates() -> Result {
         guard let uid = UIDUserDefaultsManager.shared.currentUserUID else {
             return Result(ran: false, summary: "repair.notSignedIn".localized)
+        }
+        guard LegacySyncState.canRunHydratedOnlyPasses else {
+            logWarning("[Repair] Refused — this device synced before and never completed a full pull")
+            return Result(ran: false, summary: "repair.notHydrated".localized)
         }
 
         let db = DBHelper.shared

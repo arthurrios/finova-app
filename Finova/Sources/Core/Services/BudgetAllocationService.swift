@@ -698,6 +698,12 @@ final class BudgetAllocationService {
     /// Runs on a serial queue and answers on it. Idempotent, so re-running costs one query.
     func materializeAllSeries(completion: ((Int) -> Void)? = nil) {
         Self.materializationQueue.async { [self] in
+            // Same rule as the transaction pass — see LegacySyncState.
+            guard LegacySyncState.canRunHydratedOnlyPasses else {
+                completion?(0)
+                return
+            }
+
             let created = allocationRepo.materializeAllSeries()
             if created > 0 {
                 logWarning("[Materialize] created \(created) allocation occurrence(s)")

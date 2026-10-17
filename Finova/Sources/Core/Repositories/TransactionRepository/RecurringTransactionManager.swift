@@ -1061,9 +1061,12 @@ final class RecurringTransactionManager {
   /// appears — and consumes its category's allocation — in the month the money is actually debited.
   private func assignToStatement(transactionId: Int, creditCardId: Int, transactionDate: Date, userId: String, remapToStatementDueDate: Bool = false) {
     guard let card = creditCardRepo.fetchCard(byId: creditCardId) else { return }
-    guard let statement = creditCardService.getOrCreateStatement(
-      for: card, transactionDate: transactionDate, userId: userId)
-    else { return }
+    // A device that synced as a second device only links to statements that already exist; see
+    // LegacySyncState.mayCreateStatements. Every other device creates the statement it needs.
+    let statement = LegacySyncState.mayCreateStatements
+      ? creditCardService.getOrCreateStatement(for: card, transactionDate: transactionDate, userId: userId)
+      : creditCardService.getExistingStatement(for: card, transactionDate: transactionDate)
+    guard let statement = statement else { return }
     do {
       try transactionRepo.updateCreditCardFields(
         transactionId: transactionId,
