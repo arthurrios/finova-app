@@ -4112,6 +4112,96 @@
         }
       }
     },
+    "budgetHistory.contrib.others.format": {
+      "comment": "Everything not named in the Why card, summed. %d is how many parts.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Others (%d)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Outros (%d)"
+          }
+        }
+      }
+    },
+    "budgetHistory.contrib.over": {
+      "comment": "Section of the Why card: the parts that overspent the most.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Overspent the most"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gastou acima do plano"
+          }
+        }
+      }
+    },
+    "budgetHistory.contrib.saved": {
+      "comment": "Section of the Why card: the parts that saved the most.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saved the most"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Economizou mais"
+          }
+        }
+      }
+    },
+    "budgetHistory.contrib.topExpenses": {
+      "comment": "Under a month in the Why card: its three biggest expenses.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Biggest expenses"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maiores gastos"
+          }
+        }
+      }
+    },
+    "budgetHistory.contrib.total": {
+      "comment": "Last line of the Why card: the Saved figure.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "= Saved"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "= Economizado"
+          }
+        }
+      }
+    },
     "budgetHistory.empty.message": {
       "comment": "Empty state message.",
       "extractionState": "manual",
@@ -4144,24 +4234,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Ainda sem histórico"
-          }
-        }
-      }
-    },
-    "budgetHistory.explain.adjustment": {
-      "comment": "What the bar counts that the listed expenses do not.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Other changes this month"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Outros ajustes do mês"
           }
         }
       }
@@ -4216,150 +4288,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Por que este valor"
-          }
-        }
-      }
-    },
-    "budgetHistory.explain.inProgress": {
-      "comment": "Under the month's result when it is the open month.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "In progress, not counted yet"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Em andamento, ainda não conta"
-          }
-        }
-      }
-    },
-    "budgetHistory.explain.noPlan": {
-      "comment": "Instead of the plan amount when the month had none.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No plan"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sem plano"
-          }
-        }
-      }
-    },
-    "budgetHistory.explain.notCounted.beforeStart": {
-      "comment": "Under the month's result when it is before the Saved start month.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Not counted: before your start month"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Não conta: antes do mês inicial"
-          }
-        }
-      }
-    },
-    "budgetHistory.explain.notCounted.noPlan": {
-      "comment": "Under the month's result when the month had no plan.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Not counted: nothing was planned"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Não conta: nada foi planejado"
-          }
-        }
-      }
-    },
-    "budgetHistory.explain.plan.category.format": {
-      "comment": "First line of the explanation for a category. %@ is the category.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ allocation"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Alocação de %@"
-          }
-        }
-      }
-    },
-    "budgetHistory.explain.plan.outside": {
-      "comment": "First line of the explanation for Outside allocations: the plan.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Unallocated budget"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Orçamento não alocado"
-          }
-        }
-      }
-    },
-    "budgetHistory.explain.plan.wholeMonth": {
-      "comment": "First line of the explanation for the whole month: the plan.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Month budget"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Orçamento do mês"
-          }
-        }
-      }
-    },
-    "budgetHistory.explain.spent.format": {
-      "comment": "Sum of the listed expenses. %d is how many.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Spent (%d)"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Gasto (%d)"
           }
         }
       }
@@ -5152,42 +5080,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Nenhum gasto neste mês"
-          }
-        }
-      }
-    },
-    "budgetHistory.transactions.showAll.format": {
-      "comment": "Expands the transaction list. %d is how many there are.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "See all %d"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ver todas as %d"
-          }
-        }
-      }
-    },
-    "budgetHistory.transactions.showLess": {
-      "comment": "Collapses the transaction list.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Show less"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostrar menos"
           }
         }
       }

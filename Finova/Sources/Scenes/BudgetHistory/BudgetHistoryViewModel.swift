@@ -134,10 +134,20 @@ final class BudgetHistoryViewModel: ObservableObject {
         return history.closedMonthAnchors.last { $0 <= end }
     }
 
-    /// Why Saved shows what it shows, through the selected month.
-    var explanation: SavingsExplanation? {
-        guard let anchor = selectedMonth?.monthAnchor else { return nil }
-        return history.explanation(for: filter, month: anchor, start: savingsStart, expenses: expenses)
+    /// What made the Saved figure, over the same months it counts.
+    var contributors: SavingsContributors? {
+        history.contributors(for: filter, from: savingsStart, through: savingsEnd)
+    }
+
+    /// One month's three biggest expenses for the chosen filter - the detail under a month row.
+    func biggestExpenses(in anchor: Int) -> [Transaction] {
+        Array(history.transactions(for: filter, month: anchor, in: expenses).prefix(3))
+    }
+
+    /// "May to Sep 2026", or one month's name: the months a Saved figure covers.
+    static func periodTitle(_ first: Int, _ last: Int) -> String {
+        guard first != last else { return longMonth(first) }
+        return String(format: "budgetHistory.explain.earlier.format".localized, shortMonth(first), longMonth(last))
     }
 
     var savings: BudgetHistorySeries.Savings {

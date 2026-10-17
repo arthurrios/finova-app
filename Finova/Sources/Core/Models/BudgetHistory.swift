@@ -162,42 +162,52 @@ struct BudgetHistorySeries: Equatable {
     }
 }
 
-/// Why the Saved figure is what it is, through one month: that month's plan, its expenses in date
-/// order with what is left of the plan after each, the month's result, and the earlier months that
-/// make up the rest. Its `total` is always the Saved figure for the same filter and months.
-struct SavingsExplanation {
+/// What made the Saved figure: the parts that moved it most, ranked, so the total reads as a few causes
+/// rather than a list. For the whole month the parts are categories (and Outside allocations); for a
+/// category or Outside allocations they are its months. The parts always sum to `total`.
+struct SavingsContributors {
 
-    /// Whether the selected month is part of the Saved figure, and if not, why.
-    enum Counting: Equatable {
-        case counted
-        /// The open month: what it has left is not saved yet.
-        case inProgress
-        /// Nothing was planned, so there is nothing to have saved against.
-        case noPlan
-        /// Before the start month the user chose for Saved.
-        case beforeStart
+    enum Part: Equatable, Hashable {
+        case category(TransactionCategory)
+        case outsideAllocations
+        case month(Int)
     }
 
-    struct Row {
-        let transaction: Transaction
-        /// Plan minus every expense up to and including this one. Negative once the month is over.
-        let leftAfter: Int
+    struct Item: Equatable {
+        let part: Part
+        let net: Int
     }
 
-    let month: BudgetHistoryMonth
-    /// Oldest first, so `leftAfter` reads as the plan running down through the month.
-    let rows: [Row]
-    let listedSpent: Int
-    /// What the bar counts that the listed expenses do not, or the reverse. Zero when they agree,
-    /// which is the normal case: the list and the bar use the same filter and the same clock.
-    var adjustment: Int { month.spent - listedSpent }
-    let counting: Counting
-    /// The months counted before the selected one, from the start month on.
-    let earlier: BudgetHistorySeries.Savings
-    let earlierFirst: Int?
-    let earlierLast: Int?
-    /// The Saved figure: `earlier.net`, plus this month's result when it counts.
+    /// How many savers and how many overspenders are named. The rest are summed into `others`.
+    static let shownPerSide = 3
+
+    /// Biggest saving first.
+    let savers: [Item]
+    /// Biggest overspend first.
+    let overspenders: [Item]
+    /// Everything not named, so savers + overspenders + others = total.
+    let others: Int
+    let othersCount: Int
     let total: Int
+    /// The months the Saved figure counts, first and last.
+    let firstMonth: Int?
+    let lastMonth: Int?
+
+    init(items: [Item], total: Int, firstMonth: Int?, lastMonth: Int?) {
+        let nonZero = items.filter { $0.net != 0 }
+        let savers = Array(nonZero.filter { $0.net > 0 }.sorted { $0.net > $1.net }.prefix(Self.shownPerSide))
+        let overspenders = Array(
+            nonZero.filter { $0.net < 0 }.sorted { $0.net < $1.net }.prefix(Self.shownPerSide))
+        let named = Set((savers + overspenders).map(\.part))
+        let rest = nonZero.filter { !named.contains($0.part) }
+        self.savers = savers
+        self.overspenders = overspenders
+        self.others = total - (savers + overspenders).reduce(0) { $0 + $1.net }
+        self.othersCount = rest.count
+        self.total = total
+        self.firstMonth = firstMonth
+        self.lastMonth = lastMonth
+    }
 }
 
 /// Every series a history screen can show, for one ledger. Pure: no repository, no `Date()`.
@@ -268,49 +278,37 @@ struct BudgetHistory: Equatable {
         return total - outside.savings(from: start, through: end).net
     }
 
-    /// The explanation of the Saved figure through `anchor`, or nil when the filter has no such month.
-    func explanation(
-        for filter: BudgetHistoryFilter, month anchor: Int, start: Int?, expenses: [Transaction]
-    ) -> SavingsExplanation? {
-        guard let series = series(for: filter), let month = series.month(anchor) else { return nil }
-
-        let ordered = transactions(for: filter, month: anchor, in: expenses).sorted {
-            $0.dateTimestamp != $1.dateTimestamp
-                ? $0.dateTimestamp < $1.dateTimestamp : $0.amount > $1.amount
+    /// The ranked causes of the Saved figure for `filter`, from `start` through `end` - the same months
+    /// the Saved card counts. Nil when no month counts.
+    func contributors(
+        for filter: BudgetHistoryFilter, from start: Int?, through end: Int?
+    ) -> SavingsContributors? {
+        guard let series = series(for: filter) else { return nil }
+        let counted = series.scoredMonths.filter {
+            (start == nil || $0.monthAnchor >= start!) && (end == nil || $0.monthAnchor <= end!)
         }
-        var left = month.planned
-        let rows = ordered.map { transaction -> SavingsExplanation.Row in
-            left -= transaction.amount
-            return SavingsExplanation.Row(transaction: transaction, leftAfter: left)
-        }
+        guard !counted.isEmpty else { return nil }
+        let total = series.savings(from: start, through: end).net
 
-        let counting: SavingsExplanation.Counting
-        if month.isCurrent {
-            counting = .inProgress
-        } else if !month.hasPlan {
-            counting = .noPlan
-        } else if let start, anchor < start {
-            counting = .beforeStart
+        let items: [SavingsContributors.Item]
+        if filter == .wholeMonth && !categories.isEmpty {
+            // Categories plus the remainder no category holds, which is exactly what makes them sum to
+            // the whole month - see `outsideAllocations`.
+            var parts = categories.compactMap { category -> SavingsContributors.Item? in
+                guard case .category(let value) = category.filter else { return nil }
+                return SavingsContributors.Item(
+                    part: .category(value), net: category.savings(from: start, through: end).net)
+            }
+            if let outside = outsideAllocations(from: start, through: end) {
+                parts.append(SavingsContributors.Item(part: .outsideAllocations, net: outside))
+            }
+            items = parts
         } else {
-            counting = .counted
+            items = counted.map { SavingsContributors.Item(part: .month($0.monthAnchor), net: $0.difference) }
         }
-
-        let previous = series.scoredMonths.filter {
-            $0.monthAnchor < anchor && (start == nil || $0.monthAnchor >= start!)
-        }
-        let earlier = previous.isEmpty
-            ? BudgetHistorySeries.Savings.none
-            : series.savings(from: start, through: previous.last?.monthAnchor)
-
-        return SavingsExplanation(
-            month: month,
-            rows: rows,
-            listedSpent: ordered.reduce(0) { $0 + $1.amount },
-            counting: counting,
-            earlier: earlier,
-            earlierFirst: previous.first?.monthAnchor,
-            earlierLast: previous.last?.monthAnchor,
-            total: series.savings(from: start, through: anchor).net)
+        return SavingsContributors(
+            items: items, total: total,
+            firstMonth: counted.first?.monthAnchor, lastMonth: counted.last?.monthAnchor)
     }
 
     /// The expenses one bar is made of, biggest first. Each filter uses the clock its bar uses:
