@@ -95,6 +95,8 @@ fun DashboardScreen(
     onOpenTags: () -> Unit = {},
     onEditTag: (String) -> Unit = {},
     onOpenNotifications: () -> Unit = actions::onNotifications,
+    /** The budget history, with this month selected. */
+    onOpenHistory: (YearMonth) -> Unit = {},
 ) {
     val pagerState = rememberPagerState(initialPage = state.selectedMonth) { state.months.size }
     val scope = rememberCoroutineScope()
@@ -160,6 +162,7 @@ fun DashboardScreen(
                         onOpenAllocation = onOpenAllocation,
                         onOpenTags = onOpenTags,
                         onEditTag = onEditTag,
+                        onOpenHistory = onOpenHistory,
                     )
                 }
             }
@@ -270,9 +273,10 @@ private fun MonthPage(
     onOpenAllocation: (YearMonth, com.arthurrios.finova.domain.model.TransactionCategory) -> Unit,
     onOpenTags: () -> Unit,
     onEditTag: (String) -> Unit,
+    onOpenHistory: (YearMonth) -> Unit,
 ) {
     if (showingBudget) {
-        BudgetFace(page, state, actions, onFlip, onOpenBudgets, onOpenAllocation, onOpenTags, onEditTag)
+        BudgetFace(page, state, actions, onFlip, onOpenBudgets, onOpenAllocation, onOpenTags, onEditTag, onOpenHistory)
         return
     }
     var query by rememberSaveable(page.month) { mutableStateOf("") }
@@ -297,6 +301,7 @@ private fun MonthPage(
             onToggleValues = actions::onToggleValues,
             onAdjustBalance = onAdjustBalance,
             onBudgetView = onFlip,
+            onHistory = { onOpenHistory(page.month) },
             // The gear opens every budget, "Set budget" opens this month's (as on iOS).
             onSettings = { onOpenBudgets(null) },
             onDefineBudget = { onOpenBudgets(page.month) },
@@ -354,6 +359,7 @@ private fun BudgetFace(
     onOpenAllocation: (YearMonth, com.arthurrios.finova.domain.model.TransactionCategory) -> Unit,
     onOpenTags: () -> Unit,
     onEditTag: (String) -> Unit,
+    onOpenHistory: (YearMonth) -> Unit,
 ) {
     var explaining by remember { mutableStateOf(false) }
     var creatingTag by remember { mutableStateOf(false) }
@@ -381,6 +387,7 @@ private fun BudgetFace(
             currencyCode = state.currencyCode,
             valuesHidden = state.valuesHidden,
             onFlipBack = onFlip,
+            onHistory = { onOpenHistory(page.month) },
             onSettings = { onOpenBudgets(page.month) },
             onDefineBudget = { onOpenBudgets(page.month) },
             onOpenCategory = { onOpenAllocation(page.month, it) },

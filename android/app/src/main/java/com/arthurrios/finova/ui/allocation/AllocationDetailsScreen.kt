@@ -83,6 +83,7 @@ fun AllocationDetailsScreen(
     viewModel: AllocationDetailsViewModel,
     onBack: () -> Unit,
     onOpenTransaction: (Long) -> Unit,
+    onOpenHistory: () -> Unit = {},
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     var pendingDelete by remember { mutableStateOf<TransactionRowUi?>(null) }
@@ -121,6 +122,15 @@ fun AllocationDetailsScreen(
             Column {
                 CardHeader(stringResource(R.string.alloc_summary_header))
                 Summary(state)
+            }
+            state.history?.let { series ->
+                com.arthurrios.finova.ui.history.AllocationHistoryPreview(
+                    series = series,
+                    selected = state.month,
+                    valuesHidden = state.valuesHidden,
+                    currencyCode = state.currencyCode,
+                    onOpen = onOpenHistory,
+                )
             }
             Column {
                 CardHeader(stringResource(R.string.alloc_details_transactions), state.rows.size)

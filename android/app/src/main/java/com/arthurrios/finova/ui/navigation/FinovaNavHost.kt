@@ -92,6 +92,10 @@ object Routes {
     const val ALLOCATION = "allocation/{category}/{month}"
     fun allocation(month: java.time.YearMonth, category: com.arthurrios.finova.domain.model.TransactionCategory) =
         "allocation/${category.key}/${month.year * 100 + month.monthValue}"
+    /** The budget history: [category] empty for the whole month; month is yyyyMM, 0 for this month. */
+    const val HISTORY = "history?category={category}&month={month}"
+    fun history(month: java.time.YearMonth?, category: com.arthurrios.finova.domain.model.TransactionCategory? = null) =
+        "history?category=${category?.key.orEmpty()}&month=" + (month?.let { it.year * 100 + it.monthValue } ?: 0)
     fun budgets(month: java.time.YearMonth?) = "budgets?month=" + (month?.let { it.year * 100 + it.monthValue } ?: 0)
 }
 
@@ -236,6 +240,7 @@ fun FinovaNavHost(
                 onOpenAllocation = { month, category -> navController.navigate(Routes.allocation(month, category)) },
                 onOpenTags = { navController.navigate(Routes.TAGS) },
                 onEditTag = { navController.navigate(Routes.tagEdit(it)) },
+                onOpenHistory = { navController.navigate(Routes.history(it)) },
             )
             // The "App updates" switch also governs this in-app prompt (Android has no update push).
             com.arthurrios.finova.ui.update.UpdatePrompt(enabled = notificationPrefs.appUpdates && !notificationPrefs.allDisabled)
@@ -287,7 +292,34 @@ fun FinovaNavHost(
                 viewModel,
                 onBack = { navController.popBackStack() },
                 onOpenTransaction = { navController.navigate(Routes.details(it)) },
+                onOpenHistory = { navController.navigate(Routes.history(month, category)) },
             )
+        }
+        composable(
+            Routes.HISTORY,
+            arguments = listOf(
+                navArgument("category") { type = NavType.StringType; defaultValue = "" },
+                navArgument("month") { type = NavType.IntType; defaultValue = 0 },
+            ),
+        ) { entry ->
+            val key = entry.arguments?.getString("category").orEmpty()
+            val packed = entry.arguments?.getInt("month") ?: 0
+            val category = com.arthurrios.finova.domain.model.TransactionCategory.entries.firstOrNull { it.key == key }
+            val month = packed.takeIf { it > 0 }?.let { java.time.YearMonth.of(it / 100, (it % 100).coerceIn(1, 12)) }
+            val viewModel: com.arthurrios.finova.ui.history.BudgetHistoryViewModel = viewModel(
+                factory = viewModelFactory {
+                    initializer {
+                        val container = appContext.appContainer
+                        com.arthurrios.finova.ui.history.BudgetHistoryViewModel(
+                            container.financeRepository(), container.allocationRepository(), container.settings, container.currentUid(),
+                            filter = category?.let { com.arthurrios.finova.domain.history.BudgetHistoryFilter.Category(it) }
+                                ?: com.arthurrios.finova.domain.history.BudgetHistoryFilter.WholeMonth,
+                            month = month,
+                        )
+                    }
+                }
+            )
+            com.arthurrios.finova.ui.history.BudgetHistoryScreen(viewModel, onBack = { navController.popBackStack() })
         }
         composable(Routes.STATEMENT, arguments = listOf(navArgument("id") { type = NavType.LongType })) { entry ->
             val id = entry.arguments?.getLong("id") ?: 0L

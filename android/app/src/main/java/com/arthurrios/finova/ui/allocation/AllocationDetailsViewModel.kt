@@ -10,6 +10,10 @@ import com.arthurrios.finova.domain.allocation.AllocationRow
 import com.arthurrios.finova.domain.allocation.AllocationStatus
 import com.arthurrios.finova.domain.allocation.Allocations
 import com.arthurrios.finova.domain.allocation.BudgetAllocation
+import com.arthurrios.finova.domain.history.BudgetHistoryFilter
+import com.arthurrios.finova.domain.history.BudgetHistoryReader
+import com.arthurrios.finova.domain.history.BudgetHistorySeries
+import com.arthurrios.finova.ui.history.previewEnding
 import com.arthurrios.finova.domain.model.Transaction
 import com.arthurrios.finova.domain.model.TransactionCategory
 import com.arthurrios.finova.domain.model.TransactionType
@@ -39,6 +43,8 @@ data class AllocationDetailsUiState(
     val valuesHidden: Boolean = false,
     /** True once the allocation this screen showed was deleted. */
     val gone: Boolean = false,
+    /** This category's last six months for the history card; null hides the card. */
+    val history: BudgetHistorySeries? = null,
 ) {
     val isUnallocated: Boolean get() = allocation == null
     val remaining: Long get() = allocation?.remaining ?: -used
@@ -65,7 +71,7 @@ class AllocationDetailsViewModel(
     private var hadAllocation = false
 
     val state: StateFlow<AllocationDetailsUiState> =
-        combine(repository.transactions, allocations.all, valuesHidden) { rows, allocationRows, hidden ->
+        combine(repository.transactions, allocations.all, repository.budgets, valuesHidden) { rows, allocationRows, budgets, hidden ->
             val allocation = Allocations.withUsage(allocationRows, rows, month).firstOrNull { it.category == category }
             val gone = hadAllocation && allocation == null
             if (allocation != null) hadAllocation = true
@@ -85,6 +91,10 @@ class AllocationDetailsViewModel(
                 currencyCode = settings.currencyCode,
                 valuesHidden = hidden,
                 gone = gone,
+                // The month totals run the full balance pass, and one category has no use for them.
+                history = BudgetHistoryReader.read(rows, budgets, 0, allocationRows, today(), includeWholeMonth = false)
+                    .series(BudgetHistoryFilter.Category(category))
+                    .previewEnding(month),
             )
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AllocationDetailsUiState(category, month))
 

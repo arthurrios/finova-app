@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.BarChart
 import androidx.compose.material.icons.automirrored.outlined.HelpOutline
 import androidx.compose.material.icons.filled.PieChart
 import androidx.compose.material.icons.outlined.PieChart
@@ -87,6 +88,7 @@ fun BudgetCard(
     breakdown: AllocationTagBreakdown? = null,
     selectedTagId: String? = null,
     onTagSelected: (String?) -> Unit = {},
+    onHistory: () -> Unit = {},
 ) {
     val monthNames = stringArrayResource(R.array.month_short)
     val summary = page.unallocated
@@ -109,6 +111,16 @@ fun BudgetCard(
                 CompactIconButton(onClick = onFlipBack, size = Spacing.S6) {
                     Icon(Icons.Outlined.PieChart, contentDescription = stringResource(R.string.budget_flip_back),
                         tint = FinovaColors.MainMagenta, modifier = Modifier.size(Spacing.S6))
+                }
+                Spacer(Modifier.width(Spacing.S3))
+                // Opens the whole-month budget history with this month selected (iOS 1.6.0).
+                CompactIconButton(onClick = onHistory, size = Spacing.S6) {
+                    Icon(
+                        imageVector = Icons.Outlined.BarChart,
+                        contentDescription = stringResource(R.string.history_a11y_open),
+                        tint = FinovaColors.Gray100,
+                        modifier = Modifier.size(Spacing.S6),
+                    )
                 }
                 Spacer(Modifier.width(Spacing.S3))
                 CompactIconButton(onClick = onSettings, size = Spacing.S6) {

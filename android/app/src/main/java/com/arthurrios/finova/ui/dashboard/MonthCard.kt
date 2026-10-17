@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.BarChart
 import androidx.compose.material.icons.filled.PieChart
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material3.DropdownMenu
@@ -82,6 +83,7 @@ fun MonthCard(
     onSettings: () -> Unit,
     onDefineBudget: () -> Unit,
     modifier: Modifier = Modifier,
+    onHistory: () -> Unit = {},
     /** Set while a search or filter is on: the card shows the shown rows' total instead. */
     filteredTotal: Long? = null,
 ) {
@@ -122,6 +124,16 @@ fun MonthCard(
                         contentDescription = stringResource(R.string.month_card_budget_view),
                         tint = FinovaColors.Gray100,
                         // Same box as the gear; the Material glyph has its own padding inside.
+                        modifier = Modifier.size(Spacing.S6),
+                    )
+                }
+                Spacer(Modifier.width(Spacing.S3))
+                // Opens the whole-month budget history with this month selected (iOS 1.6.0).
+                CompactIconButton(onClick = onHistory, size = Spacing.S6) {
+                    Icon(
+                        imageVector = Icons.Outlined.BarChart,
+                        contentDescription = stringResource(R.string.history_a11y_open),
+                        tint = FinovaColors.Gray100,
                         modifier = Modifier.size(Spacing.S6),
                     )
                 }

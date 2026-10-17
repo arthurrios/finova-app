@@ -24,7 +24,7 @@ class MainActivity : FragmentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         if (isDebuggable() && intent.getBooleanExtra("finova.debug.seed", false)) {
-            lifecycleScope.launch { DebugSeeder.seedIfEmpty(appContainer.financeRepository()) }
+            lifecycleScope.launch { DebugSeeder.seedIfEmpty(appContainer.financeRepository(), appContainer.allocationRepository()) }
         }
         // `--ez finova.debug.notify true` runs the morning reminder job now (debug builds).
         if (isDebuggable() && intent.getBooleanExtra("finova.debug.notify", false)) {

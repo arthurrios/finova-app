@@ -40,6 +40,17 @@ class UserSettingsStore(context: Context) {
         get() = BusinessDayRule.fromKey(prefs.getString(KEY_DEFAULT_RULE, null))
         set(value) = prefs.edit { putString(KEY_DEFAULT_RULE, value.key) }
 
+    /**
+     * The first month the budget history counts as "saved" from, per account (yyyyMM). Null counts
+     * from the first month that had a plan. Changed only by the user picking another month.
+     */
+    fun budgetHistorySavingsStart(uid: String): java.time.YearMonth? =
+        prefs.getInt(savingsStartKey(uid), 0).takeIf { it > 0 }?.let { java.time.YearMonth.of(it / 100, it % 100) }
+
+    fun setBudgetHistorySavingsStart(uid: String, month: java.time.YearMonth?) = prefs.edit {
+        if (month == null) remove(savingsStartKey(uid)) else putInt(savingsStartKey(uid), month.year * 100 + month.monthValue)
+    }
+
     fun currentUserName(): String? {
         val uid = prefs.getString(KEY_CURRENT_UID, null) ?: return null
         return prefs.getString(nameKey(uid), null)
@@ -68,6 +79,7 @@ class UserSettingsStore(context: Context) {
     /** Removes everything this device keeps about an account (account deletion, "clear data"). */
     fun forgetUser(uid: String) = prefs.edit {
         remove(nameKey(uid)); remove(emailKey(uid)); remove(savedKey(uid)); remove(lastSignInKey(uid))
+        remove(savingsStartKey(uid))
         if (prefs.getString(KEY_CURRENT_UID, null) == uid) remove(KEY_CURRENT_UID)
     }
 
@@ -83,6 +95,7 @@ class UserSettingsStore(context: Context) {
     private fun emailKey(uid: String) = "user_${uid}_email"
     private fun savedKey(uid: String) = "user_${uid}_is_saved"
     private fun lastSignInKey(uid: String) = "user_${uid}_last_sign_in"
+    private fun savingsStartKey(uid: String) = "budget_history_savings_start_personal_$uid"
 
     companion object {
         const val KEY_CURRENT_UID = "current_user_uid"
