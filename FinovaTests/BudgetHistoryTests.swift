@@ -421,6 +421,19 @@ final class BudgetHistoryTests: XCTestCase {
         XCTAssertEqual(differences.reduce(0) { $0 + $1.amount }, history.outsideTiming(from: nil, through: nil))
     }
 
+    func testCategoriesUsingExactlyTheBudgetLeaveOnlyTheOutsideSpending() {
+        // Budget 1_000, groceries 1_000: no gap line, only the 120 spent on travel with no room.
+        let history = BudgetHistory(
+            monthAnchors: anchors, currentAnchor: current,
+            allocations: [allocation(.groceries, 2, 1_000)],
+            spentByCategory: ["groceries": [anchors[2]: 900], "travel": [anchors[2]: 120]],
+            monthTotals: [anchors[2]: .init(budget: 1_000, used: 1_020)])
+        let differences = history.outsideDifferences(from: nil, through: nil)
+        XCTAssertEqual(differences.map(\.reason), [.spentOutsideWithNoRoom])
+        XCTAssertEqual(differences.first?.amount, -120)
+        XCTAssertEqual(differences.reduce(0) { $0 + $1.amount }, history.outsideTiming(from: nil, through: nil))
+    }
+
     func testOthersKeepsItsPartsBiggestFirst() {
         // Five closed months: +50, +40, +30, +20, -10. Others holds the +20.
         let wrapped = BudgetHistory(
