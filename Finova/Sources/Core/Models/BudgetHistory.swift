@@ -162,6 +162,44 @@ struct BudgetHistorySeries: Equatable {
     }
 }
 
+/// Why the Saved figure is what it is, through one month: that month's plan, its expenses in date
+/// order with what is left of the plan after each, the month's result, and the earlier months that
+/// make up the rest. Its `total` is always the Saved figure for the same filter and months.
+struct SavingsExplanation {
+
+    /// Whether the selected month is part of the Saved figure, and if not, why.
+    enum Counting: Equatable {
+        case counted
+        /// The open month: what it has left is not saved yet.
+        case inProgress
+        /// Nothing was planned, so there is nothing to have saved against.
+        case noPlan
+        /// Before the start month the user chose for Saved.
+        case beforeStart
+    }
+
+    struct Row {
+        let transaction: Transaction
+        /// Plan minus every expense up to and including this one. Negative once the month is over.
+        let leftAfter: Int
+    }
+
+    let month: BudgetHistoryMonth
+    /// Oldest first, so `leftAfter` reads as the plan running down through the month.
+    let rows: [Row]
+    let listedSpent: Int
+    /// What the bar counts that the listed expenses do not, or the reverse. Zero when they agree,
+    /// which is the normal case: the list and the bar use the same filter and the same clock.
+    var adjustment: Int { month.spent - listedSpent }
+    let counting: Counting
+    /// The months counted before the selected one, from the start month on.
+    let earlier: BudgetHistorySeries.Savings
+    let earlierFirst: Int?
+    let earlierLast: Int?
+    /// The Saved figure: `earlier.net`, plus this month's result when it counts.
+    let total: Int
+}
+
 /// Every series a history screen can show, for one ledger. Pure: no repository, no `Date()`.
 struct BudgetHistory: Equatable {
 
@@ -228,6 +266,51 @@ struct BudgetHistory: Equatable {
     func outsideTiming(from start: Int?, through end: Int? = nil) -> Int? {
         guard let total = outsideAllocations(from: start, through: end), let outside else { return nil }
         return total - outside.savings(from: start, through: end).net
+    }
+
+    /// The explanation of the Saved figure through `anchor`, or nil when the filter has no such month.
+    func explanation(
+        for filter: BudgetHistoryFilter, month anchor: Int, start: Int?, expenses: [Transaction]
+    ) -> SavingsExplanation? {
+        guard let series = series(for: filter), let month = series.month(anchor) else { return nil }
+
+        let ordered = transactions(for: filter, month: anchor, in: expenses).sorted {
+            $0.dateTimestamp != $1.dateTimestamp
+                ? $0.dateTimestamp < $1.dateTimestamp : $0.amount > $1.amount
+        }
+        var left = month.planned
+        let rows = ordered.map { transaction -> SavingsExplanation.Row in
+            left -= transaction.amount
+            return SavingsExplanation.Row(transaction: transaction, leftAfter: left)
+        }
+
+        let counting: SavingsExplanation.Counting
+        if month.isCurrent {
+            counting = .inProgress
+        } else if !month.hasPlan {
+            counting = .noPlan
+        } else if let start, anchor < start {
+            counting = .beforeStart
+        } else {
+            counting = .counted
+        }
+
+        let previous = series.scoredMonths.filter {
+            $0.monthAnchor < anchor && (start == nil || $0.monthAnchor >= start!)
+        }
+        let earlier = previous.isEmpty
+            ? BudgetHistorySeries.Savings.none
+            : series.savings(from: start, through: previous.last?.monthAnchor)
+
+        return SavingsExplanation(
+            month: month,
+            rows: rows,
+            listedSpent: ordered.reduce(0) { $0 + $1.amount },
+            counting: counting,
+            earlier: earlier,
+            earlierFirst: previous.first?.monthAnchor,
+            earlierLast: previous.last?.monthAnchor,
+            total: series.savings(from: start, through: anchor).net)
     }
 
     /// The expenses one bar is made of, biggest first. Each filter uses the clock its bar uses:

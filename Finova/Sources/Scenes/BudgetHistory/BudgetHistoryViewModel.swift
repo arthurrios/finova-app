@@ -134,10 +134,10 @@ final class BudgetHistoryViewModel: ObservableObject {
         return history.closedMonthAnchors.last { $0 <= end }
     }
 
-    /// The selected month's expenses for the chosen filter, biggest first - what its bar adds up.
-    var selectedTransactions: [Transaction] {
-        guard let anchor = selectedMonth?.monthAnchor else { return [] }
-        return history.transactions(for: filter, month: anchor, in: expenses)
+    /// Why Saved shows what it shows, through the selected month.
+    var explanation: SavingsExplanation? {
+        guard let anchor = selectedMonth?.monthAnchor else { return nil }
+        return history.explanation(for: filter, month: anchor, start: savingsStart, expenses: expenses)
     }
 
     var savings: BudgetHistorySeries.Savings {

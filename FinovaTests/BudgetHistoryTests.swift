@@ -259,10 +259,10 @@ final class BudgetHistoryTests: XCTestCase {
 
     private func expense(
         _ title: String, _ category: TransactionCategory, amount: Int,
-        dated dateIndex: Int, budgetMonth budgetIndex: Int, statement: Bool = false
+        dated dateIndex: Int, budgetMonth budgetIndex: Int, statement: Bool = false, day: Int = 15
     ) -> Transaction {
-        // Mid-month, so the date's month does not depend on the time zone.
-        let date = anchors[dateIndex] + 15 * 86_400
+        // Mid-month by default, so the date's month does not depend on the time zone.
+        let date = anchors[dateIndex] + day * 86_400
         let model = TransactionModel(
             title: title, category: category.key, amount: amount, type: "expense",
             dateTimestamp: date, budgetMonthDate: anchors[budgetIndex],
@@ -315,6 +315,66 @@ final class BudgetHistoryTests: XCTestCase {
         XCTAssertEqual(
             history.transactions(for: .outsideAllocations, month: anchors[4], in: expenses).map(\.title),
             ["Groceries 4"])
+    }
+
+    // MARK: - Explaining Saved
+
+    /// Groceries planned 500 in months 1 to 3; spent 450 in month 1, 520 in month 2.
+    private func groceriesHistory() -> BudgetHistory {
+        BudgetHistory(
+            monthAnchors: anchors, currentAnchor: current,
+            allocations: [
+                allocation(.groceries, 1, 500), allocation(.groceries, 2, 500),
+                allocation(.groceries, 3, 500),
+            ],
+            spentByCategory: ["groceries": [anchors[1]: 450, anchors[2]: 520]],
+            monthTotals: [:])
+    }
+
+    func testExplanationRunsThePlanDownInDateOrder() {
+        let expenses = [
+            expense("Late", .groceries, amount: 300, dated: 2, budgetMonth: 2, day: 20),
+            expense("Early", .groceries, amount: 220, dated: 2, budgetMonth: 2, day: 5),
+        ]
+
+        let explanation = groceriesHistory().explanation(
+            for: .category(.groceries), month: anchors[2], start: nil, expenses: expenses)
+        XCTAssertEqual(explanation?.rows.map(\.leftAfter), [280, -20])
+        XCTAssertEqual(explanation?.listedSpent, 520)
+        XCTAssertEqual(explanation?.adjustment, 0)
+    }
+
+    func testExplanationTotalIsEarlierMonthsPlusThisOne() {
+        let explanation = groceriesHistory().explanation(
+            for: .category(.groceries), month: anchors[2], start: nil, expenses: [])
+        XCTAssertEqual(explanation?.counting, .counted)
+        XCTAssertEqual(explanation?.earlier.net, 50)
+        XCTAssertEqual(explanation?.earlierFirst, anchors[1])
+        XCTAssertEqual(explanation?.earlierLast, anchors[1])
+        XCTAssertEqual(explanation?.month.difference, -20)
+        XCTAssertEqual(explanation?.total, 30)
+        // The bar spent 520 but nothing is listed: the gap shows as an adjustment, not lost.
+        XCTAssertEqual(explanation?.adjustment, 520)
+    }
+
+    func testExplanationSaysWhyAMonthDoesNotCount() {
+        let history = groceriesHistory()
+        XCTAssertEqual(
+            history.explanation(
+                for: .category(.groceries), month: anchors[1], start: anchors[2], expenses: [])?.counting,
+            .beforeStart)
+        XCTAssertEqual(
+            history.explanation(
+                for: .category(.groceries), month: anchors[0], start: nil, expenses: [])?.counting,
+            .noPlan)
+        XCTAssertEqual(
+            history.explanation(
+                for: .category(.groceries), month: current, start: nil, expenses: [])?.counting,
+            .inProgress)
+        // The open month adds nothing: the total is every closed month before it (+50, -20, +500).
+        XCTAssertEqual(
+            history.explanation(
+                for: .category(.groceries), month: current, start: nil, expenses: [])?.total, 530)
     }
 
     func testClosedMonthAnchorsLeaveOutTheOpenMonth() {

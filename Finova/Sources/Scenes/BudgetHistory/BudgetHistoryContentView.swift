@@ -29,8 +29,8 @@ struct BudgetHistoryContentView: View {
                     controls
                     chartCard
                     savingsCard
+                    explanationCard
                     insights
-                    transactionsCard
                 }
                 .padding(.vertical, Metrics.spacing4)
             }
@@ -395,60 +395,63 @@ struct BudgetHistoryContentView: View {
         return BudgetHistoryViewModel.savingsEndTitle(end) + " · " + months
     }
 
-    // MARK: - Transactions
+    // MARK: - Explanation
 
-    @State private var showsAllTransactions = false
-    private static let collapsedTransactionCount = 5
+    @State private var showsAllRows = false
+    private static let collapsedRowCount = 5
 
-    /// The expenses behind the selected bar - what makes up the spent figure in the readout, for the
-    /// filter chosen. Follows the selected month, so the number and its parts stay side by side.
-    private var transactionsCard: some View {
-        let transactions = viewModel.selectedTransactions
-        let shown = showsAllTransactions
-            ? transactions : Array(transactions.prefix(Self.collapsedTransactionCount))
-        let month = viewModel.selectedMonth.map { BudgetHistoryViewModel.longMonth($0.monthAnchor) } ?? ""
-        return VStack(alignment: .leading, spacing: 0) {
-            HStack {
-                Text(String(format: "budgetHistory.transactions.header.format".localized, month))
-                    .font(Font(Fonts.title2XS.font))
-                    .textCase(.uppercase)
-                    .foregroundStyle(Color(Colors.gray500))
-                    .lineLimit(1)
-                Spacer(minLength: Metrics.spacing2)
-                Text("\(transactions.count)")
-                    .font(Font(Fonts.titleXS.font))
-                    .foregroundStyle(Color(Colors.gray600))
-                    .padding(.horizontal, Metrics.spacing2)
-                    .frame(height: 18)
-                    .background(Capsule().fill(Color(Colors.gray300)))
-            }
-            .padding(.horizontal, Metrics.spacing5)
-            .frame(height: 44)
+    /// Why Saved shows what it shows: the selected month's plan run down by each expense in date
+    /// order, the month's result, and the earlier months that make up the rest. The last line is the
+    /// Saved figure itself, so the card always ends on the number it explains.
+    @ViewBuilder
+    private var explanationCard: some View {
+        if let explanation = viewModel.explanation {
+            let rows = showsAllRows
+                ? explanation.rows : Array(explanation.rows.prefix(Self.collapsedRowCount))
+            VStack(alignment: .leading, spacing: 0) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(hidden
+                        ? "budgetHistory.explain.header.hidden".localized
+                        : String(format: "budgetHistory.explain.header.format".localized,
+                            explanation.total.maskedSignedCurrencyString(hidden: false)))
+                        .font(Font(Fonts.title2XS.font))
+                        .textCase(.uppercase)
+                        .foregroundStyle(Color(Colors.gray500))
+                    Text(BudgetHistoryViewModel.longMonth(explanation.month.monthAnchor))
+                        .font(Font(Fonts.textXS.font))
+                        .foregroundStyle(Color(Colors.gray500))
+                }
+                .padding(.horizontal, Metrics.spacing5)
+                .padding(.vertical, Metrics.spacing4)
 
-            if transactions.isEmpty {
                 Divider().overlay(Color(Colors.gray300))
-                Text("budgetHistory.transactions.empty".localized)
-                    .font(Font(Fonts.textSM.font))
-                    .foregroundStyle(Color(Colors.gray500))
-                    .padding(Metrics.spacing5)
-            } else {
-                ForEach(shown, id: \.historyRowID) { transaction in
-                    Divider().overlay(Color(Colors.gray300))
-                    TransactionRow(transaction: transaction, hidden: hidden) {
-                        viewModel.onOpenTransaction?(transaction)
+                ExplanationLine(
+                    label: planLabel,
+                    value: explanation.month.hasPlan
+                        ? explanation.month.planned.maskedCurrencyString(hidden: hidden)
+                        : "budgetHistory.explain.noPlan".localized,
+                    weight: .semibold)
+
+                ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                    Divider().overlay(Color(Colors.gray300)).padding(.leading, Metrics.spacing5)
+                    ExplanationRow(
+                        row: row, showsLeft: explanation.month.hasPlan, hidden: hidden
+                    ) {
+                        viewModel.onOpenTransaction?(row.transaction)
                     }
                 }
-                if transactions.count > Self.collapsedTransactionCount {
+
+                if explanation.rows.count > Self.collapsedRowCount {
                     Divider().overlay(Color(Colors.gray300))
                     SwiftUI.Button {
-                        withAnimation(.easeInOut(duration: 0.2)) { showsAllTransactions.toggle() }
+                        withAnimation(.easeInOut(duration: 0.2)) { showsAllRows.toggle() }
                     } label: {
                         HStack(spacing: 4) {
-                            Text(showsAllTransactions
+                            Text(showsAllRows
                                 ? "budgetHistory.transactions.showLess".localized
                                 : String(format: "budgetHistory.transactions.showAll.format".localized,
-                                    transactions.count))
-                            Image(systemName: showsAllTransactions ? "chevron.up" : "chevron.down")
+                                    explanation.rows.count))
+                            Image(systemName: showsAllRows ? "chevron.up" : "chevron.down")
                                 .font(.system(size: 11, weight: .bold))
                         }
                         .font(Font(Fonts.textSMBold.font))
@@ -459,13 +462,80 @@ struct BudgetHistoryContentView: View {
                     }
                     .buttonStyle(.plain)
                 }
+
+                Divider().overlay(Color(Colors.gray300))
+                summary(explanation)
             }
+            .cardBackground()
+            .padding(.horizontal, Metrics.spacing4)
+            // A new month or filter starts collapsed again.
+            .onChange(of: viewModel.selectedAnchor) { _, _ in showsAllRows = false }
+            .onChange(of: viewModel.filter) { _, _ in showsAllRows = false }
         }
-        .cardBackground()
-        .padding(.horizontal, Metrics.spacing4)
-        // A new month or filter starts collapsed again.
-        .onChange(of: viewModel.selectedAnchor) { _, _ in showsAllTransactions = false }
-        .onChange(of: viewModel.filter) { _, _ in showsAllTransactions = false }
+    }
+
+    private var planLabel: String {
+        switch viewModel.filter {
+        case .wholeMonth: return "budgetHistory.explain.plan.wholeMonth".localized
+        case .category(let category):
+            return String(format: "budgetHistory.explain.plan.category.format".localized, category.displayName)
+        case .outsideAllocations: return "budgetHistory.explain.plan.outside".localized
+        }
+    }
+
+    /// The arithmetic from the month's spending to the Saved figure, one line per step.
+    private func summary(_ explanation: SavingsExplanation) -> some View {
+        let month = explanation.month
+        let monthName = BudgetHistoryViewModel.longMonth(month.monthAnchor)
+        return VStack(spacing: 0) {
+            ExplanationLine(
+                label: String(format: "budgetHistory.explain.spent.format".localized, explanation.rows.count),
+                value: (-explanation.listedSpent).maskedSignedCurrencyString(hidden: hidden))
+            if explanation.adjustment != 0 {
+                ExplanationLine(
+                    label: "budgetHistory.explain.adjustment".localized,
+                    value: (-explanation.adjustment).maskedSignedCurrencyString(hidden: hidden))
+            }
+            if month.hasPlan {
+                ExplanationLine(
+                    label: "= " + monthName,
+                    value: month.difference.maskedSignedCurrencyString(hidden: hidden),
+                    tint: hidden ? nil : (month.difference >= 0 ? Colors.mainGreen : Colors.mainRed),
+                    note: countingNote(explanation.counting),
+                    weight: .semibold)
+            } else if let note = countingNote(explanation.counting) {
+                ExplanationLine(label: "= " + monthName, value: "", note: note)
+            }
+            if explanation.earlier.months > 0, let first = explanation.earlierFirst,
+                let last = explanation.earlierLast
+            {
+                ExplanationLine(
+                    label: "+ " + (first == last
+                        ? BudgetHistoryViewModel.longMonth(first)
+                        : String(format: "budgetHistory.explain.earlier.format".localized,
+                            BudgetHistoryViewModel.shortMonth(first), BudgetHistoryViewModel.shortMonth(last))),
+                    value: explanation.earlier.net.maskedSignedCurrencyString(hidden: hidden),
+                    tint: hidden ? nil : (explanation.earlier.net >= 0 ? Colors.mainGreen : Colors.mainRed))
+            }
+            ExplanationLine(
+                label: "= " + (viewModel.savingsEndMonth.map(BudgetHistoryViewModel.savingsEndTitle)
+                    .map { "budgetHistory.savings.title".localized + " · " + $0 }
+                    ?? "budgetHistory.savings.title".localized),
+                value: explanation.total.maskedSignedCurrencyString(hidden: hidden),
+                tint: hidden ? nil : (explanation.total >= 0 ? Colors.mainGreen : Colors.mainRed),
+                weight: .bold)
+        }
+        .padding(.vertical, Metrics.spacing2)
+        .background(Color(Colors.gray200).opacity(0.5))
+    }
+
+    private func countingNote(_ counting: SavingsExplanation.Counting) -> String? {
+        switch counting {
+        case .counted: return nil
+        case .inProgress: return "budgetHistory.explain.inProgress".localized
+        case .noPlan: return "budgetHistory.explain.notCounted.noPlan".localized
+        case .beforeStart: return "budgetHistory.explain.notCounted.beforeStart".localized
+        }
     }
 
     // MARK: - Empty
@@ -563,64 +633,97 @@ private struct InsightTile: View {
     }
 }
 
-/// One expense in the selected month's list: the same icon, title, date and amount as on the dashboard,
-/// and a tap opens its details there.
-private struct TransactionRow: View {
-    let transaction: Transaction
+/// One line of the explanation's arithmetic: a label and an amount, with an optional note under it.
+private struct ExplanationLine: View {
+    let label: String
+    let value: String
+    var tint: UIColor? = nil
+    var note: String? = nil
+    var weight: Font.Weight = .regular
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(label)
+                    .font(.system(size: 13, weight: weight))
+                    .foregroundStyle(Color(Colors.gray700))
+                Spacer(minLength: Metrics.spacing2)
+                Text(value)
+                    .font(.system(size: 13, weight: weight == .regular ? .medium : weight))
+                    .foregroundStyle(Color(tint ?? Colors.gray700))
+                    .lineLimit(1)
+                    .fixedSize()
+            }
+            if let note {
+                Text(note)
+                    .font(.system(size: 11))
+                    .foregroundStyle(Color(Colors.gray500))
+            }
+        }
+        .padding(.horizontal, Metrics.spacing5)
+        .padding(.vertical, Metrics.spacing2)
+        .accessibilityElement(children: .combine)
+    }
+}
+
+/// One expense, with what is left of the month's plan after it: green while the plan holds, red from
+/// the expense that takes it past zero. A tap opens the transaction's details.
+private struct ExplanationRow: View {
+    let row: SavingsExplanation.Row
+    let showsLeft: Bool
     let hidden: Bool
     let onTap: () -> Void
 
     private static let dateFormatter: DateFormatter = {
         let formatter = DateFormatter()
-        formatter.dateFormat = "dd/MM/yyyy"
+        formatter.dateFormat = "dd/MM"
         return formatter
     }()
 
+    private var isOver: Bool { showsLeft && row.leftAfter < 0 }
+
+    private var leftText: String {
+        if hidden {
+            return (isOver ? "budgetHistory.status.overPlain" : "budgetHistory.status.within").localized
+        }
+        return String(
+            format: (isOver ? "budgetHistory.status.over.format" : "budgetHistory.status.left.format").localized,
+            abs(row.leftAfter).currencyString)
+    }
+
     var body: some View {
+        let transaction = row.transaction
         SwiftUI.Button(action: onTap) {
             HStack(spacing: Metrics.spacing3) {
-                Group {
-                    if let icon = UIImage(named: transaction.category.iconName(for: transaction.type)) {
-                        Image(uiImage: icon).resizable().renderingMode(.template).scaledToFit()
-                    }
-                }
-                .frame(width: 18, height: 18)
-                .foregroundStyle(Color(Colors.mainMagenta))
-                .frame(width: 36, height: 36)
-                .background(RoundedRectangle(cornerRadius: CornerRadius.medium).fill(Color(Colors.gray200)))
-
+                RoundedRectangle(cornerRadius: 1.5)
+                    .fill(showsLeft ? Color(isOver ? Colors.mainRed : Colors.mainGreen) : Color(Colors.gray300))
+                    .frame(width: 3, height: 32)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(transaction.title)
                         .font(Font(Fonts.textSM.font))
                         .foregroundStyle(Color(Colors.gray700))
                         .lineLimit(1)
-                    Text(Self.dateFormatter.string(from: transaction.date)
-                        + " · " + transaction.category.displayName)
+                    Text(Self.dateFormatter.string(from: transaction.date) + " · " + transaction.category.displayName)
                         .font(.system(size: 11))
                         .foregroundStyle(Color(Colors.gray500))
                         .lineLimit(1)
                 }
                 Spacer(minLength: Metrics.spacing2)
                 VStack(alignment: .trailing, spacing: 2) {
-                    Text(transaction.amount.maskedCurrencyString(hidden: hidden))
+                    Text((-transaction.amount).maskedSignedCurrencyString(hidden: hidden))
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(Color(Colors.gray700))
-                        .lineLimit(1)
-                    if let number = transaction.installmentNumber, let total = transaction.totalInstallments,
-                        total > 1
-                    {
-                        Text("(\(number)/\(total))")
-                            .font(.system(size: 11))
-                            .foregroundStyle(Color(Colors.gray500))
+                    if showsLeft {
+                        Text(leftText)
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(Color(isOver ? Colors.mainRed : Colors.mainGreen))
                     }
                 }
+                .lineLimit(1)
                 .fixedSize()
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(Color(Colors.gray400))
             }
             .padding(.horizontal, Metrics.spacing5)
-            .padding(.vertical, Metrics.spacing3)
+            .padding(.vertical, Metrics.spacing2)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
