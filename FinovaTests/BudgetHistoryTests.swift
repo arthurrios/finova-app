@@ -181,6 +181,42 @@ final class BudgetHistoryTests: XCTestCase {
         XCTAssertEqual(history.outsideAllocations(from: anchors[4]), 180)
     }
 
+    func testOutsideSeriesIsUnallocatedBudgetAgainstUnplannedSpending() {
+        // Month 3: budget 1_000, groceries planned 500. Travel had no allocation and spent 120.
+        let history = BudgetHistory(
+            monthAnchors: anchors, currentAnchor: current,
+            allocations: [allocation(.groceries, 3, 500)],
+            spentByCategory: [
+                "groceries": [anchors[3]: 450],
+                "travel": [anchors[3]: 120],
+            ],
+            monthTotals: [anchors[3]: .init(budget: 1_000, used: 600)])
+
+        let month = history.series(for: .outsideAllocations)?.month(anchors[3])
+        XCTAssertEqual(month?.planned, 500)
+        XCTAssertEqual(month?.spent, 120)
+        // Whole 400 - groceries 50 = 350 outside; the series explains 380, the card's date clock 30 less.
+        XCTAssertEqual(history.outsideAllocations(from: nil), 350)
+        XCTAssertEqual(history.series(for: .outsideAllocations)?.savings(from: nil).net, 380)
+        XCTAssertEqual(history.outsideTiming(from: nil), -30)
+    }
+
+    func testOverAllocatedMonthHasNoOutsidePlan() {
+        let history = BudgetHistory(
+            monthAnchors: anchors, currentAnchor: current,
+            allocations: [allocation(.groceries, 3, 1_200)],
+            spentByCategory: ["groceries": [anchors[3]: 900]],
+            monthTotals: [anchors[3]: .init(budget: 1_000, used: 900)])
+        XCTAssertEqual(history.series(for: .outsideAllocations)?.month(anchors[3])?.hasPlan, false)
+    }
+
+    func testNoCategoriesMeansNoOutsideSeries() {
+        let history = BudgetHistory(
+            monthAnchors: anchors, currentAnchor: current, allocations: [], spentByCategory: [:],
+            monthTotals: [anchors[3]: .init(budget: 1_000, used: 900)])
+        XCTAssertNil(history.series(for: .outsideAllocations))
+    }
+
     func testNothingOutsideWhenTheWholeMonthHasNothingToCount() {
         let history = BudgetHistory(
             monthAnchors: anchors, currentAnchor: current,

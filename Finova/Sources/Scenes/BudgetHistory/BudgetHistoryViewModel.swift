@@ -143,6 +143,13 @@ final class BudgetHistoryViewModel: ObservableObject {
         return history.outsideAllocations(from: savingsStart)
     }
 
+    /// What the outside series does not explain, since `savingsStart`. Shown under the Saved card while
+    /// the outside filter is chosen, so that card plus this line equal its row in the list.
+    var outsideTiming: Int? {
+        guard filter == .outsideAllocations else { return nil }
+        return history.outsideTiming(from: savingsStart)
+    }
+
     /// The month the arrows step to, or nil at either end of the bars on screen.
     func neighbour(by offset: Int) -> Int? {
         let months = series.months
@@ -196,6 +203,7 @@ extension BudgetHistoryViewModel {
     static func title(for filter: BudgetHistoryFilter) -> String {
         switch filter {
         case .wholeMonth: return "budgetHistory.filter.wholeMonth".localized
+        case .outsideAllocations: return "budgetHistory.outside.title".localized
         case .category(let category): return category.displayName
         }
     }

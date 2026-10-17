@@ -319,6 +319,22 @@ struct BudgetHistoryContentView: View {
                 .font(Font(Fonts.textXS.font))
                 .foregroundStyle(Color(Colors.gray500))
             }
+
+            if let timing = viewModel.outsideTiming, timing != 0 {
+                Divider().overlay(Color(Colors.gray300)).padding(.vertical, Metrics.spacing1)
+                HStack(alignment: .firstTextBaseline) {
+                    Text("budgetHistory.outside.timing".localized)
+                        .font(Font(Fonts.textXS.font))
+                        .foregroundStyle(Color(Colors.gray500))
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: Metrics.spacing2)
+                    Text(timing.maskedSignedCurrencyString(hidden: hidden))
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(Color(Colors.gray600))
+                        .fixedSize()
+                }
+                .accessibilityElement(children: .combine)
+            }
         }
         .padding(Metrics.spacing5)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -475,6 +491,10 @@ private struct FilterIcon: View {
             Image(systemName: "calendar")
                 .resizable()
                 .scaledToFit()
+        case .outsideAllocations:
+            Image(systemName: "square.dashed")
+                .resizable()
+                .scaledToFit()
         case .category(let category):
             if let icon = UIImage(named: category.iconName) {
                 Image(uiImage: icon).resizable().renderingMode(.template).scaledToFit()
@@ -522,43 +542,52 @@ private struct FilterPickerSheet: View {
         .presentationCornerRadius(CornerRadius.bottomSheet)
     }
 
-    /// The remainder, so the category rows plus this one add up to the whole month. Not a filter: there
-    /// is no chart for it, so it is a plain row with no button and no checkmark.
+    /// The remainder, so the category rows plus this one add up to the whole month. Tapping it shows
+    /// it like a category: unallocated budget as the plan, unplanned spending as what was spent.
     private func outsideRow(_ amount: Int) -> some View {
         let hidden = viewModel.isValuesHidden
-        return HStack(spacing: Metrics.spacing3) {
-            Image(systemName: "square.dashed")
-                .font(.system(size: 16, weight: .regular))
-                .foregroundStyle(Color(Colors.gray500))
-                .frame(width: 36, height: 36)
-                .background(
-                    RoundedRectangle(cornerRadius: CornerRadius.medium)
-                        .stroke(Color(Colors.gray300), style: StrokeStyle(lineWidth: 1, dash: [3, 3])))
-            VStack(alignment: .leading, spacing: 2) {
-                Text("budgetHistory.outside.title".localized)
-                    .font(Font(Fonts.textSM.font))
-                    .foregroundStyle(Color(Colors.gray700))
-                Text("budgetHistory.outside.caption".localized)
-                    .font(.system(size: 11))
-                    .foregroundStyle(Color(Colors.gray500))
-                    .fixedSize(horizontal: false, vertical: true)
+        let isSelected = viewModel.filter == .outsideAllocations
+        return SwiftUI.Button {
+            onPick(.outsideAllocations)
+        } label: {
+            HStack(spacing: Metrics.spacing3) {
+                Image(systemName: "square.dashed")
+                    .font(.system(size: 16, weight: .regular))
+                    .foregroundStyle(isSelected ? Color(Colors.mainMagenta) : Color(Colors.gray500))
+                    .frame(width: 36, height: 36)
+                    .background(
+                        RoundedRectangle(cornerRadius: CornerRadius.medium)
+                            .stroke(
+                                isSelected ? Color(Colors.mainMagenta) : Color(Colors.gray300),
+                                style: StrokeStyle(lineWidth: 1, dash: [3, 3])))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("budgetHistory.outside.title".localized)
+                        .font(Font(isSelected ? Fonts.textSMBold.font : Fonts.textSM.font))
+                        .foregroundStyle(Color(Colors.gray700))
+                    Text("budgetHistory.outside.caption".localized)
+                        .font(.system(size: 11))
+                        .foregroundStyle(Color(Colors.gray500))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: Metrics.spacing2)
+                Text(amount.maskedSignedCurrencyString(hidden: hidden))
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(
+                        hidden ? Color(Colors.gray500)
+                            : amount >= 0 ? Color(Colors.mainGreen) : Color(Colors.mainRed))
+                    .lineLimit(1)
+                    .fixedSize()
+                Image(systemName: "checkmark")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(Color(Colors.mainMagenta))
+                    .opacity(isSelected ? 1 : 0)
             }
-            Spacer(minLength: Metrics.spacing2)
-            Text(amount.maskedSignedCurrencyString(hidden: hidden))
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(
-                    hidden ? Color(Colors.gray500)
-                        : amount >= 0 ? Color(Colors.mainGreen) : Color(Colors.mainRed))
-                .lineLimit(1)
-                .fixedSize()
-            // Keeps the amount in the same column as the rows above, which reserve a checkmark slot.
-            Image(systemName: "checkmark")
-                .font(.system(size: 12, weight: .bold))
-                .opacity(0)
+            .padding(.horizontal, Metrics.spacing5)
+            .padding(.vertical, Metrics.spacing3)
+            .contentShape(Rectangle())
         }
-        .padding(.horizontal, Metrics.spacing5)
-        .padding(.vertical, Metrics.spacing3)
-        .accessibilityElement(children: .combine)
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
     }
 
     private func row(for filter: BudgetHistoryFilter) -> some View {

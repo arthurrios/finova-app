@@ -11,11 +11,15 @@ import Foundation
 enum BudgetHistoryFilter: Hashable {
     case wholeMonth
     case category(TransactionCategory)
+    /// The part of the budget no category holds: the unallocated budget as the plan, and spending in
+    /// categories that had no allocation that month as what was spent against it.
+    case outsideAllocations
 
     var id: String {
         switch self {
         case .wholeMonth: return "wholeMonth"
         case .category(let category): return category.key
+        case .outsideAllocations: return "outsideAllocations"
         }
     }
 }
@@ -181,6 +185,9 @@ struct BudgetHistory: Equatable {
     let wholeMonth: BudgetHistorySeries
     /// Every category with an allocation somewhere in the window, biggest plan first.
     let categories: [BudgetHistorySeries]
+    /// Unallocated budget against unplanned spending. Nil when no category was ever planned - then the
+    /// whole month is all there is.
+    let outside: BudgetHistorySeries?
 
     var filters: [BudgetHistoryFilter] {
         [.wholeMonth] + categories.map(\.filter)
@@ -190,6 +197,7 @@ struct BudgetHistory: Equatable {
         switch filter {
         case .wholeMonth: return wholeMonth
         case .category: return categories.first { $0.filter == filter }
+        case .outsideAllocations: return outside
         }
     }
 
@@ -210,18 +218,28 @@ struct BudgetHistory: Equatable {
         return whole.net - categories.reduce(0) { $0 + $1.savings(from: start).net }
     }
 
+    /// The part of `outsideAllocations` the outside series does not explain: purchases the month card
+    /// counts by date and allocations by budget month, months with allocations but no budget, and
+    /// months that allocated more than the budget. Shown under the chart so the outside series plus
+    /// this line equal the row in the category list.
+    func outsideTiming(from start: Int?) -> Int? {
+        guard let total = outsideAllocations(from: start), let outside else { return nil }
+        return total - outside.savings(from: start).net
+    }
+
     static let empty = BudgetHistory(
         monthAnchors: [], currentAnchor: 0,
         wholeMonth: BudgetHistorySeries(filter: .wholeMonth, months: []), categories: [])
 
     init(
         monthAnchors: [Int], currentAnchor: Int, wholeMonth: BudgetHistorySeries,
-        categories: [BudgetHistorySeries]
+        categories: [BudgetHistorySeries], outside: BudgetHistorySeries? = nil
     ) {
         self.monthAnchors = monthAnchors
         self.currentAnchor = currentAnchor
         self.wholeMonth = wholeMonth
         self.categories = categories
+        self.outside = outside
     }
 
     /// - Parameters:
@@ -286,8 +304,29 @@ struct BudgetHistory: Equatable {
                 months: months(planned: { planned[$0] ?? 0 }, spent: { spent[$0] ?? 0 }))
         }
 
+        // Per month: the budget left after allocations, against spending in every category that had
+        // no allocation that month - the same two figures the budget card shows as "Unallocated" and
+        // its off-plan slices. Over-allocated months have no outside plan; the timing line holds them.
+        var allocatedByMonth: [Int: Int] = [:]
+        for months in plannedByCategory.values {
+            for (anchor, amount) in months { allocatedByMonth[anchor, default: 0] += amount }
+        }
+        let outside: BudgetHistorySeries? = categories.isEmpty ? nil : BudgetHistorySeries(
+            filter: .outsideAllocations,
+            months: months(
+                planned: { anchor in
+                    guard let budget = monthTotals[anchor]?.budget, budget > 0 else { return 0 }
+                    return budget - (allocatedByMonth[anchor] ?? 0)
+                },
+                spent: { anchor in
+                    spentByCategory.reduce(0) { total, entry in
+                        (plannedByCategory[entry.key]?[anchor] ?? 0) > 0
+                            ? total : total + (entry.value[anchor] ?? 0)
+                    }
+                }))
+
         self.init(
             monthAnchors: monthAnchors, currentAnchor: currentAnchor, wholeMonth: wholeMonth,
-            categories: categories)
+            categories: categories, outside: outside)
     }
 }

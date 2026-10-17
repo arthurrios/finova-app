@@ -4454,6 +4454,24 @@
         }
       }
     },
+    "budgetHistory.outside.timing": {
+      "comment": "Under the Saved card of 'Outside allocations': the part the chart does not explain.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Month timing and other differences"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diferenças de mês e outras"
+          }
+        }
+      }
+    },
     "budgetHistory.outside.title": {
       "comment": "Last row of the category list: what the whole month saved that no category accounts for.",
       "extractionState": "manual",
