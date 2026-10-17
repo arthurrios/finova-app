@@ -599,6 +599,7 @@
     <string name="history_legend_plan">Plan</string>
     <string name="history_legend_spent">Spent</string>
     <string name="history_outside_caption">Unallocated budget, unplanned spending and timing</string>
+    <string name="history_outside_timing">Month timing and other differences</string>
     <string name="history_outside_title">Outside allocations</string>
     <string name="history_percent_format">%d%% of plan</string>
     <string name="history_picker_title">Show history for</string>

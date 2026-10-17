@@ -594,6 +594,7 @@
     <string name="history_legend_plan">Plano</string>
     <string name="history_legend_spent">Gasto</string>
     <string name="history_outside_caption">Orçamento não alocado, gastos sem plano e diferenças de mês</string>
+    <string name="history_outside_timing">Diferenças de mês e outras</string>
     <string name="history_outside_title">Fora das alocações</string>
     <string name="history_percent_format">%d%% do plano</string>
     <string name="history_picker_title">Ver histórico de</string>

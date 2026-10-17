@@ -133,6 +133,48 @@ class BudgetHistoryTest {
         assertNull(history(listOf(allocation(Groceries, 3, 500)), mapOf(Groceries to mapOf(months[3] to 450L))).outsideAllocations(null))
     }
 
+    @Test fun outsideSeriesIsUnallocatedBudgetAgainstUnplannedSpending() {
+        // Month 3: budget 1_000, groceries planned 500. Travel had no allocation and spent 120.
+        val h = history(
+            allocations = listOf(allocation(Groceries, 3, 500)),
+            spent = mapOf(Groceries to mapOf(months[3] to 450L), Travel to mapOf(months[3] to 120L)),
+            totals = mapOf(months[3] to BudgetHistory.MonthTotal(1_000, 600)),
+        )
+        val month = h.series(BudgetHistoryFilter.OutsideAllocations)?.month(months[3])
+        assertEquals(500L, month?.planned)
+        assertEquals(120L, month?.spent)
+        // Whole 400 - groceries 50 = 350 outside; the series explains 380, the card's date clock 30 less.
+        assertEquals(350L, h.outsideAllocations(null))
+        assertEquals(380L, h.series(BudgetHistoryFilter.OutsideAllocations)?.savings(null)?.net)
+        assertEquals(-30L, h.outsideTiming(null))
+    }
+
+    @Test fun overAllocatedMonthHasNoOutsidePlan() {
+        val h = history(
+            allocations = listOf(allocation(Groceries, 3, 1_200)),
+            spent = mapOf(Groceries to mapOf(months[3] to 900L)),
+            totals = mapOf(months[3] to BudgetHistory.MonthTotal(1_000, 900)),
+        )
+        assertEquals(false, h.series(BudgetHistoryFilter.OutsideAllocations)?.month(months[3])?.hasPlan)
+    }
+
+    @Test fun noCategoriesMeansNoOutsideSeries() {
+        val h = history(totals = mapOf(months[3] to BudgetHistory.MonthTotal(1_000, 900)))
+        assertNull(h.series(BudgetHistoryFilter.OutsideAllocations))
+    }
+
+    @Test fun theTimingLineShowsOnlyWhileTheOutsideFilterIsChosen() {
+        val h = history(
+            allocations = listOf(allocation(Groceries, 3, 500)),
+            spent = mapOf(Groceries to mapOf(months[3] to 450L), Travel to mapOf(months[3] to 120L)),
+            totals = mapOf(months[3] to BudgetHistory.MonthTotal(1_000, 600)),
+        )
+        assertNull(BudgetHistoryUiState().withHistory(h, firstLoad = true).outsideTiming)
+        val outside = BudgetHistoryUiState(filter = BudgetHistoryFilter.OutsideAllocations).withHistory(h, firstLoad = true)
+        assertEquals(BudgetHistoryFilter.OutsideAllocations, outside.filter)
+        assertEquals(-30L, outside.outsideTiming)
+    }
+
     // ---- Trimming
 
     @Test fun leadingEmptyMonthsAreTrimmedButTheOpenMonthStays() {

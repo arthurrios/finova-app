@@ -10,6 +10,11 @@ import kotlin.math.roundToInt
 sealed interface BudgetHistoryFilter {
     data object WholeMonth : BudgetHistoryFilter
     data class Category(val category: TransactionCategory) : BudgetHistoryFilter
+    /**
+     * The part of the budget no category holds: the unallocated budget as the plan, and spending in
+     * categories with no allocation that month as what was spent against it.
+     */
+    data object OutsideAllocations : BudgetHistoryFilter
 }
 
 /** One month of one filter: what was planned, and what was spent against it. Port of BudgetHistoryMonth. */
@@ -133,6 +138,8 @@ data class BudgetHistory(
     val wholeMonth: BudgetHistorySeries,
     /** Every category with an allocation somewhere in the window, biggest plan first. */
     val categories: List<BudgetHistorySeries>,
+    /** Unallocated budget against unplanned spending. Null when no category was ever planned. */
+    val outside: BudgetHistorySeries? = null,
 ) {
     /** The month card's figures for one month: the budget row and the "used" figure. */
     data class MonthTotal(val budget: Long?, val used: Long)
@@ -145,6 +152,7 @@ data class BudgetHistory(
     fun series(filter: BudgetHistoryFilter): BudgetHistorySeries? = when (filter) {
         BudgetHistoryFilter.WholeMonth -> wholeMonth
         is BudgetHistoryFilter.Category -> categories.firstOrNull { it.filter == filter }
+        BudgetHistoryFilter.OutsideAllocations -> outside
     }
 
     val isEmpty: Boolean get() = wholeMonth.isEmpty && categories.isEmpty()
@@ -159,6 +167,18 @@ data class BudgetHistory(
         val whole = wholeMonth.savings(start)
         if (whole.months == 0) return null
         return whole.net - categories.sumOf { it.savings(start).net }
+    }
+
+    /**
+     * The part of [outsideAllocations] the outside series does not explain: purchases the month card
+     * counts by date and allocations by budget month, months with allocations but no budget, and
+     * months that allocated more than the budget. Shown under the Saved card, so the outside series
+     * plus this line equal the row in the category list.
+     */
+    fun outsideTiming(start: YearMonth?): Long? {
+        val total = outsideAllocations(start) ?: return null
+        val series = outside ?: return null
+        return total - series.savings(start).net
     }
 
     companion object {
@@ -221,7 +241,26 @@ data class BudgetHistory(
                 val spent = spentByCategory[category].orEmpty()
                 BudgetHistorySeries(BudgetHistoryFilter.Category(category), build({ plan[it] ?: 0L }, { spent[it] ?: 0L }))
             }
-            return BudgetHistory(months, current, whole, categories)
+            // Per month: the budget left after allocations, against spending in every category with no
+            // allocation that month (the budget card's "Unallocated" and its off-plan slices). An
+            // over-allocated month has no outside plan; the timing line holds it.
+            val allocatedByMonth = mutableMapOf<YearMonth, Long>()
+            for (byMonth in planned.values) for ((month, amount) in byMonth) allocatedByMonth[month] = (allocatedByMonth[month] ?: 0) + amount
+            val outside = if (categories.isEmpty()) null else BudgetHistorySeries(
+                BudgetHistoryFilter.OutsideAllocations,
+                build(
+                    { month ->
+                        val budget = monthTotals[month]?.budget ?: 0L
+                        if (budget > 0) budget - (allocatedByMonth[month] ?: 0L) else 0L
+                    },
+                    { month ->
+                        spentByCategory.entries.sumOf { (category, byMonth) ->
+                            if ((planned[category]?.get(month) ?: 0L) > 0) 0L else byMonth[month] ?: 0L
+                        }
+                    },
+                ),
+            )
+            return BudgetHistory(months, current, whole, categories, outside)
         }
     }
 }

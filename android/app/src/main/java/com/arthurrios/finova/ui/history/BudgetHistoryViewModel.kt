@@ -74,6 +74,13 @@ data class BudgetHistoryUiState(
     val outsideAllocations: Long?
         get() = if (history.categories.isEmpty()) null else history.outsideAllocations(savingsStart)
 
+    /**
+     * What the outside series does not explain, since [savingsStart]. Shown under the Saved card
+     * while the outside filter is chosen, so that card plus this line equal its row in the list.
+     */
+    val outsideTiming: Long?
+        get() = if (filter == BudgetHistoryFilter.OutsideAllocations) history.outsideTiming(savingsStart) else null
+
     /** The month the arrows step to, or null at either end of the bars on screen. */
     fun neighbour(offset: Int): YearMonth? {
         val months = series.months

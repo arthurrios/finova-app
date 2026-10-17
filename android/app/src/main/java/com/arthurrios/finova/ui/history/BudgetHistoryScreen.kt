@@ -159,6 +159,7 @@ fun BudgetHistoryScreen(viewModel: BudgetHistoryViewModel, onBack: () -> Unit) {
 fun BudgetHistoryFilter.title(): String = when (this) {
     BudgetHistoryFilter.WholeMonth -> stringResource(R.string.history_filter_whole_month)
     is BudgetHistoryFilter.Category -> stringResource(category.label)
+    BudgetHistoryFilter.OutsideAllocations -> stringResource(R.string.history_outside_title)
 }
 
 /** "October 2026". */
@@ -170,6 +171,15 @@ private fun FilterIcon(filter: BudgetHistoryFilter, tint: Color, size: androidx.
     BudgetHistoryFilter.WholeMonth -> Icon(Icons.Outlined.CalendarMonth, null, tint = tint, modifier = Modifier.size(size))
     is BudgetHistoryFilter.Category ->
         Icon(painterResource(filter.category.icon(TransactionType.Expense)), null, tint = tint, modifier = Modifier.size(size))
+    BudgetHistoryFilter.OutsideAllocations -> DashedSquare(tint, size)
+}
+
+/** The outside filter's mark: a dashed square, for the part of the budget no category holds. */
+@Composable
+private fun DashedSquare(tint: Color, size: androidx.compose.ui.unit.Dp) {
+    Box(Modifier.size(size).padding(size / 8).drawBehind {
+        drawRect(tint, style = Stroke(1.5.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(2.dp.toPx(), 2.dp.toPx()))))
+    })
 }
 
 // ---- Controls ------------------------------------------------------------------------------------
@@ -425,6 +435,16 @@ private fun SavingsCard(state: BudgetHistoryUiState, onStart: (YearMonth?) -> Un
                 Text(monthsCount(savings.months), style = FinovaType.TextXS, color = FinovaColors.Gray500)
             }
         }
+        // While the outside filter is chosen: what its series does not explain, so this card plus the
+        // line equal the row in the category list. Hidden when there is nothing to explain.
+        state.outsideTiming?.takeIf { it != 0L }?.let { timing ->
+            HorizontalDivider(color = FinovaColors.Gray300, modifier = Modifier.padding(vertical = Spacing.S1))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(stringResource(R.string.history_outside_timing), style = FinovaType.TextXS, color = FinovaColors.Gray500, modifier = Modifier.weight(1f))
+                Spacer(Modifier.width(Spacing.S2))
+                Text(Money.formatMasked(timing, state.currencyCode, hidden), fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = FinovaColors.Gray600, maxLines = 1)
+            }
+        }
     }
 }
 
@@ -537,7 +557,7 @@ private fun FilterPickerSheet(state: BudgetHistoryUiState, onDismiss: () -> Unit
                 FilterRow(state, filter, onPick)
                 HorizontalDivider(color = FinovaColors.Gray300, modifier = Modifier.padding(start = 64.dp))
             }
-            state.outsideAllocations?.let { amount -> item { OutsideRow(amount, state) } }
+            state.outsideAllocations?.let { amount -> item { OutsideRow(amount, state, onPick) } }
         }
     }
 }
@@ -585,32 +605,38 @@ private fun FilterRow(state: BudgetHistoryUiState, filter: BudgetHistoryFilter, 
 }
 
 /**
- * The remainder, so the category rows plus this one add up to the whole month. Not a filter: there
- * is no chart for it, so it is a plain row with no tap and no checkmark.
+ * The remainder, so the category rows plus this one add up to the whole month. Tapping it shows it
+ * like a category: the unallocated budget as the plan, unplanned spending as what was spent.
  */
 @Composable
-private fun OutsideRow(amount: Long, state: BudgetHistoryUiState) {
+private fun OutsideRow(amount: Long, state: BudgetHistoryUiState, onPick: (BudgetHistoryFilter) -> Unit) {
     val hidden = state.valuesHidden
+    val isSelected = state.filter == BudgetHistoryFilter.OutsideAllocations
+    val accent = if (isSelected) FinovaColors.MainMagenta else FinovaColors.Gray300
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(Spacing.S3),
-        modifier = Modifier.fillMaxWidth().padding(horizontal = Spacing.S5, vertical = Spacing.S3),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onPick(BudgetHistoryFilter.OutsideAllocations) }
+            .padding(horizontal = Spacing.S5, vertical = Spacing.S3),
     ) {
         Box(
             contentAlignment = Alignment.Center,
             modifier = Modifier.size(36.dp).drawBehind {
                 drawRoundRect(
-                    FinovaColors.Gray300, cornerRadius = androidx.compose.ui.geometry.CornerRadius(CornerRadius.Medium.toPx()),
+                    accent, cornerRadius = androidx.compose.ui.geometry.CornerRadius(CornerRadius.Medium.toPx()),
                     style = Stroke(1.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(3.dp.toPx(), 3.dp.toPx()))),
                 )
             },
         ) {
-            Box(Modifier.size(14.dp).drawBehind {
-                drawRect(FinovaColors.Gray500, style = Stroke(1.5.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(2.dp.toPx(), 2.dp.toPx()))))
-            })
+            DashedSquare(if (isSelected) FinovaColors.MainMagenta else FinovaColors.Gray500, 18.dp)
         }
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(stringResource(R.string.history_outside_title), style = FinovaType.TextSM, color = FinovaColors.Gray700)
+            Text(
+                stringResource(R.string.history_outside_title),
+                style = if (isSelected) FinovaType.TextSMBold else FinovaType.TextSM, color = FinovaColors.Gray700,
+            )
             Text(stringResource(R.string.history_outside_caption), fontSize = 11.sp, lineHeight = 14.sp, color = FinovaColors.Gray500)
         }
         Text(
@@ -622,8 +648,10 @@ private fun OutsideRow(amount: Long, state: BudgetHistoryUiState) {
                 else -> FinovaColors.MainRed
             },
         )
-        // Keeps the amount in the same column as the rows above, which keep a checkmark slot.
-        Spacer(Modifier.width(16.dp))
+        Icon(
+            Icons.Filled.Check, null, tint = if (isSelected) FinovaColors.MainMagenta else Color.Transparent,
+            modifier = Modifier.size(16.dp),
+        )
     }
 }
 
