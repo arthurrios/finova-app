@@ -15,8 +15,11 @@ import XCTest
 
 final class BudgetHistoryTests: XCTestCase {
 
-    /// Arbitrary, evenly spaced anchors. The types only key by them; they never read a date.
-    private let anchors = (0..<6).map { 1_767_225_600 + $0 * 2_678_400 }
+    /// January to June 2026, as real month anchors in the device's time zone - the transaction filters
+    /// compare a date's own month, so these must be true month starts.
+    private let anchors = (0..<6).map {
+        Date(timeIntervalSince1970: 1_768_521_600).monthAnchor(offsetByMonths: $0)
+    }
     private var current: Int { anchors.last! }
 
     private func month(
@@ -224,6 +227,94 @@ final class BudgetHistoryTests: XCTestCase {
             spentByCategory: ["groceries": [anchors[3]: 450]],
             monthTotals: [:])
         XCTAssertNil(history.outsideAllocations(from: nil))
+    }
+
+    // MARK: - Up to a month
+
+    func testSavingsThroughAMonthStopAtThatMonth() {
+        // Saved per closed month: +100, -30, +50; the open month never counts.
+        let history = series([(200, 100), (100, 130), (100, 50), (100, 10)])
+        XCTAssertEqual(history.savings(through: anchors[0]).net, 100)
+        XCTAssertEqual(history.savings(through: anchors[1]).net, 70)
+        XCTAssertEqual(history.savings(through: anchors[3]).net, 120)
+        XCTAssertEqual(history.savings(from: anchors[1], through: anchors[2]).net, 20)
+        XCTAssertEqual(history.savings(from: anchors[2], through: anchors[1]), .none)
+    }
+
+    func testOutsideAllocationsFollowTheSameMonths() {
+        let history = BudgetHistory(
+            monthAnchors: anchors, currentAnchor: current,
+            allocations: [allocation(.groceries, 3, 500), allocation(.groceries, 4, 500)],
+            spentByCategory: ["groceries": [anchors[3]: 450, anchors[4]: 450]],
+            monthTotals: [
+                anchors[3]: .init(budget: 1_000, used: 800),
+                anchors[4]: .init(budget: 1_000, used: 800),
+            ])
+        // Through month 3 only: whole 200 - groceries 50.
+        XCTAssertEqual(history.outsideAllocations(from: nil, through: anchors[3]), 150)
+        XCTAssertEqual(history.outsideAllocations(from: nil, through: nil), 300)
+    }
+
+    // MARK: - Transactions behind a bar
+
+    private func expense(
+        _ title: String, _ category: TransactionCategory, amount: Int,
+        dated dateIndex: Int, budgetMonth budgetIndex: Int, statement: Bool = false
+    ) -> Transaction {
+        // Mid-month, so the date's month does not depend on the time zone.
+        let date = anchors[dateIndex] + 15 * 86_400
+        let model = TransactionModel(
+            title: title, category: category.key, amount: amount, type: "expense",
+            dateTimestamp: date, budgetMonthDate: anchors[budgetIndex],
+            isCreditCardStatement: statement ? true : nil)
+        return Transaction(data: try! UITransactionData(from: model.data))
+    }
+
+    func testCategoryBarListsItsBudgetMonthExpensesBiggestFirst() {
+        let history = BudgetHistory(
+            monthAnchors: anchors, currentAnchor: current,
+            allocations: [allocation(.groceries, 3, 500)], spentByCategory: [:], monthTotals: [:])
+        let expenses = [
+            expense("Small", .groceries, amount: 100, dated: 3, budgetMonth: 3),
+            expense("Big", .groceries, amount: 300, dated: 3, budgetMonth: 3),
+            // Dated in month 3 but billed to month 4, so it belongs to month 4's bar.
+            expense("Card", .groceries, amount: 999, dated: 3, budgetMonth: 4),
+            expense("Other", .meals, amount: 50, dated: 3, budgetMonth: 3),
+        ]
+        let titles = history.transactions(for: .category(.groceries), month: anchors[3], in: expenses)
+            .map(\.title)
+        XCTAssertEqual(titles, ["Big", "Small"])
+    }
+
+    func testWholeMonthListsExpensesByDateWithoutStatementPayments() {
+        let history = BudgetHistory(
+            monthAnchors: anchors, currentAnchor: current, allocations: [], spentByCategory: [:],
+            monthTotals: [:])
+        let expenses = [
+            expense("Card", .groceries, amount: 999, dated: 3, budgetMonth: 4),
+            expense("Statement", .creditCard, amount: 5_000, dated: 3, budgetMonth: 3, statement: true),
+            expense("Next month", .meals, amount: 10, dated: 4, budgetMonth: 3),
+        ]
+        let titles = history.transactions(for: .wholeMonth, month: anchors[3], in: expenses).map(\.title)
+        XCTAssertEqual(titles, ["Card"])
+    }
+
+    func testOutsideListsOnlyCategoriesWithNoAllocationThatMonth() {
+        let history = BudgetHistory(
+            monthAnchors: anchors, currentAnchor: current,
+            // Groceries planned in month 3 only; travel never.
+            allocations: [allocation(.groceries, 3, 500)], spentByCategory: [:], monthTotals: [:])
+        let expenses = [
+            expense("Groceries 3", .groceries, amount: 100, dated: 3, budgetMonth: 3),
+            expense("Groceries 4", .groceries, amount: 200, dated: 4, budgetMonth: 4),
+            expense("Travel 3", .travel, amount: 300, dated: 3, budgetMonth: 3),
+        ]
+        XCTAssertEqual(
+            history.transactions(for: .outsideAllocations, month: anchors[3], in: expenses).map(\.title),
+            ["Travel 3"])
+        XCTAssertEqual(
+            history.transactions(for: .outsideAllocations, month: anchors[4], in: expenses).map(\.title),
+            ["Groceries 4"])
     }
 
     func testClosedMonthAnchorsLeaveOutTheOpenMonth() {

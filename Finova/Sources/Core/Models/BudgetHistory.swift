@@ -126,11 +126,14 @@ struct BudgetHistorySeries: Equatable {
         static let none = Savings(saved: 0, overspent: 0, months: 0)
     }
 
-    /// Savings over the closed months with a plan, from `start` (inclusive) on, or over all of them
-    /// when `start` is nil. The open month is never counted: what it has left is not saved yet, and
-    /// counting it would show a figure that shrinks as the month goes on.
-    func savings(from start: Int? = nil) -> Savings {
-        let counted = scoredMonths.filter { start == nil || $0.monthAnchor >= start! }
+    /// Savings over the closed months with a plan, from `start` through `end` (both inclusive; nil
+    /// leaves that side open). The open month is never counted: what it has left is not saved yet, and
+    /// counting it would show a figure that shrinks as the month goes on - so an `end` at the open
+    /// month counts up to the month before it.
+    func savings(from start: Int? = nil, through end: Int? = nil) -> Savings {
+        let counted = scoredMonths.filter {
+            (start == nil || $0.monthAnchor >= start!) && (end == nil || $0.monthAnchor <= end!)
+        }
         return Savings(
             saved: counted.reduce(0) { $0 + max(0, $1.difference) },
             overspent: counted.reduce(0) { $0 + max(0, -$1.difference) },
@@ -212,19 +215,55 @@ struct BudgetHistory: Equatable {
     /// budget never put into a category, spending in categories with no allocation, and purchases the
     /// month card counts by date while allocations count them by budget month. Nil when the whole
     /// month has nothing to count.
-    func outsideAllocations(from start: Int?) -> Int? {
-        let whole = wholeMonth.savings(from: start)
+    func outsideAllocations(from start: Int?, through end: Int? = nil) -> Int? {
+        let whole = wholeMonth.savings(from: start, through: end)
         guard whole.months > 0 else { return nil }
-        return whole.net - categories.reduce(0) { $0 + $1.savings(from: start).net }
+        return whole.net - categories.reduce(0) { $0 + $1.savings(from: start, through: end).net }
     }
 
     /// The part of `outsideAllocations` the outside series does not explain: purchases the month card
     /// counts by date and allocations by budget month, months with allocations but no budget, and
     /// months that allocated more than the budget. Shown under the chart so the outside series plus
     /// this line equal the row in the category list.
-    func outsideTiming(from start: Int?) -> Int? {
-        guard let total = outsideAllocations(from: start), let outside else { return nil }
-        return total - outside.savings(from: start).net
+    func outsideTiming(from start: Int?, through end: Int? = nil) -> Int? {
+        guard let total = outsideAllocations(from: start, through: end), let outside else { return nil }
+        return total - outside.savings(from: start, through: end).net
+    }
+
+    /// The expenses one bar is made of, biggest first. Each filter uses the clock its bar uses:
+    /// - the whole month: every expense dated in the month except statement payments, which is how
+    ///   the month card's "used" counts (by date, card purchases included);
+    /// - a category: its expenses with that budget month, as the allocation card counts them;
+    /// - outside allocations: expenses with that budget month in categories with no allocation then.
+    ///
+    /// - Parameter expenses: the ledger's expenses with early-paid installments already removed, the
+    ///   same set every bar is built from.
+    func transactions(
+        for filter: BudgetHistoryFilter, month anchor: Int, in expenses: [Transaction]
+    ) -> [Transaction] {
+        let matching: [Transaction]
+        switch filter {
+        case .wholeMonth:
+            matching = expenses.filter {
+                $0.isCreditCardStatement != true
+                    && Date(timeIntervalSince1970: TimeInterval($0.dateTimestamp)).monthAnchor == anchor
+            }
+        case .category(let category):
+            matching = expenses.filter { $0.category == category && $0.budgetMonthDate == anchor }
+        case .outsideAllocations:
+            let planned = Set(categories.compactMap { series -> String? in
+                guard case .category(let category) = series.filter,
+                    series.month(anchor)?.hasPlan == true
+                else { return nil }
+                return category.key
+            })
+            matching = expenses.filter {
+                $0.budgetMonthDate == anchor && !planned.contains($0.category.key)
+            }
+        }
+        return matching
+            .filter { $0.type == .expense }
+            .sorted { $0.amount != $1.amount ? $0.amount > $1.amount : $0.dateTimestamp > $1.dateTimestamp }
     }
 
     static let empty = BudgetHistory(

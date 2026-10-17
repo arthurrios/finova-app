@@ -27,6 +27,10 @@ final class BudgetHistoryViewModel: ObservableObject {
     }
 
     @Published private(set) var history: BudgetHistory = .empty
+    /// Every expense behind the bars, read with the history. Filtered in memory per month and filter.
+    @Published private(set) var expenses: [Transaction] = []
+    /// Opens a transaction's details. Set by the view controller, which owns navigation.
+    var onOpenTransaction: ((Transaction) -> Void)?
     @Published var filter: BudgetHistoryFilter
     @Published var range: Span = .sixMonths
     @Published var selectedAnchor: Int
@@ -76,6 +80,7 @@ final class BudgetHistoryViewModel: ObservableObject {
     /// Reads the ledger again. Called on appear, so an edit made from a pushed screen shows on return.
     func load() {
         history = service.history(in: ledgerScope, includeWholeMonth: true, asOf: reference())
+        expenses = service.expenses(in: ledgerScope)
         if history.series(for: filter) == nil {
             filter = .wholeMonth
         }
@@ -118,12 +123,29 @@ final class BudgetHistoryViewModel: ObservableObject {
     var isEmpty: Bool { history.isEmpty }
 
     /// What the chosen filter saved since `savingsStart`.
+    /// Saved counts up to the month being read, so moving through the chart shows the running total.
+    /// The open month never counts, so selecting it counts up to the month before.
+    var savingsEnd: Int? { selectedMonth?.monthAnchor }
+
+    /// The last month the Saved figure includes: the selected month, or the closed month before it
+    /// when the selected one is still open. Nil when no closed month is at or before it.
+    var savingsEndMonth: Int? {
+        guard let end = savingsEnd else { return nil }
+        return history.closedMonthAnchors.last { $0 <= end }
+    }
+
+    /// The selected month's expenses for the chosen filter, biggest first - what its bar adds up.
+    var selectedTransactions: [Transaction] {
+        guard let anchor = selectedMonth?.monthAnchor else { return [] }
+        return history.transactions(for: filter, month: anchor, in: expenses)
+    }
+
     var savings: BudgetHistorySeries.Savings {
         savings(for: filter)
     }
 
     func savings(for filter: BudgetHistoryFilter) -> BudgetHistorySeries.Savings {
-        history.series(for: filter)?.savings(from: savingsStart) ?? .none
+        history.series(for: filter)?.savings(from: savingsStart, through: savingsEnd) ?? .none
     }
 
     /// Closed months a savings start can be set to: from the first month any filter had a plan. A
@@ -140,14 +162,14 @@ final class BudgetHistoryViewModel: ObservableObject {
     /// whole month is the only row and there is nothing to reconcile.
     var outsideAllocations: Int? {
         guard !history.categories.isEmpty else { return nil }
-        return history.outsideAllocations(from: savingsStart)
+        return history.outsideAllocations(from: savingsStart, through: savingsEnd)
     }
 
     /// What the outside series does not explain, since `savingsStart`. Shown under the Saved card while
     /// the outside filter is chosen, so that card plus this line equal its row in the list.
     var outsideTiming: Int? {
         guard filter == .outsideAllocations else { return nil }
-        return history.outsideTiming(from: savingsStart)
+        return history.outsideTiming(from: savingsStart, through: savingsEnd)
     }
 
     /// The month the arrows step to, or nil at either end of the bars on screen.
@@ -233,6 +255,11 @@ extension BudgetHistoryViewModel {
     }
 
     /// "Since the start" or "Since March 2026".
+    /// "Up to September 2026".
+    static func savingsEndTitle(_ end: Int) -> String {
+        String(format: "budgetHistory.savings.through.format".localized, longMonth(end))
+    }
+
     static func savingsStartTitle(_ start: Int?) -> String {
         guard let start else { return "budgetHistory.savings.since.start".localized }
         return String(format: "budgetHistory.savings.since.format".localized, longMonth(start))

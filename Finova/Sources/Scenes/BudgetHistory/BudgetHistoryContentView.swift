@@ -30,6 +30,7 @@ struct BudgetHistoryContentView: View {
                     chartCard
                     savingsCard
                     insights
+                    transactionsCard
                 }
                 .padding(.vertical, Metrics.spacing4)
             }
@@ -312,9 +313,7 @@ struct BudgetHistoryContentView: View {
                     if let split = savingsSplit(savings) {
                         Text(split)
                     }
-                    Text(savings.months == 1
-                        ? "budgetHistory.savings.months.one".localized
-                        : String(format: "budgetHistory.savings.months.format".localized, savings.months))
+                    Text(savingsPeriod(savings))
                 }
                 .font(Font(Fonts.textXS.font))
                 .foregroundStyle(Color(Colors.gray500))
@@ -384,6 +383,89 @@ struct BudgetHistoryContentView: View {
                 Text(title)
             }
         }
+    }
+
+    /// "Up to September 2026 · 5 closed months": which months the figure above adds up, so it is clear
+    /// that it moves with the month selected on the chart.
+    private func savingsPeriod(_ savings: BudgetHistorySeries.Savings) -> String {
+        let months = savings.months == 1
+            ? "budgetHistory.savings.months.one".localized
+            : String(format: "budgetHistory.savings.months.format".localized, savings.months)
+        guard let end = viewModel.savingsEndMonth else { return months }
+        return BudgetHistoryViewModel.savingsEndTitle(end) + " · " + months
+    }
+
+    // MARK: - Transactions
+
+    @State private var showsAllTransactions = false
+    private static let collapsedTransactionCount = 5
+
+    /// The expenses behind the selected bar - what makes up the spent figure in the readout, for the
+    /// filter chosen. Follows the selected month, so the number and its parts stay side by side.
+    private var transactionsCard: some View {
+        let transactions = viewModel.selectedTransactions
+        let shown = showsAllTransactions
+            ? transactions : Array(transactions.prefix(Self.collapsedTransactionCount))
+        let month = viewModel.selectedMonth.map { BudgetHistoryViewModel.longMonth($0.monthAnchor) } ?? ""
+        return VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text(String(format: "budgetHistory.transactions.header.format".localized, month))
+                    .font(Font(Fonts.title2XS.font))
+                    .textCase(.uppercase)
+                    .foregroundStyle(Color(Colors.gray500))
+                    .lineLimit(1)
+                Spacer(minLength: Metrics.spacing2)
+                Text("\(transactions.count)")
+                    .font(Font(Fonts.titleXS.font))
+                    .foregroundStyle(Color(Colors.gray600))
+                    .padding(.horizontal, Metrics.spacing2)
+                    .frame(height: 18)
+                    .background(Capsule().fill(Color(Colors.gray300)))
+            }
+            .padding(.horizontal, Metrics.spacing5)
+            .frame(height: 44)
+
+            if transactions.isEmpty {
+                Divider().overlay(Color(Colors.gray300))
+                Text("budgetHistory.transactions.empty".localized)
+                    .font(Font(Fonts.textSM.font))
+                    .foregroundStyle(Color(Colors.gray500))
+                    .padding(Metrics.spacing5)
+            } else {
+                ForEach(shown, id: \.historyRowID) { transaction in
+                    Divider().overlay(Color(Colors.gray300))
+                    TransactionRow(transaction: transaction, hidden: hidden) {
+                        viewModel.onOpenTransaction?(transaction)
+                    }
+                }
+                if transactions.count > Self.collapsedTransactionCount {
+                    Divider().overlay(Color(Colors.gray300))
+                    SwiftUI.Button {
+                        withAnimation(.easeInOut(duration: 0.2)) { showsAllTransactions.toggle() }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Text(showsAllTransactions
+                                ? "budgetHistory.transactions.showLess".localized
+                                : String(format: "budgetHistory.transactions.showAll.format".localized,
+                                    transactions.count))
+                            Image(systemName: showsAllTransactions ? "chevron.up" : "chevron.down")
+                                .font(.system(size: 11, weight: .bold))
+                        }
+                        .font(Font(Fonts.textSMBold.font))
+                        .foregroundStyle(Color(Colors.mainMagenta))
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 44)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+        .cardBackground()
+        .padding(.horizontal, Metrics.spacing4)
+        // A new month or filter starts collapsed again.
+        .onChange(of: viewModel.selectedAnchor) { _, _ in showsAllTransactions = false }
+        .onChange(of: viewModel.filter) { _, _ in showsAllTransactions = false }
     }
 
     // MARK: - Empty
@@ -481,6 +563,80 @@ private struct InsightTile: View {
     }
 }
 
+/// One expense in the selected month's list: the same icon, title, date and amount as on the dashboard,
+/// and a tap opens its details there.
+private struct TransactionRow: View {
+    let transaction: Transaction
+    let hidden: Bool
+    let onTap: () -> Void
+
+    private static let dateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "dd/MM/yyyy"
+        return formatter
+    }()
+
+    var body: some View {
+        SwiftUI.Button(action: onTap) {
+            HStack(spacing: Metrics.spacing3) {
+                Group {
+                    if let icon = UIImage(named: transaction.category.iconName(for: transaction.type)) {
+                        Image(uiImage: icon).resizable().renderingMode(.template).scaledToFit()
+                    }
+                }
+                .frame(width: 18, height: 18)
+                .foregroundStyle(Color(Colors.mainMagenta))
+                .frame(width: 36, height: 36)
+                .background(RoundedRectangle(cornerRadius: CornerRadius.medium).fill(Color(Colors.gray200)))
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(transaction.title)
+                        .font(Font(Fonts.textSM.font))
+                        .foregroundStyle(Color(Colors.gray700))
+                        .lineLimit(1)
+                    Text(Self.dateFormatter.string(from: transaction.date)
+                        + " · " + transaction.category.displayName)
+                        .font(.system(size: 11))
+                        .foregroundStyle(Color(Colors.gray500))
+                        .lineLimit(1)
+                }
+                Spacer(minLength: Metrics.spacing2)
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text(transaction.amount.maskedCurrencyString(hidden: hidden))
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Color(Colors.gray700))
+                        .lineLimit(1)
+                    if let number = transaction.installmentNumber, let total = transaction.totalInstallments,
+                        total > 1
+                    {
+                        Text("(\(number)/\(total))")
+                            .font(.system(size: 11))
+                            .foregroundStyle(Color(Colors.gray500))
+                    }
+                }
+                .fixedSize()
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(Color(Colors.gray400))
+            }
+            .padding(.horizontal, Metrics.spacing5)
+            .padding(.vertical, Metrics.spacing3)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
+    }
+}
+
+private extension Transaction {
+    /// A list identity that never collides: the database id, or for an unsaved row its title, date and
+    /// amount. Transaction is not Identifiable and its id is optional.
+    var historyRowID: String {
+        id.map(String.init) ?? "\(title)-\(dateTimestamp)-\(amount)"
+    }
+}
+
 /// The icon a filter is shown with: a calendar for the whole month, the category's own otherwise.
 private struct FilterIcon: View {
     let filter: BudgetHistoryFilter
@@ -516,7 +672,8 @@ private struct FilterPickerSheet: View {
                     .font(Font(Fonts.titleMD.font))
                     .foregroundStyle(Color(Colors.gray700))
                 Text("budgetHistory.savings.title".localized + " · "
-                    + BudgetHistoryViewModel.savingsStartTitle(viewModel.savingsStart))
+                    + BudgetHistoryViewModel.savingsStartTitle(viewModel.savingsStart)
+                    + (viewModel.savingsEndMonth.map { " · " + BudgetHistoryViewModel.savingsEndTitle($0) } ?? ""))
                     .font(Font(Fonts.textXS.font))
                     .foregroundStyle(Color(Colors.gray500))
             }

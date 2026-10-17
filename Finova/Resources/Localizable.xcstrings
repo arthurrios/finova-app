@@ -4742,6 +4742,24 @@
         }
       }
     },
+    "budgetHistory.savings.through.format": {
+      "comment": "Last month the Saved figure counts. %@ is a month and year.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Up to %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Até %@"
+          }
+        }
+      }
+    },
     "budgetHistory.savings.title": {
       "comment": "Header of the card with what was saved in closed months.",
       "extractionState": "manual",
@@ -4900,6 +4918,78 @@
           "stringUnit": {
             "state": "translated",
             "value": "Histórico do orçamento"
+          }
+        }
+      }
+    },
+    "budgetHistory.transactions.empty": {
+      "comment": "Shown when the selected month has no expenses for the filter.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No spending in this month"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nenhum gasto neste mês"
+          }
+        }
+      }
+    },
+    "budgetHistory.transactions.header.format": {
+      "comment": "Header of the list of the selected month's expenses. %@ is a month and year.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transactions in %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transações em %@"
+          }
+        }
+      }
+    },
+    "budgetHistory.transactions.showAll.format": {
+      "comment": "Expands the transaction list. %d is how many there are.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "See all %d"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ver todas as %d"
+          }
+        }
+      }
+    },
+    "budgetHistory.transactions.showLess": {
+      "comment": "Collapses the transaction list.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show less"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar menos"
           }
         }
       }

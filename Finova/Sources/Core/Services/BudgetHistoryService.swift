@@ -11,6 +11,9 @@ import Foundation
 /// tested against a fixed history instead of the database.
 protocol BudgetHistoryReading: AnyObject {
     func history(in scope: LedgerScope, includeWholeMonth: Bool, asOf reference: Date) -> BudgetHistory
+    /// Every expense the bars are built from, early-paid installments removed - read once per screen
+    /// load, so moving between months filters in memory instead of reading the table again.
+    func expenses(in scope: LedgerScope) -> [Transaction]
 }
 
 /// Reads a ledger's past months for the budget history screen.
@@ -83,6 +86,11 @@ final class BudgetHistoryService: BudgetHistoryReading {
             spentByCategory: spentByCategory,
             monthTotals: includeWholeMonth
                 ? monthTotals(in: scope, count: count, reference: reference) : [:])
+    }
+
+    func expenses(in scope: LedgerScope) -> [Transaction] {
+        let expenses = transactionRepo.fetchAllTransactions().filter { $0.type == .expense }
+        return expenses.isEmpty ? [] : expenses.excludingEarlyPaidInstallments()
     }
 
     /// Whole months from one anchor to another, in the calendar every anchor is written with.

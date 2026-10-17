@@ -28,6 +28,7 @@ final class BudgetHistoryViewModelTests: XCTestCase {
         func history(in scope: LedgerScope, includeWholeMonth: Bool, asOf reference: Date) -> BudgetHistory {
             history
         }
+        func expenses(in scope: LedgerScope) -> [Transaction] { [] }
     }
 
     /// Thirteen months ending at `reference`, oldest first.
@@ -143,6 +144,19 @@ final class BudgetHistoryViewModelTests: XCTestCase {
         XCTAssertEqual(all.months, 12)
         XCTAssertEqual(viewModel.savings.months, 2)
         XCTAssertEqual(viewModel.savings.net, 200)
+    }
+
+    func testSavedFollowsTheSelectedMonth() {
+        let months = anchors(endingAt: reference)
+        let viewModel = makeViewModel(StubReader(history(anchors: months)))
+
+        // The open month counts up to the month before it: all 12 closed months.
+        XCTAssertEqual(viewModel.savings.months, 12)
+        XCTAssertEqual(viewModel.savingsEndMonth, months[11])
+
+        viewModel.select(month: months[9])
+        XCTAssertEqual(viewModel.savings.months, 10)
+        XCTAssertEqual(viewModel.savingsEndMonth, months[9])
     }
 
     func testStartIsKeptEvenWhenTheWindowMovesPastIt() {

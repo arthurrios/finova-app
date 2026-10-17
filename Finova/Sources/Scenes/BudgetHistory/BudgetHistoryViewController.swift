@@ -10,6 +10,7 @@ import UIKit
 
 protocol BudgetHistoryFlowDelegate: AnyObject {
     func dismissBudgetHistory()
+    func navigateToTransactionDetails(transaction: Transaction)
 }
 
 /// Past months of the budget and of each allocation, against their plans.
@@ -107,6 +108,9 @@ final class BudgetHistoryViewController: UIViewController {
         subtitleLabel.text = subtitle
         setupHeader()
         embedContent()
+        viewModel.onOpenTransaction = { [weak self] transaction in
+            self?.flowDelegate?.navigateToTransactionDetails(transaction: transaction)
+        }
     }
 
     override func viewWillAppear(_ animated: Bool) {
