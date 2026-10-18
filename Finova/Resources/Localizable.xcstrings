@@ -4779,55 +4779,127 @@
       }
     },
     "budgetHistory.outside.diff.aboveBudget.format": {
-      "comment": "Part of the Outside allocations remainder. %@ lists months, e.g. 'Aug, Sep'.",
+      "comment": "Grey line under 'Categories over'. %@ lists months, e.g. 'Aug, Sep'.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@: categories above budget"
+            "value": "%@ · more than the budget"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@: categorias acima do orçamento"
+            "value": "%@ · além do orçamento"
+          }
+        }
+      }
+    },
+    "budgetHistory.outside.diff.aboveBudget.title": {
+      "comment": "Short row name: months whose categories got more than the budget.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Categories over"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Categorias acima"
           }
         }
       }
     },
     "budgetHistory.outside.diff.noBudget.format": {
-      "comment": "Part of the Outside allocations remainder. %@ lists months.",
+      "comment": "Grey line under 'No month budget'. %@ lists months.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@: no month budget"
+            "value": "%@ · only categories planned"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@: sem orçamento do mês"
+            "value": "%@ · só categorias planejadas"
+          }
+        }
+      }
+    },
+    "budgetHistory.outside.diff.noBudget.title": {
+      "comment": "Short row name: months with allocations but no month budget.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No month budget"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sem orçamento do mês"
+          }
+        }
+      }
+    },
+    "budgetHistory.outside.diff.otherMonth.title": {
+      "comment": "Short row name: purchases counted in another month.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Other month"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Outro mês"
           }
         }
       }
     },
     "budgetHistory.outside.diff.spentNoRoom.format": {
-      "comment": "Part of the Outside allocations remainder: spending outside categories in months with no budget left. %@ lists months.",
+      "comment": "Grey line under 'Spent with no budget'. %@ lists months.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@: spent outside categories"
+            "value": "%@ · outside categories"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@: gasto fora das categorias"
+            "value": "%@ · fora das categorias"
+          }
+        }
+      }
+    },
+    "budgetHistory.outside.diff.spentNoRoom.title": {
+      "comment": "Short row name: spending outside categories in months with no budget left.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spent with no budget"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gasto sem orçamento"
           }
         }
       }

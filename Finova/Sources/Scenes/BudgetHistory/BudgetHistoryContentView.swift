@@ -457,17 +457,23 @@ struct BudgetHistoryContentView: View {
         return BudgetHistoryViewModel.savingsEndTitle(end) + " · " + months
     }
 
-    private func differenceLabel(_ difference: BudgetHistory.OutsideDifference) -> String {
+    /// A short name that fits one row, and the detail for the grey line under it - the transaction
+    /// rows' title-and-subtitle shape, so a long reason never gets cut.
+    private func differenceLabel(_ difference: BudgetHistory.OutsideDifference) -> (title: String, subtitle: String) {
         let months = BudgetHistoryViewModel.monthList(difference.months)
         switch difference.reason {
         case .categoriesAboveBudget:
-            return String(format: "budgetHistory.outside.diff.aboveBudget.format".localized, months)
+            return ("budgetHistory.outside.diff.aboveBudget.title".localized,
+                    String(format: "budgetHistory.outside.diff.aboveBudget.format".localized, months))
         case .spentOutsideWithNoRoom:
-            return String(format: "budgetHistory.outside.diff.spentNoRoom.format".localized, months)
+            return ("budgetHistory.outside.diff.spentNoRoom.title".localized,
+                    String(format: "budgetHistory.outside.diff.spentNoRoom.format".localized, months))
         case .noMonthBudget:
-            return String(format: "budgetHistory.outside.diff.noBudget.format".localized, months)
+            return ("budgetHistory.outside.diff.noBudget.title".localized,
+                    String(format: "budgetHistory.outside.diff.noBudget.format".localized, months))
         case .otherMonth:
-            return "budgetHistory.outside.timing".localized
+            return ("budgetHistory.outside.diff.otherMonth.title".localized,
+                    "budgetHistory.outside.timing".localized)
         }
     }
 
@@ -567,7 +573,8 @@ struct BudgetHistoryContentView: View {
             let isOpen = expandedPart == item.part
             let difference = viewModel.outsideDifferences.first { $0.reason == reason }
             ContributorRow(icon: Image(systemName: "square.dashed"),
-                title: difference.map(differenceLabel) ?? "", amount: amount,
+                title: difference.map { differenceLabel($0).title } ?? "",
+                subtitle: difference.map { differenceLabel($0).subtitle }, amount: amount,
                 tint: hidden ? Colors.gray700 : tint, accessory: isOpen ? "chevron.up" : "chevron.down") {
                 withAnimation(.easeInOut(duration: 0.2)) { expandedPart = isOpen ? nil : item.part }
             }
@@ -814,6 +821,7 @@ private struct ContributorRow<Icon: View>: View {
 
     let icon: Icon
     let title: String
+    var subtitle: String? = nil
     let amount: String
     let tint: UIColor
     let accessory: String
@@ -823,10 +831,19 @@ private struct ContributorRow<Icon: View>: View {
         SwiftUI.Button(action: onTap) {
             HStack(spacing: Metrics.spacing3) {
                 IconBox { icon }
-                Text(title)
-                    .font(Font(Fonts.textSMBold.font))
-                    .foregroundStyle(Color(Colors.gray700))
-                    .lineLimit(1)
+                VStack(alignment: .leading, spacing: Metrics.spacing1) {
+                    Text(title)
+                        .font(Font(Fonts.textSMBold.font))
+                        .foregroundStyle(Color(Colors.gray700))
+                        .lineLimit(1)
+                    if let subtitle {
+                        Text(subtitle)
+                            .font(Font(Fonts.textXS.font))
+                            .foregroundStyle(Color(Colors.gray500))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.85)
+                    }
+                }
                 Spacer(minLength: Metrics.spacing2)
                 Text(amount)
                     .font(Font(Fonts.textSMBold.font))
