@@ -27,9 +27,12 @@ struct BudgetHistoryContentView: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     VStack(alignment: .leading, spacing: Metrics.spacing4) {
-                        backButton
-                            .id(Self.topID)
-                        controls
+                        // Grouped so a hidden back button leaves no gap above the controls.
+                        VStack(alignment: .leading, spacing: Metrics.spacing3) {
+                            backButton
+                            controls
+                        }
+                        .id(Self.topID)
                         chartCard
                         savingsCard
                         contributorsCard
@@ -94,8 +97,6 @@ struct BudgetHistoryContentView: View {
             }
             .buttonStyle(.plain)
             .padding(.horizontal, Metrics.spacing4)
-        } else {
-            Color.clear.frame(height: 0)
         }
     }
 
@@ -147,23 +148,24 @@ struct BudgetHistoryContentView: View {
     // MARK: - Chart card
 
     private var chartCard: some View {
-        VStack(alignment: .leading, spacing: Metrics.spacing4) {
-            if let month = viewModel.selectedMonth {
-                readout(for: month)
+        SectionCard(title: "budgetHistory.section.chart".localized) {
+            VStack(alignment: .leading, spacing: Metrics.spacing4) {
+                if let month = viewModel.selectedMonth {
+                    readout(for: month)
+                }
+
+                BudgetHistoryChartView(
+                    months: viewModel.series.months,
+                    selectedAnchor: viewModel.selectedMonth?.monthAnchor,
+                    isValuesHidden: hidden,
+                    onSelect: select(month:)
+                )
+                .frame(height: 210)
+
+                legend
             }
-
-            BudgetHistoryChartView(
-                months: viewModel.series.months,
-                selectedAnchor: viewModel.selectedMonth?.monthAnchor,
-                isValuesHidden: hidden,
-                onSelect: select(month:)
-            )
-            .frame(height: 210)
-
-            legend
+            .padding(Metrics.spacing5)
         }
-        .padding(Metrics.spacing5)
-        .cardBackground()
         .padding(.horizontal, Metrics.spacing4)
     }
 
@@ -337,25 +339,30 @@ struct BudgetHistoryContentView: View {
                 ? "budgetHistory.insight.streak.value.one".localized
                 : String(format: "budgetHistory.insight.streak.value.format".localized, streak)
 
-        return HStack(spacing: Metrics.spacing2) {
+        return SectionCard(title: "budgetHistory.section.insights".localized) {
+            HStack(spacing: 0) {
             InsightTile(
                 icon: "checkmark.seal.fill",
                 tint: Color(Colors.mainGreen),
                 title: "budgetHistory.insight.onPlan.title".localized,
                 value: onPlanValue,
                 caption: "budgetHistory.insight.onPlan.caption".localized)
+            VerticalSeparator()
             InsightTile(
                 icon: "arrow.left.and.right",
                 tint: Color(Colors.mainMagenta),
                 title: "budgetHistory.insight.range.title".localized,
                 value: rangeValue,
                 caption: "budgetHistory.insight.range.caption".localized)
+            VerticalSeparator()
             InsightTile(
                 icon: "flame.fill",
                 tint: streak > 0 ? Color(Colors.warningAmber) : Color(Colors.gray400),
                 title: "budgetHistory.insight.streak.title".localized,
                 value: streakValue,
                 caption: "budgetHistory.insight.streak.caption".localized)
+            }
+            .fixedSize(horizontal: false, vertical: true)
         }
         .padding(.horizontal, Metrics.spacing4)
     }
@@ -365,16 +372,8 @@ struct BudgetHistoryContentView: View {
     /// What the chosen filter saved in closed months, from a start month the user picks.
     private var savingsCard: some View {
         let savings = viewModel.savings
-        return VStack(alignment: .leading, spacing: Metrics.spacing2) {
-            HStack(alignment: .center) {
-                Text("budgetHistory.savings.title".localized)
-                    .font(Font(Fonts.title2XS.font))
-                    .textCase(.uppercase)
-                    .foregroundStyle(Color(Colors.gray500))
-                Spacer(minLength: Metrics.spacing2)
-                savingsStartMenu
-            }
-
+        return SectionCard(title: "budgetHistory.savings.title".localized, accessory: { savingsStartMenu }) {
+          VStack(alignment: .leading, spacing: Metrics.spacing2) {
             if savings.months == 0 {
                 Text("budgetHistory.savings.none".localized)
                     .font(Font(Fonts.textSM.font))
@@ -397,10 +396,10 @@ struct BudgetHistoryContentView: View {
                 .font(Font(Fonts.textXS.font))
                 .foregroundStyle(Color(Colors.gray500))
             }
+          }
+          .padding(Metrics.spacing5)
+          .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(Metrics.spacing5)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .cardBackground()
         .padding(.horizontal, Metrics.spacing4)
         .accessibilityElement(children: .contain)
     }
@@ -482,86 +481,66 @@ struct BudgetHistoryContentView: View {
     @ViewBuilder
     private var contributorsCard: some View {
         if let contributors = viewModel.contributors {
-            VStack(alignment: .leading, spacing: 0) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(hidden
-                        ? "budgetHistory.explain.header.hidden".localized
-                        : String(format: "budgetHistory.explain.header.format".localized,
-                            contributors.total.maskedSignedCurrencyString(hidden: false)))
-                        .font(Font(Fonts.title2XS.font))
-                        .textCase(.uppercase)
-                        .foregroundStyle(Color(Colors.gray500))
-                    if let first = contributors.firstMonth, let last = contributors.lastMonth {
-                        Text(BudgetHistoryViewModel.periodTitle(first, last))
-                            .font(Font(Fonts.textXS.font))
-                            .foregroundStyle(Color(Colors.gray500))
-                    }
-                }
-                .padding(.horizontal, Metrics.spacing5)
-                .padding(.top, Metrics.spacing4)
-                .padding(.bottom, Metrics.spacing2)
-
-                if !contributors.savers.isEmpty {
-                    sectionLabel("budgetHistory.contrib.saved".localized, tint: Colors.mainGreen)
-                    ForEach(contributors.savers, id: \.part) { contributorRow($0) }
-                }
-                if !contributors.overspenders.isEmpty {
-                    sectionLabel("budgetHistory.contrib.over".localized, tint: Colors.mainRed)
-                    ForEach(contributors.overspenders, id: \.part) { contributorRow($0) }
-                }
-                if contributors.othersCount > 0 {
-                    Divider().overlay(Color(Colors.gray300)).padding(.top, Metrics.spacing2)
-                    // Opens to the parts it sums, biggest effect first, so nothing stays hidden.
-                    SwiftUI.Button {
-                        withAnimation(.easeInOut(duration: 0.2)) { showsOthers.toggle() }
-                    } label: {
-                        HStack(spacing: Metrics.spacing2) {
-                            ExplanationLine(
-                                label: String(format: "budgetHistory.contrib.others.format".localized,
-                                    contributors.othersCount),
-                                value: contributors.others.maskedSignedCurrencyString(hidden: hidden),
-                                // Coloured by direction like every named line, so it is clear which
-                                // way the remainder moved Saved.
-                                tint: hidden ? nil
-                                    : (contributors.others >= 0 ? Colors.mainGreen : Colors.mainRed))
-                                .padding(.trailing, -Metrics.spacing5)
-                            Image(systemName: showsOthers ? "chevron.up" : "chevron.down")
-                                .font(.system(size: 11, weight: .semibold))
-                                .foregroundStyle(Color(Colors.gray400))
-                                .padding(.trailing, Metrics.spacing5)
+            SectionCard(
+                title: hidden
+                    ? "budgetHistory.explain.header.hidden".localized
+                    : String(format: "budgetHistory.explain.header.format".localized,
+                        contributors.total.maskedSignedCurrencyString(hidden: false))
+            ) {
+                VStack(alignment: .leading, spacing: 0) {
+                    if !contributors.savers.isEmpty {
+                        GroupLabel(text: "budgetHistory.contrib.saved".localized, tint: Colors.mainGreen)
+                        ForEach(contributors.savers, id: \.part) { item in
+                            Separator()
+                            contributorRow(item)
                         }
-                        .contentShape(Rectangle())
                     }
-                    .buttonStyle(.plain)
-                    if showsOthers {
-                        ForEach(contributors.rest, id: \.part) { contributorRow($0) }
+                    if !contributors.overspenders.isEmpty {
+                        if !contributors.savers.isEmpty { Separator() }
+                        GroupLabel(text: "budgetHistory.contrib.over".localized, tint: Colors.mainRed)
+                        ForEach(contributors.overspenders, id: \.part) { item in
+                            Separator()
+                            contributorRow(item)
+                        }
                     }
+                    if contributors.othersCount > 0 {
+                        Separator()
+                        // Opens to the parts it sums, biggest effect first, so nothing stays hidden.
+                        ContributorRow(
+                            icon: Image(systemName: "ellipsis"),
+                            title: String(format: "budgetHistory.contrib.others.format".localized,
+                                contributors.othersCount),
+                            amount: contributors.others.maskedSignedCurrencyString(hidden: hidden),
+                            // Coloured by direction like every named line, so it is clear which way
+                            // the remainder moved Saved.
+                            tint: hidden ? Colors.gray700
+                                : (contributors.others >= 0 ? Colors.mainGreen : Colors.mainRed),
+                            accessory: showsOthers ? "chevron.up" : "chevron.down"
+                        ) {
+                            withAnimation(.easeInOut(duration: 0.2)) { showsOthers.toggle() }
+                        }
+                        if showsOthers {
+                            ForEach(contributors.rest, id: \.part) { item in
+                                Separator()
+                                contributorRow(item)
+                            }
+                        }
+                    }
+                    CardFooter(
+                        label: "budgetHistory.contrib.total".localized,
+                        caption: contributors.firstMonth.flatMap { first in
+                            contributors.lastMonth.map { BudgetHistoryViewModel.periodTitle(first, $0) }
+                        },
+                        value: contributors.total.maskedSignedCurrencyString(hidden: hidden),
+                        tint: hidden ? nil : (contributors.total >= 0 ? Colors.mainGreen : Colors.mainRed))
                 }
-                Divider().overlay(Color(Colors.gray300))
-                ExplanationLine(
-                    label: "budgetHistory.contrib.total".localized,
-                    value: contributors.total.maskedSignedCurrencyString(hidden: hidden),
-                    tint: hidden ? nil : (contributors.total >= 0 ? Colors.mainGreen : Colors.mainRed),
-                    weight: .bold)
-                    .padding(.vertical, Metrics.spacing2)
-                    .background(Color(Colors.gray200).opacity(0.5))
             }
-            .cardBackground()
             .padding(.horizontal, Metrics.spacing4)
             .onChange(of: viewModel.filter) { _, _ in
                 expandedPart = nil
                 showsOthers = false
             }
         }
-    }
-
-    private func sectionLabel(_ text: String, tint: UIColor) -> some View {
-        Text(text)
-            .font(.system(size: 11, weight: .semibold))
-            .foregroundStyle(Color(tint))
-            .padding(.horizontal, Metrics.spacing5)
-            .padding(.top, Metrics.spacing3)
-            .padding(.bottom, Metrics.spacing1)
     }
 
     /// A category opens that category; a month opens its three biggest expenses in place.
@@ -683,9 +662,10 @@ struct BudgetHistoryContentView: View {
                     .buttonStyle(.plain)
                 }
             }
-            .padding(.leading, 56 + Metrics.spacing5)
+            .padding(.leading, Self.detailIndent)
             .padding(.trailing, Metrics.spacing5)
-            .padding(.bottom, Metrics.spacing2)
+            .padding(.vertical, Metrics.spacing2)
+            .background(Color(Colors.gray200).opacity(0.5))
         }
     }
 
@@ -717,10 +697,14 @@ struct BudgetHistoryContentView: View {
                 note("budgetHistory.diff.note.otherMonth".localized)
             }
         }
-        .padding(.leading, 56 + Metrics.spacing5)
+        .padding(.leading, Self.detailIndent)
         .padding(.trailing, Metrics.spacing5)
-        .padding(.bottom, Metrics.spacing2)
+        .padding(.vertical, Metrics.spacing2)
+        .background(Color(Colors.gray200).opacity(0.5))
     }
+
+    /// Lines up detail text with the row title above it: padding, icon box and gap.
+    private static let detailIndent = Metrics.spacing5 + 32 + Metrics.spacing3
 
     private func note(_ text: String) -> some View {
         Text(text)
@@ -861,47 +845,17 @@ private struct InsightTile: View {
                 .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(Metrics.spacing3)
-        .cardBackground()
-        .accessibilityElement(children: .combine)
-    }
-}
-
-/// One line of the Why card: a label and an amount, with an optional note under it.
-private struct ExplanationLine: View {
-    let label: String
-    let value: String
-    var tint: UIColor? = nil
-    var note: String? = nil
-    var weight: Font.Weight = .regular
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(label)
-                    .font(.system(size: 13, weight: weight))
-                    .foregroundStyle(Color(Colors.gray700))
-                Spacer(minLength: Metrics.spacing2)
-                Text(value)
-                    .font(.system(size: 13, weight: weight == .regular ? .medium : weight))
-                    .foregroundStyle(Color(tint ?? Colors.gray700))
-                    .lineLimit(1)
-                    .fixedSize()
-            }
-            if let note {
-                Text(note)
-                    .font(.system(size: 11))
-                    .foregroundStyle(Color(Colors.gray500))
-            }
-        }
-        .padding(.horizontal, Metrics.spacing5)
-        .padding(.vertical, Metrics.spacing2)
+        .padding(.horizontal, Metrics.spacing4)
+        .padding(.vertical, Metrics.spacing3)
         .accessibilityElement(children: .combine)
     }
 }
 
 /// One named contributor: an icon, a name, and how much it saved (green) or overspent (red).
 private struct ContributorRow<Icon: View>: View {
+    /// The transaction list's row height, so these rows read as the same kind of table.
+    static var rowHeight: CGFloat { 60 }
+
     let icon: Icon
     let title: String
     let amount: String
@@ -912,18 +866,14 @@ private struct ContributorRow<Icon: View>: View {
     var body: some View {
         SwiftUI.Button(action: onTap) {
             HStack(spacing: Metrics.spacing3) {
-                icon
-                    .frame(width: 16, height: 16)
-                    .foregroundStyle(Color(Colors.gray600))
-                    .frame(width: 32, height: 32)
-                    .background(RoundedRectangle(cornerRadius: CornerRadius.medium).fill(Color(Colors.gray200)))
+                IconBox { icon }
                 Text(title)
-                    .font(Font(Fonts.textSM.font))
+                    .font(Font(Fonts.textSMBold.font))
                     .foregroundStyle(Color(Colors.gray700))
                     .lineLimit(1)
                 Spacer(minLength: Metrics.spacing2)
                 Text(amount)
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(Font(Fonts.textSMBold.font))
                     .foregroundStyle(Color(tint))
                     .lineLimit(1)
                     .fixedSize()
@@ -932,12 +882,136 @@ private struct ContributorRow<Icon: View>: View {
                     .foregroundStyle(Color(Colors.gray400))
             }
             .padding(.horizontal, Metrics.spacing5)
-            .padding(.vertical, 6)
+            .frame(minHeight: Self.rowHeight)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isButton)
+    }
+}
+
+/// A card in the app's table style: the `CardHeader` band - 44pt, small uppercase grey title, optional
+/// count badge - over a body, all inside one bordered card with a separator under the header.
+private struct SectionCard<Accessory: View, Content: View>: View {
+    let title: String
+    var count: String? = nil
+    @ViewBuilder var accessory: () -> Accessory
+    @ViewBuilder var content: () -> Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: Metrics.spacing2) {
+                Text(title)
+                    .font(Font(Fonts.title2XS.font))
+                    .textCase(.uppercase)
+                    .foregroundStyle(Color(Colors.gray500))
+                    .lineLimit(1)
+                Spacer(minLength: Metrics.spacing2)
+                if let count {
+                    Text(count)
+                        .font(Font(Fonts.titleXS.font))
+                        .foregroundStyle(Color(Colors.gray600))
+                        .padding(.horizontal, Metrics.spacing2)
+                        .frame(height: 18)
+                        .background(Capsule().fill(Color(Colors.gray300)))
+                }
+                accessory()
+            }
+            .padding(.leading, Metrics.spacing5)
+            .padding(.trailing, Metrics.spacing4)
+            .frame(height: Metrics.cardHeaderHeight)
+            Separator()
+            content()
+        }
+        .cardBackground()
+    }
+}
+
+extension SectionCard where Accessory == EmptyView {
+    init(title: String, count: String? = nil, @ViewBuilder content: @escaping () -> Content) {
+        self.init(title: title, count: count, accessory: { EmptyView() }, content: content)
+    }
+}
+
+/// The app's table separator: full width, 1pt, gray300.
+private struct Separator: View {
+    var body: some View {
+        Rectangle().fill(Color(Colors.gray300)).frame(height: 1)
+    }
+}
+
+private struct VerticalSeparator: View {
+    var body: some View {
+        Rectangle().fill(Color(Colors.gray300)).frame(width: 1)
+    }
+}
+
+/// The transaction cell's icon container: 32pt, gray200, gray300 border, magenta glyph.
+private struct IconBox<Icon: View>: View {
+    @ViewBuilder var icon: () -> Icon
+
+    var body: some View {
+        icon()
+            .frame(width: 16, height: 16)
+            .foregroundStyle(Color(Colors.mainMagenta))
+            .frame(width: Metrics.spacing8, height: Metrics.spacing8)
+            .background(
+                RoundedRectangle(cornerRadius: CornerRadius.medium).fill(Color(Colors.gray200)))
+            .overlay(
+                RoundedRectangle(cornerRadius: CornerRadius.medium).stroke(Color(Colors.gray300), lineWidth: 1))
+    }
+}
+
+/// A small band naming a group of rows, like a table section header.
+private struct GroupLabel: View {
+    let text: String
+    let tint: UIColor
+
+    var body: some View {
+        Text(text)
+            .font(Font(Fonts.title2XS.font))
+            .textCase(.uppercase)
+            .foregroundStyle(Color(tint))
+            .padding(.horizontal, Metrics.spacing5)
+            .frame(maxWidth: .infinity, minHeight: 32, alignment: .leading)
+            .background(Color(Colors.gray200).opacity(0.5))
+    }
+}
+
+/// The card's closing total, set off from the rows above like the details screens' footer.
+private struct CardFooter: View {
+    let label: String
+    var caption: String? = nil
+    let value: String
+    var tint: UIColor? = nil
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Separator()
+            HStack(alignment: .center) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(label)
+                        .font(Font(Fonts.textSMBold.font))
+                        .foregroundStyle(Color(Colors.gray700))
+                    if let caption {
+                        Text(caption)
+                            .font(Font(Fonts.textXS.font))
+                            .foregroundStyle(Color(Colors.gray500))
+                    }
+                }
+                Spacer(minLength: Metrics.spacing2)
+                Text(value)
+                    .font(Font(Fonts.textSMBold.font))
+                    .foregroundStyle(Color(tint ?? Colors.gray700))
+                    .lineLimit(1)
+                    .fixedSize()
+            }
+            .padding(.horizontal, Metrics.spacing5)
+            .frame(minHeight: ContributorRow<EmptyView>.rowHeight)
+            .background(Color(Colors.gray200).opacity(0.5))
+            .accessibilityElement(children: .combine)
+        }
     }
 }
 
@@ -987,12 +1061,14 @@ private struct FilterPickerSheet: View {
 
             ScrollView {
                 LazyVStack(spacing: 0) {
+                    Separator()
                     ForEach(viewModel.filters, id: \.self) { filter in
                         row(for: filter)
-                        Divider().overlay(Color(Colors.gray300)).padding(.leading, 64)
+                        Separator()
                     }
                     if let outside = viewModel.outsideAllocations {
                         outsideRow(outside)
+                        Separator()
                     }
                 }
             }
@@ -1012,27 +1088,19 @@ private struct FilterPickerSheet: View {
             onPick(.outsideAllocations)
         } label: {
             HStack(spacing: Metrics.spacing3) {
-                Image(systemName: "square.dashed")
-                    .font(.system(size: 16, weight: .regular))
-                    .foregroundStyle(isSelected ? Color(Colors.mainMagenta) : Color(Colors.gray500))
-                    .frame(width: 36, height: 36)
-                    .background(
-                        RoundedRectangle(cornerRadius: CornerRadius.medium)
-                            .stroke(
-                                isSelected ? Color(Colors.mainMagenta) : Color(Colors.gray300),
-                                style: StrokeStyle(lineWidth: 1, dash: [3, 3])))
-                VStack(alignment: .leading, spacing: 2) {
+                IconBox { FilterIcon(filter: .outsideAllocations) }
+                VStack(alignment: .leading, spacing: Metrics.spacing1) {
                     Text("budgetHistory.outside.title".localized)
-                        .font(Font(isSelected ? Fonts.textSMBold.font : Fonts.textSM.font))
+                        .font(Font(Fonts.textSMBold.font))
                         .foregroundStyle(Color(Colors.gray700))
                     Text("budgetHistory.outside.caption".localized)
-                        .font(.system(size: 11))
+                        .font(Font(Fonts.textXS.font))
                         .foregroundStyle(Color(Colors.gray500))
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer(minLength: Metrics.spacing2)
                 Text(amount.maskedSignedCurrencyString(hidden: hidden))
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(Font(Fonts.textSMBold.font))
                     .foregroundStyle(
                         hidden ? Color(Colors.gray500)
                             : amount >= 0 ? Color(Colors.mainGreen) : Color(Colors.mainRed))
@@ -1045,6 +1113,7 @@ private struct FilterPickerSheet: View {
             }
             .padding(.horizontal, Metrics.spacing5)
             .padding(.vertical, Metrics.spacing3)
+            .frame(minHeight: ContributorRow<EmptyView>.rowHeight)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -1059,22 +1128,16 @@ private struct FilterPickerSheet: View {
             onPick(filter)
         } label: {
             HStack(spacing: Metrics.spacing3) {
-                FilterIcon(filter: filter)
-                    .frame(width: 18, height: 18)
-                    .foregroundStyle(isSelected ? Color(Colors.mainMagenta) : Color(Colors.gray600))
-                    .frame(width: 36, height: 36)
-                    .background(
-                        RoundedRectangle(cornerRadius: CornerRadius.medium)
-                            .fill(isSelected ? Color(Colors.mainMagenta).opacity(0.1) : Color(Colors.gray200)))
+                IconBox { FilterIcon(filter: filter) }
                 Text(BudgetHistoryViewModel.title(for: filter))
-                    .font(Font(isSelected ? Fonts.textSMBold.font : Fonts.textSM.font))
+                    .font(Font(Fonts.textSMBold.font))
                     .foregroundStyle(Color(Colors.gray700))
                     .lineLimit(1)
                 Spacer(minLength: Metrics.spacing2)
                 Text(savings.months == 0
                     ? "budgetHistory.insight.none".localized
                     : savings.net.maskedSignedCurrencyString(hidden: hidden))
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(Font(Fonts.textSMBold.font))
                     .foregroundStyle(
                         savings.months == 0 || hidden ? Color(Colors.gray500)
                             : savings.net >= 0 ? Color(Colors.mainGreen) : Color(Colors.mainRed))
@@ -1087,6 +1150,7 @@ private struct FilterPickerSheet: View {
             }
             .padding(.horizontal, Metrics.spacing5)
             .padding(.vertical, Metrics.spacing3)
+            .frame(minHeight: ContributorRow<EmptyView>.rowHeight)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

@@ -5264,6 +5264,42 @@
         }
       }
     },
+    "budgetHistory.section.chart": {
+      "comment": "Header of the chart card.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spending by month"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gasto por mês"
+          }
+        }
+      }
+    },
+    "budgetHistory.section.insights": {
+      "comment": "Header of the card with the three insight figures.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "At a glance"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Em resumo"
+          }
+        }
+      }
+    },
     "budgetHistory.status.empty": {
       "comment": "Status pill: nothing planned and nothing spent.",
       "extractionState": "manual",
