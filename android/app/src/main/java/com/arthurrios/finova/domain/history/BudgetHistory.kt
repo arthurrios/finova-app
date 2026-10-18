@@ -2,7 +2,9 @@ package com.arthurrios.finova.domain.history
 
 import com.arthurrios.finova.domain.allocation.AllocationRow
 import com.arthurrios.finova.domain.allocation.Allocations
+import com.arthurrios.finova.domain.model.Transaction
 import com.arthurrios.finova.domain.model.TransactionCategory
+import com.arthurrios.finova.domain.model.TransactionType
 import java.time.YearMonth
 import kotlin.math.roundToInt
 
@@ -101,11 +103,12 @@ data class BudgetHistorySeries(val filter: BudgetHistoryFilter, val months: List
     }
 
     /**
-     * Savings over the closed months with a plan from [start] (inclusive) on, or over all of them.
-     * The open month is never counted: what it has left is not saved yet.
+     * Savings over the closed months with a plan from [start] through [end] (both inclusive; null
+     * leaves that side open). The open month is never counted: what it has left is not saved yet, so
+     * an [end] at the open month counts up to the month before it.
      */
-    fun savings(start: YearMonth? = null): Savings {
-        val counted = scoredMonths.filter { start == null || it.month >= start }
+    fun savings(start: YearMonth? = null, end: YearMonth? = null): Savings {
+        val counted = scoredMonths.filter { it.month.within(start, end) }
         return Savings(
             saved = counted.sumOf { it.difference.coerceAtLeast(0) },
             overspent = counted.sumOf { (-it.difference).coerceAtLeast(0) },
@@ -129,6 +132,52 @@ data class BudgetHistorySeries(val filter: BudgetHistoryFilter, val months: List
     }
 
     fun month(month: YearMonth): BudgetHistoryMonth? = months.firstOrNull { it.month == month }
+}
+
+internal fun YearMonth.within(start: YearMonth?, end: YearMonth?) = (start == null || this >= start) && (end == null || this <= end)
+
+/**
+ * What made the Saved figure: the parts that moved it most, ranked, so the total reads as a few causes
+ * rather than a list. For the whole month the parts are categories (and Outside allocations); for a
+ * category or Outside allocations they are its months. The parts always sum to [total]. Port of
+ * SavingsContributors.
+ */
+class SavingsContributors(items: List<Item>, val total: Long, val firstMonth: YearMonth?, val lastMonth: YearMonth?) {
+    sealed interface Part {
+        data class Category(val category: TransactionCategory) : Part
+        data object OutsideAllocations : Part
+        data class Month(val month: YearMonth) : Part
+        /** A part of the Outside allocations figure that is not a month of its own series. */
+        data class Difference(val reason: BudgetHistory.OutsideDifference.Reason) : Part
+    }
+
+    data class Item(val part: Part, val net: Long)
+
+    /** Biggest saving first. */
+    val savers: List<Item>
+    /** Biggest overspend first. */
+    val overspenders: List<Item>
+    /** Everything not named, so savers + overspenders + others = total. */
+    val others: Long
+    val othersCount: Int
+    /** The parts summed into [others], biggest effect first: what the Others line opens to. */
+    val rest: List<Item>
+
+    init {
+        val nonZero = items.filter { it.net != 0L }
+        savers = nonZero.filter { it.net > 0 }.sortedByDescending { it.net }.take(SHOWN_PER_SIDE)
+        overspenders = nonZero.filter { it.net < 0 }.sortedBy { it.net }.take(SHOWN_PER_SIDE)
+        val named = (savers + overspenders).map { it.part }.toSet()
+        val remaining = nonZero.filter { it.part !in named }
+        others = total - (savers + overspenders).sumOf { it.net }
+        othersCount = remaining.size
+        rest = remaining.sortedByDescending { kotlin.math.abs(it.net) }
+    }
+
+    companion object {
+        /** How many savers and how many overspenders are named. The rest are summed into [others]. */
+        const val SHOWN_PER_SIDE = 3
+    }
 }
 
 /** Every series the history screen can show, for the ledger. Pure. Port of BudgetHistory.swift. */
@@ -163,10 +212,10 @@ data class BudgetHistory(
      * categories with no allocation, and purchases the month card counts by date while allocations
      * count them by budget month. Null when the whole month has nothing to count.
      */
-    fun outsideAllocations(start: YearMonth?): Long? {
-        val whole = wholeMonth.savings(start)
+    fun outsideAllocations(start: YearMonth?, end: YearMonth? = null): Long? {
+        val whole = wholeMonth.savings(start, end)
         if (whole.months == 0) return null
-        return whole.net - categories.sumOf { it.savings(start).net }
+        return whole.net - categories.sumOf { it.savings(start, end).net }
     }
 
     /**
@@ -175,10 +224,143 @@ data class BudgetHistory(
      * months that allocated more than the budget. Shown under the Saved card, so the outside series
      * plus this line equal the row in the category list.
      */
-    fun outsideTiming(start: YearMonth?): Long? {
-        val total = outsideAllocations(start) ?: return null
+    fun outsideTiming(start: YearMonth?, end: YearMonth? = null): Long? {
+        val total = outsideAllocations(start, end) ?: return null
         val series = outside ?: return null
-        return total - series.savings(start).net
+        return total - series.savings(start, end).net
+    }
+
+    /** The ranked causes of the Saved figure for [filter], over the months the Saved card counts. */
+    fun contributors(filter: BudgetHistoryFilter, start: YearMonth?, end: YearMonth?): SavingsContributors? {
+        if (filter == BudgetHistoryFilter.OutsideAllocations) return outsideContributors(start, end)
+        val series = series(filter) ?: return null
+        val counted = series.scoredMonths.filter { it.month.within(start, end) }
+        if (counted.isEmpty()) return null
+        val total = series.savings(start, end).net
+        val items = if (filter == BudgetHistoryFilter.WholeMonth && categories.isNotEmpty()) {
+            // Categories plus the remainder no category holds, which is what makes them sum to the
+            // whole month (see outsideAllocations).
+            categories.mapNotNull { category ->
+                val value = (category.filter as? BudgetHistoryFilter.Category)?.category ?: return@mapNotNull null
+                SavingsContributors.Item(SavingsContributors.Part.Category(value), category.savings(start, end).net)
+            } + listOfNotNull(outsideAllocations(start, end)?.let { SavingsContributors.Item(SavingsContributors.Part.OutsideAllocations, it) })
+        } else {
+            counted.map { SavingsContributors.Item(SavingsContributors.Part.Month(it.month), it.difference) }
+        }
+        return SavingsContributors(items, total, counted.first().month, counted.last().month)
+    }
+
+    /**
+     * The Outside allocations figure as a Saved total: the same number as its row in the category
+     * list and in the whole month's "Why" card, its own months plus the named differences.
+     */
+    fun outsideSavings(start: YearMonth?, end: YearMonth?): BudgetHistorySeries.Savings? {
+        outsideAllocations(start, end) ?: return null
+        val nets = outsideParts(start, end).map { it.net }
+        return BudgetHistorySeries.Savings(
+            saved = nets.filter { it > 0 }.sum(),
+            overspent = -nets.filter { it < 0 }.sum(),
+            months = wholeMonth.savings(start, end).months,
+        )
+    }
+
+    /** Its months with an unallocated budget, then each named difference. */
+    private fun outsideParts(start: YearMonth?, end: YearMonth?): List<SavingsContributors.Item> {
+        val series = outside ?: return emptyList()
+        val months = series.scoredMonths.filter { it.month.within(start, end) }
+            .map { SavingsContributors.Item(SavingsContributors.Part.Month(it.month), it.difference) }
+        val differences = outsideDifferences(start, end)
+            .map { SavingsContributors.Item(SavingsContributors.Part.Difference(it.reason), it.amount) }
+        return months + differences
+    }
+
+    private fun outsideContributors(start: YearMonth?, end: YearMonth?): SavingsContributors? {
+        val total = outsideAllocations(start, end) ?: return null
+        val items = outsideParts(start, end)
+        if (items.isEmpty()) return null
+        val counted = wholeMonth.scoredMonths.filter { it.month.within(start, end) }
+        return SavingsContributors(items, total, counted.firstOrNull()?.month, counted.lastOrNull()?.month)
+    }
+
+    /** What [outsideTiming] is made of, so the screen can name it instead of one vague line. */
+    data class OutsideDifference(val reason: Reason, val months: List<YearMonth>, val amount: Long) {
+        enum class Reason {
+            /** Months whose categories got more than the month's budget: by how much. */
+            CategoriesAboveBudget,
+            /** What those same months spent outside every category: with no budget left, all of it is over. */
+            SpentOutsideWithNoRoom,
+            /** Months with allocations but no month budget, which the whole month does not count. */
+            NoMonthBudget,
+            /** The rest: purchases the month card counts by date and allocations by budget month. */
+            OtherMonth,
+        }
+    }
+
+    /** [outsideTiming], split by why each month's remainder is not in the outside series. Non-zero parts only; they sum to it. */
+    fun outsideDifferences(start: YearMonth?, end: YearMonth?): List<OutsideDifference> {
+        val series = outside ?: return emptyList()
+        val above = mutableListOf<YearMonth>(); var aboveAmount = 0L
+        val noRoom = mutableListOf<YearMonth>(); var noRoomAmount = 0L
+        val noBudget = mutableListOf<YearMonth>(); var noBudgetAmount = 0L
+        var other = 0L
+        for (month in closedMonths) {
+            if (!month.within(start, end)) continue
+            val whole = wholeMonth.month(month)
+            val wholeNet = if (whole?.hasPlan == true) whole.difference else 0L
+            val categoryMonths = categories.mapNotNull { it.month(month) }.filter { it.hasPlan }
+            val categoriesNet = categoryMonths.sumOf { it.difference }
+            val outsideMonth = series.month(month)
+            val outsideNet = if (outsideMonth?.hasPlan == true) outsideMonth.difference else 0L
+            val remainder = wholeNet - categoriesNet - outsideNet
+            if (remainder == 0L) continue
+
+            val budget = whole?.planned ?: 0L
+            val allocated = categoryMonths.sumOf { it.planned }
+            if (budget == 0L && allocated > 0) {
+                noBudget += month
+                noBudgetAmount += remainder
+            } else if (allocated >= budget && budget > 0) {
+                // remainder = (budget - allocated) - (spent outside categories) - (date-clock gap):
+                // each part gets its own line, so every line has one true reason.
+                val gap = budget - allocated
+                if (gap != 0L) { above += month; aboveAmount += gap }
+                val outsideSpent = outsideMonth?.spent ?: 0L
+                if (outsideSpent != 0L) { noRoom += month; noRoomAmount -= outsideSpent }
+                other += remainder - gap + outsideSpent
+            } else {
+                other += remainder
+            }
+        }
+        return listOf(
+            OutsideDifference(OutsideDifference.Reason.CategoriesAboveBudget, above, aboveAmount),
+            OutsideDifference(OutsideDifference.Reason.SpentOutsideWithNoRoom, noRoom, noRoomAmount),
+            OutsideDifference(OutsideDifference.Reason.NoMonthBudget, noBudget, noBudgetAmount),
+            OutsideDifference(OutsideDifference.Reason.OtherMonth, emptyList(), other),
+        ).filter { it.amount != 0L }
+    }
+
+    /**
+     * The expenses one bar is made of, biggest first, each filter on the clock its bar uses:
+     * - the whole month: every expense dated in the month except statement rows (the month card's "used");
+     * - a category: its expenses with that budget month (the allocation card);
+     * - outside allocations: expenses with that budget month in categories with no allocation then.
+     *
+     * @param expenses the ledger's expenses with early-paid installments already removed.
+     */
+    fun transactions(filter: BudgetHistoryFilter, month: YearMonth, expenses: List<Transaction>): List<Transaction> {
+        val matching = when (filter) {
+            BudgetHistoryFilter.WholeMonth -> expenses.filter { !it.isCreditCardStatement && YearMonth.from(it.date) == month }
+            is BudgetHistoryFilter.Category -> expenses.filter { it.category == filter.category && it.budgetMonth == month }
+            BudgetHistoryFilter.OutsideAllocations -> {
+                val planned = categories.filter { it.month(month)?.hasPlan == true }
+                    .mapNotNull { (it.filter as? BudgetHistoryFilter.Category)?.category }.toSet()
+                expenses.filter { it.budgetMonth == month && it.category !in planned }
+            }
+        }
+        return matching
+            // The parent row of an installment purchase is a 0 summary of installments listed themselves.
+            .filter { it.type == TransactionType.Expense && !(it.hasInstallments && it.parentTransactionId == null) }
+            .sortedWith(compareByDescending<Transaction> { it.amount }.thenByDescending { it.date })
     }
 
     companion object {

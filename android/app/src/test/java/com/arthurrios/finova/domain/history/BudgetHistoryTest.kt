@@ -12,6 +12,7 @@ import com.arthurrios.finova.domain.model.TransactionCategory.Travel
 import com.arthurrios.finova.domain.model.TransactionType
 import com.arthurrios.finova.ui.history.BudgetHistoryUiState
 import com.arthurrios.finova.ui.history.previewEnding
+import com.arthurrios.finova.domain.history.SavingsContributors
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -173,6 +174,210 @@ class BudgetHistoryTest {
         val outside = BudgetHistoryUiState(filter = BudgetHistoryFilter.OutsideAllocations).withHistory(h, firstLoad = true)
         assertEquals(BudgetHistoryFilter.OutsideAllocations, outside.filter)
         assertEquals(-30L, outside.outsideTiming)
+    }
+
+    // ---- Up to a month (iOS 7c07005 and later)
+
+    @Test fun savingsThroughAMonthStopAtThatMonth() {
+        // Saved per closed month: +100, -30, +50; the open month never counts.
+        val s = series(200L to 100L, 100L to 130L, 100L to 50L, 100L to 10L)
+        assertEquals(100L, s.savings(end = months[0]).net)
+        assertEquals(70L, s.savings(end = months[1]).net)
+        assertEquals(120L, s.savings(end = months[3]).net)
+        assertEquals(20L, s.savings(months[1], months[2]).net)
+        assertEquals(BudgetHistorySeries.Savings.None, s.savings(months[2], months[1]))
+    }
+
+    @Test fun outsideAllocationsFollowTheSameMonths() {
+        val h = history(
+            allocations = listOf(allocation(Groceries, 3, 500), allocation(Groceries, 4, 500)),
+            spent = mapOf(Groceries to mapOf(months[3] to 450L, months[4] to 450L)),
+            totals = mapOf(months[3] to BudgetHistory.MonthTotal(1_000, 800), months[4] to BudgetHistory.MonthTotal(1_000, 800)),
+        )
+        // Through month 3 only: whole 200 - groceries 50.
+        assertEquals(150L, h.outsideAllocations(null, months[3]))
+        assertEquals(300L, h.outsideAllocations(null, null))
+    }
+
+    // ---- Transactions behind a bar
+
+    private fun spend(
+        title: String, category: TransactionCategory, amount: Long, dated: Int, budgetMonth: Int,
+        statement: Boolean = false, installmentParent: Boolean = false,
+    ) = Transaction(
+        title = title, category = category, type = TransactionType.Expense, amount = amount,
+        date = months[dated].atDay(15), budgetMonth = months[budgetMonth],
+        isCreditCardStatement = statement, hasInstallments = installmentParent,
+    )
+
+    @Test fun categoryBarListsItsBudgetMonthExpensesBiggestFirst() {
+        val h = history(listOf(allocation(Groceries, 3, 500)))
+        val expenses = listOf(
+            spend("Small", Groceries, 100, 3, 3),
+            spend("Big", Groceries, 300, 3, 3),
+            // Dated in month 3 but billed to month 4, so it belongs to month 4's bar.
+            spend("Card", Groceries, 999, 3, 4),
+            spend("Other", Meals, 50, 3, 3),
+        )
+        assertEquals(listOf("Big", "Small"), h.transactions(BudgetHistoryFilter.Category(Groceries), months[3], expenses).map { it.title })
+    }
+
+    @Test fun wholeMonthListsExpensesByDateWithoutStatementPayments() {
+        val h = history()
+        val expenses = listOf(
+            spend("Card", Groceries, 999, 3, 4),
+            spend("Statement", TransactionCategory.CreditCard, 5_000, 3, 3, statement = true),
+            spend("Next month", Meals, 10, 4, 3),
+        )
+        assertEquals(listOf("Card"), h.transactions(BudgetHistoryFilter.WholeMonth, months[3], expenses).map { it.title })
+    }
+
+    @Test fun outsideListsOnlyCategoriesWithNoAllocationThatMonth() {
+        // Groceries planned in month 3 only; travel never.
+        val h = history(listOf(allocation(Groceries, 3, 500)))
+        val expenses = listOf(
+            spend("Groceries 3", Groceries, 100, 3, 3),
+            spend("Groceries 4", Groceries, 200, 4, 4),
+            spend("Travel 3", Travel, 300, 3, 3),
+        )
+        assertEquals(listOf("Travel 3"), h.transactions(BudgetHistoryFilter.OutsideAllocations, months[3], expenses).map { it.title })
+        assertEquals(listOf("Groceries 4"), h.transactions(BudgetHistoryFilter.OutsideAllocations, months[4], expenses).map { it.title })
+    }
+
+    @Test fun parentInstallmentsNeverShow() {
+        val h = history(listOf(allocation(TransactionCategory.Education, 3, 500)))
+        val expenses = listOf(
+            spend("Student card", TransactionCategory.Education, 0, 3, 3, installmentParent = true),
+            spend("Course", TransactionCategory.Education, 120, 3, 3),
+        )
+        assertEquals(listOf("Course"), h.transactions(BudgetHistoryFilter.Category(TransactionCategory.Education), months[3], expenses).map { it.title })
+        assertEquals(listOf("Course"), h.transactions(BudgetHistoryFilter.WholeMonth, months[3], expenses).map { it.title })
+    }
+
+    // ---- What made Saved
+
+    private fun part(category: TransactionCategory) = SavingsContributors.Part.Category(category)
+
+    @Test fun wholeMonthIsExplainedByCategoriesAndTheRemainder() {
+        // Months 1 and 2: budget 1_000, used 900, so the whole month saves 200.
+        val h = history(
+            allocations = listOf(allocation(Groceries, 1, 500), allocation(Groceries, 2, 500), allocation(Meals, 1, 200), allocation(Meals, 2, 200)),
+            spent = mapOf(Groceries to mapOf(months[1] to 400L, months[2] to 450L), Meals to mapOf(months[1] to 260L, months[2] to 240L)),
+            totals = mapOf(months[1] to BudgetHistory.MonthTotal(1_000, 900), months[2] to BudgetHistory.MonthTotal(1_000, 900)),
+        )
+        val result = h.contributors(BudgetHistoryFilter.WholeMonth, null, null)!!
+        assertEquals(200L, result.total)
+        // Groceries +150, meals -100, the remainder 200 - 50 = +150.
+        assertEquals(listOf(part(Groceries), SavingsContributors.Part.OutsideAllocations), result.savers.map { it.part })
+        assertEquals(listOf<SavingsContributors.Part>(part(Meals)), result.overspenders.map { it.part })
+        assertEquals(0L, result.others)
+        assertEquals(months[1], result.firstMonth)
+        assertEquals(months[2], result.lastMonth)
+    }
+
+    private val fiveClosed = BudgetHistory(
+        months, current,
+        series(100L to 50L, 100L to 60L, 100L to 70L, 100L to 80L, 100L to 110L, 100L to 1L),
+        emptyList(),
+    )
+
+    @Test fun onlyThreeNamedPerSideAndTheRestAddUp() {
+        // Five closed months: +50, +40, +30, +20, -10; the sixth is open.
+        val result = fiveClosed.contributors(BudgetHistoryFilter.WholeMonth, null, null)!!
+        assertEquals(listOf(50L, 40L, 30L), result.savers.map { it.net })
+        assertEquals(listOf(-10L), result.overspenders.map { it.net })
+        assertEquals(20L, result.others)
+        assertEquals(1, result.othersCount)
+        assertEquals(130L, result.total)
+    }
+
+    @Test fun othersKeepsItsPartsBiggestFirst() {
+        val result = fiveClosed.contributors(BudgetHistoryFilter.WholeMonth, null, null)!!
+        assertEquals(listOf(20L), result.rest.map { it.net })
+        assertEquals(20L, result.others)
+    }
+
+    @Test fun categoryIsExplainedByItsMonthsWithinThePeriod() {
+        val h = history(
+            allocations = listOf(allocation(Groceries, 1, 500), allocation(Groceries, 2, 500), allocation(Groceries, 3, 500)),
+            spent = mapOf(Groceries to mapOf(months[1] to 450L, months[2] to 520L, months[3] to 100L)),
+        )
+        val result = h.contributors(BudgetHistoryFilter.Category(Groceries), months[2], months[3])!!
+        assertEquals(listOf(SavingsContributors.Item(SavingsContributors.Part.Month(months[3]), 400)), result.savers)
+        assertEquals(listOf(SavingsContributors.Item(SavingsContributors.Part.Month(months[2]), -20)), result.overspenders)
+        assertEquals(380L, result.total)
+        assertNull(h.contributors(BudgetHistoryFilter.Category(Groceries), months[4], null))
+    }
+
+    /** Month 1 has unallocated budget; month 2's categories took more than the budget. */
+    private val outsideLedger get() = history(
+        allocations = listOf(allocation(Groceries, 1, 500), allocation(Groceries, 2, 1_100)),
+        spent = mapOf(Groceries to mapOf(months[1] to 450L, months[2] to 1_000L), Travel to mapOf(months[1] to 100L, months[2] to 200L)),
+        totals = mapOf(months[1] to BudgetHistory.MonthTotal(1_000, 700), months[2] to BudgetHistory.MonthTotal(1_000, 1_200)),
+    )
+
+    @Test fun outsideDifferencesNameTheirReasonAndAddUp() {
+        val h = outsideLedger
+        val differences = h.outsideDifferences(null, null)
+        assertEquals(
+            listOf(BudgetHistory.OutsideDifference.Reason.CategoriesAboveBudget, BudgetHistory.OutsideDifference.Reason.SpentOutsideWithNoRoom, BudgetHistory.OutsideDifference.Reason.OtherMonth),
+            differences.map { it.reason },
+        )
+        // Month 2's -300 is two true parts: categories 100 above the budget, and 200 on travel with no budget left.
+        assertEquals(listOf(months[2]), differences[0].months)
+        assertEquals(-100L, differences[0].amount)
+        assertEquals(-200L, differences[1].amount)
+        assertEquals(-150L, differences[2].amount)
+        assertEquals(h.outsideTiming(null, null), differences.sumOf { it.amount })
+    }
+
+    @Test fun outsideViewTotalsToItsRowAndListsTheDifferences() {
+        val h = outsideLedger
+        val row = h.outsideAllocations(null, null)
+        assertEquals(row, h.outsideSavings(null, null)?.net)
+        val why = h.contributors(BudgetHistoryFilter.OutsideAllocations, null, null)!!
+        assertEquals(row, why.total)
+        val parts = (why.savers + why.overspenders + why.rest).map { it.part }
+        assertTrue(SavingsContributors.Part.Month(months[1]) in parts)
+        assertTrue(SavingsContributors.Part.Difference(BudgetHistory.OutsideDifference.Reason.CategoriesAboveBudget) in parts)
+        assertTrue(SavingsContributors.Part.Difference(BudgetHistory.OutsideDifference.Reason.SpentOutsideWithNoRoom) in parts)
+    }
+
+    @Test fun categoriesUsingExactlyTheBudgetLeaveOnlyTheOutsideSpending() {
+        // Budget 1_000, groceries 1_000: no gap line, only the 120 spent on travel with no room.
+        val h = history(
+            allocations = listOf(allocation(Groceries, 2, 1_000)),
+            spent = mapOf(Groceries to mapOf(months[2] to 900L), Travel to mapOf(months[2] to 120L)),
+            totals = mapOf(months[2] to BudgetHistory.MonthTotal(1_000, 1_020)),
+        )
+        val differences = h.outsideDifferences(null, null)
+        assertEquals(listOf(BudgetHistory.OutsideDifference.Reason.SpentOutsideWithNoRoom), differences.map { it.reason })
+        assertEquals(-120L, differences.first().amount)
+        assertEquals(h.outsideTiming(null, null), differences.sumOf { it.amount })
+    }
+
+    @Test fun backReturnsToWhereTheDrillStartedAndThePickerStartsOver() {
+        val h = history(listOf(allocation(Groceries, 3, 500)), totals = months.associateWith { BudgetHistory.MonthTotal(100, 90) })
+        var s = BudgetHistoryUiState().withHistory(h, firstLoad = true)
+        assertTrue(s.filterTrail.isEmpty())
+        s = s.drilled(BudgetHistoryFilter.Category(Groceries))
+        assertEquals(listOf<BudgetHistoryFilter>(BudgetHistoryFilter.WholeMonth), s.filterTrail)
+        s = s.back()
+        assertEquals(BudgetHistoryFilter.WholeMonth, s.filter)
+        assertTrue(s.filterTrail.isEmpty())
+        s = s.drilled(BudgetHistoryFilter.Category(Groceries)).chosen(BudgetHistoryFilter.WholeMonth)
+        assertTrue(s.filterTrail.isEmpty())
+    }
+
+    @Test fun savedFollowsTheSelectedMonth() {
+        val h = history(totals = months.associateWith { BudgetHistory.MonthTotal(100, 90) })
+        var s = BudgetHistoryUiState().withHistory(h, firstLoad = true)
+        // The open month counts up to the month before it: all five closed months.
+        assertEquals(5, s.savings.months)
+        assertEquals(months[4], s.savingsEndMonth)
+        s = s.copy(selected = months[2])
+        assertEquals(3, s.savings.months)
+        assertEquals(months[2], s.savingsEndMonth)
     }
 
     // ---- Trimming

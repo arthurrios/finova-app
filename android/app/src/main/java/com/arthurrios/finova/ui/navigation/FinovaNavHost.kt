@@ -324,7 +324,11 @@ fun FinovaNavHost(
                     }
                 }
             )
-            com.arthurrios.finova.ui.history.BudgetHistoryScreen(viewModel, onBack = { navController.popBackStack() })
+            com.arthurrios.finova.ui.history.BudgetHistoryScreen(
+                viewModel,
+                onBack = { navController.popBackStack() },
+                onOpenTransaction = { navController.navigate(Routes.details(it)) },
+            )
         }
         composable(Routes.STATEMENT, arguments = listOf(navArgument("id") { type = NavType.LongType })) { entry ->
             val id = entry.arguments?.getLong("id") ?: 0L

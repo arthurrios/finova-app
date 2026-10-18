@@ -10,6 +10,9 @@ import com.arthurrios.finova.domain.history.BudgetHistoryFilter
 import com.arthurrios.finova.domain.history.BudgetHistoryMonth
 import com.arthurrios.finova.domain.history.BudgetHistoryReader
 import com.arthurrios.finova.domain.history.BudgetHistorySeries
+import com.arthurrios.finova.domain.history.SavingsContributors
+import com.arthurrios.finova.domain.model.Transaction
+import com.arthurrios.finova.domain.model.TransactionType
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
@@ -35,6 +38,10 @@ data class BudgetHistoryUiState(
     val valuesHidden: Boolean = false,
     val currencyCode: String = "BRL",
     val isLoaded: Boolean = false,
+    /** Every expense behind the bars, early-paid installments removed. Filtered per month and filter. */
+    val expenses: List<Transaction> = emptyList(),
+    /** Filters left by drilling into the "Why" card, most recent last; the picker starts over. */
+    val filterTrail: List<BudgetHistoryFilter> = emptyList(),
 ) {
     private fun fullSeries(filter: BudgetHistoryFilter) = history.series(filter) ?: history.wholeMonth
 
@@ -54,10 +61,73 @@ data class BudgetHistoryUiState(
     val offersLongerSpan: Boolean
         get() = fullSeries(filter).suffix(HistorySpan.TwelveMonths.months).trimmingLeadingEmptyMonths().months.size > HistorySpan.SixMonths.months
 
+    /**
+     * Saved counts up to the month being read, so moving through the chart shows the running total.
+     * The open month never counts, so selecting it counts up to the month before.
+     */
+    val savingsEnd: YearMonth? get() = selectedMonth?.month
+
+    /** The last month Saved includes: the selected month, or the closed month before an open one. */
+    val savingsEndMonth: YearMonth? get() = savingsEnd?.let { end -> history.closedMonths.lastOrNull { it <= end } }
+
     val savings: BudgetHistorySeries.Savings get() = savings(filter)
 
+    /**
+     * Outside allocations counts its named differences too, so its Saved figure is the same number
+     * as its row in the list and in the whole month's "Why" card.
+     */
     fun savings(filter: BudgetHistoryFilter): BudgetHistorySeries.Savings =
-        history.series(filter)?.savings(savingsStart) ?: BudgetHistorySeries.Savings.None
+        if (filter == BudgetHistoryFilter.OutsideAllocations) history.outsideSavings(savingsStart, savingsEnd) ?: BudgetHistorySeries.Savings.None
+        else history.series(filter)?.savings(savingsStart, savingsEnd) ?: BudgetHistorySeries.Savings.None
+
+    /** What made the Saved figure, over the same months it counts. */
+    val contributors: SavingsContributors? get() = history.contributors(filter, savingsStart, savingsEnd)
+
+    /** One month of the chosen filter as the detail under its row: the sum, the expense count, the three biggest. */
+    data class MonthDetail(
+        val month: BudgetHistoryMonth,
+        val expenseCount: Int,
+        val biggest: List<Transaction>,
+        /** Outside allocations only: the month budget and what the categories got. */
+        val budgetSplit: Pair<Long, Long>?,
+    )
+
+    fun monthDetail(month: YearMonth): MonthDetail? {
+        val bar = history.series(filter)?.month(month) ?: return null
+        // Zero-amount rows never count.
+        val listed = history.transactions(filter, month, expenses).filter { it.amount > 0 }
+        // For Outside allocations the plan is itself a subtraction, and showing it is what explains a
+        // large number with no expense behind it.
+        val split = if (filter == BudgetHistoryFilter.OutsideAllocations) budgetSplit(month).takeIf { it.first > 0 } else null
+        return MonthDetail(bar, listed.size, listed.take(3), split)
+    }
+
+    /** A month's budget and what its categories got: the subtraction behind outside figures. */
+    fun budgetSplit(month: YearMonth): Pair<Long, Long> =
+        (history.wholeMonth.month(month)?.planned ?: 0L) to history.categories.sumOf { it.month(month)?.planned ?: 0L }
+
+    /** The expenses outside every category in [months], biggest first. */
+    fun outsideExpenses(months: List<YearMonth>): List<Transaction> =
+        months.flatMap { history.transactions(BudgetHistoryFilter.OutsideAllocations, it, expenses) }
+            .filter { it.amount > 0 }
+            .sortedByDescending { it.amount }
+
+    /** The named parts of the outside remainder, while that filter is chosen. */
+    val outsideDifferences: List<BudgetHistory.OutsideDifference>
+        get() = if (outsideTiming == null) emptyList() else history.outsideDifferences(savingsStart, savingsEnd)
+
+    /** Opens a part of the "Why" card, remembering where it came from. */
+    fun drilled(into: BudgetHistoryFilter): BudgetHistoryUiState =
+        if (into == filter) this else copy(filterTrail = filterTrail + filter, filter = into).keepingSelectionVisible()
+
+    fun back(): BudgetHistoryUiState {
+        val previous = filterTrail.lastOrNull() ?: return this
+        return copy(filterTrail = filterTrail.dropLast(1), filter = previous).keepingSelectionVisible()
+    }
+
+    /** A choice from the picker starts over. */
+    fun chosen(filter: BudgetHistoryFilter): BudgetHistoryUiState =
+        copy(filterTrail = emptyList(), filter = filter).keepingSelectionVisible()
 
     /**
      * Closed months a savings start can be set to: from the first month any filter had a plan. A start
@@ -72,14 +142,14 @@ data class BudgetHistoryUiState(
 
     /** The remainder row under the categories. Null with no categories: nothing to reconcile. */
     val outsideAllocations: Long?
-        get() = if (history.categories.isEmpty()) null else history.outsideAllocations(savingsStart)
+        get() = if (history.categories.isEmpty()) null else history.outsideAllocations(savingsStart, savingsEnd)
 
     /**
      * What the outside series does not explain, since [savingsStart]. Shown under the Saved card
      * while the outside filter is chosen, so that card plus this line equal its row in the list.
      */
     val outsideTiming: Long?
-        get() = if (filter == BudgetHistoryFilter.OutsideAllocations) history.outsideTiming(savingsStart) else null
+        get() = if (filter == BudgetHistoryFilter.OutsideAllocations) history.outsideTiming(savingsStart, savingsEnd) else null
 
     /** The month the arrows step to, or null at either end of the bars on screen. */
     fun neighbour(offset: Int): YearMonth? {
@@ -140,16 +210,19 @@ class BudgetHistoryViewModel(
     init {
         viewModelScope.launch {
             combine(repository.ledgerRows, repository.budgets, repository.balanceOffset, allocations.all) { rows, budgets, offset, allocationRows ->
-                BudgetHistoryReader.read(rows, budgets, offset, allocationRows, today())
-            }.collect { history ->
-                _state.update { it.withHistory(history, firstLoad = !it.isLoaded) }
+                BudgetHistoryReader.read(rows, budgets, offset, allocationRows, today()) to
+                    rows.filter { it.type == TransactionType.Expense && !it.isCreditCardStatement && !it.isSettledEarly }
+            }.collect { (history, expenses) ->
+                _state.update { it.withHistory(history, firstLoad = !it.isLoaded).copy(expenses = expenses) }
             }
         }
     }
 
-    fun selectFilter(filter: BudgetHistoryFilter) = _state.update {
-        if (it.filter == filter) it else it.copy(filter = filter).keepingSelectionVisible()
-    }
+    fun selectFilter(filter: BudgetHistoryFilter) = _state.update { it.chosen(filter) }
+
+    fun drill(into: BudgetHistoryFilter) = _state.update { it.drilled(into) }
+
+    fun goBack() = _state.update { it.back() }
 
     fun selectSpan(span: HistorySpan) = _state.update {
         if (it.span == span) it else it.copy(span = span).keepingSelectionVisible()
