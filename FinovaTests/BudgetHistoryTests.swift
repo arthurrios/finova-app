@@ -421,6 +421,31 @@ final class BudgetHistoryTests: XCTestCase {
         XCTAssertEqual(differences.reduce(0) { $0 + $1.amount }, history.outsideTiming(from: nil, through: nil))
     }
 
+    func testOutsideViewTotalsToItsRowAndListsTheDifferences() {
+        // Same ledger as testOutsideDifferencesNameTheirReasonAndAddUp: month 1 has unallocated budget,
+        // month 2's categories took more than the budget.
+        let history = BudgetHistory(
+            monthAnchors: anchors, currentAnchor: current,
+            allocations: [allocation(.groceries, 1, 500), allocation(.groceries, 2, 1_100)],
+            spentByCategory: [
+                "groceries": [anchors[1]: 450, anchors[2]: 1_000],
+                "travel": [anchors[1]: 100, anchors[2]: 200],
+            ],
+            monthTotals: [
+                anchors[1]: .init(budget: 1_000, used: 700),
+                anchors[2]: .init(budget: 1_000, used: 1_200),
+            ])
+        let row = history.outsideAllocations(from: nil, through: nil)
+        XCTAssertEqual(history.outsideSavings(from: nil, through: nil)?.net, row)
+
+        let why = history.contributors(for: .outsideAllocations, from: nil, through: nil)
+        XCTAssertEqual(why?.total, row)
+        let parts = (why?.savers ?? []) + (why?.overspenders ?? []) + (why?.rest ?? [])
+        XCTAssertTrue(parts.contains { $0.part == .month(anchors[1]) })
+        XCTAssertTrue(parts.contains { $0.part == .difference(.categoriesAboveBudget) })
+        XCTAssertTrue(parts.contains { $0.part == .difference(.spentOutsideWithNoRoom) })
+    }
+
     func testCategoriesUsingExactlyTheBudgetLeaveOnlyTheOutsideSpending() {
         // Budget 1_000, groceries 1_000: no gap line, only the 120 spent on travel with no room.
         let history = BudgetHistory(

@@ -24,28 +24,80 @@ struct BudgetHistoryContentView: View {
         if viewModel.isEmpty {
             emptyState
         } else {
-            ScrollView {
-                VStack(alignment: .leading, spacing: Metrics.spacing4) {
-                    controls
-                    chartCard
-                    savingsCard
-                    contributorsCard
-                    insights
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: Metrics.spacing4) {
+                        backButton
+                            .id(Self.topID)
+                        controls
+                        chartCard
+                        savingsCard
+                        contributorsCard
+                            .id(Self.whyID)
+                        insights
+                    }
+                    .padding(.vertical, Metrics.spacing4)
                 }
-                .padding(.vertical, Metrics.spacing4)
+                .scrollIndicators(.hidden)
+                // Drilling in shows the chart of what was opened; going back returns to the card it was
+                // opened from.
+                .onChange(of: scrollTarget) { _, target in
+                    guard let target else { return }
+                    withAnimation(.easeInOut(duration: 0.3)) { proxy.scrollTo(target, anchor: .top) }
+                    scrollTarget = nil
+                }
             }
-            .scrollIndicators(.hidden)
             .sheet(isPresented: $isPickerPresented) {
                 FilterPickerSheet(viewModel: viewModel) { filter in
                     selectionFeedback.selectionChanged()
                     isPickerPresented = false
-                    withAnimation(.snappy(duration: 0.3)) { viewModel.select(filter: filter) }
+                    withAnimation(.snappy(duration: 0.3)) { viewModel.choose(filter: filter) }
                 }
             }
         }
     }
 
     private var hidden: Bool { viewModel.isValuesHidden }
+
+    private static let topID = "budgetHistory.top"
+    private static let whyID = "budgetHistory.why"
+    @State private var scrollTarget: String?
+
+    /// Opens a part of the "Why" card as its own view, remembering where it came from.
+    private func drill(into filter: BudgetHistoryFilter) {
+        selectionFeedback.selectionChanged()
+        withAnimation(.snappy(duration: 0.3)) { viewModel.drill(into: filter) }
+        scrollTarget = Self.topID
+    }
+
+    /// "‹ Back to Whole month": shown only after drilling in, so the summary is one tap away.
+    @ViewBuilder
+    private var backButton: some View {
+        if let previous = viewModel.filterTrail.last {
+            SwiftUI.Button {
+                selectionFeedback.selectionChanged()
+                withAnimation(.snappy(duration: 0.3)) { viewModel.goBack() }
+                scrollTarget = Self.whyID
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 12, weight: .bold))
+                    Text(String(format: "budgetHistory.back.format".localized,
+                        BudgetHistoryViewModel.title(for: previous)))
+                        .font(Font(Fonts.textSMBold.font))
+                }
+                .foregroundStyle(Color(Colors.mainMagenta))
+                .padding(.horizontal, Metrics.spacing3)
+                .frame(height: 32)
+                .background(Capsule().fill(Color(Colors.mainMagenta).opacity(0.1)))
+                .contentShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, Metrics.spacing4)
+        } else {
+            Color.clear.frame(height: 0)
+        }
+    }
 
     private func select(month anchor: Int) {
         guard anchor != viewModel.selectedAnchor else { return }
@@ -161,6 +213,11 @@ struct BudgetHistoryContentView: View {
                 }
             }
 
+            // Names the big number, which otherwise reads as a total of something unknown.
+            Text(spentLabel)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(Color(Colors.gray500))
+                .padding(.top, Metrics.spacing1)
             HStack(alignment: .firstTextBaseline) {
                 Text(month.spent.maskedCurrencyString(hidden: hidden))
                     .font(.custom(Fonts.titleLG.font.fontName, size: 24))
@@ -175,6 +232,16 @@ struct BudgetHistoryContentView: View {
             Text(planLine(for: month))
                 .font(Font(Fonts.textXS.font))
                 .foregroundStyle(Color(Colors.gray500))
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var spentLabel: String {
+        switch viewModel.filter {
+        case .wholeMonth: return "budgetHistory.readout.spent.whole".localized
+        case .category(let category):
+            return String(format: "budgetHistory.readout.spent.category.format".localized, category.displayName)
+        case .outsideAllocations: return "budgetHistory.readout.spent.outside".localized
         }
     }
 
@@ -200,7 +267,19 @@ struct BudgetHistoryContentView: View {
     }
 
     private func planLine(for month: BudgetHistoryMonth) -> String {
-        guard month.hasPlan else { return "budgetHistory.hero.noPlan".localized }
+        guard month.hasPlan else {
+            // Outside allocations has no plan when the categories took the whole budget - say so, with
+            // by how much, instead of a bare "nothing planned".
+            if viewModel.filter == .outsideAllocations {
+                let split = viewModel.budgetSplit(month.monthAnchor)
+                if split.budget == 0 { return "budgetHistory.readout.noBudget".localized }
+                let over = split.inCategories - split.budget
+                return over > 0 && !hidden
+                    ? String(format: "budgetHistory.readout.categoriesOver.format".localized, over.currencyString)
+                    : "budgetHistory.readout.categoriesFull".localized
+            }
+            return "budgetHistory.hero.noPlan".localized
+        }
         var line = String(
             format: "budgetHistory.hero.of.format".localized,
             month.planned.maskedCurrencyString(hidden: hidden))
@@ -318,27 +397,6 @@ struct BudgetHistoryContentView: View {
                 .font(Font(Fonts.textXS.font))
                 .foregroundStyle(Color(Colors.gray500))
             }
-
-            // What the chart does not explain, each part with its reason, so the card plus these lines
-            // equal the Outside allocations row in the list.
-            let differences = viewModel.outsideDifferences
-            if !differences.isEmpty {
-                Divider().overlay(Color(Colors.gray300)).padding(.vertical, Metrics.spacing1)
-                ForEach(Array(differences.enumerated()), id: \.offset) { _, difference in
-                    HStack(alignment: .firstTextBaseline) {
-                        Text(differenceLabel(difference))
-                            .font(Font(Fonts.textXS.font))
-                            .foregroundStyle(Color(Colors.gray500))
-                            .fixedSize(horizontal: false, vertical: true)
-                        Spacer(minLength: Metrics.spacing2)
-                        Text(difference.amount.maskedSignedCurrencyString(hidden: hidden))
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(Color(Colors.gray600))
-                            .fixedSize()
-                    }
-                    .accessibilityElement(children: .combine)
-                }
-            }
         }
         .padding(Metrics.spacing5)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -416,7 +474,7 @@ struct BudgetHistoryContentView: View {
 
     // MARK: - What made Saved
 
-    @State private var expandedMonth: Int?
+    @State private var expandedPart: SavingsContributors.Part?
     @State private var showsOthers = false
 
     /// What made the Saved figure: the few parts that moved it most, then everything else in one line,
@@ -491,7 +549,7 @@ struct BudgetHistoryContentView: View {
             .cardBackground()
             .padding(.horizontal, Metrics.spacing4)
             .onChange(of: viewModel.filter) { _, _ in
-                expandedMonth = nil
+                expandedPart = nil
                 showsOthers = false
             }
         }
@@ -517,21 +575,32 @@ struct BudgetHistoryContentView: View {
                 title: category.displayName, amount: amount, tint: hidden ? Colors.gray700 : tint,
                 accessory: "chevron.right") {
                 selectionFeedback.selectionChanged()
-                withAnimation(.snappy(duration: 0.3)) { viewModel.select(filter: .category(category)) }
+                drill(into: .category(category))
             }
         case .outsideAllocations:
             ContributorRow(icon: FilterIcon(filter: .outsideAllocations),
                 title: "budgetHistory.outside.title".localized, amount: amount,
                 tint: hidden ? Colors.gray700 : tint, accessory: "chevron.right") {
                 selectionFeedback.selectionChanged()
-                withAnimation(.snappy(duration: 0.3)) { viewModel.select(filter: .outsideAllocations) }
+                drill(into: .outsideAllocations)
+            }
+        case .difference(let reason):
+            let isOpen = expandedPart == item.part
+            let difference = viewModel.outsideDifferences.first { $0.reason == reason }
+            ContributorRow(icon: Image(systemName: "square.dashed"),
+                title: difference.map(differenceLabel) ?? "", amount: amount,
+                tint: hidden ? Colors.gray700 : tint, accessory: isOpen ? "chevron.up" : "chevron.down") {
+                withAnimation(.easeInOut(duration: 0.2)) { expandedPart = isOpen ? nil : item.part }
+            }
+            if isOpen, let difference {
+                differenceDetail(difference)
             }
         case .month(let anchor):
-            let isOpen = expandedMonth == anchor
+            let isOpen = expandedPart == item.part
             ContributorRow(icon: Image(systemName: "calendar"),
                 title: BudgetHistoryViewModel.longMonth(anchor), amount: amount,
                 tint: hidden ? Colors.gray700 : tint, accessory: isOpen ? "chevron.up" : "chevron.down") {
-                withAnimation(.easeInOut(duration: 0.2)) { expandedMonth = isOpen ? nil : anchor }
+                withAnimation(.easeInOut(duration: 0.2)) { expandedPart = isOpen ? nil : item.part }
             }
             if isOpen {
                 monthDetail(anchor)
@@ -618,6 +687,74 @@ struct BudgetHistoryContentView: View {
             .padding(.trailing, Metrics.spacing5)
             .padding(.bottom, Metrics.spacing2)
         }
+    }
+
+    /// What a named difference is made of: the subtraction for months whose categories took the budget,
+    /// the very expenses for spending outside categories, a sentence for month timing.
+    @ViewBuilder
+    private func differenceDetail(_ difference: BudgetHistory.OutsideDifference) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            switch difference.reason {
+            case .categoriesAboveBudget, .noMonthBudget:
+                ForEach(difference.months, id: \.self) { anchor in
+                    let split = viewModel.budgetSplit(anchor)
+                    detailLine(BudgetHistoryViewModel.longMonth(anchor), "", bold: true)
+                    detailLine("budgetHistory.explain.plan.wholeMonth".localized,
+                        split.budget.maskedCurrencyString(hidden: hidden))
+                    detailLine("budgetHistory.explain.inCategories".localized,
+                        (-split.inCategories).maskedSignedCurrencyString(hidden: hidden))
+                    detailLine("=", (split.budget - split.inCategories).maskedSignedCurrencyString(hidden: hidden),
+                        tint: hidden ? nil : Colors.mainRed, bold: true)
+                }
+                note("budgetHistory.diff.note.aboveBudget".localized)
+            case .spentOutsideWithNoRoom:
+                let expenses = viewModel.outsideExpenses(in: difference.months)
+                ForEach(Array(expenses.enumerated()), id: \.offset) { _, transaction in
+                    expenseLink(transaction, month: BudgetHistoryViewModel.shortMonth(transaction.budgetMonthDate))
+                }
+                note("budgetHistory.diff.note.spentNoRoom".localized)
+            case .otherMonth:
+                note("budgetHistory.diff.note.otherMonth".localized)
+            }
+        }
+        .padding(.leading, 56 + Metrics.spacing5)
+        .padding(.trailing, Metrics.spacing5)
+        .padding(.bottom, Metrics.spacing2)
+    }
+
+    private func note(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 11))
+            .foregroundStyle(Color(Colors.gray500))
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.top, Metrics.spacing1)
+    }
+
+    private func expenseLink(_ transaction: Transaction, month: String) -> some View {
+        SwiftUI.Button {
+            viewModel.onOpenTransaction?(transaction)
+        } label: {
+            HStack {
+                Text(transaction.title)
+                    .font(.system(size: 12))
+                    .foregroundStyle(Color(Colors.gray700))
+                    .lineLimit(1)
+                Text(month)
+                    .font(.system(size: 11))
+                    .foregroundStyle(Color(Colors.gray400))
+                Spacer(minLength: Metrics.spacing2)
+                Text((-transaction.amount).maskedSignedCurrencyString(hidden: hidden))
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(Color(Colors.gray600))
+                    .fixedSize()
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(Color(Colors.gray400))
+            }
+            .padding(.vertical, 6)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     private func detailLine(_ label: String, _ value: String, tint: UIColor? = nil, bold: Bool = false) -> some View {

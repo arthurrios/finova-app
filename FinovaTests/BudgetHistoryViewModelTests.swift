@@ -146,6 +146,23 @@ final class BudgetHistoryViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.savings.net, 200)
     }
 
+    func testBackReturnsToWhereTheDrillStartedAndThePickerStartsOver() {
+        let months = anchors(endingAt: reference)
+        let viewModel = makeViewModel(StubReader(history(anchors: months)))
+        XCTAssertTrue(viewModel.filterTrail.isEmpty)
+
+        viewModel.drill(into: .category(.groceries))
+        XCTAssertEqual(viewModel.filterTrail, [.wholeMonth])
+
+        viewModel.goBack()
+        XCTAssertEqual(viewModel.filter, .wholeMonth)
+        XCTAssertTrue(viewModel.filterTrail.isEmpty)
+
+        viewModel.drill(into: .category(.groceries))
+        viewModel.choose(filter: .wholeMonth)
+        XCTAssertTrue(viewModel.filterTrail.isEmpty)
+    }
+
     func testSavedFollowsTheSelectedMonth() {
         let months = anchors(endingAt: reference)
         let viewModel = makeViewModel(StubReader(history(anchors: months)))

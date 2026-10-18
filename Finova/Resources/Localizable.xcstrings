@@ -4112,6 +4112,24 @@
         }
       }
     },
+    "budgetHistory.back.format": {
+      "comment": "Button after opening a part of the Why card. %@ is the view it returns to, e.g. Whole month.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Back to %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Voltar para %@"
+          }
+        }
+      }
+    },
     "budgetHistory.contrib.others.format": {
       "comment": "Everything not named in the Why card, summed. %d is how many parts.",
       "extractionState": "manual",
@@ -4198,6 +4216,60 @@
           "stringUnit": {
             "state": "translated",
             "value": "= Economizado"
+          }
+        }
+      }
+    },
+    "budgetHistory.diff.note.aboveBudget": {
+      "comment": "Under an opened 'categories above budget' part.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No expense made this: the categories were given more than the month's budget."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nenhum gasto formou este valor: as categorias receberam mais que o orçamento do mês."
+          }
+        }
+      }
+    },
+    "budgetHistory.diff.note.otherMonth": {
+      "comment": "Under an opened 'purchases counted in another month' part.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Purchases dated in one month but counted in another month's budget, like card purchases and installments."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compras com data em um mês mas contadas no orçamento de outro, como compras no cartão e parcelas."
+          }
+        }
+      }
+    },
+    "budgetHistory.diff.note.spentNoRoom": {
+      "comment": "Under an opened 'spent outside categories' part.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "These months had no budget left outside the categories, so all of this counts as over."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estes meses não tinham orçamento fora das categorias, então todo este gasto conta como acima."
           }
         }
       }
@@ -4936,6 +5008,114 @@
           "stringUnit": {
             "state": "translated",
             "value": "6M"
+          }
+        }
+      }
+    },
+    "budgetHistory.readout.categoriesFull": {
+      "comment": "Outside allocations month whose categories took exactly the budget, or values hidden.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Categories got the whole month budget, so none is left outside them"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "As categorias receberam todo o orçamento do mês, então nada sobra fora delas"
+          }
+        }
+      }
+    },
+    "budgetHistory.readout.categoriesOver.format": {
+      "comment": "Outside allocations month whose categories took more than the budget. %@ is how much more.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Categories got %@ more than the month budget, so no budget is left outside them"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "As categorias receberam %@ a mais que o orçamento do mês, então não sobra orçamento fora delas"
+          }
+        }
+      }
+    },
+    "budgetHistory.readout.noBudget": {
+      "comment": "Outside allocations month with no month budget.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No month budget, so nothing is planned outside categories"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sem orçamento do mês, então nada está planejado fora das categorias"
+          }
+        }
+      }
+    },
+    "budgetHistory.readout.spent.category.format": {
+      "comment": "Label above the big amount for a category. %@ is the category.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spent on %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gasto em %@"
+          }
+        }
+      }
+    },
+    "budgetHistory.readout.spent.outside": {
+      "comment": "Label above the big amount for Outside allocations.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spent outside categories"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gasto fora das categorias"
+          }
+        }
+      }
+    },
+    "budgetHistory.readout.spent.whole": {
+      "comment": "Label above the big amount, whole month.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spent this month"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gasto no mês"
           }
         }
       }

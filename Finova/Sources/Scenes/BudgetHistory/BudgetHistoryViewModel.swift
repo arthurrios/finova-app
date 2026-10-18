@@ -185,7 +185,46 @@ final class BudgetHistoryViewModel: ObservableObject {
     }
 
     func savings(for filter: BudgetHistoryFilter) -> BudgetHistorySeries.Savings {
-        history.series(for: filter)?.savings(from: savingsStart, through: savingsEnd) ?? .none
+        // Outside allocations counts its named differences too, so its Saved figure is the same
+        // number its row shows in the list and in the whole month's "Why" card.
+        if filter == .outsideAllocations {
+            return history.outsideSavings(from: savingsStart, through: savingsEnd) ?? .none
+        }
+        return history.series(for: filter)?.savings(from: savingsStart, through: savingsEnd) ?? .none
+    }
+
+    /// A month's budget and what its categories were given - the subtraction behind outside figures.
+    func budgetSplit(_ anchor: Int) -> (budget: Int, inCategories: Int) {
+        (history.wholeMonth.month(anchor)?.planned ?? 0,
+         history.categories.reduce(0) { $0 + ($1.month(anchor)?.planned ?? 0) })
+    }
+
+    /// The expenses outside every category in `months`, biggest first - what a "spent outside
+    /// categories" difference is made of.
+    func outsideExpenses(in months: [Int]) -> [Transaction] {
+        months.flatMap { history.transactions(for: .outsideAllocations, month: $0, in: expenses) }
+            .filter { $0.amount > 0 }
+            .sorted { $0.amount > $1.amount }
+    }
+
+    /// Filters left by drilling into a part of the "Why" card, most recent last. The screen shows a
+    /// way back to the last one; choosing from the picker starts over.
+    @Published private(set) var filterTrail: [BudgetHistoryFilter] = []
+
+    func drill(into newFilter: BudgetHistoryFilter) {
+        guard newFilter != filter else { return }
+        filterTrail.append(filter)
+        select(filter: newFilter)
+    }
+
+    func goBack() {
+        guard let previous = filterTrail.popLast() else { return }
+        select(filter: previous)
+    }
+
+    func choose(filter newFilter: BudgetHistoryFilter) {
+        filterTrail.removeAll()
+        select(filter: newFilter)
     }
 
     /// Closed months a savings start can be set to: from the first month any filter had a plan. A

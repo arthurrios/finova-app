@@ -171,6 +171,8 @@ struct SavingsContributors {
         case category(TransactionCategory)
         case outsideAllocations
         case month(Int)
+        /// A part of the Outside allocations figure that is not a month of its own series.
+        case difference(BudgetHistory.OutsideDifference.Reason)
     }
 
     struct Item: Equatable {
@@ -286,6 +288,7 @@ struct BudgetHistory: Equatable {
     func contributors(
         for filter: BudgetHistoryFilter, from start: Int?, through end: Int?
     ) -> SavingsContributors? {
+        if filter == .outsideAllocations { return outsideContributors(from: start, through: end) }
         guard let series = series(for: filter) else { return nil }
         let counted = series.scoredMonths.filter {
             (start == nil || $0.monthAnchor >= start!) && (end == nil || $0.monthAnchor <= end!)
@@ -314,9 +317,43 @@ struct BudgetHistory: Equatable {
             firstMonth: counted.first?.monthAnchor, lastMonth: counted.last?.monthAnchor)
     }
 
+    /// The Outside allocations figure as a Saved total: the same number as its row in the category list
+    /// and in the whole month's "Why" card - its own months plus the named differences.
+    func outsideSavings(from start: Int?, through end: Int?) -> BudgetHistorySeries.Savings? {
+        guard let total = outsideAllocations(from: start, through: end) else { return nil }
+        let nets = outsideParts(from: start, through: end).map(\.net)
+        let saved = nets.filter { $0 > 0 }.reduce(0, +)
+        let overspent = -nets.filter { $0 < 0 }.reduce(0, +)
+        return BudgetHistorySeries.Savings(
+            saved: saved, overspent: overspent, months: wholeMonth.savings(from: start, through: end).months)
+    }
+
+    /// Its months with an unallocated budget, then each named difference.
+    private func outsideParts(from start: Int?, through end: Int?) -> [SavingsContributors.Item] {
+        guard let outside else { return [] }
+        let months = outside.scoredMonths
+            .filter { (start == nil || $0.monthAnchor >= start!) && (end == nil || $0.monthAnchor <= end!) }
+            .map { SavingsContributors.Item(part: .month($0.monthAnchor), net: $0.difference) }
+        let differences = outsideDifferences(from: start, through: end)
+            .map { SavingsContributors.Item(part: .difference($0.reason), net: $0.amount) }
+        return months + differences
+    }
+
+    private func outsideContributors(from start: Int?, through end: Int?) -> SavingsContributors? {
+        guard let total = outsideAllocations(from: start, through: end) else { return nil }
+        let items = outsideParts(from: start, through: end)
+        guard !items.isEmpty else { return nil }
+        let counted = wholeMonth.scoredMonths.filter {
+            (start == nil || $0.monthAnchor >= start!) && (end == nil || $0.monthAnchor <= end!)
+        }
+        return SavingsContributors(
+            items: items, total: total,
+            firstMonth: counted.first?.monthAnchor, lastMonth: counted.last?.monthAnchor)
+    }
+
     /// What `outsideTiming` is made of, so the Saved card can name it instead of one vague line.
     struct OutsideDifference: Equatable {
-        enum Reason: Equatable {
+        enum Reason: Equatable, Hashable {
             /// Months whose categories were given more than the month's budget: the amount by which
             /// they went over it. Those months have no unallocated budget for the outside series.
             case categoriesAboveBudget
