@@ -602,70 +602,46 @@ struct BudgetHistoryContentView: View {
     private func monthDetail(_ anchor: Int) -> some View {
         if let detail = viewModel.monthDetail(anchor) {
             VStack(alignment: .leading, spacing: 0) {
-                if let split = detail.budgetSplit {
-                    detailLine(
-                        "budgetHistory.explain.plan.wholeMonth".localized,
-                        split.budget.maskedCurrencyString(hidden: hidden))
-                    detailLine(
-                        "budgetHistory.explain.inCategories".localized,
-                        (-split.inCategories).maskedSignedCurrencyString(hidden: hidden))
-                    detailLine(
-                        "= " + planLabel, detail.month.planned.maskedCurrencyString(hidden: hidden),
-                        bold: true)
-                } else {
-                    detailLine(planLabel, detail.month.planned.maskedCurrencyString(hidden: hidden))
-                }
-                detailLine(
-                    String(format: "budgetHistory.explain.spent.format".localized, detail.expenseCount),
-                    (-detail.month.spent).maskedSignedCurrencyString(hidden: hidden))
-                detailLine(
-                    "= " + BudgetHistoryViewModel.longMonth(anchor),
-                    detail.month.difference.maskedSignedCurrencyString(hidden: hidden),
-                    tint: hidden ? nil : (detail.month.difference >= 0 ? Colors.mainGreen : Colors.mainRed),
-                    bold: true)
-                if detail.budgetSplit != nil && detail.month.difference > 0 {
-                    // The question this answers: which expense made this number? None did.
-                    Text("budgetHistory.explain.outside.unspent".localized)
-                        .font(.system(size: 11))
-                        .foregroundStyle(Color(Colors.gray500))
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.top, Metrics.spacing1)
-                }
-                if !detail.biggest.isEmpty {
-                    Text("budgetHistory.contrib.topExpenses".localized)
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(Color(Colors.gray500))
-                        .padding(.top, Metrics.spacing2)
-                        .padding(.bottom, Metrics.spacing1)
-                }
-                ForEach(Array(detail.biggest.enumerated()), id: \.offset) { _, transaction in
-                    SwiftUI.Button {
-                        viewModel.onOpenTransaction?(transaction)
-                    } label: {
-                        HStack {
-                            Text(transaction.title)
-                                .font(.system(size: 12))
-                                .foregroundStyle(Color(Colors.gray700))
-                                .lineLimit(1)
-                            Spacer(minLength: Metrics.spacing2)
-                            Text((-transaction.amount).maskedSignedCurrencyString(hidden: hidden))
-                                .font(.system(size: 12, weight: .medium))
-                                .foregroundStyle(Color(Colors.gray600))
-                                .fixedSize()
-                            Image(systemName: "chevron.right")
-                                .font(.system(size: 10, weight: .semibold))
-                                .foregroundStyle(Color(Colors.gray400))
-                        }
-                        .padding(.vertical, 6)
-                        .contentShape(Rectangle())
+                VStack(alignment: .leading, spacing: 0) {
+                    if let split = detail.budgetSplit {
+                        detailLine(
+                            "budgetHistory.explain.plan.wholeMonth".localized,
+                            split.budget.maskedCurrencyString(hidden: hidden))
+                        detailLine(
+                            "budgetHistory.explain.inCategories".localized,
+                            (-split.inCategories).maskedSignedCurrencyString(hidden: hidden))
+                        detailLine(
+                            "= " + planLabel, detail.month.planned.maskedCurrencyString(hidden: hidden),
+                            bold: true)
+                    } else {
+                        detailLine(planLabel, detail.month.planned.maskedCurrencyString(hidden: hidden))
                     }
-                    .buttonStyle(.plain)
+                    detailLine(
+                        String(format: "budgetHistory.explain.spent.format".localized, detail.expenseCount),
+                        (-detail.month.spent).maskedSignedCurrencyString(hidden: hidden))
+                    detailLine(
+                        "= " + BudgetHistoryViewModel.longMonth(anchor),
+                        detail.month.difference.maskedSignedCurrencyString(hidden: hidden),
+                        tint: hidden ? nil : (detail.month.difference >= 0 ? Colors.mainGreen : Colors.mainRed),
+                        bold: true)
+                    if detail.budgetSplit != nil && detail.month.difference > 0 {
+                        // The question this answers: which expense made this number? None did.
+                        note("budgetHistory.explain.outside.unspent".localized)
+                    }
+                }
+                .modifier(DetailBand())
+
+                if !detail.biggest.isEmpty {
+                    Separator()
+                    GroupLabel(text: "budgetHistory.contrib.topExpenses".localized, tint: Colors.gray500)
+                    ForEach(Array(detail.biggest.enumerated()), id: \.offset) { _, transaction in
+                        Separator()
+                        ExpenseRow(transaction: transaction, hidden: hidden) {
+                            viewModel.onOpenTransaction?(transaction)
+                        }
+                    }
                 }
             }
-            .padding(.leading, Self.detailIndent)
-            .padding(.trailing, Metrics.spacing5)
-            .padding(.vertical, Metrics.spacing2)
-            .background(Color(Colors.gray200).opacity(0.5))
         }
     }
 
@@ -676,83 +652,63 @@ struct BudgetHistoryContentView: View {
         VStack(alignment: .leading, spacing: 0) {
             switch difference.reason {
             case .categoriesAboveBudget, .noMonthBudget:
-                ForEach(difference.months, id: \.self) { anchor in
-                    let split = viewModel.budgetSplit(anchor)
-                    detailLine(BudgetHistoryViewModel.longMonth(anchor), "", bold: true)
-                    detailLine("budgetHistory.explain.plan.wholeMonth".localized,
-                        split.budget.maskedCurrencyString(hidden: hidden))
-                    detailLine("budgetHistory.explain.inCategories".localized,
-                        (-split.inCategories).maskedSignedCurrencyString(hidden: hidden))
-                    detailLine("=", (split.budget - split.inCategories).maskedSignedCurrencyString(hidden: hidden),
-                        tint: hidden ? nil : Colors.mainRed, bold: true)
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(difference.months, id: \.self) { anchor in
+                        let split = viewModel.budgetSplit(anchor)
+                        detailLine(BudgetHistoryViewModel.longMonth(anchor), "", bold: true)
+                        detailLine("budgetHistory.explain.plan.wholeMonth".localized,
+                            split.budget.maskedCurrencyString(hidden: hidden))
+                        detailLine("budgetHistory.explain.inCategories".localized,
+                            (-split.inCategories).maskedSignedCurrencyString(hidden: hidden))
+                        detailLine("=", (split.budget - split.inCategories).maskedSignedCurrencyString(hidden: hidden),
+                            tint: hidden ? nil : Colors.mainRed, bold: true)
+                    }
+                    note("budgetHistory.diff.note.aboveBudget".localized)
                 }
-                note("budgetHistory.diff.note.aboveBudget".localized)
+                .modifier(DetailBand())
             case .spentOutsideWithNoRoom:
-                let expenses = viewModel.outsideExpenses(in: difference.months)
-                ForEach(Array(expenses.enumerated()), id: \.offset) { _, transaction in
-                    expenseLink(transaction, month: BudgetHistoryViewModel.shortMonth(transaction.budgetMonthDate))
+                VStack(alignment: .leading, spacing: 0) {
+                    note("budgetHistory.diff.note.spentNoRoom".localized)
                 }
-                note("budgetHistory.diff.note.spentNoRoom".localized)
+                .modifier(DetailBand())
+                ForEach(Array(viewModel.outsideExpenses(in: difference.months).enumerated()), id: \.offset) {
+                    _, transaction in
+                    Separator()
+                    ExpenseRow(transaction: transaction, hidden: hidden) {
+                        viewModel.onOpenTransaction?(transaction)
+                    }
+                }
             case .otherMonth:
-                note("budgetHistory.diff.note.otherMonth".localized)
+                VStack(alignment: .leading, spacing: 0) {
+                    note("budgetHistory.diff.note.otherMonth".localized)
+                }
+                .modifier(DetailBand())
             }
         }
-        .padding(.leading, Self.detailIndent)
-        .padding(.trailing, Metrics.spacing5)
-        .padding(.vertical, Metrics.spacing2)
-        .background(Color(Colors.gray200).opacity(0.5))
     }
-
-    /// Lines up detail text with the row title above it: padding, icon box and gap.
-    private static let detailIndent = Metrics.spacing5 + 32 + Metrics.spacing3
 
     private func note(_ text: String) -> some View {
         Text(text)
-            .font(.system(size: 11))
+            .font(Font(Fonts.textXS.font))
             .foregroundStyle(Color(Colors.gray500))
             .fixedSize(horizontal: false, vertical: true)
             .padding(.top, Metrics.spacing1)
     }
 
-    private func expenseLink(_ transaction: Transaction, month: String) -> some View {
-        SwiftUI.Button {
-            viewModel.onOpenTransaction?(transaction)
-        } label: {
-            HStack {
-                Text(transaction.title)
-                    .font(.system(size: 12))
-                    .foregroundStyle(Color(Colors.gray700))
-                    .lineLimit(1)
-                Text(month)
-                    .font(.system(size: 11))
-                    .foregroundStyle(Color(Colors.gray400))
-                Spacer(minLength: Metrics.spacing2)
-                Text((-transaction.amount).maskedSignedCurrencyString(hidden: hidden))
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(Color(Colors.gray600))
-                    .fixedSize()
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(Color(Colors.gray400))
-            }
-            .padding(.vertical, 6)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-    }
-
     private func detailLine(_ label: String, _ value: String, tint: UIColor? = nil, bold: Bool = false) -> some View {
         HStack {
             Text(label)
-                .font(.system(size: 12, weight: bold ? .semibold : .regular))
+                .font(Font(bold ? Fonts.textSMBold.font : Fonts.textSM.font))
                 .foregroundStyle(Color(Colors.gray700))
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
             Spacer(minLength: Metrics.spacing2)
             Text(value)
-                .font(.system(size: 12, weight: bold ? .semibold : .medium))
+                .font(Font(bold ? Fonts.textSMBold.font : Fonts.textSM.font))
                 .foregroundStyle(Color(tint ?? Colors.gray600))
                 .fixedSize()
         }
-        .padding(.vertical, 3)
+        .padding(.vertical, Metrics.spacing1)
         .accessibilityElement(children: .combine)
     }
 
@@ -960,6 +916,69 @@ private struct IconBox<Icon: View>: View {
                 RoundedRectangle(cornerRadius: CornerRadius.medium).fill(Color(Colors.gray200)))
             .overlay(
                 RoundedRectangle(cornerRadius: CornerRadius.medium).stroke(Color(Colors.gray300), lineWidth: 1))
+    }
+}
+
+/// The tinted band an opened row shows its arithmetic in, indented to the row title.
+private struct DetailBand: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .padding(.leading, Metrics.spacing5 + Metrics.spacing8 + Metrics.spacing3)
+            .padding(.trailing, Metrics.spacing5)
+            .padding(.vertical, Metrics.spacing3)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color(Colors.gray200).opacity(0.5))
+    }
+}
+
+/// One expense in the transaction cell's style: category icon box, bold title, date and category,
+/// bold amount. A tap opens its details.
+private struct ExpenseRow: View {
+    let transaction: Transaction
+    let hidden: Bool
+    let onTap: () -> Void
+
+    private static let dateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "dd/MM/yyyy"
+        return formatter
+    }()
+
+    var body: some View {
+        SwiftUI.Button(action: onTap) {
+            HStack(spacing: Metrics.spacing3) {
+                IconBox {
+                    if let icon = UIImage(named: transaction.category.iconName(for: transaction.type)) {
+                        Image(uiImage: icon).resizable().renderingMode(.template).scaledToFit()
+                    }
+                }
+                VStack(alignment: .leading, spacing: Metrics.spacing1) {
+                    Text(transaction.title)
+                        .font(Font(Fonts.textSMBold.font))
+                        .foregroundStyle(Color(Colors.gray700))
+                        .lineLimit(1)
+                    Text(Self.dateFormatter.string(from: transaction.date) + " · " + transaction.category.displayName)
+                        .font(Font(Fonts.textXS.font))
+                        .foregroundStyle(Color(Colors.gray500))
+                        .lineLimit(1)
+                }
+                Spacer(minLength: Metrics.spacing2)
+                Text((-transaction.amount).maskedSignedCurrencyString(hidden: hidden))
+                    .font(Font(Fonts.textSMBold.font))
+                    .foregroundStyle(Color(Colors.gray700))
+                    .lineLimit(1)
+                    .fixedSize()
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(Color(Colors.gray400))
+            }
+            .padding(.horizontal, Metrics.spacing5)
+            .frame(minHeight: ContributorRow<EmptyView>.rowHeight)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
     }
 }
 
