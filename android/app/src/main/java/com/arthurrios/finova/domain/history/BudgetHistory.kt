@@ -196,6 +196,19 @@ data class BudgetHistory(
     /** Closed months, oldest first: what the savings start can be set to. */
     val closedMonths: List<YearMonth> get() = months.filter { it != current }
 
+    /**
+     * The same history with the open month counted as if it closed today: what it has left, or is
+     * over, so far. Read only for "Only" on the open month; every other figure leaves it out.
+     */
+    fun countingOpenMonthSoFar(): BudgetHistory {
+        fun closed(series: BudgetHistorySeries) = series.copy(months = series.months.map { it.copy(isCurrent = false) })
+        // The month before the window is never in it, so as the open month it leaves every month closed.
+        return copy(
+            current = months.firstOrNull()?.minusMonths(1) ?: current,
+            wholeMonth = closed(wholeMonth), categories = categories.map(::closed), outside = outside?.let(::closed),
+        )
+    }
+
     val filters: List<BudgetHistoryFilter> get() = listOf(BudgetHistoryFilter.WholeMonth) + categories.map { it.filter }
 
     fun series(filter: BudgetHistoryFilter): BudgetHistorySeries? = when (filter) {

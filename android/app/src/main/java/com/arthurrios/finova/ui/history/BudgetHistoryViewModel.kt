@@ -24,6 +24,15 @@ import java.time.YearMonth
 /** How many months the chart shows, ending at the open month. */
 enum class HistorySpan(val months: Int) { SixMonths(6), TwelveMonths(12) }
 
+/** Which months the Saved and "Why" cards count, both ending at the selected month. */
+enum class SavingsScope {
+    /** From the chosen start up to the selected month: the running total. */
+    UpTo,
+
+    /** The selected month alone, so its own savers and overspenders can be read. */
+    Only,
+}
+
 /**
  * What the budget history screen draws. Pure: every derived figure is read from [history] and the
  * user's choices, so the selection rules are testable without a database.
@@ -35,6 +44,8 @@ data class BudgetHistoryUiState(
     val selected: YearMonth = YearMonth.now(),
     /** First closed month counted in "saved". Null counts from the first month that had a plan. */
     val savingsStart: YearMonth? = null,
+    /** Not remembered: "only" is a closer look at one month, and the screen opens on the running total. */
+    val savingsScope: SavingsScope = SavingsScope.UpTo,
     val valuesHidden: Boolean = false,
     val currencyCode: String = "BRL",
     val isLoaded: Boolean = false,
@@ -70,6 +81,18 @@ data class BudgetHistoryUiState(
     /** The last month Saved includes: the selected month, or the closed month before an open one. */
     val savingsEndMonth: YearMonth? get() = savingsEnd?.let { end -> history.closedMonths.lastOrNull { it <= end } }
 
+    /** The first month Saved counts: the chosen start, or the selected month itself under [SavingsScope.Only]. */
+    val countedStart: YearMonth? get() = if (savingsScope == SavingsScope.Only) savingsEnd else savingsStart
+
+    /**
+     * "Only" is on and the selected month is still open. Its figures are what it has left, or is over,
+     * up to today - not saved yet - so the screen labels them "so far" and keeps what is left grey.
+     */
+    val isSoFar: Boolean get() = savingsScope == SavingsScope.Only && selectedMonth?.isCurrent == true
+
+    /** The history the Saved and "Why" figures read: the open month counted so far under [isSoFar]. */
+    private val countedHistory: BudgetHistory get() = if (isSoFar) history.countingOpenMonthSoFar() else history
+
     val savings: BudgetHistorySeries.Savings get() = savings(filter)
 
     /**
@@ -77,11 +100,11 @@ data class BudgetHistoryUiState(
      * as its row in the list and in the whole month's "Why" card.
      */
     fun savings(filter: BudgetHistoryFilter): BudgetHistorySeries.Savings =
-        if (filter == BudgetHistoryFilter.OutsideAllocations) history.outsideSavings(savingsStart, savingsEnd) ?: BudgetHistorySeries.Savings.None
-        else history.series(filter)?.savings(savingsStart, savingsEnd) ?: BudgetHistorySeries.Savings.None
+        if (filter == BudgetHistoryFilter.OutsideAllocations) countedHistory.outsideSavings(countedStart, savingsEnd) ?: BudgetHistorySeries.Savings.None
+        else countedHistory.series(filter)?.savings(countedStart, savingsEnd) ?: BudgetHistorySeries.Savings.None
 
     /** What made the Saved figure, over the same months it counts. */
-    val contributors: SavingsContributors? get() = history.contributors(filter, savingsStart, savingsEnd)
+    val contributors: SavingsContributors? get() = countedHistory.contributors(filter, countedStart, savingsEnd)
 
     /** One month of the chosen filter as the detail under its row: the sum, the expense count, the three biggest. */
     data class MonthDetail(
@@ -114,7 +137,7 @@ data class BudgetHistoryUiState(
 
     /** The named parts of the outside remainder, while that filter is chosen. */
     val outsideDifferences: List<BudgetHistory.OutsideDifference>
-        get() = if (outsideTiming == null) emptyList() else history.outsideDifferences(savingsStart, savingsEnd)
+        get() = if (outsideTiming == null) emptyList() else countedHistory.outsideDifferences(countedStart, savingsEnd)
 
     /** Opens a part of the "Why" card, remembering where it came from. */
     fun drilled(into: BudgetHistoryFilter): BudgetHistoryUiState =
@@ -142,14 +165,14 @@ data class BudgetHistoryUiState(
 
     /** The remainder row under the categories. Null with no categories: nothing to reconcile. */
     val outsideAllocations: Long?
-        get() = if (history.categories.isEmpty()) null else history.outsideAllocations(savingsStart, savingsEnd)
+        get() = if (history.categories.isEmpty()) null else countedHistory.outsideAllocations(countedStart, savingsEnd)
 
     /**
      * What the outside series does not explain, since [savingsStart]. Shown under the Saved card
      * while the outside filter is chosen, so that card plus this line equal its row in the list.
      */
     val outsideTiming: Long?
-        get() = if (filter == BudgetHistoryFilter.OutsideAllocations) history.outsideTiming(savingsStart, savingsEnd) else null
+        get() = if (filter == BudgetHistoryFilter.OutsideAllocations) countedHistory.outsideTiming(countedStart, savingsEnd) else null
 
     /** The month the arrows step to, or null at either end of the bars on screen. */
     fun neighbour(offset: Int): YearMonth? {
@@ -236,6 +259,8 @@ class BudgetHistoryViewModel(
         settings.setBudgetHistorySavingsStart(uid, start)
         _state.update { it.copy(savingsStart = start) }
     }
+
+    fun selectSavingsScope(scope: SavingsScope) = _state.update { it.copy(savingsScope = scope) }
 
     fun toggleValues() {
         val hidden = !_state.value.valuesHidden

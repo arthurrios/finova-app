@@ -11,6 +11,7 @@ import com.arthurrios.finova.domain.model.TransactionCategory.Meals
 import com.arthurrios.finova.domain.model.TransactionCategory.Travel
 import com.arthurrios.finova.domain.model.TransactionType
 import com.arthurrios.finova.ui.history.BudgetHistoryUiState
+import com.arthurrios.finova.ui.history.SavingsScope
 import com.arthurrios.finova.ui.history.previewEnding
 import com.arthurrios.finova.domain.history.SavingsContributors
 import org.junit.Assert.assertEquals
@@ -378,6 +379,42 @@ class BudgetHistoryTest {
         s = s.copy(selected = months[2])
         assertEquals(3, s.savings.months)
         assertEquals(months[2], s.savingsEndMonth)
+    }
+
+    @Test fun onlyCountsTheSelectedMonthAndTheWhyCardFollows() {
+        val h = history(totals = months.associateWith { BudgetHistory.MonthTotal(100, 90) })
+        var s = BudgetHistoryUiState().withHistory(h, firstLoad = true).copy(selected = months[2], savingsScope = SavingsScope.Only)
+        assertEquals(1, s.savings.months)
+        assertEquals(10L, s.savings.net)
+        assertEquals(10L, s.contributors?.total)
+        assertEquals(months[2], s.contributors?.firstMonth)
+        assertFalse(s.isSoFar)
+        // Scrubbing the chart moves the one month counted.
+        s = s.copy(selected = months[4])
+        assertEquals(months[4], s.contributors?.firstMonth)
+    }
+
+    @Test fun onlyIgnoresTheChosenStartWithoutChangingIt() {
+        val h = history(totals = months.associateWith { BudgetHistory.MonthTotal(100, 90) })
+        val upTo = BudgetHistoryUiState().withHistory(h, firstLoad = true).copy(selected = months[2], savingsStart = months[3])
+        assertEquals(0, upTo.savings.months)
+        val only = upTo.copy(savingsScope = SavingsScope.Only)
+        assertEquals(1, only.savings.months)
+        assertEquals(months[3], only.savingsStart)
+    }
+
+    @Test fun onlyOnTheOpenMonthCountsItSoFar() {
+        val h = history(totals = months.associateWith { BudgetHistory.MonthTotal(100, 90) })
+        val s = BudgetHistoryUiState().withHistory(h, firstLoad = true).copy(savingsScope = SavingsScope.Only)
+        // What the open month has left up to today, and the Why card adds up to the same.
+        assertTrue(s.isSoFar)
+        assertEquals(1, s.savings.months)
+        assertEquals(s.savings.net, s.contributors?.total)
+        assertEquals(current, s.contributors?.firstMonth)
+        // The running total still leaves the open month out.
+        val upTo = s.copy(savingsScope = SavingsScope.UpTo)
+        assertFalse(upTo.isSoFar)
+        assertEquals(5, upTo.savings.months)
     }
 
     // ---- Trimming

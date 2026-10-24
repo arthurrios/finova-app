@@ -650,6 +650,12 @@
     <string name="history_readout_spent_outside">Gasto fora das categorias</string>
     <string name="history_readout_spent_whole">Gasto no mês</string>
     <string name="history_savings_through_format">Até %s</string>
+    <string name="history_savings_only_format">Só %s</string>
+    <string name="history_savings_only_none_format">%s não teve plano</string>
+    <string name="history_savings_so_far_format">%s até agora</string>
+    <string name="history_savings_so_far_detail_format">%1$s restante · %2$s acima</string>
+    <string name="history_contrib_left_so_far">Mais sobra até agora</string>
+    <string name="history_contrib_total_so_far">= Até agora</string>
     <string name="history_section_chart">Gasto por mês</string>
     <string name="history_section_insights">Em resumo</string>
     <string name="history_transactions_empty">Nenhum gasto neste mês</string>

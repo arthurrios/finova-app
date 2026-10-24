@@ -184,7 +184,11 @@ fun BudgetHistoryScreen(viewModel: BudgetHistoryViewModel, onBack: () -> Unit, o
                     viewModel.selectMonth(month)
                 }
             }
-            SavingsCard(state, onStart = { tick(); viewModel.selectSavingsStart(it) })
+            SavingsCard(
+                state,
+                onStart = { tick(); viewModel.selectSavingsStart(it) },
+                onScope = { tick(); viewModel.selectSavingsScope(it) },
+            )
             state.contributors?.let { contributors ->
                 Box(Modifier.onGloballyPositioned { whyOffset = it.positionInParent().y.toInt() }) {
                     ContributorsCard(
@@ -408,10 +412,15 @@ private fun DetailLine(label: String, value: String, tint: Color = FinovaColors.
 @Composable
 private fun Note(text: String) = Text(text, style = FinovaType.TextXS, color = FinovaColors.Gray500, modifier = Modifier.padding(top = Spacing.S1))
 
-private fun outcomeTint(value: Long, hidden: Boolean) = when {
+/**
+ * Green for saved and red for over. What the open month has left so far ([soFar]) is grey: it is not
+ * saved yet, and the days left can still use it. An overspend stays red - it cannot be undone.
+ */
+private fun outcomeTint(value: Long, hidden: Boolean, soFar: Boolean = false) = when {
     hidden -> FinovaColors.Gray700
-    value >= 0 -> FinovaColors.MainGreen
-    else -> FinovaColors.MainRed
+    value < 0 -> FinovaColors.MainRed
+    soFar -> FinovaColors.Gray700
+    else -> FinovaColors.MainGreen
 }
 
 // ---- Controls --------------------------------------------------------------------------------------
@@ -631,25 +640,38 @@ private fun LegendItem(color: Color, label: String) {
 
 // ---- Savings ---------------------------------------------------------------------------------------
 
-/** What the chosen filter saved in closed months, from a start month the user picks up to the selected one. */
+/**
+ * What the chosen filter saved in closed months: from a start month the user picks up to the selected
+ * one, or the selected month alone. The start menu only applies to the first.
+ */
 @Composable
-private fun SavingsCard(state: BudgetHistoryUiState, onStart: (YearMonth?) -> Unit) {
+private fun SavingsCard(state: BudgetHistoryUiState, onStart: (YearMonth?) -> Unit, onScope: (SavingsScope) -> Unit) {
     val savings = state.savings
     val hidden = state.valuesHidden
-    SectionCard(stringResource(R.string.history_savings_title), accessory = { SavingsStartMenu(state, onStart) }) {
+    val accessory: (@Composable () -> Unit)? =
+        if (state.savingsScope == SavingsScope.UpTo) ({ SavingsStartMenu(state, onStart) }) else null
+    SectionCard(stringResource(R.string.history_savings_title), accessory = accessory) {
         Column(verticalArrangement = Arrangement.spacedBy(Spacing.S2), modifier = Modifier.fillMaxWidth().padding(Spacing.S5)) {
+            val selected = state.selectedMonth
+            if (selected != null) {
+                SavingsScopePicker(state.savingsScope, selected.month, onScope)
+                Spacer(Modifier.height(Spacing.S2))
+            }
             if (savings.months == 0) {
-                Text(stringResource(R.string.history_savings_none), style = FinovaType.TextSM, color = FinovaColors.Gray500)
+                // Under "only" it is that one month that had no plan.
+                val none = if (state.savingsScope == SavingsScope.Only && selected != null) stringResource(R.string.history_savings_only_none_format, longMonth(selected.month))
+                    else stringResource(R.string.history_savings_none)
+                Text(none, style = FinovaType.TextSM, color = FinovaColors.Gray500)
             } else {
                 Text(
                     Money.formatMasked(savings.net, state.currencyCode, hidden),
-                    style = FinovaType.TitleLG.copy(fontSize = 24.sp), color = outcomeTint(savings.net, hidden), maxLines = 1,
+                    style = FinovaType.TitleLG.copy(fontSize = 24.sp), color = outcomeTint(savings.net, hidden, state.isSoFar), maxLines = 1,
                 )
                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     // Both sides only when both have something; the net above already says one side.
                     if (!hidden && savings.saved > 0 && savings.overspent > 0) {
                         Text(
-                            stringResource(R.string.history_savings_detail_format, Money.format(savings.saved, state.currencyCode), Money.format(savings.overspent, state.currencyCode)),
+                            stringResource(if (state.isSoFar) R.string.history_savings_so_far_detail_format else R.string.history_savings_detail_format, Money.format(savings.saved, state.currencyCode), Money.format(savings.overspent, state.currencyCode)),
                             style = FinovaType.TextXS, color = FinovaColors.Gray500,
                         )
                     }
@@ -660,9 +682,43 @@ private fun SavingsCard(state: BudgetHistoryUiState, onStart: (YearMonth?) -> Un
     }
 }
 
+/**
+ * "Up to Sep | Only Sep": the running total, or the selected month on its own. Named after the month so
+ * it reads as a choice about that month, and it changes as the chart is scrubbed.
+ */
+@Composable
+private fun SavingsScopePicker(selected: SavingsScope, month: YearMonth, onScope: (SavingsScope) -> Unit) {
+    val name = stringArrayResource(R.array.month_short)[month.monthValue - 1]
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
+        modifier = Modifier.fillMaxWidth().clip(CircleShape).background(FinovaColors.Gray100).border(1.dp, FinovaColors.Gray300, CircleShape).padding(3.dp),
+    ) {
+        SavingsScope.entries.forEach { scope ->
+            val isSelected = scope == selected
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .weight(1f)
+                    .height(28.dp)
+                    .clip(CircleShape)
+                    .background(if (isSelected) FinovaColors.MainMagenta else Color.Transparent)
+                    .clickable(enabled = !isSelected) { onScope(scope) },
+            ) {
+                Text(
+                    stringResource(if (scope == SavingsScope.UpTo) R.string.history_savings_through_format else R.string.history_savings_only_format, name),
+                    fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1,
+                    color = if (isSelected) Color.White else FinovaColors.Gray500,
+                )
+            }
+        }
+    }
+}
+
 /** "Up to September 2026 · 5 closed months": which months the figure adds up, so it is clear it moves with the chart. */
 @Composable
 private fun savingsPeriod(state: BudgetHistoryUiState, savings: BudgetHistorySeries.Savings): String {
+    if (state.isSoFar) state.selectedMonth?.let { return stringResource(R.string.history_savings_so_far_format, longMonth(it.month)) }
+    if (state.savingsScope == SavingsScope.Only) state.savingsEndMonth?.let { return longMonth(it) }
     val months = if (savings.months == 1) stringResource(R.string.history_savings_months_one) else stringResource(R.string.history_savings_months_format, savings.months)
     val end = state.savingsEndMonth ?: return months
     return stringResource(R.string.history_savings_through_format, longMonth(end)) + " · " + months
@@ -735,7 +791,10 @@ private fun ContributorsCard(
 
     SectionCard(title) {
         if (contributors.savers.isNotEmpty()) {
-            GroupLabel(stringResource(R.string.history_contrib_saved), FinovaColors.MainGreen)
+            GroupLabel(
+                stringResource(if (state.isSoFar) R.string.history_contrib_left_so_far else R.string.history_contrib_saved),
+                if (state.isSoFar) FinovaColors.Gray500 else FinovaColors.MainGreen,
+            )
             contributors.savers.forEach { Separator(); row(it) }
         }
         if (contributors.overspenders.isNotEmpty()) {
@@ -751,7 +810,7 @@ private fun ContributorsCard(
                 title = stringResource(R.string.history_contrib_others_format, contributors.othersCount),
                 amount = Money.formatMasked(contributors.others, state.currencyCode, hidden),
                 // Coloured by direction like every named line, so it is clear which way the rest moved Saved.
-                tint = outcomeTint(contributors.others, hidden),
+                tint = outcomeTint(contributors.others, hidden, state.isSoFar),
                 accessory = if (showsOthers) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
             ) { showsOthers = !showsOthers }
             if (showsOthers) contributors.rest.forEach { Separator(); row(it) }
@@ -759,10 +818,10 @@ private fun ContributorsCard(
         val first = contributors.firstMonth
         val last = contributors.lastMonth
         CardFooter(
-            label = stringResource(R.string.history_contrib_total),
+            label = stringResource(if (state.isSoFar) R.string.history_contrib_total_so_far else R.string.history_contrib_total),
             caption = if (first != null && last != null) periodTitle(first, last) else null,
             value = Money.formatMasked(contributors.total, state.currencyCode, hidden),
-            tint = outcomeTint(contributors.total, hidden),
+            tint = outcomeTint(contributors.total, hidden, state.isSoFar),
         )
     }
 }
@@ -779,7 +838,7 @@ private fun ContributorItem(
 ) {
     val hidden = state.valuesHidden
     val amount = Money.formatMasked(item.net, state.currencyCode, hidden)
-    val tint = outcomeTint(item.net, hidden)
+    val tint = outcomeTint(item.net, hidden, state.isSoFar)
     val toggleIcon = if (isOpen) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown
     when (val part = item.part) {
         is SavingsContributors.Part.Category -> ContributorRow(
@@ -854,7 +913,7 @@ private fun MonthDetail(state: BudgetHistoryUiState, month: YearMonth, onOpenTra
             DetailLine(planLabel(state), Money.formatMasked(detail.month.planned, code, hidden))
         }
         DetailLine(stringResource(R.string.history_explain_spent_format, detail.expenseCount), Money.formatMasked(-detail.month.spent, code, hidden))
-        DetailLine("= " + longMonth(month), Money.formatMasked(detail.month.difference, code, hidden), tint = outcomeTint(detail.month.difference, hidden).takeIf { !hidden } ?: FinovaColors.Gray600, bold = true)
+        DetailLine("= " + longMonth(month), Money.formatMasked(detail.month.difference, code, hidden), tint = outcomeTint(detail.month.difference, hidden, state.isSoFar).takeIf { !hidden } ?: FinovaColors.Gray600, bold = true)
         // The question this answers: which expense made this number? None did.
         if (split != null && detail.month.difference > 0) Note(stringResource(R.string.history_explain_outside_unspent))
     }
@@ -956,9 +1015,15 @@ private fun FilterPickerSheet(state: BudgetHistoryUiState, onDismiss: () -> Unit
             modifier = Modifier.padding(start = Spacing.S5, end = Spacing.S5, bottom = Spacing.S3),
         ) {
             Text(stringResource(R.string.history_picker_title), style = FinovaType.TitleMD, color = FinovaColors.Gray700)
-            val end = state.savingsEndMonth?.let { " · " + stringResource(R.string.history_savings_through_format, longMonth(it)) }.orEmpty()
+            // The months the amounts below count, in the words the Saved card uses.
+            val selected = state.selectedMonth
+            val period = if (state.savingsScope == SavingsScope.Only && selected != null) {
+                if (state.isSoFar) stringResource(R.string.history_savings_so_far_format, longMonth(selected.month)) else longMonth(selected.month)
+            }
+                else savingsStartTitle(state.savingsStart) +
+                    state.savingsEndMonth?.let { " · " + stringResource(R.string.history_savings_through_format, longMonth(it)) }.orEmpty()
             Text(
-                stringResource(R.string.history_savings_title) + " · " + savingsStartTitle(state.savingsStart) + end,
+                stringResource(R.string.history_savings_title) + " · " + period,
                 style = FinovaType.TextXS, color = FinovaColors.Gray500,
             )
         }
@@ -993,7 +1058,7 @@ private fun FilterRow(state: BudgetHistoryUiState, filter: BudgetHistoryFilter, 
         Text(
             if (savings.months == 0) stringResource(R.string.history_insight_none) else Money.formatMasked(savings.net, state.currencyCode, hidden),
             style = FinovaType.TextSMBold, maxLines = 1,
-            color = if (savings.months == 0 || hidden) FinovaColors.Gray500 else outcomeTint(savings.net, false),
+            color = if (savings.months == 0 || hidden) FinovaColors.Gray500 else outcomeTint(savings.net, false, state.isSoFar),
         )
         Icon(Icons.Filled.Check, null, tint = if (isSelected) FinovaColors.MainMagenta else Color.Transparent, modifier = Modifier.size(16.dp))
     }
@@ -1021,7 +1086,7 @@ private fun OutsideRow(amount: Long, state: BudgetHistoryUiState, onPick: (Budge
         Text(
             if (hidden) HiddenValue else Money.format(amount, state.currencyCode),
             style = FinovaType.TextSMBold, maxLines = 1,
-            color = if (hidden) FinovaColors.Gray500 else outcomeTint(amount, false),
+            color = if (hidden) FinovaColors.Gray500 else outcomeTint(amount, false, state.isSoFar),
         )
         Icon(Icons.Filled.Check, null, tint = if (isSelected) FinovaColors.MainMagenta else Color.Transparent, modifier = Modifier.size(16.dp))
     }

@@ -655,6 +655,12 @@
     <string name="history_readout_spent_outside">Spent outside categories</string>
     <string name="history_readout_spent_whole">Spent this month</string>
     <string name="history_savings_through_format">Up to %s</string>
+    <string name="history_savings_only_format">Only %s</string>
+    <string name="history_savings_only_none_format">%s had no plan</string>
+    <string name="history_savings_so_far_format">%s so far</string>
+    <string name="history_savings_so_far_detail_format">%1$s left · %2$s over</string>
+    <string name="history_contrib_left_so_far">Most left so far</string>
+    <string name="history_contrib_total_so_far">= So far</string>
     <string name="history_section_chart">Spending by month</string>
     <string name="history_section_insights">At a glance</string>
     <string name="history_transactions_empty">No spending in this month</string>
