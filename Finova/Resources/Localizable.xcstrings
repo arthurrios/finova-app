@@ -4130,6 +4130,24 @@
         }
       }
     },
+    "budgetHistory.contrib.leftSoFar": {
+      "comment": "Why card group on the open month: categories with the most left so far.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Most left so far"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mais sobra até agora"
+          }
+        }
+      }
+    },
     "budgetHistory.contrib.others.format": {
       "comment": "Everything not named in the Why card, summed. %d is how many parts.",
       "extractionState": "manual",
@@ -4216,6 +4234,24 @@
           "stringUnit": {
             "state": "translated",
             "value": "= Economizado"
+          }
+        }
+      }
+    },
+    "budgetHistory.contrib.total.soFar": {
+      "comment": "Why card total on the open month.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "= So far"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "= Até agora"
           }
         }
       }
@@ -5264,6 +5300,42 @@
         }
       }
     },
+    "budgetHistory.savings.only.format": {
+      "comment": "Savings switch: count only the selected month. %@ is a short month, e.g. Sep.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Only %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Só %@"
+          }
+        }
+      }
+    },
+    "budgetHistory.savings.onlyNone.format": {
+      "comment": "Savings card under 'Only' when the selected month had no plan. %@ is a month and year.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ had no plan"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ não teve plano"
+          }
+        }
+      }
+    },
     "budgetHistory.savings.since.format": {
       "comment": "Savings start. %@ is a month and year, e.g. March 2026.",
       "extractionState": "manual",
@@ -5296,6 +5368,42 @@
           "stringUnit": {
             "state": "translated",
             "value": "Desde o início"
+          }
+        }
+      }
+    },
+    "budgetHistory.savings.soFar.format": {
+      "comment": "Savings card under 'Only' on the open month. %@ is a month and year.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ so far"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ até agora"
+          }
+        }
+      }
+    },
+    "budgetHistory.savings.soFarDetail.format": {
+      "comment": "Savings card under 'Only' on the open month: what is left so far, then what is already over.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ left · %2$@ over"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ restante · %2$@ acima"
           }
         }
       }

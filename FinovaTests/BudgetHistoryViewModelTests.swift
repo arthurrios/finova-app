@@ -176,6 +176,68 @@ final class BudgetHistoryViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.savingsEndMonth, months[9])
     }
 
+    // MARK: - Up to / Only
+
+    func testOnlyCountsTheSelectedMonthAndTheWhyCardFollows() {
+        let months = anchors(endingAt: reference)
+        let viewModel = makeViewModel(StubReader(history(anchors: months)), monthAnchor: months[9])
+        XCTAssertEqual(viewModel.savings.months, 10)
+
+        viewModel.select(savingsScope: .only)
+
+        XCTAssertEqual(viewModel.savings.months, 1)
+        XCTAssertEqual(viewModel.savings.net, 100)
+        XCTAssertEqual(viewModel.contributors?.total, 100)
+        XCTAssertEqual(viewModel.contributors?.firstMonth, months[9])
+        XCTAssertEqual(viewModel.contributors?.lastMonth, months[9])
+        XCTAssertFalse(viewModel.isSoFar)
+
+        // Scrubbing the chart moves the one month counted.
+        viewModel.select(month: months[11])
+        XCTAssertEqual(viewModel.contributors?.firstMonth, months[11])
+    }
+
+    func testOnlyIgnoresTheChosenStartWithoutChangingIt() {
+        let months = anchors(endingAt: reference)
+        let viewModel = makeViewModel(StubReader(history(anchors: months)), monthAnchor: months[9])
+        viewModel.select(savingsStart: months[10])
+        XCTAssertEqual(viewModel.savings.months, 0)
+
+        viewModel.select(savingsScope: .only)
+        XCTAssertEqual(viewModel.savings.months, 1)
+        XCTAssertEqual(viewModel.savingsStart, months[10])
+
+        viewModel.select(savingsScope: .upTo)
+        XCTAssertEqual(viewModel.savings.months, 0)
+    }
+
+    func testOnlyOnTheOpenMonthCountsItSoFar() {
+        let months = anchors(endingAt: reference)
+        let viewModel = makeViewModel(StubReader(history(anchors: months)))
+        XCTAssertFalse(viewModel.isSoFar)
+
+        viewModel.select(savingsScope: .only)
+
+        // What the open month has left up to today, and the Why card adds up to the same.
+        XCTAssertTrue(viewModel.isSoFar)
+        XCTAssertEqual(viewModel.savings.months, 1)
+        XCTAssertEqual(viewModel.savings.net, 100)
+        XCTAssertEqual(viewModel.contributors?.total, 100)
+        XCTAssertEqual(viewModel.contributors?.firstMonth, months.last)
+
+        // The running total still leaves the open month out.
+        viewModel.select(savingsScope: .upTo)
+        XCTAssertFalse(viewModel.isSoFar)
+        XCTAssertEqual(viewModel.savings.months, 12)
+    }
+
+    func testTheScreenOpensOnUpToEveryTime() {
+        let months = anchors(endingAt: reference)
+        makeViewModel(StubReader(history(anchors: months))).select(savingsScope: .only)
+
+        XCTAssertEqual(makeViewModel(StubReader(history(anchors: months))).savingsScope, .upTo)
+    }
+
     func testStartIsKeptEvenWhenTheWindowMovesPastIt() {
         // Only the user changes the start. A month later the window no longer shows it, and the total
         // still counts from it rather than quietly switching to "since the start".

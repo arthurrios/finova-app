@@ -475,6 +475,20 @@ struct BudgetHistory: Equatable {
         self.outside = outside
     }
 
+    /// The same history with the open month counted as if it closed today: what it has left, or is
+    /// over, so far. Read only for "Only" on the open month - every other figure leaves it out.
+    func countingOpenMonthSoFar() -> BudgetHistory {
+        func closed(_ series: BudgetHistorySeries) -> BudgetHistorySeries {
+            BudgetHistorySeries(filter: series.filter, months: series.months.map {
+                BudgetHistoryMonth(monthAnchor: $0.monthAnchor, planned: $0.planned, spent: $0.spent, isCurrent: false)
+            })
+        }
+        // No anchor is zero, so with it as the open month every month in the window counts as closed.
+        return BudgetHistory(
+            monthAnchors: monthAnchors, currentAnchor: 0, wholeMonth: closed(wholeMonth),
+            categories: categories.map(closed), outside: outside.map(closed))
+    }
+
     /// - Parameters:
     ///   - monthAnchors: the window, oldest first. Anything outside it is ignored.
     ///   - currentAnchor: the open month.

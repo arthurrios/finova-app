@@ -369,21 +369,26 @@ struct BudgetHistoryContentView: View {
 
     // MARK: - Savings
 
-    /// What the chosen filter saved in closed months, from a start month the user picks.
+    /// What the chosen filter saved in closed months: from a start month the user picks up to the
+    /// selected month, or the selected month alone. The start menu only applies to the first.
     private var savingsCard: some View {
         let savings = viewModel.savings
-        return SectionCard(title: "budgetHistory.savings.title".localized, accessory: { savingsStartMenu }) {
+        return SectionCard(title: "budgetHistory.savings.title".localized, accessory: {
+            if viewModel.savingsScope == .upTo { savingsStartMenu }
+        }) {
           VStack(alignment: .leading, spacing: Metrics.spacing2) {
+            if let month = viewModel.selectedMonth {
+                savingsScopePicker(month: month.monthAnchor)
+                    .padding(.bottom, Metrics.spacing2)
+            }
             if savings.months == 0 {
-                Text("budgetHistory.savings.none".localized)
+                Text(savingsNoneText)
                     .font(Font(Fonts.textSM.font))
                     .foregroundStyle(Color(Colors.gray500))
             } else {
                 Text(savings.net.maskedSignedCurrencyString(hidden: hidden))
                     .font(.custom(Fonts.titleLG.font.fontName, size: 24))
-                    .foregroundStyle(
-                        hidden ? Color(Colors.gray700)
-                            : savings.net >= 0 ? Color(Colors.mainGreen) : Color(Colors.mainRed))
+                    .foregroundStyle(Color(amountTint(savings.net)))
                     .lineLimit(1)
                     .minimumScaleFactor(0.6)
                     .contentTransition(.numericText())
@@ -404,13 +409,60 @@ struct BudgetHistoryContentView: View {
         .accessibilityElement(children: .contain)
     }
 
+    /// Green for saved and red for over. What the open month has left so far is grey: it is not saved
+    /// yet, and the days left can still use it. An overspend stays red - it cannot be undone.
+    private func amountTint(_ net: Int) -> UIColor {
+        if hidden { return Colors.gray700 }
+        if net < 0 { return Colors.mainRed }
+        return viewModel.isSoFar ? Colors.gray700 : Colors.mainGreen
+    }
+
     /// "R$ 5.119,06 saved · R$ 1.350,09 over", leaving out a side that is zero. Nil while values are
     /// hidden, or when only one side has anything - the net above already says it.
     private func savingsSplit(_ savings: BudgetHistorySeries.Savings) -> String? {
         guard !hidden, savings.saved > 0, savings.overspent > 0 else { return nil }
         return String(
-            format: "budgetHistory.savings.detail.format".localized,
+            format: (viewModel.isSoFar
+                ? "budgetHistory.savings.soFarDetail.format" : "budgetHistory.savings.detail.format").localized,
             savings.saved.currencyString, savings.overspent.currencyString)
+    }
+
+    /// "Up to Sep | Only Sep": the running total, or the selected month on its own. Named after the
+    /// month so it reads as a choice about that month, and it changes as the chart is scrubbed.
+    private func savingsScopePicker(month anchor: Int) -> some View {
+        HStack(spacing: 2) {
+            ForEach(BudgetHistoryViewModel.SavingsScope.allCases, id: \.self) { scope in
+                let isSelected = scope == viewModel.savingsScope
+                SwiftUI.Button {
+                    guard !isSelected else { return }
+                    selectionFeedback.selectionChanged()
+                    withAnimation(.snappy(duration: 0.3)) { viewModel.select(savingsScope: scope) }
+                } label: {
+                    Text(BudgetHistoryViewModel.savingsScopeTitle(scope, month: anchor))
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(isSelected ? Color.white : Color(Colors.gray500))
+                        .lineLimit(1)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 28)
+                        .background(Capsule().fill(isSelected ? Color(Colors.mainMagenta) : Color.clear))
+                        .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(isSelected ? .isSelected : [])
+            }
+        }
+        .padding(3)
+        .background(Capsule().fill(Color(Colors.gray100)))
+        .overlay(Capsule().stroke(Color(Colors.gray300), lineWidth: 1))
+    }
+
+    /// With nothing counted: under "only" it is that one month that had no plan.
+    private var savingsNoneText: String {
+        guard viewModel.savingsScope == .only, let month = viewModel.selectedMonth else {
+            return "budgetHistory.savings.none".localized
+        }
+        return String(format: "budgetHistory.savings.onlyNone.format".localized,
+            BudgetHistoryViewModel.longMonth(month.monthAnchor))
     }
 
     private var savingsStartMenu: some View {
@@ -450,6 +502,13 @@ struct BudgetHistoryContentView: View {
     /// "Up to September 2026 · 5 closed months": which months the figure above adds up, so it is clear
     /// that it moves with the month selected on the chart.
     private func savingsPeriod(_ savings: BudgetHistorySeries.Savings) -> String {
+        if viewModel.isSoFar, let month = viewModel.selectedMonth {
+            return String(format: "budgetHistory.savings.soFar.format".localized,
+                BudgetHistoryViewModel.longMonth(month.monthAnchor))
+        }
+        if viewModel.savingsScope == .only, let end = viewModel.savingsEndMonth {
+            return BudgetHistoryViewModel.longMonth(end)
+        }
         let months = savings.months == 1
             ? "budgetHistory.savings.months.one".localized
             : String(format: "budgetHistory.savings.months.format".localized, savings.months)
@@ -495,7 +554,9 @@ struct BudgetHistoryContentView: View {
             ) {
                 VStack(alignment: .leading, spacing: 0) {
                     if !contributors.savers.isEmpty {
-                        GroupLabel(text: "budgetHistory.contrib.saved".localized, tint: Colors.mainGreen)
+                        GroupLabel(
+                            text: (viewModel.isSoFar ? "budgetHistory.contrib.leftSoFar" : "budgetHistory.contrib.saved").localized,
+                            tint: viewModel.isSoFar ? Colors.gray500 : Colors.mainGreen)
                         ForEach(contributors.savers, id: \.part) { item in
                             Separator()
                             contributorRow(item)
@@ -519,8 +580,7 @@ struct BudgetHistoryContentView: View {
                             amount: contributors.others.maskedSignedCurrencyString(hidden: hidden),
                             // Coloured by direction like every named line, so it is clear which way
                             // the remainder moved Saved.
-                            tint: hidden ? Colors.gray700
-                                : (contributors.others >= 0 ? Colors.mainGreen : Colors.mainRed),
+                            tint: amountTint(contributors.others),
                             accessory: showsOthers ? "chevron.up" : "chevron.down"
                         ) {
                             withAnimation(.easeInOut(duration: 0.2)) { showsOthers.toggle() }
@@ -533,12 +593,12 @@ struct BudgetHistoryContentView: View {
                         }
                     }
                     CardFooter(
-                        label: "budgetHistory.contrib.total".localized,
+                        label: (viewModel.isSoFar ? "budgetHistory.contrib.total.soFar" : "budgetHistory.contrib.total").localized,
                         caption: contributors.firstMonth.flatMap { first in
                             contributors.lastMonth.map { BudgetHistoryViewModel.periodTitle(first, $0) }
                         },
                         value: contributors.total.maskedSignedCurrencyString(hidden: hidden),
-                        tint: hidden ? nil : (contributors.total >= 0 ? Colors.mainGreen : Colors.mainRed))
+                        tint: hidden ? nil : amountTint(contributors.total))
                 }
             }
             .padding(.horizontal, Metrics.spacing4)
@@ -552,7 +612,7 @@ struct BudgetHistoryContentView: View {
     /// A category opens that category; a month opens its three biggest expenses in place.
     @ViewBuilder
     private func contributorRow(_ item: SavingsContributors.Item) -> some View {
-        let tint = item.net >= 0 ? Colors.mainGreen : Colors.mainRed
+        let tint = amountTint(item.net)
         let amount = item.net.maskedSignedCurrencyString(hidden: hidden)
         switch item.part {
         case .category(let category):
@@ -629,7 +689,7 @@ struct BudgetHistoryContentView: View {
                     detailLine(
                         "= " + BudgetHistoryViewModel.longMonth(anchor),
                         detail.month.difference.maskedSignedCurrencyString(hidden: hidden),
-                        tint: hidden ? nil : (detail.month.difference >= 0 ? Colors.mainGreen : Colors.mainRed),
+                        tint: hidden ? nil : amountTint(detail.month.difference),
                         bold: true)
                     if detail.budgetSplit != nil && detail.month.difference > 0 {
                         // The question this answers: which expense made this number? None did.
@@ -1079,15 +1139,23 @@ private struct FilterPickerSheet: View {
     @ObservedObject var viewModel: BudgetHistoryViewModel
     let onPick: (BudgetHistoryFilter) -> Void
 
+    /// The months the amounts below count, in the words the Saved card uses.
+    private var period: String {
+        if viewModel.savingsScope == .only, let month = viewModel.selectedMonth {
+            let name = BudgetHistoryViewModel.longMonth(month.monthAnchor)
+            return viewModel.isSoFar ? String(format: "budgetHistory.savings.soFar.format".localized, name) : name
+        }
+        return BudgetHistoryViewModel.savingsStartTitle(viewModel.savingsStart)
+            + (viewModel.savingsEndMonth.map { " · " + BudgetHistoryViewModel.savingsEndTitle($0) } ?? "")
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: Metrics.spacing1) {
                 Text("budgetHistory.picker.title".localized)
                     .font(Font(Fonts.titleMD.font))
                     .foregroundStyle(Color(Colors.gray700))
-                Text("budgetHistory.savings.title".localized + " · "
-                    + BudgetHistoryViewModel.savingsStartTitle(viewModel.savingsStart)
-                    + (viewModel.savingsEndMonth.map { " · " + BudgetHistoryViewModel.savingsEndTitle($0) } ?? ""))
+                Text("budgetHistory.savings.title".localized + " · " + period)
                     .font(Font(Fonts.textXS.font))
                     .foregroundStyle(Color(Colors.gray500))
             }
@@ -1139,7 +1207,8 @@ private struct FilterPickerSheet: View {
                     .font(Font(Fonts.textSMBold.font))
                     .foregroundStyle(
                         hidden ? Color(Colors.gray500)
-                            : amount >= 0 ? Color(Colors.mainGreen) : Color(Colors.mainRed))
+                            : amount < 0 ? Color(Colors.mainRed)
+                            : Color(viewModel.isSoFar ? Colors.gray700 : Colors.mainGreen))
                     .lineLimit(1)
                     .fixedSize()
                 Image(systemName: "checkmark")
@@ -1176,7 +1245,8 @@ private struct FilterPickerSheet: View {
                     .font(Font(Fonts.textSMBold.font))
                     .foregroundStyle(
                         savings.months == 0 || hidden ? Color(Colors.gray500)
-                            : savings.net >= 0 ? Color(Colors.mainGreen) : Color(Colors.mainRed))
+                            : savings.net < 0 ? Color(Colors.mainRed)
+                            : Color(viewModel.isSoFar ? Colors.gray700 : Colors.mainGreen))
                     .lineLimit(1)
                     .fixedSize()
                 Image(systemName: "checkmark")

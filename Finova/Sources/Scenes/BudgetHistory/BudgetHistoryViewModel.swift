@@ -39,6 +39,17 @@ final class BudgetHistoryViewModel: ObservableObject {
     /// Remembered per ledger and changed only by the user picking another one - a running total whose
     /// start moved by itself would stop being comparable from one visit to the next.
     @Published private(set) var savingsStart: Int?
+
+    /// Which months the Saved and "Why" cards count, both ending at the selected month.
+    enum SavingsScope: CaseIterable {
+        /// From `savingsStart` up to the selected month: the running total.
+        case upTo
+        /// The selected month alone, so its own savers and overspenders can be read.
+        case only
+    }
+
+    /// Not remembered: "only" is a closer look at one month, and the screen opens on the running total.
+    @Published private(set) var savingsScope: SavingsScope = .upTo
     @Published private(set) var isValuesHidden: Bool = ValueMask.isActive
 
     let ledgerScope: LedgerScope
@@ -134,9 +145,26 @@ final class BudgetHistoryViewModel: ObservableObject {
         return history.closedMonthAnchors.last { $0 <= end }
     }
 
+    /// The first month Saved counts: the chosen start, or the selected month itself under `.only`.
+    var countedStart: Int? {
+        savingsScope == .only ? savingsEnd : savingsStart
+    }
+
+    /// "Only" is on and the selected month is still open. Its figures are what it has left, or is
+    /// over, up to today - not saved yet - so the screen labels them "so far" and keeps what is left grey.
+    var isSoFar: Bool {
+        savingsScope == .only && selectedMonth?.isCurrent == true
+    }
+
+    /// The history the Saved and "Why" figures read: the open month counted so far under `isSoFar`,
+    /// left out everywhere else.
+    private var countedHistory: BudgetHistory {
+        isSoFar ? history.countingOpenMonthSoFar() : history
+    }
+
     /// What made the Saved figure, over the same months it counts.
     var contributors: SavingsContributors? {
-        history.contributors(for: filter, from: savingsStart, through: savingsEnd)
+        countedHistory.contributors(for: filter, from: countedStart, through: savingsEnd)
     }
 
     /// One month of the chosen filter, as the detail under a month row: its plan, what was spent and
@@ -166,7 +194,7 @@ final class BudgetHistoryViewModel: ObservableObject {
     /// The named parts of the outside remainder, shown under the Saved card while that filter is on.
     var outsideDifferences: [BudgetHistory.OutsideDifference] {
         guard outsideTiming != nil else { return [] }
-        return history.outsideDifferences(from: savingsStart, through: savingsEnd)
+        return countedHistory.outsideDifferences(from: countedStart, through: savingsEnd)
     }
 
     /// "Aug, Sep".
@@ -188,9 +216,9 @@ final class BudgetHistoryViewModel: ObservableObject {
         // Outside allocations counts its named differences too, so its Saved figure is the same
         // number its row shows in the list and in the whole month's "Why" card.
         if filter == .outsideAllocations {
-            return history.outsideSavings(from: savingsStart, through: savingsEnd) ?? .none
+            return countedHistory.outsideSavings(from: countedStart, through: savingsEnd) ?? .none
         }
-        return history.series(for: filter)?.savings(from: savingsStart, through: savingsEnd) ?? .none
+        return countedHistory.series(for: filter)?.savings(from: countedStart, through: savingsEnd) ?? .none
     }
 
     /// A month's budget and what its categories were given - the subtraction behind outside figures.
@@ -241,14 +269,14 @@ final class BudgetHistoryViewModel: ObservableObject {
     /// whole month is the only row and there is nothing to reconcile.
     var outsideAllocations: Int? {
         guard !history.categories.isEmpty else { return nil }
-        return history.outsideAllocations(from: savingsStart, through: savingsEnd)
+        return countedHistory.outsideAllocations(from: countedStart, through: savingsEnd)
     }
 
     /// What the outside series does not explain, since `savingsStart`. Shown under the Saved card while
     /// the outside filter is chosen, so that card plus this line equal its row in the list.
     var outsideTiming: Int? {
         guard filter == .outsideAllocations else { return nil }
-        return history.outsideTiming(from: savingsStart, through: savingsEnd)
+        return countedHistory.outsideTiming(from: countedStart, through: savingsEnd)
     }
 
     /// The month the arrows step to, or nil at either end of the bars on screen.
@@ -269,6 +297,10 @@ final class BudgetHistoryViewModel: ObservableObject {
         } else {
             defaults.removeObject(forKey: savingsStartKey)
         }
+    }
+
+    func select(savingsScope scope: SavingsScope) {
+        savingsScope = scope
     }
 
     func select(filter newFilter: BudgetHistoryFilter) {
@@ -337,6 +369,12 @@ extension BudgetHistoryViewModel {
     /// "Up to September 2026".
     static func savingsEndTitle(_ end: Int) -> String {
         String(format: "budgetHistory.savings.through.format".localized, longMonth(end))
+    }
+
+    /// "Up to Sep" or "Only Sep" - short, so both fit side by side in the switch.
+    static func savingsScopeTitle(_ scope: SavingsScope, month anchor: Int) -> String {
+        let key = scope == .upTo ? "budgetHistory.savings.through.format" : "budgetHistory.savings.only.format"
+        return String(format: key.localized, shortMonth(anchor))
     }
 
     static func savingsStartTitle(_ start: Int?) -> String {
