@@ -132,6 +132,10 @@ final class SettingsView: UIView {
     private let translateTagsFooterLabel = createSectionFooter()
 
     // Data Section
+    /// Statement import is not ready to ship. This row is its only way in, so turning this on brings
+    /// the whole feature back; the screens, the engine and their tables stay in the app.
+    private static let isStatementImportEnabled = false
+
     private let dataHeaderView = createSectionHeader(title: "settings.section.data".localized)
 
     private let importDataContainer: UIView = {
@@ -224,9 +228,11 @@ final class SettingsView: UIView {
         contentStackView.addArrangedSubview(translateTagsFooterLabel)
 
         // Data section
-        contentStackView.addArrangedSubview(dataHeaderView)
-        setupImportDataContainer()
-        contentStackView.addArrangedSubview(importDataContainer)
+        if Self.isStatementImportEnabled {
+            contentStackView.addArrangedSubview(dataHeaderView)
+            setupImportDataContainer()
+            contentStackView.addArrangedSubview(importDataContainer)
+        }
 
         // Notifications section
         contentStackView.addArrangedSubview(notificationsHeaderView)
