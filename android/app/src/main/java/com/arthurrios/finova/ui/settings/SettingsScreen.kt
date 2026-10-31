@@ -67,6 +67,12 @@ import com.arthurrios.finova.ui.theme.FinovaColors
 import com.arthurrios.finova.ui.theme.FinovaType
 import com.arthurrios.finova.ui.theme.Spacing
 
+/**
+ * Statement import is not ready to ship. This row is its only way in, so turning this on brings the
+ * whole feature back; the screens, the engine and their tables stay in the app.
+ */
+private const val STATEMENT_IMPORT_ENABLED = false
+
 /** Port of SettingsView: security, preferences, notifications, about and account. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -117,8 +123,10 @@ fun SettingsScreen(
                     Spacer(Modifier.width(Spacing.S2))
                     Chevron()
                 }
-                Section(stringResource(R.string.settings_section_data))
-                Row(Icons.Outlined.FileDownload, stringResource(R.string.settings_import_title), onClick = onImport) { Chevron() }
+                if (STATEMENT_IMPORT_ENABLED) {
+                    Section(stringResource(R.string.settings_section_data))
+                    Row(Icons.Outlined.FileDownload, stringResource(R.string.settings_import_title), onClick = onImport) { Chevron() }
+                }
                 Section(stringResource(R.string.settings_section_notifications))
                 Row(Icons.Outlined.Notifications, stringResource(R.string.settings_notifications), onClick = onNotifications) { Chevron() }
                 Section(stringResource(R.string.settings_section_about))
