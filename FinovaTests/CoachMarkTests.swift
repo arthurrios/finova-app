@@ -527,6 +527,27 @@ final class CoachMarkOverlayTests: XCTestCase {
         XCTAssertFalse(CoachMarkBubbleView.fitsOneRow(buttonWidths: [130, 80, 110], width: 338))
     }
 
+    func testNextKeepsItsTitleWhenAnActionStepLeadsToANote() {
+        let bubble = CoachMarkBubbleView()
+        bubble.configure(
+            .init(caption: "Guide · 2/5", message: "Tap here", nextTitle: nil, skipTitle: "Close",
+                  skipAllTitle: nil))
+        bubble.frame = CGRect(origin: .zero, size: bubble.fittingSize(width: 370))
+        bubble.layoutIfNeeded()
+
+        bubble.configure(
+            .init(caption: "Guide · 3/5", message: "Tap here", nextTitle: "Next", skipTitle: "Close",
+                  skipAllTitle: nil))
+        let size = bubble.fittingSize(width: 370)
+        bubble.frame = CGRect(origin: .zero, size: size)
+        bubble.layoutIfNeeded()
+
+        let next = buttons(in: bubble).first { $0.configuration?.title == "Next" }
+        let fullWidth = next?.sizeThatFits(UIView.layoutFittingExpandedSize).width ?? 0
+        XCTAssertGreaterThanOrEqual(next?.frame.width ?? 0, fullWidth - 1)
+        XCTAssertEqual(next?.titleLabel?.text, "Next")
+    }
+
     func testASingleButtonCardLooksTheSame() {
         let found = buttons(in: layOutCard(width: 370, skipAll: nil, next: nil))
         XCTAssertEqual(found.count, 1)

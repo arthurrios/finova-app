@@ -168,8 +168,13 @@ final class CoachMarkBubbleView: UIView {
     }
 
     private func setTitle(_ title: String?, of button: UIButton) {
-        button.configuration?.title = title
+        // Shown first, and applied now: a button that was hidden when its title changed keeps the
+        // old empty size until something lays it out again, and the card reads as a blank pill.
         button.isHidden = title == nil
+        button.configuration?.title = title
+        button.updateConfiguration()
+        button.invalidateIntrinsicContentSize()
+        setNeedsLayout()
     }
 
     /// Takes each button's single-line width: a button already squeezed into a row reports the
@@ -203,6 +208,8 @@ final class CoachMarkBubbleView: UIView {
         captionLabel.preferredMaxLayoutWidth = textWidth
         messageLabel.preferredMaxLayoutWidth = textWidth
         updateButtonLayout(textWidth: textWidth)
+        // The frame often stays the same between two steps, so nothing else would lay the row out.
+        layoutIfNeeded()
         let size = systemLayoutSizeFitting(
             CGSize(width: width, height: UIView.layoutFittingCompressedSize.height),
             withHorizontalFittingPriority: .required,
