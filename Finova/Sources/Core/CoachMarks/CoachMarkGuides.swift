@@ -159,18 +159,12 @@ enum CoachMarkGuides {
             tap(guide, "avatar", .dashboardAvatar, until: .targetVisible(.profileCreditCards)),
             tap(guide, "row", .profileCreditCards, until: .targetVisible(.creditCardsAdd)),
         ]
-        var formWithoutCard = form(
-            guide, "form", .addCardForm, until: .creditCardSaved, returnTo: "add")
-        formWithoutCard.isSilent = true
-
         if facts.hasCreditCard {
             steps.append(info(guide, "existingList", .creditCardsList))
         } else {
             steps += [
                 tap(guide, "add", .creditCardsAdd, until: .targetVisible(.addCardForm)),
-                CoachMarkStep(
-                    id: "formNote", target: nil, textKey: key(guide, "form"), kind: .info),
-                formWithoutCard,
+                form(guide, "form", .addCardForm, until: .creditCardSaved, returnTo: "add"),
                 info(guide, "note", .creditCardsList, optional: true),
             ]
         }

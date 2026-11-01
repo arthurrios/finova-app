@@ -20197,6 +20197,23 @@
           }
         }
       }
+    },
+    "coachMarks.button.gotIt": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Got it"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entendi"
+          }
+        }
+      }
     }
   },
   "version": "1.1"

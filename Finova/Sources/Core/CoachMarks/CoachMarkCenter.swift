@@ -366,6 +366,7 @@ final class CoachMarkCenter {
         isFadingOut = false
         isShowingStep = true
         configureBubble(overlay, for: session)
+        overlay.resetCard()
         overlay.isActive = true
         overlayWindow.isHidden = false
         overlay.show(
@@ -417,8 +418,22 @@ final class CoachMarkCenter {
     }
 
     private func nextTapped() {
-        guard var session, !session.step.isAction else { return }
-        moveOn(&session)
+        guard var session else { return }
+        switch Self.nextButtonEffect(for: session.step) {
+        case .dismissCard: overlayWindow?.overlay.dismissCard()
+        case .advance: moveOn(&session)
+        }
+    }
+
+    enum NextButtonEffect: Equatable {
+        case advance
+        case dismissCard
+    }
+
+    /// On an action step this button only exists to clear a card that has no free space. Only the
+    /// user's real action may move such a step on.
+    static func nextButtonEffect(for step: CoachMarkStep) -> NextButtonEffect {
+        step.isAction ? .dismissCard : .advance
     }
 
     private func configureBubble(_ overlay: CoachMarkOverlayView, for session: CoachMarkSession) {

@@ -291,24 +291,6 @@ final class CoachMarkGuideTests: XCTestCase {
         XCTAssertEqual(allSteps.first { $0.target == .budgetsForm }?.isPlain, false)
     }
 
-    func testFullScreenCardFormIsToldBeforeItOpensUp() {
-        let steps = CoachMarkGuides.steps(
-            for: .creditCard, facts: CoachMarkFacts(), mode: .replay)
-        let form = steps.firstIndex { $0.target == .addCardForm }
-        XCTAssertEqual(form.map { steps[$0].isSilent }, true)
-        XCTAssertEqual(form.map { steps[$0 - 1].textKey }, form.map { steps[$0].textKey })
-        XCTAssertEqual(form.map { steps[$0 - 1].kind }, .info)
-    }
-
-    func testCounterLeavesOutASilentStep() {
-        let steps = CoachMarkGuides.steps(
-            for: .creditCard, facts: CoachMarkFacts(), mode: .replay)
-        var session = CoachMarkSession(guide: .creditCard, mode: .replay, steps: steps)
-        XCTAssertEqual(session.shownTotal, steps.count - 1)
-        while session.advance() {}
-        XCTAssertEqual(session.shownPosition, session.shownTotal)
-    }
-
     func testOnlyFormStepsOwnTheKeyboard() {
         for guide in CoachMarkGuideID.allCases {
             for step in CoachMarkGuides.steps(for: guide, facts: CoachMarkFacts(), mode: .automatic)
@@ -322,6 +304,7 @@ final class CoachMarkGuideTests: XCTestCase {
 
     func testEveryStepHasTextInBothLanguages() throws {
         var keys = CoachMarkGuideID.allCases.flatMap { [$0.titleKey, $0.subtitleKey] }
+        keys += ["next", "done", "skip", "skipAll", "close", "gotIt"].map { "coachMarks.button.\($0)" }
         for guide in CoachMarkGuideID.allCases {
             for facts in [CoachMarkFacts(), everything] {
                 for mode in [CoachMarkRunMode.automatic, .replay] {
@@ -404,7 +387,7 @@ final class CoachMarkOverlayTests: XCTestCase {
         XCTAssertFalse(overlay.isDimVisible)
         XCTAssertFalse(overlay.isRingVisible)
         XCTAssertNil(overlay.hitTest(CGPoint(x: 200, y: 600), with: nil))
-        XCTAssertTrue(overlay.hitTest(CGPoint(x: 20, y: 300), with: nil) === overlay)
+        XCTAssertTrue(overlay.hitTest(CGPoint(x: 20, y: 20), with: nil) === overlay)
     }
 
     func testNormalStepKeepsDimAndRing() {
@@ -426,6 +409,137 @@ final class CoachMarkOverlayTests: XCTestCase {
             CoachMarkLayout.bubbleFrame(
                 size: size, hole: tall, bounds: bounds, safeArea: safe, keyboardTop: nil,
                 mayCoverHole: false))
+    }
+
+    private func makeTallSheetOverlay(keyboardTop: CGFloat? = nil) -> CoachMarkOverlayView {
+        let overlay = CoachMarkOverlayView(frame: bounds)
+        overlay.bubble.configure(
+            .init(caption: "Guide · 1/3", message: "Message", nextTitle: nil, skipTitle: "Skip",
+                  skipAllTitle: nil))
+        overlay.isActive = true
+        overlay.show(
+            hole: bounds, touchable: true, keyboardTop: keyboardTop, animated: false, plain: true)
+        overlay.layoutIfNeeded()
+        return overlay
+    }
+
+    func testCardWithNoRoomIsStillShownOnce() {
+        let overlay = makeTallSheetOverlay()
+        XCTAssertFalse(overlay.bubble.isHidden)
+        XCTAssertEqual(overlay.bubble.frame.midY, bounds.midY, accuracy: 60)
+        let point = CGPoint(x: overlay.bubble.frame.midX, y: overlay.bubble.frame.midY)
+        XCTAssertNotNil(overlay.hitTest(point, with: nil))
+    }
+
+    func testGotItClearsTheSheetForTheRestOfTheStep() {
+        let overlay = makeTallSheetOverlay()
+        let point = CGPoint(x: overlay.bubble.frame.midX, y: overlay.bubble.frame.midY)
+
+        overlay.dismissCard()
+        overlay.show(hole: bounds, touchable: true, keyboardTop: nil, animated: false, plain: true)
+
+        XCTAssertTrue(overlay.bubble.isHidden)
+        XCTAssertNil(overlay.hitTest(point, with: nil))
+    }
+
+    func testNextStepBringsTheCardBack() {
+        let overlay = makeTallSheetOverlay()
+        overlay.dismissCard()
+        overlay.resetCard()
+        overlay.layoutBubble(animated: false)
+        XCTAssertFalse(overlay.bubble.isHidden)
+    }
+
+    func testCardStaysHiddenWhileTypingInASheetWithNoRoom() {
+        XCTAssertTrue(makeTallSheetOverlay(keyboardTop: 540).bubble.isHidden)
+    }
+
+    private func buttons(in view: UIView) -> [UIButton] {
+        view.subviews.flatMap { subview -> [UIButton] in
+            if let button = subview as? UIButton { return button.isHidden ? [] : [button] }
+            return buttons(in: subview)
+        }
+    }
+
+    private func layOutCard(width: CGFloat, skipAll: String?, next: String?) -> CoachMarkBubbleView {
+        let bubble = CoachMarkBubbleView()
+        bubble.configure(
+            .init(caption: "Primeiro orçamento · 1/3", message: "Mensagem", nextTitle: next,
+                  skipTitle: "Pular", skipAllTitle: skipAll))
+        bubble.frame = CGRect(origin: .zero, size: bubble.fittingSize(width: width))
+        bubble.layoutIfNeeded()
+        return bubble
+    }
+
+    func testEveryCardButtonIsARealButtonWithAFullTapTarget() {
+        let bubble = layOutCard(width: 370, skipAll: "Pular todos", next: "Próximo")
+        let found = buttons(in: bubble)
+        XCTAssertEqual(found.count, 3)
+        for button in found {
+            XCTAssertNotNil(button.configuration?.baseBackgroundColor)
+            XCTAssertGreaterThanOrEqual(button.frame.height, 44)
+        }
+    }
+
+    func testNextOutranksTheQuietButtons() {
+        let found = buttons(in: layOutCard(width: 370, skipAll: "Pular todos", next: "Próximo"))
+        let next = found.first { $0.configuration?.title == "Próximo" }
+        let skip = found.first { $0.configuration?.title == "Pular" }
+        XCTAssertEqual(next?.configuration?.baseBackgroundColor, Colors.mainMagenta)
+        XCTAssertEqual(skip?.configuration?.baseBackgroundColor, Colors.gray200)
+    }
+
+    func testLongestButtonsStayInsideTheCardOnTheNarrowestPhone() {
+        let bubble = layOutCard(width: 288, skipAll: "Pular todos", next: "Próximo")
+        for button in buttons(in: bubble) {
+            let frame = button.convert(button.bounds, to: bubble)
+            XCTAssertGreaterThanOrEqual(frame.minX, 0)
+            XCTAssertLessThanOrEqual(frame.maxX, bubble.bounds.width)
+            XCTAssertGreaterThanOrEqual(frame.height, 44)
+        }
+    }
+
+    func testButtonsStackWithoutOverlapWhenARowCannotHoldThem() {
+        let bubble = layOutCard(width: 200, skipAll: "Pular todos", next: "Próximo")
+        let frames = buttons(in: bubble)
+            .map { $0.convert($0.bounds, to: bubble) }
+            .sorted { $0.minY < $1.minY }
+        XCTAssertEqual(frames.count, 3)
+        for (upper, lower) in zip(frames, frames.dropFirst()) {
+            XCTAssertLessThanOrEqual(upper.maxY, lower.minY)
+        }
+        XCTAssertLessThanOrEqual(frames[2].maxY, bubble.bounds.height)
+    }
+
+    func testANearFitLeavesTheRowInsteadOfClipping() {
+        XCTAssertTrue(CoachMarkBubbleView.fitsOneRow(buttonWidths: [120, 70, 90], width: 338))
+        // 130 + 80 + 110 + 2 gaps is 336, which fits a 338 row only by 2pt.
+        XCTAssertFalse(CoachMarkBubbleView.fitsOneRow(buttonWidths: [130, 80, 110], width: 338))
+    }
+
+    func testASingleButtonCardLooksTheSame() {
+        let found = buttons(in: layOutCard(width: 370, skipAll: nil, next: nil))
+        XCTAssertEqual(found.count, 1)
+        XCTAssertEqual(found.first?.configuration?.baseBackgroundColor, Colors.gray200)
+    }
+
+    func testSheetOnTheSmallestPhoneGetsACentredCardWithAWayToClearIt() {
+        let phone = CGRect(x: 0, y: 0, width: 320, height: 568)
+        let sheet = CGRect(x: 0, y: 60, width: 320, height: 508)
+        let overlay = CoachMarkOverlayView(frame: phone)
+        overlay.bubble.configure(
+            .init(caption: "Salário e despesas principais · 3/4",
+                  message: "Preencha nome, categoria, valor e data. Escolha Entrada e salve.",
+                  nextTitle: nil, skipTitle: "Pular", skipAllTitle: "Pular todos"))
+        overlay.isActive = true
+        overlay.show(hole: sheet, touchable: true, keyboardTop: nil, animated: false, plain: true)
+        overlay.layoutIfNeeded()
+
+        XCTAssertFalse(overlay.bubble.isHidden)
+        XCTAssertTrue(phone.contains(overlay.bubble.frame))
+        let titles = buttons(in: overlay.bubble).compactMap { $0.configuration?.title }
+        XCTAssertTrue(titles.contains("Pular"))
+        XCTAssertEqual(titles.count, 3)
     }
 
     func testBubbleIsAlwaysReachable() {
@@ -586,6 +700,16 @@ final class CoachMarkCenterTests: XCTestCase {
             dataProvider: Facts(facts: CoachMarkFacts()))
         center.post(.budgetSaved)
         XCTAssertNil(center.session)
+    }
+
+    func testGotItOnASheetClearsTheCardAndNeverAdvancesTheStep() throws {
+        let steps = CoachMarkGuides.steps(
+            for: .creditCard, facts: CoachMarkFacts(), mode: .replay)
+        let form = try XCTUnwrap(steps.first { $0.target == .addCardForm })
+        XCTAssertEqual(CoachMarkCenter.nextButtonEffect(for: form), .dismissCard)
+
+        let note = try XCTUnwrap(steps.last)
+        XCTAssertEqual(CoachMarkCenter.nextButtonEffect(for: note), .advance)
     }
 
     func testCaptionAndButtonsDifferBetweenAutomaticAndReplay() {

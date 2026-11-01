@@ -67,9 +67,14 @@ final class CoachMarkBubbleView: UIView {
         return label
     }()
 
-    private lazy var skipAllButton = makeButton(color: Colors.gray500, action: #selector(skipAllTapped))
-    private lazy var skipButton = makeButton(color: Colors.gray500, action: #selector(skipTapped))
-    private lazy var nextButton = makeButton(color: Colors.mainMagenta, action: #selector(nextTapped))
+    private static let buttonSpacing = Metrics.spacing2
+
+    private lazy var skipAllButton = makeButton(
+        background: Colors.gray200, foreground: Colors.gray600, action: #selector(skipAllTapped))
+    private lazy var skipButton = makeButton(
+        background: Colors.gray200, foreground: Colors.gray600, action: #selector(skipTapped))
+    private lazy var nextButton = makeButton(
+        background: Colors.mainMagenta, foreground: Colors.gray100, action: #selector(nextTapped))
 
     private let buttonSpacer: UIView = {
         let spacer = UIView()
@@ -80,7 +85,7 @@ final class CoachMarkBubbleView: UIView {
     private lazy var buttonStack: UIStackView = {
         let stack = UIStackView(arrangedSubviews: [skipAllButton, skipButton, buttonSpacer, nextButton])
         stack.axis = .horizontal
-        stack.spacing = Metrics.spacing4
+        stack.spacing = Self.buttonSpacing
         stack.alignment = .center
         return stack
     }()
@@ -104,11 +109,11 @@ final class CoachMarkBubbleView: UIView {
             stack.topAnchor.constraint(equalTo: topAnchor, constant: Metrics.spacing4),
             stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Metrics.spacing4),
             stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Metrics.spacing4),
-            stack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -Metrics.spacing2),
+            stack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -Metrics.spacing4),
         ])
 
         // Past this the card would not fit next to the thing it points at. The words wrap freely up
-        // to here, and the buttons drop onto their own lines below.
+        // to here, and the buttons drop onto their own lines when one row cannot hold them.
         maximumContentSizeCategory = .accessibilityMedium
     }
 
@@ -116,14 +121,30 @@ final class CoachMarkBubbleView: UIView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    private func makeButton(color: UIColor, action: Selector) -> UIButton {
-        let button = UIButton(type: .system)
-        button.titleLabel?.font = Fonts.titleXS.font
+    /// Not the shared `Button`: its height is fixed at 48, which clips a title that wraps at large
+    /// text, and this card needs a smaller one. The tokens are the same.
+    private func makeButton(
+        background: UIColor, foreground: UIColor, action: Selector
+    ) -> UIButton {
+        var configuration = UIButton.Configuration.filled()
+        configuration.baseBackgroundColor = background
+        configuration.baseForegroundColor = foreground
+        configuration.background.cornerRadius = CornerRadius.large
+        configuration.cornerStyle = .fixed
+        configuration.titleLineBreakMode = .byClipping
+        configuration.contentInsets = NSDirectionalEdgeInsets(
+            top: Metrics.spacing2, leading: Metrics.spacing3, bottom: Metrics.spacing2,
+            trailing: Metrics.spacing3)
+        configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer {
+            var attributes = $0
+            attributes.font = Fonts.buttonSM.font
+            return attributes
+        }
+
+        let button = UIButton(configuration: configuration)
         button.titleLabel?.adjustsFontForContentSizeCategory = true
-        button.titleLabel?.numberOfLines = 0
-        button.titleLabel?.textAlignment = .left
-        button.setTitleColor(color, for: .normal)
-        button.contentHorizontalAlignment = .leading
+        button.titleLabel?.numberOfLines = 1
+        button.setContentCompressionResistancePriority(.required, for: .horizontal)
         button.heightAnchor.constraint(greaterThanOrEqualToConstant: 44).isActive = true
         button.addTarget(self, action: action, for: .touchUpInside)
         return button
@@ -141,17 +162,39 @@ final class CoachMarkBubbleView: UIView {
     func configure(_ content: Content) {
         captionLabel.text = content.caption
         messageLabel.text = content.message
-        nextButton.setTitle(content.nextTitle, for: .normal)
-        nextButton.isHidden = content.nextTitle == nil
-        skipButton.setTitle(content.skipTitle, for: .normal)
-        skipButton.isHidden = content.skipTitle == nil
-        skipAllButton.setTitle(content.skipAllTitle, for: .normal)
-        skipAllButton.isHidden = content.skipAllTitle == nil
-        buttonStack.axis = traitCollection.preferredContentSizeCategory.isAccessibilityCategory
-            ? .vertical : .horizontal
-        buttonStack.alignment = buttonStack.axis == .vertical ? .leading : .center
-        buttonStack.spacing = buttonStack.axis == .vertical ? 0 : Metrics.spacing4
-        buttonSpacer.isHidden = buttonStack.axis == .vertical
+        setTitle(content.nextTitle, of: nextButton)
+        setTitle(content.skipTitle, of: skipButton)
+        setTitle(content.skipAllTitle, of: skipAllButton)
+    }
+
+    private func setTitle(_ title: String?, of button: UIButton) {
+        button.configuration?.title = title
+        button.isHidden = title == nil
+    }
+
+    /// Takes each button's single-line width: a button already squeezed into a row reports the
+    /// squeezed width, and the row then looks as if it fits. The margin keeps a near fit from clipping.
+    static func fitsOneRow(buttonWidths: [CGFloat], width: CGFloat) -> Bool {
+        let spacing = buttonSpacing * CGFloat(max(0, buttonWidths.count - 1))
+        return buttonWidths.reduce(0, +) + spacing + Metrics.spacing4 <= width
+    }
+
+    /// One row when the titles fit it. pt-BR on a narrow phone, or large text, stacks them instead.
+    private func updateButtonLayout(textWidth: CGFloat) {
+        let unlimited = CGSize(width: CGFloat.greatestFiniteMagnitude, height: .greatestFiniteMagnitude)
+        let widths = [skipAllButton, skipButton, nextButton]
+            .filter { !$0.isHidden }
+            .map { ceil($0.sizeThatFits(unlimited).width) }
+        let fitsOneRow = Self.fitsOneRow(buttonWidths: widths, width: textWidth)
+
+        buttonStack.axis = fitsOneRow ? .horizontal : .vertical
+        buttonStack.alignment = fitsOneRow ? .center : .fill
+        buttonSpacer.isHidden = !fitsOneRow
+    }
+
+    /// The Next slot on an action step, where it is empty unless the card has to be put away by hand.
+    func setNextTitle(_ title: String?) {
+        setTitle(title, of: nextButton)
     }
 
     func fittingSize(width: CGFloat) -> CGSize {
@@ -159,6 +202,7 @@ final class CoachMarkBubbleView: UIView {
         let textWidth = width - 2 * Metrics.spacing4
         captionLabel.preferredMaxLayoutWidth = textWidth
         messageLabel.preferredMaxLayoutWidth = textWidth
+        updateButtonLayout(textWidth: textWidth)
         let size = systemLayoutSizeFitting(
             CGSize(width: width, height: UIView.layoutFittingCompressedSize.height),
             withHorizontalFittingPriority: .required,
@@ -186,6 +230,9 @@ final class CoachMarkOverlayView: UIView {
     /// A sheet step: no ring and no dim, only the card. The touch rule does not change.
     private(set) var isPlain = false
     var isDimVisible: Bool { !isPlain }
+    /// A plain step's card with no free space is centred over the sheet. "Got it" clears it for the
+    /// rest of the step, so the card never stays on top of the controls.
+    private(set) var isCardDismissed = false
     var isRingVisible: Bool { !ringLayer.isHidden }
     private var keyboardTop: CGFloat?
     private var cornerRadius: CGFloat = 0
@@ -263,6 +310,15 @@ final class CoachMarkOverlayView: UIView {
         layoutBubble(animated: shouldAnimate)
     }
 
+    func dismissCard() {
+        isCardDismissed = true
+        layoutBubble(animated: false)
+    }
+
+    func resetCard() {
+        isCardDismissed = false
+    }
+
     /// Between two steps: the old message goes at once, and nothing is touchable until the next lands.
     func prepareForNextStep() {
         isHoleTouchable = false
@@ -311,9 +367,20 @@ final class CoachMarkOverlayView: UIView {
         guard width > 0 else { return }
 
         let size = bubble.fittingSize(width: width)
-        let frame = CoachMarkLayout.bubbleFrame(
+        var frame = CoachMarkLayout.bubbleFrame(
             size: size, hole: hole, bounds: bounds, safeArea: safeAreaInsets, keyboardTop: keyboardTop,
             mayCoverHole: !isPlain)
+
+        if isPlain {
+            let hasNoRoom = frame == nil && keyboardTop == nil
+            bubble.setNextTitle(hasNoRoom ? "coachMarks.button.gotIt".localized : nil)
+            if hasNoRoom {
+                frame = CoachMarkLayout.bubbleFrame(
+                    size: bubble.fittingSize(width: width), hole: nil, bounds: bounds,
+                    safeArea: safeAreaInsets, keyboardTop: nil)
+            }
+            if isCardDismissed { frame = nil }
+        }
 
         bubble.isHidden = frame == nil
         guard let frame, frame != bubble.frame else { return }
