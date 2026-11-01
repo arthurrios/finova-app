@@ -14,7 +14,8 @@ enum CoachMarkLayout {
     /// `nil` means the bubble should hide: the keyboard is up and no spot leaves the form usable. It
     /// reappears when the keyboard goes down.
     static func bubbleFrame(
-        size: CGSize, hole: CGRect?, bounds: CGRect, safeArea: UIEdgeInsets, keyboardTop: CGFloat?
+        size: CGSize, hole: CGRect?, bounds: CGRect, safeArea: UIEdgeInsets, keyboardTop: CGFloat?,
+        mayCoverHole: Bool = true
     ) -> CGRect? {
         let x = (bounds.width - size.width) / 2
         let top = bounds.minY + safeArea.top + margin
@@ -36,7 +37,7 @@ enum CoachMarkLayout {
         }
         // A hole taller than the free space, such as a full sheet. Over the sheet's header is the
         // least harmful place, but not while the user is typing into it.
-        return keyboardTop == nil
+        return keyboardTop == nil && mayCoverHole
             ? CGRect(x: x, y: top, width: size.width, height: size.height)
             : nil
     }
@@ -182,6 +183,10 @@ final class CoachMarkOverlayView: UIView {
     /// In window coordinates, padded. nil is a centred card.
     private(set) var hole: CGRect?
     private(set) var isHoleTouchable = false
+    /// A sheet step: no ring and no dim, only the card. The touch rule does not change.
+    private(set) var isPlain = false
+    var isDimVisible: Bool { !isPlain }
+    var isRingVisible: Bool { !ringLayer.isHidden }
     private var keyboardTop: CGFloat?
     private var cornerRadius: CGFloat = 0
 
@@ -223,12 +228,16 @@ final class CoachMarkOverlayView: UIView {
 
     /// Updates the hole. `animated` is for moving between targets; following a target that moves by
     /// itself is not animated, because it is already moving.
-    func show(hole newHole: CGRect?, touchable: Bool, keyboardTop: CGFloat?, animated: Bool) {
+    func show(
+        hole newHole: CGRect?, touchable: Bool, keyboardTop: CGFloat?, animated: Bool,
+        plain: Bool = false
+    ) {
         let padded = newHole?.insetBy(dx: -Metrics.spacing1 - 2, dy: -Metrics.spacing1 - 2)
         let isRound = padded.map { abs($0.width - $0.height) < 8 } ?? false
 
         hole = padded
         isHoleTouchable = touchable
+        isPlain = plain
         self.keyboardTop = keyboardTop
         cornerRadius = isRound ? (padded?.height ?? 0) / 2 : CornerRadius.extraLarge
 
@@ -243,10 +252,12 @@ final class CoachMarkOverlayView: UIView {
         if shouldAnimate {
             animatePath(of: dimLayer, to: dimPath)
             if let ringPath { animatePath(of: ringLayer, to: ringPath) }
+            if dimLayer.opacity != (plain ? 0 : 1) { animateDimOpacity(to: plain ? 0 : 1) }
         }
         dimLayer.path = dimPath
+        dimLayer.opacity = plain ? 0 : 1
         ringLayer.path = ringPath
-        ringLayer.isHidden = padded == nil
+        ringLayer.isHidden = padded == nil || plain
         CATransaction.commit()
 
         layoutBubble(animated: shouldAnimate)
@@ -276,6 +287,15 @@ final class CoachMarkOverlayView: UIView {
         layer.add(animation, forKey: "path")
     }
 
+    private func animateDimOpacity(to value: Float) {
+        let animation = CABasicAnimation(keyPath: "opacity")
+        animation.fromValue = dimLayer.presentation()?.opacity ?? dimLayer.opacity
+        animation.toValue = value
+        animation.duration = 0.35
+        animation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        dimLayer.add(animation, forKey: "opacity")
+    }
+
     override func layoutSubviews() {
         super.layoutSubviews()
         dimLayer.frame = bounds
@@ -292,7 +312,8 @@ final class CoachMarkOverlayView: UIView {
 
         let size = bubble.fittingSize(width: width)
         let frame = CoachMarkLayout.bubbleFrame(
-            size: size, hole: hole, bounds: bounds, safeArea: safeAreaInsets, keyboardTop: keyboardTop)
+            size: size, hole: hole, bounds: bounds, safeArea: safeAreaInsets, keyboardTop: keyboardTop,
+            mayCoverHole: !isPlain)
 
         bubble.isHidden = frame == nil
         guard let frame, frame != bubble.frame else { return }

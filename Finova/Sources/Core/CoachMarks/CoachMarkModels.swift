@@ -96,6 +96,12 @@ struct CoachMarkStep: Equatable {
     var returnTo: String?
     /// The step is a form, so its keyboard belongs to it and must not hide the mark.
     var ownsKeyboard = false
+    /// The target is a whole sheet or form. It already stands out from what is behind it, so it gets
+    /// no ring and no dim layer: only the message card, which must then stay off it.
+    var isPlain = false
+    /// A form with no free space around it. A note before it carries the message, and this step only
+    /// waits. The form's own back button is the way out.
+    var isSilent = false
     /// Show the text centred if the target is missing, rather than skipping the step.
     var isTargetOptional = false
 
@@ -144,8 +150,10 @@ struct CoachMarkSession: Equatable {
 
     var step: CoachMarkStep { steps[index] }
     var isLastStep: Bool { index == steps.count - 1 }
-    var shownPosition: Int { index + 1 - skippedStepCount }
-    var shownTotal: Int { steps.count - skippedStepCount }
+    var shownPosition: Int {
+        index + 1 - skippedStepCount - steps[..<index].filter(\.isSilent).count
+    }
+    var shownTotal: Int { steps.count - skippedStepCount - steps.filter(\.isSilent).count }
 
     /// Passes a step whose result already holds. Returns false when it was the last one.
     mutating func skipStep() -> Bool {

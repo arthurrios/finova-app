@@ -264,6 +264,51 @@ final class CoachMarkGuideTests: XCTestCase {
         XCTAssertEqual(session.shownPosition, 2)
     }
 
+    // MARK: - Sheets
+
+    private var allSteps: [CoachMarkStep] {
+        CoachMarkGuideID.allCases.flatMap { guide in
+            CoachMarkGuides.steps(for: guide, facts: CoachMarkFacts(), mode: .automatic)
+                + CoachMarkGuides.steps(for: guide, facts: everything, mode: .replay)
+        }
+    }
+
+    func testEveryWholeSheetStepIsPlain() {
+        let sheets: [CoachMarkTarget] = [.allocationSheet, .transactionSheet, .addCardForm]
+        let sheetSteps = allSteps.filter { $0.target.map(sheets.contains) ?? false }
+        XCTAssertFalse(sheetSteps.isEmpty)
+        XCTAssertTrue(sheetSteps.allSatisfy(\.isPlain))
+    }
+
+    func testAControlInsideASheetKeepsItsHighlight() {
+        let mode = allSteps.first { $0.target == .transactionMode }
+        XCTAssertEqual(mode?.isPlain, false)
+    }
+
+    func testNothingElseIsPlain() {
+        let others = allSteps.filter { $0.isPlain && !$0.ownsKeyboard }
+        XCTAssertTrue(others.isEmpty)
+        XCTAssertEqual(allSteps.first { $0.target == .budgetsForm }?.isPlain, false)
+    }
+
+    func testFullScreenCardFormIsToldBeforeItOpensUp() {
+        let steps = CoachMarkGuides.steps(
+            for: .creditCard, facts: CoachMarkFacts(), mode: .replay)
+        let form = steps.firstIndex { $0.target == .addCardForm }
+        XCTAssertEqual(form.map { steps[$0].isSilent }, true)
+        XCTAssertEqual(form.map { steps[$0 - 1].textKey }, form.map { steps[$0].textKey })
+        XCTAssertEqual(form.map { steps[$0 - 1].kind }, .info)
+    }
+
+    func testCounterLeavesOutASilentStep() {
+        let steps = CoachMarkGuides.steps(
+            for: .creditCard, facts: CoachMarkFacts(), mode: .replay)
+        var session = CoachMarkSession(guide: .creditCard, mode: .replay, steps: steps)
+        XCTAssertEqual(session.shownTotal, steps.count - 1)
+        while session.advance() {}
+        XCTAssertEqual(session.shownPosition, session.shownTotal)
+    }
+
     func testOnlyFormStepsOwnTheKeyboard() {
         for guide in CoachMarkGuideID.allCases {
             for step in CoachMarkGuides.steps(for: guide, facts: CoachMarkFacts(), mode: .automatic)
@@ -347,6 +392,40 @@ final class CoachMarkOverlayTests: XCTestCase {
         let hole = CGRect(x: 170, y: 700, width: 60, height: 60)
         let overlay = makeOverlay(hole: hole, touchable: false)
         XCTAssertTrue(overlay.hitTest(CGPoint(x: hole.midX, y: hole.midY), with: nil) === overlay)
+    }
+
+    func testPlainStepDrawsNothingButStillTakesTouches() {
+        let sheet = CGRect(x: 0, y: 400, width: 402, height: 474)
+        let overlay = CoachMarkOverlayView(frame: bounds)
+        overlay.isActive = true
+        overlay.show(hole: sheet, touchable: true, keyboardTop: nil, animated: false, plain: true)
+        overlay.layoutIfNeeded()
+
+        XCTAssertFalse(overlay.isDimVisible)
+        XCTAssertFalse(overlay.isRingVisible)
+        XCTAssertNil(overlay.hitTest(CGPoint(x: 200, y: 600), with: nil))
+        XCTAssertTrue(overlay.hitTest(CGPoint(x: 20, y: 300), with: nil) === overlay)
+    }
+
+    func testNormalStepKeepsDimAndRing() {
+        let overlay = makeOverlay(hole: CGRect(x: 170, y: 700, width: 60, height: 60), touchable: true)
+        XCTAssertTrue(overlay.isDimVisible)
+        XCTAssertTrue(overlay.isRingVisible)
+    }
+
+    func testPlainStepCardNeverCoversTheSheet() throws {
+        let sheet = CGRect(x: 0, y: 400, width: 402, height: 474)
+        let bubble = try XCTUnwrap(
+            CoachMarkLayout.bubbleFrame(
+                size: size, hole: sheet, bounds: bounds, safeArea: safe, keyboardTop: nil,
+                mayCoverHole: false))
+        XCTAssertFalse(bubble.intersects(sheet))
+
+        let tall = CGRect(x: 0, y: 90, width: 402, height: 784)
+        XCTAssertNil(
+            CoachMarkLayout.bubbleFrame(
+                size: size, hole: tall, bounds: bounds, safeArea: safe, keyboardTop: nil,
+                mayCoverHole: false))
     }
 
     func testBubbleIsAlwaysReachable() {

@@ -357,7 +357,8 @@ final class CoachMarkCenter {
 
         if isShowingStep {
             overlay.show(
-                hole: hole, touchable: session.step.isAction, keyboardTop: keyboardTop, animated: false)
+                hole: hole, touchable: session.step.isAction, keyboardTop: keyboardTop, animated: false,
+                plain: session.step.isPlain)
             return
         }
 
@@ -368,7 +369,8 @@ final class CoachMarkCenter {
         overlay.isActive = true
         overlayWindow.isHidden = false
         overlay.show(
-            hole: hole, touchable: session.step.isAction, keyboardTop: keyboardTop, animated: wasVisible)
+            hole: hole, touchable: session.step.isAction, keyboardTop: keyboardTop, animated: wasVisible,
+            plain: session.step.isPlain)
 
         if wasVisible {
             crossfadeBubble(overlay)

@@ -52,8 +52,12 @@ enum CoachMarkGuides {
     ) -> CoachMarkStep {
         CoachMarkStep(
             id: id, target: target, textKey: key(guide, id), kind: .action(until: .event(event)),
-            returnTo: returnTo, ownsKeyboard: true)
+            returnTo: returnTo, ownsKeyboard: true, isPlain: Self.sheets.contains(target))
     }
+
+    private static let sheets: Set<CoachMarkTarget> = [
+        .allocationSheet, .transactionSheet, .addCardForm,
+    ]
 
     /// The `+` button adds a transaction only on the card's month face, so any guide that needs that
     /// meaning first brings the card back to it.
@@ -155,12 +159,18 @@ enum CoachMarkGuides {
             tap(guide, "avatar", .dashboardAvatar, until: .targetVisible(.profileCreditCards)),
             tap(guide, "row", .profileCreditCards, until: .targetVisible(.creditCardsAdd)),
         ]
+        var formWithoutCard = form(
+            guide, "form", .addCardForm, until: .creditCardSaved, returnTo: "add")
+        formWithoutCard.isSilent = true
+
         if facts.hasCreditCard {
             steps.append(info(guide, "existingList", .creditCardsList))
         } else {
             steps += [
                 tap(guide, "add", .creditCardsAdd, until: .targetVisible(.addCardForm)),
-                form(guide, "form", .addCardForm, until: .creditCardSaved, returnTo: "add"),
+                CoachMarkStep(
+                    id: "formNote", target: nil, textKey: key(guide, "form"), kind: .info),
+                formWithoutCard,
                 info(guide, "note", .creditCardsList, optional: true),
             ]
         }
