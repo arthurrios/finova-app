@@ -5,6 +5,7 @@ import com.arthurrios.finova.domain.allocation.Allocations
 import com.arthurrios.finova.domain.model.Transaction
 import com.arthurrios.finova.domain.model.TransactionCategory
 import com.arthurrios.finova.domain.model.TransactionType
+import java.time.LocalDate
 import java.time.YearMonth
 import kotlin.math.roundToInt
 
@@ -199,9 +200,22 @@ data class BudgetHistory(
     /**
      * The same history with the open month counted as if it closed today: what it has left, or is
      * over, so far. Read only for "Only" on the open month; every other figure leaves it out.
+     *
+     * The bars count the month's scheduled rows too, so the open month is summed again here from the
+     * expenses dated up to [today].
+     *
+     * @param expenses the set [transactions] takes.
      */
-    fun countingOpenMonthSoFar(): BudgetHistory {
-        fun closed(series: BudgetHistorySeries) = series.copy(months = series.months.map { it.copy(isCurrent = false) })
+    fun countingOpenMonthSoFar(expenses: List<Transaction>, today: LocalDate): BudgetHistory {
+        val upToToday = expenses.filter { !it.date.isAfter(today) }
+        fun closed(series: BudgetHistorySeries) = series.copy(
+            months = series.months.map {
+                it.copy(
+                    spent = if (it.month == current) transactions(series.filter, current, upToToday).sumOf { row -> row.amount } else it.spent,
+                    isCurrent = false,
+                )
+            },
+        )
         // The month before the window is never in it, so as the open month it leaves every month closed.
         return copy(
             current = months.firstOrNull()?.minusMonths(1) ?: current,

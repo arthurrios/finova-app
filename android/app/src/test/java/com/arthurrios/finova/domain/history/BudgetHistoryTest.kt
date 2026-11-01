@@ -417,6 +417,44 @@ class BudgetHistoryTest {
         assertEquals(5, upTo.savings.months)
     }
 
+    @Test fun soFarCountsOutsideSpendingOnlyUpToToday() {
+        val h = history(
+            allocations = listOf(allocation(Groceries, months.lastIndex, 300)),
+            totals = mapOf(current to BudgetHistory.MonthTotal(1_000, 750)),
+        )
+        fun row(category: TransactionCategory, amount: Long, day: Int) = Transaction(
+            title = "x", category = category, type = TransactionType.Expense, amount = amount,
+            date = current.atDay(day), budgetMonth = current,
+        )
+        val expenses = listOf(row(Meals, 50, 10), row(Meals, 400, 25), row(Groceries, 100, 10), row(Groceries, 200, 25))
+
+        val soFar = h.countingOpenMonthSoFar(expenses, current.atDay(20))
+
+        assertEquals(150L, soFar.wholeMonth.month(current)?.spent)
+        assertEquals(50L, soFar.outside?.month(current)?.spent)
+        // Whole 850 - groceries 200 = 650, which is the outside series itself: nothing unexplained.
+        assertEquals(650L, soFar.outsideAllocations(current, current))
+        assertEquals(650L, soFar.outsideSavings(current, current)?.net)
+        assertTrue(soFar.outsideDifferences(current, current).isEmpty())
+    }
+
+    @Test fun soFarLeavesOutWhatIsDatedAfterToday() {
+        val h = history(totals = months.associateWith { BudgetHistory.MonthTotal(1_000, 900) })
+        fun row(amount: Long, day: Int) = Transaction(
+            title = "x", category = Groceries, type = TransactionType.Expense, amount = amount,
+            date = current.atDay(day), budgetMonth = current,
+        )
+        val s = BudgetHistoryUiState().withHistory(h, firstLoad = true).copy(
+            savingsScope = SavingsScope.Only,
+            expenses = listOf(row(300, 14), row(200, 15), row(400, 22)),
+            today = current.atDay(15),
+        )
+        assertEquals(500L, s.savings.net)
+        assertEquals(500L, s.contributors?.total)
+        // The month's bar keeps the scheduled row.
+        assertEquals(900L, s.selectedMonth?.spent)
+    }
+
     // ---- Trimming
 
     @Test fun leadingEmptyMonthsAreTrimmedButTheOpenMonthStays() {

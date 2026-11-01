@@ -51,6 +51,8 @@ data class BudgetHistoryUiState(
     val isLoaded: Boolean = false,
     /** Every expense behind the bars, early-paid installments removed. Filtered per month and filter. */
     val expenses: List<Transaction> = emptyList(),
+    /** The last day the open month's "so far" figures count. */
+    val today: LocalDate = LocalDate.now(),
     /** Filters left by drilling into the "Why" card, most recent last; the picker starts over. */
     val filterTrail: List<BudgetHistoryFilter> = emptyList(),
 ) {
@@ -91,7 +93,7 @@ data class BudgetHistoryUiState(
     val isSoFar: Boolean get() = savingsScope == SavingsScope.Only && selectedMonth?.isCurrent == true
 
     /** The history the Saved and "Why" figures read: the open month counted so far under [isSoFar]. */
-    private val countedHistory: BudgetHistory get() = if (isSoFar) history.countingOpenMonthSoFar() else history
+    private val countedHistory: BudgetHistory get() = if (isSoFar) history.countingOpenMonthSoFar(expenses, today) else history
 
     val savings: BudgetHistorySeries.Savings get() = savings(filter)
 
@@ -223,6 +225,7 @@ class BudgetHistoryViewModel(
         BudgetHistoryUiState(
             filter = filter,
             selected = month ?: YearMonth.from(today()),
+            today = today(),
             savingsStart = settings.budgetHistorySavingsStart(uid),
             valuesHidden = settings.hideValues,
             currencyCode = settings.currencyCode,
@@ -236,7 +239,7 @@ class BudgetHistoryViewModel(
                 BudgetHistoryReader.read(rows, budgets, offset, allocationRows, today()) to
                     rows.filter { it.type == TransactionType.Expense && !it.isCreditCardStatement && !it.isSettledEarly }
             }.collect { (history, expenses) ->
-                _state.update { it.withHistory(history, firstLoad = !it.isLoaded).copy(expenses = expenses) }
+                _state.update { it.withHistory(history, firstLoad = !it.isLoaded).copy(expenses = expenses, today = today()) }
             }
         }
     }
