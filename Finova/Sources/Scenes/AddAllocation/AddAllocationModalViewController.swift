@@ -52,6 +52,7 @@ final class AddAllocationModalViewController: UIViewController {
         super.viewDidLoad()
 
         contentView.delegate = self
+        contentView.accessibilityIdentifier = CoachMarkTarget.allocationSheet.rawValue
         setupView()
         // Duration presets ("6 months") resolve relative to the month being allocated.
         contentView.setBaseMonth(monthAnchor)

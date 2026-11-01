@@ -14,4 +14,5 @@ protocol SettingsViewDelegate: AnyObject {
     func didToggleTagTranslation(_ isEnabled: Bool)
     func didTapDownloadTranslationLanguages()
     func didTapImportData()
+    func didTapGuides()
 }

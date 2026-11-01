@@ -477,8 +477,10 @@ final class AddTransactionModalView: UIView {
   }
 
   private func setupTransactionModeControl() {
+    transactionModelControl.accessibilityIdentifier = CoachMarkTarget.transactionMode.rawValue
     transactionModelControl.onSelectionChanged = { [weak self] mode in
       self?.handleTransactionModeChange(mode)
+      if mode == .recurring { CoachMarkCenter.shared.post(.transactionModeRecurring) }
     }
   }
 

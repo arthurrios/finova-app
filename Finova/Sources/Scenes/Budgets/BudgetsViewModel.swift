@@ -21,6 +21,22 @@ final class BudgetsViewModel {
         selectedDate = initialDate
     }
     
+    /// What comes in during a month: the amount a budget is suggested to match. Card rows are left
+    /// out because a card refund is not money received. Callers pass rows without the early-paid
+    /// installments, as the ledger does, so this cannot disagree with the month the user sees.
+    static func monthlyIncome(of transactions: [Transaction], monthAnchor: Int) -> Int {
+        transactions
+            .filter { $0.budgetMonthDate == monthAnchor && $0.type == .income && $0.creditCardId == nil }
+            .reduce(0) { $0 + $1.amount }
+    }
+
+    func suggestedBudget(monthYearDate: String) -> Int {
+        guard let date = DateFormatter.monthYearFormatter.date(from: monthYearDate) else { return 0 }
+        return Self.monthlyIncome(
+            of: TransactionRepository().fetchAllTransactions().excludingEarlyPaidInstallments(),
+            monthAnchor: date.monthAnchor)
+    }
+
     func loadMonthTableViewData() -> [DisplayBudgetModel] {
         return budgetRepo.fetchBudgets().map { entry in
             let date = Date(timeIntervalSince1970: TimeInterval(entry.monthDate))

@@ -33,6 +33,7 @@ final class BudgetsViewController: UIViewController {
         super.viewDidLoad()
         hideKeyboardWhenTappedAround()
         contentView.delegate = self
+        contentView.suggestedAmount = { [weak self] in self?.viewModel.suggestedBudget(monthYearDate: $0) ?? 0 }
         setup()
     }
     
@@ -136,6 +137,7 @@ extension BudgetsViewController: BudgetsViewDelegate {
             loadData()
             contentView.budgetsTableView.reloadData()
             contentView.clearTextFields()
+            CoachMarkCenter.shared.post(.budgetSaved)
         case .failure(let error):
             
             switch error {
@@ -156,6 +158,7 @@ extension BudgetsViewController: BudgetsViewDelegate {
                         self.loadData()
                         self.contentView.budgetsTableView.reloadData()
                         self.contentView.clearTextFields()
+                        CoachMarkCenter.shared.post(.budgetSaved)
                     case .failure(let updateError):
                         self.showErrorAlert(error: updateError)
                     }
