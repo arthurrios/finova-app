@@ -44,10 +44,15 @@ class NotificationPlannerTest {
             .none { it is PlannedNotification.SeriesMonth })
     }
 
-    @Test fun anUnpaidStatementRemindsOnClosingAndDueDays() {
+    @Test fun anUnpaidStatementRemindsAfterClosingAndOnTheDueDay() {
         val card = CreditCard(id = 7, name = "Nubank", lastFourDigits = "1", closingDay = 26, dueDay = 3)
-        val statement = CreditCardStatement(id = 3, creditCardId = 7, closingDate = today, dueDate = today.plusDays(7))
+        val statement = CreditCardStatement(id = 3, creditCardId = 7, closingDate = today.minusDays(1), dueDate = today.plusDays(7))
         val purchase = tx(1, today.minusDays(5), 20_000) { it.copy(creditCardId = 7, statementId = 3) }
+        // On the closing date itself the statement can still grow, so nothing is sent yet.
+        assertTrue(
+            NotificationPlanner.plan(today.minusDays(1), listOf(purchase), listOf(statement), listOf(card), 0, NotificationPreferences())
+                .none { it is PlannedNotification.StatementClosed },
+        )
         val closed = plan(listOf(purchase), listOf(statement), listOf(card)).filterIsInstance<PlannedNotification.StatementClosed>().single()
         assertEquals(20_000L, closed.amount)
         assertEquals("Nubank", closed.cardName)

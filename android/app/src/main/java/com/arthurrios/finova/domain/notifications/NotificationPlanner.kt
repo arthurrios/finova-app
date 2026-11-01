@@ -115,7 +115,8 @@ object NotificationPlanner {
                 if (amount <= 0) return@forEach
                 // A deleted card's statements still count in the balance but send no reminders, as on iOS.
                 val card = cards.firstOrNull { it.id == statement.creditCardId && !it.isDeleted }?.name ?: return@forEach
-                if (statement.closingDate == today) planned += PlannedNotification.StatementClosed("statement_closed_${statement.id}", card, amount, statement.id)
+                // The morning after: a purchase on the closing date itself still joins the statement.
+                if (statement.closingDate.plusDays(1) == today) planned += PlannedNotification.StatementClosed("statement_closed_${statement.id}", card, amount, statement.id)
                 if (statement.dueDate == today) planned += PlannedNotification.StatementDue("statement_pay_${statement.id}", card, amount, statement.id)
             }
         }
