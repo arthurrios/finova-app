@@ -70,10 +70,14 @@ final class CoachMarkBubbleView: UIView {
     private lazy var skipButton = makeButton(color: Colors.gray500, action: #selector(skipTapped))
     private lazy var nextButton = makeButton(color: Colors.mainMagenta, action: #selector(nextTapped))
 
-    private lazy var buttonStack: UIStackView = {
+    private let buttonSpacer: UIView = {
         let spacer = UIView()
         spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        let stack = UIStackView(arrangedSubviews: [skipAllButton, skipButton, spacer, nextButton])
+        return spacer
+    }()
+
+    private lazy var buttonStack: UIStackView = {
+        let stack = UIStackView(arrangedSubviews: [skipAllButton, skipButton, buttonSpacer, nextButton])
         stack.axis = .horizontal
         stack.spacing = Metrics.spacing4
         stack.alignment = .center
@@ -145,6 +149,8 @@ final class CoachMarkBubbleView: UIView {
         buttonStack.axis = traitCollection.preferredContentSizeCategory.isAccessibilityCategory
             ? .vertical : .horizontal
         buttonStack.alignment = buttonStack.axis == .vertical ? .leading : .center
+        buttonStack.spacing = buttonStack.axis == .vertical ? 0 : Metrics.spacing4
+        buttonSpacer.isHidden = buttonStack.axis == .vertical
     }
 
     func fittingSize(width: CGFloat) -> CGSize {

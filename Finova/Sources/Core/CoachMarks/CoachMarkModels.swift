@@ -133,6 +133,8 @@ struct CoachMarkSession: Equatable {
     let mode: CoachMarkRunMode
     let steps: [CoachMarkStep]
     private(set) var index = 0
+    /// Steps passed without being shown. The counter on the card must not include them.
+    private(set) var skippedStepCount = 0
 
     init(guide: CoachMarkGuideID, mode: CoachMarkRunMode, steps: [CoachMarkStep]) {
         self.guide = guide
@@ -142,6 +144,14 @@ struct CoachMarkSession: Equatable {
 
     var step: CoachMarkStep { steps[index] }
     var isLastStep: Bool { index == steps.count - 1 }
+    var shownPosition: Int { index + 1 - skippedStepCount }
+    var shownTotal: Int { steps.count - skippedStepCount }
+
+    /// Passes a step whose result already holds. Returns false when it was the last one.
+    mutating func skipStep() -> Bool {
+        skippedStepCount += 1
+        return advance()
+    }
 
     /// Returns false when there was no next step, which means the guide is finished.
     mutating func advance() -> Bool {

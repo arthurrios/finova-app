@@ -13,6 +13,11 @@ enum CoachMarkFreshUserMode {
     private static let argumentKey = "coachMarksFreshUser"
     private static let appliedKey = "coachMarks.freshUserApplied"
 
+    /// `-coachMarksReplayGuide <rawValue>` opens straight into one guide, as its Settings row would.
+    static var replayGuide: CoachMarkGuideID? {
+        UserDefaults.standard.string(forKey: "coachMarksReplayGuide").flatMap(CoachMarkGuideID.init)
+    }
+
     static var isActive: Bool {
         UserDefaults.standard.bool(forKey: argumentKey)
     }

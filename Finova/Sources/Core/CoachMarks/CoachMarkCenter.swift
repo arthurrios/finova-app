@@ -50,6 +50,9 @@ final class CoachMarkCenter {
     private var isShowingStep = false
     private var isFadingOut = false
     private var hasAnnouncedStep = false
+    #if DEMO
+    private var didStartDemoReplay = false
+    #endif
 
     init(
         store: CoachMarkStateStore = CoachMarkStateStore(),
@@ -75,6 +78,13 @@ final class CoachMarkCenter {
 
     /// The dashboard is the only place an automatic guide can begin.
     func dashboardDidAppear() {
+        #if DEMO
+        if session == nil, !didStartDemoReplay, let guide = CoachMarkFreshUserMode.replayGuide {
+            didStartDemoReplay = true
+            startReplay(guide)
+            return
+        }
+        #endif
         scheduleAutoStart(after: Self.autoStartDelay)
     }
 
@@ -154,8 +164,8 @@ final class CoachMarkCenter {
         startTicking()
     }
 
-    private func moveOn(_ session: inout CoachMarkSession) {
-        guard session.advance() else {
+    private func moveOn(_ session: inout CoachMarkSession, skipping: Bool = false) {
+        guard skipping ? session.skipStep() : session.advance() else {
             self.session = session
             endSession(.completed)
             return
@@ -230,15 +240,16 @@ final class CoachMarkCenter {
 
         if isTransitioning(top) { return }
 
+        // First, so a step that was never shown leaves the counter on the card.
+        if !isShowingStep, let skip = step.skipIfVisible,
+           CoachMarkTargetResolver.find(skip, in: top.view, within: window) != nil {
+            return moveOn(&session, skipping: true)
+        }
         if case .action(.targetVisible(let target)) = step.kind,
            CoachMarkTargetResolver.find(target, in: top.view, within: window) != nil {
             return moveOn(&session)
         }
         if case .action(.screen(let name)) = step.kind, String(describing: type(of: top)) == name {
-            return moveOn(&session)
-        }
-        if !isShowingStep, let skip = step.skipIfVisible,
-           CoachMarkTargetResolver.find(skip, in: top.view, within: window) != nil {
             return moveOn(&session)
         }
 
@@ -296,7 +307,7 @@ final class CoachMarkCenter {
             // Cannot be done from here, so end rather than leave the user stuck.
             endSession(.abandoned)
         } else {
-            moveOn(&session)
+            moveOn(&session, skipping: true)
         }
     }
 
@@ -414,10 +425,9 @@ final class CoachMarkCenter {
 
     static func content(for session: CoachMarkSession) -> CoachMarkBubbleView.Content {
         let step = session.step
-        let position = (session.steps.firstIndex(of: step) ?? 0) + 1
         let caption = String(
             format: "coachMarks.caption".localized,
-            session.guide.titleKey.localized, position, session.steps.count)
+            session.guide.titleKey.localized, session.shownPosition, session.shownTotal)
         let isAutomatic = session.mode == .automatic
         let isFinalNote = session.isLastStep && !step.isAction
 

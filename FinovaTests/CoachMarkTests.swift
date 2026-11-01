@@ -252,6 +252,18 @@ final class CoachMarkGuideTests: XCTestCase {
         XCTAssertFalse(session.advance())
     }
 
+    func testCounterLeavesOutStepsThatWereSkipped() {
+        let steps = CoachMarkGuides.steps(
+            for: .dashboardTour, facts: CoachMarkFacts(), mode: .replay)
+        var session = CoachMarkSession(guide: .dashboardTour, mode: .replay, steps: steps)
+        XCTAssertTrue(session.skipStep())
+        XCTAssertEqual(session.shownPosition, 1)
+        XCTAssertEqual(session.shownTotal, steps.count - 1)
+
+        XCTAssertTrue(session.advance())
+        XCTAssertEqual(session.shownPosition, 2)
+    }
+
     func testOnlyFormStepsOwnTheKeyboard() {
         for guide in CoachMarkGuideID.allCases {
             for step in CoachMarkGuides.steps(for: guide, facts: CoachMarkFacts(), mode: .automatic)
