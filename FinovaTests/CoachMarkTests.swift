@@ -36,22 +36,22 @@ final class CoachMarkGatingTests: XCTestCase {
 
     // MARK: - New user
 
-    func testNewUserIsEnrolledAndStartsWithFirstBudget() {
+    func testNewUserIsEnrolledAndStartsWithSalary() {
         let state = enrolledState()
         XCTAssertEqual(state.isEnrolled, true)
-        XCTAssertEqual(CoachMarkGating.nextAutomaticGuide(state: state, facts: empty), .firstBudget)
+        XCTAssertEqual(
+            CoachMarkGating.nextAutomaticGuide(state: state, facts: empty), .salaryAndExpenses)
     }
 
-    func testChainLeadsFromBudgetToAllocationsToSalaryThenEnds() {
+    func testChainLeadsFromSalaryToBudgetToAllocationsThenEnds() {
         let state = enrolledState()
-        var facts = CoachMarkFacts(hasAnyBudget: true, hasBudgetThisMonth: true)
+        var facts = CoachMarkFacts(hasRecurringTransaction: true, hasAnyTransaction: true)
+        XCTAssertEqual(CoachMarkGating.nextAutomaticGuide(state: state, facts: facts), .firstBudget)
+
+        facts.hasAnyBudget = true
         XCTAssertEqual(CoachMarkGating.nextAutomaticGuide(state: state, facts: facts), .allocations)
 
         facts.hasAnyAllocation = true
-        XCTAssertEqual(
-            CoachMarkGating.nextAutomaticGuide(state: state, facts: facts), .salaryAndExpenses)
-
-        facts.hasRecurringTransaction = true
         XCTAssertNil(CoachMarkGating.nextAutomaticGuide(state: state, facts: facts))
     }
 
@@ -65,9 +65,8 @@ final class CoachMarkGatingTests: XCTestCase {
 
     func testAllocationsGuideWaitsForABudget() {
         var state = enrolledState()
-        state.skipped.insert(.firstBudget)
-        XCTAssertEqual(
-            CoachMarkGating.nextAutomaticGuide(state: state, facts: empty), .salaryAndExpenses)
+        state.skipped = [.salaryAndExpenses, .firstBudget]
+        XCTAssertNil(CoachMarkGating.nextAutomaticGuide(state: state, facts: empty))
     }
 
     // MARK: - Existing user
@@ -101,7 +100,7 @@ final class CoachMarkGatingTests: XCTestCase {
         XCTAssertTrue(CoachMarkGating.isSetupDone(.firstBudget, facts: lastMonthsBudget))
 
         var state = enrolledState()
-        state.completed = [.allocations, .salaryAndExpenses]
+        state.completed = [.salaryAndExpenses, .allocations]
         XCTAssertNil(CoachMarkGating.nextAutomaticGuide(state: state, facts: lastMonthsBudget))
     }
 
@@ -115,9 +114,8 @@ final class CoachMarkGatingTests: XCTestCase {
 
     func testLosingDataDoesNotRestartACompletedGuide() {
         var state = enrolledState()
-        state.completed.insert(.firstBudget)
-        XCTAssertEqual(
-            CoachMarkGating.nextAutomaticGuide(state: state, facts: empty), .salaryAndExpenses)
+        state.completed.insert(.salaryAndExpenses)
+        XCTAssertEqual(CoachMarkGating.nextAutomaticGuide(state: state, facts: empty), .firstBudget)
     }
 
     // MARK: - Skipping
@@ -131,23 +129,24 @@ final class CoachMarkGatingTests: XCTestCase {
 
     func testSkipEndsOneGuideAndTheChainGoesOn() {
         var state = enrolledState()
-        state.skipped.insert(.firstBudget)
-        let facts = CoachMarkFacts(hasAnyBudget: true)
-        XCTAssertEqual(CoachMarkGating.nextAutomaticGuide(state: state, facts: facts), .allocations)
+        state.skipped.insert(.salaryAndExpenses)
+        XCTAssertEqual(CoachMarkGating.nextAutomaticGuide(state: state, facts: empty), .firstBudget)
     }
 
     func testAGuideTheUserKeepsLeavingStopsOffering() {
         var state = enrolledState()
-        state.autoStarts[.firstBudget] = CoachMarkGating.maxAutoStarts - 1
-        XCTAssertEqual(CoachMarkGating.nextAutomaticGuide(state: state, facts: empty), .firstBudget)
+        state.autoStarts[.salaryAndExpenses] = CoachMarkGating.maxAutoStarts - 1
+        XCTAssertEqual(
+            CoachMarkGating.nextAutomaticGuide(state: state, facts: empty), .salaryAndExpenses)
 
-        state.autoStarts[.firstBudget] = CoachMarkGating.maxAutoStarts
-        XCTAssertNotEqual(CoachMarkGating.nextAutomaticGuide(state: state, facts: empty), .firstBudget)
+        state.autoStarts[.salaryAndExpenses] = CoachMarkGating.maxAutoStarts
+        XCTAssertNotEqual(
+            CoachMarkGating.nextAutomaticGuide(state: state, facts: empty), .salaryAndExpenses)
     }
 
     func testOnlyTheSetupChainIsAutomatic() {
         XCTAssertEqual(
-            CoachMarkGuideID.automaticChain, [.firstBudget, .allocations, .salaryAndExpenses])
+            CoachMarkGuideID.automaticChain, [.salaryAndExpenses, .firstBudget, .allocations])
     }
 
     // MARK: - Per-user state
@@ -212,7 +211,7 @@ final class CoachMarkGuideTests: XCTestCase {
 
     func testAllSetCardOnlyEndsTheAutomaticChain() {
         func lastTarget(_ mode: CoachMarkRunMode) -> CoachMarkTarget? {
-            CoachMarkGuides.steps(for: .salaryAndExpenses, facts: CoachMarkFacts(), mode: mode)
+            CoachMarkGuides.steps(for: .allocations, facts: CoachMarkFacts(), mode: mode)
                 .last?.target
         }
         XCTAssertNil(lastTarget(.automatic))
@@ -220,6 +219,17 @@ final class CoachMarkGuideTests: XCTestCase {
     }
 
     // MARK: - Step rules
+
+    func testBudgetFormNamesTheSuggestionOnlyWhenThereIsIncome() {
+        func formKey(_ facts: CoachMarkFacts) -> String? {
+            CoachMarkGuides.steps(for: .firstBudget, facts: facts, mode: .automatic)
+                .first { $0.target == .budgetsForm }?.textKey
+        }
+        XCTAssertEqual(formKey(CoachMarkFacts()), "coachMarks.firstBudget.form")
+        XCTAssertEqual(
+            formKey(CoachMarkFacts(hasIncomeThisMonth: true)),
+            "coachMarks.firstBudget.formWithIncome")
+    }
 
     func testEverySaveStepAdvancesOnlyOnItsEvent() {
         let steps = CoachMarkGuides.steps(
@@ -306,7 +316,7 @@ final class CoachMarkGuideTests: XCTestCase {
         var keys = CoachMarkGuideID.allCases.flatMap { [$0.titleKey, $0.subtitleKey] }
         keys += ["next", "done", "skip", "skipAll", "close", "gotIt"].map { "coachMarks.button.\($0)" }
         for guide in CoachMarkGuideID.allCases {
-            for facts in [CoachMarkFacts(), everything] {
+            for facts in [CoachMarkFacts(), CoachMarkFacts(hasIncomeThisMonth: true), everything] {
                 for mode in [CoachMarkRunMode.automatic, .replay] {
                     keys += CoachMarkGuides.steps(for: guide, facts: facts, mode: mode).map(\.textKey)
                 }
@@ -685,6 +695,44 @@ final class CoachMarkOverlayTests: XCTestCase {
         let root = UIViewController()
         let navigation = UINavigationController(rootViewController: root)
         XCTAssertTrue(CoachMarkTargetResolver.topViewController(from: navigation) === root)
+    }
+}
+
+final class BudgetSuggestionTests: XCTestCase {
+    private let month = 1_000
+    private let otherMonth = 2_000
+
+    private func transaction(
+        amount: Int, type: TransactionType, month: Int, creditCardId: Int? = nil
+    ) -> Transaction {
+        Transaction(
+            data: UITransactionData(
+                id: nil, title: "Row", amount: amount, dateTimestamp: month, budgetMonthDate: month,
+                isRecurring: nil, hasInstallments: nil, parentTransactionId: nil,
+                installmentNumber: nil, totalInstallments: nil, originalAmount: nil,
+                creditCardId: creditCardId, category: .salary, type: type))
+    }
+
+    func testSumsEveryIncomeOfTheMonth() {
+        let rows = [
+            transaction(amount: 800_000, type: .income, month: month),
+            transaction(amount: 50_000, type: .income, month: month),
+        ]
+        XCTAssertEqual(BudgetsViewModel.monthlyIncome(of: rows, monthAnchor: month), 850_000)
+    }
+
+    func testLeavesOutExpensesOtherMonthsAndCardRefunds() {
+        let rows = [
+            transaction(amount: 100_000, type: .income, month: month),
+            transaction(amount: 30_000, type: .expense, month: month),
+            transaction(amount: 900_000, type: .income, month: otherMonth),
+            transaction(amount: 20_000, type: .income, month: month, creditCardId: 7),
+        ]
+        XCTAssertEqual(BudgetsViewModel.monthlyIncome(of: rows, monthAnchor: month), 100_000)
+    }
+
+    func testNoIncomeSuggestsNothing() {
+        XCTAssertEqual(BudgetsViewModel.monthlyIncome(of: [], monthAnchor: month), 0)
     }
 }
 

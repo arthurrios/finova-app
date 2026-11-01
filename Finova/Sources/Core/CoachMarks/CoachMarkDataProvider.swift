@@ -17,6 +17,7 @@ struct CoachMarkDataProvider: CoachMarkDataProviding {
         let budgets = BudgetRepository().fetchBudgets()
         let allocations = BudgetAllocationRepository().fetchAllAllocations()
         let transactionRepository = TransactionRepository()
+        let transactions = transactionRepository.fetchAllTransactions()
         let uid = UserDefaultsManager.getUser()?.firebaseUID
             ?? UIDUserDefaultsManager.shared.currentUserUID
 
@@ -27,7 +28,8 @@ struct CoachMarkDataProvider: CoachMarkDataProviding {
             hasAllocationThisMonth: allocations.contains { $0.monthDate == thisMonth },
             hasRecurringTransaction: !transactionRepository.fetchRecurringTransactions().isEmpty,
             hasAnyTransaction: !transactionRepository.fetchAllTransactions().isEmpty,
-            hasCreditCard: uid.map { !CreditCardRepository().fetchAllCards(userId: $0).isEmpty } ?? false
+            hasCreditCard: uid.map { !CreditCardRepository().fetchAllCards(userId: $0).isEmpty } ?? false,
+            hasIncomeThisMonth: BudgetsViewModel.monthlyIncome(of: transactions, monthAnchor: thisMonth) > 0
         )
     }
 }

@@ -19473,13 +19473,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Start with a budget: how much you plan to spend this month. Tap here to set it."
+            "value": "Now set your budget: how much you plan to spend this month. Tap here."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Comece pelo orçamento: quanto você pretende gastar neste mês. Toque aqui para definir."
+            "value": "Agora defina seu orçamento: quanto você pretende gastar neste mês. Toque aqui."
           }
         }
       }
@@ -19711,13 +19711,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Now add your salary. Tap +."
+            "value": "Start with your salary. Tap +."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agora adicione seu salário. Toque em +."
+            "value": "Comece pelo seu salário. Toque em +."
           }
         }
       }
@@ -19773,7 +19773,7 @@
         }
       }
     },
-    "coachMarks.salaryAndExpenses.allSet": {
+    "coachMarks.allocations.allSet": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -20211,6 +20211,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Entendi"
+          }
+        }
+      }
+    },
+    "coachMarks.firstBudget.formWithIncome" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A good budget is what comes in each month. Tap the suggestion or type an amount, then tap Save."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Um bom orçamento é o que entra no mês. Toque na sugestão ou digite um valor e toque em Salvar."
+          }
+        }
+      }
+    },
+    "budgets.suggestion.income" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your income this month: %@. Use this amount"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sua renda neste mês: %@. Usar este valor"
           }
         }
       }

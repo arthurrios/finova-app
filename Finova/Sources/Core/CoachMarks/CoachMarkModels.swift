@@ -8,17 +8,19 @@ import Foundation
 /// The guides the app can run. The raw value is what `CoachMarkState` persists, so renaming a case
 /// would forget every user's progress on it.
 enum CoachMarkGuideID: String, Codable, CaseIterable {
+    case salaryAndExpenses
     case firstBudget
     case allocations
-    case salaryAndExpenses
     case firstTransaction
     case creditCard
     case budgetHistory
     case dashboardTour
 
     /// The setup chain a new user is walked through, in order. Each one ends where the next begins.
+    /// Income comes first because the budget form suggests it: a budget equal to what comes in gives
+    /// the user a real limit to split across categories.
     /// Everything else is Settings-only: a card or a tour is not setup every user needs.
-    static let automaticChain: [CoachMarkGuideID] = [.firstBudget, .allocations, .salaryAndExpenses]
+    static let automaticChain: [CoachMarkGuideID] = [.salaryAndExpenses, .firstBudget, .allocations]
 
     var titleKey: String { "coachMarks.guide.\(rawValue).title" }
     var subtitleKey: String { "coachMarks.guide.\(rawValue).subtitle" }
@@ -117,6 +119,7 @@ struct CoachMarkFacts: Equatable {
     var hasRecurringTransaction = false
     var hasAnyTransaction = false
     var hasCreditCard = false
+    var hasIncomeThisMonth = false
 
     var hasAnyData: Bool {
         hasAnyBudget || hasAnyAllocation || hasAnyTransaction || hasCreditCard

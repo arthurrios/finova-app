@@ -15,8 +15,8 @@ enum CoachMarkGuides {
     ) -> [CoachMarkStep] {
         switch guide {
         case .firstBudget: return firstBudget(facts)
-        case .allocations: return allocations(facts)
-        case .salaryAndExpenses: return salaryAndExpenses(facts, mode: mode)
+        case .allocations: return allocations(facts, mode: mode)
+        case .salaryAndExpenses: return salaryAndExpenses(facts)
         case .firstTransaction: return firstTransaction(facts)
         case .creditCard: return creditCard(facts)
         case .budgetHistory: return budgetHistory()
@@ -76,7 +76,9 @@ enum CoachMarkGuides {
         guard facts.hasBudgetThisMonth else {
             return [
                 tap(guide, "define", .dashboardDefineBudget, until: .targetVisible(.budgetsForm)),
-                form(guide, "form", .budgetsForm, until: .budgetSaved),
+                form(
+                    guide, facts.hasIncomeThisMonth ? "formWithIncome" : "form", .budgetsForm,
+                    until: .budgetSaved),
                 backToDashboard,
             ]
         }
@@ -89,30 +91,35 @@ enum CoachMarkGuides {
         ]
     }
 
-    private static func allocations(_ facts: CoachMarkFacts) -> [CoachMarkStep] {
+    private static func allocations(
+        _ facts: CoachMarkFacts, mode: CoachMarkRunMode
+    ) -> [CoachMarkStep] {
         let guide = CoachMarkGuideID.allocations
         let budgetFace = tap(
             guide, "budgetFace", .dashboardBudgetToggle, until: .targetVisible(.dashboardFlipBack),
             skipIfVisible: .dashboardFlipBack)
 
-        guard facts.hasAllocationThisMonth else {
-            return [
-                budgetFace,
+        var steps = [budgetFace]
+        if facts.hasAllocationThisMonth {
+            steps += [
+                info(guide, "existingList", .dashboardAllocations, optional: true),
+                info(guide, "existingAdd", .dashboardAdd),
+            ]
+        } else {
+            steps += [
                 tap(guide, "add", .dashboardAdd, until: .targetVisible(.allocationSheet)),
                 form(guide, "sheet", .allocationSheet, until: .allocationSaved, returnTo: "add"),
                 info(guide, "note", .dashboardAllocations, optional: true),
             ]
         }
-        return [
-            budgetFace,
-            info(guide, "existingList", .dashboardAllocations, optional: true),
-            info(guide, "existingAdd", .dashboardAdd),
-        ]
+        // The chain ends here, so this is where a new user learns the guides have not gone away.
+        if mode == .automatic {
+            steps.append(info(guide, "allSet", nil))
+        }
+        return steps
     }
 
-    private static func salaryAndExpenses(
-        _ facts: CoachMarkFacts, mode: CoachMarkRunMode
-    ) -> [CoachMarkStep] {
+    private static func salaryAndExpenses(_ facts: CoachMarkFacts) -> [CoachMarkStep] {
         let guide = CoachMarkGuideID.salaryAndExpenses
         var steps = [monthFace(guide)]
 
@@ -128,10 +135,6 @@ enum CoachMarkGuides {
                 form(guide, "sheet", .transactionSheet, until: .transactionSaved, returnTo: "add"),
                 info(guide, "note", .dashboardAdd),
             ]
-        }
-        // The chain ends here, so this is where a new user learns the guides have not gone away.
-        if mode == .automatic {
-            steps.append(info(guide, "allSet", nil))
         }
         return steps
     }

@@ -89,7 +89,8 @@ final class BudgetsView: UIView {
     
     private lazy var cardContentView: UIStackView = {
         let stackView = UIStackView(
-            axis: .vertical, spacing: Metrics.spacing4, arrangedSubviews: [inputStackView, addButton])
+            axis: .vertical, spacing: Metrics.spacing4,
+            arrangedSubviews: [inputStackView, suggestionButton, addButton])
         stackView.layoutMargins = UIEdgeInsets(
             top: Metrics.spacing5, left: Metrics.spacing5, bottom: Metrics.spacing5,
             right: Metrics.spacing5)
@@ -119,6 +120,24 @@ final class BudgetsView: UIView {
     private let budgetValueInput = Input(type: .currency, placeholder: "0,00")
     
     private let addButton = Button(label: "budgets.button.add.title".localized)
+
+    /// Offers the month's income as the amount. It only fills the field: saving stays the user's tap,
+    /// and with no income in the month there is nothing to offer, so the row collapses.
+    private let suggestionButton: UIButton = {
+        let button = UIButton(type: .system)
+        button.titleLabel?.font = Fonts.textSM.font
+        button.titleLabel?.adjustsFontForContentSizeCategory = true
+        button.titleLabel?.numberOfLines = 0
+        button.contentHorizontalAlignment = .leading
+        button.setTitleColor(Colors.mainMagenta, for: .normal)
+        button.isHidden = true
+        button.heightAnchor.constraint(greaterThanOrEqualToConstant: 44).isActive = true
+        return button
+    }()
+
+    /// The income of the month typed in the form, from the view controller.
+    var suggestedAmount: ((String) -> Int)?
+    private var suggestedCents = 0
     
     private let budgetsTableHeaderView = CardHeader(
         headerTitle: "budgets.table.header.title".localized)
@@ -225,6 +244,7 @@ final class BudgetsView: UIView {
         addSubview(newBudgetCardHeaderView)
         addSubview(cardContentView)
         cardContentView.addSubview(inputStackView)
+        cardContentView.addSubview(suggestionButton)
         cardContentView.addSubview(addButton)
         
         addSubview(budgetsTableHeaderView)
@@ -241,6 +261,7 @@ final class BudgetsView: UIView {
 
         backButton.addTarget(self, action: #selector(didTapBackButton), for: .touchUpInside)
         addButton.addTarget(self, action: #selector(didTapAddBudgetButton), for: .touchUpInside)
+        suggestionButton.addTarget(self, action: #selector(didTapSuggestion), for: .touchUpInside)
         manageTagsButton.addTarget(self, action: #selector(didTapManageTags), for: .touchUpInside)
         
         setupConstraints()
@@ -335,6 +356,8 @@ final class BudgetsView: UIView {
             self.dateInput.text = DateFormatter.monthYearFormatter.string(from: selectedDate)
         }
         
+        refreshSuggestion()
+
         if budgets.isEmpty {
             budgetsTableView.isHidden = true
             emptyStateView.isHidden = false
@@ -348,6 +371,22 @@ final class BudgetsView: UIView {
     func clearTextFields() {
         dateInput.textField.text = ""
         budgetValueInput.textField.text = ""
+        refreshSuggestion()
+    }
+
+    private func refreshSuggestion() {
+        suggestedCents = dateInput.textField.text.flatMap { suggestedAmount?($0) } ?? 0
+        suggestionButton.isHidden = suggestedCents <= 0
+        suggestionButton.setTitle(
+            String(
+                format: "budgets.suggestion.income".localized,
+                suggestedCents.maskedCurrencyString()),
+            for: .normal)
+    }
+
+    @objc
+    private func didTapSuggestion() {
+        budgetValueInput.setCentsValue(suggestedCents)
     }
     
     func toggleEmptyState(_ show: Bool) {
@@ -389,9 +428,11 @@ extension BudgetsView: UITextFieldDelegate {
         
         let formatted = DateFormatter.monthYearFormatter.string(from: picker.date)
         textField.text = formatted
+        refreshSuggestion()
     }
     
     @objc private func pickerValueChanged(_ picker: UIDatePicker) {
         dateInput.textField.text = DateFormatter.monthYearFormatter.string(from: picker.date)
+        refreshSuggestion()
     }
 }

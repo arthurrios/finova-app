@@ -33,6 +33,7 @@ final class BudgetsViewController: UIViewController {
         super.viewDidLoad()
         hideKeyboardWhenTappedAround()
         contentView.delegate = self
+        contentView.suggestedAmount = { [weak self] in self?.viewModel.suggestedBudget(monthYearDate: $0) ?? 0 }
         setup()
     }
     
