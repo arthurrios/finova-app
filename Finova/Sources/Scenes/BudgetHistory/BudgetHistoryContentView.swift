@@ -34,9 +34,14 @@ struct BudgetHistoryContentView: View {
                         }
                         .id(Self.topID)
                         chartCard
-                        savingsCard
-                        contributorsCard
-                            .id(Self.whyID)
+                        // A month ahead has saved nothing, so its card replaces the two that read results.
+                        if let forecast = viewModel.selectedForecast {
+                            forecastCard(forecast)
+                        } else {
+                            savingsCard
+                            contributorsCard
+                                .id(Self.whyID)
+                        }
                         insights
                     }
                     .padding(.vertical, Metrics.spacing4)
@@ -150,13 +155,16 @@ struct BudgetHistoryContentView: View {
     private var chartCard: some View {
         SectionCard(title: "budgetHistory.section.chart".localized) {
             VStack(alignment: .leading, spacing: Metrics.spacing4) {
-                if let month = viewModel.selectedMonth {
+                if let forecast = viewModel.selectedForecast {
+                    forecastReadout(for: forecast)
+                } else if let month = viewModel.selectedMonth {
                     readout(for: month)
                 }
 
                 BudgetHistoryChartView(
                     months: viewModel.series.months,
-                    selectedAnchor: viewModel.selectedMonth?.monthAnchor,
+                    forecast: viewModel.forecastMonths,
+                    selectedAnchor: viewModel.displayedAnchor,
                     isValuesHidden: hidden,
                     onSelect: select(month:)
                 )
@@ -238,6 +246,71 @@ struct BudgetHistoryContentView: View {
         }
     }
 
+    /// A projected month, in the shape of `readout` with its own words: a "Projected" badge where the
+    /// open month says "In progress", and expected costs where a past month says spent.
+    private func forecastReadout(for month: BudgetForecastFigures) -> some View {
+        VStack(alignment: .leading, spacing: Metrics.spacing1) {
+            HStack(spacing: Metrics.spacing1) {
+                stepButton(by: -1)
+                Text(BudgetHistoryViewModel.longMonth(month.monthAnchor))
+                    .font(Font(Fonts.textSMBold.font))
+                    .foregroundStyle(Color(Colors.gray600))
+                    .contentTransition(.numericText())
+                stepButton(by: 1)
+                Spacer(minLength: Metrics.spacing2)
+                Text("budgetHistory.forecast.badge".localized)
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(Color(Colors.gray600))
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Capsule().fill(Color(Colors.gray200)))
+            }
+
+            Text(expectedLabel)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(Color(Colors.gray500))
+                .padding(.top, Metrics.spacing1)
+            HStack(alignment: .firstTextBaseline) {
+                Text(month.expected.maskedCurrencyString(hidden: hidden))
+                    .font(.custom(Fonts.titleLG.font.fontName, size: 24))
+                    .foregroundStyle(Color(Colors.gray500))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
+                    .contentTransition(.numericText())
+                Spacer(minLength: Metrics.spacing2)
+                ForecastStatusPill(month: month, hidden: hidden)
+            }
+
+            Text(forecastPlanLine(for: month))
+                .font(Font(Fonts.textXS.font))
+                .foregroundStyle(Color(Colors.gray500))
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(BudgetHistoryViewModel.longMonth(month.monthAnchor))
+        .accessibilityValue(BudgetHistoryViewModel.forecastAccessibilityValue(for: month, hidden: hidden))
+    }
+
+    private var expectedLabel: String {
+        switch viewModel.filter {
+        case .wholeMonth: return "budgetHistory.forecast.expected.whole".localized
+        case .category(let category):
+            return String(format: "budgetHistory.forecast.expected.category.format".localized, category.displayName)
+        case .outsideAllocations: return "budgetHistory.forecast.line.outside".localized
+        }
+    }
+
+    private func forecastPlanLine(for month: BudgetForecastFigures) -> String {
+        guard month.hasPlan else { return BudgetHistoryViewModel.noPlanText(for: month.filter) }
+        var line = String(
+            format: "budgetHistory.hero.of.format".localized,
+            month.planned.maskedCurrencyString(hidden: hidden))
+        if !hidden, let percent = month.percentExpected {
+            line += " · " + String(format: "budgetHistory.percent.format".localized, percent)
+        }
+        return line
+    }
+
     private var spentLabel: String {
         switch viewModel.filter {
         case .wholeMonth: return "budgetHistory.readout.spent.whole".localized
@@ -305,6 +378,24 @@ struct BudgetHistoryContentView: View {
                 .frame(width: 12, height: 10)
                 Text("budgetHistory.legend.plan".localized)
             }
+            if !viewModel.forecastMonths.isEmpty {
+                HStack(spacing: Metrics.spacing1 + 2) {
+                    RoundedRectangle(cornerRadius: 2)
+                        .strokeBorder(
+                            Color(Colors.mainMagenta), style: StrokeStyle(lineWidth: 1, dash: [2, 1.5]))
+                        .frame(width: 10, height: 10)
+                    Text("budgetHistory.forecast.badge".localized)
+                }
+            }
+            if viewModel.forecastMonths.contains(where: { $0.hasPlan && $0.inside > 0 && $0.outsideWithinPlan > 0 }) {
+                HStack(spacing: Metrics.spacing1 + 2) {
+                    RoundedRectangle(cornerRadius: 2)
+                        .strokeBorder(
+                            Color(Colors.warningAmber), style: StrokeStyle(lineWidth: 1, dash: [2, 1.5]))
+                        .frame(width: 10, height: 10)
+                    Text("budgetHistory.forecast.legend.outside".localized)
+                }
+            }
             Spacer(minLength: 0)
         }
         .font(.system(size: 10))
@@ -317,6 +408,113 @@ struct BudgetHistoryContentView: View {
             RoundedRectangle(cornerRadius: 2).fill(color).frame(width: 10, height: 10)
             Text(label)
         }
+    }
+
+    // MARK: - Projected month
+
+    /// The month's sum, then its place in the balance, then the rows already dated in it. Every line
+    /// is a forecast, and the note under the sum says so in words.
+    @ViewBuilder
+    private func forecastCard(_ figures: BudgetForecastFigures) -> some View {
+        if let detail = viewModel.forecastDetail(figures) {
+            SectionCard(title: "budgetHistory.forecast.card.title".localized) {
+                VStack(alignment: .leading, spacing: 0) {
+                    forecastSum(detail)
+                        .padding(.horizontal, Metrics.spacing5)
+                        .padding(.vertical, Metrics.spacing3)
+
+                    if figures.filter == .wholeMonth, let projection = detail.month.projection {
+                        Separator()
+                        VStack(alignment: .leading, spacing: 0) {
+                            if detail.month.statementsDue > 0 {
+                                detailLine(
+                                    "budgetHistory.forecast.statements".localized,
+                                    (-detail.month.statementsDue).maskedSignedCurrencyString(hidden: hidden))
+                            }
+                            detailLine(
+                                "budgetHistory.forecast.balance".localized,
+                                projection.projected.maskedSignedCurrencyString(hidden: hidden),
+                                bold: true)
+                            if detail.month.statementsDue > 0 {
+                                note("budgetHistory.forecast.statements.note".localized)
+                            }
+                        }
+                        .padding(.horizontal, Metrics.spacing5)
+                        .padding(.vertical, Metrics.spacing3)
+                    }
+
+                    if !detail.biggest.isEmpty {
+                        Separator()
+                        GroupLabel(text: "budgetHistory.forecast.line.scheduled".localized, tint: Colors.gray500)
+                        ForEach(Array(detail.biggest.enumerated()), id: \.offset) { _, transaction in
+                            Separator()
+                            ExpenseRow(transaction: transaction, hidden: hidden) {
+                                viewModel.onOpenTransaction?(transaction)
+                            }
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal, Metrics.spacing4)
+        }
+    }
+
+    @ViewBuilder
+    private func forecastSum(_ detail: BudgetHistoryViewModel.ForecastDetail) -> some View {
+        let figures = detail.figures
+        VStack(alignment: .leading, spacing: 0) {
+            switch figures.filter {
+            case .wholeMonth:
+                planLine(figures)
+                detailLine(
+                    "budgetHistory.forecast.line.inside".localized,
+                    (-figures.inside).maskedSignedCurrencyString(hidden: hidden))
+                detailLine(
+                    "budgetHistory.forecast.line.outside".localized,
+                    (-figures.outside).maskedSignedCurrencyString(hidden: hidden))
+            case .category:
+                planLine(figures)
+                detailLine(
+                    "budgetHistory.forecast.line.scheduled".localized,
+                    (-figures.expected).maskedSignedCurrencyString(hidden: hidden))
+            case .outsideAllocations:
+                if detail.month.budget > 0 {
+                    detailLine(
+                        "budgetHistory.explain.plan.wholeMonth".localized,
+                        detail.month.budget.maskedCurrencyString(hidden: hidden))
+                    detailLine(
+                        "budgetHistory.explain.inCategories".localized,
+                        (-detail.month.allocated).maskedSignedCurrencyString(hidden: hidden))
+                }
+                planLine(figures)
+                detailLine(
+                    "budgetHistory.forecast.line.outside".localized,
+                    (-figures.outside).maskedSignedCurrencyString(hidden: hidden))
+            }
+            if figures.hasPlan {
+                detailLine(
+                    (figures.difference < 0 ? "budgetHistory.forecast.short" : "budgetHistory.forecast.left").localized,
+                    abs(figures.difference).maskedCurrencyString(hidden: hidden),
+                    tint: hidden || figures.difference >= 0 ? nil : Colors.warningAmber,
+                    bold: true)
+            }
+            note(forecastNote(figures))
+        }
+    }
+
+    /// The plan line, or the words for having none: a month with no plan never shows a zero.
+    private func planLine(_ figures: BudgetForecastFigures) -> some View {
+        detailLine(
+            planLabel,
+            figures.hasPlan
+                ? figures.planned.maskedCurrencyString(hidden: hidden)
+                : BudgetHistoryViewModel.noPlanText(for: figures.filter))
+    }
+
+    private func forecastNote(_ figures: BudgetForecastFigures) -> String {
+        figures.filter == .wholeMonth
+            ? "budgetHistory.forecast.note.whole".localized
+            : "budgetHistory.forecast.note.rows".localized
     }
 
     // MARK: - Insights
@@ -827,6 +1025,39 @@ private struct StatusPill: View {
         HStack(spacing: 4) {
             Image(systemName: icon).font(.system(size: 9, weight: .bold))
             Text(BudgetHistoryViewModel.statusText(for: month, hidden: hidden))
+                .font(.system(size: 11, weight: .semibold))
+                .lineLimit(1)
+        }
+        .foregroundStyle(tint)
+        .padding(.horizontal, Metrics.spacing2)
+        .frame(height: 22)
+        .background(Capsule().fill(tint.opacity(0.1)))
+        .fixedSize()
+    }
+}
+
+/// What a projected month has left or is short. Grey and amber, never the green and red of a result,
+/// and no check mark: nothing here has happened yet.
+private struct ForecastStatusPill: View {
+    let month: BudgetForecastFigures
+    let hidden: Bool
+
+    private var tint: Color {
+        month.status == .short ? Color(Colors.warningAmber) : Color(Colors.gray500)
+    }
+
+    private var icon: String {
+        switch month.status {
+        case .fits: return "calendar"
+        case .short: return "exclamationmark.triangle"
+        case .noPlan, .empty: return "minus"
+        }
+    }
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Image(systemName: icon).font(.system(size: 9, weight: .bold))
+            Text(BudgetHistoryViewModel.forecastStatusText(for: month, hidden: hidden))
                 .font(.system(size: 11, weight: .semibold))
                 .lineLimit(1)
         }

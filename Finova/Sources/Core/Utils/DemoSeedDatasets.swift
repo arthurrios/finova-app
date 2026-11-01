@@ -38,7 +38,7 @@ struct DemoDataset {
         case monthly(days: [Int], months: Set<Int>?, card: Int?)
         /// An installment purchase made in month `monthOffset`.
         case installments(count: Int, monthOffset: Int, day: Int, card: Int?)
-        /// A one-off in whichever seeded month (history or the next three) is this calendar month.
+        /// A one-off in whichever seeded month (history or the next five) is this calendar month.
         case yearly(month: Int, day: Int, card: Int?)
         /// A one-off dated today, never on a card: a card's budget month can be the next one. Fills the
         /// open month on any date, so budget history's "so far" figures have something to show.

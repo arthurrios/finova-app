@@ -4526,6 +4526,402 @@
         }
       }
     },
+    "budgetHistory.forecast.a11y.expected.format": {
+      "comment": "VoiceOver: expected cost of a projected month with no plan.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ expected"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ previstos"
+          }
+        }
+      }
+    },
+    "budgetHistory.forecast.a11y.expectedOf.format": {
+      "comment": "VoiceOver: expected cost of a projected month against its plan.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ expected of %2$@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ previstos de %2$@"
+          }
+        }
+      }
+    },
+    "budgetHistory.forecast.badge": {
+      "comment": "Marks a month or chart area as a projection, not a real result.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Projected"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Projetado"
+          }
+        }
+      }
+    },
+    "budgetHistory.forecast.balance": {
+      "comment": "Projected month: the dashboard's projected balance.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Expected balance at month end"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saldo previsto no fim do mês"
+          }
+        }
+      }
+    },
+    "budgetHistory.forecast.card.title": {
+      "comment": "Header of the card for a projected month.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Projected month"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mês projetado"
+          }
+        }
+      }
+    },
+    "budgetHistory.forecast.expected.category.format": {
+      "comment": "Readout label: expected in one category.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Expected in %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Previsto em %@"
+          }
+        }
+      }
+    },
+    "budgetHistory.forecast.expected.whole": {
+      "comment": "Readout label: expected costs of a projected month.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Expected costs"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Custos previstos"
+          }
+        }
+      }
+    },
+    "budgetHistory.forecast.left": {
+      "comment": "Projected month: budget left after expected costs.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Left"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sobra"
+          }
+        }
+      }
+    },
+    "budgetHistory.forecast.legend.outside": {
+      "comment": "Chart legend: projected costs outside allocations.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Outside"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fora"
+          }
+        }
+      }
+    },
+    "budgetHistory.forecast.line.inside": {
+      "comment": "Projected month: expected costs inside allocations.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Expected inside allocations"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Previsto nas alocações"
+          }
+        }
+      }
+    },
+    "budgetHistory.forecast.line.outside": {
+      "comment": "Projected month: expected costs outside allocations.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Expected outside allocations"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Previsto fora das alocações"
+          }
+        }
+      }
+    },
+    "budgetHistory.forecast.line.scheduled": {
+      "comment": "Rows already dated in a projected month.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Already scheduled"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Já agendado"
+          }
+        }
+      }
+    },
+    "budgetHistory.forecast.noAllocation": {
+      "comment": "A projected category with no allocation that month.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No allocation this month"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sem alocação neste mês"
+          }
+        }
+      }
+    },
+    "budgetHistory.forecast.noBudget": {
+      "comment": "A projected month with no budget.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No budget set"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sem orçamento definido"
+          }
+        }
+      }
+    },
+    "budgetHistory.forecast.note.rows": {
+      "comment": "Note under a projected category or outside allocations.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Counts only what is already scheduled. This is a projection, not a real result."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conta só o que já está agendado. Isto é uma projeção, não um resultado real."
+          }
+        }
+      }
+    },
+    "budgetHistory.forecast.note.whole": {
+      "comment": "Note under a projected month.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Assumes every allocation is spent in full, like the dashboard. This is a projection, not a real result."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Considera cada alocação gasta por inteiro, como no painel. Isto é uma projeção, não um resultado real."
+          }
+        }
+      }
+    },
+    "budgetHistory.forecast.short": {
+      "comment": "Projected month: how far expected costs pass the plan.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shortfall"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Falta"
+          }
+        }
+      }
+    },
+    "budgetHistory.forecast.statements": {
+      "comment": "Projected month: card statements falling due.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Card statements due"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Faturas a pagar"
+          }
+        }
+      }
+    },
+    "budgetHistory.forecast.statements.note": {
+      "comment": "Why statements are not in the budget sum of a projected month.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Statements affect the balance only. Their purchases count in the month they were made."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Faturas afetam só o saldo. As compras contam no mês em que foram feitas."
+          }
+        }
+      }
+    },
+    "budgetHistory.forecast.status.fits": {
+      "comment": "Status of a projected month that fits its plan, values hidden.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fits the plan"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cabe no plano"
+          }
+        }
+      }
+    },
+    "budgetHistory.forecast.status.short": {
+      "comment": "Status of a projected month over its plan, values hidden.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Over the plan"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Acima do plano"
+          }
+        }
+      }
+    },
+    "budgetHistory.forecast.status.short.format": {
+      "comment": "Status of a projected month over its plan. %@ is the amount.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ short"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Faltam %@"
+          }
+        }
+      }
+    },
     "budgetHistory.hero.noPlan": {
       "comment": "Under the spent amount when the month had no plan.",
       "extractionState": "manual",

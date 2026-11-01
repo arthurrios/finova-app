@@ -29,6 +29,8 @@ final class BudgetHistoryViewModel: ObservableObject {
     @Published private(set) var history: BudgetHistory = .empty
     /// Every expense behind the bars, read with the history. Filtered in memory per month and filter.
     @Published private(set) var expenses: [Transaction] = []
+    /// The months ahead of the open one, read with the history.
+    @Published private(set) var forecast: BudgetForecast = .empty
     /// Opens a transaction's details. Set by the view controller, which owns navigation.
     var onOpenTransaction: ((Transaction) -> Void)?
     @Published var filter: BudgetHistoryFilter
@@ -92,7 +94,8 @@ final class BudgetHistoryViewModel: ObservableObject {
     func load() {
         history = service.history(in: ledgerScope, includeWholeMonth: true, asOf: reference())
         expenses = service.expenses(in: ledgerScope)
-        if history.series(for: filter) == nil {
+        forecast = service.forecast(in: ledgerScope, asOf: reference())
+        if history.series(for: filter) == nil && !isForecastOnly(filter) {
             filter = .wholeMonth
         }
         // An entry month older than six months opens the longer range, so it is on screen.
@@ -101,7 +104,7 @@ final class BudgetHistoryViewModel: ObservableObject {
         {
             range = .twelveMonths
         }
-        if !history.monthAnchors.contains(selectedAnchor) {
+        if !history.monthAnchors.contains(selectedAnchor) && selectedForecast == nil {
             selectedAnchor = history.currentAnchor
         }
         keepSelectionVisible()
@@ -109,9 +112,21 @@ final class BudgetHistoryViewModel: ObservableObject {
 
     // MARK: - Derived
 
+    /// A category first planned in a month ahead: it has no past to read, only a forecast.
+    private func isForecastOnly(_ filter: BudgetHistoryFilter) -> Bool {
+        guard case .category(let category) = filter, history.series(for: filter) == nil else { return false }
+        return forecast.plannedCategories.contains(category)
+    }
+
+    /// Every past month of the chosen filter.
+    private var fullSeries: BudgetHistorySeries {
+        history.series(for: filter)
+            ?? (isForecastOnly(filter) ? BudgetHistorySeries(filter: filter, months: []) : history.wholeMonth)
+    }
+
     /// The bars on screen: the chosen range, minus leading months with nothing in them.
     var series: BudgetHistorySeries {
-        (history.series(for: filter) ?? history.wholeMonth)
+        fullSeries
             .suffix(range.rawValue)
             .trimmingLeadingEmptyMonths()
     }
@@ -120,18 +135,38 @@ final class BudgetHistoryViewModel: ObservableObject {
         series.month(selectedAnchor) ?? series.months.last
     }
 
-    var filters: [BudgetHistoryFilter] { history.filters }
+    /// The projected bars after the past ones, for the chosen filter. Never part of `series`, so they
+    /// reach no score, streak or savings figure.
+    /// Empty when no month ahead has anything for this filter: six blank columns would only squeeze
+    /// the past bars.
+    var forecastMonths: [BudgetForecastFigures] {
+        let months = forecast.figures(for: filter)
+        return months.allSatisfy { $0.status == .empty } ? [] : months
+    }
+
+    /// The selected month when it lies ahead. While it does, `selectedMonth` stays on the open month
+    /// and the Saved figures are not on screen.
+    var selectedForecast: BudgetForecastFigures? {
+        forecastMonths.first { $0.monthAnchor == selectedAnchor }
+    }
+
+    /// The month highlighted on the chart, past or projected.
+    var displayedAnchor: Int? { selectedForecast?.monthAnchor ?? selectedMonth?.monthAnchor }
+
+    var filters: [BudgetHistoryFilter] {
+        history.filters + forecast.plannedCategories.map(BudgetHistoryFilter.category).filter(isForecastOnly)
+    }
 
     /// The 12-month option only when it would show more than the 6-month one. A ledger with five months
     /// of history draws the same bars under both, and a toggle that changes nothing reads as broken.
     var offersLongerRange: Bool {
-        (history.series(for: filter) ?? history.wholeMonth)
+        fullSeries
             .suffix(Span.twelveMonths.rawValue)
             .trimmingLeadingEmptyMonths()
             .months.count > Span.sixMonths.rawValue
     }
 
-    var isEmpty: Bool { history.isEmpty }
+    var isEmpty: Bool { history.isEmpty && forecast.isEmpty }
 
     /// What the chosen filter saved since `savingsStart`.
     /// Saved counts up to the month being read, so moving through the chart shows the running total.
@@ -189,6 +224,23 @@ final class BudgetHistoryViewModel: ObservableObject {
         let expenseCount: Int
         let biggest: [Transaction]
         let budgetSplit: (budget: Int, inCategories: Int)?
+    }
+
+    /// One projected month as its card shows it: the figures, the rows already dated in it and the
+    /// three biggest of them, and the month's balance figures.
+    func forecastDetail(_ figures: BudgetForecastFigures) -> ForecastDetail? {
+        guard let month = forecast.month(figures.monthAnchor) else { return nil }
+        let listed = forecast.transactions(for: filter, month: figures.monthAnchor, in: expenses)
+            .filter { $0.amount > 0 }
+        return ForecastDetail(
+            figures: figures, month: month, scheduledCount: listed.count, biggest: Array(listed.prefix(3)))
+    }
+
+    struct ForecastDetail {
+        let figures: BudgetForecastFigures
+        let month: BudgetForecastMonth
+        let scheduledCount: Int
+        let biggest: [Transaction]
     }
 
     /// The named parts of the outside remainder, shown under the Saved card while that filter is on.
@@ -281,11 +333,10 @@ final class BudgetHistoryViewModel: ObservableObject {
 
     /// The month the arrows step to, or nil at either end of the bars on screen.
     func neighbour(by offset: Int) -> Int? {
-        let months = series.months
-        guard let index = months.firstIndex(where: { $0.monthAnchor == selectedMonth?.monthAnchor })
-        else { return nil }
+        let months = series.months.map(\.monthAnchor) + forecastMonths.map(\.monthAnchor)
+        guard let index = months.firstIndex(where: { $0 == displayedAnchor }) else { return nil }
         let target = index + offset
-        return months.indices.contains(target) ? months[target].monthAnchor : nil
+        return months.indices.contains(target) ? months[target] : nil
     }
 
     // MARK: - Intents
@@ -316,15 +367,17 @@ final class BudgetHistoryViewModel: ObservableObject {
     }
 
     func select(month anchor: Int) {
-        guard series.month(anchor) != nil else { return }
+        guard series.month(anchor) != nil || forecastMonths.contains(where: { $0.monthAnchor == anchor })
+        else { return }
         selectedAnchor = anchor
     }
 
     /// A shorter range or a trimmed series can drop the selected month off the chart. Move the
     /// selection to the open month rather than leaving the readout on a month with no bar.
     private func keepSelectionVisible() {
-        if series.month(selectedAnchor) == nil, let last = series.months.last {
-            selectedAnchor = last.monthAnchor
+        guard series.month(selectedAnchor) == nil, selectedForecast == nil else { return }
+        if let month = series.months.last?.monthAnchor ?? forecastMonths.first?.monthAnchor {
+            selectedAnchor = month
         }
     }
 }
@@ -430,6 +483,51 @@ extension BudgetHistoryViewModel {
         if month.isCurrent {
             parts.append("budgetHistory.status.inProgress".localized)
         }
+        return parts.joined(separator: ", ")
+    }
+
+    /// The status a projected month carries: an amount when values are visible, a word when not.
+    /// The words never say "saved" or "on plan": nothing here has happened yet.
+    static func forecastStatusText(for month: BudgetForecastFigures, hidden: Bool) -> String {
+        switch month.status {
+        case .fits:
+            return hidden
+                ? "budgetHistory.forecast.status.fits".localized
+                : String(format: "budgetHistory.status.left.format".localized, month.difference.currencyString)
+        case .short:
+            return hidden
+                ? "budgetHistory.forecast.status.short".localized
+                : String(
+                    format: "budgetHistory.forecast.status.short.format".localized,
+                    abs(month.difference).currencyString)
+        case .noPlan, .empty:
+            return noPlanText(for: month.filter)
+        }
+    }
+
+    /// A month with no plan says so in words, so it never reads as a plan of zero.
+    static func noPlanText(for filter: BudgetHistoryFilter) -> String {
+        switch filter {
+        case .category: return "budgetHistory.forecast.noAllocation".localized
+        case .wholeMonth, .outsideAllocations: return "budgetHistory.forecast.noBudget".localized
+        }
+    }
+
+    /// What VoiceOver reads for a projected month. Opens by saying it is projected, so the amounts
+    /// that follow are never taken for a result.
+    static func forecastAccessibilityValue(for month: BudgetForecastFigures, hidden: Bool) -> String {
+        var parts = ["budgetHistory.forecast.badge".localized]
+        if !hidden {
+            parts.append(
+                month.hasPlan
+                    ? String(
+                        format: "budgetHistory.forecast.a11y.expectedOf.format".localized,
+                        month.expected.currencyString, month.planned.currencyString)
+                    : String(
+                        format: "budgetHistory.forecast.a11y.expected.format".localized,
+                        month.expected.currencyString))
+        }
+        parts.append(forecastStatusText(for: month, hidden: hidden))
         return parts.joined(separator: ", ")
     }
 }

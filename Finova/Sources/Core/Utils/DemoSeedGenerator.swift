@@ -11,7 +11,7 @@ import UIKit
 import UserNotifications
 
 /// Wipes the local ledger and writes a showcase one: twelve months of history, so budget history
-/// offers its longer range, an open month with spending on any date, the next three months planned, two credit cards with paid, closed and open statements, installment purchases (one paid
+/// offers its longer range, an open month with spending on any date, the next five months planned and the sixth with no budget, two credit cards with paid, closed and open statements, installment purchases (one paid
 /// early, one cancelled), recurring bills, category allocations and monthly budgets. No family group
 /// and no sync data: this version has neither. The content comes from `DemoDataset`: the Brazilian
 /// ledger for BRL (the default), the American one for any other currency.
@@ -33,7 +33,9 @@ struct DemoSeedGenerator {
     /// 2: no family group (this version has none).
     /// 3: twelve months of history, and an open month that has categories over and left so far.
     private static let seedVersionKey = "demoSeedVersion"
-    private static let seedVersion = 3
+    /// 4: five months of budgets ahead, a sixth left without one, and recurring bills outside allocations,
+    /// for the forecast on budget history.
+    private static let seedVersion = 4
     private static let seedQueue = DispatchQueue(label: "com.finova.demoseed", qos: .userInitiated)
     private static let lock = NSLock()
     private static var _isSeeding = false
@@ -180,7 +182,7 @@ private struct Writer {
     private let cardRepo = CreditCardRepository()
     private let stmtRepo = StatementRepository()
     private let historyOffsets = Array(-11...0)
-    private let seededOffsets = Array(-11...3)
+    private let seededOffsets = Array(-11...5)
 
     init(dataset: DemoDataset, userUID: String) {
         self.dataset = dataset
@@ -411,10 +413,13 @@ private struct Writer {
         let digits = Double(CurrencyUtils.fractionDigits(for: dataset.currency))
         let scale = pow(10, digits)
         let tight: Set<TransactionCategory> = [.meals, .transportation, .entertainment, .clothing, .groceries]
+        // Recurring bills with no allocation, so the months ahead have expected costs outside allocations.
+        let leftOutside: Set<TransactionCategory> = [.insurance, .communication, .subscriptions, .fitness]
 
         let service = BudgetAllocationService(transactionRepo: txRepo)
         let startAnchor = date(day: 1, monthOffset: historyOffsets[0]).monthAnchor
-        for (category, average) in perCategory.sorted(by: { $0.key.key < $1.key.key }) {
+        for (category, average) in perCategory.sorted(by: { $0.key.key < $1.key.key })
+        where !leftOutside.contains(category) {
             let major = DemoAmounts.round(average / scale * (tight.contains(category) ? 0.9 : 1.05))
             guard major > 0 else { continue }
             _ = try? service.createAllocation(

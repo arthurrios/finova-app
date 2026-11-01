@@ -14,6 +14,12 @@ protocol BudgetHistoryReading: AnyObject {
     /// Every expense the bars are built from, early-paid installments removed - read once per screen
     /// load, so moving between months filters in memory instead of reading the table again.
     func expenses(in scope: LedgerScope) -> [Transaction]
+    /// The months ahead of the open one. Read with the history, once per screen load.
+    func forecast(in scope: LedgerScope, asOf reference: Date) -> BudgetForecast
+}
+
+extension BudgetHistoryReading {
+    func forecast(in scope: LedgerScope, asOf reference: Date) -> BudgetForecast { .empty }
 }
 
 /// Reads a ledger's past months for the budget history screen.
@@ -91,6 +97,37 @@ final class BudgetHistoryService: BudgetHistoryReading {
     func expenses(in scope: LedgerScope) -> [Transaction] {
         let expenses = transactionRepo.fetchAllTransactions().filter { $0.type == .expense }
         return expenses.isEmpty ? [] : expenses.excludingEarlyPaidInstallments()
+    }
+
+    /// The next months through the services the dashboard's budget card reads them from, so a month
+    /// shows the same figures in both places. Nothing is summed here that the card does not sum.
+    func forecast(in scope: LedgerScope, asOf reference: Date = Date()) -> BudgetForecast {
+        let ledger = TransactionLedgerService(transactionRepo: transactionRepo, budgetRepo: budgetRepo)
+        let allocationService = BudgetAllocationService(
+            allocationRepo: allocationRepo, transactionRepo: transactionRepo, budgetRepo: budgetRepo)
+
+        let statementsDue = ledger.cashTransactionsForBalance()
+            .filter { $0.isCreditCardStatement == true && $0.type == .expense }
+            .reduce(into: [Int: Int]()) { totals, statement in
+                let due = Date(timeIntervalSince1970: TimeInterval(statement.dateTimestamp)).monthAnchor
+                totals[due, default: 0] += statement.amount
+            }
+
+        let months = ledger.calculateMonthlyData(
+            for: 1...BudgetForecast.monthsAhead, referenceDate: reference
+        ).map { month -> BudgetForecastMonth in
+            let anchor = month.date.monthAnchor
+            return BudgetForecastMonth(
+                monthAnchor: anchor,
+                allocations: allocationService.getAllocationsWithUsage(forMonth: anchor, in: scope),
+                summary: allocationService.getUnallocatedSummary(forMonth: anchor, in: scope),
+                unallocatedSpending: allocationService.getUnallocatedCategoriesWithSpending(
+                    forMonth: anchor, in: scope),
+                closingBalance: month.finalBalance,
+                deferredCardSpending: allocationService.deferredCardSpending(forMonth: anchor, in: scope),
+                statementsDue: statementsDue[anchor] ?? 0)
+        }
+        return BudgetForecast(months: months)
     }
 
     /// Whole months from one anchor to another, in the calendar every anchor is written with.
