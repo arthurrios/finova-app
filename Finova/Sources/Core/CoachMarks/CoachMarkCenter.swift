@@ -143,6 +143,8 @@ final class CoachMarkCenter {
         guard let guide = CoachMarkGating.nextAutomaticGuide(state: state, facts: facts) else { return }
         state.autoStarts[guide, default: 0] += 1
         store.save(state, uid: uid)
+        // The facts describe this month, so the steps must run on it, as a replay does.
+        navigator?.prepareDashboardForGuide()
         begin(guide, mode: .automatic, facts: facts)
     }
 

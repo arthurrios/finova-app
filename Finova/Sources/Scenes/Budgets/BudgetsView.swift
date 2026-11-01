@@ -17,7 +17,10 @@ final class BudgetsView: UIView {
     private lazy var hideValuesButton: HideValuesButton = {
         let button = HideValuesButton(style: .onHeader)
         // BudgetsCell masks at render time, so the rows only need a reload.
-        button.onToggle = { [weak self] _ in self?.budgetsTableView.reloadData() }
+        button.onToggle = { [weak self] _ in
+            self?.budgetsTableView.reloadData()
+            self?.refreshSuggestion()
+        }
         return button
     }()
     

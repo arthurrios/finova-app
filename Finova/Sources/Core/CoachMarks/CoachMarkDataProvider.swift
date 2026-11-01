@@ -29,7 +29,8 @@ struct CoachMarkDataProvider: CoachMarkDataProviding {
             hasRecurringTransaction: !transactionRepository.fetchRecurringTransactions().isEmpty,
             hasAnyTransaction: !transactionRepository.fetchAllTransactions().isEmpty,
             hasCreditCard: uid.map { !CreditCardRepository().fetchAllCards(userId: $0).isEmpty } ?? false,
-            hasIncomeThisMonth: BudgetsViewModel.monthlyIncome(of: transactions, monthAnchor: thisMonth) > 0
+            hasIncomeThisMonth: BudgetsViewModel.monthlyIncome(
+                of: transactions.excludingEarlyPaidInstallments(), monthAnchor: thisMonth) > 0
         )
     }
 }

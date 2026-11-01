@@ -63,6 +63,23 @@ final class CoachMarkGatingTests: XCTestCase {
         XCTAssertEqual(afterBudget.isEnrolled, true)
     }
 
+    func testAUserWithABudgetButNoIncomeStillGetsTheSalaryGuide() {
+        var state = enrolledState()
+        state.completed = [.firstBudget]
+        let facts = CoachMarkFacts(hasAnyBudget: true, hasBudgetThisMonth: true)
+        XCTAssertEqual(
+            CoachMarkGating.nextAutomaticGuide(state: state, facts: facts), .salaryAndExpenses)
+    }
+
+    func testSkippingSalaryStillOffersTheBudgetWithNoSuggestionText() {
+        var state = enrolledState()
+        state.skipped = [.salaryAndExpenses]
+        XCTAssertEqual(CoachMarkGating.nextAutomaticGuide(state: state, facts: empty), .firstBudget)
+        let form = CoachMarkGuides.steps(for: .firstBudget, facts: empty, mode: .automatic)
+            .first { $0.target == .budgetsForm }
+        XCTAssertEqual(form?.textKey, "coachMarks.firstBudget.form")
+    }
+
     func testAllocationsGuideWaitsForABudget() {
         var state = enrolledState()
         state.skipped = [.salaryAndExpenses, .firstBudget]
@@ -750,6 +767,38 @@ final class BudgetSuggestionTests: XCTestCase {
             transaction(amount: 20_000, type: .income, month: month, creditCardId: 7),
         ]
         XCTAssertEqual(BudgetsViewModel.monthlyIncome(of: rows, monthAnchor: month), 100_000)
+    }
+
+    private func views<T: UIView>(of type: T.Type, in view: UIView) -> [T] {
+        view.subviews.flatMap { subview -> [T] in
+            (subview as? T).map { [$0] } ?? views(of: type, in: subview)
+        }
+    }
+
+    func testHidingValuesAlsoHidesTheSuggestedIncome() throws {
+        let wasHidden = ValueVisibilityStore.shared.isHidden
+        if wasHidden { ValueVisibilityStore.shared.toggle() }
+        defer {
+            if ValueVisibilityStore.shared.isHidden != wasHidden {
+                ValueVisibilityStore.shared.toggle()
+            }
+        }
+
+        let view = BudgetsView()
+        view.suggestedAmount = { _ in 800_000 }
+        view.updateUI(with: [], selectedDate: Date())
+
+        let suggestion = try XCTUnwrap(
+            views(of: UIButton.self, in: view).first {
+                $0.title(for: .normal)?.contains(800_000.currencyString) == true
+            })
+        XCTAssertFalse(suggestion.isHidden)
+
+        try XCTUnwrap(views(of: HideValuesButton.self, in: view).first)
+            .sendActions(for: .touchUpInside)
+
+        XCTAssertEqual(suggestion.title(for: .normal)?.contains(ValueMask.placeholder), true)
+        XCTAssertEqual(suggestion.title(for: .normal)?.contains(800_000.currencyString), false)
     }
 
     func testNoIncomeSuggestsNothing() {
