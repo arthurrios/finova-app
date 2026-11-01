@@ -120,6 +120,7 @@ final class AddTransactionModalViewController: UIViewController {
     view.addSubview(blurEffectView)
     view.addSubview(contentView)
     contentView.translatesAutoresizingMaskIntoConstraints = false
+    contentView.accessibilityIdentifier = CoachMarkTarget.transactionSheet.rawValue
 
     setupConstraints()
   }

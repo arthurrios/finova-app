@@ -710,6 +710,8 @@ class MonthCarouselCell: UICollectionViewCell {
     private func setupViews() {
         monthCard.translatesAutoresizingMaskIntoConstraints = false
         monthCard.flipDelegate = self
+        tableHeaderView.accessibilityIdentifier = CoachMarkTarget.dashboardTransactions.rawValue
+        allocationsTableHeaderView.accessibilityIdentifier = CoachMarkTarget.dashboardAllocations.rawValue
         budgetCard.delegate = self
 
         // Set high priority for content hugging and compression resistance

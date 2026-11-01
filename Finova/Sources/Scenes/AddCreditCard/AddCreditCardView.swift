@@ -182,6 +182,7 @@ final class AddCreditCardView: UIView {
         headerItemsView.addSubview(headerTitleLabel)
 
         // Scroll view - between header and footer
+        accessibilityIdentifier = CoachMarkTarget.addCardForm.rawValue
         addSubview(scrollView)
         scrollView.addSubview(scrollContentView)
 

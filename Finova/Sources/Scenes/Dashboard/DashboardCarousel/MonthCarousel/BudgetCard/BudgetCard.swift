@@ -97,6 +97,7 @@ final class BudgetCard: UIView {
         button.setImage(UIImage(systemName: "creditcard.fill", withConfiguration: config), for: .normal)
         button.tintColor = Colors.gray100
         button.addTarget(self, action: #selector(flipBack), for: .touchUpInside)
+        button.accessibilityIdentifier = CoachMarkTarget.dashboardFlipBack.rawValue
         button.translatesAutoresizingMaskIntoConstraints = false
         return button
     }()
@@ -110,6 +111,7 @@ final class BudgetCard: UIView {
         button.tintColor = Colors.gray100
         button.accessibilityLabel = "budgetHistory.a11y.open".localized
         button.addTarget(self, action: #selector(historyTapped), for: .touchUpInside)
+        button.accessibilityIdentifier = CoachMarkTarget.dashboardHistory.rawValue
         button.translatesAutoresizingMaskIntoConstraints = false
         return button
     }()
@@ -127,6 +129,7 @@ final class BudgetCard: UIView {
         button.setImage(UIImage(named: "settingsIcon")?.withRenderingMode(.alwaysTemplate), for: .normal)
         button.tintColor = Colors.gray100
         button.addTarget(self, action: #selector(configTapped), for: .touchUpInside)
+        button.accessibilityIdentifier = CoachMarkTarget.dashboardConfig.rawValue
         button.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
             button.widthAnchor.constraint(equalToConstant: Metrics.spacing6),
@@ -323,6 +326,7 @@ final class BudgetCard: UIView {
     private lazy var defineBudgetButton: Button = {
         let button = Button(variant: .outlined, label: "monthCard.defineBudget".localized)
         button.addTarget(self, action: #selector(defineBudgetTapped), for: .touchUpInside)
+        button.accessibilityIdentifier = CoachMarkTarget.dashboardDefineBudget.rawValue
         button.translatesAutoresizingMaskIntoConstraints = false
         return button
     }()

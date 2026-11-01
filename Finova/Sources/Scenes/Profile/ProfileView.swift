@@ -274,6 +274,7 @@ final class ProfileView: UIView {
         // Financial section
         contentStackView.addArrangedSubview(financialHeaderView)
         setupCreditCardsContainer()
+        creditCardsContainer.accessibilityIdentifier = CoachMarkTarget.profileCreditCards.rawValue
         contentStackView.addArrangedSubview(creditCardsContainer)
 
         // General section

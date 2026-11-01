@@ -212,6 +212,8 @@ final class CreditCardsView: UIView {
     }
 
     private func setupActions() {
+        addButton.accessibilityIdentifier = CoachMarkTarget.creditCardsAdd.rawValue
+        contentStackView.accessibilityIdentifier = CoachMarkTarget.creditCardsList.rawValue
         backButton.addTarget(self, action: #selector(backTapped), for: .touchUpInside)
         let backTapGesture = UITapGestureRecognizer(target: self, action: #selector(backTapped))
         backButtonGlassContainer.addGestureRecognizer(backTapGesture)

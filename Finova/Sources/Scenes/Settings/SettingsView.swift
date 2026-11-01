@@ -147,6 +147,18 @@ final class SettingsView: UIView {
     private let importDataLabel = createSettingLabel(text: "settings.import.title".localized)
     private let importDataChevron = createChevronView()
 
+    // Guides Section
+    private let guidesHeaderView = createSectionHeader(title: "settings.section.guides".localized)
+
+    private let guidesContainer: UIView = {
+        let container = createSettingContainer()
+        container.isUserInteractionEnabled = true
+        return container
+    }()
+    private let guidesIconView = createIconView(imageName: "lightbulb")
+    private let guidesLabel = createSettingLabel(text: "settings.guides.title".localized)
+    private let guidesChevron = createChevronView()
+
     // Notifications Section
     private let notificationsHeaderView = createSectionHeader(title: "settings.section.notifications".localized)
 
@@ -238,6 +250,11 @@ final class SettingsView: UIView {
         contentStackView.addArrangedSubview(notificationsHeaderView)
         setupNotificationsContainer()
         contentStackView.addArrangedSubview(notificationsContainer)
+
+        // Guides section
+        contentStackView.addArrangedSubview(guidesHeaderView)
+        setupGuidesContainer()
+        contentStackView.addArrangedSubview(guidesContainer)
 
         // About section
         contentStackView.addArrangedSubview(aboutHeaderView)
@@ -480,6 +497,27 @@ final class SettingsView: UIView {
         ])
     }
     
+    private func setupGuidesContainer() {
+        guidesContainer.addSubview(guidesIconView)
+        guidesContainer.addSubview(guidesLabel)
+        guidesContainer.addSubview(guidesChevron)
+
+        guidesContainer.isAccessibilityElement = true
+        guidesContainer.accessibilityTraits = .button
+        guidesContainer.accessibilityLabel = guidesLabel.text
+
+        NSLayoutConstraint.activate([
+            guidesIconView.leadingAnchor.constraint(equalTo: guidesContainer.leadingAnchor, constant: Metrics.spacing4),
+            guidesIconView.centerYAnchor.constraint(equalTo: guidesContainer.centerYAnchor),
+
+            guidesLabel.leadingAnchor.constraint(equalTo: guidesIconView.trailingAnchor, constant: Metrics.spacing3),
+            guidesLabel.centerYAnchor.constraint(equalTo: guidesContainer.centerYAnchor),
+
+            guidesChevron.trailingAnchor.constraint(equalTo: guidesContainer.trailingAnchor, constant: -Metrics.spacing4),
+            guidesChevron.centerYAnchor.constraint(equalTo: guidesContainer.centerYAnchor)
+        ])
+    }
+
     private func setupVersionContainer() {
         versionContainer.addSubview(versionIconView)
         versionContainer.addSubview(versionTitleLabel)
@@ -590,6 +628,9 @@ final class SettingsView: UIView {
 
         let importDataTap = UITapGestureRecognizer(target: self, action: #selector(importDataTapped))
         importDataContainer.addGestureRecognizer(importDataTap)
+
+        let guidesTap = UITapGestureRecognizer(target: self, action: #selector(guidesTapped))
+        guidesContainer.addGestureRecognizer(guidesTap)
     }
 
     @objc
@@ -625,6 +666,11 @@ final class SettingsView: UIView {
     @objc
     private func notificationsTapped() {
         delegate?.didTapNotifications()
+    }
+
+    @objc
+    private func guidesTapped() {
+        delegate?.didTapGuides()
     }
 
     @objc

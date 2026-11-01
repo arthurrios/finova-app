@@ -272,6 +272,11 @@ final class DashboardView: UIView {
       action: #selector(handleTapAddButton),
       for: .touchUpInside)
 
+    addButtonGlassContainer.accessibilityIdentifier = CoachMarkTarget.dashboardAdd.rawValue
+    profileTapButton.accessibilityIdentifier = CoachMarkTarget.dashboardAvatar.rawValue
+    notificationButton.accessibilityIdentifier = CoachMarkTarget.dashboardNotifications.rawValue
+    monthSelectorView.accessibilityIdentifier = CoachMarkTarget.dashboardMonthSelector.rawValue
+
     setupProfileTapGesture()
     setupContextTapGesture()
     setupRefreshControl()

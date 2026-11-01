@@ -140,6 +140,16 @@ final class DashboardViewController: UIViewController {
         hasAppearedBefore = true
     }
 
+    /// A guide started from Settings starts from the same place each time: this month, month face.
+    /// View state only.
+    func prepareForGuide() {
+        syncedViewModel.selectMonth(at: todayMonthIndex, animated: false)
+        if isGlobalBudgetViewActive {
+            isGlobalBudgetViewActive = false
+            flipAllVisibleCellsToGlobalState()
+        }
+    }
+
     /// Restores the budget view state for the currently visible cell if it was showing budget view
     private func restoreBudgetViewStateForCurrentCell() {
         // Get the actual visible cell from the collection view (currentCell might be stale)
@@ -499,7 +509,9 @@ final class DashboardViewController: UIViewController {
 
         // Check if we should show notification success alert
         checkAndShowNotificationSuccessAlert()
-        
+
+        CoachMarkCenter.shared.dashboardDidAppear()
+
 #if DEBUG
         // Add notification debugging on dashboard appear
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {

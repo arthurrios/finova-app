@@ -179,6 +179,10 @@ extension SettingsViewController: SettingsViewDelegate {
         flowDelegate?.navigateToNotificationSettings()
     }
 
+    func didTapGuides() {
+        flowDelegate?.navigateToGuides()
+    }
+
     func didTapImportData() {
         flowDelegate?.navigateToImportData()
     }

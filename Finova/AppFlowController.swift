@@ -16,6 +16,7 @@ class AppFlowController {
     public init() {
         viewControllersFactory = ViewControllersFactory()
         setupAppRefreshObserver()
+        CoachMarkCenter.shared.navigator = self
     }
     
     // MARK: - startFlow
@@ -364,6 +365,7 @@ extension AppFlowController: DashboardFlowDelegate, SettingsFlowDelegate, Profil
     }
     
     func logout() {
+        CoachMarkCenter.shared.stop()
         navigationController?.dismiss(animated: false)
         
         let viewController = viewControllersFactory.makeLoginViewController(flowDelegate: self)
@@ -394,6 +396,31 @@ extension AppFlowController: DashboardFlowDelegate, SettingsFlowDelegate, Profil
     func navigateToImportData() {
         let viewController = viewControllersFactory.makeImportHistoryViewController(flowDelegate: self)
         navigationController?.pushViewController(viewController, animated: true)
+    }
+
+    func navigateToGuides() {
+        let viewController = CoachMarkGuidesViewController()
+        viewController.flowDelegate = self
+        navigationController?.pushViewController(viewController, animated: true)
+    }
+}
+
+// MARK: - Guides
+extension AppFlowController: CoachMarkGuidesFlowDelegate, CoachMarkNavigating {
+    func dismissGuides() {
+        navigationController?.popViewController(animated: true)
+    }
+
+    var isDashboardOnTop: Bool {
+        navigationController?.topViewController is DashboardViewController
+            && navigationController?.presentedViewController == nil
+    }
+
+    func prepareDashboardForGuide() {
+        guard let dashboard = navigationController?.viewControllers
+            .compactMap({ $0 as? DashboardViewController }).last else { return }
+        navigationController?.popToViewController(dashboard, animated: true)
+        dashboard.prepareForGuide()
     }
 }
 
@@ -475,6 +502,7 @@ extension AppFlowController: AllocationTagCategoriesFlowDelegate {
 // MARK: - Add Transaction Modal Flow
 extension AppFlowController: AddTransactionModalFlowDelegate {
     func didAddTransaction() {
+        CoachMarkCenter.shared.post(.transactionSaved)
         navigationController?.dismiss(animated: false)
         
         // Trigger immediate dashboard refresh
@@ -795,6 +823,7 @@ extension AppFlowController: AddCreditCardFlowDelegate {
     }
 
     func didSaveCreditCard() {
+        CoachMarkCenter.shared.post(.creditCardSaved)
         navigationController?.popViewController(animated: true)
     }
 }
@@ -866,6 +895,7 @@ extension AppFlowController: AddAllocationModalFlowDelegate {
     }
 
     func didSaveAllocation() {
+        CoachMarkCenter.shared.post(.allocationSaved)
         navigationController?.dismiss(animated: true) { [weak self] in
             guard let self = self else { return }
 

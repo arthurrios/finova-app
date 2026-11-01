@@ -63,7 +63,10 @@ struct DemoSeedGenerator {
     /// launch, a switch between BRL and anything else, a new month (so "this month" is never empty),
     /// or a seed written by an older showcase.
     static var needsSeed: Bool {
-        UserDefaults.standard.string(forKey: seededDatasetKey)
+        #if DEMO
+        if CoachMarkFreshUserMode.isActive { return false }
+        #endif
+        return UserDefaults.standard.string(forKey: seededDatasetKey)
             != DemoDataset.forCurrency(AppConfig.currencyCode).currency
             || UserDefaults.standard.integer(forKey: seededMonthKey) != Date().monthAnchor
             || UserDefaults.standard.integer(forKey: seedVersionKey) != seedVersion

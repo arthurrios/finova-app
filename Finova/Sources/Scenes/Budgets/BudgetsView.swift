@@ -235,6 +235,10 @@ final class BudgetsView: UIView {
         emptyStateView.addSubview(emptyStateIconImageView)
         emptyStateView.addSubview(emptyStateDescriptionLabel)
         
+        cardContentView.accessibilityIdentifier = CoachMarkTarget.budgetsForm.rawValue
+        budgetsTableHeaderView.accessibilityIdentifier = CoachMarkTarget.budgetsList.rawValue
+        backButtonGlassContainer.accessibilityIdentifier = CoachMarkTarget.budgetsBack.rawValue
+
         backButton.addTarget(self, action: #selector(didTapBackButton), for: .touchUpInside)
         addButton.addTarget(self, action: #selector(didTapAddBudgetButton), for: .touchUpInside)
         manageTagsButton.addTarget(self, action: #selector(didTapManageTags), for: .touchUpInside)

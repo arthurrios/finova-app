@@ -637,6 +637,11 @@ class MonthBudgetCard: UIView {
         
         defineBudgetButton.addTarget(
             self, action: #selector(defineBudgetButtonTapped), for: .touchUpInside)
+        accessibilityIdentifier = CoachMarkTarget.dashboardMonthCard.rawValue
+        defineBudgetButton.accessibilityIdentifier = CoachMarkTarget.dashboardDefineBudget.rawValue
+        budgetViewToggleButton.accessibilityIdentifier = CoachMarkTarget.dashboardBudgetToggle.rawValue
+        historyButton.accessibilityIdentifier = CoachMarkTarget.dashboardHistory.rawValue
+        configIcon.accessibilityIdentifier = CoachMarkTarget.dashboardConfig.rawValue
         
         // MARK: - Commented out balance toggle gesture recognizer
         /*
