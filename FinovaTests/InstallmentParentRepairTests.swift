@@ -23,21 +23,33 @@ final class InstallmentParentRepairTests: XCTestCase {
     UIDUserDefaultsManager.shared.currentUserUID = uid
     transactionRepo = TransactionRepository()
     transactionRepo.clearAllTransactionsForTesting()
+    removeRowsLeftByThisSuite()
   }
 
   override func tearDown() {
     transactionRepo.clearAllTransactionsForTesting()
+    removeRowsLeftByThisSuite()
     UIDUserDefaultsManager.shared.signOut()
     super.tearDown()
   }
 
   // MARK: - Helpers
 
+  /// The database outlives a serial run. Deleting a row that has a record name only soft-deletes it,
+  /// the row keeps the name, and `ck_record_id` is unique across live and deleted rows — so the fixed
+  /// names below would silently fail to save on every run after the first.
+  private func removeRowsLeftByThisSuite() {
+    db.executeSyncUpdate("DELETE FROM Transactions WHERE user_id LIKE 'test_parent_repair_%';")
+  }
+
   private func insertParent(title: String, total: Int, ckName: String) throws -> Int {
     let id = try transactionRepo.insertTransactionAndGetId(
       TransactionTestFixtures.makeTransactionModel(
         title: title, amount: 0, hasInstallments: true, totalInstallments: total))
     transactionRepo.setCKRecordId(for: id, ckRecordName: ckName)
+    XCTAssertEqual(
+      db.fetchSingleString("SELECT ck_record_id FROM Transactions WHERE id = ?;", intBinding: id), ckName,
+      "The name was not saved, so the repair has no parent to find")
     return id
   }
 
@@ -63,6 +75,20 @@ final class InstallmentParentRepairTests: XCTestCase {
   }
 
   // MARK: - Tests
+
+  /// What made this suite fail from its second run on: a soft-deleted row still holds the name.
+  func testADeletedRowsNameIsFreedForTheNextRun() throws {
+    let deleted = try insertParent(title: "HBO Max", total: 2, ckName: "transaction-LEFTOVER")
+    try transactionRepo.delete(id: deleted)
+    XCTAssertEqual(
+      db.fetchSingleString(
+        "SELECT ck_record_id FROM Transactions WHERE id = ? AND is_deleted = 1;", intBinding: deleted),
+      "transaction-LEFTOVER", "The soft-deleted row keeps its name")
+
+    removeRowsLeftByThisSuite()
+
+    _ = try insertParent(title: "HBO Max", total: 2, ckName: "transaction-LEFTOVER")
+  }
 
   /// HBO Max on the reporter's phone: the children still named their parent's record, and that
   /// parent was right there under a different local id.
