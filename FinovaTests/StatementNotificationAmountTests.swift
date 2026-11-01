@@ -134,6 +134,17 @@ final class StatementNotificationAmountTests: XCTestCase {
             "The reminder must follow the statement, not the total it had when first scheduled")
     }
 
+    func testTheReminderIgnoresAStaleStoredTotal() throws {
+        let (_, statement) = try makeStatementWithCharge(amount: 100_000)
+        let stmtId = try XCTUnwrap(statement.id)
+
+        // What a statement with a CloudKit record is left with: `recalculateStatementTotal` skips it.
+        try DBHelper.shared.updateStatementTotal(statementId: stmtId, totalAmount: 1)
+        let statements = stmtRepo.fetchStatements(forCardId: statement.creditCardId)
+
+        XCTAssertEqual(StatementNotificationManager.charges(of: statements)[stmtId], 100_000)
+    }
+
     func testAPartialPaymentLeavesTheReminderNamingWhatIsStillOwed() throws {
         let (card, statement) = try makeStatementWithCharge(amount: 100_000)
 

@@ -57,13 +57,13 @@ final class StatementNotificationPlanTests: XCTestCase {
         }
     }
 
-    func testTheClosingMessageFiresOnTheClosingDayAndThePaymentOneOnTheDueDay() {
+    func testTheClosingMessageFiresTheDayAfterClosingAndThePaymentOneOnTheDueDay() {
         let planned = plan(closingIn: 5, dueIn: 15)
         let closed = planned.first { $0.kind == .closed }
         let due = planned.first { $0.kind == .paymentDue }
 
         XCTAssertEqual(
-            closed?.fireDate, StatementNotificationPlan.fireDate(on: day(5), calendar: calendar))
+            closed?.fireDate, StatementNotificationPlan.fireDate(on: day(6), calendar: calendar))
         XCTAssertEqual(
             due?.fireDate, StatementNotificationPlan.fireDate(on: day(15), calendar: calendar))
     }

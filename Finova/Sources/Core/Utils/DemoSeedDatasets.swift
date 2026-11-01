@@ -30,9 +30,9 @@ struct DemoDataset {
     }
 
     /// When an item happens. Month offsets are relative to the current month (0), history runs
-    /// from -5, and anything at or after today only appears where the schedule is meant to be planned.
+    /// from -11, and anything at or after today only appears where the schedule is meant to be planned.
     enum Schedule {
-        /// A monthly series starting five months ago, generated through the app's horizon.
+        /// A monthly series starting at the first history month, generated through the app's horizon.
         case recurring(day: Int, card: Int?)
         /// A one-off on each of `days`, in every history month (or only `months`). Amounts vary.
         case monthly(days: [Int], months: Set<Int>?, card: Int?)
@@ -40,6 +40,9 @@ struct DemoDataset {
         case installments(count: Int, monthOffset: Int, day: Int, card: Int?)
         /// A one-off in whichever seeded month (history or the next three) is this calendar month.
         case yearly(month: Int, day: Int, card: Int?)
+        /// A one-off dated today, never on a card: a card's budget month can be the next one. Fills the
+        /// open month on any date, so budget history's "so far" figures have something to show.
+        case today
     }
 
     struct Item {
@@ -93,6 +96,10 @@ struct DemoDataset {
                                month: Int, day: Int, card: Int? = nil, income: Bool = false) -> Item {
         Item(title: title, category: category, type: income ? .income : .expense, amount: amount,
              schedule: .yearly(month: month, day: day, card: card))
+    }
+
+    private static func today(_ title: String, _ category: TransactionCategory, _ amount: Double) -> Item {
+        Item(title: title, category: category, type: .expense, amount: amount, schedule: .today)
     }
 
     // MARK: - Brazil (BRL, default)
@@ -151,6 +158,12 @@ struct DemoDataset {
             monthly("Freela UX – Studio Norte", .salary, 1_800, days: [18], months: [-4, -1], income: true),
             monthly("Presente – Aniversário da mãe", .gifts, 180, days: [2], months: [-2]),
             monthly("Booking.com – Pousada em Floripa", .travel, 1_140, days: [24], months: [-3]),
+
+            // This month so far: two categories past their plan, two with room left
+            today("Jantar de aniversário – Coco Bambu", .meals, 420),
+            today("Ingressos – Allianz Parque", .entertainment, 380),
+            today("Assaí Atacadista – Compra do mês", .groceries, 310),
+            today("Posto Shell – Tanque cheio", .transportation, 180),
 
             // Once a year
             yearly("13º salário – 1ª parcela", .salary, 7_250, month: 11, day: 28, income: true),
@@ -218,6 +231,11 @@ struct DemoDataset {
             monthly("Birthday gift – Etsy", .gifts, 58, days: [2], months: [-2]),
             monthly("Airbnb – Miami", .travel, 740, days: [24], months: [-3]),
             monthly("Bill pay – Dr. Patel", .bankSlip, 95, days: [10], months: [-4, -1]),
+
+            today("Birthday dinner – Nobu", .meals, 140),
+            today("Concert tickets – Ticketmaster", .entertainment, 120),
+            today("Whole Foods Market – Weekly shop", .groceries, 96),
+            today("Shell – Full tank", .transportation, 48),
 
             yearly("IRS estimated tax", .taxes, 1_150, month: 1, day: 15),
             yearly("IRS estimated tax", .taxes, 1_150, month: 4, day: 15),

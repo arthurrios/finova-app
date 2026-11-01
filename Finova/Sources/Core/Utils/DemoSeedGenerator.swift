@@ -10,8 +10,8 @@ import Foundation
 import UIKit
 import UserNotifications
 
-/// Wipes the local ledger and writes a showcase one: six months of history, the next three months
-/// planned, two credit cards with paid, closed and open statements, installment purchases (one paid
+/// Wipes the local ledger and writes a showcase one: twelve months of history, so budget history
+/// offers its longer range, an open month with spending on any date, the next three months planned, two credit cards with paid, closed and open statements, installment purchases (one paid
 /// early, one cancelled), recurring bills, category allocations and monthly budgets. No family group
 /// and no sync data: this version has neither. The content comes from `DemoDataset`: the Brazilian
 /// ledger for BRL (the default), the American one for any other currency.
@@ -31,8 +31,9 @@ struct DemoSeedGenerator {
     private static let seededMonthKey = "demoSeededMonth"
     /// Bumped when the showcase itself changes, so an install seeded by an older build is redone.
     /// 2: no family group (this version has none).
+    /// 3: twelve months of history, and an open month that has categories over and left so far.
     private static let seedVersionKey = "demoSeedVersion"
-    private static let seedVersion = 2
+    private static let seedVersion = 3
     private static let seedQueue = DispatchQueue(label: "com.finova.demoseed", qos: .userInitiated)
     private static let lock = NSLock()
     private static var _isSeeding = false
@@ -113,7 +114,10 @@ struct DemoSeedGenerator {
         seedQueue.async {
             let started = Date()
             setSeeding(true)
-            waitForLegacyCleanup()
+            // On a fresh install this pass may still be queued at background priority. Left there, it
+            // could land mid-seed and delete the rows written so far, which once took the salary.
+            // After this call the queued pass finds it done (the manager locks it) and does nothing.
+            DataCleanupManager.shared.performGlobalDataCleanup()
             let dataset = DemoDataset.forCurrency(AppConfig.currencyCode)
             logInfo("[DemoSeed] Seeding \(dataset.currency) for UID: \(userUID)")
 
@@ -137,16 +141,6 @@ struct DemoSeedGenerator {
                 }
                 completion()
             }
-        }
-    }
-
-    /// `DataCleanupManager` runs a one-time "delete every global row" pass in the background on a
-    /// fresh install. It raced the first seed and wiped whatever had been written so far (budgets,
-    /// recurring bills), so the seed waits for it to finish first.
-    private static func waitForLegacyCleanup() {
-        let deadline = Date().addingTimeInterval(15)
-        while !UserDefaults.standard.bool(forKey: "global_sqlite_cleanup_completed"), Date() < deadline {
-            Thread.sleep(forTimeInterval: 0.1)
         }
     }
 
@@ -185,8 +179,8 @@ private struct Writer {
     private let txRepo = TransactionRepository()
     private let cardRepo = CreditCardRepository()
     private let stmtRepo = StatementRepository()
-    private let historyOffsets = Array(-5...0)
-    private let seededOffsets = Array(-5...3)
+    private let historyOffsets = Array(-11...0)
+    private let seededOffsets = Array(-11...3)
 
     init(dataset: DemoDataset, userUID: String) {
         self.dataset = dataset
@@ -324,6 +318,9 @@ private struct Writer {
                 logError("[DemoSeed] installments '\(item.title)' failed: \(error)")
             }
 
+        case .today:
+            addOneOff(now, amount: minor(item.amount), card: nil)
+
         case .yearly(let month, let day, let card):
             for offset in seededOffsets {
                 let when = date(day: day, monthOffset: offset)
@@ -397,15 +394,20 @@ private struct Writer {
     /// Allocations are sized from what the history actually spent in each category, then pulled
     /// tight on the everyday categories (so some months go over) and left roomy on the rest. The
     /// monthly budget sits a little above the average month, so most months land just under it.
+    /// Closed months only: the open month's size depends on the day the seed runs.
     private func insertAllocationsAndBudgets() {
-        let historyAnchors = Set(historyOffsets.map { date(day: 1, monthOffset: $0).monthAnchor })
+        let historyAnchors = Set(historyOffsets.filter { $0 < 0 }.map { date(day: 1, monthOffset: $0).monthAnchor })
         let spending = txRepo.fetchAllTransactions().filter {
             $0.type == .expense && $0.category != .creditCard && $0.isCreditCardStatement != true
                 && historyAnchors.contains($0.budgetMonthDate) && $0.amount > 0
         }
         let months = Double(historyAnchors.count)
+        // Averaged over the months a category was used: a yearly purchase spread over twelve months
+        // would leave an allocation too small to read.
         let perCategory = Dictionary(grouping: spending, by: { $0.category })
-            .mapValues { Double($0.reduce(0) { $0 + $1.amount }) / months }
+            .mapValues { rows in
+                Double(rows.reduce(0) { $0 + $1.amount }) / Double(Set(rows.map(\.budgetMonthDate)).count)
+            }
         let digits = Double(CurrencyUtils.fractionDigits(for: dataset.currency))
         let scale = pow(10, digits)
         let tight: Set<TransactionCategory> = [.meals, .transportation, .entertainment, .clothing, .groceries]
@@ -413,7 +415,7 @@ private struct Writer {
         let service = BudgetAllocationService(transactionRepo: txRepo)
         let startAnchor = date(day: 1, monthOffset: historyOffsets[0]).monthAnchor
         for (category, average) in perCategory.sorted(by: { $0.key.key < $1.key.key }) {
-            let major = DemoAmounts.round(average / scale * (tight.contains(category) ? 0.9 : 1.15))
+            let major = DemoAmounts.round(average / scale * (tight.contains(category) ? 0.9 : 1.05))
             guard major > 0 else { continue }
             _ = try? service.createAllocation(
                 category: category, amount: minor(major), monthAnchor: startAnchor, isRecurring: true)

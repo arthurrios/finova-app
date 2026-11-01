@@ -272,6 +272,29 @@ final class BudgetHistoryTests: XCTestCase {
         return Transaction(data: try! UITransactionData(from: model.data))
     }
 
+    func testSoFarCountsOutsideSpendingOnlyUpToToday() {
+        let history = BudgetHistory(
+            monthAnchors: anchors, currentAnchor: current,
+            allocations: [allocation(.groceries, 5, 300)], spentByCategory: [:],
+            monthTotals: [current: .init(budget: 1_000, used: 750)])
+        let expenses = [
+            expense("Train", .travel, amount: 50, dated: 5, budgetMonth: 5, day: 10),
+            expense("Flight", .travel, amount: 400, dated: 5, budgetMonth: 5, day: 25),
+            expense("Market", .groceries, amount: 100, dated: 5, budgetMonth: 5, day: 10),
+            expense("Next shop", .groceries, amount: 200, dated: 5, budgetMonth: 5, day: 25),
+        ]
+        let today = Date(timeIntervalSince1970: TimeInterval(current + 20 * 86_400))
+
+        let soFar = history.countingOpenMonthSoFar(in: expenses, asOf: today)
+
+        XCTAssertEqual(soFar.wholeMonth.month(current)?.spent, 150)
+        XCTAssertEqual(soFar.series(for: .outsideAllocations)?.month(current)?.spent, 50)
+        // Whole 850 - groceries 200 = 650, which is the outside series itself: nothing unexplained.
+        XCTAssertEqual(soFar.outsideAllocations(from: current, through: current), 650)
+        XCTAssertEqual(soFar.outsideSavings(from: current, through: current)?.net, 650)
+        XCTAssertEqual(soFar.outsideDifferences(from: current, through: current), [])
+    }
+
     func testCategoryBarListsItsBudgetMonthExpensesBiggestFirst() {
         let history = BudgetHistory(
             monthAnchors: anchors, currentAnchor: current,

@@ -159,7 +159,7 @@ final class BudgetHistoryViewModel: ObservableObject {
     /// The history the Saved and "Why" figures read: the open month counted so far under `isSoFar`,
     /// left out everywhere else.
     private var countedHistory: BudgetHistory {
-        isSoFar ? history.countingOpenMonthSoFar() : history
+        isSoFar ? history.countingOpenMonthSoFar(in: expenses, asOf: reference()) : history
     }
 
     /// What made the Saved figure, over the same months it counts.

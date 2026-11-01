@@ -477,10 +477,23 @@ struct BudgetHistory: Equatable {
 
     /// The same history with the open month counted as if it closed today: what it has left, or is
     /// over, so far. Read only for "Only" on the open month - every other figure leaves it out.
-    func countingOpenMonthSoFar() -> BudgetHistory {
+    ///
+    /// The bars count the month's scheduled rows too, so the open month is summed again here from the
+    /// expenses dated up to the end of `today`.
+    ///
+    /// - Parameter expenses: the set `transactions(for:month:in:)` takes.
+    func countingOpenMonthSoFar(in expenses: [Transaction], asOf today: Date) -> BudgetHistory {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone.current
+        let tomorrow = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: today)) ?? today
+        let upToToday = expenses.filter { $0.dateTimestamp < Int(tomorrow.timeIntervalSince1970) }
+
         func closed(_ series: BudgetHistorySeries) -> BudgetHistorySeries {
             BudgetHistorySeries(filter: series.filter, months: series.months.map {
-                BudgetHistoryMonth(monthAnchor: $0.monthAnchor, planned: $0.planned, spent: $0.spent, isCurrent: false)
+                let spent = $0.monthAnchor == currentAnchor
+                    ? transactions(for: series.filter, month: currentAnchor, in: upToToday).reduce(0) { $0 + $1.amount }
+                    : $0.spent
+                return BudgetHistoryMonth(monthAnchor: $0.monthAnchor, planned: $0.planned, spent: spent, isCurrent: false)
             })
         }
         // No anchor is zero, so with it as the open month every month in the window counts as closed.

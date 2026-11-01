@@ -12,11 +12,19 @@ class DataCleanupManager {
 
   static let shared = DataCleanupManager()
 
+  private let cleanupLock = NSLock()
+
   private init() {}
 
   /// One-time cleanup to remove global SQLite data after UID-based migration
   /// This should be called during app startup to ensure data isolation
+  ///
+  /// Locked so a second caller waits for the first and then finds the key set: the demo seed writes
+  /// right after its own call, and a launch-time pass arriving late would delete those rows.
   func performGlobalDataCleanup() {
+    cleanupLock.lock()
+    defer { cleanupLock.unlock() }
+
     let cleanupKey = "global_sqlite_cleanup_completed"
 
     // Check if cleanup already performed

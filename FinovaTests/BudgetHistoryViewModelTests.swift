@@ -24,11 +24,24 @@ final class BudgetHistoryViewModelTests: XCTestCase {
 
     private final class StubReader: BudgetHistoryReading {
         var history: BudgetHistory
+        var expenses: [Transaction] = []
         init(_ history: BudgetHistory) { self.history = history }
         func history(in scope: LedgerScope, includeWholeMonth: Bool, asOf reference: Date) -> BudgetHistory {
             history
         }
-        func expenses(in scope: LedgerScope) -> [Transaction] { [] }
+        func expenses(in scope: LedgerScope) -> [Transaction] { expenses }
+    }
+
+    private func expense(_ amount: Int, daysFromReference days: Int) -> Transaction {
+        let date = reference.addingTimeInterval(TimeInterval(days * 86_400))
+        return Transaction(
+            data: UITransactionData(
+                id: nil, title: "t", amount: amount,
+                dateTimestamp: Int(date.timeIntervalSince1970), budgetMonthDate: date.monthAnchor,
+                isRecurring: nil, hasInstallments: nil, parentTransactionId: nil,
+                installmentNumber: nil, totalInstallments: nil, originalAmount: nil,
+                creditCardId: nil, isCreditCardStatement: nil,
+                category: .groceries, type: .expense))
     }
 
     /// Thirteen months ending at `reference`, oldest first.
@@ -213,7 +226,14 @@ final class BudgetHistoryViewModelTests: XCTestCase {
 
     func testOnlyOnTheOpenMonthCountsItSoFar() {
         let months = anchors(endingAt: reference)
-        let viewModel = makeViewModel(StubReader(history(anchors: months)))
+        let reader = StubReader(history(anchors: months))
+        // Spent yesterday and today count; the bill scheduled for next week does not, though the
+        // month's bar (900 of 1,000 here) still includes it.
+        reader.expenses = [
+            expense(300, daysFromReference: -1), expense(200, daysFromReference: 0),
+            expense(400, daysFromReference: 7),
+        ]
+        let viewModel = makeViewModel(reader)
         XCTAssertFalse(viewModel.isSoFar)
 
         viewModel.select(savingsScope: .only)
@@ -221,8 +241,9 @@ final class BudgetHistoryViewModelTests: XCTestCase {
         // What the open month has left up to today, and the Why card adds up to the same.
         XCTAssertTrue(viewModel.isSoFar)
         XCTAssertEqual(viewModel.savings.months, 1)
-        XCTAssertEqual(viewModel.savings.net, 100)
-        XCTAssertEqual(viewModel.contributors?.total, 100)
+        XCTAssertEqual(viewModel.savings.net, 500)
+        XCTAssertEqual(viewModel.contributors?.total, 500)
+        XCTAssertEqual(viewModel.selectedMonth?.spent, 900)
         XCTAssertEqual(viewModel.contributors?.firstMonth, months.last)
 
         // The running total still leaves the open month out.

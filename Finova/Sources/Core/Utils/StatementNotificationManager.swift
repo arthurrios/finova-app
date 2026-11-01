@@ -87,8 +87,15 @@ final class StatementNotificationManager {
 
   /// What each statement charges once credit carried from the card's earlier statements is counted
   /// in, the amount its dashboard row shows. A statement that credit covers gets no reminder.
-  private static func charges(of statements: [CreditCardStatement]) -> [Int: Int] {
-    CreditCardService.statementCharges(statements) { $0.totalAmount }.mapValues { $0.charged }
+  ///
+  /// Summed from the ledger as that row is, not read from the stored `total_amount`:
+  /// `recalculateStatementTotal` leaves that column alone on a statement with a CloudKit record, so
+  /// on those the reminder named a figure from whenever the statement was last synced.
+  static func charges(of statements: [CreditCardStatement]) -> [Int: Int] {
+    CreditCardService.statementCharges(statements) { statement in
+      statement.id.flatMap { try? DBHelper.shared.getTransactionSumForStatement(statementId: $0) }
+        ?? statement.totalAmount
+    }.mapValues { $0.charged }
   }
 
   /// Reschedules all statement notifications (cancels existing, then re-fetches from DB).
@@ -153,8 +160,8 @@ final class StatementNotificationManager {
   }
 
   /// Turns the plan into real requests. Every field the user reads comes from the plan, which was
-  /// built from the statement row a moment ago — so the amount in the message is the amount in the
-  /// ledger, not one captured when the notification was first scheduled.
+  /// built from the ledger a moment ago — so the amount in the message is the amount in the ledger,
+  /// not one captured when the notification was first scheduled.
   private func schedule(_ planned: [PlannedStatementNotification], statementId: Int, cardId: Int, now: Date) {
     for item in planned {
       let trigger = UNTimeIntervalNotificationTrigger(
