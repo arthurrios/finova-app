@@ -32,6 +32,10 @@ final class CoachMarkCenter {
     private static let autoStartDelay: TimeInterval = 1.2
     /// How long a rect must hold still before a mark lands on it.
     private static let settleDuration: TimeInterval = 0.12
+    /// A step with no target on a finished screen. Long enough to rule out a screen still loading.
+    private static let absentTargetTimeout: TimeInterval = 0.4
+    /// After the user tries something: time to see what it did before the next step takes over.
+    private static let triedPause: TimeInterval = 0.8
 
     private let store: CoachMarkStateStore
     private let dataProvider: CoachMarkDataProviding
@@ -50,6 +54,9 @@ final class CoachMarkCenter {
     private var isShowingStep = false
     private var isFadingOut = false
     private var hasAnnouncedStep = false
+    private var stepScreen: ObjectIdentifier?
+    private var didLeaveStepScreen = false
+    private var triedAdvanceAt: Date?
     #if DEMO
     private var didStartDemoReplay = false
     #endif
@@ -90,8 +97,11 @@ final class CoachMarkCenter {
 
     /// A scene reports that the user really did something.
     func post(_ event: CoachMarkEvent) {
-        guard var session, session.isSatisfied(by: event) else { return }
-        moveOn(&session)
+        guard var session else { return }
+        if session.isSatisfied(by: event) { return moveOn(&session) }
+        if session.isTried(by: event), isShowingStep, triedAdvanceAt == nil {
+            triedAdvanceAt = Date().addingTimeInterval(Self.triedPause)
+        }
     }
 
     /// Settings. Works for every user at any time, and whatever is running gives way to it.
@@ -111,6 +121,26 @@ final class CoachMarkCenter {
     func isSetupDone(_ guide: CoachMarkGuideID) -> Bool {
         if CoachMarkGating.isSetupDone(guide, facts: dataProvider.currentFacts()) { return true }
         return currentUID.map { store.load(uid: $0).completed.contains(guide) } ?? false
+    }
+
+    // MARK: - Reminder
+
+    /// The setup the dashboard should remind the user of. Never while a guide is running.
+    func setupReminder(now: Date = Date()) -> CoachMarkGuideID? {
+        guard session == nil, let uid = currentUID else { return nil }
+        let state = store.load(uid: uid)
+        // Stops here for every existing user, as the automatic start does.
+        guard state.isEnrolled == true else { return nil }
+        return CoachMarkGating.reminderGuide(
+            state: state, facts: dataProvider.currentFacts(), now: now)
+    }
+
+    func dismissSetupReminder(now: Date = Date()) {
+        guard let uid = currentUID else { return }
+        var state = store.load(uid: uid)
+        state.reminderDismissals = (state.reminderDismissals ?? 0) + 1
+        state.reminderDismissedAt = now
+        store.save(state, uid: uid)
     }
 
     // MARK: - Automatic start
@@ -150,7 +180,7 @@ final class CoachMarkCenter {
 
     // MARK: - Session
 
-    private enum Ending {
+    enum Ending {
         case completed
         case skipped
         case skippedAll
@@ -185,6 +215,9 @@ final class CoachMarkCenter {
         didScrollForStep = false
         isShowingStep = false
         hasAnnouncedStep = false
+        stepScreen = nil
+        didLeaveStepScreen = false
+        triedAdvanceAt = nil
     }
 
     private func endSession(_ ending: Ending) {
@@ -193,17 +226,10 @@ final class CoachMarkCenter {
         stopTicking()
         fadeOut(removingWindow: true)
 
-        guard finished.mode == .automatic else { return }
         if let uid = currentUID {
-            var state = store.load(uid: uid)
-            switch ending {
-            case .completed: state.completed.insert(finished.guide)
-            case .skipped: state.skipped.insert(finished.guide)
-            case .skippedAll: state.isAutoDisabled = true
-            case .abandoned: break
-            }
-            store.save(state, uid: uid)
+            store.save(Self.recording(ending, of: finished, in: store.load(uid: uid)), uid: uid)
         }
+        guard finished.mode == .automatic else { return }
         // Each setup leads into the next: the chain carries on as soon as the dashboard is back.
         if ending == .completed || ending == .skipped {
             scheduleAutoStart(after: 0.4)
@@ -234,13 +260,45 @@ final class CoachMarkCenter {
         // An alert or a keyboard that is not this step's: step aside and wait for as long as it
         // takes. The user may read an alert for a minute, and that is not a missing target.
         let step = session.step
-        if top is UIAlertController || (isKeyboardUp(in: window) && !step.ownsKeyboard) {
+        if top is UIAlertController {
             stepStartedAt = Date()
             missingSince = nil
             return suspend()
         }
 
         if isTransitioning(top) { return }
+
+        if isShowingStep, stepScreen == nil { stepScreen = ObjectIdentifier(top) }
+        switch Self.screenChange(
+            of: step, shownOn: stepScreen, top: ObjectIdentifier(top), didLeave: didLeaveStepScreen)
+        {
+        case .same:
+            break
+        case .left:
+            didLeaveStepScreen = true
+            missingSince = nil
+            return suspend()
+        case .cameBack:
+            return moveOn(&session)
+        }
+
+        if isKeyboardUp(in: window) && !step.ownsKeyboard {
+            stepStartedAt = Date()
+            missingSince = nil
+            return suspend()
+        }
+
+        // The user already did what the step asked and is watching the result. A target that went
+        // away with it, as a card's other face does, is not a lost target.
+        if let advanceAt = triedAdvanceAt {
+            if Date() >= advanceAt { moveOn(&session) }
+            return
+        }
+        if isShowingStep, case .targetVisible(let target)? = step.triedBy,
+           CoachMarkTargetResolver.find(target, in: top.view, within: window) != nil {
+            triedAdvanceAt = Date().addingTimeInterval(Self.triedPause)
+            return
+        }
 
         // First, so a step that was never shown leaves the counter on the card.
         if !isShowingStep, let skip = step.skipIfVisible,
@@ -284,33 +342,95 @@ final class CoachMarkCenter {
         of step: CoachMarkStep, session: inout CoachMarkSession, in window: UIWindow
     ) {
         let now = Date()
-        if isShowingStep {
-            let since = missingSince ?? now
-            missingSince = since
-            guard now.timeIntervalSince(since) >= Self.lostTargetGrace else { return }
-            if let returnTo = step.returnTo {
+        let lostSince = missingSince ?? now
+        let wasShowing = isShowingStep
+        if wasShowing { missingSince = lostSince }
+
+        switch Self.missingTargetResponse(
+            to: step, isShowing: wasShowing, lostFor: now.timeIntervalSince(lostSince),
+            waited: now.timeIntervalSince(stepStartedAt))
+        {
+        case .wait:
+            break
+        case .show:
+            missingSince = nil
+            present(hole: nil, in: window)
+        case .stepAside:
+            if wasShowing, let returnTo = step.returnTo {
                 session.goBack(to: returnTo)
                 self.session = session
                 resetStepTracking()
             }
             suspend()
-            return
-        }
-
-        let waited = now.timeIntervalSince(stepStartedAt)
-        // A step that is slow to arrive should not sit on top of the app in the meantime.
-        if waited >= Self.dimWhileWaiting { suspend() }
-
-        let timeout = step.isAction ? Self.actionTargetTimeout : Self.infoTargetTimeout
-        guard waited >= timeout else { return }
-        if step.isTargetOptional {
-            present(hole: nil, in: window)
-        } else if step.isAction {
+        case .skip:
+            moveOn(&session, skipping: true)
+        case .abandon:
             // Cannot be done from here, so end rather than leave the user stuck.
             endSession(.abandoned)
-        } else {
-            moveOn(&session, skipping: true)
         }
+    }
+
+    enum MissingTargetResponse: Equatable {
+        case wait
+        case show
+        case stepAside
+        case skip
+        case abandon
+    }
+
+    /// What a step does while its target is not on screen. Runs on every tick, so an answer of
+    /// `stepAside` for a card that the next tick shows again repeats many times a second: a note
+    /// that can do without its target must stay `show` once it is up.
+    static func missingTargetResponse(
+        to step: CoachMarkStep, isShowing: Bool, lostFor: TimeInterval, waited: TimeInterval
+    ) -> MissingTargetResponse {
+        let showsWithoutTarget = step.isTargetOptional && !step.isAction
+        if isShowing {
+            if showsWithoutTarget { return .show }
+            return lostFor >= lostTargetGrace ? .stepAside : .wait
+        }
+
+        let timeout = step.isAction
+            ? actionTargetTimeout
+            : (step.skipsWhenAbsent ? absentTargetTimeout : infoTargetTimeout)
+        guard waited >= timeout else {
+            // A step that is slow to arrive should not sit on top of the app in the meantime.
+            return waited >= dimWhileWaiting ? .stepAside : .wait
+        }
+        if showsWithoutTarget { return .show }
+        return step.isAction ? .abandon : .skip
+    }
+
+    /// Finishing a guide is worth remembering however it was started: it is the checkmark in the
+    /// guides list. Leaving one early from Settings says nothing, so a replay records nothing else.
+    static func recording(
+        _ ending: Ending, of session: CoachMarkSession, in state: CoachMarkState
+    ) -> CoachMarkState {
+        var state = state
+        switch (ending, session.mode) {
+        case (.completed, _): state.completed.insert(session.guide)
+        case (.skipped, .automatic): state.skipped.insert(session.guide)
+        case (.skippedAll, .automatic): state.isAutoDisabled = true
+        default: break
+        }
+        return state
+    }
+
+    enum ScreenChange: Equatable {
+        case same
+        case left
+        case cameBack
+    }
+
+    /// A live target can open another screen. That is the user trying it, not a lost target: the
+    /// note waits out of the way for as long as they stay, then moves on when they return.
+    static func screenChange(
+        of step: CoachMarkStep, shownOn screen: ObjectIdentifier?, top: ObjectIdentifier, didLeave: Bool
+    ) -> ScreenChange {
+        // A step inside a sheet has `returnTo`: its screen going away means the sheet was closed.
+        guard !step.isAction, step.returnTo == nil, let screen else { return .same }
+        if top != screen { return .left }
+        return didLeave ? .cameBack : .same
     }
 
     private func isTransitioning(_ top: UIViewController) -> Bool {
@@ -359,7 +479,7 @@ final class CoachMarkCenter {
 
         if isShowingStep {
             overlay.show(
-                hole: hole, touchable: session.step.isAction, keyboardTop: keyboardTop, animated: false,
+                hole: hole, touchable: true, keyboardTop: keyboardTop, animated: false,
                 plain: session.step.isPlain)
             return
         }
@@ -372,7 +492,7 @@ final class CoachMarkCenter {
         overlay.isActive = true
         overlayWindow.isHidden = false
         overlay.show(
-            hole: hole, touchable: session.step.isAction, keyboardTop: keyboardTop, animated: wasVisible,
+            hole: hole, touchable: true, keyboardTop: keyboardTop, animated: wasVisible,
             plain: session.step.isPlain)
 
         if wasVisible {

@@ -1448,6 +1448,7 @@ extension MonthBudgetCard: DaySliderDelegate {
         displayMode = .daySpecific(day: day)
         // Always update on final selection to ensure correct state
         updateAvailableBudgetDisplay()
+        CoachMarkCenter.shared.post(.dashboardDayChanged)
     }
     
     func daySlider(_ slider: DaySlider, didReachCurrentDay day: Int) {

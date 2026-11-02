@@ -285,6 +285,10 @@ final class AddAllocationModalView: UIView {
         recurringSectionStackView.addArrangedSubview(durationRowStackView)
         recurringSectionStackView.addArrangedSubview(durationResolvedLabel)
 
+        categoryPickerView.reportCoachMarkFill(as: .allocationCategory)
+        amountTextField.reportCoachMarkFill(as: .allocationAmount)
+        recurringSectionStackView.accessibilityIdentifier = CoachMarkTarget.allocationRecurring.rawValue
+        saveButton.accessibilityIdentifier = CoachMarkTarget.allocationSave.rawValue
         recurringSwitch.addTarget(self, action: #selector(recurringSwitchChanged), for: .valueChanged)
         rebuildDurationMenu()
         updateDurationDisplay()

@@ -511,6 +511,7 @@ final class DashboardViewController: UIViewController {
         checkAndShowNotificationSuccessAlert()
 
         CoachMarkCenter.shared.dashboardDidAppear()
+        refreshSetupReminder()
 
 #if DEBUG
         // Add notification debugging on dashboard appear
@@ -1420,17 +1421,40 @@ extension DashboardViewController: DashboardViewDelegate {
     }
 }
 
+// MARK: - Setup reminder
+
+private extension DashboardViewController {
+    func refreshSetupReminder() {
+        guard let guide = CoachMarkCenter.shared.setupReminder() else {
+            return contentView.hideSetupReminder()
+        }
+        contentView.showSetupReminder(
+            title: String(format: "coachMarks.reminder.title".localized, guide.titleKey.localized),
+            onOpen: { [weak self] in
+                self?.contentView.hideSetupReminder()
+                CoachMarkCenter.shared.startReplay(guide)
+            },
+            onDismiss: { [weak self] in
+                self?.contentView.hideSetupReminder()
+                CoachMarkCenter.shared.dismissSetupReminder()
+            })
+    }
+}
+
 extension DashboardViewController: MonthSelectorDelegate {
     func didTapPrev() {
         syncedViewModel.moveToPreviousMonth()
+        CoachMarkCenter.shared.post(.dashboardMonthChanged)
     }
     
     func didTapNext() {
         syncedViewModel.moveToNextMonth()
+        CoachMarkCenter.shared.post(.dashboardMonthChanged)
     }
     
     func didSelectMonth(at index: Int) {
         syncedViewModel.selectMonth(at: index)
+        CoachMarkCenter.shared.post(.dashboardMonthChanged)
     }
 }
 
@@ -1571,6 +1595,7 @@ extension DashboardViewController: UICollectionViewDelegate {
     func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
         if collectionView == contentView.monthSelectorView.collectionView {
             syncedViewModel.selectMonth(at: indexPath.item)
+            CoachMarkCenter.shared.post(.dashboardMonthChanged)
         }
     }
 
@@ -1694,6 +1719,7 @@ extension DashboardViewController: UIScrollViewDelegate {
             let pageWidth = scrollView.frame.width
             let page = Int(floor((scrollView.contentOffset.x - pageWidth / 2) / pageWidth) + 1)
             syncedViewModel.selectMonth(at: page, animated: true)
+            CoachMarkCenter.shared.post(.dashboardMonthChanged)
             
             if let visibleCells = contentView.monthCarousel.visibleCells as? [MonthCarouselCell],
                let firstCell = visibleCells.first

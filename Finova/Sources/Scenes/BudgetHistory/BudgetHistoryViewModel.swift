@@ -352,24 +352,29 @@ final class BudgetHistoryViewModel: ObservableObject {
 
     func select(savingsScope scope: SavingsScope) {
         savingsScope = scope
+        CoachMarkCenter.shared.post(.historySavingsChanged)
     }
 
     func select(filter newFilter: BudgetHistoryFilter) {
         guard newFilter != filter else { return }
         filter = newFilter
         keepSelectionVisible()
+        CoachMarkCenter.shared.post(.historyFilterChanged)
     }
 
     func select(range newRange: Span) {
         guard newRange != range else { return }
         range = newRange
         keepSelectionVisible()
+        CoachMarkCenter.shared.post(.historyRangeChanged)
     }
 
     func select(month anchor: Int) {
         guard series.month(anchor) != nil || forecastMonths.contains(where: { $0.monthAnchor == anchor })
         else { return }
         selectedAnchor = anchor
+        CoachMarkCenter.shared.post(.historyMonthPicked)
+        if selectedForecast != nil { CoachMarkCenter.shared.post(.historyProjectedMonthPicked) }
     }
 
     /// A shorter range or a trimmed series can drop the selected month off the chart. Move the

@@ -418,7 +418,9 @@ final class CoachMarkOverlayWindow: UIWindow {
 
     override init(windowScene: UIWindowScene) {
         super.init(windowScene: windowScene)
-        windowLevel = .normal + 1
+        // Under the keyboard's window, which holds the pickers and their check button. At the same
+        // level the last one shown wins, so a mark that came back covered them and ate the tap.
+        windowLevel = UIWindow.Level(UIWindow.Level.normal.rawValue + 0.5)
         backgroundColor = .clear
         let root = RootViewController()
         root.overlay = overlay

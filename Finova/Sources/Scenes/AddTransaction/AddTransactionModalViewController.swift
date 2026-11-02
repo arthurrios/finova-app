@@ -483,6 +483,7 @@ extension AddTransactionModalViewController: AddTransactionModalViewDelegate,
   }
 
   func transactionTypeSelectorDidSelect(_ selector: TransactionTypeSelector) {
+    defer { CoachMarkCenter.shared.post(.fieldFilled(.transactionType)) }
     if selector.variant == .selected {
       contentView.incomeSelectorButton.variant = .normal
       contentView.expenseSelectorButton.variant = .normal

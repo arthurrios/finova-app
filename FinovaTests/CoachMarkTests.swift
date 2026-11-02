@@ -3,7 +3,7 @@
 //  FinovaTests
 //
 //  The promises the guides make: a new user is guided, an existing user is never interrupted, and a
-//  replay touches nothing.
+//  replay changes nothing in the ledger.
 //
 
 import UIKit
@@ -263,7 +263,7 @@ final class CoachMarkGuideTests: XCTestCase {
         let steps = CoachMarkGuides.steps(
             for: .allocations, facts: CoachMarkFacts(hasAnyBudget: true), mode: .automatic)
         var session = CoachMarkSession(guide: .allocations, mode: .automatic, steps: steps)
-        while session.step.id != "sheet" { XCTAssertTrue(session.advance()) }
+        while session.step.id != "category" { XCTAssertTrue(session.advance()) }
 
         session.goBack(to: session.step.returnTo ?? "")
         XCTAssertEqual(session.step.id, "add")
@@ -274,8 +274,7 @@ final class CoachMarkGuideTests: XCTestCase {
             guide: .budgetHistory, mode: .replay,
             steps: CoachMarkGuides.steps(
                 for: .budgetHistory, facts: CoachMarkFacts(), mode: .replay))
-        XCTAssertTrue(session.advance())
-        XCTAssertTrue(session.isLastStep)
+        while !session.isLastStep { XCTAssertTrue(session.advance()) }
         XCTAssertFalse(session.advance())
     }
 
@@ -300,13 +299,6 @@ final class CoachMarkGuideTests: XCTestCase {
         }
     }
 
-    func testEveryWholeSheetStepIsPlain() {
-        let sheets: [CoachMarkTarget] = [.allocationSheet, .transactionSheet, .addCardForm]
-        let sheetSteps = allSteps.filter { $0.target.map(sheets.contains) ?? false }
-        XCTAssertFalse(sheetSteps.isEmpty)
-        XCTAssertTrue(sheetSteps.allSatisfy(\.isPlain))
-    }
-
     func testAControlInsideASheetKeepsItsHighlight() {
         let mode = allSteps.first { $0.target == .transactionMode }
         XCTAssertEqual(mode?.isPlain, false)
@@ -322,7 +314,7 @@ final class CoachMarkGuideTests: XCTestCase {
         for guide in CoachMarkGuideID.allCases {
             for step in CoachMarkGuides.steps(for: guide, facts: CoachMarkFacts(), mode: .automatic)
             where step.ownsKeyboard {
-                XCTAssertTrue(writesData(step), "\(guide).\(step.id)")
+                XCTAssertTrue(writesData(step) || step.returnTo != nil, "\(guide).\(step.id)")
             }
         }
     }
@@ -823,11 +815,249 @@ final class CoachMarkCenterTests: XCTestCase {
     func testGotItOnASheetClearsTheCardAndNeverAdvancesTheStep() throws {
         let steps = CoachMarkGuides.steps(
             for: .creditCard, facts: CoachMarkFacts(), mode: .replay)
-        let form = try XCTUnwrap(steps.first { $0.target == .addCardForm })
+        let form = try XCTUnwrap(steps.first { $0.target == .addCardSave })
         XCTAssertEqual(CoachMarkCenter.nextButtonEffect(for: form), .dismissCard)
 
         let note = try XCTUnwrap(steps.last)
         XCTAssertEqual(CoachMarkCenter.nextButtonEffect(for: note), .advance)
+    }
+
+    func testAnOptionalNoteStaysUpForAsLongAsItsTargetIsMissing() throws {
+        let steps = CoachMarkGuides.steps(for: .creditCard, facts: CoachMarkFacts(), mode: .replay)
+        let note = try XCTUnwrap(steps.last)
+        XCTAssertTrue(note.isTargetOptional)
+
+        // Any other answer here hides a card that the next tick brings back: the flicker.
+        for lostFor in [0, 0.6, 5, 60] as [TimeInterval] {
+            XCTAssertEqual(
+                CoachMarkCenter.missingTargetResponse(
+                    to: note, isShowing: true, lostFor: lostFor, waited: lostFor + 3),
+                .show)
+        }
+    }
+
+    func testAnOptionalNoteWaitsThenShowsWithoutGoingThroughHidden() throws {
+        let steps = CoachMarkGuides.steps(for: .creditCard, facts: CoachMarkFacts(), mode: .replay)
+        let note = try XCTUnwrap(steps.last)
+        let response = { (waited: TimeInterval) in
+            CoachMarkCenter.missingTargetResponse(to: note, isShowing: false, lostFor: 0, waited: waited)
+        }
+
+        XCTAssertEqual(response(0.1), .wait)
+        XCTAssertEqual(response(1), .stepAside)
+        XCTAssertEqual(response(3), .show)
+        XCTAssertEqual(response(30), .show)
+    }
+
+    func testStepsThatNeedTheirTargetStillGiveUpOnIt() throws {
+        let card = CoachMarkGuides.steps(for: .creditCard, facts: CoachMarkFacts(), mode: .replay)
+        let form = try XCTUnwrap(card.first { $0.target == .addCardSave })
+        let tour = CoachMarkGuides.steps(for: .dashboardTour, facts: CoachMarkFacts(), mode: .replay)
+        let required = try XCTUnwrap(tour.first { $0.target == .dashboardMonthCard })
+        let response = CoachMarkCenter.missingTargetResponse
+
+        XCTAssertEqual(response(form, true, 0.1, 1), .wait)
+        XCTAssertEqual(response(form, true, 1, 1), .stepAside)
+        XCTAssertEqual(response(form, false, 0, 8), .abandon)
+        XCTAssertEqual(response(required, true, 1, 1), .stepAside)
+        XCTAssertEqual(response(required, false, 0, 3), .skip)
+    }
+
+    func testFinishingAGuideIsRememberedHoweverItStarted() {
+        let steps = CoachMarkGuides.steps(for: .budgetHistory, facts: CoachMarkFacts(), mode: .replay)
+        for mode in [CoachMarkRunMode.automatic, .replay] {
+            let session = CoachMarkSession(guide: .budgetHistory, mode: mode, steps: steps)
+            let state = CoachMarkCenter.recording(.completed, of: session, in: CoachMarkState())
+            XCTAssertTrue(state.completed.contains(.budgetHistory))
+        }
+    }
+
+    func testLeavingAReplayEarlyRecordsNothing() {
+        let steps = CoachMarkGuides.steps(for: .budgetHistory, facts: CoachMarkFacts(), mode: .replay)
+        let session = CoachMarkSession(guide: .budgetHistory, mode: .replay, steps: steps)
+        for ending in [CoachMarkCenter.Ending.skipped, .skippedAll, .abandoned] {
+            XCTAssertEqual(CoachMarkCenter.recording(ending, of: session, in: CoachMarkState()), CoachMarkState())
+        }
+    }
+
+    func testANoteWaitsWhileItsTargetOpensAnotherScreen() throws {
+        let steps = CoachMarkGuides.steps(for: .dashboardTour, facts: CoachMarkFacts(), mode: .replay)
+        let note = try XCTUnwrap(steps.first { $0.id == "add" })
+        let (home, sheet) = (NSObject(), NSObject())
+        let change = { (top: NSObject, left: Bool) in
+            CoachMarkCenter.screenChange(
+                of: note, shownOn: ObjectIdentifier(home), top: ObjectIdentifier(top), didLeave: left)
+        }
+
+        XCTAssertEqual(change(home, false), .same)
+        XCTAssertEqual(change(sheet, false), .left)
+        XCTAssertEqual(change(sheet, true), .left)
+        XCTAssertEqual(change(home, true), .cameBack)
+    }
+
+    func testAnActionStepDoesNotTreatItsOwnScreenChangeAsTrying() throws {
+        let steps = CoachMarkGuides.steps(for: .firstBudget, facts: CoachMarkFacts(), mode: .replay)
+        let action = try XCTUnwrap(steps.first)
+        let (home, other) = (NSObject(), NSObject())
+        XCTAssertEqual(
+            CoachMarkCenter.screenChange(
+                of: action, shownOn: ObjectIdentifier(home), top: ObjectIdentifier(other), didLeave: false),
+            .same)
+    }
+
+    func testTourNotesMoveOnWhenTheUserTriesThem() throws {
+        let steps = CoachMarkGuides.steps(for: .dashboardTour, facts: CoachMarkFacts(), mode: .replay)
+        var session = CoachMarkSession(guide: .dashboardTour, mode: .replay, steps: steps)
+        XCTAssertTrue(session.skipStep())
+        XCTAssertEqual(session.step.id, "months")
+        XCTAssertTrue(session.isTried(by: .dashboardMonthChanged))
+        XCTAssertFalse(session.isTried(by: .dashboardDayChanged))
+        XCTAssertFalse(session.isSatisfied(by: .dashboardMonthChanged))
+    }
+
+    func testBudgetHistoryGuideCoversTheScreen() {
+        let steps = CoachMarkGuides.steps(for: .budgetHistory, facts: CoachMarkFacts(), mode: .replay)
+        XCTAssertEqual(
+            steps.map(\.id),
+            ["open", "chart", "filter", "range", "savings", "projected", "projectedCard", "note"])
+        // No note may depend on data the user may not have, or it would hold the guide up.
+        XCTAssertTrue(steps.dropFirst().dropLast().allSatisfy(\.skipsWhenAbsent))
+    }
+
+    func testAStepWithNoTargetOnThisScreenPassesAtOnce() throws {
+        let steps = CoachMarkGuides.steps(for: .budgetHistory, facts: CoachMarkFacts(), mode: .replay)
+        let range = try XCTUnwrap(steps.first { $0.id == "range" })
+        XCTAssertEqual(
+            CoachMarkCenter.missingTargetResponse(to: range, isShowing: false, lostFor: 0, waited: 0.5),
+            .skip)
+    }
+
+    private var unfinishedNewUser: CoachMarkState {
+        var state = CoachMarkState()
+        state.isEnrolled = true
+        state.isAutoDisabled = true
+        return state
+    }
+
+    func testReminderNamesTheFirstSetupLeft() {
+        let reminder = CoachMarkGating.reminderGuide(
+            state: unfinishedNewUser, facts: CoachMarkFacts(), now: Date())
+        XCTAssertEqual(reminder, CoachMarkGuideID.automaticChain.first)
+    }
+
+    func testReminderNeverReachesAnExistingUser() {
+        var state = unfinishedNewUser
+        state.isEnrolled = false
+        XCTAssertNil(CoachMarkGating.reminderGuide(state: state, facts: CoachMarkFacts(), now: Date()))
+    }
+
+    func testReminderWaitsWhileAGuideWouldStartByItself() {
+        var state = unfinishedNewUser
+        state.isAutoDisabled = false
+        XCTAssertNil(CoachMarkGating.reminderGuide(state: state, facts: CoachMarkFacts(), now: Date()))
+    }
+
+    func testReminderStaysAwayAfterClosingThenReturns() {
+        let closed = Date(timeIntervalSince1970: 1_000_000)
+        var state = unfinishedNewUser
+        state.reminderDismissals = 1
+        state.reminderDismissedAt = closed
+
+        XCTAssertNil(CoachMarkGating.reminderGuide(
+            state: state, facts: CoachMarkFacts(),
+            now: closed.addingTimeInterval(CoachMarkGating.reminderPause - 1)))
+        XCTAssertNotNil(CoachMarkGating.reminderGuide(
+            state: state, facts: CoachMarkFacts(),
+            now: closed.addingTimeInterval(CoachMarkGating.reminderPause)))
+    }
+
+    func testReminderStopsAfterThreeCloses() {
+        var state = unfinishedNewUser
+        state.reminderDismissals = CoachMarkGating.maxReminderDismissals
+        XCTAssertNil(CoachMarkGating.reminderGuide(state: state, facts: CoachMarkFacts(), now: Date()))
+    }
+
+    func testReminderEndsWhenEverySetupIsDone() {
+        let done = CoachMarkFacts(
+            hasAnyBudget: true, hasAnyAllocation: true, hasRecurringTransaction: true,
+            hasAnyTransaction: true, hasCreditCard: true)
+        XCTAssertNil(CoachMarkGating.reminderGuide(state: unfinishedNewUser, facts: done, now: Date()))
+    }
+
+    func testStateSavedBeforeTheReminderStillLoads() throws {
+        let saved = #"{"isAutoDisabled":true,"completed":[],"skipped":[],"autoStarts":[]}"#
+        let state = try JSONDecoder().decode(CoachMarkState.self, from: Data(saved.utf8))
+        XCTAssertTrue(state.isAutoDisabled)
+        XCTAssertNil(state.reminderDismissals)
+    }
+
+    func testSalaryGuideWalksEveryFieldThenTheSave() {
+        let steps = CoachMarkGuides.steps(for: .salaryAndExpenses, facts: CoachMarkFacts(), mode: .replay)
+        XCTAssertEqual(
+            steps.map(\.id),
+            ["monthFace", "add", "mode", "title", "category", "amount", "date", "dateRule", "type", "save", "note"])
+    }
+
+    func testFillingAFieldMovesItsStepOnButOnlyASaveEndsTheForm() throws {
+        let steps = CoachMarkGuides.steps(for: .firstTransaction, facts: CoachMarkFacts(), mode: .replay)
+        var session = CoachMarkSession(guide: .firstTransaction, mode: .replay, steps: steps)
+        while session.step.id != "title" { XCTAssertTrue(session.advance()) }
+        XCTAssertTrue(session.isTried(by: .fieldFilled(.transactionTitle)))
+        XCTAssertFalse(session.isTried(by: .fieldFilled(.transactionAmount)))
+
+        while session.step.id != "save" { XCTAssertTrue(session.advance()) }
+        XCTAssertTrue(session.step.isAction)
+        XCTAssertTrue(session.isSatisfied(by: .transactionSaved))
+    }
+
+    func testAFormStepTreatsTheSheetClosingAsLostNotAsTrying() throws {
+        let steps = CoachMarkGuides.steps(for: .salaryAndExpenses, facts: CoachMarkFacts(), mode: .replay)
+        let field = try XCTUnwrap(steps.first { $0.id == "title" })
+        XCTAssertEqual(field.returnTo, "add")
+        let (sheet, home) = (NSObject(), NSObject())
+        XCTAssertEqual(
+            CoachMarkCenter.screenChange(
+                of: field, shownOn: ObjectIdentifier(sheet), top: ObjectIdentifier(home), didLeave: false),
+            .same)
+        XCTAssertEqual(
+            CoachMarkCenter.missingTargetResponse(to: field, isShowing: true, lostFor: 1, waited: 1),
+            .stepAside)
+    }
+
+    func testCategoryAndCardFormsWalkEveryField() {
+        let allocation = CoachMarkGuides.steps(
+            for: .allocations, facts: CoachMarkFacts(hasAnyBudget: true), mode: .replay)
+        XCTAssertEqual(
+            allocation.map(\.id),
+            ["budgetFace", "add", "category", "amount", "recurring", "save", "note"])
+
+        let card = CoachMarkGuides.steps(for: .creditCard, facts: CoachMarkFacts(), mode: .replay)
+        XCTAssertEqual(
+            card.map(\.id),
+            ["avatar", "row", "add", "name", "lastFour", "brand", "closingDay", "dueDay", "limit", "save", "note"])
+    }
+
+    func testEveryFormStepIsOnItsOwnField() {
+        let wholeForms: [CoachMarkTarget] = [.allocationSheet, .transactionSheet, .addCardForm]
+        let empty = CoachMarkFacts(hasAnyBudget: true)
+        for guide in CoachMarkGuideID.allCases {
+            for step in CoachMarkGuides.steps(for: guide, facts: empty, mode: .replay)
+            where step.returnTo != nil {
+                XCTAssertFalse(step.target.map(wholeForms.contains) ?? true, step.id)
+            }
+        }
+    }
+
+    func testTheRepeatStepWaitsSoItsOptionsStayInView() throws {
+        let steps = CoachMarkGuides.steps(
+            for: .allocations, facts: CoachMarkFacts(hasAnyBudget: true), mode: .replay)
+        let repeatStep = try XCTUnwrap(steps.first { $0.id == "recurring" })
+        XCTAssertNil(repeatStep.triedBy)
+    }
+
+    func testBudgetHistoryNoteHasNoTargetToWaitFor() throws {
+        let steps = CoachMarkGuides.steps(for: .budgetHistory, facts: CoachMarkFacts(), mode: .replay)
+        XCTAssertNil(try XCTUnwrap(steps.last).target)
     }
 
     func testCaptionAndButtonsDifferBetweenAutomaticAndReplay() {

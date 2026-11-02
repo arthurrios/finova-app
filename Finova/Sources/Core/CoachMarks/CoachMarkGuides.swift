@@ -31,10 +31,14 @@ enum CoachMarkGuides {
     }
 
     private static func info(
-        _ guide: CoachMarkGuideID, _ id: String, _ target: CoachMarkTarget?, optional: Bool = false
+        _ guide: CoachMarkGuideID, _ id: String, _ target: CoachMarkTarget?, optional: Bool = false,
+        tried: CoachMarkStep.Advance? = nil, skipsWhenAbsent: Bool = false,
+        skipIfVisible: CoachMarkTarget? = nil
     ) -> CoachMarkStep {
         CoachMarkStep(
-            id: id, target: target, textKey: key(guide, id), kind: .info, isTargetOptional: optional)
+            id: id, target: target, textKey: key(guide, id), kind: .info,
+            skipIfVisible: skipIfVisible, isTargetOptional: optional, triedBy: tried,
+            skipsWhenAbsent: skipsWhenAbsent)
     }
 
     private static func tap(
@@ -48,16 +52,42 @@ enum CoachMarkGuides {
 
     private static func form(
         _ guide: CoachMarkGuideID, _ id: String, _ target: CoachMarkTarget,
-        until event: CoachMarkEvent, returnTo: String? = nil
+        until event: CoachMarkEvent
     ) -> CoachMarkStep {
         CoachMarkStep(
             id: id, target: target, textKey: key(guide, id), kind: .action(until: .event(event)),
-            returnTo: returnTo, ownsKeyboard: true, isPlain: Self.sheets.contains(target))
+            ownsKeyboard: true)
     }
 
-    private static let sheets: Set<CoachMarkTarget> = [
-        .allocationSheet, .transactionSheet, .addCardForm,
-    ]
+    /// One step per field, each moving on when the field is filled or with Next. Saving stays the
+    /// user's own act: only a real save ends the form. Leaving the form goes back to `add`.
+    private static func formSteps(
+        _ guide: CoachMarkGuideID, fields: [(id: String, target: CoachMarkTarget)],
+        waitsForNext: Set<CoachMarkTarget> = [], save: CoachMarkTarget, until event: CoachMarkEvent
+    ) -> [CoachMarkStep] {
+        let steps = fields.map { field in
+            CoachMarkStep(
+                id: field.id, target: field.target, textKey: key(guide, field.id), kind: .info,
+                returnTo: "add", ownsKeyboard: true,
+                triedBy: waitsForNext.contains(field.target) ? nil : .event(.fieldFilled(field.target)))
+        }
+        return steps + [
+            CoachMarkStep(
+                id: "save", target: save, textKey: key(guide, "save"),
+                kind: .action(until: .event(event)), returnTo: "add", ownsKeyboard: true),
+        ]
+    }
+
+    private static func transactionForm(_ guide: CoachMarkGuideID) -> [CoachMarkStep] {
+        formSteps(
+            guide,
+            fields: [
+                ("title", .transactionTitle), ("category", .transactionCategory),
+                ("amount", .transactionAmount), ("date", .transactionDate),
+                ("dateRule", .transactionDateRule), ("type", .transactionType),
+            ],
+            save: .transactionSave, until: .transactionSaved)
+    }
 
     /// The `+` button adds a transaction only on the card's month face, so any guide that needs that
     /// meaning first brings the card back to it.
@@ -108,9 +138,17 @@ enum CoachMarkGuides {
         } else {
             steps += [
                 tap(guide, "add", .dashboardAdd, until: .targetVisible(.allocationSheet)),
-                form(guide, "sheet", .allocationSheet, until: .allocationSaved, returnTo: "add"),
-                info(guide, "note", .dashboardAllocations, optional: true),
             ]
+            steps += formSteps(
+                guide,
+                fields: [
+                    ("category", .allocationCategory), ("amount", .allocationAmount),
+                    ("recurring", .allocationRecurring),
+                ],
+                // Turning this on opens more options, which moving on would hide.
+                waitsForNext: [.allocationRecurring],
+                save: .allocationSave, until: .allocationSaved)
+            steps.append(info(guide, "note", .dashboardAllocations, optional: true))
         }
         // The chain ends here, so this is where a new user learns the guides have not gone away.
         if mode == .automatic {
@@ -132,9 +170,9 @@ enum CoachMarkGuides {
             steps += [
                 tap(guide, "add", .dashboardAdd, until: .targetVisible(.transactionSheet)),
                 tap(guide, "mode", .transactionMode, until: .event(.transactionModeRecurring)),
-                form(guide, "sheet", .transactionSheet, until: .transactionSaved, returnTo: "add"),
-                info(guide, "note", .dashboardAdd),
             ]
+            steps += transactionForm(guide)
+            steps.append(info(guide, "note", .dashboardAdd))
         }
         return steps
     }
@@ -145,7 +183,7 @@ enum CoachMarkGuides {
             return [
                 monthFace(guide),
                 tap(guide, "add", .dashboardAdd, until: .targetVisible(.transactionSheet)),
-                form(guide, "sheet", .transactionSheet, until: .transactionSaved, returnTo: "add"),
+            ] + transactionForm(guide) + [
                 info(guide, "note", .dashboardTransactions, optional: true),
             ]
         }
@@ -167,9 +205,16 @@ enum CoachMarkGuides {
         } else {
             steps += [
                 tap(guide, "add", .creditCardsAdd, until: .targetVisible(.addCardForm)),
-                form(guide, "form", .addCardForm, until: .creditCardSaved, returnTo: "add"),
-                info(guide, "note", .creditCardsList, optional: true),
             ]
+            steps += formSteps(
+                guide,
+                fields: [
+                    ("name", .addCardName), ("lastFour", .addCardLastFour), ("brand", .addCardBrand),
+                    ("closingDay", .addCardClosingDay), ("dueDay", .addCardDueDay),
+                    ("limit", .addCardLimit),
+                ],
+                save: .addCardSave, until: .creditCardSaved)
+            steps.append(info(guide, "note", .creditCardsList, optional: true))
         }
         return steps
     }
@@ -178,7 +223,16 @@ enum CoachMarkGuides {
         let guide = CoachMarkGuideID.budgetHistory
         return [
             tap(guide, "open", .dashboardHistory, until: .screen("BudgetHistoryViewController")),
-            info(guide, "note", .budgetHistoryContent, optional: true),
+            info(guide, "chart", .budgetHistoryChart, tried: .event(.historyMonthPicked), skipsWhenAbsent: true),
+            info(guide, "filter", .budgetHistoryFilter, tried: .event(.historyFilterChanged), skipsWhenAbsent: true),
+            info(guide, "range", .budgetHistoryRange, tried: .event(.historyRangeChanged), skipsWhenAbsent: true),
+            // Before the projected months: opening one replaces the savings card.
+            info(guide, "savings", .budgetHistorySavings, tried: .event(.historySavingsChanged), skipsWhenAbsent: true),
+            info(
+                guide, "projected", .budgetHistoryProjected, tried: .event(.historyProjectedMonthPicked),
+                skipsWhenAbsent: true, skipIfVisible: .budgetHistoryForecastCard),
+            info(guide, "projectedCard", .budgetHistoryForecastCard, skipsWhenAbsent: true),
+            info(guide, "note", nil),
         ]
     }
 
@@ -186,9 +240,10 @@ enum CoachMarkGuides {
         let guide = CoachMarkGuideID.dashboardTour
         return [
             monthFace(guide),
-            info(guide, "months", .dashboardMonthSelector),
-            info(guide, "card", .dashboardMonthCard),
-            info(guide, "budgetToggle", .dashboardBudgetToggle),
+            info(guide, "months", .dashboardMonthSelector, tried: .event(.dashboardMonthChanged)),
+            info(guide, "card", .dashboardMonthCard, tried: .event(.dashboardDayChanged)),
+            info(guide, "budgetToggle", .dashboardBudgetToggle, tried: .targetVisible(.dashboardFlipBack)),
+            monthFace(guide),
             info(guide, "transactions", .dashboardTransactions, optional: true),
             info(guide, "add", .dashboardAdd),
             info(guide, "notifications", .dashboardNotifications),

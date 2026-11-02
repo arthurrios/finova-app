@@ -183,6 +183,13 @@ final class AddCreditCardView: UIView {
 
         // Scroll view - between header and footer
         accessibilityIdentifier = CoachMarkTarget.addCardForm.rawValue
+        nameInput.reportCoachMarkFill(as: .addCardName)
+        lastFourInput.reportCoachMarkFill(as: .addCardLastFour)
+        brandSelector.reportCoachMarkFill(as: .addCardBrand)
+        closingDayInput.reportCoachMarkFill(as: .addCardClosingDay)
+        dueDayInput.reportCoachMarkFill(as: .addCardDueDay)
+        creditLimitInput.reportCoachMarkFill(as: .addCardLimit)
+        saveButton.accessibilityIdentifier = CoachMarkTarget.addCardSave.rawValue
         addSubview(scrollView)
         scrollView.addSubview(scrollContentView)
 

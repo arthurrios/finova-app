@@ -431,6 +431,7 @@ final class AddTransactionModalView: UIView {
     setupTransactionModeControl()
     setupInstallmentsConstraints()
     setupDateChangeListener()
+    setupCoachMarkTargets()
 
     setupConstraints()
   }
@@ -465,6 +466,17 @@ final class AddTransactionModalView: UIView {
     heightC.priority = .defaultHigh
     heightC.isActive = true
     contentHeightConstraint = heightC
+  }
+
+  private func setupCoachMarkTargets() {
+    let fields: [(Input, CoachMarkTarget)] = [
+      (transactionTitleTextField, .transactionTitle), (categoryPickerView, .transactionCategory),
+      (moneyTextField, .transactionAmount), (dateTextField, .transactionDate),
+    ]
+    fields.forEach { field, target in field.reportCoachMarkFill(as: target) }
+    businessDayRuleButton.accessibilityIdentifier = CoachMarkTarget.transactionDateRule.rawValue
+    transactionButtonsStackView.accessibilityIdentifier = CoachMarkTarget.transactionType.rawValue
+    saveButton.accessibilityIdentifier = CoachMarkTarget.transactionSave.rawValue
   }
 
   private func setupDateChangeListener() {

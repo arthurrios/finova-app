@@ -20016,23 +20016,6 @@
         }
       }
     },
-    "coachMarks.allocations.sheet": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pick a category and a limit, then save. Turn on Repeat Monthly to keep it every month."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Escolha uma categoria e um limite e salve. Ative Repetir Mensalmente para manter todo mês."
-          }
-        }
-      }
-    },
     "coachMarks.allocations.note": {
       "extractionState": "manual",
       "localizations": {
@@ -20131,23 +20114,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Escolha Recorrente para repetir todo mês."
-          }
-        }
-      }
-    },
-    "coachMarks.salaryAndExpenses.sheet": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Fill in the name, category, amount and date. Choose Income, then save."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Preencha nome, categoria, valor e data. Escolha Entrada e salve."
           }
         }
       }
@@ -20254,23 +20220,6 @@
         }
       }
     },
-    "coachMarks.firstTransaction.sheet": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Fill in the details, choose Income or Expense, then save."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Preencha os dados, escolha Entrada ou Saída e salve."
-          }
-        }
-      }
-    },
     "coachMarks.firstTransaction.note": {
       "extractionState": "manual",
       "localizations": {
@@ -20373,23 +20322,6 @@
         }
       }
     },
-    "coachMarks.creditCard.form": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Fill in the closing and due days so statements come out right, then save."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Preencha os dias de fechamento e vencimento para as faturas ficarem certas e salve."
-          }
-        }
-      }
-    },
     "coachMarks.creditCard.note": {
       "extractionState": "manual",
       "localizations": {
@@ -20442,18 +20374,17 @@
       }
     },
     "coachMarks.budgetHistory.note": {
-      "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Here you see each month against its plan. Pick a month or a category to look closer."
+            "value": "That is your history. You can replay this guide in Settings."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aqui você vê cada mês em relação ao planejado. Escolha um mês ou uma categoria para ver de perto."
+            "value": "Esse é o seu histórico. Você pode rever este guia nas Configurações."
           }
         }
       }
@@ -20476,52 +20407,49 @@
       }
     },
     "coachMarks.dashboardTour.months": {
-      "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Swipe or tap here to change the month."
+            "value": "Tap a month to jump to it, or tap Next."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Deslize ou toque aqui para trocar de mês."
+            "value": "Toque em um mês para ir até ele, ou toque em Próximo."
           }
         }
       }
     },
     "coachMarks.dashboardTour.card": {
-      "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This card is your month: balance, budget and what is left."
+            "value": "This card is your month. Drag the dot to see your balance on any day."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Este cartão é o seu mês: saldo, orçamento e quanto resta."
+            "value": "Este cartão é o seu mês. Arraste o ponto para ver o saldo de qualquer dia."
           }
         }
       }
     },
     "coachMarks.dashboardTour.budgetToggle": {
-      "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This button turns the card to your category limits."
+            "value": "Tap this button to turn the card to your category limits."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Este botão vira o cartão para os limites por categoria."
+            "value": "Toque neste botão para virar o cartão para os limites por categoria."
           }
         }
       }
@@ -20544,52 +20472,49 @@
       }
     },
     "coachMarks.dashboardTour.add": {
-      "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tap + to add a transaction."
+            "value": "Tap + to open a new transaction. Close it to carry on."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Toque em + para adicionar uma transação."
+            "value": "Toque em + para abrir um novo lançamento. Feche para continuar."
           }
         }
       }
     },
     "coachMarks.dashboardTour.notifications": {
-      "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Your reminders and alerts are here."
+            "value": "Your reminders and alerts are here. Open them and come back."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Seus lembretes e avisos ficam aqui."
+            "value": "Seus lembretes e avisos ficam aqui. Abra e volte para continuar."
           }
         }
       }
     },
     "coachMarks.dashboardTour.avatar": {
-      "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Your profile has your cards and the settings."
+            "value": "Your profile has your cards and the settings. Open it and come back."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Seu perfil tem seus cartões e as configurações."
+            "value": "Seu perfil tem seus cartões e as configurações. Abra e volte para continuar."
           }
         }
       }
@@ -20611,36 +20536,564 @@
         }
       }
     },
-    "coachMarks.firstBudget.formWithIncome" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "A good budget is what comes in each month. Tap the suggestion or type an amount, then tap Save."
+    "coachMarks.firstBudget.formWithIncome": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A good budget is what comes in each month. Tap the suggestion or type an amount, then tap Save."
           }
         },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Um bom orçamento é o que entra no mês. Toque na sugestão ou digite um valor e toque em Salvar."
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um bom orçamento é o que entra no mês. Toque na sugestão ou digite um valor e toque em Salvar."
           }
         }
       }
     },
-    "budgets.suggestion.income" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Your income this month: %@. Use this amount"
+    "budgets.suggestion.income": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your income this month: %@. Use this amount"
           }
         },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Sua renda neste mês: %@. Usar este valor"
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sua renda neste mês: %@. Usar este valor"
+          }
+        }
+      }
+    },
+    "coachMarks.budgetHistory.chart": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Each bar is a month against its plan. Tap a bar to open that month."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cada barra é um mês em relação ao planejado. Toque em uma barra para abrir o mês."
+          }
+        }
+      }
+    },
+    "coachMarks.budgetHistory.filter": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "See one category at a time. Tap here and pick one."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Veja uma categoria por vez. Toque aqui e escolha uma."
+          }
+        }
+      }
+    },
+    "coachMarks.budgetHistory.projected": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Striped bars are the months ahead. Tap one to see what is expected."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "As barras listradas são os próximos meses. Toque em uma para ver o previsto."
+          }
+        }
+      }
+    },
+    "coachMarks.budgetHistory.projectedCard": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A projected month shows what is planned, what is expected and what is left. It never counts as saved."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um mês projetado mostra o planejado, o previsto e o que sobra. Nunca conta como economia."
+          }
+        }
+      }
+    },
+    "coachMarks.budgetHistory.range": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch between 6 and 12 months."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alterne entre 6 e 12 meses."
+          }
+        }
+      }
+    },
+    "coachMarks.budgetHistory.savings": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This is what you saved against your plans. Only closed months count. Try the other tab."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aqui está o que você economizou em relação ao planejado. Só meses fechados contam. Experimente a outra aba."
+          }
+        }
+      }
+    },
+    "coachMarks.reminder.title": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finish your setup: %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Termine sua configuração: %@"
+          }
+        }
+      }
+    },
+    "coachMarks.reminder.dismiss": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide reminder"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ocultar lembrete"
+          }
+        }
+      }
+    },
+    "coachMarks.salaryAndExpenses.title": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Name it, like Salary."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dê um nome, como Salário."
+          }
+        }
+      }
+    },
+    "coachMarks.salaryAndExpenses.category": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pick a category for it."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Escolha uma categoria."
+          }
+        }
+      }
+    },
+    "coachMarks.salaryAndExpenses.amount": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Type how much you receive each month."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Digite quanto você recebe por mês."
+          }
+        }
+      }
+    },
+    "coachMarks.salaryAndExpenses.date": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pick the day you get paid. It repeats every month."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Escolha o dia em que recebe. Ele se repete todo mês."
+          }
+        }
+      }
+    },
+    "coachMarks.salaryAndExpenses.type": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Salary is money coming in. Tap Income."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Salário é dinheiro entrando. Toque em Entrada."
+          }
+        }
+      }
+    },
+    "coachMarks.salaryAndExpenses.save": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All set. Tap Save."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tudo pronto. Toque em Salvar."
+          }
+        }
+      }
+    },
+    "coachMarks.firstTransaction.title": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Give it a name."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dê um nome."
+          }
+        }
+      }
+    },
+    "coachMarks.firstTransaction.category": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pick a category."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Escolha uma categoria."
+          }
+        }
+      }
+    },
+    "coachMarks.firstTransaction.amount": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Type the amount."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Digite o valor."
+          }
+        }
+      }
+    },
+    "coachMarks.firstTransaction.date": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pick the date."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Escolha a data."
+          }
+        }
+      }
+    },
+    "coachMarks.firstTransaction.type": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Is it money coming in or going out?"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "É dinheiro entrando ou saindo?"
+          }
+        }
+      }
+    },
+    "coachMarks.firstTransaction.save": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All set. Tap Save."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tudo pronto. Toque em Salvar."
+          }
+        }
+      }
+    },
+    "coachMarks.allocations.category": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pick the category for this limit."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Escolha a categoria deste limite."
+          }
+        }
+      }
+    },
+    "coachMarks.allocations.amount": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Type the most you want to spend on it each month."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Digite o máximo que quer gastar nela por mês."
+          }
+        }
+      }
+    },
+    "coachMarks.allocations.recurring": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Turn this on to keep the limit every month. You can also choose until when."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ative para manter o limite todo mês. Você também pode escolher até quando."
+          }
+        }
+      }
+    },
+    "coachMarks.allocations.save": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All set. Tap Save."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tudo pronto. Toque em Salvar."
+          }
+        }
+      }
+    },
+    "coachMarks.creditCard.name": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Name the card, like Nubank."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dê um nome ao cartão, como Nubank."
+          }
+        }
+      }
+    },
+    "coachMarks.creditCard.lastFour": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Type its last 4 digits, to tell your cards apart."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Digite os 4 últimos dígitos, para diferenciar seus cartões."
+          }
+        }
+      }
+    },
+    "coachMarks.creditCard.closingDay": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pick the day your statement closes."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Escolha o dia em que a fatura fecha."
+          }
+        }
+      }
+    },
+    "coachMarks.creditCard.dueDay": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pick the day your statement is due."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Escolha o dia em que a fatura vence."
+          }
+        }
+      }
+    },
+    "coachMarks.creditCard.limit": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Type your credit limit. This one is optional."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Digite o limite do cartão. Este é opcional."
+          }
+        }
+      }
+    },
+    "coachMarks.creditCard.save": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All set. Tap Save."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tudo pronto. Toque em Salvar."
+          }
+        }
+      }
+    },
+    "coachMarks.salaryAndExpenses.dateRule": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Does the day fall on a weekend? Choose here how to move it."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O dia cai em fim de semana? Escolha aqui como ajustar."
+          }
+        }
+      }
+    },
+    "coachMarks.firstTransaction.dateRule": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Does the day fall on a weekend? Choose here how to move it."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O dia cai em fim de semana? Escolha aqui como ajustar."
+          }
+        }
+      }
+    },
+    "coachMarks.creditCard.brand": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Check the card brand."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Confira a bandeira do cartão."
           }
         }
       }

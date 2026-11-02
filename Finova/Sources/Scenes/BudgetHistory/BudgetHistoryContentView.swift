@@ -37,8 +37,10 @@ struct BudgetHistoryContentView: View {
                         // A month ahead has saved nothing, so its card replaces the two that read results.
                         if let forecast = viewModel.selectedForecast {
                             forecastCard(forecast)
+                                .coachMarkTarget(.budgetHistoryForecastCard, inset: Metrics.spacing4)
                         } else {
                             savingsCard
+                                .coachMarkTarget(.budgetHistorySavings, inset: Metrics.spacing4)
                             contributorsCard
                                 .id(Self.whyID)
                         }
@@ -140,11 +142,13 @@ struct BudgetHistoryContentView: View {
             .buttonStyle(.plain)
             .accessibilityLabel("budgetHistory.a11y.chooseFilter".localized)
             .accessibilityValue(BudgetHistoryViewModel.title(for: viewModel.filter))
+            .coachMarkTarget(.budgetHistoryFilter)
 
             Spacer(minLength: 0)
 
             if viewModel.offersLongerRange {
                 rangePicker
+                    .coachMarkTarget(.budgetHistoryRange)
             }
         }
         .padding(.horizontal, Metrics.spacing4)
@@ -169,6 +173,8 @@ struct BudgetHistoryContentView: View {
                     onSelect: select(month:)
                 )
                 .frame(height: 210)
+                .coachMarkTarget(.budgetHistoryChart)
+                .coachMarkTarget(.budgetHistoryProjected, when: !viewModel.forecastMonths.isEmpty)
 
                 legend
             }
@@ -364,43 +370,60 @@ struct BudgetHistoryContentView: View {
         return line
     }
 
+    /// One row when it fits. With the forecast items a pt-BR row does not, and a squeezed label
+    /// breaks mid-word, so they drop to a second row.
     private var legend: some View {
-        HStack(spacing: Metrics.spacing4) {
-            legendItem(color: Color(Colors.mainMagenta), label: "budgetHistory.legend.spent".localized)
-            legendItem(color: Color(Colors.mainRed), label: "budgetHistory.legend.over".localized)
-            HStack(spacing: Metrics.spacing1 + 2) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 2).fill(Color(Colors.gray300))
-                        .frame(width: 10, height: 10)
-                    Rectangle().fill(Color(Colors.gray600)).frame(width: 12, height: 2)
-                        .offset(y: -4)
-                }
-                .frame(width: 12, height: 10)
-                Text("budgetHistory.legend.plan".localized)
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: Metrics.spacing4) {
+                recordedLegendItems
+                forecastLegendItems
+                Spacer(minLength: 0)
             }
-            if !viewModel.forecastMonths.isEmpty {
-                HStack(spacing: Metrics.spacing1 + 2) {
-                    RoundedRectangle(cornerRadius: 2)
-                        .strokeBorder(
-                            Color(Colors.mainMagenta), style: StrokeStyle(lineWidth: 1, dash: [2, 1.5]))
-                        .frame(width: 10, height: 10)
-                    Text("budgetHistory.forecast.badge".localized)
-                }
+            VStack(alignment: .leading, spacing: Metrics.spacing2) {
+                HStack(spacing: Metrics.spacing4) { recordedLegendItems }
+                HStack(spacing: Metrics.spacing4) { forecastLegendItems }
             }
-            if viewModel.forecastMonths.contains(where: { $0.hasPlan && $0.inside > 0 && $0.outsideWithinPlan > 0 }) {
-                HStack(spacing: Metrics.spacing1 + 2) {
-                    RoundedRectangle(cornerRadius: 2)
-                        .strokeBorder(
-                            Color(Colors.warningAmber), style: StrokeStyle(lineWidth: 1, dash: [2, 1.5]))
-                        .frame(width: 10, height: 10)
-                    Text("budgetHistory.forecast.legend.outside".localized)
-                }
-            }
-            Spacer(minLength: 0)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .font(.system(size: 10))
         .foregroundStyle(Color(Colors.gray500))
         .accessibilityHidden(true)
+    }
+
+    @ViewBuilder private var recordedLegendItems: some View {
+        legendItem(color: Color(Colors.mainMagenta), label: "budgetHistory.legend.spent".localized)
+        legendItem(color: Color(Colors.mainRed), label: "budgetHistory.legend.over".localized)
+        HStack(spacing: Metrics.spacing1 + 2) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 2).fill(Color(Colors.gray300))
+                    .frame(width: 10, height: 10)
+                Rectangle().fill(Color(Colors.gray600)).frame(width: 12, height: 2)
+                    .offset(y: -4)
+            }
+            .frame(width: 12, height: 10)
+            Text("budgetHistory.legend.plan".localized)
+        }
+    }
+
+    @ViewBuilder private var forecastLegendItems: some View {
+        if !viewModel.forecastMonths.isEmpty {
+            HStack(spacing: Metrics.spacing1 + 2) {
+                RoundedRectangle(cornerRadius: 2)
+                    .strokeBorder(
+                        Color(Colors.mainMagenta), style: StrokeStyle(lineWidth: 1, dash: [2, 1.5]))
+                    .frame(width: 10, height: 10)
+                Text("budgetHistory.forecast.badge".localized)
+            }
+        }
+        if viewModel.forecastMonths.contains(where: { $0.hasPlan && $0.inside > 0 && $0.outsideWithinPlan > 0 }) {
+            HStack(spacing: Metrics.spacing1 + 2) {
+                RoundedRectangle(cornerRadius: 2)
+                    .strokeBorder(
+                        Color(Colors.warningAmber), style: StrokeStyle(lineWidth: 1, dash: [2, 1.5]))
+                    .frame(width: 10, height: 10)
+                Text("budgetHistory.forecast.legend.outside".localized)
+            }
+        }
     }
 
     private func legendItem(color: Color, label: String) -> some View {
@@ -1507,5 +1530,35 @@ private extension View {
                 .stroke(Color(Colors.gray300), lineWidth: 1)
         )
         .clipShape(RoundedRectangle(cornerRadius: CornerRadius.extraLarge, style: .continuous))
+    }
+}
+
+// MARK: - Coach mark targets
+
+/// A real view behind a SwiftUI one, because coach marks find their targets in the UIKit tree and a
+/// SwiftUI identifier does not reach it. It takes no touches.
+private struct CoachMarkAnchor: UIViewRepresentable {
+    let target: CoachMarkTarget
+
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView()
+        view.isUserInteractionEnabled = false
+        view.accessibilityIdentifier = target.rawValue
+        return view
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) {}
+}
+
+private extension View {
+    /// `inset` is the view's own side margin, which is not part of what the ring should go around.
+    @ViewBuilder func coachMarkTarget(
+        _ target: CoachMarkTarget, when isPresent: Bool = true, inset: CGFloat = 0
+    ) -> some View {
+        if isPresent {
+            background(CoachMarkAnchor(target: target).padding(.horizontal, inset))
+        } else {
+            self
+        }
     }
 }

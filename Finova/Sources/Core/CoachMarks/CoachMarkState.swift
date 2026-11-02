@@ -12,11 +12,15 @@ struct CoachMarkState: Codable, Equatable {
     /// at all. A false here is what keeps an existing user from ever being interrupted, and it must
     /// never be recomputed, or the first budget a new user saves would end their own guide chain.
     var isEnrolled: Bool?
-    /// Skip all. Stops automatic guides for good; Settings still works.
+    /// Skip all. Stops automatic guides for good; Settings still works, and the setup reminder may
+    /// still show, because it asks for nothing and closing it three times ends it too.
     var isAutoDisabled = false
     var completed: Set<CoachMarkGuideID> = []
     var skipped: Set<CoachMarkGuideID> = []
     var autoStarts: [CoachMarkGuideID: Int] = [:]
+    /// Optional, so a state saved before the reminder existed still decodes.
+    var reminderDismissals: Int?
+    var reminderDismissedAt: Date?
 }
 
 /// Stored per Firebase uid, so two accounts on one phone never share progress, and signing out and
@@ -73,6 +77,28 @@ enum CoachMarkGating {
         case .firstTransaction: return facts.hasAnyTransaction
         case .creditCard: return facts.hasCreditCard
         case .budgetHistory, .dashboardTour: return false
+        }
+    }
+
+    /// Closing the reminder this many times means no, and it stops for good.
+    static let maxReminderDismissals = 3
+    /// How long a closed reminder stays away.
+    static let reminderPause: TimeInterval = 3 * 24 * 60 * 60
+
+    /// The setup to remind a new user of, or nil. Only for a setup no guide is about to offer, so it
+    /// never competes with one. An existing user keeps the promise of never being interrupted.
+    static func reminderGuide(state: CoachMarkState, facts: CoachMarkFacts, now: Date) -> CoachMarkGuideID? {
+        guard state.isEnrolled == true,
+              (state.reminderDismissals ?? 0) < maxReminderDismissals,
+              nextAutomaticGuide(state: state, facts: facts) == nil
+        else { return nil }
+        if let dismissedAt = state.reminderDismissedAt,
+           now.timeIntervalSince(dismissedAt) < reminderPause {
+            return nil
+        }
+        return CoachMarkGuideID.automaticChain.first { guide in
+            !isSetupDone(guide, facts: facts) && !state.completed.contains(guide)
+                && (guide != .allocations || facts.hasAnyBudget)
         }
     }
 

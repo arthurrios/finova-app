@@ -501,3 +501,27 @@ final class DashboardView: UIView {
     delegate?.didTapAddTransaction()
   }
 }
+
+// MARK: - Setup reminder
+
+extension DashboardView {
+  func showSetupReminder(title: String, onOpen: @escaping () -> Void, onDismiss: @escaping () -> Void) {
+    hideSetupReminder()
+    let banner = CoachMarkReminderBanner(title: title)
+    banner.tag = Self.reminderBannerTag
+    banner.onOpen = onOpen
+    banner.onDismiss = onDismiss
+    addSubview(banner)
+    NSLayoutConstraint.activate([
+      banner.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Metrics.spacing4),
+      banner.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Metrics.spacing4),
+      banner.bottomAnchor.constraint(equalTo: addButtonGlassContainer.topAnchor, constant: -Metrics.spacing3),
+    ])
+  }
+
+  func hideSetupReminder() {
+    viewWithTag(Self.reminderBannerTag)?.removeFromSuperview()
+  }
+
+  private static let reminderBannerTag = 7_301
+}

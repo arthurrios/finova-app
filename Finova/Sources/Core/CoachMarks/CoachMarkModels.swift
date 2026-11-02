@@ -57,8 +57,34 @@ enum CoachMarkTarget: String {
     case creditCardsList = "coachMark.creditCards.list"
     case addCardForm = "coachMark.addCard.form"
 
-    /// Owned by the budget history screen. Optional: when it is missing the note there is centred.
-    case budgetHistoryContent = "coachMark.budgetHistory.content"
+    case transactionTitle = "coachMark.transaction.title"
+    case transactionCategory = "coachMark.transaction.category"
+    case transactionAmount = "coachMark.transaction.amount"
+    case transactionDate = "coachMark.transaction.date"
+    case transactionDateRule = "coachMark.transaction.dateRule"
+    case transactionType = "coachMark.transaction.type"
+    case transactionSave = "coachMark.transaction.save"
+
+    case allocationCategory = "coachMark.allocation.category"
+    case allocationAmount = "coachMark.allocation.amount"
+    case allocationRecurring = "coachMark.allocation.recurring"
+    case allocationSave = "coachMark.allocation.save"
+
+    case addCardName = "coachMark.addCard.name"
+    case addCardLastFour = "coachMark.addCard.lastFour"
+    case addCardBrand = "coachMark.addCard.brand"
+    case addCardClosingDay = "coachMark.addCard.closingDay"
+    case addCardDueDay = "coachMark.addCard.dueDay"
+    case addCardLimit = "coachMark.addCard.limit"
+    case addCardSave = "coachMark.addCard.save"
+
+    case budgetHistoryChart = "coachMark.budgetHistory.chart"
+    /// The same chart, present only while there are months ahead to show.
+    case budgetHistoryProjected = "coachMark.budgetHistory.projected"
+    case budgetHistoryForecastCard = "coachMark.budgetHistory.forecastCard"
+    case budgetHistoryFilter = "coachMark.budgetHistory.filter"
+    case budgetHistoryRange = "coachMark.budgetHistory.range"
+    case budgetHistorySavings = "coachMark.budgetHistory.savings"
 }
 
 /// Things only the user can make happen. Scenes post these through `CoachMarkCenter.post` at the
@@ -68,12 +94,22 @@ enum CoachMarkEvent: Equatable {
     case allocationSaved
     case transactionSaved
     case transactionModeRecurring
+    /// A form field now holds a value. Says nothing about whether it is valid.
+    case fieldFilled(CoachMarkTarget)
     case creditCardSaved
+    case dashboardMonthChanged
+    case dashboardDayChanged
+    case historyMonthPicked
+    case historyProjectedMonthPicked
+    case historyFilterChanged
+    case historyRangeChanged
+    case historySavingsChanged
 }
 
 struct CoachMarkStep: Equatable {
     enum Kind: Equatable {
-        /// Explains something. Moves on with the bubble's Next button; the target takes no touches.
+        /// Explains something. Moves on with the bubble's Next button, and the target stays live so
+        /// the user can try what the text describes. See `triedBy` and `screenChange`.
         case info
         /// The user does it. Only the target takes touches until the condition is met.
         case action(until: Advance)
@@ -103,6 +139,11 @@ struct CoachMarkStep: Equatable {
     var isPlain = false
     /// Show the text centred if the target is missing, rather than skipping the step.
     var isTargetOptional = false
+    /// On a note: the user doing what it describes moves it on too, without the button.
+    var triedBy: Advance?
+    /// On a note: the target only exists for some data, so a screen without it passes the step at
+    /// once rather than leaving the user looking at nothing.
+    var skipsWhenAbsent = false
 
     var isAction: Bool {
         if case .action = kind { return true }
@@ -129,7 +170,7 @@ struct CoachMarkFacts: Equatable {
 enum CoachMarkRunMode: Equatable {
     /// Started by the app for a new user. Finishing or skipping is remembered.
     case automatic
-    /// Started from Settings. Leaves no trace in the user's state.
+    /// Started from Settings. Only finishing it is remembered, as the guide's checkmark.
     case replay
 }
 
@@ -168,6 +209,10 @@ struct CoachMarkSession: Equatable {
 
     func isSatisfied(by event: CoachMarkEvent) -> Bool {
         step.kind == .action(until: .event(event))
+    }
+
+    func isTried(by event: CoachMarkEvent) -> Bool {
+        step.triedBy == .event(event)
     }
 
     mutating func goBack(to stepID: String) {
