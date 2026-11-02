@@ -799,7 +799,7 @@
     <string name="coach_marks_allocations_existing_list">Seus limites por categoria ficam aqui, com quanto já usou de cada um.</string>
     <string name="coach_marks_allocations_note">Seus limites aparecem aqui. Adicione um para cada grande área de gastos.</string>
     <string name="coach_marks_allocations_recurring">Ative para manter o limite todo mês. Você também pode escolher até quando.</string>
-    <string name="coach_marks_allocations_save">Tudo pronto. Toque em Salvar.</string>
+    <string name="coach_marks_allocations_save">Tudo pronto. Toque em Criar Alocação.</string>
     <string name="coach_marks_budget_history_chart">Cada barra é um mês em relação ao planejado. Toque em uma barra para abrir o mês.</string>
     <string name="coach_marks_budget_history_filter">Veja uma categoria por vez. Toque aqui e escolha uma.</string>
     <string name="coach_marks_budget_history_note">Esse é o seu histórico. Você pode rever este guia nas Configurações.</string>
@@ -820,11 +820,11 @@
     <string name="coach_marks_credit_card_brand">Confira a bandeira do cartão.</string>
     <string name="coach_marks_credit_card_closing_day">Escolha o dia em que a fatura fecha.</string>
     <string name="coach_marks_credit_card_due_day">Escolha o dia em que a fatura vence.</string>
-    <string name="coach_marks_credit_card_existing_list">Seus cartões ficam aqui. Toque em um para ver e pagar as faturas.</string>
+    <string name="coach_marks_credit_card_existing_list">Seus cartões ficam aqui. Toque em um para editar. As faturas aparecem nos lançamentos do mês.</string>
     <string name="coach_marks_credit_card_last_four">Digite os 4 últimos dígitos, para diferenciar seus cartões.</string>
     <string name="coach_marks_credit_card_limit">Digite o limite do cartão. Este é opcional.</string>
     <string name="coach_marks_credit_card_name">Dê um nome ao cartão, como Nubank.</string>
-    <string name="coach_marks_credit_card_note">Seu cartão está aqui. Toque nele para ver as faturas.</string>
+    <string name="coach_marks_credit_card_note">Seu cartão está aqui. Toque nele para editar. As faturas aparecem nos lançamentos do mês.</string>
     <string name="coach_marks_credit_card_row">Toque em Cartões de Crédito.</string>
     <string name="coach_marks_credit_card_save">Tudo pronto. Toque em Salvar.</string>
     <string name="coach_marks_dashboard_tour_add">Toque em + para abrir um novo lançamento. Feche para continuar.</string>

@@ -20328,13 +20328,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Your card is here. Tap it to see its statements."
+            "value": "Your card is here. Tap it to edit. Statements appear in your month's transactions."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Seu cartão está aqui. Toque nele para ver as faturas."
+            "value": "Seu cartão está aqui. Toque nele para editar. As faturas aparecem nos lançamentos do mês."
           }
         }
       }
@@ -20345,13 +20345,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Your cards are here. Tap one to see its statements and pay them."
+            "value": "Your cards are here. Tap one to edit it. Statements appear in your month's transactions."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Seus cartões ficam aqui. Toque em um para ver e pagar as faturas."
+            "value": "Seus cartões ficam aqui. Toque em um para editar. As faturas aparecem nos lançamentos do mês."
           }
         }
       }
@@ -20943,13 +20943,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "All set. Tap Save."
+            "value": "All set. Tap Create Allocation."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tudo pronto. Toque em Salvar."
+            "value": "Tudo pronto. Toque em Criar Alocação."
           }
         }
       }

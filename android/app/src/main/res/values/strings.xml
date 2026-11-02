@@ -804,7 +804,7 @@
     <string name="coach_marks_allocations_existing_list">Your category limits are here, with what you used of each one.</string>
     <string name="coach_marks_allocations_note">Your limits appear here. Add one for each big spending area.</string>
     <string name="coach_marks_allocations_recurring">Turn this on to keep the limit every month. You can also choose until when.</string>
-    <string name="coach_marks_allocations_save">All set. Tap Save.</string>
+    <string name="coach_marks_allocations_save">All set. Tap Create Allocation.</string>
     <string name="coach_marks_budget_history_chart">Each bar is a month against its plan. Tap a bar to open that month.</string>
     <string name="coach_marks_budget_history_filter">See one category at a time. Tap here and pick one.</string>
     <string name="coach_marks_budget_history_note">That is your history. You can replay this guide in Settings.</string>
@@ -825,11 +825,11 @@
     <string name="coach_marks_credit_card_brand">Check the card brand.</string>
     <string name="coach_marks_credit_card_closing_day">Pick the day your statement closes.</string>
     <string name="coach_marks_credit_card_due_day">Pick the day your statement is due.</string>
-    <string name="coach_marks_credit_card_existing_list">Your cards are here. Tap one to see its statements and pay them.</string>
+    <string name="coach_marks_credit_card_existing_list">Your cards are here. Tap one to edit it. Statements appear in your month\'s transactions.</string>
     <string name="coach_marks_credit_card_last_four">Type its last 4 digits, to tell your cards apart.</string>
     <string name="coach_marks_credit_card_limit">Type your credit limit. This one is optional.</string>
     <string name="coach_marks_credit_card_name">Name the card, like Nubank.</string>
-    <string name="coach_marks_credit_card_note">Your card is here. Tap it to see its statements.</string>
+    <string name="coach_marks_credit_card_note">Your card is here. Tap it to edit. Statements appear in your month\'s transactions.</string>
     <string name="coach_marks_credit_card_row">Tap Credit Cards.</string>
     <string name="coach_marks_credit_card_save">All set. Tap Save.</string>
     <string name="coach_marks_dashboard_tour_add">Tap + to open a new transaction. Close it to carry on.</string>

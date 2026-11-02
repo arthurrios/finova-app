@@ -30,7 +30,7 @@ android {
         minSdk = 26
         targetSdk = 36
         // Kept in step with the iOS feature line this build ports (release/v1.6.0).
-        versionCode = 4
+        versionCode = 5
         versionName = "1.6.0"
     }
 
