@@ -4,6 +4,7 @@ import com.arthurrios.finova.domain.allocation.AllocationRow
 import com.arthurrios.finova.domain.allocation.Allocations
 import com.arthurrios.finova.domain.ledger.LedgerCalculator
 import com.arthurrios.finova.domain.model.Budget
+import com.arthurrios.finova.domain.model.CreditCardStatement
 import com.arthurrios.finova.domain.model.Transaction
 import com.arthurrios.finova.domain.model.TransactionCategory
 import com.arthurrios.finova.domain.model.TransactionType
@@ -61,5 +62,43 @@ object BudgetHistoryReader {
                 .associate { it.month to BudgetHistory.MonthTotal(it.budgetLimit, it.usedValue) }
 
         return BudgetHistory.of(months, current, live.filter { it.month in window }, spent, totals)
+    }
+
+    /**
+     * The next months through what the dashboard's card reads them from, so a month shows the same
+     * figures in both places. Nothing is summed here that the card does not sum, and a statement only
+     * reaches the closing balance: the rows behind [BudgetForecastMonth] are the stored ones.
+     *
+     * @param ledgerRows stored rows plus the statement rows, as the dashboard reads them.
+     */
+    fun forecast(
+        ledgerRows: List<Transaction>,
+        budgets: List<Budget>,
+        balanceOffset: Long,
+        allocations: List<AllocationRow>,
+        statements: List<CreditCardStatement>,
+        today: LocalDate,
+    ): BudgetForecast {
+        val current = YearMonth.from(today)
+        val months = (1..BudgetForecast.MONTHS_AHEAD).map { current.plusMonths(it.toLong()) }
+        val stored = ledgerRows.filterNot { it.isCreditCardStatement }
+        val statementsDue = ledgerRows
+            .filter { it.isCreditCardStatement && it.type == TransactionType.Expense }
+            .groupBy { YearMonth.from(it.date) }
+            .mapValues { (_, rows) -> rows.sumOf { it.amount } }
+
+        return BudgetForecast(
+            LedgerCalculator.monthlySummaries(ledgerRows, budgets, balanceOffset, months, today).map { summary ->
+                BudgetForecastMonth.of(
+                    month = summary.month,
+                    allocations = Allocations.withUsage(allocations, stored, summary.month),
+                    summary = Allocations.unallocatedSummary(allocations, stored, budgets, summary.month),
+                    unallocatedSpending = Allocations.unallocatedSpending(allocations, stored, summary.month),
+                    closingBalance = summary.finalBalance,
+                    deferredCardSpending = Allocations.deferredCardSpending(stored, statements, summary.month),
+                    statementsDue = statementsDue[summary.month] ?: 0,
+                )
+            }
+        )
     }
 }

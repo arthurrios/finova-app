@@ -1,10 +1,15 @@
 package com.arthurrios.finova.ui.history
 
+import androidx.annotation.StringRes
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.arthurrios.finova.R
 import com.arthurrios.finova.data.UserSettingsStore
 import com.arthurrios.finova.data.repo.AllocationRepository
 import com.arthurrios.finova.data.repo.FinanceRepository
+import com.arthurrios.finova.domain.history.BudgetForecast
+import com.arthurrios.finova.domain.history.BudgetForecastFigures
+import com.arthurrios.finova.domain.history.BudgetForecastMonth
 import com.arthurrios.finova.domain.history.BudgetHistory
 import com.arthurrios.finova.domain.history.BudgetHistoryFilter
 import com.arthurrios.finova.domain.history.BudgetHistoryMonth
@@ -55,17 +60,42 @@ data class BudgetHistoryUiState(
     val today: LocalDate = LocalDate.now(),
     /** Filters left by drilling into the "Why" card, most recent last; the picker starts over. */
     val filterTrail: List<BudgetHistoryFilter> = emptyList(),
+    /** The months ahead of the open one, read with the history. */
+    val forecast: BudgetForecast = BudgetForecast.Empty,
 ) {
-    private fun fullSeries(filter: BudgetHistoryFilter) = history.series(filter) ?: history.wholeMonth
+    /** A category first planned in a month ahead: it has no past to read, only a forecast. */
+    private fun isForecastOnly(filter: BudgetHistoryFilter): Boolean =
+        filter is BudgetHistoryFilter.Category && history.series(filter) == null && filter.category in forecast.plannedCategories
+
+    private fun fullSeries(filter: BudgetHistoryFilter) = history.series(filter)
+        ?: if (isForecastOnly(filter)) BudgetHistorySeries(filter, emptyList()) else history.wholeMonth
 
     /** The bars on screen: the chosen span, minus leading months with nothing in them. */
     val series: BudgetHistorySeries get() = fullSeries(filter).suffix(span.months).trimmingLeadingEmptyMonths()
 
     val selectedMonth: BudgetHistoryMonth? get() = series.month(selected) ?: series.months.lastOrNull()
 
-    val filters: List<BudgetHistoryFilter> get() = history.filters
+    /**
+     * The projected bars after the past ones, for the chosen filter. Never part of [series], so they
+     * reach no score, streak or savings figure. Empty when no month ahead has anything for this filter:
+     * six blank columns would only squeeze the past bars.
+     */
+    val forecastMonths: List<BudgetForecastFigures>
+        get() = forecast.figures(filter).takeUnless { months -> months.all { it.status == BudgetForecastFigures.Status.Empty } }.orEmpty()
 
-    val isEmpty: Boolean get() = history.isEmpty
+    /**
+     * The selected month when it lies ahead. While it does, [selectedMonth] stays on the open month
+     * and the Saved figures are not on screen.
+     */
+    val selectedForecast: BudgetForecastFigures? get() = forecastMonths.firstOrNull { it.month == selected }
+
+    /** The month highlighted on the chart, past or projected. */
+    val displayedMonth: YearMonth? get() = selectedForecast?.month ?: selectedMonth?.month
+
+    val filters: List<BudgetHistoryFilter>
+        get() = history.filters + forecast.plannedCategories.map { BudgetHistoryFilter.Category(it) }.filter(::isForecastOnly)
+
+    val isEmpty: Boolean get() = history.isEmpty && forecast.isEmpty
 
     /**
      * The 12-month option only when it would show more than the 6-month one. A ledger with five
@@ -127,6 +157,20 @@ data class BudgetHistoryUiState(
         return MonthDetail(bar, listed.size, listed.take(3), split)
     }
 
+    /** One projected month as its card shows it: the figures, the rows already dated, the three biggest. */
+    data class ForecastDetail(
+        val figures: BudgetForecastFigures,
+        val month: BudgetForecastMonth,
+        val scheduledCount: Int,
+        val biggest: List<Transaction>,
+    )
+
+    fun forecastDetail(figures: BudgetForecastFigures): ForecastDetail? {
+        val month = forecast.month(figures.month) ?: return null
+        val listed = forecast.transactions(filter, figures.month, expenses).filter { it.amount > 0 }
+        return ForecastDetail(figures, month, listed.size, listed.take(3))
+    }
+
     /** A month's budget and what its categories got: the subtraction behind outside figures. */
     fun budgetSplit(month: YearMonth): Pair<Long, Long> =
         (history.wholeMonth.month(month)?.planned ?: 0L) to history.categories.sumOf { it.month(month)?.planned ?: 0L }
@@ -178,32 +222,73 @@ data class BudgetHistoryUiState(
 
     /** The month the arrows step to, or null at either end of the bars on screen. */
     fun neighbour(offset: Int): YearMonth? {
-        val months = series.months
-        val index = months.indexOfFirst { it.month == selectedMonth?.month }
+        val months = series.months.map { it.month } + forecastMonths.map { it.month }
+        val index = months.indexOf(displayedMonth)
         if (index < 0) return null
-        return months.getOrNull(index + offset)?.month
+        return months.getOrNull(index + offset)
     }
+
+    /** Selects a past or projected month on the chart. Any other month changes nothing. */
+    fun selecting(month: YearMonth): BudgetHistoryUiState =
+        if (series.month(month) != null || forecastMonths.any { it.month == month }) copy(selected = month) else this
 
     /** A shorter span or a trimmed series can drop the selected month off the chart: select the open month. */
     fun keepingSelectionVisible(): BudgetHistoryUiState {
-        if (series.month(selected) != null) return this
-        val last = series.months.lastOrNull() ?: return this
-        return copy(selected = last.month)
+        if (series.month(selected) != null || selectedForecast != null) return this
+        val month = series.months.lastOrNull()?.month ?: forecastMonths.firstOrNull()?.month ?: return this
+        return copy(selected = month)
     }
 
     /**
      * A new read of the ledger. A filter no longer in the window falls back to the whole month, and an
      * entry month older than six months opens the longer span so it is on screen.
      */
-    fun withHistory(newHistory: BudgetHistory, firstLoad: Boolean): BudgetHistoryUiState {
-        var next = copy(history = newHistory, isLoaded = true)
-        if (newHistory.series(next.filter) == null) next = next.copy(filter = BudgetHistoryFilter.WholeMonth)
+    fun withHistory(newHistory: BudgetHistory, firstLoad: Boolean, newForecast: BudgetForecast = forecast): BudgetHistoryUiState {
+        var next = copy(history = newHistory, forecast = newForecast, isLoaded = true)
+        if (newHistory.series(next.filter) == null && !next.isForecastOnly(next.filter)) next = next.copy(filter = BudgetHistoryFilter.WholeMonth)
         if (firstLoad) {
             val index = newHistory.months.indexOf(next.selected)
             if (index >= 0 && newHistory.months.size - index > HistorySpan.SixMonths.months) next = next.copy(span = HistorySpan.TwelveMonths)
         }
-        if (next.selected !in newHistory.months) next = next.copy(selected = newHistory.current)
+        if (next.selected !in newHistory.months && next.selectedForecast == null) next = next.copy(selected = newHistory.current)
         return next.keepingSelectionVisible()
+    }
+}
+
+/** A string and the amounts it takes. Kept apart from formatting so the words can be tested. */
+data class ForecastText(@param:StringRes val text: Int, val amounts: List<Long> = emptyList())
+
+/** The words a projected month carries. They never say "saved" or "on plan": nothing has happened yet. */
+object BudgetForecastText {
+
+    /** The status a projected month carries: an amount when values are visible, a word when not. */
+    fun status(month: BudgetForecastFigures, hidden: Boolean): ForecastText = when (month.status) {
+        BudgetForecastFigures.Status.Fits ->
+            if (hidden) ForecastText(R.string.history_forecast_status_fits)
+            else ForecastText(R.string.history_status_left_format, listOf(month.difference))
+        BudgetForecastFigures.Status.Short ->
+            if (hidden) ForecastText(R.string.history_forecast_status_short)
+            else ForecastText(R.string.history_forecast_status_short_format, listOf(-month.difference))
+        BudgetForecastFigures.Status.NoPlan, BudgetForecastFigures.Status.Empty -> ForecastText(noPlan(month.filter))
+    }
+
+    /** A month with no plan says so in words, so it never reads as a plan of zero. */
+    @StringRes
+    fun noPlan(filter: BudgetHistoryFilter): Int = when (filter) {
+        is BudgetHistoryFilter.Category -> R.string.history_forecast_no_allocation
+        BudgetHistoryFilter.WholeMonth, BudgetHistoryFilter.OutsideAllocations -> R.string.history_forecast_no_budget
+    }
+
+    /** What TalkBack reads. Opens by saying it is projected, so the amounts are never taken for a result. */
+    fun accessibility(month: BudgetForecastFigures, hidden: Boolean): List<ForecastText> = buildList {
+        add(ForecastText(R.string.history_forecast_badge))
+        if (!hidden) {
+            add(
+                if (month.hasPlan) ForecastText(R.string.history_forecast_a11y_expected_of_format, listOf(month.expected, month.planned))
+                else ForecastText(R.string.history_forecast_a11y_expected_format, listOf(month.expected))
+            )
+        }
+        add(status(month, hidden))
     }
 }
 
@@ -235,11 +320,14 @@ class BudgetHistoryViewModel(
 
     init {
         viewModelScope.launch {
-            combine(repository.ledgerRows, repository.budgets, repository.balanceOffset, allocations.all) { rows, budgets, offset, allocationRows ->
-                BudgetHistoryReader.read(rows, budgets, offset, allocationRows, today()) to
-                    rows.filter { it.type == TransactionType.Expense && !it.isCreditCardStatement && !it.isSettledEarly }
-            }.collect { (history, expenses) ->
-                _state.update { it.withHistory(history, firstLoad = !it.isLoaded).copy(expenses = expenses, today = today()) }
+            combine(repository.ledgerRows, repository.budgets, repository.balanceOffset, allocations.all, repository.statements) { rows, budgets, offset, allocationRows, statements ->
+                Triple(
+                    BudgetHistoryReader.read(rows, budgets, offset, allocationRows, today()),
+                    BudgetHistoryReader.forecast(rows, budgets, offset, allocationRows, statements, today()),
+                    rows.filter { it.type == TransactionType.Expense && !it.isCreditCardStatement && !it.isSettledEarly },
+                )
+            }.collect { (history, forecast, expenses) ->
+                _state.update { it.withHistory(history, firstLoad = !it.isLoaded, newForecast = forecast).copy(expenses = expenses, today = today()) }
             }
         }
     }
@@ -254,9 +342,7 @@ class BudgetHistoryViewModel(
         if (it.span == span) it else it.copy(span = span).keepingSelectionVisible()
     }
 
-    fun selectMonth(month: YearMonth) = _state.update {
-        if (it.series.month(month) == null) it else it.copy(selected = month)
-    }
+    fun selectMonth(month: YearMonth) = _state.update { it.selecting(month) }
 
     fun selectSavingsStart(start: YearMonth?) {
         settings.setBudgetHistorySavingsStart(uid, start)

@@ -267,6 +267,25 @@ data class AllocationBalanceProjection(
         }
 
     companion object {
+        /**
+         * The figures a month's card reads, in the one order they are handed over: the dashboard and
+         * the budget history's months ahead both come through here, so they cannot disagree.
+         */
+        fun forMonth(
+            base: Long,
+            allocations: List<BudgetAllocation>,
+            unallocated: UnallocatedSummary,
+            deferredCardSpending: Long,
+            tense: Tense,
+        ): AllocationBalanceProjection = of(
+            base = base,
+            allocations = allocations,
+            unallocatedSpending = unallocated.usedInUnallocatedCategories,
+            unallocatedHeadroom = unallocated.unallocated,
+            deferredCardSpending = deferredCardSpending,
+            tense = tense,
+        )
+
         fun of(
             base: Long,
             allocations: List<BudgetAllocation>,

@@ -23,6 +23,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.TextAutoSize
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
@@ -40,6 +41,7 @@ import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material.icons.outlined.BarChart
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.Schedule
+import androidx.compose.material.icons.outlined.WarningAmber
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -64,12 +66,15 @@ import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringArrayResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -78,6 +83,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.arthurrios.finova.R
+import com.arthurrios.finova.domain.history.BudgetForecastFigures
 import com.arthurrios.finova.domain.history.BudgetHistory
 import com.arthurrios.finova.domain.history.BudgetHistoryFilter
 import com.arthurrios.finova.domain.history.BudgetHistoryMonth
@@ -179,28 +185,34 @@ fun BudgetHistoryScreen(viewModel: BudgetHistoryViewModel, onBack: () -> Unit, o
                 Controls(state, onPick = { picking = true }, onSpan = { tick(); viewModel.selectSpan(it) })
             }
             ChartCard(state) { month ->
-                if (month != state.selectedMonth?.month) {
+                if (month != state.displayedMonth) {
                     tick()
                     viewModel.selectMonth(month)
                 }
             }
-            SavingsCard(
-                state,
-                onStart = { tick(); viewModel.selectSavingsStart(it) },
-                onScope = { tick(); viewModel.selectSavingsScope(it) },
-            )
-            state.contributors?.let { contributors ->
-                Box(Modifier.onGloballyPositioned { whyOffset = it.positionInParent().y.toInt() }) {
-                    ContributorsCard(
-                        state = state,
-                        contributors = contributors,
-                        onDrill = {
-                            tick()
-                            viewModel.drill(it)
-                            scrollTo(ScrollTarget.Top)
-                        },
-                        onOpenTransaction = onOpenTransaction,
-                    )
+            // A month ahead has saved nothing, so its card replaces the two that read results.
+            val forecast = state.selectedForecast
+            if (forecast != null) {
+                ForecastCard(state, forecast, onOpenTransaction)
+            } else {
+                SavingsCard(
+                    state,
+                    onStart = { tick(); viewModel.selectSavingsStart(it) },
+                    onScope = { tick(); viewModel.selectSavingsScope(it) },
+                )
+                state.contributors?.let { contributors ->
+                    Box(Modifier.onGloballyPositioned { whyOffset = it.positionInParent().y.toInt() }) {
+                        ContributorsCard(
+                            state = state,
+                            contributors = contributors,
+                            onDrill = {
+                                tick()
+                                viewModel.drill(it)
+                                scrollTo(ScrollTarget.Top)
+                            },
+                            onOpenTransaction = onOpenTransaction,
+                        )
+                    }
                 }
             }
             Insights(state.series)
@@ -488,18 +500,21 @@ private fun SpanPicker(selected: HistorySpan, onSpan: (HistorySpan) -> Unit) {
 @Composable
 private fun ChartCard(state: BudgetHistoryUiState, onSelect: (YearMonth) -> Unit) {
     val selected = state.selectedMonth
+    val forecast = state.selectedForecast
     SectionCard(stringResource(R.string.history_section_chart)) {
         Column(verticalArrangement = Arrangement.spacedBy(Spacing.S4), modifier = Modifier.padding(Spacing.S5)) {
-            if (selected != null) Readout(state, selected, onSelect)
+            if (forecast != null) ForecastReadout(state, forecast, onSelect)
+            else if (selected != null) Readout(state, selected, onSelect)
             BudgetHistoryChart(
                 months = state.series.months,
-                selected = selected?.month,
+                forecast = state.forecastMonths,
+                selected = state.displayedMonth,
                 valuesHidden = state.valuesHidden,
                 currencyCode = state.currencyCode,
                 onSelect = onSelect,
                 modifier = Modifier.fillMaxWidth().height(210.dp),
             )
-            Legend()
+            Legend(state.forecastMonths)
         }
     }
 }
@@ -541,6 +556,88 @@ private fun Readout(state: BudgetHistoryUiState, month: BudgetHistoryMonth, onSe
             StatusPill(month, hidden, state.currencyCode)
         }
         Text(planLine(state, month), style = FinovaType.TextXS, color = FinovaColors.Gray500)
+    }
+}
+
+/**
+ * A projected month, in the shape of [Readout] with its own words: a "Projected" badge where the open
+ * month says "In progress", and expected costs where a past month says spent.
+ */
+@Composable
+private fun ForecastReadout(state: BudgetHistoryUiState, month: BudgetForecastFigures, onSelect: (YearMonth) -> Unit) {
+    val hidden = state.valuesHidden
+    val code = state.currencyCode
+    val spoken = BudgetForecastText.accessibility(month, hidden).map { it.text(code) }.joinToString(", ")
+    Column(
+        verticalArrangement = Arrangement.spacedBy(Spacing.S1),
+        modifier = Modifier.semantics(mergeDescendants = true) { contentDescription = spoken },
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            StepButton(state.neighbour(-1), back = true, onSelect)
+            Text(longMonth(month.month), style = FinovaType.TextSMBold, color = FinovaColors.Gray600)
+            StepButton(state.neighbour(1), back = false, onSelect)
+            Spacer(Modifier.weight(1f))
+            Text(
+                stringResource(R.string.history_forecast_badge),
+                fontSize = 10.sp, fontWeight = FontWeight.SemiBold, color = FinovaColors.Gray600,
+                modifier = Modifier.clip(CircleShape).background(FinovaColors.Gray200).padding(horizontal = 6.dp, vertical = 2.dp),
+            )
+        }
+        Text(
+            when (val filter = state.filter) {
+                BudgetHistoryFilter.WholeMonth -> stringResource(R.string.history_forecast_expected_whole)
+                is BudgetHistoryFilter.Category -> stringResource(R.string.history_forecast_expected_category_format, stringResource(filter.category.label))
+                BudgetHistoryFilter.OutsideAllocations -> stringResource(R.string.history_forecast_line_outside)
+            },
+            fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = FinovaColors.Gray500, modifier = Modifier.padding(top = Spacing.S1),
+        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                Money.formatMasked(month.expected, code, hidden),
+                style = FinovaType.TitleLG.copy(fontSize = 24.sp), color = FinovaColors.Gray500,
+                // Shrinks like iOS's minimum scale factor: a cut-off amount reads as a different amount.
+                autoSize = TextAutoSize.StepBased(minFontSize = 14.sp, maxFontSize = 24.sp),
+                maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
+            )
+            Spacer(Modifier.width(Spacing.S2))
+            ForecastStatusPill(month, hidden, code)
+        }
+        Text(forecastPlanLine(month, hidden, code), style = FinovaType.TextXS, color = FinovaColors.Gray500)
+    }
+}
+
+@Composable
+private fun forecastPlanLine(month: BudgetForecastFigures, hidden: Boolean, code: String): String {
+    if (!month.hasPlan) return stringResource(BudgetForecastText.noPlan(month.filter))
+    var line = stringResource(R.string.history_hero_of_format, Money.formatMasked(month.planned, code, hidden))
+    if (!hidden) month.percentExpected?.let { line += " · " + stringResource(R.string.history_percent_format, it) }
+    return line
+}
+
+/** Full amounts in the phone's format, in the string they belong to. */
+@Composable
+private fun ForecastText.text(code: String): String =
+    if (amounts.isEmpty()) stringResource(text)
+    else stringResource(text, *amounts.map { Money.format(it, code) }.toTypedArray())
+
+/**
+ * What a projected month has left or is short. Grey and amber, never the green and red of a result,
+ * and no check mark: nothing here has happened yet.
+ */
+@Composable
+private fun ForecastStatusPill(month: BudgetForecastFigures, hidden: Boolean, code: String) {
+    val (tint, icon) = when (month.status) {
+        BudgetForecastFigures.Status.Fits -> FinovaColors.Gray500 to Icons.Outlined.CalendarMonth
+        BudgetForecastFigures.Status.Short -> FinovaColors.WarningAmber to Icons.Outlined.WarningAmber
+        else -> FinovaColors.Gray500 to Icons.Filled.Remove
+    }
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        modifier = Modifier.height(22.dp).clip(CircleShape).background(tint.copy(alpha = 0.1f)).padding(horizontal = Spacing.S2),
+    ) {
+        Icon(icon, null, tint = tint, modifier = Modifier.size(11.dp))
+        Text(BudgetForecastText.status(month, hidden).text(code), fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = tint, maxLines = 1)
     }
 }
 
@@ -613,29 +710,184 @@ private fun StatusPill(month: BudgetHistoryMonth, hidden: Boolean, code: String)
     }
 }
 
+/**
+ * One row when it fits. With the forecast items a pt-BR row may not, and a squeezed label breaks
+ * mid-word, so they drop to a second row, as on iOS. Labels never wrap.
+ */
 @Composable
-private fun Legend() {
-    Row(horizontalArrangement = Arrangement.spacedBy(Spacing.S4), verticalAlignment = Alignment.CenterVertically) {
-        LegendItem(FinovaColors.MainMagenta, stringResource(R.string.history_legend_spent))
-        LegendItem(FinovaColors.MainRed, stringResource(R.string.history_legend_over))
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Box(Modifier.size(width = 12.dp, height = 10.dp).drawBehind {
-                drawRoundRect(FinovaColors.Gray300, topLeft = androidx.compose.ui.geometry.Offset(1.dp.toPx(), 0f),
-                    size = androidx.compose.ui.geometry.Size(10.dp.toPx(), 10.dp.toPx()),
-                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(2.dp.toPx()))
-                drawRect(FinovaColors.Gray600, size = androidx.compose.ui.geometry.Size(12.dp.toPx(), 2.dp.toPx()))
-            })
-            Text(stringResource(R.string.history_legend_plan), fontSize = 10.sp, color = FinovaColors.Gray500)
+private fun Legend(forecast: List<BudgetForecastFigures>) {
+    Layout(
+        content = {
+            LegendItem(FinovaColors.MainMagenta, stringResource(R.string.history_legend_spent))
+            LegendItem(FinovaColors.MainRed, stringResource(R.string.history_legend_over))
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Box(Modifier.size(width = 12.dp, height = 10.dp).drawBehind {
+                    drawRoundRect(FinovaColors.Gray300, topLeft = androidx.compose.ui.geometry.Offset(1.dp.toPx(), 0f),
+                        size = androidx.compose.ui.geometry.Size(10.dp.toPx(), 10.dp.toPx()),
+                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(2.dp.toPx()))
+                    drawRect(FinovaColors.Gray600, size = androidx.compose.ui.geometry.Size(12.dp.toPx(), 2.dp.toPx()))
+                })
+                LegendLabel(stringResource(R.string.history_legend_plan))
+            }
+            if (forecast.isNotEmpty()) DashedLegendItem(FinovaColors.MainMagenta, stringResource(R.string.history_forecast_badge))
+            if (forecast.any { it.hasPlan && it.inside > 0 && it.outsideWithinPlan > 0 }) {
+                DashedLegendItem(FinovaColors.WarningAmber, stringResource(R.string.history_forecast_legend_outside))
+            }
+        },
+        modifier = Modifier.fillMaxWidth(),
+    ) { measurables, constraints ->
+        val gap = Spacing.S4.roundToPx()
+        val rowGap = Spacing.S2.roundToPx()
+        val items = measurables.map { it.measure(constraints.copy(minWidth = 0, minHeight = 0)) }
+        val rows = legendRows(items.map { it.width }, RecordedLegendItems, gap, constraints.maxWidth)
+        val heights = rows.map { row -> row.maxOf { items[it].height } }
+        val height = heights.sum() + rowGap * (rows.size - 1)
+        layout(constraints.maxWidth, height) {
+            var y = 0
+            rows.forEachIndexed { index, row ->
+                var x = 0
+                row.forEach { item ->
+                    items[item].placeRelative(x, y + (heights[index] - items[item].height) / 2)
+                    x += items[item].width + gap
+                }
+                y += heights[index] + rowGap
+            }
         }
     }
 }
+
+/** Spent, Over plan and Plan: what the forecast items drop below. */
+private const val RecordedLegendItems = 3
+
+/**
+ * The legend's rows, as indices into [widths]. Everything on one row when it fits. If not, the items
+ * from [breakAt] start their own row, and a row still too wide for [maxWidth] wraps between labels.
+ */
+internal fun legendRows(widths: List<Int>, breakAt: Int, gap: Int, maxWidth: Int): List<List<Int>> {
+    if (widths.sum() + gap * (widths.size - 1) <= maxWidth) return listOf(widths.indices.toList())
+    val rows = mutableListOf<MutableList<Int>>()
+    var used = 0
+    widths.forEachIndexed { index, width ->
+        val current = rows.lastOrNull()
+        if (current == null || index == breakAt || used + gap + width > maxWidth) {
+            rows += mutableListOf(index)
+            used = width
+        } else {
+            current += index
+            used += gap + width
+        }
+    }
+    return rows
+}
+
+@Composable
+private fun LegendLabel(text: String) = Text(text, fontSize = 10.sp, color = FinovaColors.Gray500, maxLines = 1, softWrap = false)
 
 @Composable
 private fun LegendItem(color: Color, label: String) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         Box(Modifier.size(10.dp).clip(RoundedCornerShape(2.dp)).background(color))
-        Text(label, fontSize = 10.sp, color = FinovaColors.Gray500)
+        LegendLabel(label)
     }
+}
+
+/** An outlined swatch: what a hatched bar is made of, too thin to hatch at this size. */
+@Composable
+private fun DashedLegendItem(color: Color, label: String) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Box(Modifier.size(10.dp).drawBehind {
+            drawRoundRect(
+                color,
+                cornerRadius = androidx.compose.ui.geometry.CornerRadius(2.dp.toPx()),
+                style = Stroke(1.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(2.dp.toPx(), 1.5.dp.toPx()))),
+            )
+        })
+        LegendLabel(label)
+    }
+}
+
+// ---- Projected month -------------------------------------------------------------------------------
+
+/**
+ * The month's sum, then its place in the balance, then the rows already dated in it. Every line is a
+ * forecast, and the note under the sum says so in words.
+ */
+@Composable
+private fun ForecastCard(state: BudgetHistoryUiState, figures: BudgetForecastFigures, onOpenTransaction: (Long) -> Unit) {
+    val detail = state.forecastDetail(figures) ?: return
+    val hidden = state.valuesHidden
+    val code = state.currencyCode
+    val projection = detail.month.projection
+    SectionCard(stringResource(R.string.history_forecast_card_title)) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = Spacing.S5, vertical = Spacing.S3)) {
+            ForecastSum(state, detail)
+        }
+        if (figures.filter == BudgetHistoryFilter.WholeMonth && projection != null) {
+            Separator()
+            Column(Modifier.fillMaxWidth().padding(horizontal = Spacing.S5, vertical = Spacing.S3)) {
+                // A statement moves the balance, never the costs above: each purchase counts once.
+                if (detail.month.statementsDue > 0) {
+                    DetailLine(stringResource(R.string.history_forecast_statements), Money.formatMasked(-detail.month.statementsDue, code, hidden))
+                }
+                DetailLine(stringResource(R.string.history_forecast_balance), Money.formatMasked(projection.projected, code, hidden), bold = true)
+                if (detail.month.statementsDue > 0) Note(stringResource(R.string.history_forecast_statements_note))
+            }
+        }
+        if (detail.biggest.isNotEmpty()) {
+            Separator()
+            GroupLabel(stringResource(R.string.history_forecast_line_scheduled), FinovaColors.Gray500)
+            detail.biggest.forEach { transaction ->
+                Separator()
+                ExpenseRow(transaction, hidden, code) { onOpenTransaction(transaction.id) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ForecastSum(state: BudgetHistoryUiState, detail: BudgetHistoryUiState.ForecastDetail) {
+    val figures = detail.figures
+    val hidden = state.valuesHidden
+    val code = state.currencyCode
+    val outsideLabel = stringResource(R.string.history_forecast_line_outside)
+    when (figures.filter) {
+        BudgetHistoryFilter.WholeMonth -> {
+            ForecastPlanLine(state, figures)
+            DetailLine(stringResource(R.string.history_forecast_line_inside), Money.formatMasked(-figures.inside, code, hidden))
+            DetailLine(outsideLabel, Money.formatMasked(-figures.outside, code, hidden))
+        }
+        is BudgetHistoryFilter.Category -> {
+            ForecastPlanLine(state, figures)
+            DetailLine(stringResource(R.string.history_forecast_line_scheduled), Money.formatMasked(-figures.expected, code, hidden))
+        }
+        BudgetHistoryFilter.OutsideAllocations -> {
+            if (detail.month.budget > 0) {
+                DetailLine(stringResource(R.string.history_explain_plan_whole_month), Money.formatMasked(detail.month.budget, code, hidden))
+                DetailLine(stringResource(R.string.history_explain_in_categories), Money.formatMasked(-detail.month.allocated, code, hidden))
+            }
+            ForecastPlanLine(state, figures)
+            DetailLine(outsideLabel, Money.formatMasked(-figures.outside, code, hidden))
+        }
+    }
+    if (figures.hasPlan) {
+        DetailLine(
+            stringResource(if (figures.difference < 0) R.string.history_forecast_short else R.string.history_forecast_left),
+            Money.formatMasked(kotlin.math.abs(figures.difference), code, hidden),
+            tint = if (!hidden && figures.difference < 0) FinovaColors.WarningAmber else FinovaColors.Gray600,
+            bold = true,
+        )
+    }
+    Note(stringResource(if (figures.filter == BudgetHistoryFilter.WholeMonth) R.string.history_forecast_note_whole else R.string.history_forecast_note_rows))
+}
+
+/** The plan line, or the words for having none: a month with no plan never shows a zero. */
+@Composable
+private fun ForecastPlanLine(state: BudgetHistoryUiState, figures: BudgetForecastFigures) {
+    DetailLine(
+        planLabel(state),
+        if (figures.hasPlan) Money.formatMasked(figures.planned, state.currencyCode, state.valuesHidden)
+        else stringResource(BudgetForecastText.noPlan(figures.filter)),
+    )
 }
 
 // ---- Savings ---------------------------------------------------------------------------------------

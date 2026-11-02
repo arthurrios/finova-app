@@ -456,11 +456,10 @@ private fun CenterValue(text: String) = Text(text, fontSize = 14.sp, fontWeight 
  * project from; then the card hides the block and there is nothing to explain.
  */
 fun MonthPageUi.projection(): AllocationBalanceProjection? = finalBalance?.let { base ->
-    AllocationBalanceProjection.of(
+    AllocationBalanceProjection.forMonth(
         base = base,
         allocations = allocations,
-        unallocatedSpending = unallocated.usedInUnallocatedCategories,
-        unallocatedHeadroom = unallocated.unallocated,
+        unallocated = unallocated,
         deferredCardSpending = deferredCardSpending,
         tense = if (isPastMonth) AllocationBalanceProjection.Tense.Actual else AllocationBalanceProjection.Tense.Projected,
     )
