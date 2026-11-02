@@ -1,5 +1,10 @@
 package com.arthurrios.finova.ui.dashboard
 
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.arthurrios.finova.domain.coachmarks.CoachMarkEvent
+import com.arthurrios.finova.domain.coachmarks.CoachMarkTarget
+import com.arthurrios.finova.ui.coachmarks.LocalCoachMarks
+import com.arthurrios.finova.ui.coachmarks.coachMarkTarget
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -114,11 +119,27 @@ fun DashboardScreen(
     var dayFiltered by remember { mutableStateOf<Pair<YearMonth, TransactionFilters>?>(null) }
     var filterFor by remember { mutableStateOf<MonthPageUi?>(null) }
     fun filtersFor(page: MonthPageUi) = dayFiltered?.takeIf { it.first == page.month }?.second ?: globalFilters
+    val coachMarks = LocalCoachMarks.current
+    val coachSession = coachMarks?.session?.collectAsStateWithLifecycle()
+    val reminder = coachMarks?.reminder?.collectAsStateWithLifecycle()
+
+    // A guide's facts describe this month, so it runs on this month.
+    LaunchedEffect(coachSession?.value?.guide, state.months.isNotEmpty()) {
+        if (state.months.isNotEmpty() && coachMarks?.takeMonthResetRequest() == true) {
+            val today = com.arthurrios.finova.domain.time.SeriesMonths.todayIndex()
+            // The view model first, or the effect below sends the pager back to its old month.
+            actions.onSelectMonth(today)
+            pagerState.scrollToPage(today)
+        }
+    }
 
     // The pager reports the settled page; the tabs follow it.
     LaunchedEffect(pagerState) {
+        var previous: Int? = null
         snapshotFlow { pagerState.settledPage }.collect { index ->
             actions.onSelectMonth(index)
+            if (previous != null && previous != index) coachMarks?.post(CoachMarkEvent.DashboardMonthChanged)
+            previous = index
             if (dayFiltered?.first != state.months.getOrNull(index)?.month) dayFiltered = null
         }
     }
@@ -144,6 +165,7 @@ fun DashboardScreen(
                     months = state.months.map { it.month },
                     selected = pagerState.currentPage,
                     onSelect = { scope.launch { pagerState.animateScrollToPage(it) } },
+                    modifier = Modifier.coachMarkTarget(CoachMarkTarget.DashboardMonthSelector),
                 )
                 HorizontalPager(state = pagerState, modifier = Modifier.weight(1f)) { index ->
                     MonthPage(
@@ -180,9 +202,21 @@ fun DashboardScreen(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .navigationBarsPadding()
-                .padding(bottom = Spacing.S2),
+                .padding(bottom = Spacing.S2)
+                .coachMarkTarget(CoachMarkTarget.DashboardAdd),
         ) {
             Icon(painterResource(R.drawable.ic_plus), contentDescription = stringResource(R.string.dashboard_add_transaction))
+        }
+        reminder?.value?.let { guide ->
+            com.arthurrios.finova.ui.coachmarks.CoachMarkReminderBanner(
+                guide = guide,
+                onOpen = { coachMarks.startReplay(guide) },
+                onDismiss = coachMarks::dismissReminder,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .navigationBarsPadding()
+                    .padding(start = Spacing.S4, end = Spacing.S4, bottom = Spacing.S2 + FabHeight + Spacing.S2),
+            )
         }
     }
 
@@ -215,6 +249,7 @@ fun DashboardScreen(
             onSave = {
                 showAddSheet = false
                 actions.onSaveTransaction(it)
+                coachMarks?.post(CoachMarkEvent.TransactionSaved)
             },
             onDismiss = { showAddSheet = false },
             cards = state.cards,
@@ -317,9 +352,9 @@ private fun MonthPage(
         Spacer(Modifier.height(Spacing.S3))
         TransactionListHeader(count = rows.size)
         if (rows.isEmpty()) {
-            TransactionEmptyState()
+            Box(Modifier.coachMarkTarget(CoachMarkTarget.DashboardTransactions)) { TransactionEmptyState() }
         } else {
-            TransactionListBox(modifier = Modifier.weight(1f)) {
+            TransactionListBox(modifier = Modifier.weight(1f).coachMarkTarget(CoachMarkTarget.DashboardTransactions)) {
                 LazyColumn(
                     // Room under the last row so it can scroll clear of the add button.
                     contentPadding = PaddingValues(bottom = 72.dp),
@@ -449,14 +484,16 @@ private fun BudgetFace(
             )
         }
         if (count == 0) {
-            com.arthurrios.finova.ui.budget.AllocationsEmpty(
-                stringResource(if (selectedTag == null) R.string.budget_allocations_empty else R.string.budget_allocations_filtered_empty),
-            )
+            Box(Modifier.coachMarkTarget(CoachMarkTarget.DashboardAllocations)) {
+                com.arthurrios.finova.ui.budget.AllocationsEmpty(
+                    stringResource(if (selectedTag == null) R.string.budget_allocations_empty else R.string.budget_allocations_filtered_empty),
+                )
+            }
         } else {
             // A new allocation lands at the top; show it instead of keeping the old first row in view.
             val listState = androidx.compose.foundation.lazy.rememberLazyListState()
             LaunchedEffect(page.allocations.size) { listState.scrollToItem(0) }
-            TransactionListBox(modifier = Modifier.weight(1f)) {
+            TransactionListBox(modifier = Modifier.weight(1f).coachMarkTarget(CoachMarkTarget.DashboardAllocations)) {
                 LazyColumn(state = listState, contentPadding = PaddingValues(bottom = 72.dp), modifier = Modifier.fillMaxSize()) {
                     itemsIndexed(allocations, key = { _, a -> "a${a.id}" }) { index, allocation ->
                         if (index > 0) HorizontalDivider(color = FinovaColors.Gray300)
@@ -475,6 +512,9 @@ private fun BudgetFace(
         }
     }
 }
+
+/** The Material floating action button's size. */
+private val FabHeight = 56.dp
 
 @Preview(showBackground = true, heightDp = 915)
 @Composable

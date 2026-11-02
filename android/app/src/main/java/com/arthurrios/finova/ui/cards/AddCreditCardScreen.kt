@@ -1,5 +1,10 @@
 package com.arthurrios.finova.ui.cards
 
+import com.arthurrios.finova.domain.coachmarks.CoachMarkEvent
+import com.arthurrios.finova.domain.coachmarks.CoachMarkTarget
+import com.arthurrios.finova.ui.coachmarks.LocalCoachMarks
+import com.arthurrios.finova.ui.coachmarks.coachMarkFill
+import com.arthurrios.finova.ui.coachmarks.coachMarkTarget
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -63,6 +68,7 @@ import com.arthurrios.finova.ui.theme.Spacing
 fun AddCreditCardScreen(viewModel: AddCreditCardViewModel, onBack: () -> Unit, onSaved: () -> Unit) {
     val form by viewModel.form.collectAsState()
     val errors = form.showErrors
+    val coachMarks = LocalCoachMarks.current
 
     Column(Modifier.fillMaxSize().background(FinovaColors.Gray200).imePadding()) {
         ScreenHeader(
@@ -79,6 +85,7 @@ fun AddCreditCardScreen(viewModel: AddCreditCardViewModel, onBack: () -> Unit, o
             Column(
                 verticalArrangement = Arrangement.spacedBy(Spacing.S5),
                 modifier = Modifier
+                    .coachMarkTarget(CoachMarkTarget.AddCardForm)
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(CornerRadius.ExtraLarge))
                     .background(FinovaColors.Gray100)
@@ -92,6 +99,9 @@ fun AddCreditCardScreen(viewModel: AddCreditCardViewModel, onBack: () -> Unit, o
                         placeholder = stringResource(R.string.add_card_name_placeholder),
                         isError = errors && form.nameError,
                         imeAction = ImeAction.Next,
+                        modifier = Modifier
+                            .coachMarkTarget(CoachMarkTarget.AddCardName)
+                            .coachMarkFill(CoachMarkTarget.AddCardName) { form.name.isNotEmpty() },
                     )
                 }
                 Field(stringResource(R.string.add_card_last_four), stringResource(R.string.add_card_last_four_hint)) {
@@ -102,6 +112,9 @@ fun AddCreditCardScreen(viewModel: AddCreditCardViewModel, onBack: () -> Unit, o
                         isError = errors && form.lastFourError,
                         keyboardType = KeyboardType.NumberPassword,
                         imeAction = ImeAction.Done,
+                        modifier = Modifier
+                            .coachMarkTarget(CoachMarkTarget.AddCardLastFour)
+                            .coachMarkFill(CoachMarkTarget.AddCardLastFour) { form.lastFour.isNotEmpty() },
                     )
                 }
                 Field(stringResource(R.string.add_card_brand)) {
@@ -110,7 +123,11 @@ fun AddCreditCardScreen(viewModel: AddCreditCardViewModel, onBack: () -> Unit, o
                         placeholder = stringResource(CardBrand.Visa.label),
                         options = CardBrand.entries,
                         optionLabel = { stringResource(it.label) },
-                        onSelect = { b -> viewModel.edit { it.copy(brand = b) } },
+                        onSelect = { b ->
+                            viewModel.edit { it.copy(brand = b) }
+                            coachMarks?.post(CoachMarkEvent.FieldFilled(CoachMarkTarget.AddCardBrand))
+                        },
+                        modifier = Modifier.coachMarkTarget(CoachMarkTarget.AddCardBrand),
                     )
                 }
                 Field(stringResource(R.string.add_card_closing_day), stringResource(R.string.add_card_closing_day_hint)) {
@@ -120,7 +137,11 @@ fun AddCreditCardScreen(viewModel: AddCreditCardViewModel, onBack: () -> Unit, o
                         options = Days,
                         optionLabel = { it.toString() },
                         isError = errors && form.closingDayError,
-                        onSelect = { d -> viewModel.edit { it.copy(closingDay = d) } },
+                        onSelect = { d ->
+                            viewModel.edit { it.copy(closingDay = d) }
+                            coachMarks?.post(CoachMarkEvent.FieldFilled(CoachMarkTarget.AddCardClosingDay))
+                        },
+                        modifier = Modifier.coachMarkTarget(CoachMarkTarget.AddCardClosingDay),
                     )
                 }
                 Field(stringResource(R.string.add_card_due_day), stringResource(R.string.add_card_due_day_hint)) {
@@ -130,7 +151,11 @@ fun AddCreditCardScreen(viewModel: AddCreditCardViewModel, onBack: () -> Unit, o
                         options = Days,
                         optionLabel = { it.toString() },
                         isError = errors && form.dueDayError,
-                        onSelect = { d -> viewModel.edit { it.copy(dueDay = d) } },
+                        onSelect = { d ->
+                            viewModel.edit { it.copy(dueDay = d) }
+                            coachMarks?.post(CoachMarkEvent.FieldFilled(CoachMarkTarget.AddCardDueDay))
+                        },
+                        modifier = Modifier.coachMarkTarget(CoachMarkTarget.AddCardDueDay),
                     )
                 }
                 Field(stringResource(R.string.add_card_limit)) {
@@ -138,6 +163,9 @@ fun AddCreditCardScreen(viewModel: AddCreditCardViewModel, onBack: () -> Unit, o
                         cents = form.creditLimit,
                         onCentsChange = { c -> viewModel.edit { it.copy(creditLimit = c) } },
                         currencyCode = viewModel.currencyCode,
+                        modifier = Modifier
+                            .coachMarkTarget(CoachMarkTarget.AddCardLimit)
+                            .coachMarkFill(CoachMarkTarget.AddCardLimit) { form.creditLimit > 0 },
                     )
                 }
                 Field(stringResource(R.string.add_card_color)) {
@@ -162,6 +190,7 @@ fun AddCreditCardScreen(viewModel: AddCreditCardViewModel, onBack: () -> Unit, o
             FinovaButton(
                 text = stringResource(if (viewModel.isEditMode) R.string.edit_card_save else R.string.add_card_save),
                 onClick = { viewModel.save(onSaved) },
+                modifier = Modifier.coachMarkTarget(CoachMarkTarget.AddCardSave),
             )
         }
     }
@@ -188,9 +217,10 @@ private fun <T> DropdownField(
     optionLabel: @Composable (T) -> String,
     onSelect: (T) -> Unit,
     isError: Boolean = false,
+    modifier: Modifier = Modifier,
 ) {
     var expanded by remember { mutableStateOf(false) }
-    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
+    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }, modifier = modifier) {
         FinovaTextField(
             value = text,
             onValueChange = {},

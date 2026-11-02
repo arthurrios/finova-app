@@ -1,5 +1,7 @@
 package com.arthurrios.finova.ui.budget
 
+import com.arthurrios.finova.domain.coachmarks.CoachMarkTarget
+import com.arthurrios.finova.ui.coachmarks.coachMarkTarget
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -108,13 +110,13 @@ fun BudgetCard(
                 Text("/ ${page.month.year}", style = FinovaType.TitleXS, color = FinovaColors.Gray400)
                 Spacer(Modifier.weight(1f))
                 // The pie shows filled while this face is up, like the iOS flip button.
-                CompactIconButton(onClick = onFlipBack, size = Spacing.S6) {
+                CompactIconButton(onClick = onFlipBack, size = Spacing.S6, modifier = Modifier.coachMarkTarget(CoachMarkTarget.DashboardFlipBack)) {
                     Icon(Icons.Outlined.PieChart, contentDescription = stringResource(R.string.budget_flip_back),
                         tint = FinovaColors.MainMagenta, modifier = Modifier.size(Spacing.S6))
                 }
                 Spacer(Modifier.width(Spacing.S3))
                 // Opens the whole-month budget history with this month selected (iOS 1.6.0).
-                CompactIconButton(onClick = onHistory, size = Spacing.S6) {
+                CompactIconButton(onClick = onHistory, size = Spacing.S6, modifier = Modifier.coachMarkTarget(CoachMarkTarget.DashboardHistory)) {
                     Icon(
                         imageVector = Icons.Outlined.BarChart,
                         contentDescription = stringResource(R.string.history_a11y_open),
@@ -123,7 +125,7 @@ fun BudgetCard(
                     )
                 }
                 Spacer(Modifier.width(Spacing.S3))
-                CompactIconButton(onClick = onSettings, size = Spacing.S6) {
+                CompactIconButton(onClick = onSettings, size = Spacing.S6, modifier = Modifier.coachMarkTarget(CoachMarkTarget.DashboardConfig)) {
                     Icon(painterResource(R.drawable.ic_settings_icon), contentDescription = stringResource(R.string.month_card_settings),
                         tint = FinovaColors.Gray100, modifier = Modifier.size(Spacing.S6))
                 }
@@ -141,7 +143,11 @@ fun BudgetCard(
                 ) {
                     Icon(Icons.Filled.PieChart, contentDescription = null, tint = FinovaColors.Gray500, modifier = Modifier.size(40.dp))
                     Text(stringResource(R.string.budget_no_budget), style = FinovaType.TextSM, color = FinovaColors.Gray400, textAlign = TextAlign.Center)
-                    FinovaAccentOutlinedButton(text = stringResource(R.string.month_card_define_budget), onClick = onDefineBudget)
+                    FinovaAccentOutlinedButton(
+                        text = stringResource(R.string.month_card_define_budget),
+                        onClick = onDefineBudget,
+                        modifier = Modifier.coachMarkTarget(CoachMarkTarget.DashboardDefineBudget),
+                    )
                 }
                 return@Column
             }

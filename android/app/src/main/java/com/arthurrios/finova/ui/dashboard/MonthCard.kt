@@ -1,5 +1,9 @@
 package com.arthurrios.finova.ui.dashboard
 
+import com.arthurrios.finova.domain.coachmarks.CoachMarkEvent
+import com.arthurrios.finova.domain.coachmarks.CoachMarkTarget
+import com.arthurrios.finova.ui.coachmarks.LocalCoachMarks
+import com.arthurrios.finova.ui.coachmarks.coachMarkTarget
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
@@ -93,9 +97,11 @@ fun MonthCard(
     val startDay = if (page.isCurrentMonth) today else daysInMonth
     var selectedDay by remember(page.month) { mutableStateOf(startDay) }
     val monthNames = stringArrayResource(R.array.month_short)
+    val coachMarks = LocalCoachMarks.current
 
     Box(
         modifier = modifier
+            .coachMarkTarget(CoachMarkTarget.DashboardMonthCard)
             .fillMaxWidth()
             .clip(RoundedCornerShape(FinovaCorners.ExtraLarge))
             .background(CardGradient),
@@ -118,7 +124,7 @@ fun MonthCard(
                     HideValuesButton(valuesHidden, onToggleValues)
                     Spacer(Modifier.width(Spacing.S2))
                 }
-                CompactIconButton(onClick = onBudgetView, size = Spacing.S6) {
+                CompactIconButton(onClick = onBudgetView, size = Spacing.S6, modifier = Modifier.coachMarkTarget(CoachMarkTarget.DashboardBudgetToggle)) {
                     Icon(
                         imageVector = Icons.Filled.PieChart,
                         contentDescription = stringResource(R.string.month_card_budget_view),
@@ -129,7 +135,7 @@ fun MonthCard(
                 }
                 Spacer(Modifier.width(Spacing.S3))
                 // Opens the whole-month budget history with this month selected (iOS 1.6.0).
-                CompactIconButton(onClick = onHistory, size = Spacing.S6) {
+                CompactIconButton(onClick = onHistory, size = Spacing.S6, modifier = Modifier.coachMarkTarget(CoachMarkTarget.DashboardHistory)) {
                     Icon(
                         imageVector = Icons.Outlined.BarChart,
                         contentDescription = stringResource(R.string.history_a11y_open),
@@ -138,7 +144,7 @@ fun MonthCard(
                     )
                 }
                 Spacer(Modifier.width(Spacing.S3))
-                CompactIconButton(onClick = onSettings, size = Spacing.S6) {
+                CompactIconButton(onClick = onSettings, size = Spacing.S6, modifier = Modifier.coachMarkTarget(CoachMarkTarget.DashboardConfig)) {
                     Icon(
                         painter = painterResource(R.drawable.ic_settings_icon),
                         contentDescription = stringResource(R.string.month_card_settings),
@@ -198,12 +204,16 @@ fun MonthCard(
                     day = selectedDay,
                     daysInMonth = daysInMonth,
                     todayInMonth = if (page.isCurrentMonth) today else null,
-                    onDayChange = { selectedDay = it },
+                    onDayChange = {
+                        selectedDay = it
+                        coachMarks?.post(CoachMarkEvent.DashboardDayChanged)
+                    },
                 )
             } else {
                 FinovaOutlinedButton(
                     text = stringResource(R.string.month_card_define_budget),
                     onClick = onDefineBudget,
+                    modifier = Modifier.coachMarkTarget(CoachMarkTarget.DashboardDefineBudget),
                 )
             }
             Spacer(Modifier.height(Spacing.S2))
@@ -404,9 +414,9 @@ private val HideValuesButtonSize = 36.dp
  * which made the card taller than on iOS; these keep the iOS footprint instead.
  */
 @Composable
-internal fun CompactIconButton(onClick: () -> Unit, size: Dp, content: @Composable () -> Unit) {
+internal fun CompactIconButton(onClick: () -> Unit, size: Dp, modifier: Modifier = Modifier, content: @Composable () -> Unit) {
     CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides Dp.Unspecified) {
-        IconButton(onClick = onClick, modifier = Modifier.size(size), content = content)
+        IconButton(onClick = onClick, modifier = modifier.size(size), content = content)
     }
 }
 

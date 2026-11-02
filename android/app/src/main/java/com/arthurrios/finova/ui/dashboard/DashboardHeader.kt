@@ -1,5 +1,7 @@
 package com.arthurrios.finova.ui.dashboard
 
+import com.arthurrios.finova.domain.coachmarks.CoachMarkTarget
+import com.arthurrios.finova.ui.coachmarks.coachMarkTarget
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -56,6 +58,7 @@ fun DashboardHeader(
         Row(
             modifier = Modifier
                 .weight(1f)
+                .coachMarkTarget(CoachMarkTarget.DashboardAvatar)
                 .clip(CircleShape)
                 .clickable(onClick = onProfile),
             verticalAlignment = Alignment.CenterVertically,
@@ -86,7 +89,7 @@ fun DashboardHeader(
                 }
             }
         }
-        IconButton(onClick = onNotifications) {
+        IconButton(onClick = onNotifications, modifier = Modifier.coachMarkTarget(CoachMarkTarget.DashboardNotifications)) {
             BadgedBox(
                 badge = {
                     if (unreadNotifications > 0) {

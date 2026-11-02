@@ -1,5 +1,11 @@
 package com.arthurrios.finova.ui.budget
 
+import com.arthurrios.finova.domain.coachmarks.CoachMarkEvent
+import com.arthurrios.finova.domain.coachmarks.CoachMarkTarget
+import com.arthurrios.finova.ui.coachmarks.LocalCoachMarks
+import com.arthurrios.finova.ui.coachmarks.CoachMarkSheet
+import com.arthurrios.finova.ui.coachmarks.coachMarkFill
+import com.arthurrios.finova.ui.coachmarks.coachMarkTarget
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -97,9 +103,11 @@ fun AllocationSheet(
     var conflicts by remember { mutableStateOf<List<AllocationRow>>(emptyList()) }
     var askScope by remember { mutableStateOf(false) }
     var askThrough by remember { mutableStateOf(false) }
+    val coachMarks = LocalCoachMarks.current
 
     fun create(repeat: Boolean, overwrite: List<Long> = emptyList()) {
         actions.createAllocation(category!!, amount, month, repeat, if (repeat) endMonth else null, overwrite)
+        coachMarks?.post(CoachMarkEvent.AllocationSaved)
         onDismiss()
     }
 
@@ -125,10 +133,11 @@ fun AllocationSheet(
         onDismissRequest = onDismiss,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
         containerColor = FinovaColors.Gray100,
-    ) {
+    ) { CoachMarkSheet {
         Column(
             verticalArrangement = Arrangement.spacedBy(Spacing.S3),
             modifier = Modifier
+                .coachMarkTarget(CoachMarkTarget.AllocationSheet)
                 .fillMaxWidth()
                 .verticalScroll(rememberScrollState())
                 .imePadding()
@@ -149,19 +158,36 @@ fun AllocationSheet(
                 selected = category,
                 options = if (editing != null) listOfNotNull(editing.category) else available,
                 enabled = editing == null,
-                onSelect = { category = it },
+                onSelect = {
+                    category = it
+                    coachMarks?.post(CoachMarkEvent.FieldFilled(CoachMarkTarget.AllocationCategory))
+                },
+                modifier = Modifier.coachMarkTarget(CoachMarkTarget.AllocationCategory),
             )
-            CurrencyTextField(cents = amount, onCentsChange = { amount = it }, currencyCode = currencyCode)
+            CurrencyTextField(
+                cents = amount,
+                onCentsChange = { amount = it },
+                currencyCode = currencyCode,
+                modifier = Modifier
+                    .coachMarkTarget(CoachMarkTarget.AllocationAmount)
+                    .coachMarkFill(CoachMarkTarget.AllocationAmount) { amount > 0 },
+            )
             if (editing == null) {
-                Text(stringResource(R.string.alloc_options), style = FinovaType.TextSMBold, color = FinovaColors.Gray600,
-                    modifier = Modifier.padding(top = Spacing.S2))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(stringResource(R.string.alloc_repeat), style = FinovaType.TextSM, color = FinovaColors.Gray700, modifier = Modifier.weight(1f))
-                    Switch(checked = repeating, onCheckedChange = { repeating = it },
-                        colors = SwitchDefaults.colors(checkedTrackColor = FinovaColors.MainMagenta))
-                }
-                AnimatedVisibility(visible = repeating) {
-                    DurationPicker(month, endMonth) { endMonth = it }
+                // One target, so the guide's ring keeps the duration row in view as it opens.
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(Spacing.S3),
+                    modifier = Modifier.coachMarkTarget(CoachMarkTarget.AllocationRecurring),
+                ) {
+                    Text(stringResource(R.string.alloc_options), style = FinovaType.TextSMBold, color = FinovaColors.Gray600,
+                        modifier = Modifier.padding(top = Spacing.S2))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(stringResource(R.string.alloc_repeat), style = FinovaType.TextSM, color = FinovaColors.Gray700, modifier = Modifier.weight(1f))
+                        Switch(checked = repeating, onCheckedChange = { repeating = it },
+                            colors = SwitchDefaults.colors(checkedTrackColor = FinovaColors.MainMagenta))
+                    }
+                    AnimatedVisibility(visible = repeating) {
+                        DurationPicker(month, endMonth) { endMonth = it }
+                    }
                 }
             }
             Spacer(Modifier.size(Spacing.S2))
@@ -169,10 +195,10 @@ fun AllocationSheet(
             FinovaButton(
                 text = stringResource(if (editing != null) R.string.alloc_save else R.string.alloc_create),
                 onClick = ::save,
-                modifier = Modifier.padding(top = Spacing.S3),
+                modifier = Modifier.padding(top = Spacing.S3).coachMarkTarget(CoachMarkTarget.AllocationSave),
             )
         }
-    }
+    } }
 
     error?.let { (title, message) ->
         AlertDialog(
@@ -222,9 +248,9 @@ fun AllocationSheet(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun CategoryPicker(selected: TransactionCategory?, options: List<TransactionCategory>, enabled: Boolean, onSelect: (TransactionCategory) -> Unit) {
+private fun CategoryPicker(selected: TransactionCategory?, options: List<TransactionCategory>, enabled: Boolean, onSelect: (TransactionCategory) -> Unit, modifier: Modifier = Modifier) {
     var expanded by remember { mutableStateOf(false) }
-    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { if (enabled) expanded = it }) {
+    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { if (enabled) expanded = it }, modifier = modifier) {
         FinovaTextField(
             value = selected?.let { stringResource(it.label) }.orEmpty(),
             onValueChange = {},

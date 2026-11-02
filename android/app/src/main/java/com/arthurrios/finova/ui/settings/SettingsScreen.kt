@@ -1,5 +1,6 @@
 package com.arthurrios.finova.ui.settings
 
+import androidx.compose.material.icons.outlined.Lightbulb
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -82,6 +83,7 @@ fun SettingsScreen(
     onNotifications: () -> Unit,
     onSignedOut: () -> Unit,
     onImport: () -> Unit = {},
+    onGuides: () -> Unit = {},
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val activity = androidx.activity.compose.LocalActivity.current as? FragmentActivity
@@ -129,6 +131,8 @@ fun SettingsScreen(
                 }
                 Section(stringResource(R.string.settings_section_notifications))
                 Row(Icons.Outlined.Notifications, stringResource(R.string.settings_notifications), onClick = onNotifications) { Chevron() }
+                Section(stringResource(R.string.settings_section_guides))
+                Row(Icons.Outlined.Lightbulb, stringResource(R.string.settings_guides_title), onClick = onGuides) { Chevron() }
                 Section(stringResource(R.string.settings_section_about))
                 Row(Icons.Outlined.Info, stringResource(R.string.settings_version)) {
                     Text(viewModel.appVersion, style = FinovaType.TextSM, color = FinovaColors.Gray500)

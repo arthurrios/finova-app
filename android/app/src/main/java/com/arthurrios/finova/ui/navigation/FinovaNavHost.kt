@@ -73,6 +73,7 @@ object Routes {
     const val CARDS = "cards"
     const val PROFILE = "profile"
     const val SETTINGS = "settings"
+    const val GUIDES = "settings/guides"
     const val NOTIFICATION_SETTINGS = "settings/notifications"
     const val NOTIFICATIONS = "notifications"
     const val EARLY = "early/{id}"
@@ -122,6 +123,9 @@ fun FinovaNavHost(
         onNotificationTargetOpened()
     }
 
+    val coachMarks = androidx.compose.runtime.remember { appContext.appContainer.coachMarks }
+    androidx.compose.runtime.CompositionLocalProvider(com.arthurrios.finova.ui.coachmarks.LocalCoachMarks provides coachMarks) {
+    com.arthurrios.finova.ui.coachmarks.CoachMarkRoot(coachMarks, navController, Routes.DASHBOARD)
     NavHost(navController = navController, startDestination = startRoute ?: Routes.SPLASH) {
         composable(
             Routes.SPLASH,
@@ -231,6 +235,11 @@ fun FinovaNavHost(
                 ) askNotifications.launch(android.Manifest.permission.POST_NOTIFICATIONS)
             }
             val notificationPrefs by appContext.appContainer.notificationSettings.preferences.collectAsStateWithLifecycle()
+            // Asks here, on every return: the only place an automatic guide can begin.
+            androidx.lifecycle.compose.LifecycleResumeEffect(Unit) {
+                coachMarks.dashboardDidAppear()
+                onPauseOrDispose { }
+            }
             androidx.compose.foundation.layout.Box {
             DashboardScreen(
                 state.copy(unreadNotifications = unread.count { !it.isRead }),
@@ -428,6 +437,7 @@ fun FinovaNavHost(
                 onCreditCards = { navController.navigate(Routes.CARDS) },
                 onSettings = { navController.navigate(Routes.SETTINGS) },
                 onLoggedOut = {
+                    coachMarks.stop()
                     navController.navigate(Routes.LOGIN) { popUpTo(0) { inclusive = true } }
                 },
             )
@@ -445,9 +455,16 @@ fun FinovaNavHost(
                 viewModel,
                 onBack = { navController.popBackStack() },
                 onNotifications = { navController.navigate(Routes.NOTIFICATION_SETTINGS) },
-                onSignedOut = { navController.navigate(Routes.LOGIN) { popUpTo(0) { inclusive = true } } },
+                onSignedOut = {
+                    coachMarks.stop()
+                    navController.navigate(Routes.LOGIN) { popUpTo(0) { inclusive = true } }
+                },
                 onImport = { navController.navigate(Routes.IMPORT) },
+                onGuides = { navController.navigate(Routes.GUIDES) },
             )
+        }
+        composable(Routes.GUIDES) {
+            com.arthurrios.finova.ui.coachmarks.CoachMarkGuidesScreen(coachMarks, onBack = { navController.popBackStack() })
         }
         composable(Routes.IMPORT) { entry ->
             val viewModel = importViewModel(entry, appContext)
@@ -526,9 +543,13 @@ fun FinovaNavHost(
             AddCreditCardScreen(
                 viewModel,
                 onBack = { navController.popBackStack() },
-                onSaved = { navController.popBackStack() },
+                onSaved = {
+                    coachMarks.post(com.arthurrios.finova.domain.coachmarks.CoachMarkEvent.CreditCardSaved)
+                    navController.popBackStack()
+                },
             )
         }
+    }
     }
 }
 

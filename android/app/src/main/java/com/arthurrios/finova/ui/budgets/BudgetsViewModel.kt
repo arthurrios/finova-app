@@ -1,5 +1,6 @@
 package com.arthurrios.finova.ui.budgets
 
+import com.arthurrios.finova.domain.coachmarks.BudgetSuggestion
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.arthurrios.finova.data.UserSettingsStore
@@ -58,6 +59,10 @@ class BudgetsViewModel(
     fun cancelOverwrite() {
         _pendingOverwrite.value = null
     }
+
+    /** What comes in during a month, which the guide offers as its budget. Zero with no month. */
+    fun incomeOf(month: YearMonth?): kotlinx.coroutines.flow.Flow<Long> =
+        repository.transactions.map { rows -> month?.let { BudgetSuggestion.monthlyIncome(rows, it) } ?: 0L }
 
     fun delete(month: YearMonth) {
         viewModelScope.launch { repository.deleteBudget(month) }

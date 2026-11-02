@@ -1,5 +1,11 @@
 package com.arthurrios.finova.ui.history
 
+import com.arthurrios.finova.domain.coachmarks.CoachMarkEvent
+import com.arthurrios.finova.domain.coachmarks.CoachMarkTarget
+import com.arthurrios.finova.ui.coachmarks.LocalCoachMarks
+import com.arthurrios.finova.ui.coachmarks.CoachMarkLoading
+import com.arthurrios.finova.ui.coachmarks.CoachMarkSheet
+import com.arthurrios.finova.ui.coachmarks.coachMarkTarget
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -130,6 +136,8 @@ fun BudgetHistoryScreen(viewModel: BudgetHistoryViewModel, onBack: () -> Unit, o
     var whyOffset by remember { mutableIntStateOf(0) }
     var scrollTarget by remember { mutableStateOf<ScrollTarget?>(null) }
     var scrollRequest by remember { mutableIntStateOf(0) }
+    val coachMarks = LocalCoachMarks.current
+    CoachMarkLoading(!state.isLoaded)
 
     // Drilling in shows the chart of what was opened; going back returns to the card it came from.
     LaunchedEffect(scrollRequest) {
@@ -182,12 +190,18 @@ fun BudgetHistoryScreen(viewModel: BudgetHistoryViewModel, onBack: () -> Unit, o
                         scrollTo(ScrollTarget.Why)
                     }
                 }
-                Controls(state, onPick = { picking = true }, onSpan = { tick(); viewModel.selectSpan(it) })
+                Controls(state, onPick = { picking = true }, onSpan = {
+                    tick()
+                    if (it != state.span) coachMarks?.post(CoachMarkEvent.HistoryRangeChanged)
+                    viewModel.selectSpan(it)
+                })
             }
             ChartCard(state) { month ->
                 if (month != state.displayedMonth) {
                     tick()
                     viewModel.selectMonth(month)
+                    coachMarks?.post(CoachMarkEvent.HistoryMonthPicked)
+                    if (viewModel.state.value.selectedForecast != null) coachMarks?.post(CoachMarkEvent.HistoryProjectedMonthPicked)
                 }
             }
             // A month ahead has saved nothing, so its card replaces the two that read results.
@@ -198,7 +212,11 @@ fun BudgetHistoryScreen(viewModel: BudgetHistoryViewModel, onBack: () -> Unit, o
                 SavingsCard(
                     state,
                     onStart = { tick(); viewModel.selectSavingsStart(it) },
-                    onScope = { tick(); viewModel.selectSavingsScope(it) },
+                    onScope = {
+                        tick()
+                        viewModel.selectSavingsScope(it)
+                        coachMarks?.post(CoachMarkEvent.HistorySavingsChanged)
+                    },
                 )
                 state.contributors?.let { contributors ->
                     Box(Modifier.onGloballyPositioned { whyOffset = it.positionInParent().y.toInt() }) {
@@ -226,7 +244,9 @@ fun BudgetHistoryScreen(viewModel: BudgetHistoryViewModel, onBack: () -> Unit, o
             onPick = {
                 tick()
                 picking = false
+                val changed = it != state.filter
                 viewModel.selectFilter(it)
+                if (changed) coachMarks?.post(CoachMarkEvent.HistoryFilterChanged)
             },
         )
     }
@@ -449,6 +469,7 @@ private fun Controls(state: BudgetHistoryUiState, onPick: () -> Unit, onSpan: (H
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(Spacing.S2),
                 modifier = Modifier
+                    .coachMarkTarget(CoachMarkTarget.BudgetHistoryFilter)
                     .height(36.dp)
                     .clip(CircleShape)
                     .background(FinovaColors.Gray100)
@@ -473,7 +494,12 @@ private fun Controls(state: BudgetHistoryUiState, onPick: () -> Unit, onSpan: (H
 private fun SpanPicker(selected: HistorySpan, onSpan: (HistorySpan) -> Unit) {
     Row(
         horizontalArrangement = Arrangement.spacedBy(2.dp),
-        modifier = Modifier.clip(CircleShape).background(FinovaColors.Gray100).border(1.dp, FinovaColors.Gray300, CircleShape).padding(3.dp),
+        modifier = Modifier
+            .coachMarkTarget(CoachMarkTarget.BudgetHistoryRange)
+            .clip(CircleShape)
+            .background(FinovaColors.Gray100)
+            .border(1.dp, FinovaColors.Gray300, CircleShape)
+            .padding(3.dp),
     ) {
         HistorySpan.entries.forEach { span ->
             val isSelected = span == selected
@@ -501,7 +527,12 @@ private fun SpanPicker(selected: HistorySpan, onSpan: (HistorySpan) -> Unit) {
 private fun ChartCard(state: BudgetHistoryUiState, onSelect: (YearMonth) -> Unit) {
     val selected = state.selectedMonth
     val forecast = state.selectedForecast
-    SectionCard(stringResource(R.string.history_section_chart)) {
+    SectionCard(
+        stringResource(R.string.history_section_chart),
+        modifier = Modifier
+            .coachMarkTarget(CoachMarkTarget.BudgetHistoryChart)
+            .coachMarkTarget(CoachMarkTarget.BudgetHistoryProjected, enabled = state.forecastMonths.isNotEmpty()),
+    ) {
         Column(verticalArrangement = Arrangement.spacedBy(Spacing.S4), modifier = Modifier.padding(Spacing.S5)) {
             if (forecast != null) ForecastReadout(state, forecast, onSelect)
             else if (selected != null) Readout(state, selected, onSelect)
@@ -818,7 +849,7 @@ private fun ForecastCard(state: BudgetHistoryUiState, figures: BudgetForecastFig
     val hidden = state.valuesHidden
     val code = state.currencyCode
     val projection = detail.month.projection
-    SectionCard(stringResource(R.string.history_forecast_card_title)) {
+    SectionCard(stringResource(R.string.history_forecast_card_title), Modifier.coachMarkTarget(CoachMarkTarget.BudgetHistoryForecastCard)) {
         Column(Modifier.fillMaxWidth().padding(horizontal = Spacing.S5, vertical = Spacing.S3)) {
             ForecastSum(state, detail)
         }
@@ -902,7 +933,7 @@ private fun SavingsCard(state: BudgetHistoryUiState, onStart: (YearMonth?) -> Un
     val hidden = state.valuesHidden
     val accessory: (@Composable () -> Unit)? =
         if (state.savingsScope == SavingsScope.UpTo) ({ SavingsStartMenu(state, onStart) }) else null
-    SectionCard(stringResource(R.string.history_savings_title), accessory = accessory) {
+    SectionCard(stringResource(R.string.history_savings_title), Modifier.coachMarkTarget(CoachMarkTarget.BudgetHistorySavings), accessory = accessory) {
         Column(verticalArrangement = Arrangement.spacedBy(Spacing.S2), modifier = Modifier.fillMaxWidth().padding(Spacing.S5)) {
             val selected = state.selectedMonth
             if (selected != null) {
@@ -1261,7 +1292,7 @@ private fun InsightTile(icon: ImageVector, tint: Color, title: String, value: St
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun FilterPickerSheet(state: BudgetHistoryUiState, onDismiss: () -> Unit, onPick: (BudgetHistoryFilter) -> Unit) {
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(), containerColor = FinovaColors.Gray100) {
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(), containerColor = FinovaColors.Gray100) { CoachMarkSheet {
         Column(
             verticalArrangement = Arrangement.spacedBy(Spacing.S1),
             modifier = Modifier.padding(start = Spacing.S5, end = Spacing.S5, bottom = Spacing.S3),
@@ -1292,7 +1323,7 @@ private fun FilterPickerSheet(state: BudgetHistoryUiState, onDismiss: () -> Unit
                 }
             }
         }
-    }
+    } }
 }
 
 @Composable

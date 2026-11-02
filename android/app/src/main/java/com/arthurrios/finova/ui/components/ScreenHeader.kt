@@ -36,6 +36,7 @@ fun ScreenHeader(
     subtitle: String?,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
+    backModifier: Modifier = Modifier,
     trailing: (@Composable () -> Unit)? = null,
 ) {
     Row(
@@ -46,7 +47,7 @@ fun ScreenHeader(
             .padding(start = Spacing.S5, end = Spacing.S5, top = Spacing.S3, bottom = Spacing.S6),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        RoundIconButton(onClick = onBack) {
+        RoundIconButton(onClick = onBack, modifier = backModifier) {
             Icon(painterResource(R.drawable.ic_chevron_left), contentDescription = stringResource(R.string.back),
                 tint = FinovaColors.Gray700, modifier = Modifier.size(16.dp))
         }
@@ -64,12 +65,12 @@ fun ScreenHeader(
 
 /** The white round button the iOS headers use (glass on iOS 26). */
 @Composable
-fun RoundIconButton(onClick: () -> Unit, content: @Composable () -> Unit) {
+fun RoundIconButton(onClick: () -> Unit, modifier: Modifier = Modifier, content: @Composable () -> Unit) {
     FilledIconButton(
         onClick = onClick,
         shape = CircleShape,
         colors = IconButtonDefaults.filledIconButtonColors(containerColor = FinovaColors.Gray200, contentColor = FinovaColors.Gray700),
-        modifier = Modifier.size(Spacing.S10),
+        modifier = modifier.size(Spacing.S10),
         content = content,
     )
 }

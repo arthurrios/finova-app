@@ -1,5 +1,11 @@
 package com.arthurrios.finova.ui.addtransaction
 
+import com.arthurrios.finova.domain.coachmarks.CoachMarkEvent
+import com.arthurrios.finova.domain.coachmarks.CoachMarkTarget
+import com.arthurrios.finova.ui.coachmarks.LocalCoachMarks
+import com.arthurrios.finova.ui.coachmarks.CoachMarkSheet
+import com.arthurrios.finova.ui.coachmarks.coachMarkFill
+import com.arthurrios.finova.ui.coachmarks.coachMarkTarget
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -141,14 +147,16 @@ fun AddTransactionSheet(
     val amountError = showErrors && amount <= 0
     val dateError = showErrors && date == null
     val installmentsError = showErrors && mode == AddMode.Installments && installmentCount < 2
+    val coachMarks = LocalCoachMarks.current
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
         containerColor = FinovaColors.Gray100,
-    ) {
+    ) { CoachMarkSheet {
         Column(
             modifier = Modifier
+                .coachMarkTarget(CoachMarkTarget.TransactionSheet)
                 .fillMaxWidth()
                 .focusRequester(parking)
                 .focusable()
@@ -181,12 +189,31 @@ fun AddTransactionSheet(
                 placeholder = stringResource(R.string.add_transaction_input_title),
                 isError = titleError,
                 imeAction = ImeAction.Next,
-                keyboardActions = KeyboardActions(onNext = { focusManager.clearFocus() }),
+                keyboardActions = KeyboardActions(onNext = { closeKeyboard() }),
+                modifier = Modifier
+                    .coachMarkTarget(CoachMarkTarget.TransactionTitle)
+                    .coachMarkFill(CoachMarkTarget.TransactionTitle) { title.isNotEmpty() },
             )
 
-            CategoryField(selected = category, isError = categoryError, onSelect = { category = it })
+            CategoryField(
+                selected = category,
+                isError = categoryError,
+                onSelect = {
+                    category = it
+                    coachMarks?.post(CoachMarkEvent.FieldFilled(CoachMarkTarget.TransactionCategory))
+                },
+                modifier = Modifier.coachMarkTarget(CoachMarkTarget.TransactionCategory),
+            )
 
-            ModeSelector(mode = mode, onSelect = { mode = it }, enabled = editing == null)
+            ModeSelector(
+                mode = mode,
+                onSelect = {
+                    mode = it
+                    if (it == AddMode.Recurring) coachMarks?.post(CoachMarkEvent.TransactionModeRecurring)
+                },
+                enabled = editing == null,
+                modifier = Modifier.coachMarkTarget(CoachMarkTarget.TransactionMode),
+            )
 
             AnimatedVisibility(visible = mode == AddMode.Installments) {
                 FinovaTextField(
@@ -206,7 +233,10 @@ fun AddTransactionSheet(
                         onCentsChange = { amount = it },
                         currencyCode = currencyCode,
                         isError = amountError,
-                        keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() }),
+                        keyboardActions = KeyboardActions(onDone = { closeKeyboard() }),
+                        modifier = Modifier
+                            .coachMarkTarget(CoachMarkTarget.TransactionAmount)
+                            .coachMarkFill(CoachMarkTarget.TransactionAmount) { amount > 0 },
                     )
                     if (mode == AddMode.Installments) {
                         Text(stringResource(R.string.add_transaction_total_value), style = FinovaType.TextSM, color = FinovaColors.Gray400)
@@ -223,13 +253,21 @@ fun AddTransactionSheet(
                             closeKeyboard()
                             showDatePicker = true
                         },
+                        modifier = Modifier.coachMarkTarget(CoachMarkTarget.TransactionDate),
                     )
                     if (card != null) {
                         // A card purchase is charged on the statement's due date, which the card
                         // decides, so the weekend rule has nothing to act on.
                         Text(stringResource(R.string.add_transaction_card_rule_hint), style = FinovaType.TextXS, color = FinovaColors.Gray500)
                     } else {
-                        BusinessDayRuleButton(rule = rule, onSelect = { rule = it })
+                        BusinessDayRuleButton(
+                            rule = rule,
+                            onSelect = {
+                                rule = it
+                                coachMarks?.post(CoachMarkEvent.FieldFilled(CoachMarkTarget.TransactionDateRule))
+                            },
+                            modifier = Modifier.coachMarkTarget(CoachMarkTarget.TransactionDateRule),
+                        )
                     }
                     val picked = date
                     if (card == null && picked != null && rule != BusinessDayRule.Exact) {
@@ -245,7 +283,14 @@ fun AddTransactionSheet(
                 }
             }
 
-            TransactionTypeSelector(selected = type, onSelect = { type = it })
+            TransactionTypeSelector(
+                selected = type,
+                onSelect = {
+                    type = it
+                    coachMarks?.post(CoachMarkEvent.FieldFilled(CoachMarkTarget.TransactionType))
+                },
+                modifier = Modifier.coachMarkTarget(CoachMarkTarget.TransactionType),
+            )
 
             AnimatedVisibility(visible = isExpense) {
                 PaymentMethodSection(
@@ -295,9 +340,10 @@ fun AddTransactionSheet(
                         )
                     )
                 },
+                modifier = Modifier.coachMarkTarget(CoachMarkTarget.TransactionSave),
             )
         }
-    }
+    } }
 
     if (showDatePicker) {
         val pickerState = rememberDatePickerState(
@@ -309,6 +355,7 @@ fun AddTransactionSheet(
                 TextButton(onClick = {
                     pickerState.selectedDateMillis?.let {
                         date = Instant.ofEpochMilli(it).atZone(ZoneOffset.UTC).toLocalDate()
+                        coachMarks?.post(CoachMarkEvent.FieldFilled(CoachMarkTarget.TransactionDate))
                     }
                     showDatePicker = false
                     closeKeyboard()
@@ -336,9 +383,9 @@ fun AddTransactionSheet(
 /** Normal / Recurring / Installments. iOS uses the system segmented control; this is Android's. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ModeSelector(mode: AddMode, onSelect: (AddMode) -> Unit, enabled: Boolean = true) {
+private fun ModeSelector(mode: AddMode, onSelect: (AddMode) -> Unit, enabled: Boolean = true, modifier: Modifier = Modifier) {
     val labels = listOf(R.string.transaction_mode_normal, R.string.transaction_mode_recurring, R.string.transaction_mode_installments)
-    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().height(Spacing.InputHeight)) {
+    SingleChoiceSegmentedButtonRow(modifier.fillMaxWidth().height(Spacing.InputHeight)) {
         AddMode.entries.forEachIndexed { index, option ->
             SegmentedButton(
                 selected = mode == option,
@@ -370,9 +417,9 @@ private fun ModeSelector(mode: AddMode, onSelect: (AddMode) -> Unit, enabled: Bo
 /** The category wheel on iOS; a dropdown on Android. Credit card is left out, as on iOS. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun CategoryField(selected: TransactionCategory?, isError: Boolean, onSelect: (TransactionCategory) -> Unit) {
+private fun CategoryField(selected: TransactionCategory?, isError: Boolean, onSelect: (TransactionCategory) -> Unit, modifier: Modifier = Modifier) {
     var expanded by rememberSaveable { mutableStateOf(false) }
-    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
+    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }, modifier = modifier) {
         FinovaTextField(
             value = selected?.let { stringResource(it.label) }.orEmpty(),
             onValueChange = {},
@@ -406,9 +453,9 @@ private fun CategoryField(selected: TransactionCategory?, isError: Boolean, onSe
 
 /** "Exact date ▾" under the date, opening a menu of the three rules (a UIMenu on iOS). */
 @Composable
-private fun BusinessDayRuleButton(rule: BusinessDayRule, onSelect: (BusinessDayRule) -> Unit) {
+private fun BusinessDayRuleButton(rule: BusinessDayRule, onSelect: (BusinessDayRule) -> Unit, modifier: Modifier = Modifier) {
     var open by rememberSaveable { mutableStateOf(false) }
-    Box {
+    Box(modifier) {
         Text(
             text = stringResource(rule.label) + " ▾",
             style = FinovaType.TextXS,

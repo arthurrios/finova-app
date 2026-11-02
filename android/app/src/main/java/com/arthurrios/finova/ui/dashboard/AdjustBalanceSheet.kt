@@ -1,5 +1,6 @@
 package com.arthurrios.finova.ui.dashboard
 
+import com.arthurrios.finova.ui.coachmarks.CoachMarkSheet
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -54,7 +55,7 @@ fun AdjustBalanceSheet(
         onDismissRequest = onDismiss,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
         containerColor = FinovaColors.Gray100,
-    ) {
+    ) { CoachMarkSheet {
         Column(
             Modifier
                 .fillMaxWidth()
@@ -95,5 +96,5 @@ fun AdjustBalanceSheet(
                 },
             )
         }
-    }
+    } }
 }

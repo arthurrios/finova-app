@@ -1,5 +1,7 @@
 package com.arthurrios.finova.ui.profile
 
+import com.arthurrios.finova.domain.coachmarks.CoachMarkTarget
+import com.arthurrios.finova.ui.coachmarks.coachMarkTarget
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -115,7 +117,12 @@ fun ProfileScreen(
                 Text(state.email, style = FinovaType.TextXS, color = FinovaColors.Gray500, textAlign = TextAlign.Center)
             }
             SectionHeader(stringResource(R.string.profile_section_financial))
-            SettingRow(Icons.Outlined.CreditCard, stringResource(R.string.credit_cards_title), onClick = onCreditCards)
+            SettingRow(
+                Icons.Outlined.CreditCard,
+                stringResource(R.string.credit_cards_title),
+                modifier = Modifier.coachMarkTarget(CoachMarkTarget.ProfileCreditCards),
+                onClick = onCreditCards,
+            )
             SectionHeader(stringResource(R.string.profile_section_general))
             SettingRow(Icons.Outlined.Settings, stringResource(R.string.profile_settings), onClick = onSettings)
             SectionHeader(stringResource(R.string.profile_section_account))
@@ -172,10 +179,10 @@ private fun SectionHeader(title: String) {
 
 /** A 56dp settings row: icon, label, chevron. */
 @Composable
-fun SettingRow(icon: ImageVector, label: String, value: String? = null, onClick: () -> Unit) {
+fun SettingRow(icon: ImageVector, label: String, value: String? = null, modifier: Modifier = Modifier, onClick: () -> Unit) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .height(56.dp)
             .clip(RoundedCornerShape(CornerRadius.Large))

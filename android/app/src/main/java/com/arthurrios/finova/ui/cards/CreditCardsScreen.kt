@@ -1,5 +1,7 @@
 package com.arthurrios.finova.ui.cards
 
+import com.arthurrios.finova.domain.coachmarks.CoachMarkTarget
+import com.arthurrios.finova.ui.coachmarks.coachMarkTarget
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
@@ -79,7 +81,7 @@ fun CreditCardsScreen(
                         )
                     }
                     Spacer(Modifier.width(Spacing.S2))
-                    IconButton(onClick = onAdd) {
+                    IconButton(onClick = onAdd, modifier = Modifier.coachMarkTarget(CoachMarkTarget.CreditCardsAdd)) {
                         Icon(
                             painterResource(R.drawable.ic_plus),
                             contentDescription = stringResource(R.string.credit_cards_add),
@@ -99,13 +101,16 @@ fun CreditCardsScreen(
                 modifier = Modifier.fillMaxSize().navigationBarsPadding(),
             ) {
                 items(list, key = { it.id }) { card ->
-                    CreditCardCell(
-                        card = card,
-                        currencyCode = viewModel.currencyCode,
-                        valuesHidden = hidden,
-                        onClick = { onEdit(card.id) },
-                        onLongClick = { pendingDelete = card },
-                    )
+                    // The list fills the screen, so a guide points at its first card and has room to talk.
+                    Box(Modifier.coachMarkTarget(CoachMarkTarget.CreditCardsList, enabled = card.id == list.first().id)) {
+                        CreditCardCell(
+                            card = card,
+                            currencyCode = viewModel.currencyCode,
+                            valuesHidden = hidden,
+                            onClick = { onEdit(card.id) },
+                            onLongClick = { pendingDelete = card },
+                        )
+                    }
                 }
             }
         }

@@ -41,6 +41,20 @@ class AppContainer(private val context: Context) {
 
     val notificationSettings = com.arthurrios.finova.notifications.NotificationSettingsStore(context)
 
+    /** The guides. One for the app, so a guide survives moving between screens. */
+    val coachMarks: com.arthurrios.finova.ui.coachmarks.CoachMarkCenter by lazy {
+        com.arthurrios.finova.ui.coachmarks.CoachMarkCenter(
+            store = com.arthurrios.finova.domain.coachmarks.CoachMarkStateStore(
+                com.arthurrios.finova.data.SharedCoachMarkPreferences(context),
+            ),
+            data = {
+                com.arthurrios.finova.data.CoachMarkLedger.facts(financeRepository(), cardRepository(), allocationRepository())
+            },
+            currentUid = ::currentUid,
+            scope = kotlinx.coroutines.MainScope(),
+        )
+    }
+
     /** The sent-notification list of whoever is signed in. */
     @Synchronized
     fun notificationHistory(): com.arthurrios.finova.notifications.NotificationHistoryStore {
@@ -63,6 +77,7 @@ class AppContainer(private val context: Context) {
         context.deleteDatabase(com.arthurrios.finova.data.db.FinovaDatabase.fileName(uid))
         profileImages.delete(uid)
         settings.forgetUser(uid)
+        coachMarks.forget(uid)
         TagRepository(context, uid).removeAll()
         tags = null
         com.arthurrios.finova.notifications.NotificationHistoryStore(context, uid).removeAll()

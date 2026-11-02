@@ -1,5 +1,12 @@
 package com.arthurrios.finova.ui.budgets
 
+import androidx.compose.runtime.remember
+import androidx.compose.foundation.layout.heightIn
+import com.arthurrios.finova.domain.coachmarks.CoachMarkGuideId
+import com.arthurrios.finova.domain.coachmarks.CoachMarkEvent
+import com.arthurrios.finova.domain.coachmarks.CoachMarkTarget
+import com.arthurrios.finova.ui.coachmarks.LocalCoachMarks
+import com.arthurrios.finova.ui.coachmarks.coachMarkTarget
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -71,12 +78,17 @@ fun BudgetsScreen(viewModel: BudgetsViewModel, onBack: () -> Unit, onManageTags:
     var showErrors by rememberSaveable { mutableStateOf(false) }
     var showPicker by rememberSaveable { mutableStateOf(false) }
     var pendingDelete by rememberSaveable { mutableStateOf<YearMonth?>(null) }
+    val coachMarks = LocalCoachMarks.current
+    val coachSession = coachMarks?.session?.collectAsStateWithLifecycle()
+    val guideRuns = coachSession?.value?.guide == CoachMarkGuideId.FirstBudget
+    val income by remember(month) { viewModel.incomeOf(month) }.collectAsStateWithLifecycle(0L)
 
     Column(Modifier.fillMaxSize().background(FinovaColors.Gray200)) {
         ScreenHeader(
             title = stringResource(R.string.budgets_header_title),
             subtitle = stringResource(R.string.budgets_header_subtitle),
             onBack = onBack,
+            backModifier = Modifier.coachMarkTarget(CoachMarkTarget.BudgetsBack),
             trailing = {
                 RoundIconButton(onClick = viewModel::toggleValues) {
                     Icon(
@@ -96,7 +108,14 @@ fun BudgetsScreen(viewModel: BudgetsViewModel, onBack: () -> Unit, onManageTags:
             verticalArrangement = Arrangement.spacedBy(Spacing.S4),
         ) {
             // New budget
-            Column(Modifier.fillMaxWidth().clip(CardShape).background(FinovaColors.Gray100).border(1.dp, FinovaColors.Gray300, CardShape)) {
+            Column(
+                Modifier
+                    .coachMarkTarget(CoachMarkTarget.BudgetsForm)
+                    .fillMaxWidth()
+                    .clip(CardShape)
+                    .background(FinovaColors.Gray100)
+                    .border(1.dp, FinovaColors.Gray300, CardShape),
+            ) {
                 CardHeader(stringResource(R.string.budgets_new_header_title))
                 HorizontalDivider(color = FinovaColors.Gray300)
                 Column(Modifier.padding(Spacing.S5), verticalArrangement = Arrangement.spacedBy(Spacing.S4)) {
@@ -121,6 +140,16 @@ fun BudgetsScreen(viewModel: BudgetsViewModel, onBack: () -> Unit, onManageTags:
                             modifier = Modifier.weight(1f),
                         )
                     }
+                    if (guideRuns && income > 0) {
+                        // A suggestion only: it fills the field, and saving stays the user's act.
+                        TextButton(onClick = { amount = income }, modifier = Modifier.fillMaxWidth().heightIn(min = 44.dp)) {
+                            Text(
+                                stringResource(R.string.budgets_suggestion_income, Money.formatMasked(income, viewModel.currencyCode, hidden)),
+                                style = FinovaType.TextSMBold,
+                                color = FinovaColors.MainMagenta,
+                            )
+                        }
+                    }
                     FinovaButton(
                         text = stringResource(R.string.budgets_save),
                         onClick = {
@@ -132,6 +161,7 @@ fun BudgetsScreen(viewModel: BudgetsViewModel, onBack: () -> Unit, onManageTags:
                                 month = null
                                 amount = 0
                                 showErrors = false
+                                coachMarks?.post(CoachMarkEvent.BudgetSaved)
                             }
                         },
                     )
@@ -139,7 +169,7 @@ fun BudgetsScreen(viewModel: BudgetsViewModel, onBack: () -> Unit, onManageTags:
             }
 
             // Registered budgets: only the rows scroll, like the iOS table.
-            Column(Modifier.fillMaxWidth().weight(1f, fill = false)) {
+            Column(Modifier.fillMaxWidth().weight(1f, fill = false).coachMarkTarget(CoachMarkTarget.BudgetsList)) {
                 Box(
                     Modifier
                         .fillMaxWidth()
@@ -199,6 +229,7 @@ fun BudgetsScreen(viewModel: BudgetsViewModel, onBack: () -> Unit, onManageTags:
                     month = null
                     amount = 0
                     showErrors = false
+                    coachMarks?.post(CoachMarkEvent.BudgetSaved)
                 }) { Text(stringResource(R.string.alert_update)) }
             },
             dismissButton = { TextButton(onClick = viewModel::cancelOverwrite) { Text(stringResource(R.string.alert_cancel)) } },

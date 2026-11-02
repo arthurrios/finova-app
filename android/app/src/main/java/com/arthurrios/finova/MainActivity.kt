@@ -7,6 +7,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.lifecycleScope
+import com.arthurrios.finova.debug.DebugEntry
 import com.arthurrios.finova.debug.DebugSeeder
 import kotlinx.coroutines.launch
 import com.arthurrios.finova.ui.navigation.FinovaNavHost
@@ -23,6 +24,7 @@ class MainActivity : FragmentActivity() {
         installSplashScreen().setOnExitAnimationListener { it.remove() }
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        if (isDebuggable() && savedInstanceState == null) DebugEntry.applyLaunchExtras(intent, appContainer)
         if (isDebuggable() && intent.getBooleanExtra("finova.debug.seed", false)) {
             lifecycleScope.launch { DebugSeeder.seedIfEmpty(appContainer.financeRepository(), appContainer.allocationRepository()) }
         }
@@ -67,5 +69,6 @@ class MainActivity : FragmentActivity() {
         if (isDebuggable()) intent.getStringExtra("finova.debug.route") else null
 
     /** `--ez finova.debug.seed true` fills an empty database with sample data (debug builds). */
-    private fun isDebuggable(): Boolean = applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
+    private fun isDebuggable(): Boolean =
+        DebugEntry.ENABLED && applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
 }
