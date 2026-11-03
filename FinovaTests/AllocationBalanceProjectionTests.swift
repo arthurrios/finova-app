@@ -193,14 +193,13 @@ final class AllocationBalanceProjectionTests: XCTestCase {
         XCTAssertEqual(projection.projected, 60_000)
     }
 
-    func testNegativeDeferredCardSpendingIsIgnored() {
-        // Defensive: the service counts expenses only, so a negative means the caller measured
-        // something else - it must never invent money.
+    func testCardCreditBeyondItsDebtAddsToTheProjection() {
+        // Credits net against card debt, as on the statement, and a net credit lowers the next one.
         let projection = AllocationBalanceProjection(
             base: 100_000, allocations: [], deferredCardSpending: -25_000, tense: .projected)
 
-        XCTAssertEqual(projection.deferredCardSpending, 0)
-        XCTAssertEqual(projection.projected, 100_000)
+        XCTAssertEqual(projection.deferredCardSpending, -25_000)
+        XCTAssertEqual(projection.projected, 125_000)
     }
 
     /// Card debt already run up is a real claim on the balance, so it can tip a month over on its own.

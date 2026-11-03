@@ -58,6 +58,13 @@ class NotificationPlannerTest {
         assertEquals("Nubank", closed.cardName)
         val due = NotificationPlanner.plan(today.plusDays(7), listOf(purchase), listOf(statement), listOf(card), 0, NotificationPreferences())
         assertEquals(1, due.filterIsInstance<PlannedNotification.StatementDue>().size)
+        // The day after the due date, still unpaid: ask.
+        val check = NotificationPlanner.plan(today.plusDays(8), listOf(purchase), listOf(statement), listOf(card), 0, NotificationPreferences())
+        assertEquals(1, check.filterIsInstance<PlannedNotification.StatementPaymentCheck>().size)
+        assertTrue(
+            NotificationPlanner.plan(today.plusDays(8), listOf(purchase), listOf(statement.copy(isPaid = true)), listOf(card), 0, NotificationPreferences())
+                .none { it is PlannedNotification.StatementPaymentCheck },
+        )
         // Deleted card: silent.
         assertTrue(plan(listOf(purchase), listOf(statement), listOf(card.copy(isDeleted = true))).none { it is PlannedNotification.StatementClosed })
         // Paid: silent.

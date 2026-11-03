@@ -61,6 +61,7 @@ data class BudgetForecastMonth(
             closingBalance: Long?,
             deferredCardSpending: Long,
             statementsDue: Long,
+            reservedPlan: Long? = null,
         ): BudgetForecastMonth {
             val planned = linkedMapOf<TransactionCategory, Long>()
             val scheduled = mutableMapOf<TransactionCategory, Long>()
@@ -78,7 +79,7 @@ data class BudgetForecastMonth(
                 outside = summary.usedInUnallocatedCategories.coerceAtLeast(0),
                 statementsDue = statementsDue,
                 projection = closingBalance?.let {
-                    AllocationBalanceProjection.forMonth(it, allocations, summary, deferredCardSpending, AllocationBalanceProjection.Tense.Projected)
+                    AllocationBalanceProjection.forMonth(it, allocations, summary, deferredCardSpending, AllocationBalanceProjection.Tense.Projected, reservedPlan)
                 },
             )
         }

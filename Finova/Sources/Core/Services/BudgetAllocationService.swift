@@ -448,6 +448,9 @@ final class BudgetAllocationService {
     /// Spending charged against `monthAnchor`'s allocations that the month's closing balance has not
     /// absorbed, because it sits on a credit card statement settling later.
     ///
+    /// What a closed month's projection reads. An open month reads `balanceCommitments` instead, which
+    /// also holds the debt run up in earlier months and nets card credits.
+    ///
     /// `AllocationBalanceProjection` takes this off the balance before projecting. The two figures have
     /// always bucketed a card purchase differently: `TransactionLedgerService` keeps card purchases out
     /// of the balance entirely and represents them by the statement synthetic, dated to the statement's
@@ -492,6 +495,63 @@ final class BudgetAllocationService {
             }
             return settles > monthAnchor ? total + transaction.amount : total
         }
+    }
+
+    // MARK: - Balance Commitments
+
+    /// What the projection takes off the closing balance of the current month and of the `monthsAhead`
+    /// months after it. The dashboard card and the budget history both read this, in one pass over the
+    /// rows, so neither runs a scan per month per month.
+    ///
+    /// Usage mirrors `calculateUsageByCategory`. The card rows mirror `DBHelper.statementRowFilter`:
+    /// same early-paid and series-summary exclusions, and signed, because the statement they stand in
+    /// for until it settles is signed. Change one and change both.
+    ///
+    /// - Parameters:
+    ///   - statementsDue: from `TransactionLedgerService.statementsDueByMonth`, the ledger `base` comes
+    ///     from, so a bill only ever comes off a Credit Card allocation if it reached `base`.
+    ///   - reference: seam for tests, so the window is deterministic.
+    func balanceCommitments(
+        monthsAhead: Int, statementsDue: [Int: Int], in scope: LedgerScope, asOf reference: Date = Date()
+    ) -> BalanceCommitments {
+        let anchors = (0...monthsAhead).map { reference.monthAnchor(offsetByMonths: $0) }
+        let window = Set(anchors)
+        let all = scope.groupId.map { transactionRepo.fetchTransactionsForGroup(groupId: $0) }
+            ?? transactionRepo.fetchAllTransactions()
+        let rows = all.excludingEarlyPaidInstallments()
+
+        var usage: [Int: [String: Int]] = [:]
+        for row in rows where row.type == .expense && window.contains(row.budgetMonthDate) {
+            usage[row.budgetMonthDate, default: [:]][row.category.key, default: 0] += row.amount
+        }
+
+        let cardRows = rows.filter {
+            $0.creditCardId != nil && $0.isCreditCardStatement != true
+                && !($0.hasInstallments == true && $0.parentTransactionId == nil)
+                && !($0.isRecurring == true && $0.parentTransactionId == nil)
+        }
+        let settlement = settlementMonths(forCards: Set(cardRows.compactMap { $0.creditCardId }))
+
+        var allocations: [Int: [BudgetAllocation]] = [:]
+        let allAllocations = scope.groupId.map { allocationRepo.fetchAllocationsForGroup(groupId: $0) }
+            ?? allocationRepo.fetchAllAllocations()
+        for var allocation in allAllocations where window.contains(allocation.monthDate) {
+            allocation.setUsedAmount(usage[allocation.monthDate]?[allocation.category.key] ?? 0)
+            allocations[allocation.monthDate, default: []].append(allocation)
+        }
+
+        return BalanceCommitments(
+            anchors: anchors,
+            cardRows: cardRows.map { row in
+                BalanceCommitments.CardRow(
+                    countsFrom: row.type == .income
+                        ? Date(timeIntervalSince1970: TimeInterval(row.dateTimestamp)).monthAnchor
+                        : row.budgetMonthDate,
+                    settles: row.statementId.flatMap { settlement[$0] },
+                    owed: row.type == .income ? -row.amount : row.amount)
+            },
+            allocations: allocations,
+            statementsDue: statementsDue)
     }
 
     // MARK: - Spend History

@@ -64,6 +64,10 @@ sealed interface PlannedNotification {
     data class StatementDue(override val id: String, val cardName: String, val amount: Long, val statementId: Long) : PlannedNotification {
         override val target get() = NotificationTarget.Statement(statementId)
     }
+    /** Due yesterday and still unpaid: the balance follows the real payment date once marked paid. */
+    data class StatementPaymentCheck(override val id: String, val cardName: String, val amount: Long, val statementId: Long) : PlannedNotification {
+        override val target get() = NotificationTarget.Statement(statementId)
+    }
     data class NegativeBalanceTomorrow(override val id: String, val day: LocalDate) : PlannedNotification
 }
 
@@ -115,9 +119,10 @@ object NotificationPlanner {
                 if (amount <= 0) return@forEach
                 // A deleted card's statements still count in the balance but send no reminders, as on iOS.
                 val card = cards.firstOrNull { it.id == statement.creditCardId && !it.isDeleted }?.name ?: return@forEach
-                // The morning after: a purchase on the closing date itself still joins the statement.
+                // The morning after the closing date. Purchases made that day are on the next statement.
                 if (statement.closingDate.plusDays(1) == today) planned += PlannedNotification.StatementClosed("statement_closed_${statement.id}", card, amount, statement.id)
                 if (statement.dueDate == today) planned += PlannedNotification.StatementDue("statement_pay_${statement.id}", card, amount, statement.id)
+                if (statement.dueDate.plusDays(1) == today) planned += PlannedNotification.StatementPaymentCheck("statement_check_${statement.id}", card, amount, statement.id)
             }
         }
 

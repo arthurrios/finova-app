@@ -4,8 +4,9 @@
 //
 //  Card spending that consumed a month's plan but has not reached that month's balance.
 //
-//  The allocations card projects `base - deferredCardSpending - unspentAllocations`, and the first two
-//  terms come from code that has always bucketed a card purchase differently: `TransactionLedgerService`
+//  A closed month's projection reads this figure; an open month reads `BalanceCommitments`, pinned by
+//  `ProjectedBalanceTests`. The balance and allocation usage come from code that has always bucketed a
+//  card purchase differently: `TransactionLedgerService`
 //  keeps card purchases out of the balance entirely and represents them by the statement synthetic,
 //  dated to the statement's due date, while `calculateUsageByCategory` counts the purchase under its own
 //  `budgetMonthDate`.

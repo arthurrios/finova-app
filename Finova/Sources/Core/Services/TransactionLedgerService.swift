@@ -10,7 +10,9 @@ import Foundation
 final class TransactionLedgerService {
   private let transactionRepo: TransactionRepository
   private let budgetRepo: BudgetRepository
-  private let creditCardService = CreditCardService()
+  private let creditCardService: CreditCardService
+  /// Whose statements reach the balance. A seam: no unit test has a signed-in Firebase user.
+  private let statementUserId: () -> String?
   private let calendar = Calendar.current
 
   // Cache for performance optimization
@@ -27,10 +29,14 @@ final class TransactionLedgerService {
 
   init(
     transactionRepo: TransactionRepository = TransactionRepository(),
-    budgetRepo: BudgetRepository = BudgetRepository()
+    budgetRepo: BudgetRepository = BudgetRepository(),
+    creditCardService: CreditCardService = CreditCardService(),
+    statementUserId: @escaping () -> String? = { AuthenticationManager.shared.currentUser?.uid }
   ) {
     self.transactionRepo = transactionRepo
     self.budgetRepo = budgetRepo
+    self.creditCardService = creditCardService
+    self.statementUserId = statementUserId
   }
 
   /// Fetches all transactions including synthetic CC statement transactions for balance calculations
@@ -40,7 +46,7 @@ final class TransactionLedgerService {
       return cached
     }
     var transactions = transactionRepo.fetchAllTransactions().excludingEarlyPaidInstallments()
-    if let uid = AuthenticationManager.shared.currentUser?.uid {
+    if let uid = statementUserId() {
       let statementTxs = creditCardService.generateStatementTransactions(userId: uid)
       transactions.append(contentsOf: statementTxs)
     }
@@ -63,6 +69,16 @@ final class TransactionLedgerService {
     return fetchAllTransactionsIncludingStatements().filter { tx in
       tx.creditCardId == nil || tx.isCreditCardStatement == true
     }
+  }
+
+  /// Statement amounts by the month they fall due, as the balance takes them.
+  func statementsDueByMonth() -> [Int: Int] {
+    cashTransactionsForBalance()
+      .filter { $0.isCreditCardStatement == true && $0.type == .expense }
+      .reduce(into: [Int: Int]()) { totals, statement in
+        let due = Date(timeIntervalSince1970: TimeInterval(statement.dateTimestamp)).monthAnchor
+        totals[due, default: 0] += statement.amount
+      }
   }
 
   /// Balance at the end of `date` (today by default), accumulated across the whole ledger.

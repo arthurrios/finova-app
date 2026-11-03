@@ -73,6 +73,8 @@ class DashboardViewModel(
         val months = SeriesMonths.carouselMonths(thisMonth)
         val summaries = LedgerCalculator.monthlySummaries(rows, budgets, offset, months, day)
         val listed = rows.filter(FinanceRepository::isListed).groupBy { YearMonth.from(it.date) }
+        // One table for every open month, the one the budget history reads.
+        val commitments = Allocations.balanceCommitments(allocations, stored, statements, Allocations.statementsDue(rows), thisMonth, months.last())
         DashboardUiState(
             // iOS falls back to "User" when it has no name.
             userName = settings.currentUserName()?.takeIf { it.isNotBlank() } ?: "User",
@@ -91,7 +93,9 @@ class DashboardViewModel(
                     allocations = Allocations.withUsage(allocations, stored, summary.month).sortedByDescending { it.allocated },
                     unallocated = Allocations.unallocatedSummary(allocations, stored, budgets, summary.month),
                     offPlan = Allocations.unallocatedSpending(allocations, stored, summary.month),
-                    deferredCardSpending = Allocations.deferredCardSpending(stored, statements, summary.month),
+                    deferredCardSpending = commitments[summary.month]?.outstandingCard
+                        ?: Allocations.deferredCardSpending(stored, statements, summary.month),
+                    reservedPlan = commitments[summary.month]?.reservedPlan,
                     transactions = listed[summary.month].orEmpty()
                         .sortedWith(compareByDescending<Transaction> { it.date }.thenByDescending { it.id })
                         .map { it.toRowUi() },

@@ -629,6 +629,11 @@ class MonthCarouselCell: UICollectionViewCell {
             isValuesHidden: ValueVisibilityStore.shared.isHidden)
         tagStripHeightConstraint?.constant = hasStrip ? AllocationTagStripView.preferredHeight : 0
 
+        // Read from the same scope as the allocations above: this cancels their card spending out of
+        // the projection's base, so a mismatched scope would subtract another ledger's debt. A closed
+        // month has no commitments, and keeps its own card spending and its own plan.
+        let commitments = BalanceCommitmentsCache.shared.commitments(in: ledgerScope)[currentMonthAnchor]
+
         budgetCard.configure(
             month: monthCard.currentMonth,
             year: monthCard.currentYear,
@@ -638,10 +643,9 @@ class MonthCarouselCell: UICollectionViewCell {
             monthAnchor: currentMonthAnchor,
             monthData: currentMonthData,
             tagBreakdown: tagBreakdown,
-            // Read from the same scope as the allocations above: this cancels their card spending out
-            // of the projection's base, so a mismatched scope would subtract another ledger's debt.
-            deferredCardSpending: allocationService.deferredCardSpending(
-                forMonth: currentMonthAnchor, in: ledgerScope)
+            deferredCardSpending: commitments?.outstandingCard
+                ?? allocationService.deferredCardSpending(forMonth: currentMonthAnchor, in: ledgerScope),
+            reservedPlan: commitments?.reservedPlan
         )
         budgetCard.setSelectedTag(selectedTagId)
 

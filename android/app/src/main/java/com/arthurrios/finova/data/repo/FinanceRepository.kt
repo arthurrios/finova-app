@@ -5,6 +5,7 @@ import com.arthurrios.finova.data.db.FinovaDatabase
 import com.arthurrios.finova.data.db.RecurringExclusionEntity
 import com.arthurrios.finova.data.db.StatementEntity
 import com.arthurrios.finova.data.db.UserSettingsEntity
+import com.arthurrios.finova.domain.card.CardCycle
 import com.arthurrios.finova.domain.card.CardCycleChange
 import com.arthurrios.finova.domain.card.Installments
 import com.arthurrios.finova.domain.card.StatementBook
@@ -263,7 +264,7 @@ class FinanceRepository(
         val row = db.transactions().getById(rowId)?.toDomain() ?: return@withTransaction
         val card = row.creditCardId?.let { db.creditCards().getById(it)?.toModel() } ?: return@withTransaction
         val known = db.statements().forCard(card.id).map { it.toModel() }.toMutableList()
-        val target = stored(StatementBook.route(known, card, month.atDay(1), defaultRule()), known)
+        val target = stored(StatementBook.route(known, card, CardCycle.routingDate(month), defaultRule()), known)
         db.transactions().update(row.copy(statementId = target.id, isStatementOverridden = true).toEntity())
         settleCardRows()
     }

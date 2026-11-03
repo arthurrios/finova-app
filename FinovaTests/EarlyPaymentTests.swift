@@ -379,8 +379,10 @@ final class EarlyPaymentTests: XCTestCase {
 
         let closingToday = try XCTUnwrap(
             CreditCardService().getOrCreateStatement(
-                for: card, transactionDate: Date(), userId: uid),
-            "Precondition: date routing should produce the cycle closing today")
+                for: card,
+                transactionDate: Calendar.current.date(byAdding: .day, value: -1, to: Date())!,
+                userId: uid),
+            "Precondition: a purchase from yesterday is on the cycle closing today")
         XCTAssertLessThanOrEqual(
             closingToday.closingDate, Date(),
             "Precondition: that statement should already be closed")

@@ -105,7 +105,8 @@ final class StatementNotificationAmountTests: XCTestCase {
             dueDate: statement.dueDate,
             totalAmount: statement.totalAmount,
             isPaid: statement.isPaid,
-            // Far enough back that both dates are ahead of "now" and inside the horizon, so the
+            // Far enough back that all three dates (closed, due, the day after) are ahead of "now"
+            // and inside the horizon, so the
             // test is about the amount and not about the calendar.
             calendar: cal,
             now: cal.date(byAdding: .day, value: -1, to: statement.closingDate)!
@@ -117,7 +118,7 @@ final class StatementNotificationAmountTests: XCTestCase {
     func testTheReminderNamesTheChargeOnTheStatement() throws {
         let (card, statement) = try makeStatementWithCharge(amount: 100_000)
 
-        XCTAssertEqual(try plannedAmounts(for: statement, card: card), [100_000, 100_000])
+        XCTAssertEqual(try plannedAmounts(for: statement, card: card), [100_000, 100_000, 100_000])
     }
 
     func testASecondChargeMovesTheFigureInTheReminder() throws {
@@ -130,7 +131,7 @@ final class StatementNotificationAmountTests: XCTestCase {
 
         XCTAssertEqual(reloaded.totalAmount, 145_500)
         XCTAssertEqual(
-            try plannedAmounts(for: reloaded, card: card), [145_500, 145_500],
+            try plannedAmounts(for: reloaded, card: card), [145_500, 145_500, 145_500],
             "The reminder must follow the statement, not the total it had when first scheduled")
     }
 
@@ -154,7 +155,7 @@ final class StatementNotificationAmountTests: XCTestCase {
 
         XCTAssertFalse(reloaded.isPaid, "40,000 of 100,000 does not settle it")
         XCTAssertEqual(
-            try plannedAmounts(for: reloaded, card: card), [60_000, 60_000],
+            try plannedAmounts(for: reloaded, card: card), [60_000, 60_000, 60_000],
             "Reminding the user of the full amount after a part payment is the bug this pins")
     }
 

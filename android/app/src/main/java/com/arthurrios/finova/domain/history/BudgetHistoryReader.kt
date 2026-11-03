@@ -82,10 +82,8 @@ object BudgetHistoryReader {
         val current = YearMonth.from(today)
         val months = (1..BudgetForecast.MONTHS_AHEAD).map { current.plusMonths(it.toLong()) }
         val stored = ledgerRows.filterNot { it.isCreditCardStatement }
-        val statementsDue = ledgerRows
-            .filter { it.isCreditCardStatement && it.type == TransactionType.Expense }
-            .groupBy { YearMonth.from(it.date) }
-            .mapValues { (_, rows) -> rows.sumOf { it.amount } }
+        val statementsDue = Allocations.statementsDue(ledgerRows)
+        val commitments = Allocations.balanceCommitments(allocations, stored, statements, statementsDue, current, months.last())
 
         return BudgetForecast(
             LedgerCalculator.monthlySummaries(ledgerRows, budgets, balanceOffset, months, today).map { summary ->
@@ -95,8 +93,9 @@ object BudgetHistoryReader {
                     summary = Allocations.unallocatedSummary(allocations, stored, budgets, summary.month),
                     unallocatedSpending = Allocations.unallocatedSpending(allocations, stored, summary.month),
                     closingBalance = summary.finalBalance,
-                    deferredCardSpending = Allocations.deferredCardSpending(stored, statements, summary.month),
+                    deferredCardSpending = commitments.getValue(summary.month).outstandingCard,
                     statementsDue = statementsDue[summary.month] ?: 0,
+                    reservedPlan = commitments.getValue(summary.month).reservedPlan,
                 )
             }
         )

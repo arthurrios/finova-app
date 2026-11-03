@@ -37,15 +37,22 @@ final class BudgetHistoryService: BudgetHistoryReading {
     private let allocationRepo: BudgetAllocationRepositoryProtocol
     private let transactionRepo: TransactionRepository
     private let budgetRepo: BudgetRepository
+    private let statementRepo: StatementRepository
+    /// The ledger the forecast reads. Nil builds one from the repositories above.
+    private let ledger: TransactionLedgerService?
 
     init(
         allocationRepo: BudgetAllocationRepositoryProtocol = BudgetAllocationRepository(),
         transactionRepo: TransactionRepository = TransactionRepository(),
-        budgetRepo: BudgetRepository = BudgetRepository()
+        budgetRepo: BudgetRepository = BudgetRepository(),
+        statementRepo: StatementRepository = StatementRepository(),
+        ledger: TransactionLedgerService? = nil
     ) {
         self.allocationRepo = allocationRepo
         self.transactionRepo = transactionRepo
         self.budgetRepo = budgetRepo
+        self.statementRepo = statementRepo
+        self.ledger = ledger
     }
 
     /// - Parameters:
@@ -102,16 +109,16 @@ final class BudgetHistoryService: BudgetHistoryReading {
     /// The next months through the services the dashboard's budget card reads them from, so a month
     /// shows the same figures in both places. Nothing is summed here that the card does not sum.
     func forecast(in scope: LedgerScope, asOf reference: Date = Date()) -> BudgetForecast {
-        let ledger = TransactionLedgerService(transactionRepo: transactionRepo, budgetRepo: budgetRepo)
+        let ledger = ledger
+            ?? TransactionLedgerService(transactionRepo: transactionRepo, budgetRepo: budgetRepo)
         let allocationService = BudgetAllocationService(
-            allocationRepo: allocationRepo, transactionRepo: transactionRepo, budgetRepo: budgetRepo)
+            allocationRepo: allocationRepo, transactionRepo: transactionRepo, budgetRepo: budgetRepo,
+            statementRepo: statementRepo)
 
-        let statementsDue = ledger.cashTransactionsForBalance()
-            .filter { $0.isCreditCardStatement == true && $0.type == .expense }
-            .reduce(into: [Int: Int]()) { totals, statement in
-                let due = Date(timeIntervalSince1970: TimeInterval(statement.dateTimestamp)).monthAnchor
-                totals[due, default: 0] += statement.amount
-            }
+        let statementsDue = ledger.statementsDueByMonth()
+        let commitments = allocationService.balanceCommitments(
+            monthsAhead: BudgetForecast.monthsAhead, statementsDue: statementsDue, in: scope,
+            asOf: reference)
 
         let months = ledger.calculateMonthlyData(
             for: 1...BudgetForecast.monthsAhead, referenceDate: reference
@@ -124,8 +131,9 @@ final class BudgetHistoryService: BudgetHistoryReading {
                 unallocatedSpending: allocationService.getUnallocatedCategoriesWithSpending(
                     forMonth: anchor, in: scope),
                 closingBalance: month.finalBalance,
-                deferredCardSpending: allocationService.deferredCardSpending(forMonth: anchor, in: scope),
-                statementsDue: statementsDue[anchor] ?? 0)
+                deferredCardSpending: commitments[anchor]?.outstandingCard ?? 0,
+                statementsDue: statementsDue[anchor] ?? 0,
+                reservedPlan: commitments[anchor]?.reservedPlan)
         }
         return BudgetForecast(months: months)
     }

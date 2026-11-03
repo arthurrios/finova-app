@@ -471,7 +471,7 @@
     <string name="projection_formula_header">Se usar tudo</string>
     <string name="projection_formula_balance">Saldo até %1$s</string>
     <string name="projection_formula_card">Gastos no cartão ainda não faturados</string>
-    <string name="projection_formula_unspent">Orçamento ainda não usado</string>
+    <string name="projection_formula_unspent">Orçamento ainda não usado até este mês</string>
     <string name="projection_formula_result">Se gastar todo o plano</string>
     <string name="projection_formula_note">Isto considera que todo orçamento será gasto por completo. É o valor cauteloso, então o mês normalmente fecha acima dele.</string>
     <string name="projection_history_header">Quanto de cada orçamento você costuma usar</string>
@@ -579,10 +579,12 @@
     <string name="history_empty_title">Ainda sem histórico</string>
     <string name="history_filter_whole_month">Mês inteiro</string>
     <string name="history_hero_no_plan">Nada planejado neste mês</string>
+    <string name="history_forecast_a11y_balance_format">Saldo previsto %s</string>
     <string name="history_forecast_a11y_expected_format">%s previstos</string>
     <string name="history_forecast_a11y_expected_of_format">%1$s previstos de %2$s</string>
     <string name="history_forecast_badge">Projetado</string>
     <string name="history_forecast_balance">Saldo previsto no fim do mês</string>
+    <string name="history_forecast_balance_note">Conta o plano deste mês e os dos meses anteriores, cada um gasto por inteiro.</string>
     <string name="history_forecast_card_title">Mês projetado</string>
     <string name="history_forecast_expected_category_format">Previsto em %s</string>
     <string name="history_forecast_expected_whole">Custos previstos</string>
@@ -595,6 +597,7 @@
     <string name="history_forecast_no_budget">Sem orçamento definido</string>
     <string name="history_forecast_note_rows">Conta só o que já está agendado. Isto é uma projeção, não um resultado real.</string>
     <string name="history_forecast_note_whole">Considera cada alocação gasta por inteiro, como no painel. Isto é uma projeção, não um resultado real.</string>
+    <string name="history_forecast_readout_balance">Saldo previsto</string>
     <string name="history_forecast_short">Falta</string>
     <string name="history_forecast_statements">Faturas a pagar</string>
     <string name="history_forecast_statements_note">Faturas afetam só o saldo. As compras contam no mês em que foram feitas.</string>
@@ -889,4 +892,6 @@
     <string name="settings_guides_footer">Um guia mostra cada passo nas telas reais. Você pode repetir qualquer guia. Um guia nunca altera seus dados sozinho.</string>
     <string name="settings_guides_title">Guias do app</string>
     <string name="settings_section_guides">Guias</string>
+    <string name="notif_statement_check_title">Já pagou sua fatura?</string>
+    <string name="notif_statement_check_body">Sua fatura do %1$s de %2$s venceu ontem. Marque como paga para manter seu saldo certo.</string>
 </resources>

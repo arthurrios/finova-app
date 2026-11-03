@@ -57,6 +57,7 @@ final class DashboardViewModel {
   }
 
   func loadMonthlyCards() -> [MonthBudgetCardType] {
+    BalanceCommitmentsCache.shared.invalidate()
     let monthlyData = transactionLedger.calculateMonthlyData(for: monthRange)
 
     // Trigger lazy generation AFTER returning data (non-blocking)

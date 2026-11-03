@@ -253,9 +253,11 @@ struct BudgetHistoryContentView: View {
     }
 
     /// A projected month, in the shape of `readout` with its own words: a "Projected" badge where the
-    /// open month says "In progress", and expected costs where a past month says spent.
+    /// open month says "In progress", and expected costs where a past month says spent. A whole month
+    /// with a balance leads with it instead: its costs stay in the projected month card below.
     private func forecastReadout(for month: BudgetForecastFigures) -> some View {
-        VStack(alignment: .leading, spacing: Metrics.spacing1) {
+        let balance = viewModel.forecastBalance(for: month)
+        return VStack(alignment: .leading, spacing: Metrics.spacing1) {
             HStack(spacing: Metrics.spacing1) {
                 stepButton(by: -1)
                 Text(BudgetHistoryViewModel.longMonth(month.monthAnchor))
@@ -272,12 +274,12 @@ struct BudgetHistoryContentView: View {
                     .background(Capsule().fill(Color(Colors.gray200)))
             }
 
-            Text(expectedLabel)
+            Text(balance == nil ? expectedLabel : "budgetHistory.forecast.readout.balance".localized)
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(Color(Colors.gray500))
                 .padding(.top, Metrics.spacing1)
             HStack(alignment: .firstTextBaseline) {
-                Text(month.expected.maskedCurrencyString(hidden: hidden))
+                Text((balance ?? month.expected).maskedSignedCurrencyString(hidden: hidden))
                     .font(.custom(Fonts.titleLG.font.fontName, size: 24))
                     .foregroundStyle(Color(Colors.gray500))
                     .lineLimit(1)
@@ -287,14 +289,15 @@ struct BudgetHistoryContentView: View {
                 ForecastStatusPill(month: month, hidden: hidden)
             }
 
-            Text(forecastPlanLine(for: month))
+            Text(forecastPlanLine(for: month, underBalance: balance != nil))
                 .font(Font(Fonts.textXS.font))
                 .foregroundStyle(Color(Colors.gray500))
                 .fixedSize(horizontal: false, vertical: true)
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel(BudgetHistoryViewModel.longMonth(month.monthAnchor))
-        .accessibilityValue(BudgetHistoryViewModel.forecastAccessibilityValue(for: month, hidden: hidden))
+        .accessibilityValue(
+            BudgetHistoryViewModel.forecastAccessibilityValue(for: month, hidden: hidden, balance: balance))
     }
 
     private var expectedLabel: String {
@@ -306,8 +309,16 @@ struct BudgetHistoryContentView: View {
         }
     }
 
-    private func forecastPlanLine(for month: BudgetForecastFigures) -> String {
+    /// - Parameter underBalance: the big number is a balance, so "of the plan" has to name the costs
+    ///   it is about.
+    private func forecastPlanLine(for month: BudgetForecastFigures, underBalance: Bool) -> String {
         guard month.hasPlan else { return BudgetHistoryViewModel.noPlanText(for: month.filter) }
+        if underBalance {
+            return String(
+                format: "budgetHistory.forecast.a11y.expectedOf.format".localized,
+                month.expected.maskedCurrencyString(hidden: hidden),
+                month.planned.maskedCurrencyString(hidden: hidden))
+        }
         var line = String(
             format: "budgetHistory.hero.of.format".localized,
             month.planned.maskedCurrencyString(hidden: hidden))
@@ -458,6 +469,7 @@ struct BudgetHistoryContentView: View {
                                 "budgetHistory.forecast.balance".localized,
                                 projection.projected.maskedSignedCurrencyString(hidden: hidden),
                                 bold: true)
+                            note("budgetHistory.forecast.balance.note".localized)
                             if detail.month.statementsDue > 0 {
                                 note("budgetHistory.forecast.statements.note".localized)
                             }

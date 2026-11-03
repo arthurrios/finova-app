@@ -219,6 +219,9 @@ final class ProjectionExplainerView: UIView {
         case .subtraction:
             value.text = "-" + line.amount.maskedCurrencyString(hidden: isValuesHidden)
             value.textColor = Colors.gray500
+        case .addition:
+            value.text = "+" + line.amount.maskedCurrencyString(hidden: isValuesHidden)
+            value.textColor = Colors.gray500
         case .base:
             value.text = line.amount.maskedSignedCurrencyString(hidden: isValuesHidden)
             value.textColor = Colors.gray700

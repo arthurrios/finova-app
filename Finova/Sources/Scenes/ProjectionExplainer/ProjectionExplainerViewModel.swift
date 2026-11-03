@@ -14,6 +14,8 @@ struct ProjectionExplainerLine: Equatable {
         case base
         /// Something taken off it. Rendered with a leading minus.
         case subtraction
+        /// Something put back: a card credit larger than the card's debt. Rendered with a leading plus.
+        case addition
         /// The figure the card shows, after a rule.
         case result
     }
@@ -85,19 +87,19 @@ final class ProjectionExplainerViewModel {
                 amount: projection.base)
         ]
 
-        if projection.deferredCardSpending > 0 {
+        if projection.deferredCardSpending != 0 {
             lines.append(
                 ProjectionExplainerLine(
-                    kind: .subtraction,
+                    kind: projection.deferredCardSpending > 0 ? .subtraction : .addition,
                     label: "projection.explainer.formula.card".localized,
-                    amount: projection.deferredCardSpending))
+                    amount: abs(projection.deferredCardSpending)))
         }
-        if projection.unspentAllocations > 0 {
+        if projection.reservedPlan > 0 {
             lines.append(
                 ProjectionExplainerLine(
                     kind: .subtraction,
                     label: "projection.explainer.formula.unspent".localized,
-                    amount: projection.unspentAllocations))
+                    amount: projection.reservedPlan))
         }
 
         lines.append(

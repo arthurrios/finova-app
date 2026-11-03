@@ -42,6 +42,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.arthurrios.finova.domain.card.StatementPeriod
 import com.arthurrios.finova.R
 import com.arthurrios.finova.domain.model.StatementStatus
 import com.arthurrios.finova.ui.components.FinovaAccentOutlinedButton
@@ -120,7 +121,7 @@ fun StatementDetailsScreen(
                 InfoRow(R.string.statement_details_card, card?.let { "${it.name} ****${it.lastFourDigits}" }.orEmpty())
                 InfoRow(
                     R.string.statement_details_period,
-                    "${state.periodStart?.format(DateFormat)} — ${statement.closingDate.format(DateFormat)}",
+                    "${state.periodStart?.format(DateFormat)} — ${StatementPeriod.end(statement).format(DateFormat)}",
                 )
                 InfoRow(R.string.statement_details_closing, statement.closingDate.format(DateFormat))
                 InfoRow(R.string.statement_details_due, statement.dueDate.format(DateFormat))

@@ -82,11 +82,11 @@ final class StatementDetailsViewModel {
 
     var periodText: String {
         let formatter = DateFormatter.fullDateFormatter
-        // The cycle starts the day AFTER the previous closing: a purchase made on the closing day
-        // belongs to the statement closing that day (`CreditCardService.calculateClosingDate`).
-        let start = Calendar.current.date(byAdding: .day, value: 1, to: previousClosingDate())!
-        let startStr = formatter.string(from: start)
-        let endStr = formatter.string(from: statement.closingDate)
+        // The cycle starts ON the previous closing and ends the day before this one: a purchase made
+        // on the closing day belongs to the next statement (`CreditCardService.calculateClosingDate`).
+        let end = Calendar.current.date(byAdding: .day, value: -1, to: statement.closingDate)!
+        let startStr = formatter.string(from: previousClosingDate())
+        let endStr = formatter.string(from: end)
         return "\(startStr) — \(endStr)"
     }
 

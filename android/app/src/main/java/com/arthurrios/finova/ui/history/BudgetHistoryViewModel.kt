@@ -171,6 +171,13 @@ data class BudgetHistoryUiState(
         return ForecastDetail(figures, month, listed.size, listed.take(3))
     }
 
+    /**
+     * The balance a projected month's readout leads with: the whole month's only, because a balance
+     * does not apply to a category. Null when the month has no balance either.
+     */
+    fun forecastBalance(figures: BudgetForecastFigures): Long? =
+        if (figures.filter == BudgetHistoryFilter.WholeMonth) forecast.month(figures.month)?.projection?.projected else null
+
     /** A month's budget and what its categories got: the subtraction behind outside figures. */
     fun budgetSplit(month: YearMonth): Pair<Long, Long> =
         (history.wholeMonth.month(month)?.planned ?: 0L) to history.categories.sumOf { it.month(month)?.planned ?: 0L }
@@ -280,8 +287,11 @@ object BudgetForecastText {
     }
 
     /** What TalkBack reads. Opens by saying it is projected, so the amounts are never taken for a result. */
-    fun accessibility(month: BudgetForecastFigures, hidden: Boolean): List<ForecastText> = buildList {
+    fun accessibility(month: BudgetForecastFigures, hidden: Boolean, balance: Long? = null): List<ForecastText> = buildList {
         add(ForecastText(R.string.history_forecast_badge))
+        if (balance != null) {
+            add(if (hidden) ForecastText(R.string.history_forecast_readout_balance) else ForecastText(R.string.history_forecast_a11y_balance_format, listOf(balance)))
+        }
         if (!hidden) {
             add(
                 if (month.hasPlan) ForecastText(R.string.history_forecast_a11y_expected_of_format, listOf(month.expected, month.planned))

@@ -412,6 +412,35 @@ final class BudgetHistoryForecastTests: XCTestCase {
         }
     }
 
+    func testAWholeMonthLeadsWithItsBalanceAndACategoryKeepsItsReadout() {
+        let viewModel = makeViewModel(forecast: BudgetForecast(months: [month()]), month: anchor(1))
+        let whole = figures(month(), .wholeMonth)
+
+        // 50.000 - 2.000 of groceries left. Meals are past their plan.
+        XCTAssertEqual(viewModel.forecastBalance(for: whole), 48_000)
+        XCTAssertNil(viewModel.forecastBalance(for: figures(month(), .category(.groceries))))
+        XCTAssertNil(viewModel.forecastBalance(for: figures(month(), .outsideAllocations)))
+    }
+
+    func testAMonthWithNoBalanceKeepsItsReadout() {
+        let noBalance = month(balance: nil)
+        let viewModel = makeViewModel(forecast: BudgetForecast(months: [noBalance]), month: anchor(1))
+
+        XCTAssertNil(viewModel.forecastBalance(for: figures(noBalance, .wholeMonth)))
+    }
+
+    func testVoiceOverReadsTheBalanceAndHiddenValuesMaskIt() {
+        let whole = figures(month(), .wholeMonth)
+        let spoken = BudgetHistoryViewModel.forecastAccessibilityValue(for: whole, hidden: false, balance: 48_000)
+        XCTAssertTrue(
+            spoken.contains(
+                String(format: "budgetHistory.forecast.a11y.balance.format".localized, 48_000.currencyString)))
+
+        let masked = BudgetHistoryViewModel.forecastAccessibilityValue(for: whole, hidden: true, balance: 48_000)
+        XCTAssertFalse(masked.contains(48_000.currencyString))
+        XCTAssertTrue(masked.contains("budgetHistory.forecast.readout.balance".localized))
+    }
+
     func testVoiceOverSaysTheValueIsProjected() {
         for hidden in [false, true] {
             XCTAssertTrue(
@@ -518,6 +547,10 @@ final class BudgetForecastDashboardParityTests: XCTestCase {
         let monthData = try XCTUnwrap(
             ledger.calculateMonthlyData(for: -2...7, referenceDate: reference)
                 .first { $0.date.monthAnchor == month })
+        let commitment = try XCTUnwrap(
+            allocationService.balanceCommitments(
+                monthsAhead: SeriesMonths.carouselRange.upperBound,
+                statementsDue: ledger.statementsDueByMonth(), in: .personal, asOf: reference)[month])
         let card = BudgetCard()
         card.configure(
             month: "Next", year: "Year",
@@ -526,7 +559,8 @@ final class BudgetForecastDashboardParityTests: XCTestCase {
             unallocatedSpending: allocationService.getUnallocatedCategoriesWithSpending(
                 forMonth: month, in: .personal),
             monthAnchor: month, monthData: monthData,
-            deferredCardSpending: allocationService.deferredCardSpending(forMonth: month, in: .personal))
+            deferredCardSpending: commitment.outstandingCard,
+            reservedPlan: commitment.reservedPlan)
 
         let dashboard = try XCTUnwrap(card.projection)
         XCTAssertEqual(read.projection, dashboard)

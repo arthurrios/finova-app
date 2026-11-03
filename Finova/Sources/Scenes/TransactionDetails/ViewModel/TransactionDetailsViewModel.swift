@@ -141,14 +141,15 @@ final class TransactionDetailsViewModel {
       guard let firstOfMonth = calendar.date(from: components) else { continue }
 
       var labelDate = firstOfMonth
+      let routingDate = service.routingDate(forStatementMonthOf: firstOfMonth)
       if let card = card {
         // Looked up, never created: the target is only created once the user picks it.
-        if let target = service.getExistingStatement(for: card, transactionDate: firstOfMonth) {
+        if let target = service.getExistingStatement(for: card, transactionDate: routingDate) {
           if target.id == transaction.statementId { continue }
           labelDate = target.dueDate
         } else {
           labelDate = service.calculateDueDate(
-            closingDate: service.calculateClosingDate(card: card, transactionDate: firstOfMonth),
+            closingDate: service.calculateClosingDate(card: card, transactionDate: routingDate),
             card: card)
         }
       }
@@ -167,7 +168,7 @@ final class TransactionDetailsViewModel {
 
     let ccService = CreditCardService()
     guard let targetStatement = ccService.getOrCreateStatement(
-      for: card, transactionDate: firstOfMonth, userId: userId
+      for: card, transactionDate: CreditCardService().routingDate(forStatementMonthOf: firstOfMonth), userId: userId
     ) else { return }
 
     moveToStatement(targetStatement)

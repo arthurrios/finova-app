@@ -3,9 +3,9 @@
 //  FinovaTests
 //
 //  A card purchase is routed to a billing cycle by the day it was made, before any business-day
-//  shift. The re-routing pass used the SHIFTED date instead, so a purchase made on a Saturday that is
-//  the card's closing day was created on that closing statement and then moved to the next month's
-//  on the next dashboard load, because its shifted date (Monday) falls after the closing day.
+//  shift. The re-routing pass used the SHIFTED date instead, so a purchase made on a Saturday just
+//  before the closing day, shown on the Monday after it, moved to the next month's statement on the
+//  next dashboard load.
 //
 
 import Foundation
@@ -41,8 +41,8 @@ final class CardRoutingUnadjustedDateTests: XCTestCase {
         let cardId = try XCTUnwrap(
             repo.insertCard(
                 CreditCard(
-                    name: "ClosesSaturday", lastFourDigits: "4242", cardBrand: .visa,
-                    closingDay: 15, dueDay: 25, creditLimit: 5_000_000,
+                    name: "ClosesSunday", lastFourDigits: "4242", cardBrand: .visa,
+                    closingDay: 16, dueDay: 25, creditLimit: 5_000_000,
                     cardColor: .blue, userId: uid,
                     isDeleted: false, isDefault: false, createdAt: Date(), updatedAt: Date())))
         let card = try XCTUnwrap(repo.fetchCard(byId: cardId))
@@ -52,7 +52,9 @@ final class CardRoutingUnadjustedDateTests: XCTestCase {
         let statement = try XCTUnwrap(
             service.getOrCreateStatement(for: card, transactionDate: saturday, userId: uid))
         let statementId = try XCTUnwrap(statement.id)
-        XCTAssertEqual(statement.closingDate, saturday, "Precondition: the cycle closing that Saturday")
+        XCTAssertEqual(
+            statement.closingDate, calendar.date(from: DateComponents(year: 2030, month: 6, day: 16)),
+            "Precondition: Saturday is before the closing day, and Monday is after it")
 
         let model = TransactionModel(
             title: "Weekend purchase",
@@ -76,6 +78,52 @@ final class CardRoutingUnadjustedDateTests: XCTestCase {
         let row = try XCTUnwrap(transactionRepo.fetchAllTransactions().first { $0.id == txId })
         XCTAssertEqual(
             row.statementId, statementId,
-            "Made on the closing day, so it stays on the statement closing that day")
+            "Made before the closing day, so the shifted date must not move it a cycle later")
+    }
+
+    func testATripToAnotherTimeZoneDoesNotMoveAPurchase() throws {
+        let original = NSTimeZone.default
+        defer { NSTimeZone.default = original }
+        NSTimeZone.default = TimeZone(identifier: "America/Sao_Paulo")!
+
+        let calendar = Calendar.current
+        let closingDay = calendar.date(from: DateComponents(year: 2030, month: 6, day: 17))!
+        let uid = try XCTUnwrap(UIDUserDefaultsManager.shared.currentUserUID)
+        let repo = CreditCardRepository()
+        let cardId = try XCTUnwrap(
+            repo.insertCard(
+                CreditCard(
+                    name: "Traveller", lastFourDigits: "4243", cardBrand: .visa,
+                    closingDay: 17, dueDay: 25, creditLimit: 5_000_000,
+                    cardColor: .blue, userId: uid,
+                    isDeleted: false, isDefault: false, createdAt: Date(), updatedAt: Date())))
+        let card = try XCTUnwrap(repo.fetchCard(byId: cardId))
+        let service = CreditCardService()
+
+        // Made on the closing day, at home, so it is on the next statement.
+        let statement = try XCTUnwrap(
+            service.getOrCreateStatement(for: card, transactionDate: closingDay, userId: uid))
+        let statementId = try XCTUnwrap(statement.id)
+        let txId = try transactionRepo.insertTransactionAndGetId(
+            TransactionModel(
+                title: "At home", category: "market", amount: 12000, type: "expense",
+                dateTimestamp: Int(closingDay.timeIntervalSince1970),
+                budgetMonthDate: closingDay.monthAnchor,
+                businessDayRule: .nextBusinessDay,
+                unadjustedDateTimestamp: Int(closingDay.timeIntervalSince1970)))
+        try transactionRepo.updateCreditCardFields(
+            transactionId: txId, creditCardId: cardId, statementId: statementId,
+            isCreditCardStatement: false)
+        TransactionRepository.invalidateCache()
+
+        // In Los Angeles that midnight reads as the evening before the closing day.
+        NSTimeZone.default = TimeZone(identifier: "America/Los_Angeles")!
+        service.reassignMisplacedTransactions(userId: uid, transactionRepo: transactionRepo)
+        TransactionRepository.invalidateCache()
+
+        let rows = transactionRepo.fetchAllTransactions()
+        XCTAssertFalse(rows.isEmpty, "Precondition: the row can be read back")
+        let row = try XCTUnwrap(rows.first { $0.id == txId })
+        XCTAssertEqual(row.statementId, statementId, "A trip must not move a saved purchase")
     }
 }

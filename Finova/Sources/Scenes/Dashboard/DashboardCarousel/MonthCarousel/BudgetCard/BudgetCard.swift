@@ -554,7 +554,8 @@ final class BudgetCard: UIView {
         monthAnchor: Int,
         monthData: MonthBudgetCardType? = nil,
         tagBreakdown: AllocationTagBreakdown = .empty,
-        deferredCardSpending: Int = 0
+        deferredCardSpending: Int = 0,
+        reservedPlan: Int? = nil
     ) {
         self.allocations = allocations
         self.unallocatedSummary = unallocatedSummary
@@ -589,10 +590,10 @@ final class BudgetCard: UIView {
         // actually consumed once it has closed - `base - unspentAllocations` would be a
         // counterfactual on a closed month.
         //
-        // `deferredCardSpending` comes off the base rather than the leading block's: this month's card
-        // purchases consumed the plan here but leave the account on a later statement, so without it
-        // the projection *rose* when a card expense was added. The leading block stays the real closing
-        // balance and must not move.
+        // `deferredCardSpending` comes off the base rather than the leading block's: card purchases
+        // consumed the plan but leave the account on a later statement, so without it the projection
+        // *rose* when a card expense was added. The leading block stays the real closing balance and
+        // must not move. `reservedPlan` carries the plans of the open months before this one.
         self.projection = balanceBasis.map {
             AllocationBalanceProjection(
                 base: $0.amount,
@@ -600,6 +601,7 @@ final class BudgetCard: UIView {
                 unallocatedSpending: unallocatedSummary.totalUsedInUnallocatedCategories,
                 unallocatedHeadroom: unallocatedSummary.unallocatedAmount,
                 deferredCardSpending: deferredCardSpending,
+                reservedPlan: reservedPlan,
                 tense: isPastMonth ? .actual : .projected
             )
         }
@@ -761,9 +763,9 @@ final class BudgetCard: UIView {
         // balances - the leading one is the balance if nothing more is drawn from the plan, this one
         // if all of it is. The truth lands between, and the gap narrows on its own as
         // `unspentAllocations` falls. It closes to `deferredCardSpending`, not to zero: card purchases
-        // already made this month settle on a later statement, so they are outstanding here even once
-        // the plan is fully drawn. No room for a connector with the donut between them, so the caption
-        // carries the assumption.
+        // already made settle on a later statement, so they are outstanding here even once the plan is
+        // fully drawn. A month ahead also carries the plans of the open months before it. No room for a
+        // connector with the donut between them, so the caption carries the assumption.
         //
         // Closed month: the verdict. This used to read "Budget used" over `usedWithinAllocations`,
         // which was two lies at once - the figure is capped per category, so it excluded overruns

@@ -104,8 +104,8 @@ object Allocations {
 
     /**
      * Card spending counted in [month] whose statement is due in a later month (or has no
-     * statement): it is in the allocations' "used" already but has not left the balance yet, so
-     * the projection takes it off (deferredCardSpending).
+     * statement). What a closed month's figures still read; an open month reads
+     * [balanceCommitments], which also holds debt run up in earlier months.
      */
     fun deferredCardSpending(rows: List<Transaction>, statements: List<CreditCardStatement>, month: YearMonth): Long {
         val dueMonth = statements.associate { it.id to YearMonth.from(it.dueDate) }
@@ -116,6 +116,70 @@ object Allocations {
             val due = row.statementId?.let { dueMonth[it] }
             if (due == null || due > month) row.amount else 0
         }
+    }
+
+    /**
+     * What is on a card at the end of [month] and has not reached that month's balance: every stored
+     * card row counted by then whose statement is due later, or that has no live statement, which
+     * never reaches the balance at all. Signed like [com.arthurrios.finova.domain.card.StatementBook.total],
+     * so refunds and payment credits net out as they do on the statement.
+     *
+     * A purchase counts from its budget month. A credit counts from its own date: a payment's debit
+     * moves the balance on that date, while the credit's budget month is the statement's closing
+     * month. Reading that month instead counted a payment made before closing twice, and dropped the
+     * debt for a scheduled payment still to come.
+     */
+    fun outstandingCard(rows: List<Transaction>, statements: List<CreditCardStatement>, month: YearMonth): Long =
+        outstandingCard(cardRows(rows, statements), month)
+
+    private class CardRow(val countsFrom: YearMonth, val settles: YearMonth?, val owed: Long)
+
+    private fun cardRows(rows: List<Transaction>, statements: List<CreditCardStatement>): List<CardRow> {
+        val dueMonth = statements.associate { it.id to YearMonth.from(it.dueDate) }
+        return rows.filter { it.creditCardId != null && !it.isCreditCardStatement && !it.isSettledEarly }.map { row ->
+            CardRow(
+                countsFrom = if (row.type == TransactionType.Income) YearMonth.from(row.date) else row.budgetMonth,
+                settles = row.statementId?.let { dueMonth[it] },
+                owed = -row.signedAmount,
+            )
+        }
+    }
+
+    private fun outstandingCard(cardRows: List<CardRow>, month: YearMonth): Long =
+        cardRows.filter { it.countsFrom <= month && (it.settles == null || it.settles > month) }.sumOf { it.owed }
+
+    /** Statement amounts per month they fall due. [ledgerRows] are the rows the balance is built from. */
+    fun statementsDue(ledgerRows: List<Transaction>): Map<YearMonth, Long> =
+        ledgerRows.filter { it.isCreditCardStatement && it.type == TransactionType.Expense }
+            .groupBy { YearMonth.from(it.date) }
+            .mapValues { (_, rows) -> rows.sumOf { it.amount } }
+
+    /**
+     * The two terms an open month's projection takes off its closing balance, for every month from
+     * [current] through [through]. One pass for the whole range, so the card and the budget history
+     * read one table and cannot disagree. No entry for a closed month: those keep their own figures.
+     *
+     * @param rows stored rows, never the statement rows.
+     * @param statementsDue from [statementsDue], over the same rows the closing balance used.
+     */
+    fun balanceCommitments(
+        allocations: List<AllocationRow>,
+        rows: List<Transaction>,
+        statements: List<CreditCardStatement>,
+        statementsDue: Map<YearMonth, Long>,
+        current: YearMonth,
+        through: YearMonth,
+    ): Map<YearMonth, BalanceCommitment> {
+        val cardRows = cardRows(rows, statements)
+        val commitments = linkedMapOf<YearMonth, BalanceCommitment>()
+        var reserved = 0L
+        var month = current
+        while (month <= through) {
+            reserved += AllocationBalanceProjection.reservedPlan(withUsage(allocations, rows, month), statementsDue[month] ?: 0)
+            commitments[month] = BalanceCommitment(outstandingCard(cardRows, month), reserved)
+            month = month.plusMonths(1)
+        }
+        return commitments
     }
 
     /** Categories that can get a new allocation in [month]. */
@@ -234,9 +298,25 @@ object Allocations {
     private fun isMember(row: AllocationRow, keys: Set<Long>) = row.id in keys || (row.parentId != null && row.parentId in keys)
 }
 
+/** What an open month's projection takes off its closing balance. See [Allocations.balanceCommitments]. */
+data class BalanceCommitment(
+    /** Money on a card that this month's balance has not absorbed. See [Allocations.outstandingCard]. */
+    val outstandingCard: Long,
+    /** The plan left unspent from the current month through this one. */
+    val reservedPlan: Long,
+)
+
 /**
  * The projected end-of-month balance and the saved-versus-overspent comparison on the
  * allocations card. Pure port of AllocationBalanceProjection.swift.
+ *
+ * For an open month: `projected = base - outstanding card - plan(current..month)`. The closing
+ * balance is cumulative, so it holds every salary up to the month. It has to carry every plan up to
+ * the month too, or each month ahead would keep what the months before it planned to spend.
+ *
+ * @property unspentAllocations this month's own unspent plan. [reservedPlan] is what the balance loses.
+ * @property reservedPlan the unspent plan of the current month through this one.
+ * @property deferredCardSpending the outstanding card debt; negative when credits exceed it.
  */
 data class AllocationBalanceProjection(
     val base: Long,
@@ -244,6 +324,7 @@ data class AllocationBalanceProjection(
     val unallocatedHeadroom: Long,
     val overspent: Long,
     val usedWithinAllocations: Long,
+    val reservedPlan: Long,
     val deferredCardSpending: Long,
     val projected: Long,
     val tense: Tense,
@@ -268,6 +349,18 @@ data class AllocationBalanceProjection(
 
     companion object {
         /**
+         * What one month adds to the plan still to leave the balance: each allocation's unspent part.
+         * Statement rows never count as usage, so a Credit Card allocation is drawn down by the bills
+         * due in the month here, or the bill would come off twice: once as the statement in the
+         * balance and again as an untouched plan.
+         */
+        fun reservedPlan(allocations: List<BudgetAllocation>, statementsDue: Long): Long =
+            allocations.sumOf {
+                val bill = if (it.category == TransactionCategory.CreditCard) statementsDue else 0
+                (it.remaining - bill).coerceAtLeast(0)
+            }
+
+        /**
          * The figures a month's card reads, in the one order they are handed over: the dashboard and
          * the budget history's months ahead both come through here, so they cannot disagree.
          */
@@ -277,6 +370,7 @@ data class AllocationBalanceProjection(
             unallocated: UnallocatedSummary,
             deferredCardSpending: Long,
             tense: Tense,
+            reservedPlan: Long? = null,
         ): AllocationBalanceProjection = of(
             base = base,
             allocations = allocations,
@@ -284,8 +378,15 @@ data class AllocationBalanceProjection(
             unallocatedHeadroom = unallocated.unallocated,
             deferredCardSpending = deferredCardSpending,
             tense = tense,
+            reservedPlan = reservedPlan,
         )
 
+        /**
+         * @param deferredCardSpending not clamped: a card's credit nets against its debt, and a net
+         *   credit does reach the balance, through the next statement it lowers.
+         * @param reservedPlan null reads this month's own unspent plan: a closed month, which has no
+         *   months of plan behind it.
+         */
         fun of(
             base: Long,
             allocations: List<BudgetAllocation>,
@@ -293,17 +394,19 @@ data class AllocationBalanceProjection(
             unallocatedHeadroom: Long = 0,
             deferredCardSpending: Long = 0,
             tense: Tense,
+            reservedPlan: Long? = null,
         ): AllocationBalanceProjection {
             val unspent = allocations.sumOf { it.remaining.coerceAtLeast(0) }
-            val deferred = deferredCardSpending.coerceAtLeast(0)
+            val reserved = reservedPlan ?: unspent
             return AllocationBalanceProjection(
                 base = base,
                 unspentAllocations = unspent,
                 unallocatedHeadroom = unallocatedHeadroom.coerceAtLeast(0),
                 overspent = allocations.sumOf { (-it.remaining).coerceAtLeast(0) } + unallocatedSpending.coerceAtLeast(0),
                 usedWithinAllocations = allocations.sumOf { minOf(it.used, it.allocated).coerceAtLeast(0) },
-                deferredCardSpending = deferred,
-                projected = base - deferred - unspent,
+                reservedPlan = reserved,
+                deferredCardSpending = deferredCardSpending,
+                projected = base - deferredCardSpending - reserved,
                 tense = tense,
             )
         }

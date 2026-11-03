@@ -467,6 +467,7 @@ fun MonthPageUi.projection(): AllocationBalanceProjection? = finalBalance?.let {
         allocations = allocations,
         unallocated = unallocated,
         deferredCardSpending = deferredCardSpending,
+        reservedPlan = reservedPlan,
         tense = if (isPastMonth) AllocationBalanceProjection.Tense.Actual else AllocationBalanceProjection.Tense.Projected,
     )
 }

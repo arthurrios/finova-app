@@ -56,7 +56,7 @@ data class CreditCardStatement(
     fun status(today: LocalDate): StatementStatus = when {
         isPaid -> if (paidDate != null && paidDate > today) StatementStatus.Scheduled else StatementStatus.Paid
         today > dueDate -> StatementStatus.Overdue
-        today > closingDate -> StatementStatus.Closed
+        today >= closingDate -> StatementStatus.Closed
         else -> StatementStatus.Open
     }
 }

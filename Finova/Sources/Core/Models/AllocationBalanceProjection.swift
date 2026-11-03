@@ -15,6 +15,12 @@ import Foundation
 /// has several drifting balance implementations, and this must not become another one. The caller
 /// supplies `base`, a cumulative, scope-correct `finalBalance`.
 ///
+/// For an open month: `projected = base - outstanding card - plan(current..month)`. `base` is
+/// cumulative, so it holds every salary up to the month, and it has to carry every plan up to the month
+/// too. Subtracting only the month's own plan left each month ahead keeping what the months before it
+/// planned to spend: salary 8.000 and a plan of 1.000 read 7.000 / 15.000 / 23.000 instead of
+/// 7.000 / 14.000 / 21.000. `BalanceCommitments` works out both terms, once, for every open month.
+///
 /// Built for any month, but it reports different quantities depending on `tense`: for a closed
 /// month `base - unspentAllocations` would answer "what if the leftover budget *had* been spent",
 /// which never happened, so a closed month reports what the allocations actually consumed instead.
@@ -48,11 +54,28 @@ struct AllocationBalanceProjection: Equatable {
         allocations.reduce(0) { $0 + max(0, $1.remainingAmount) }
     }
 
+    /// What one month adds to the plan still to leave the balance: each allocation's unspent part.
+    ///
+    /// Statement rows never count as usage, so a Credit Card allocation is drawn down by the bills due
+    /// in the month here. Otherwise the bill comes off twice: once as the statement in `base`, and again
+    /// as a plan nothing has touched.
+    static func reservedPlan(allocations: [BudgetAllocation], statementsDue: Int) -> Int {
+        allocations.reduce(0) { total, allocation in
+            let bill = allocation.category == .creditCard ? statementsDue : 0
+            return total + max(0, allocation.remainingAmount - bill)
+        }
+    }
+
     /// Ledger closing balance for the month, in minor units.
     let base: Int
 
-    /// Budget earmarked to categories but not yet spent, clamped per category.
+    /// This month's budget earmarked to categories but not yet spent, clamped per category. What the
+    /// allocations list shows, and what `totalSaved` counts. The balance loses `reservedPlan`.
     let unspentAllocations: Int
+
+    /// The plan still to leave the balance: the unspent plan of the current month through this one.
+    /// For a closed month, its own `unspentAllocations`.
+    let reservedPlan: Int
 
     /// Budget cap that was never earmarked to any category, clamped at zero.
     ///
@@ -72,8 +95,9 @@ struct AllocationBalanceProjection: Equatable {
     /// exactly like any other spend, so they are not counted as money kept.
     let usedWithinAllocations: Int
 
-    /// Money already charged against this month's allocations that `base` has not absorbed yet:
-    /// credit card spending made this month whose statement settles in a later one.
+    /// Money on a card that `base` has not absorbed yet. For an open month, everything counted up to
+    /// and including it on a statement settling later (see `BalanceCommitments`); for a closed month,
+    /// that month's own card spending. Negative when the card's credits are larger than its debt.
     ///
     /// Without this term the projection *rises* when a card purchase is added, which is what it used to
     /// do. `base` is cash-only - `TransactionLedgerService` keeps card purchases out of the balance
@@ -83,12 +107,11 @@ struct AllocationBalanceProjection: Equatable {
     /// `base - unspent` climbed by the amount of a *spend*.
     ///
     /// Subtracting it makes this answer "what is left once the plan is honoured, counting the card debt
-    /// this month has already run up". The money is committed either way; only the date it leaves the
-    /// account differs.
+    /// already run up". The money is committed either way; only the date it leaves the account differs.
     let deferredCardSpending: Int
 
-    /// What survives once every allocation is honoured and this month's card debt is paid. May be
-    /// negative.
+    /// What survives once every allocation up to this month is honoured and the card debt is paid. May
+    /// be negative.
     let projected: Int
 
     let tense: Tense
@@ -98,17 +121,20 @@ struct AllocationBalanceProjection: Equatable {
     ///     `overspent` - money spent with no plan behind it is money spent beyond the plan.
     ///   - unallocatedHeadroom: budget cap never earmarked to a category, which counts toward
     ///     `totalSaved`. Clamped at zero, so over-allocation does not read as negative saving.
-    ///   - deferredCardSpending: card spending counted against these allocations whose statement
-    ///     settles after this month, so `base` does not reflect it yet. Comes off the projection and
-    ///     nothing else - it is money spent, so it is neither saved nor overspending. Clamped at zero;
-    ///     `BudgetAllocationService.deferredCardSpending` counts only expenses, so a negative can only
-    ///     mean the caller measured something else.
+    ///   - deferredCardSpending: card money `base` does not reflect yet. Comes off the projection and
+    ///     nothing else - it is money spent, so it is neither saved nor overspending. Not clamped: a
+    ///     card's credit nets against its debt, and a net credit does reach the balance, through the
+    ///     next statement it lowers.
+    ///   - reservedPlan: the plan left from the current month through this one, from
+    ///     `BalanceCommitments`. Nil reads this month's own unspent plan, which is what a closed month
+    ///     has: no months of plan behind it.
     init(
         base: Int,
         allocations: [BudgetAllocation],
         unallocatedSpending: Int = 0,
         unallocatedHeadroom: Int = 0,
         deferredCardSpending: Int = 0,
+        reservedPlan: Int? = nil,
         tense: Tense
     ) {
         // Only the *unspent* remainder is a future outflow. Money already spent is inside `base`,
@@ -120,18 +146,19 @@ struct AllocationBalanceProjection: Equatable {
             $0 + max(0, min($1.usedAmount, $1.allocatedAmount))
         }
         let unspent = Self.unspent(allocations: allocations)
-        let deferred = max(0, deferredCardSpending)
+        let reserved = reservedPlan ?? unspent
 
         self.base = base
         self.unspentAllocations = unspent
+        self.reservedPlan = reserved
         self.unallocatedHeadroom = max(0, unallocatedHeadroom)
         self.overspent = Self.overspent(
             allocations: allocations, unallocatedSpending: unallocatedSpending)
         self.usedWithinAllocations = used
-        self.deferredCardSpending = deferred
-        // Both subtrahends are outflows `base` has yet to see: `unspent` because the plan has not been
-        // drawn on yet, `deferred` because the card statement carrying it lands in a later month.
-        self.projected = base - deferred - unspent
+        self.deferredCardSpending = deferredCardSpending
+        // Both subtrahends are outflows `base` has yet to see: `reserved` because the plan has not been
+        // drawn on yet, `deferredCardSpending` because the statement carrying it lands in a later month.
+        self.projected = base - deferredCardSpending - reserved
         self.tense = tense
     }
 
@@ -198,4 +225,68 @@ struct AllocationBalanceProjection: Equatable {
             overspent: CGFloat(overspent) / divisor
         )
     }
+}
+
+/// What an open month's projection takes off its closing balance, for every open month of one load.
+///
+/// Worked out in one pass over the rows and handed to whoever needs a month, so the dashboard card and
+/// the budget history read one table and cannot disagree, and a carousel of months does not repeat the
+/// walk from the current month for each cell. Pure, like `AllocationBalanceProjection`:
+/// `BudgetAllocationService.balanceCommitments` reads the rows.
+struct BalanceCommitments: Equatable {
+
+    /// One open month's two terms.
+    struct Month: Equatable {
+        /// Money on a card that this month's closing balance has not absorbed.
+        let outstandingCard: Int
+        /// The plan left unspent from the current month through this one.
+        let reservedPlan: Int
+    }
+
+    /// One stored card row, never a statement synthetic.
+    struct CardRow: Equatable {
+        /// The first month it counts in. A purchase counts from its budget month. A credit counts from
+        /// its own date, because a payment's debit moves the balance on that date while the credit's
+        /// budget month is the statement's closing month: reading that month counted a payment made
+        /// before closing twice, and dropped the debt for a scheduled payment still to come.
+        let countsFrom: Int
+        /// The month its statement falls due. Nil when it has no live statement, so no synthetic will
+        /// ever carry it into a balance and it stays outstanding.
+        let settles: Int?
+        /// Signed like `DBHelper.signedAmount`: credits subtract, as they do on the statement.
+        let owed: Int
+    }
+
+    static let none = BalanceCommitments(months: [:])
+
+    private let months: [Int: Month]
+
+    private init(months: [Int: Month]) {
+        self.months = months
+    }
+
+    /// - Parameters:
+    ///   - anchors: the current month and the months after it, in order. Past months have no entry:
+    ///     they keep their own figures.
+    ///   - allocations: by month, with usage filled in.
+    ///   - statementsDue: statement amounts by the month they fall due, from the rows `base` used.
+    init(
+        anchors: [Int], cardRows: [CardRow], allocations: [Int: [BudgetAllocation]],
+        statementsDue: [Int: Int]
+    ) {
+        var months: [Int: Month] = [:]
+        var reserved = 0
+        for anchor in anchors {
+            reserved += AllocationBalanceProjection.reservedPlan(
+                allocations: allocations[anchor] ?? [], statementsDue: statementsDue[anchor] ?? 0)
+            let outstanding = cardRows.reduce(0) { total, row in
+                let isOutstanding = row.countsFrom <= anchor && (row.settles.map { $0 > anchor } ?? true)
+                return isOutstanding ? total + row.owed : total
+            }
+            months[anchor] = Month(outstandingCard: outstanding, reservedPlan: reserved)
+        }
+        self.months = months
+    }
+
+    subscript(monthAnchor: Int) -> Month? { months[monthAnchor] }
 }

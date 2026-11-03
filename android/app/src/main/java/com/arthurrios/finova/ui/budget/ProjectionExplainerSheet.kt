@@ -70,13 +70,15 @@ fun ProjectionExplainerSheet(
                     Money.formatMasked(projection.base, currencyCode, valuesHidden),
                 )
                 // A term worth zero is noise in an explanation, so it is left out.
-                if (projection.deferredCardSpending > 0) {
+                if (projection.deferredCardSpending != 0L) {
+                    // Negative when the card's credits are larger than its debt, which adds to the balance.
+                    val sign = if (projection.deferredCardSpending > 0) "-" else "+"
                     FormulaRow(stringResource(R.string.projection_formula_card),
-                        "-" + Money.formatMasked(projection.deferredCardSpending, currencyCode, valuesHidden), subtraction = true)
+                        sign + Money.formatMasked(kotlin.math.abs(projection.deferredCardSpending), currencyCode, valuesHidden), subtraction = true)
                 }
-                if (projection.unspentAllocations > 0) {
+                if (projection.reservedPlan > 0) {
                     FormulaRow(stringResource(R.string.projection_formula_unspent),
-                        "-" + Money.formatMasked(projection.unspentAllocations, currencyCode, valuesHidden), subtraction = true)
+                        "-" + Money.formatMasked(projection.reservedPlan, currencyCode, valuesHidden), subtraction = true)
                 }
                 HorizontalDivider(color = FinovaColors.Gray300)
                 FormulaRow(

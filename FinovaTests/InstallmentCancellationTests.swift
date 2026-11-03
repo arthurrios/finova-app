@@ -274,8 +274,8 @@ final class InstallmentCancellationTests: XCTestCase {
     }
 
     func testTheCreditLandsOnTheNextOPENStatement() throws {
-        // Same hazard as early payment: on a card closing today, date routing resolves to the cycle
-        // closing today — an invoice already issued, where the user would never see the refund.
+        // Same hazard as early payment: a statement closing today is already issued, so the user
+        // would never see a refund there. Yesterday's purchase is what puts one on the card.
         let uid = try XCTUnwrap(UIDUserDefaultsManager.shared.currentUserUID)
         let today = Calendar.current.component(.day, from: Date())
 
@@ -291,7 +291,7 @@ final class InstallmentCancellationTests: XCTestCase {
 
         let closedToday = try XCTUnwrap(
             CreditCardService().getOrCreateStatement(
-                for: card, transactionDate: Date(), userId: uid))
+                for: card, transactionDate: Calendar.current.date(byAdding: .day, value: -1, to: Date())!, userId: uid))
         XCTAssertLessThanOrEqual(
             closedToday.closingDate, Date(), "Precondition: that cycle should already be closed")
 

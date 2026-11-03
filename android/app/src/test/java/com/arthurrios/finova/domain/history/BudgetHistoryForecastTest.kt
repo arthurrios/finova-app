@@ -392,13 +392,15 @@ class BudgetHistoryForecastTest {
     /** What DashboardViewModel hands the card, on its wider range of months. */
     private fun dashboardPage(month: YearMonth): MonthPageUi {
         val summary = LedgerCalculator.monthlySummaries(ledger, budgets, 0, (-2..7).map(::anchor), today).first { it.month == month }
+        val commitment = Allocations.balanceCommitments(allocationRows, stored, statements, Allocations.statementsDue(ledger), current, anchor(7)).getValue(month)
         return MonthPageUi(
             month = month, isCurrentMonth = false, isPastMonth = false, usedValue = summary.usedValue, budgetLimit = summary.budgetLimit,
             finalBalance = summary.finalBalance, currentBalance = summary.currentBalance, transactions = emptyList(),
             allocations = Allocations.withUsage(allocationRows, stored, month).sortedByDescending { it.allocated },
             unallocated = Allocations.unallocatedSummary(allocationRows, stored, budgets, month),
             offPlan = Allocations.unallocatedSpending(allocationRows, stored, month),
-            deferredCardSpending = Allocations.deferredCardSpending(stored, statements, month),
+            deferredCardSpending = commitment.outstandingCard,
+            reservedPlan = commitment.reservedPlan,
         )
     }
 

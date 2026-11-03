@@ -598,7 +598,9 @@ private fun Readout(state: BudgetHistoryUiState, month: BudgetHistoryMonth, onSe
 private fun ForecastReadout(state: BudgetHistoryUiState, month: BudgetForecastFigures, onSelect: (YearMonth) -> Unit) {
     val hidden = state.valuesHidden
     val code = state.currencyCode
-    val spoken = BudgetForecastText.accessibility(month, hidden).map { it.text(code) }.joinToString(", ")
+    // A whole month with a balance leads with it. Its costs stay in the projected month card below.
+    val balance = state.forecastBalance(month)
+    val spoken = BudgetForecastText.accessibility(month, hidden, balance).map { it.text(code) }.joinToString(", ")
     Column(
         verticalArrangement = Arrangement.spacedBy(Spacing.S1),
         modifier = Modifier.semantics(mergeDescendants = true) { contentDescription = spoken },
@@ -615,7 +617,8 @@ private fun ForecastReadout(state: BudgetHistoryUiState, month: BudgetForecastFi
             )
         }
         Text(
-            when (val filter = state.filter) {
+            if (balance != null) stringResource(R.string.history_forecast_readout_balance)
+            else when (val filter = state.filter) {
                 BudgetHistoryFilter.WholeMonth -> stringResource(R.string.history_forecast_expected_whole)
                 is BudgetHistoryFilter.Category -> stringResource(R.string.history_forecast_expected_category_format, stringResource(filter.category.label))
                 BudgetHistoryFilter.OutsideAllocations -> stringResource(R.string.history_forecast_line_outside)
@@ -624,7 +627,7 @@ private fun ForecastReadout(state: BudgetHistoryUiState, month: BudgetForecastFi
         )
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                Money.formatMasked(month.expected, code, hidden),
+                Money.formatMasked(balance ?: month.expected, code, hidden),
                 style = FinovaType.TitleLG.copy(fontSize = 24.sp), color = FinovaColors.Gray500,
                 // Shrinks like iOS's minimum scale factor: a cut-off amount reads as a different amount.
                 autoSize = TextAutoSize.StepBased(minFontSize = 14.sp, maxFontSize = 24.sp),
@@ -633,7 +636,11 @@ private fun ForecastReadout(state: BudgetHistoryUiState, month: BudgetForecastFi
             Spacer(Modifier.width(Spacing.S2))
             ForecastStatusPill(month, hidden, code)
         }
-        Text(forecastPlanLine(month, hidden, code), style = FinovaType.TextXS, color = FinovaColors.Gray500)
+        Text(
+            if (balance != null && month.hasPlan) stringResource(R.string.history_forecast_a11y_expected_of_format, Money.formatMasked(month.expected, code, hidden), Money.formatMasked(month.planned, code, hidden))
+            else forecastPlanLine(month, hidden, code),
+            style = FinovaType.TextXS, color = FinovaColors.Gray500,
+        )
     }
 }
 
@@ -861,6 +868,7 @@ private fun ForecastCard(state: BudgetHistoryUiState, figures: BudgetForecastFig
                     DetailLine(stringResource(R.string.history_forecast_statements), Money.formatMasked(-detail.month.statementsDue, code, hidden))
                 }
                 DetailLine(stringResource(R.string.history_forecast_balance), Money.formatMasked(projection.projected, code, hidden), bold = true)
+                Note(stringResource(R.string.history_forecast_balance_note))
                 if (detail.month.statementsDue > 0) Note(stringResource(R.string.history_forecast_statements_note))
             }
         }

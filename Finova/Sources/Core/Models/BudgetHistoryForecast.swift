@@ -55,7 +55,8 @@ struct BudgetForecastMonth: Equatable, Identifiable {
         unallocatedSpending: [UnallocatedCategorySpending],
         closingBalance: Int?,
         deferredCardSpending: Int,
-        statementsDue: Int
+        statementsDue: Int,
+        reservedPlan: Int? = nil
     ) {
         self.monthAnchor = monthAnchor
         self.budget = max(0, summary.totalBudget)
@@ -82,6 +83,7 @@ struct BudgetForecastMonth: Equatable, Identifiable {
                 unallocatedSpending: summary.totalUsedInUnallocatedCategories,
                 unallocatedHeadroom: summary.unallocatedAmount,
                 deferredCardSpending: deferredCardSpending,
+                reservedPlan: reservedPlan,
                 tense: .projected)
         }
     }

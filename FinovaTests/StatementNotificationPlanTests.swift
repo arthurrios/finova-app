@@ -45,8 +45,9 @@ final class StatementNotificationPlanTests: XCTestCase {
     func testAnOpenStatementIsAnnouncedAtClosingAndAgainWhenDue() {
         let planned = plan()
 
-        XCTAssertEqual(planned.map(\.kind), [.closed, .paymentDue])
-        XCTAssertEqual(planned.map(\.identifier), ["statement_closed_7", "statement_pay_7"])
+        XCTAssertEqual(planned.map(\.kind), [.closed, .paymentDue, .paymentCheck])
+        XCTAssertEqual(
+            planned.map(\.identifier), ["statement_closed_7", "statement_pay_7", "statement_check_7"])
     }
 
     func testBothMessagesCarryTheStatementTotal() {
@@ -71,10 +72,17 @@ final class StatementNotificationPlanTests: XCTestCase {
     func testAStatementThatHasAlreadyClosedOnlyStillOwesThePaymentReminder() {
         let planned = plan(closingIn: -2, dueIn: 8)
 
-        XCTAssertEqual(planned.map(\.kind), [.paymentDue])
+        XCTAssertEqual(planned.map(\.kind), [.paymentDue, .paymentCheck])
     }
 
     // MARK: - What is deliberately silent
+
+    func testTheDayAfterTheDueDateItAsksIfTheStatementWasPaid() {
+        let planned = plan(closingIn: -10, dueIn: 0)
+        let check = planned.first { $0.kind == .paymentCheck }
+        XCTAssertEqual(
+            check?.fireDate, StatementNotificationPlan.fireDate(on: day(1), calendar: calendar))
+    }
 
     func testAPaidStatementSaysNothing() {
         XCTAssertTrue(
@@ -110,6 +118,7 @@ final class StatementNotificationPlanTests: XCTestCase {
     func testTheSweepRecognisesEveryStatementIdentifierIncludingTheRetiredOne() {
         XCTAssertTrue(StatementNotificationPlan.isStatementIdentifier("statement_closed_7"))
         XCTAssertTrue(StatementNotificationPlan.isStatementIdentifier("statement_pay_7"))
+        XCTAssertTrue(StatementNotificationPlan.isStatementIdentifier("statement_check_7"))
         XCTAssertTrue(
             StatementNotificationPlan.isStatementIdentifier("statement_due_7"),
             "The old due-soon reminder must still be swept, or an updating app keeps firing it")

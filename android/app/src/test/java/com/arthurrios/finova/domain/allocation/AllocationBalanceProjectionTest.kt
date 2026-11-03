@@ -66,9 +66,9 @@ class AllocationBalanceProjectionTest {
         assertEquals(without.usedWithinAllocations, with.usedWithinAllocations)
     }
 
-    @Test fun negativeDeferredCardSpendingIsIgnored() {
+    @Test fun cardCreditBeyondItsDebtAddsToTheProjection() {
         val p = p(100_000, emptyList(), deferred = -25_000)
-        assertEquals(0L, p.deferredCardSpending); assertEquals(100_000L, p.projected)
+        assertEquals(-25_000L, p.deferredCardSpending); assertEquals(125_000L, p.projected)
     }
 
     @Test fun cardDebtCanOverCommitAMonthTheAllocationsAloneWouldNot() {

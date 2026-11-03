@@ -236,6 +236,13 @@ final class BudgetHistoryViewModel: ObservableObject {
             figures: figures, month: month, scheduledCount: listed.count, biggest: Array(listed.prefix(3)))
     }
 
+    /// The balance a projected month's readout leads with: the whole month's only, because a balance
+    /// does not apply to a category. Nil when the month has no balance either.
+    func forecastBalance(for figures: BudgetForecastFigures) -> Int? {
+        guard figures.filter == .wholeMonth else { return nil }
+        return forecast.month(figures.monthAnchor)?.projection?.projected
+    }
+
     struct ForecastDetail {
         let figures: BudgetForecastFigures
         let month: BudgetForecastMonth
@@ -520,8 +527,20 @@ extension BudgetHistoryViewModel {
 
     /// What VoiceOver reads for a projected month. Opens by saying it is projected, so the amounts
     /// that follow are never taken for a result.
-    static func forecastAccessibilityValue(for month: BudgetForecastFigures, hidden: Bool) -> String {
+    ///
+    /// - Parameter balance: the balance the readout leads with, read first when there is one.
+    static func forecastAccessibilityValue(
+        for month: BudgetForecastFigures, hidden: Bool, balance: Int? = nil
+    ) -> String {
         var parts = ["budgetHistory.forecast.badge".localized]
+        if let balance {
+            parts.append(
+                hidden
+                    ? "budgetHistory.forecast.readout.balance".localized
+                    : String(
+                        format: "budgetHistory.forecast.a11y.balance.format".localized,
+                        balance.maskedSignedCurrencyString(hidden: false)))
+        }
         if !hidden {
             parts.append(
                 month.hasPlan

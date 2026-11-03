@@ -53,8 +53,10 @@ data class MonthPageUi(
     val unallocated: UnallocatedSummary = UnallocatedSummary(month, 0, 0, 0),
     /** Categories spent in with no allocation, biggest first. */
     val offPlan: List<UnallocatedSpending> = emptyList(),
-    /** Card spending counted this month but charged on a later statement. */
+    /** Card money this month's balance has not absorbed. See Allocations.outstandingCard. */
     val deferredCardSpending: Long = 0,
+    /** The plan left from the current month through this one. Null on a closed month. */
+    val reservedPlan: Long? = null,
 ) {
     val hasBudget: Boolean get() = (budgetLimit ?: 0) > 0
 }

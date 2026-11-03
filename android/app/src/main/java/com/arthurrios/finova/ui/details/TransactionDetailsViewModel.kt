@@ -2,6 +2,7 @@ package com.arthurrios.finova.ui.details
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.arthurrios.finova.domain.card.CardCycle
 import com.arthurrios.finova.data.UserSettingsStore
 import com.arthurrios.finova.data.repo.CardRepository
 import com.arthurrios.finova.data.repo.FinanceRepository
@@ -148,7 +149,7 @@ class TransactionDetailsViewModel(
         val card = cards.firstOrNull { it.id == row.creditCardId } ?: return emptyList()
         val thisMonth = java.time.YearMonth.from(today())
         return (-6L..2L).map { thisMonth.plusMonths(it) }.mapNotNull { month ->
-            val target = StatementBook.route(statements, card, month.atDay(1), settings.defaultBusinessDayRule)
+            val target = StatementBook.route(statements, card, CardCycle.routingDate(month), settings.defaultBusinessDayRule)
             if (target.id != 0L && target.id == row.statementId) null else month to target.dueDate
         }
     }

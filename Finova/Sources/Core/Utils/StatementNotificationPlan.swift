@@ -12,15 +12,19 @@ import Foundation
 struct PlannedStatementNotification: Equatable {
   enum Kind: String {
     /// The cycle has closed. This is the figure the user actually owes, so it fires the morning
-    /// after the closing date: a purchase on the closing date itself still joins the statement.
+    /// after the closing date. Purchases made on the closing date are on the next statement.
     case closed
     /// Due today.
     case paymentDue
+    /// Due yesterday and still unpaid. The balance only follows the real payment date once the
+    /// statement is marked paid, so this asks.
+    case paymentCheck
 
     var identifierPrefix: String {
       switch self {
       case .closed: return "statement_closed_"
       case .paymentDue: return "statement_pay_"
+      case .paymentCheck: return "statement_check_"
       }
     }
 
@@ -28,6 +32,7 @@ struct PlannedStatementNotification: Equatable {
       switch self {
       case .closed: return "notification.statement.closed.title"
       case .paymentDue: return "notification.statement.paymentDue.title"
+      case .paymentCheck: return "notification.statement.paymentCheck.title"
       }
     }
 
@@ -35,6 +40,7 @@ struct PlannedStatementNotification: Equatable {
       switch self {
       case .closed: return "notification.statement.closed.body"
       case .paymentDue: return "notification.statement.paymentDue.body"
+      case .paymentCheck: return "notification.statement.paymentCheck.body"
       }
     }
   }
@@ -61,7 +67,10 @@ enum StatementNotificationPlan {
   static func identifiers(for statementId: Int) -> [String] {
     // "statement_due_" is the old due-soon reminder, dropped in favour of a notification once the
     // statement has closed. Still swept so an app updating from an older build does not keep firing it.
-    ["statement_closed_\(statementId)", "statement_pay_\(statementId)", "statement_due_\(statementId)"]
+    [
+      "statement_closed_\(statementId)", "statement_pay_\(statementId)",
+      "statement_check_\(statementId)", "statement_due_\(statementId)",
+    ]
   }
 
   static func isStatementIdentifier(_ identifier: String) -> Bool {
@@ -92,8 +101,10 @@ enum StatementNotificationPlan {
     var planned: [PlannedStatementNotification] = []
 
     let dayAfterClosing = calendar.date(byAdding: .day, value: 1, to: closingDate) ?? closingDate
+    let dayAfterDue = calendar.date(byAdding: .day, value: 1, to: dueDate) ?? dueDate
     for (kind, day) in [(PlannedStatementNotification.Kind.closed, dayAfterClosing),
-                        (PlannedStatementNotification.Kind.paymentDue, dueDate)] {
+                        (PlannedStatementNotification.Kind.paymentDue, dueDate),
+                        (PlannedStatementNotification.Kind.paymentCheck, dayAfterDue)] {
       guard let fireDate = fireDate(on: day, calendar: calendar) else { continue }
       guard fireDate > now else { continue }
       guard fireDate.timeIntervalSince(now) <= horizon else { continue }

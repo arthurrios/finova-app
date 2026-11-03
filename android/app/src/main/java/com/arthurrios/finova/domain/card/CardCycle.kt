@@ -11,14 +11,21 @@ import java.time.YearMonth
  */
 object CardCycle {
     /**
-     * The statement a purchase lands on closes this month if the purchase day is on or before the
-     * closing day, else next month. Never shifted for weekends: the closing day is a billing
-     * boundary, and moving it would reroute purchases between cycles.
+     * The statement a purchase lands on closes this month if the purchase is before the closing
+     * day, else next month: a statement is issued on its closing day, so a purchase made that day
+     * is on the next one. Never shifted for weekends: the closing day is a billing boundary, and
+     * moving it would reroute purchases between cycles.
      */
     fun closingDate(closingDay: Int, purchase: LocalDate): LocalDate {
-        val month = YearMonth.from(purchase).let { if (purchase.dayOfMonth <= closingDay) it else it.plusMonths(1) }
-        return closingDateIn(month, closingDay)
+        val thisMonth = closingDateIn(YearMonth.from(purchase), closingDay)
+        return if (purchase < thisMonth) thisMonth else closingDateIn(YearMonth.from(purchase).plusMonths(1), closingDay)
     }
+
+    /**
+     * A date that routes to the statement closing in [month]. The last day of the month before is
+     * past the previous closing on every card; the 1st is not, on a card closing on the 1st.
+     */
+    fun routingDate(month: YearMonth): LocalDate = month.minusMonths(1).atEndOfMonth()
 
     /** The closing date of the cycle that closes in [month]. */
     fun closingDateIn(month: YearMonth, closingDay: Int): LocalDate =

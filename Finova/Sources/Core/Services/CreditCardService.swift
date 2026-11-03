@@ -7,29 +7,42 @@ import Foundation
 import UIKit
 
 class CreditCardService {
-    private let cardRepo = CreditCardRepository()
-    private let stmtRepo = StatementRepository()
+    private let cardRepo: CreditCardRepository
+    private let stmtRepo: StatementRepository
+    private let transactionRepo: TransactionRepository
+
+    init(
+        cardRepo: CreditCardRepository = CreditCardRepository(),
+        stmtRepo: StatementRepository = StatementRepository(),
+        transactionRepo: TransactionRepository = TransactionRepository()
+    ) {
+        self.cardRepo = cardRepo
+        self.stmtRepo = stmtRepo
+        self.transactionRepo = transactionRepo
+    }
 
     /// Returns the closing date for a transaction on a given card.
-    /// If transactionDay <= closingDay -> current month closing.
-    /// If transactionDay > closingDay -> next month closing.
+    /// Before the closing day -> current month closing.
+    /// On or after the closing day -> next month closing. A statement is issued on its closing day,
+    /// so a purchase made that day is on the next one, as banks do it.
     func calculateClosingDate(card: CreditCard, transactionDate: Date) -> Date {
         let calendar = Calendar.current
         let day = calendar.component(.day, from: transactionDate)
         let month = calendar.component(.month, from: transactionDate)
         let year = calendar.component(.year, from: transactionDate)
 
-        if day <= card.closingDay {
+        // Against the day the month really closes: a card closing on the 31st closes on 30 April.
+        let closingDay = min(card.closingDay, daysInMonth(month: month, year: year))
+        if day < closingDay {
             // Current month statement
-            let closingDay = min(card.closingDay, daysInMonth(month: month, year: year))
             return calendar.date(from: DateComponents(year: year, month: month, day: closingDay))!
         } else {
             // Next month statement
             var nextMonth = month + 1
             var nextYear = year
             if nextMonth > 12 { nextMonth = 1; nextYear += 1 }
-            let closingDay = min(card.closingDay, daysInMonth(month: nextMonth, year: nextYear))
-            return calendar.date(from: DateComponents(year: nextYear, month: nextMonth, day: closingDay))!
+            let nextClosingDay = min(card.closingDay, daysInMonth(month: nextMonth, year: nextYear))
+            return calendar.date(from: DateComponents(year: nextYear, month: nextMonth, day: nextClosingDay))!
         }
     }
 
@@ -72,7 +85,7 @@ class CreditCardService {
     /// Gets or creates a statement for a transaction on a given card/date.
     ///
     /// The billing cycle a transaction belongs to is decided solely by the card's
-    /// *current* closing day (`calculateClosingDate`): purchase day <= closingDay →
+    /// *current* closing day (`calculateClosingDate`): purchase day < closingDay →
     /// this month's statement, otherwise next month's. This matches how credit cards
     /// actually work and must never be overridden by which existing (possibly stale)
     /// statement's date range happens to overlap the purchase date.
@@ -317,6 +330,13 @@ class CreditCardService {
             .first
     }
 
+    /// A date that routes to the statement closing in `firstOfMonth`'s month. The day before that
+    /// month is always past the previous closing, on every card. The 1st itself is not: on a card
+    /// closing on the 1st it routes to the month after.
+    func routingDate(forStatementMonthOf firstOfMonth: Date) -> Date {
+        Calendar.current.date(byAdding: .day, value: -1, to: firstOfMonth) ?? firstOfMonth
+    }
+
     /// The month a moved card transaction was SPENT in — the one whose category allocation it
     /// consumes — recovered from a column the statement remap never wrote.
     ///
@@ -549,7 +569,7 @@ class CreditCardService {
         var statementTransactions: [Transaction] = []
 
         // Use the same source as the ViewModel
-        let allSecureTransactions = TransactionRepository().fetchAllTransactions()
+        let allSecureTransactions = self.transactionRepo.fetchAllTransactions()
         let settledInstallmentIds = DBHelper.shared.settledInstallmentIds()
 
         let cards = liveCards
@@ -1033,12 +1053,29 @@ class CreditCardService {
         }
 
         var affectedStatementIds = Set<Int>()
+        let cardStatements = stmtRepo.fetchStatements(forCardId: cardId)
 
         for tx in cardTransactions {
             guard let txId = tx.id else { continue }
 
             // Skip transactions whose statement was manually overridden by the user
             if DBHelper.shared.isStatementOverridden(transactionId: txId) { continue }
+
+            // Dates are stored as midnight where the phone was. A statement that is not at midnight
+            // here was made in another time zone, so its rows read a day off and must not be
+            // re-routed: a trip would otherwise move saved purchases.
+            if let current = cardStatements.first(where: { $0.id == tx.statementId }),
+               Calendar.current.startOfDay(for: current.closingDate) != current.closingDate {
+                continue
+            }
+
+            // Closing-day purchases used to go on the statement closing that day. One already
+            // issued stays as the user saw it, or a paid statement would change after the fact.
+            if let current = cardStatements.first(where: { $0.id == tx.statementId }),
+               current.closingDate <= now,
+               Calendar.current.isDate(tx.unadjustedDate, inSameDayAs: current.closingDate) {
+                continue
+            }
 
             // Don't move transactions out of past statements
             if onlyFutureCycles, let stmtId = tx.statementId, closedStatementIds.contains(stmtId) {

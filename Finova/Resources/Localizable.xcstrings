@@ -4526,6 +4526,24 @@
         }
       }
     },
+    "budgetHistory.forecast.a11y.balance.format": {
+      "comment": "VoiceOver: the expected balance of a projected month.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Expected balance %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saldo previsto %@"
+          }
+        }
+      }
+    },
     "budgetHistory.forecast.a11y.expected.format": {
       "comment": "VoiceOver: expected cost of a projected month with no plan.",
       "extractionState": "manual",
@@ -4594,6 +4612,24 @@
           "stringUnit": {
             "state": "translated",
             "value": "Saldo previsto no fim do mês"
+          }
+        }
+      }
+    },
+    "budgetHistory.forecast.balance.note": {
+      "comment": "Projected month: what the expected balance counts.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Counts this month's plan and the plans of the months before it, each spent in full."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conta o plano deste mês e os dos meses anteriores, cada um gasto por inteiro."
           }
         }
       }
@@ -4810,6 +4846,24 @@
           "stringUnit": {
             "state": "translated",
             "value": "Considera cada alocação gasta por inteiro, como no painel. Isto é uma projeção, não um resultado real."
+          }
+        }
+      }
+    },
+    "budgetHistory.forecast.readout.balance": {
+      "comment": "Readout label: the balance a projected month is expected to end on.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Expected balance"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saldo previsto"
           }
         }
       }
@@ -14734,13 +14788,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Budget still unspent"
+            "value": "Budget still unspent through this month"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Orçamento ainda não usado"
+            "value": "Orçamento ainda não usado até este mês"
           }
         }
       }
@@ -21094,6 +21148,38 @@
           "stringUnit": {
             "state": "translated",
             "value": "Confira a bandeira do cartão."
+          }
+        }
+      }
+    },
+    "notification.statement.paymentCheck.title": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Did you pay your statement?"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Já pagou sua fatura?"
+          }
+        }
+      }
+    },
+    "notification.statement.paymentCheck.body": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your %@ statement of %@ was due yesterday. Mark it as paid to keep your balance right."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sua fatura do %@ de %@ venceu ontem. Marque como paga para manter seu saldo certo."
           }
         }
       }

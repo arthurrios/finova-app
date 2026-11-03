@@ -70,6 +70,9 @@ class FinovaNotifier(private val context: Context) {
             is PlannedNotification.StatementDue -> Triple(
                 s(R.string.notif_statement_due_title), s(R.string.notif_statement_due_body, item.cardName, money(item.amount)), "creditCardStatement",
             )
+            is PlannedNotification.StatementPaymentCheck -> Triple(
+                s(R.string.notif_statement_check_title), s(R.string.notif_statement_check_body, item.cardName, money(item.amount)), "creditCardStatement",
+            )
             is PlannedNotification.NegativeBalanceTomorrow -> {
                 // Month first in English, day first elsewhere, as iOS formats it.
                 val pattern = if (Locale.getDefault().language == "en") "MM/dd" else "dd/MM"
