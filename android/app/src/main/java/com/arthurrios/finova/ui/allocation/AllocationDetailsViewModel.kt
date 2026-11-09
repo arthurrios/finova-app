@@ -79,7 +79,7 @@ class AllocationDetailsViewModel(
             // their "paid early" mark, as on iOS, though usage counts the early payment instead.
             val members = rows.filter {
                 FinanceRepository.isListed(it) && it.category == category && it.type == TransactionType.Expense &&
-                    it.budgetMonth == month && !it.isCreditCardStatement
+                    it.budgetMonth == month && !it.isCreditCardStatement && !it.isStatementPayment
             }
             AllocationDetailsUiState(
                 category = category,

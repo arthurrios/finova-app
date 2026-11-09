@@ -532,6 +532,21 @@ class BudgetHistoryTest {
         assertEquals(13, BudgetHistoryReader.read(emptyList(), emptyList(), 0, emptyList(), today).months.size)
     }
 
+    @Test fun aStatementPaymentIsNotSpendingInTheHistory() {
+        val today = LocalDate.of(2026, 10, 17)
+        val month = YearMonth.from(today).minusMonths(1)
+        val payment = expense(TransactionCategory.CreditCard, month, 700).copy(isStatementPayment = true)
+        val h = BudgetHistoryReader.read(
+            ledgerRows = listOf(expense(Groceries, month, 700, card = 1), payment),
+            budgets = listOf(Budget(month, 1_000)),
+            balanceOffset = 0,
+            allocations = listOf(AllocationRow(month = month, category = Groceries, amount = 600)),
+            today = today,
+        )
+        assertEquals(700L, h.series(BudgetHistoryFilter.WholeMonth)!!.month(month)!!.spent)
+        assertEquals(0L, h.series(BudgetHistoryFilter.OutsideAllocations)!!.month(month)!!.spent)
+    }
+
     // ---- Screen state (BudgetHistoryViewModelTests)
 
     private fun state(selected: YearMonth = current) =

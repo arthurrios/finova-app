@@ -56,7 +56,7 @@ object LedgerCalculator {
             val cashInMonth = inMonth.filter { it.isCash }
             val income = cashInMonth.filter { it.type == TransactionType.Income }.sumOf { it.amount }
             val expense = cashInMonth.filter { it.type == TransactionType.Expense }.sumOf { it.amount }
-            val used = inMonth.filter { it.type == TransactionType.Expense && !it.isCreditCardStatement }.sumOf { it.amount }
+            val used = inMonth.filter { it.type == TransactionType.Expense && !it.isCreditCardStatement && !it.isStatementPayment }.sumOf { it.amount }
             val final = previous + income - expense
             val current = when {
                 month < thisMonth -> final

@@ -2324,6 +2324,22 @@ class DBHelper {
         hasInstallmentPointerFlag(.statementPayment, transactionId: transactionId)
     }
 
+    /// Every debit that paid a statement. See `excludingStatementPayments`.
+    func statementPaymentDebitIds() -> Set<Int> {
+        guard isInitialized else { return [] }
+        var stmt: OpaquePointer?
+        let sql = """
+            SELECT id FROM Transactions
+             WHERE \(InstallmentPointer.statementPayment.payerFlagColumn) = 1
+               AND (is_deleted IS NULL OR is_deleted = 0);
+            """
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return [] }
+        defer { sqlite3_finalize(stmt) }
+        var out: Set<Int> = []
+        while sqlite3_step(stmt) == SQLITE_ROW { out.insert(Int(sqlite3_column_int64(stmt, 0))) }
+        return out
+    }
+
     /// Applies the pointers carried by an inbound record.
     ///
     /// Only uuids are written — never an integer id from another device. `resolveUuidForeignKeys()`

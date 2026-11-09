@@ -41,6 +41,7 @@ data class Transaction(
     val cancelledByTransactionId: Long? = null,
     val isCancellationRefund: Boolean = false,
     val statementPaymentId: Long? = null,
+    /** The money that paid a statement: counts in the balance, never as budget spending, because the card purchases it pays already did. */
     val isStatementPayment: Boolean = false,
     /** Only true on the in-memory rows that stand for a whole card statement. */
     val isCreditCardStatement: Boolean = false,

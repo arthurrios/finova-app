@@ -56,9 +56,9 @@ struct AllocationBalanceProjection: Equatable {
 
     /// What one month adds to the plan still to leave the balance: each allocation's unspent part.
     ///
-    /// Statement rows never count as usage, so a Credit Card allocation is drawn down by the bills due
-    /// in the month here. Otherwise the bill comes off twice: once as the statement in `base`, and again
-    /// as a plan nothing has touched.
+    /// Statement rows and statement payments never count as usage, so a Credit Card allocation is drawn
+    /// down here by the bills of the month, due or already paid. Otherwise the bill comes off twice:
+    /// once in `base`, and again as a plan nothing has touched.
     static func reservedPlan(allocations: [BudgetAllocation], statementsDue: Int) -> Int {
         allocations.reduce(0) { total, allocation in
             let bill = allocation.category == .creditCard ? statementsDue : 0

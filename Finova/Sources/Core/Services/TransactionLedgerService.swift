@@ -154,6 +154,7 @@ final class TransactionLedgerService {
     }
 
     let allTransactions = fetchAllTransactionsIncludingStatements()
+    let statementPaymentIds = transactionRepo.statementPaymentDebitIds()
 
     let budgetsByAnchor = budgetRepo.fetchBudgets()
       .reduce(into: [:]) { acc, entry in
@@ -220,11 +221,11 @@ final class TransactionLedgerService {
       let budgetLimit = budgetsByAnchor[anchor]
 
       // usedValue counts individual CC transactions in the month they were created
-      // (matching how budget allocations track spending). Statement synthetics are
-      // excluded here — they only affect balance, not "used" budget.
+      // (matching how budget allocations track spending). Statement synthetics and the
+      // payments that pay them are excluded here — they only affect balance, not "used" budget.
       let usedTransactions = transactionsForMonth.filter { tx in
         tx.isCreditCardStatement != true
-      }
+      }.excludingStatementPayments(statementPaymentIds)
       let usedValue = usedTransactions.filter { $0.type == .expense }.reduce(0) { $0 + $1.amount }
 
       let net = income - expense

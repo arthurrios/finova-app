@@ -69,7 +69,7 @@ class CategorySpendHistory(ratiosByMonth: Map<YearMonth, Double>) {
             val used = rows
                 .filter {
                     it.category in allocated && it.type == TransactionType.Expense && it.budgetMonth in window &&
-                        !it.isSettledEarly && !it.isCreditCardStatement
+                        !it.isSettledEarly && !it.isCreditCardStatement && !it.isStatementPayment
                 }
                 .groupBy { it.category }
                 .mapValues { (_, list) -> list.groupBy { it.budgetMonth }.mapValues { (_, m) -> m.sumOf { it.amount } } }

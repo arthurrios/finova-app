@@ -72,7 +72,7 @@ object Allocations {
      * included, installments paid early left out (calculateUsageByCategory).
      */
     fun usage(rows: List<Transaction>, month: YearMonth): Map<TransactionCategory, Long> =
-        rows.filter { it.budgetMonth == month && it.type == TransactionType.Expense && !it.isSettledEarly && !it.isCreditCardStatement }
+        rows.filter { it.budgetMonth == month && it.type == TransactionType.Expense && !it.isSettledEarly && !it.isCreditCardStatement && !it.isStatementPayment }
             .groupBy { it.category }
             .mapValues { (_, list) -> list.sumOf { it.amount } }
 
@@ -171,11 +171,16 @@ object Allocations {
         through: YearMonth,
     ): Map<YearMonth, BalanceCommitment> {
         val cardRows = cardRows(rows, statements)
+        // Paying a bill is not spending, but it is the bill a Credit Card allocation plans for.
+        val paid = rows.filter { it.isStatementPayment && it.type == TransactionType.Expense }
+            .groupBy { it.budgetMonth }
+            .mapValues { (_, list) -> list.sumOf { it.amount } }
         val commitments = linkedMapOf<YearMonth, BalanceCommitment>()
         var reserved = 0L
         var month = current
         while (month <= through) {
-            reserved += AllocationBalanceProjection.reservedPlan(withUsage(allocations, rows, month), statementsDue[month] ?: 0)
+            val bills = (statementsDue[month] ?: 0) + (paid[month] ?: 0)
+            reserved += AllocationBalanceProjection.reservedPlan(withUsage(allocations, rows, month), bills)
             commitments[month] = BalanceCommitment(outstandingCard(cardRows, month), reserved)
             month = month.plusMonths(1)
         }
@@ -350,9 +355,9 @@ data class AllocationBalanceProjection(
     companion object {
         /**
          * What one month adds to the plan still to leave the balance: each allocation's unspent part.
-         * Statement rows never count as usage, so a Credit Card allocation is drawn down by the bills
-         * due in the month here, or the bill would come off twice: once as the statement in the
-         * balance and again as an untouched plan.
+         * Statement rows and statement payments never count as usage, so a Credit Card allocation is
+         * drawn down here by the bills of the month, due or already paid, or the bill would come off
+         * twice: once in the balance and again as an untouched plan.
          */
         fun reservedPlan(allocations: List<BudgetAllocation>, statementsDue: Long): Long =
             allocations.sumOf {

@@ -395,6 +395,7 @@ final class BudgetAllocationService {
                 transaction.budgetMonthDate == monthAnchor &&
                 transaction.type == .expense
             }
+            .excludingStatementPayments(transactionRepo.statementPaymentDebitIds())
             .sorted { $0.date > $1.date }
     }
 
@@ -521,7 +522,15 @@ final class BudgetAllocationService {
         let rows = all.excludingEarlyPaidInstallments()
 
         var usage: [Int: [String: Int]] = [:]
+        // Paying a bill is not spending, but it is the bill a Credit Card allocation plans for, so
+        // it draws that plan down beside the statements due. See `reservedPlan`.
+        var bills = statementsDue
+        let paymentIds = transactionRepo.statementPaymentDebitIds()
         for row in rows where row.type == .expense && window.contains(row.budgetMonthDate) {
+            if let id = row.id, paymentIds.contains(id) {
+                bills[row.budgetMonthDate, default: 0] += row.amount
+                continue
+            }
             usage[row.budgetMonthDate, default: [:]][row.category.key, default: 0] += row.amount
         }
 
@@ -551,7 +560,7 @@ final class BudgetAllocationService {
                     owed: row.type == .income ? -row.amount : row.amount)
             },
             allocations: allocations,
-            statementsDue: statementsDue)
+            statementsDue: bills)
     }
 
     // MARK: - Spend History
@@ -659,7 +668,10 @@ final class BudgetAllocationService {
         var usedByCategoryMonth: [String: [Int: Int]] = [:]
         // Applied after the cheap predicate: it is a membership test, so the order cannot change the
         // result, but it costs a query against `DBHelper.shared`. Skipped entirely when nothing matched.
-        for transaction in rows.isEmpty ? [] : rows.excludingEarlyPaidInstallments() {
+        let counted = rows.isEmpty
+            ? [] : rows.excludingEarlyPaidInstallments()
+                .excludingStatementPayments(transactionRepo.statementPaymentDebitIds())
+        for transaction in counted {
             usedByCategoryMonth[transaction.category.key, default: [:]][
                 transaction.budgetMonthDate, default: 0] += transaction.amount
         }
@@ -725,6 +737,7 @@ final class BudgetAllocationService {
     private func calculateUsageByCategory(forMonth monthAnchor: Int) -> [String: Int] {
         let transactions = transactionRepo.fetchAllTransactions()
             .excludingEarlyPaidInstallments()
+            .excludingStatementPayments(transactionRepo.statementPaymentDebitIds())
             .filter { $0.budgetMonthDate == monthAnchor && $0.type == .expense }
 
         var usage: [String: Int] = [:]
@@ -738,6 +751,7 @@ final class BudgetAllocationService {
     func calculateUsageByCategory(forMonth monthAnchor: Int, groupId: String) -> [String: Int] {
         let transactions = transactionRepo.fetchTransactionsForGroup(groupId: groupId)
             .excludingEarlyPaidInstallments()
+            .excludingStatementPayments(transactionRepo.statementPaymentDebitIds())
             .filter { $0.budgetMonthDate == monthAnchor && $0.type == .expense }
 
         var usage: [String: Int] = [:]

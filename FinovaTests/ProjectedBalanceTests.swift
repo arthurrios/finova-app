@@ -333,6 +333,41 @@ final class ProjectedBalanceTests: XCTestCase {
         XCTAssertEqual(try read(through: 1)[1].projected, 9_000)
     }
 
+    // MARK: - Paying a statement
+
+    /// The purchases are the spending. The payment only moves the money that pays for them, so it
+    /// leaves the balance and never counts against the budget.
+    func testAStatementPaymentIsNotBudgetSpending() throws {
+        try addOpening()
+        let bill = try statement(closing: 0)
+        try add(300, .meals, month: month(0), on: bill)
+        try pay(bill, 300, on: date(15, of: month(0)))
+
+        let used = ledger().calculateMonthlyData(for: 0...0, referenceDate: reference).first?.usedValue
+        XCTAssertEqual(used, 300, "the month card's Used")
+        let outside = allocationService.getUnallocatedCategoriesWithSpending(forMonth: month(0), in: .personal)
+        XCTAssertEqual(outside.map(\.category), [.meals], "spending outside allocations")
+        let history = BudgetHistoryService(
+            allocationRepo: allocationRepo, transactionRepo: txRepo, budgetRepo: budgetRepo,
+            statementRepo: statementRepo, ledger: ledger())
+        XCTAssertFalse(history.expenses(in: .personal).contains { $0.category == .creditCard })
+        XCTAssertEqual(try read(through: 0)[0].base, 9_700, "the balance still loses the money")
+    }
+
+    func testAStatementPaymentDoesNotSpendACreditCardAllocation() throws {
+        try addOpening()
+        try allocate(1_000, .creditCard, offsets: 0...0)
+        let bill = try statement(closing: 0)
+        try add(300, .meals, month: month(0), on: bill)
+        try pay(bill, 300, on: date(15, of: month(0)))
+
+        let allocation = allocationService.getAllocationsWithUsage(forMonth: month(0), in: .personal)
+            .first { $0.category == .creditCard }
+        XCTAssertEqual(allocation?.usedAmount, 0)
+        XCTAssertEqual(
+            allocationService.getTransactions(forCategory: .creditCard, monthAnchor: month(0)).count, 0)
+    }
+
     // MARK: - Closed months
 
     func testAClosedMonthKeepsItsOwnFigures() {

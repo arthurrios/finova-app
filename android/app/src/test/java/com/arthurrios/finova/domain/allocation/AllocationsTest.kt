@@ -26,6 +26,11 @@ class AllocationsTest {
         assertEquals(mapOf(Meals to 1_500L), Allocations.usage(rows, sep))
     }
 
+    @Test fun usageLeavesOutTheMoneyThatPaidAStatement() {
+        val payment = spend(2, CreditCard, 1_000).copy(isStatementPayment = true)
+        assertEquals(mapOf(Meals to 1_000L), Allocations.usage(listOf(spend(1, Meals, 1_000, card = 1), payment), sep))
+    }
+
     @Test fun summaryAndUnallocatedSpending() {
         val allocations = listOf(AllocationRow(1, sep, Meals, 2_000))
         val rows = listOf(spend(1, Meals, 1_500), spend(2, Travel, 900), spend(3, Gifts, 100))

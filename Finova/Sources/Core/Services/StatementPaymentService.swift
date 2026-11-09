@@ -333,3 +333,23 @@ final class StatementPaymentService {
             .reduce(0) { $0 + $1.amount }
     }
 }
+
+// MARK: - Ledger filtering
+
+extension Array where Element == Transaction {
+    /// Drops the debits that paid a statement, for budget spending.
+    ///
+    /// The card purchases the statement holds already counted, each in its own category and month.
+    /// The payment only moves that money out of the account, so it stays in every balance and never
+    /// counts as spending: counting it would charge the budget twice, under Credit Card.
+    ///
+    /// `ids` come from `TransactionRepository.statementPaymentDebitIds()`, the database the rows were
+    /// read from: ids from any other database would drop the wrong rows.
+    func excludingStatementPayments(_ ids: Set<Int>) -> [Transaction] {
+        guard !ids.isEmpty else { return self }
+        return filter { tx in
+            guard let id = tx.id else { return true }
+            return !ids.contains(id)
+        }
+    }
+}

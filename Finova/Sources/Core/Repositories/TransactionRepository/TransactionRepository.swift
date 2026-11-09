@@ -23,6 +23,12 @@ final class TransactionRepository: TransactionRepositoryProtocol {
     cacheUserUID = nil
   }
 
+  /// The debits that paid a statement, in this repository's database. See
+  /// `excludingStatementPayments`.
+  func statementPaymentDebitIds() -> Set<Int> {
+    db.statementPaymentDebitIds()
+  }
+
   func fetchTransactions() -> [Transaction] {
     let allTransactions = fetchAllTransactions()
 

@@ -334,7 +334,7 @@ class BudgetHistoryViewModel(
                 Triple(
                     BudgetHistoryReader.read(rows, budgets, offset, allocationRows, today()),
                     BudgetHistoryReader.forecast(rows, budgets, offset, allocationRows, statements, today()),
-                    rows.filter { it.type == TransactionType.Expense && !it.isCreditCardStatement && !it.isSettledEarly },
+                    rows.filter { it.type == TransactionType.Expense && !it.isCreditCardStatement && !it.isSettledEarly && !it.isStatementPayment },
                 )
             }.collect { (history, forecast, expenses) ->
                 _state.update { it.withHistory(history, firstLoad = !it.isLoaded, newForecast = forecast).copy(expenses = expenses, today = today()) }

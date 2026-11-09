@@ -87,7 +87,10 @@ final class BudgetHistoryService: BudgetHistoryReading {
 
         var spentByCategory: [String: [Int: Int]] = [:]
         // The membership test costs a query, so it runs after the cheap predicate.
-        for transaction in expenses.isEmpty ? [] : expenses.excludingEarlyPaidInstallments() {
+        let counted = expenses.isEmpty
+            ? [] : expenses.excludingEarlyPaidInstallments()
+                .excludingStatementPayments(transactionRepo.statementPaymentDebitIds())
+        for transaction in counted {
             spentByCategory[transaction.category.key, default: [:]][
                 transaction.budgetMonthDate, default: 0] += transaction.amount
         }
@@ -103,7 +106,9 @@ final class BudgetHistoryService: BudgetHistoryReading {
 
     func expenses(in scope: LedgerScope) -> [Transaction] {
         let expenses = transactionRepo.fetchAllTransactions().filter { $0.type == .expense }
-        return expenses.isEmpty ? [] : expenses.excludingEarlyPaidInstallments()
+        return expenses.isEmpty
+            ? [] : expenses.excludingEarlyPaidInstallments()
+                .excludingStatementPayments(transactionRepo.statementPaymentDebitIds())
     }
 
     /// The next months through the services the dashboard's budget card reads them from, so a month

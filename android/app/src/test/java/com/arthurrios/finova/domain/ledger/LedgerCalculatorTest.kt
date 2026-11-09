@@ -43,6 +43,18 @@ class LedgerCalculatorTest {
         LedgerCalculator.monthlySummaries(rows, budgets, offset, listOf(aug, sep, oct), today)
 
     @Test
+    fun aStatementPaymentLeavesTheBalanceButIsNotBudgetSpending() {
+        // The purchase is the spending. The payment only moves the money that pays for it.
+        val rows = listOf(
+            tx(300_00, LocalDate.of(2026, 9, 5), card = 1),
+            tx(300_00, LocalDate.of(2026, 9, 8)).copy(category = TransactionCategory.CreditCard, isStatementPayment = true),
+        )
+        val s = summaries(rows, offset = 1_000_00)[1]
+        assertEquals(300_00, s.usedValue)
+        assertEquals(700_00, s.finalBalance)
+    }
+
+    @Test
     fun finalBalancesChainAcrossMonthsFromTheOffset() {
         val rows = listOf(
             tx(500_00, LocalDate.of(2026, 8, 5), TransactionType.Income),

@@ -234,7 +234,9 @@ final class BudgetAllocationDetailsViewModel {
             return transaction.category == category &&
                 transaction.type == .expense &&
                 transaction.budgetMonthDate == monthDate
-        }.sorted { $0.date > $1.date } // Most recent first
+        }
+        .excludingStatementPayments(transactionRepository.statementPaymentDebitIds())
+        .sorted { $0.date > $1.date } // Most recent first
     }
 
     var transactionCount: Int {

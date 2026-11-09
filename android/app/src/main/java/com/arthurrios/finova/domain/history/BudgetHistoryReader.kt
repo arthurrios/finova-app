@@ -52,7 +52,7 @@ object BudgetHistoryReader {
         // Allocation spending counts stored rows only, never the synthetic statement rows.
         val spent = mutableMapOf<TransactionCategory, MutableMap<YearMonth, Long>>()
         for (row in ledgerRows) {
-            if (row.type != TransactionType.Expense || row.budgetMonth !in window || row.isSettledEarly || row.isCreditCardStatement) continue
+            if (row.type != TransactionType.Expense || row.budgetMonth !in window || row.isSettledEarly || row.isCreditCardStatement || row.isStatementPayment) continue
             val byMonth = spent.getOrPut(row.category) { mutableMapOf() }
             byMonth[row.budgetMonth] = (byMonth[row.budgetMonth] ?: 0) + row.amount
         }
