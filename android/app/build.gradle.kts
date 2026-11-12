@@ -20,6 +20,31 @@ val keystoreProperties = Properties().apply {
     if (file.exists()) file.inputStream().use { load(it) }
 }
 
+// A release build without either of those still succeeds, and that is how iOS 1.6.1 reached users:
+// it built fine and crashed at launch. Debug builds stay forgiving; any release build stops here.
+val missingReleaseInputs: List<String> = buildList {
+    if (!file("google-services.json").exists()) {
+        add("android/app/google-services.json (Firebase config; without it sign-in does not work)")
+    }
+    val storeFile = keystoreProperties.getProperty("storeFile")
+    if (storeFile == null) {
+        add("android/keystore.properties with storeFile, storePassword, keyAlias, keyPassword (upload key)")
+    } else if (!file(storeFile).exists()) {
+        add("the upload keystore named in keystore.properties: $storeFile")
+    }
+}
+
+// preReleaseBuild runs before every release variant task (bundleRelease, assembleRelease, ...).
+tasks.matching { it.name == "preReleaseBuild" }.configureEach {
+    // A plain String: the configuration cache cannot store Kotlin's buildList collections.
+    val missing: String = missingReleaseInputs.joinToString("\n") { "  - $it" }
+    doFirst {
+        if (missing.isNotEmpty()) {
+            throw GradleException("Release build refused. Missing:\n$missing\nSee docs/release-checklist.md.")
+        }
+    }
+}
+
 android {
     namespace = "com.arthurrios.finova"
     compileSdk = 36
