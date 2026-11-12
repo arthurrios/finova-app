@@ -36,7 +36,19 @@ pod --version
 
 echo "--- pod install"
 cd "$CI_PRIMARY_REPOSITORY_PATH"
-pod install --repo-update
+# The CocoaPods CDN times out now and then on Xcode Cloud ("trunk URL couldn't be downloaded ...
+# Timeout was reached"), which failed the 1.6.2 archive on an unchanged Podfile.lock. A network
+# hiccup should cost a retry, not a release, so try three times before giving up.
+attempt=1
+until pod install --repo-update; do
+    if [ "$attempt" -ge 3 ]; then
+        echo "pod install failed $attempt times, giving up"
+        exit 1
+    fi
+    echo "pod install failed (attempt $attempt of 3), retrying in 30s"
+    attempt=$((attempt + 1))
+    sleep 30
+done
 
 echo "--- Sanity check: the xcconfig Cloud needs must now exist"
 test -f "Pods/Target Support Files/Pods-Finova/Pods-Finova.release.xcconfig" \
