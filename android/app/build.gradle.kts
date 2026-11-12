@@ -30,8 +30,8 @@ android {
         minSdk = 26
         targetSdk = 36
         // Kept in step with the iOS feature line this build ports (release/v1.6.0).
-        versionCode = 7
-        versionName = "1.6.1"
+        versionCode = 8
+        versionName = "1.6.2"
     }
 
     signingConfigs {
