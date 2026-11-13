@@ -1,0 +1,33 @@
+{
+  "configurations" : [
+    {
+      "id" : "6A1C2E4B-3F5D-4A7B-9C8D-0E1F2A3B4C5D",
+      "name" : "Serial",
+      "options" : {
+
+      }
+    }
+  ],
+  "defaultOptions" : {
+    "language" : "en",
+    "region" : "US"
+  },
+  "testTargets" : [
+    {
+      "parallelizable" : false,
+      "skippedTests" : [
+        "AuthenticationTests\/testFaceIDUserManagement()",
+        "BalanceMonitorTests",
+        "ImportRecurringSafetyTests",
+        "ImportRollbackTests",
+        "NotificationTests\/testRecurringNotificationsNotMarkedAsDuplicates()"
+      ],
+      "target" : {
+        "containerPath" : "container:Finova.xcodeproj",
+        "identifier" : "C667CFAB2DFC7D0500B864E8",
+        "name" : "FinovaTests"
+      }
+    }
+  ],
+  "version" : 1
+}
