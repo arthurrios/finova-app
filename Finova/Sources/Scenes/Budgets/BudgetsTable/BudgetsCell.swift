@@ -191,9 +191,12 @@ public class BudgetsCell: UITableViewCell {
     yearLabel.text = year
 
     let symbolFont = Fonts.textXS.font
-    self.valueLabel.attributedText = value.currencyAttributedString(
-      symbolFont: symbolFont, font: Fonts.titleMD)
-    self.valueLabel.accessibilityLabel = value.currencyString
+    let isValueHidden = ValueMask.isActive
+    self.valueLabel.attributedText = value.maskedCurrencyAttributedString(
+      symbolFont: symbolFont, font: Fonts.titleMD, hidden: isValueHidden)
+    self.valueLabel.accessibilityLabel = isValueHidden
+      ? ValueMask.accessibilityLabel
+      : value.currencyString
 
     isPreviousMonth = DateUtils.isPastMonth(date: date)
     applyStyleForDate(isPreviousMonth: isPreviousMonth)

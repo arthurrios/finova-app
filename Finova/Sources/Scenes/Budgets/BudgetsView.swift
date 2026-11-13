@@ -13,6 +13,16 @@ final class BudgetsView: UIView {
     
     private var tableHeightConstraint: NSLayoutConstraint?
     private var budgets: [DisplayBudgetModel] = []
+
+    private lazy var hideValuesButton: HideValuesButton = {
+        let button = HideValuesButton(style: .onHeader)
+        // BudgetsCell masks at render time, so the rows only need a reload.
+        button.onToggle = { [weak self] _ in
+            self?.budgetsTableView.reloadData()
+            self?.refreshSuggestion()
+        }
+        return button
+    }()
     
     private let headerContainerView: UIView = {
         let view = UIView()
@@ -37,23 +47,23 @@ final class BudgetsView: UIView {
     
     private let backButton: UIButton = {
         let button = UIButton(type: .system)
-        
-        if let originalImage = UIImage(named: "chevronLeft") {
-            let size = CGSize(width: Metrics.backButtonSize, height: Metrics.backButtonSize)
-            UIGraphicsBeginImageContextWithOptions(size, false, 0.0)
-            originalImage.draw(in: CGRect(origin: .zero, size: size))
-            let resizedImage = UIGraphicsGetImageFromCurrentImageContext()
-            UIGraphicsEndImageContext()
-            
-            button.setImage(resizedImage, for: .normal)
-        } else {
-            button.setImage(UIImage(named: "chevronLeft"), for: .normal)
-        }
-        
+        button.setImage(UIImage(named: "chevronLeft")?.withRenderingMode(.alwaysTemplate), for: .normal)
         button.imageView?.contentMode = .scaleAspectFit
-        button.tintColor = Colors.gray500
         button.translatesAutoresizingMaskIntoConstraints = false
+
+        if #available(iOS 26.0, *) {
+            button.tintColor = Colors.gray700
+        } else {
+            button.tintColor = Colors.gray500
+        }
+
         return button
+    }()
+
+    private lazy var backButtonGlassContainer: UIView = {
+        let container = UIView()
+        container.translatesAutoresizingMaskIntoConstraints = false
+        return container
     }()
     
     private let headerTitleLabel: UILabel = {
@@ -82,7 +92,8 @@ final class BudgetsView: UIView {
     
     private lazy var cardContentView: UIStackView = {
         let stackView = UIStackView(
-            axis: .vertical, spacing: Metrics.spacing4, arrangedSubviews: [inputStackView, addButton])
+            axis: .vertical, spacing: Metrics.spacing4,
+            arrangedSubviews: [inputStackView, suggestionButton, addButton])
         stackView.layoutMargins = UIEdgeInsets(
             top: Metrics.spacing5, left: Metrics.spacing5, bottom: Metrics.spacing5,
             right: Metrics.spacing5)
@@ -112,9 +123,40 @@ final class BudgetsView: UIView {
     private let budgetValueInput = Input(type: .currency, placeholder: "0,00")
     
     private let addButton = Button(label: "budgets.button.add.title".localized)
+
+    /// Offers the month's income as the amount. It only fills the field: saving stays the user's tap,
+    /// and with no income in the month there is nothing to offer, so the row collapses.
+    private let suggestionButton: UIButton = {
+        let button = UIButton(type: .system)
+        button.titleLabel?.font = Fonts.textSM.font
+        button.titleLabel?.adjustsFontForContentSizeCategory = true
+        button.titleLabel?.numberOfLines = 0
+        button.contentHorizontalAlignment = .leading
+        button.setTitleColor(Colors.mainMagenta, for: .normal)
+        button.isHidden = true
+        button.heightAnchor.constraint(greaterThanOrEqualToConstant: 44).isActive = true
+        return button
+    }()
+
+    /// The income of the month typed in the form, from the view controller.
+    var suggestedAmount: ((String) -> Int)?
+    private var suggestedCents = 0
     
     private let budgetsTableHeaderView = CardHeader(
         headerTitle: "budgets.table.header.title".localized)
+
+    /// Entry point to allocation tags. Overlaid on the header rather than added to its stack:
+    /// `CardHeader`'s stack is `.equalSpacing` and shared by several screens, so a third arranged
+    /// subview would redistribute the spacing everywhere it is used. The header's trailing side is
+    /// free here because no items-quantity pill is passed.
+    private let manageTagsButton: UIButton = {
+        let button = UIButton(type: .system)
+        button.setTitle("budgets.tags.manage".localized, for: .normal)
+        button.titleLabel?.font = Fonts.titleXS.font
+        button.setTitleColor(Colors.mainMagenta, for: .normal)
+        button.translatesAutoresizingMaskIntoConstraints = false
+        return button
+    }()
     
     let budgetsTableView: UITableView = {
         let tableView = UITableView()
@@ -196,23 +238,34 @@ final class BudgetsView: UIView {
         
         addSubview(headerContainerView)
         headerContainerView.addSubview(headerItemsView)
-        headerItemsView.addSubview(backButton)
+        headerItemsView.addSubview(backButtonGlassContainer)
+        backButtonGlassContainer.addSubview(backButton)
+        setupBackButtonGlassEffect()
+        headerItemsView.addSubview(hideValuesButton)
         headerItemsView.addSubview(headerTextStackView)
         
         addSubview(newBudgetCardHeaderView)
         addSubview(cardContentView)
         cardContentView.addSubview(inputStackView)
+        cardContentView.addSubview(suggestionButton)
         cardContentView.addSubview(addButton)
         
         addSubview(budgetsTableHeaderView)
+        budgetsTableHeaderView.addSubview(manageTagsButton)
         addSubview(budgetsTableView)
         
         addSubview(emptyStateView)
         emptyStateView.addSubview(emptyStateIconImageView)
         emptyStateView.addSubview(emptyStateDescriptionLabel)
         
+        cardContentView.accessibilityIdentifier = CoachMarkTarget.budgetsForm.rawValue
+        budgetsTableHeaderView.accessibilityIdentifier = CoachMarkTarget.budgetsList.rawValue
+        backButtonGlassContainer.accessibilityIdentifier = CoachMarkTarget.budgetsBack.rawValue
+
         backButton.addTarget(self, action: #selector(didTapBackButton), for: .touchUpInside)
         addButton.addTarget(self, action: #selector(didTapAddBudgetButton), for: .touchUpInside)
+        suggestionButton.addTarget(self, action: #selector(didTapSuggestion), for: .touchUpInside)
+        manageTagsButton.addTarget(self, action: #selector(didTapManageTags), for: .touchUpInside)
         
         setupConstraints()
     }
@@ -228,13 +281,27 @@ final class BudgetsView: UIView {
             headerItemsView.trailingAnchor.constraint(equalTo: headerContainerView.trailingAnchor),
             headerItemsView.bottomAnchor.constraint(equalTo: headerContainerView.bottomAnchor),
             
-            backButton.topAnchor.constraint(equalTo: headerItemsView.layoutMarginsGuide.topAnchor),
-            backButton.leadingAnchor.constraint(
+            backButtonGlassContainer.topAnchor.constraint(equalTo: headerItemsView.layoutMarginsGuide.topAnchor),
+            backButtonGlassContainer.leadingAnchor.constraint(
                 equalTo: headerItemsView.layoutMarginsGuide.leadingAnchor),
-            
+            backButtonGlassContainer.widthAnchor.constraint(equalToConstant: 36),
+            backButtonGlassContainer.heightAnchor.constraint(equalToConstant: 36),
+
+            backButton.topAnchor.constraint(equalTo: backButtonGlassContainer.topAnchor),
+            backButton.leadingAnchor.constraint(equalTo: backButtonGlassContainer.leadingAnchor),
+            backButton.trailingAnchor.constraint(equalTo: backButtonGlassContainer.trailingAnchor),
+            backButton.bottomAnchor.constraint(equalTo: backButtonGlassContainer.bottomAnchor),
+
+            hideValuesButton.trailingAnchor.constraint(
+                equalTo: headerItemsView.layoutMarginsGuide.trailingAnchor),
+            hideValuesButton.centerYAnchor.constraint(
+                equalTo: backButtonGlassContainer.centerYAnchor),
+
             headerTextStackView.leadingAnchor.constraint(
-                equalTo: backButton.trailingAnchor, constant: Metrics.spacing4),
-            headerTextStackView.centerYAnchor.constraint(equalTo: backButton.centerYAnchor),
+                equalTo: backButtonGlassContainer.trailingAnchor, constant: Metrics.spacing4),
+            headerTextStackView.centerYAnchor.constraint(equalTo: backButtonGlassContainer.centerYAnchor),
+            headerTextStackView.trailingAnchor.constraint(
+                lessThanOrEqualTo: hideValuesButton.leadingAnchor, constant: -Metrics.spacing3),
             
             newBudgetCardHeaderView.topAnchor.constraint(
                 equalTo: headerContainerView.bottomAnchor, constant: Metrics.spacing4),
@@ -252,6 +319,10 @@ final class BudgetsView: UIView {
             budgetsTableHeaderView.leadingAnchor.constraint(equalTo: cardContentView.leadingAnchor),
             budgetsTableHeaderView.trailingAnchor.constraint(equalTo: cardContentView.trailingAnchor),
             
+            manageTagsButton.trailingAnchor.constraint(
+                equalTo: budgetsTableHeaderView.trailingAnchor, constant: -Metrics.spacing4),
+            manageTagsButton.centerYAnchor.constraint(equalTo: budgetsTableHeaderView.centerYAnchor),
+
             budgetsTableView.topAnchor.constraint(equalTo: budgetsTableHeaderView.bottomAnchor),
             budgetsTableView.leadingAnchor.constraint(equalTo: cardContentView.leadingAnchor),
             budgetsTableView.trailingAnchor.constraint(equalTo: cardContentView.trailingAnchor),
@@ -276,7 +347,11 @@ final class BudgetsView: UIView {
             emptyStateDescriptionLabel.centerYAnchor.constraint(equalTo: emptyStateView.centerYAnchor)
         ])
     }
-    
+
+    private func setupBackButtonGlassEffect() {
+        backButtonGlassContainer.applyClearGlass(cornerRadius: 18)
+    }
+
     func updateUI(with budgets: [DisplayBudgetModel], selectedDate: Date?) {
         self.budgets = budgets
         
@@ -284,6 +359,8 @@ final class BudgetsView: UIView {
             self.dateInput.text = DateFormatter.monthYearFormatter.string(from: selectedDate)
         }
         
+        refreshSuggestion()
+
         if budgets.isEmpty {
             budgetsTableView.isHidden = true
             emptyStateView.isHidden = false
@@ -297,6 +374,22 @@ final class BudgetsView: UIView {
     func clearTextFields() {
         dateInput.textField.text = ""
         budgetValueInput.textField.text = ""
+        refreshSuggestion()
+    }
+
+    private func refreshSuggestion() {
+        suggestedCents = dateInput.textField.text.flatMap { suggestedAmount?($0) } ?? 0
+        suggestionButton.isHidden = suggestedCents <= 0
+        suggestionButton.setTitle(
+            String(
+                format: "budgets.suggestion.income".localized,
+                suggestedCents.maskedCurrencyString()),
+            for: .normal)
+    }
+
+    @objc
+    private func didTapSuggestion() {
+        budgetValueInput.setCentsValue(suggestedCents)
     }
     
     func toggleEmptyState(_ show: Bool) {
@@ -307,6 +400,11 @@ final class BudgetsView: UIView {
     @objc
     private func didTapBackButton() {
         delegate?.didTapBackButton()
+    }
+
+    @objc
+    private func didTapManageTags() {
+        delegate?.didTapManageTags()
     }
     
     @objc
@@ -333,9 +431,11 @@ extension BudgetsView: UITextFieldDelegate {
         
         let formatted = DateFormatter.monthYearFormatter.string(from: picker.date)
         textField.text = formatted
+        refreshSuggestion()
     }
     
     @objc private func pickerValueChanged(_ picker: UIDatePicker) {
         dateInput.textField.text = DateFormatter.monthYearFormatter.string(from: picker.date)
+        refreshSuggestion()
     }
 }

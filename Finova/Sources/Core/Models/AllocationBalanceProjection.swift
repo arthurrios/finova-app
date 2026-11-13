@@ -1,0 +1,292 @@
+//
+//  AllocationBalanceProjection.swift
+//  Finova
+//
+//  Created by Arthur Rios on 03/08/26.
+//
+
+import CoreGraphics
+import Foundation
+
+/// The balance a month is expected to close with once every budget allocation plays out.
+///
+/// This type *consumes* a balance and never computes one. It holds no repository, no service and
+/// no `Date()`, so it cannot read a ledger even by accident - which is deliberate: the app already
+/// has several drifting balance implementations, and this must not become another one. The caller
+/// supplies `base`, a cumulative, scope-correct `finalBalance`.
+///
+/// For an open month: `projected = base - outstanding card - plan(current..month)`. `base` is
+/// cumulative, so it holds every salary up to the month, and it has to carry every plan up to the month
+/// too. Subtracting only the month's own plan left each month ahead keeping what the months before it
+/// planned to spend: salary 8.000 and a plan of 1.000 read 7.000 / 15.000 / 23.000 instead of
+/// 7.000 / 14.000 / 21.000. `BalanceCommitments` works out both terms, once, for every open month.
+///
+/// Built for any month, but it reports different quantities depending on `tense`: for a closed
+/// month `base - unspentAllocations` would answer "what if the leftover budget *had* been spent",
+/// which never happened, so a closed month reports what the allocations actually consumed instead.
+struct AllocationBalanceProjection: Equatable {
+
+    /// Whether the month still lies ahead (a forecast) or has closed (a record).
+    enum Tense {
+        case projected
+        case actual
+    }
+
+    /// Money spent beyond the plan, for callers that need the figure without a balance to project
+    /// from - the allocations header shows it next to the row count.
+    ///
+    /// Shared with `init` so the header and the card can never disagree about what "overspent"
+    /// means. Both terms are visible in the list: category overruns are its red arrows, and
+    /// unallocated spending is its greyed rows.
+    static func overspent(
+        allocations: [BudgetAllocation],
+        unallocatedSpending: Int
+    ) -> Int {
+        let overruns = allocations.reduce(0) { $0 + max(0, -$1.remainingAmount) }
+        return overruns + max(0, unallocatedSpending)
+    }
+
+    /// Budget earmarked but not yet spent, clamped per category.
+    ///
+    /// Shared with `init` so the allocations header and the card agree. Like `overspent`, it is a
+    /// total of what the list already shows: the green arrows on its rows.
+    static func unspent(allocations: [BudgetAllocation]) -> Int {
+        allocations.reduce(0) { $0 + max(0, $1.remainingAmount) }
+    }
+
+    /// What one month adds to the plan still to leave the balance: each allocation's unspent part.
+    ///
+    /// Statement rows and statement payments never count as usage, so a Credit Card allocation is drawn
+    /// down here by the bills of the month, due or already paid. Otherwise the bill comes off twice:
+    /// once in `base`, and again as a plan nothing has touched.
+    static func reservedPlan(allocations: [BudgetAllocation], statementsDue: Int) -> Int {
+        allocations.reduce(0) { total, allocation in
+            let bill = allocation.category == .creditCard ? statementsDue : 0
+            return total + max(0, allocation.remainingAmount - bill)
+        }
+    }
+
+    /// Ledger closing balance for the month, in minor units.
+    let base: Int
+
+    /// This month's budget earmarked to categories but not yet spent, clamped per category. What the
+    /// allocations list shows, and what `totalSaved` counts. The balance loses `reservedPlan`.
+    let unspentAllocations: Int
+
+    /// The plan still to leave the balance: the unspent plan of the current month through this one.
+    /// For a closed month, its own `unspentAllocations`.
+    let reservedPlan: Int
+
+    /// Budget cap that was never earmarked to any category, clamped at zero.
+    ///
+    /// Counts as saved: money the user neither planned to spend nor spent. Over-allocation (a
+    /// negative headroom) clamps to zero here - planning beyond the cap is not overspending, and the
+    /// footer's amber `Unallocated` already warns about it.
+    let unallocatedHeadroom: Int
+
+    /// Money spent beyond the plan: every category's overrun, plus everything spent in categories
+    /// that had no allocation at all. The second term is why this surfaces off-plan spending, which
+    /// no other element on the card names.
+    let overspent: Int
+
+    /// Allocation money already spent, capped per category at what was allocated.
+    ///
+    /// Savings and investment categories get no special treatment: funding them debits the account
+    /// exactly like any other spend, so they are not counted as money kept.
+    let usedWithinAllocations: Int
+
+    /// Money on a card that `base` has not absorbed yet. For an open month, everything counted up to
+    /// and including it on a statement settling later (see `BalanceCommitments`); for a closed month,
+    /// that month's own card spending. Negative when the card's credits are larger than its debt.
+    ///
+    /// Without this term the projection *rises* when a card purchase is added, which is what it used to
+    /// do. `base` is cash-only - `TransactionLedgerService` keeps card purchases out of the balance
+    /// entirely and represents them by the statement synthetic, dated to the statement's due date -
+    /// while allocation usage counts the purchase in the month it was made. So the purchase consumed
+    /// the plan here (`unspentAllocations` fell) with nothing coming off the balance, and
+    /// `base - unspent` climbed by the amount of a *spend*.
+    ///
+    /// Subtracting it makes this answer "what is left once the plan is honoured, counting the card debt
+    /// already run up". The money is committed either way; only the date it leaves the account differs.
+    let deferredCardSpending: Int
+
+    /// What survives once every allocation up to this month is honoured and the card debt is paid. May
+    /// be negative.
+    let projected: Int
+
+    let tense: Tense
+
+    /// - Parameters:
+    ///   - unallocatedSpending: spending in categories with no allocation, which counts toward
+    ///     `overspent` - money spent with no plan behind it is money spent beyond the plan.
+    ///   - unallocatedHeadroom: budget cap never earmarked to a category, which counts toward
+    ///     `totalSaved`. Clamped at zero, so over-allocation does not read as negative saving.
+    ///   - deferredCardSpending: card money `base` does not reflect yet. Comes off the projection and
+    ///     nothing else - it is money spent, so it is neither saved nor overspending. Not clamped: a
+    ///     card's credit nets against its debt, and a net credit does reach the balance, through the
+    ///     next statement it lowers.
+    ///   - reservedPlan: the plan left from the current month through this one, from
+    ///     `BalanceCommitments`. Nil reads this month's own unspent plan, which is what a closed month
+    ///     has: no months of plan behind it.
+    init(
+        base: Int,
+        allocations: [BudgetAllocation],
+        unallocatedSpending: Int = 0,
+        unallocatedHeadroom: Int = 0,
+        deferredCardSpending: Int = 0,
+        reservedPlan: Int? = nil,
+        tense: Tense
+    ) {
+        // Only the *unspent* remainder is a future outflow. Money already spent is inside `base`,
+        // so charging the full allocated amount would subtract it twice. A negative remainder means
+        // the category is overspent - it clamps to zero here and is counted in `overspent` instead.
+        // Capped so an overspent category cannot report more used than it ever allocated; the
+        // excess is counted in `overspent` instead.
+        let used = allocations.reduce(0) {
+            $0 + max(0, min($1.usedAmount, $1.allocatedAmount))
+        }
+        let unspent = Self.unspent(allocations: allocations)
+        let reserved = reservedPlan ?? unspent
+
+        self.base = base
+        self.unspentAllocations = unspent
+        self.reservedPlan = reserved
+        self.unallocatedHeadroom = max(0, unallocatedHeadroom)
+        self.overspent = Self.overspent(
+            allocations: allocations, unallocatedSpending: unallocatedSpending)
+        self.usedWithinAllocations = used
+        self.deferredCardSpending = deferredCardSpending
+        // Both subtrahends are outflows `base` has yet to see: `reserved` because the plan has not been
+        // drawn on yet, `deferredCardSpending` because the statement carrying it lands in a later month.
+        self.projected = base - deferredCardSpending - reserved
+        self.tense = tense
+    }
+
+    /// Money the month held on to: budget earmarked but not spent, plus cap never earmarked.
+    ///
+    /// A *realised* figure, so the card only surfaces it once the month has closed. Mid-month an
+    /// unspent allocation is money still earmarked for spending, not money kept.
+    ///
+    /// Deliberately excludes savings and investment allocations that were funded - that money was
+    /// debited to a fund, so it left the account and is not "saved" in this card's sense.
+    var totalSaved: Int { unspentAllocations + unallocatedHeadroom }
+
+    /// Saved minus overspent. Positive means the month held on to more than it let slip.
+    var netSaved: Int { totalSaved - overspent }
+
+    /// True when the allocations promise more than the balance can cover.
+    /// Only meaningful while the month is open; a closed month cannot be over-committed.
+    var isOverCommitted: Bool { tense == .projected && projected < 0 }
+
+    /// The figure the trailing block leads with.
+    ///
+    /// - `.projected`: what survives if the whole plan is spent.
+    /// - `.actual`: the month's verdict. It used to be `usedWithinAllocations`, captioned "Budget
+    ///   used" - untrue twice over, because that figure is capped per category and so excluded both
+    ///   overruns and off-plan spending, and it disagreed with the card's own `Used` footer.
+    var headlineAmount: Int {
+        switch tense {
+        case .projected: return projected
+        case .actual: return netSaved
+        }
+    }
+
+    /// How far the allocations exceed the balance, or zero when they don't.
+    var shortfall: Int { isOverCommitted ? abs(projected) : 0 }
+
+    /// Normalised widths for the three-segment bar, comparing the block's three quantities against each
+    /// other. Sums to 1 whenever any of them is non-zero, and is all-zero otherwise so the bare track
+    /// shows through.
+    ///
+    /// - `projected`: what the balance is left with once the plan plays out. **Not** the saved amount -
+    ///   savings have already come out of it - which is why it takes the outgoing colour and not green.
+    /// - `saved`: `totalSaved`, money still sitting in the account: budget earmarked but not spent, plus
+    ///   the cap never earmarked at all.
+    /// - `overspent`: what broke out of the plan - category overruns plus spending with no plan behind it.
+    ///
+    /// Two earlier versions of this bar got the question wrong, so both are worth naming. It first
+    /// plotted plan *adherence* - of money spent, how much stayed inside its allocation - which came out
+    /// almost entirely green on any well-behaved month and so read as "all of this is saved". It then
+    /// plotted `projected` in green against the outgoing remainder, which put the biggest slice in the
+    /// colour meaning "saved" while the actual saved figure went unshown.
+    ///
+    /// A comparison, not a partition: `projected` and `saved` both derive from `unspentAllocations`, so
+    /// they do not add up to `base` and are not meant to.
+    var barShares: (projected: CGFloat, saved: CGFloat, overspent: CGFloat) {
+        // A negative projection has no width. The shortfall is named in the block's caption instead.
+        let survives = max(0, projected)
+        let total = survives + totalSaved + overspent
+        guard total > 0 else { return (0, 0, 0) }
+
+        let divisor = CGFloat(total)
+        return (
+            projected: CGFloat(survives) / divisor,
+            saved: CGFloat(totalSaved) / divisor,
+            overspent: CGFloat(overspent) / divisor
+        )
+    }
+}
+
+/// What an open month's projection takes off its closing balance, for every open month of one load.
+///
+/// Worked out in one pass over the rows and handed to whoever needs a month, so the dashboard card and
+/// the budget history read one table and cannot disagree, and a carousel of months does not repeat the
+/// walk from the current month for each cell. Pure, like `AllocationBalanceProjection`:
+/// `BudgetAllocationService.balanceCommitments` reads the rows.
+struct BalanceCommitments: Equatable {
+
+    /// One open month's two terms.
+    struct Month: Equatable {
+        /// Money on a card that this month's closing balance has not absorbed.
+        let outstandingCard: Int
+        /// The plan left unspent from the current month through this one.
+        let reservedPlan: Int
+    }
+
+    /// One stored card row, never a statement synthetic.
+    struct CardRow: Equatable {
+        /// The first month it counts in. A purchase counts from its budget month. A credit counts from
+        /// its own date, because a payment's debit moves the balance on that date while the credit's
+        /// budget month is the statement's closing month: reading that month counted a payment made
+        /// before closing twice, and dropped the debt for a scheduled payment still to come.
+        let countsFrom: Int
+        /// The month its statement falls due. Nil when it has no live statement, so no synthetic will
+        /// ever carry it into a balance and it stays outstanding.
+        let settles: Int?
+        /// Signed like `DBHelper.signedAmount`: credits subtract, as they do on the statement.
+        let owed: Int
+    }
+
+    static let none = BalanceCommitments(months: [:])
+
+    private let months: [Int: Month]
+
+    private init(months: [Int: Month]) {
+        self.months = months
+    }
+
+    /// - Parameters:
+    ///   - anchors: the current month and the months after it, in order. Past months have no entry:
+    ///     they keep their own figures.
+    ///   - allocations: by month, with usage filled in.
+    ///   - statementsDue: statement amounts by the month they fall due, from the rows `base` used.
+    init(
+        anchors: [Int], cardRows: [CardRow], allocations: [Int: [BudgetAllocation]],
+        statementsDue: [Int: Int]
+    ) {
+        var months: [Int: Month] = [:]
+        var reserved = 0
+        for anchor in anchors {
+            reserved += AllocationBalanceProjection.reservedPlan(
+                allocations: allocations[anchor] ?? [], statementsDue: statementsDue[anchor] ?? 0)
+            let outstanding = cardRows.reduce(0) { total, row in
+                let isOutstanding = row.countsFrom <= anchor && (row.settles.map { $0 > anchor } ?? true)
+                return isOutstanding ? total + row.owed : total
+            }
+            months[anchor] = Month(outstandingCard: outstanding, reservedPlan: reserved)
+        }
+        self.months = months
+    }
+
+    subscript(monthAnchor: Int) -> Month? { months[monthAnchor] }
+}

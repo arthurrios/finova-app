@@ -39,9 +39,14 @@ enum Metrics {
   static let logoutButtonSize: CGFloat = 24
   static let backButtonSize: CGFloat = 24
   static let inputIconSize: CGFloat = 20
-  static let loginHeroHeight: CGFloat = 360
+  static let loginHeroHeight: CGFloat = 324
   static let profileImageSize: CGFloat = 40
   static let profileIconSize: CGFloat = 20
+  static let profileLargeImageSize: CGFloat = 80
+  static let profileLargeIconSize: CGFloat = 40
+  /// Matches the circular glass back button, so the two line up on either side of a header.
+  static let hideValuesButtonSize: CGFloat = 36
+  static let hideValuesIconSize: CGFloat = 24
   static var headerHeight: CGFloat {
     let keyWindow = UIApplication.shared.connectedScenes
       .compactMap { $0 as? UIWindowScene }

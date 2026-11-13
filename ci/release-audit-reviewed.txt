@@ -1,0 +1,9 @@
+# Fix commits on older release branches that were checked and deliberately NOT carried into the
+# newest release branch. scripts/release-branch-audit.sh skips these.
+#
+# One commit per line: <sha> <reason>. Use the full or a 7+ character SHA.
+# Add a commit here only after checking that the newest branch already solves the same problem
+# (for example a 1.5.x backport of behaviour 1.6 has had all along). Otherwise cherry-pick it.
+#
+# Example:
+# c48c75f backport of 1.6.0 behaviour (plain delete removes the whole series); 1.6 never had the bug

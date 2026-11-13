@@ -12,11 +12,24 @@ protocol TransactionDetailsViewDelegate: AnyObject {
   func didTapEdit()
   func didTapDelete()
   func didTapBack()
-  func didTapDeleteInstallment(_ transaction: Transaction)
+  func didTapMoveToStatement()
+  /// Open the selection screen to bring future installments of this series forward.
+  func didTapPayInstallmentsEarly()
+  /// Undo an early payment, putting its installments back on their own statements.
+  func didTapUndoEarlyPayment()
+  /// Cancel the remainder of this installment purchase, crediting it on the next statement.
+  func didTapCancelPurchase()
+  /// Undo a cancellation, removing the credit and un-cancelling the purchase.
+  func didTapUndoCancellation()
 }
 
 final class TransactionDetailsView: UIView {
   weak var delegate: TransactionDetailsViewDelegate?
+
+  /// Retained so a visibility toggle can re-run the configure-derived formatting.
+  private var currentViewModel: TransactionDetailsViewModel?
+  private var visibilityObservation: ValueVisibilityObservation?
+  let hideValuesButton = HideValuesButton(style: .onHeader)
 
   // MARK: - UI Components
   private lazy var scrollView: UIScrollView = {
@@ -52,23 +65,23 @@ final class TransactionDetailsView: UIView {
 
   private let backButton: UIButton = {
     let button = UIButton(type: .system)
+    button.setImage(UIImage(named: "chevronLeft")?.withRenderingMode(.alwaysTemplate), for: .normal)
+    button.imageView?.contentMode = .scaleAspectFit
+    button.translatesAutoresizingMaskIntoConstraints = false
 
-    if let originalImage = UIImage(named: "chevronLeft") {
-      let size = CGSize(width: Metrics.backButtonSize, height: Metrics.backButtonSize)
-      UIGraphicsBeginImageContextWithOptions(size, false, 0.0)
-      originalImage.draw(in: CGRect(origin: .zero, size: size))
-      let resizedImage = UIGraphicsGetImageFromCurrentImageContext()
-      UIGraphicsEndImageContext()
-
-      button.setImage(resizedImage, for: .normal)
+    if #available(iOS 26.0, *) {
+      button.tintColor = Colors.gray700
     } else {
-      button.setImage(UIImage(named: "chevronLeft"), for: .normal)
+      button.tintColor = Colors.gray500
     }
 
-    button.imageView?.contentMode = .scaleAspectFit
-    button.tintColor = Colors.gray500
-    button.translatesAutoresizingMaskIntoConstraints = false
     return button
+  }()
+
+  private lazy var backButtonGlassContainer: UIView = {
+    let container = UIView()
+    container.translatesAutoresizingMaskIntoConstraints = false
+    return container
   }()
 
   lazy var headerTextStackView = UIStackView(
@@ -274,50 +287,204 @@ final class TransactionDetailsView: UIView {
   private var updatedAtValueLabel: UILabel!
   private var totalValueLabel: UILabel!
   private var lastInstallmentDateLabel: UILabel!
+  private var paymentMethodValueLabel: UILabel!
+  /// Still-owed total for an installment series — the purchase total minus anything paid early.
+  private var remainingValueLabel: UILabel?
 
-  // MARK: - Installments Section (for installment transactions)
-  private let installmentsHeaderView = CardHeader(
-    headerTitle: "transactionDetails.installments.header.title".localized)
+  // MARK: - Included Installments (for early-payment debits)
+  private let includedInstallmentsHeaderView = CardHeader(
+    headerTitle: "earlyPayment.details.included.header".localized)
 
-  private lazy var installmentsTableView: UITableView = {
-    let tableView = UITableView()
-    tableView.backgroundColor = Colors.gray100
-    tableView.layer.cornerRadius = CornerRadius.extraLarge
-    tableView.layer.maskedCorners = [.layerMinXMaxYCorner, .layerMaxXMaxYCorner]
-    tableView.layer.borderWidth = 1
-    tableView.layer.borderColor = Colors.gray300.cgColor
-    tableView.separatorStyle = .singleLine
-    tableView.separatorInset = UIEdgeInsets.zero
-    tableView.clipsToBounds = true
-    tableView.separatorColor = Colors.gray300
-    tableView.isScrollEnabled = false
-    tableView.translatesAutoresizingMaskIntoConstraints = false
-    tableView.register(TransactionCell.self, forCellReuseIdentifier: TransactionCell.reuseID)
-    tableView.dataSource = self
-    tableView.delegate = self
-    return tableView
+  private lazy var includedInstallmentsCard: UIStackView = {
+    let stack = UIStackView()
+    stack.axis = .vertical
+    stack.backgroundColor = Colors.gray100
+    stack.layer.borderWidth = 1
+    stack.layer.borderColor = Colors.gray300.cgColor
+    stack.layer.cornerRadius = CornerRadius.extraLarge
+    stack.layer.maskedCorners = [.layerMinXMaxYCorner, .layerMaxXMaxYCorner]
+    stack.clipsToBounds = true
+    stack.translatesAutoresizingMaskIntoConstraints = false
+    return stack
   }()
 
-  private var installmentsTableHeightConstraint: NSLayoutConstraint?
-  private var contentBottomConstraint: NSLayoutConstraint?
-  private var installmentTransactions: [Transaction] = []
+  /// Holds every section below the details card that may or may not be present.
+  ///
+  /// A stack view rather than a chain of hand-managed top/bottom constraints: with four optional
+  /// sections (move-to-statement, move-to-group, pay-early, included-installments) the chain needed
+  /// rewiring on every `configure` for each combination of visibilities, and hidden arranged subviews
+  /// collapse on their own.
+  private lazy var tailStackView: UIStackView = {
+    let stack = UIStackView()
+    stack.axis = .vertical
+    stack.spacing = Metrics.spacing4
+    stack.translatesAutoresizingMaskIntoConstraints = false
+    return stack
+  }()
+
+  // MARK: - Move to Statement Row
+  private lazy var moveToStatementContainer: UIView = {
+    let container = UIView()
+    container.backgroundColor = Colors.gray100
+    container.layer.cornerRadius = CornerRadius.large
+    container.isUserInteractionEnabled = true
+    container.translatesAutoresizingMaskIntoConstraints = false
+    container.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(didTapMoveToStatement)))
+    return container
+  }()
+
+  private let moveToStatementIcon: UIImageView = {
+    let iv = UIImageView()
+    iv.image = UIImage(systemName: "doc.text")
+    iv.tintColor = Colors.gray600
+    iv.contentMode = .scaleAspectFit
+    iv.translatesAutoresizingMaskIntoConstraints = false
+    return iv
+  }()
+
+  private let moveToStatementLabel: UILabel = {
+    let label = UILabel()
+    label.font = Fonts.titleSM.font
+    label.textColor = Colors.gray700
+    label.translatesAutoresizingMaskIntoConstraints = false
+    return label
+  }()
+
+  private let moveToStatementValueLabel: UILabel = {
+    let label = UILabel()
+    label.font = Fonts.textSM.font
+    label.textColor = Colors.gray500
+    label.translatesAutoresizingMaskIntoConstraints = false
+    return label
+  }()
+
+  private let moveToStatementChevron: UIImageView = {
+    let iv = UIImageView()
+    iv.image = UIImage(systemName: "chevron.right")
+    iv.tintColor = Colors.gray500
+    iv.contentMode = .scaleAspectFit
+    iv.translatesAutoresizingMaskIntoConstraints = false
+    return iv
+  }()
+
+  // MARK: - Early Payment Rows
+
+  /// Builds one tappable settings-style row: leading icon, label, optional trailing value, chevron.
+  /// The move-to-statement and move-to-group rows above predate this and are still hand-built.
+  private static func makeActionRow(
+    systemIcon: String,
+    tintColor: UIColor = Colors.gray600,
+    labelColor: UIColor = Colors.gray700
+  ) -> (container: UIView, label: UILabel, value: UILabel) {
+    let container = UIView()
+    container.backgroundColor = Colors.gray100
+    container.layer.cornerRadius = CornerRadius.large
+    container.isUserInteractionEnabled = true
+    container.translatesAutoresizingMaskIntoConstraints = false
+
+    let icon = UIImageView()
+    icon.image = UIImage(systemName: systemIcon)
+    icon.tintColor = tintColor
+    icon.contentMode = .scaleAspectFit
+    icon.translatesAutoresizingMaskIntoConstraints = false
+
+    let label = UILabel()
+    label.font = Fonts.titleSM.font
+    label.textColor = labelColor
+    label.translatesAutoresizingMaskIntoConstraints = false
+
+    let value = UILabel()
+    value.font = Fonts.textSM.font
+    value.textColor = Colors.gray500
+    value.translatesAutoresizingMaskIntoConstraints = false
+
+    let chevron = UIImageView()
+    chevron.image = UIImage(systemName: "chevron.right")
+    chevron.tintColor = Colors.gray500
+    chevron.contentMode = .scaleAspectFit
+    chevron.translatesAutoresizingMaskIntoConstraints = false
+
+    container.addSubview(icon)
+    container.addSubview(label)
+    container.addSubview(value)
+    container.addSubview(chevron)
+
+    NSLayoutConstraint.activate([
+      container.heightAnchor.constraint(equalToConstant: Metrics.buttonHeight),
+
+      icon.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: Metrics.spacing4),
+      icon.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+      icon.widthAnchor.constraint(equalToConstant: 20),
+      icon.heightAnchor.constraint(equalToConstant: 20),
+
+      label.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: Metrics.spacing3),
+      label.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+
+      value.trailingAnchor.constraint(equalTo: chevron.leadingAnchor, constant: -Metrics.spacing2),
+      value.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+      value.leadingAnchor.constraint(
+        greaterThanOrEqualTo: label.trailingAnchor, constant: Metrics.spacing3),
+
+      chevron.trailingAnchor.constraint(
+        equalTo: container.trailingAnchor, constant: -Metrics.spacing4),
+      chevron.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+      chevron.widthAnchor.constraint(equalToConstant: 12),
+      chevron.heightAnchor.constraint(equalToConstant: 12),
+    ])
+
+    return (container, label, value)
+  }
+
+  private lazy var payEarlyRow = Self.makeActionRow(systemIcon: "calendar.badge.clock")
+  private lazy var undoEarlyPaymentRow = Self.makeActionRow(
+    systemIcon: "arrow.uturn.backward", tintColor: Colors.mainRed, labelColor: Colors.mainRed)
+  private lazy var cancelPurchaseRow = Self.makeActionRow(systemIcon: "xmark.circle")
+  private lazy var undoCancellationRow = Self.makeActionRow(
+    systemIcon: "arrow.uturn.backward", tintColor: Colors.mainRed, labelColor: Colors.mainRed)
+
+  // MARK: - Refunded Installments (for cancellation credits)
+  private let refundedInstallmentsHeaderView = CardHeader(
+    headerTitle: "cancellation.details.refunded.header".localized)
+
+  private lazy var refundedInstallmentsCard: UIStackView = {
+    let stack = UIStackView()
+    stack.axis = .vertical
+    stack.backgroundColor = Colors.gray100
+    stack.layer.borderWidth = 1
+    stack.layer.borderColor = Colors.gray300.cgColor
+    stack.layer.cornerRadius = CornerRadius.extraLarge
+    stack.layer.maskedCorners = [.layerMinXMaxYCorner, .layerMaxXMaxYCorner]
+    stack.clipsToBounds = true
+    stack.translatesAutoresizingMaskIntoConstraints = false
+    return stack
+  }()
+
+  /// Explains that the remaining installments keep being charged, so the credit above does not look
+  /// like free money.
+  private let cancellationNoteLabel: UILabel = {
+    let label = UILabel()
+    label.font = Fonts.textXS.font
+    label.textColor = Colors.gray500
+    label.numberOfLines = 0
+    label.text = "cancellation.details.note".localized
+    label.translatesAutoresizingMaskIntoConstraints = false
+    return label
+  }()
 
   // MARK: - Action Buttons (Bottom)
   private lazy var actionButtonsContainerView: UIView = {
     let view = UIView()
+    view.backgroundColor = Colors.gray100
     view.translatesAutoresizingMaskIntoConstraints = false
     return view
   }()
 
-  private lazy var gradientOverlayView: UIView = {
+  private lazy var footerBorderView: UIView = {
     let view = UIView()
+    view.backgroundColor = Colors.gray300
     view.translatesAutoresizingMaskIntoConstraints = false
-    view.isUserInteractionEnabled = false
-    view.backgroundColor = UIColor.clear
     return view
   }()
-
-  private var gradientLayer: CAGradientLayer?
 
   private lazy var actionButtonsStackView: UIStackView = {
     let stackView = UIStackView(
@@ -327,7 +494,7 @@ final class TransactionDetailsView: UIView {
     )
     stackView.translatesAutoresizingMaskIntoConstraints = false
     stackView.directionalLayoutMargins = NSDirectionalEdgeInsets(
-      top: Metrics.spacing6, leading: Metrics.spacing4, bottom: Metrics.spacing8,
+      top: Metrics.spacing4, leading: Metrics.spacing4, bottom: Metrics.spacing4,
       trailing: Metrics.spacing4)
     stackView.isLayoutMarginsRelativeArrangement = true
     return stackView
@@ -359,7 +526,10 @@ final class TransactionDetailsView: UIView {
     // Setup hierarchy (following budgets pattern)
     addSubview(headerContainerView)
     headerContainerView.addSubview(headerItemsView)
-    headerItemsView.addSubview(backButton)
+    headerItemsView.addSubview(backButtonGlassContainer)
+    backButtonGlassContainer.addSubview(backButton)
+    setupBackButtonGlassEffect()
+    headerItemsView.addSubview(hideValuesButton)
     headerItemsView.addSubview(headerTextStackView)
 
     addSubview(scrollView)
@@ -388,19 +558,61 @@ final class TransactionDetailsView: UIView {
     contentView.addSubview(transactionDetailsHeaderView)
     contentView.addSubview(transactionDetailsContentView)
 
-    // Add installments section (will be hidden by default)
-    contentView.addSubview(installmentsHeaderView)
-    // TODO: Commented out installments table for now
-    // contentView.addSubview(installmentsTableView)
-    installmentsHeaderView.isHidden = true
-    // installmentsTableView.isHidden = true
+    // Optional sections below the details card, in display order. The stack collapses whichever are
+    // hidden, so `configure` only has to set `isHidden`.
+    contentView.addSubview(tailStackView)
+
+    moveToStatementContainer.addSubview(moveToStatementIcon)
+    moveToStatementContainer.addSubview(moveToStatementLabel)
+    moveToStatementContainer.addSubview(moveToStatementValueLabel)
+    moveToStatementContainer.addSubview(moveToStatementChevron)
+    moveToStatementContainer.isHidden = true
+    tailStackView.addArrangedSubview(moveToStatementContainer)
+
+    payEarlyRow.container.isHidden = true
+    payEarlyRow.container.addGestureRecognizer(
+      UITapGestureRecognizer(target: self, action: #selector(didTapPayInstallmentsEarly)))
+    tailStackView.addArrangedSubview(payEarlyRow.container)
+
+    includedInstallmentsHeaderView.isHidden = true
+    includedInstallmentsCard.isHidden = true
+    tailStackView.addArrangedSubview(includedInstallmentsHeaderView)
+    tailStackView.addArrangedSubview(includedInstallmentsCard)
+    // The header sits directly on top of its card, matching the other CardHeader sections.
+    tailStackView.setCustomSpacing(0, after: includedInstallmentsHeaderView)
+
+    undoEarlyPaymentRow.container.isHidden = true
+    undoEarlyPaymentRow.container.addGestureRecognizer(
+      UITapGestureRecognizer(target: self, action: #selector(didTapUndoEarlyPayment)))
+    tailStackView.addArrangedSubview(undoEarlyPaymentRow.container)
+
+    cancelPurchaseRow.container.isHidden = true
+    cancelPurchaseRow.container.addGestureRecognizer(
+      UITapGestureRecognizer(target: self, action: #selector(didTapCancelPurchase)))
+    tailStackView.addArrangedSubview(cancelPurchaseRow.container)
+
+    refundedInstallmentsHeaderView.isHidden = true
+    refundedInstallmentsCard.isHidden = true
+    cancellationNoteLabel.isHidden = true
+    tailStackView.addArrangedSubview(refundedInstallmentsHeaderView)
+    tailStackView.addArrangedSubview(refundedInstallmentsCard)
+    tailStackView.addArrangedSubview(cancellationNoteLabel)
+    tailStackView.setCustomSpacing(0, after: refundedInstallmentsHeaderView)
+    tailStackView.setCustomSpacing(Metrics.spacing2, after: refundedInstallmentsCard)
+
+    undoCancellationRow.container.isHidden = true
+    undoCancellationRow.container.addGestureRecognizer(
+      UITapGestureRecognizer(target: self, action: #selector(didTapUndoCancellation)))
+    tailStackView.addArrangedSubview(undoCancellationRow.container)
 
     // Add action buttons at bottom with gradient overlay
     addSubview(actionButtonsContainerView)
-    actionButtonsContainerView.addSubview(gradientOverlayView)
+    actionButtonsContainerView.addSubview(footerBorderView)
     actionButtonsContainerView.addSubview(actionButtonsStackView)
 
     // Setup actions
+    backButtonGlassContainer.addGestureRecognizer(
+      UITapGestureRecognizer(target: self, action: #selector(didTapBack)))
     backButton.addTarget(self, action: #selector(didTapBack), for: .touchUpInside)
     editButton.addTarget(self, action: #selector(didTapEdit), for: .touchUpInside)
     deleteButton.addTarget(self, action: #selector(didTapDelete), for: .touchUpInside)
@@ -432,13 +644,26 @@ final class TransactionDetailsView: UIView {
       headerItemsView.trailingAnchor.constraint(equalTo: headerContainerView.trailingAnchor),
       headerItemsView.bottomAnchor.constraint(equalTo: headerContainerView.bottomAnchor),
 
-      backButton.topAnchor.constraint(equalTo: headerItemsView.layoutMarginsGuide.topAnchor),
-      backButton.leadingAnchor.constraint(
+      backButtonGlassContainer.topAnchor.constraint(equalTo: headerItemsView.layoutMarginsGuide.topAnchor),
+      backButtonGlassContainer.leadingAnchor.constraint(
         equalTo: headerItemsView.layoutMarginsGuide.leadingAnchor),
+      backButtonGlassContainer.widthAnchor.constraint(equalToConstant: 36),
+      backButtonGlassContainer.heightAnchor.constraint(equalToConstant: 36),
+
+      backButton.topAnchor.constraint(equalTo: backButtonGlassContainer.topAnchor),
+      backButton.leadingAnchor.constraint(equalTo: backButtonGlassContainer.leadingAnchor),
+      backButton.trailingAnchor.constraint(equalTo: backButtonGlassContainer.trailingAnchor),
+      backButton.bottomAnchor.constraint(equalTo: backButtonGlassContainer.bottomAnchor),
+
+      hideValuesButton.trailingAnchor.constraint(
+        equalTo: headerItemsView.layoutMarginsGuide.trailingAnchor),
+      hideValuesButton.centerYAnchor.constraint(equalTo: backButtonGlassContainer.centerYAnchor),
 
       headerTextStackView.leadingAnchor.constraint(
-        equalTo: backButton.trailingAnchor, constant: Metrics.spacing4),
-      headerTextStackView.centerYAnchor.constraint(equalTo: backButton.centerYAnchor),
+        equalTo: backButtonGlassContainer.trailingAnchor, constant: Metrics.spacing4),
+      headerTextStackView.centerYAnchor.constraint(equalTo: backButtonGlassContainer.centerYAnchor),
+      headerTextStackView.trailingAnchor.constraint(
+        lessThanOrEqualTo: hideValuesButton.leadingAnchor, constant: -Metrics.spacing3),
 
       // Scroll view
       scrollView.topAnchor.constraint(equalTo: headerContainerView.bottomAnchor),
@@ -483,58 +708,74 @@ final class TransactionDetailsView: UIView {
       transactionDetailsContentView.trailingAnchor.constraint(
         equalTo: transactionDetailsHeaderView.trailingAnchor),
 
-      // Installments section
-      installmentsHeaderView.topAnchor.constraint(
-        equalTo: transactionDetailsContentView.bottomAnchor, constant: Metrics.spacing6),
-      installmentsHeaderView.leadingAnchor.constraint(
+      // Tail sections
+      tailStackView.topAnchor.constraint(
+        equalTo: transactionDetailsContentView.bottomAnchor, constant: Metrics.spacing4),
+      tailStackView.leadingAnchor.constraint(
         equalTo: contentView.leadingAnchor, constant: Metrics.spacing4),
-      installmentsHeaderView.trailingAnchor.constraint(
+      tailStackView.trailingAnchor.constraint(
         equalTo: contentView.trailingAnchor, constant: -Metrics.spacing4),
+      tailStackView.bottomAnchor.constraint(
+        equalTo: contentView.bottomAnchor, constant: -Metrics.spacing4),
 
-      // TODO: Commented out installments table constraints for now
-      // installmentsTableView.topAnchor.constraint(equalTo: installmentsHeaderView.bottomAnchor),
-      // installmentsTableView.leadingAnchor.constraint(equalTo: installmentsHeaderView.leadingAnchor),
-      // installmentsTableView.trailingAnchor.constraint(
-      //   equalTo: installmentsHeaderView.trailingAnchor),
+      // Move to statement row
+      moveToStatementContainer.heightAnchor.constraint(equalToConstant: Metrics.buttonHeight),
+
+      moveToStatementIcon.leadingAnchor.constraint(
+        equalTo: moveToStatementContainer.leadingAnchor, constant: Metrics.spacing4),
+      moveToStatementIcon.centerYAnchor.constraint(equalTo: moveToStatementContainer.centerYAnchor),
+      moveToStatementIcon.widthAnchor.constraint(equalToConstant: 20),
+      moveToStatementIcon.heightAnchor.constraint(equalToConstant: 20),
+
+      moveToStatementLabel.leadingAnchor.constraint(
+        equalTo: moveToStatementIcon.trailingAnchor, constant: Metrics.spacing3),
+      moveToStatementLabel.centerYAnchor.constraint(equalTo: moveToStatementContainer.centerYAnchor),
+
+      moveToStatementValueLabel.trailingAnchor.constraint(
+        equalTo: moveToStatementChevron.leadingAnchor, constant: -Metrics.spacing2),
+      moveToStatementValueLabel.centerYAnchor.constraint(equalTo: moveToStatementContainer.centerYAnchor),
+      moveToStatementValueLabel.leadingAnchor.constraint(
+        greaterThanOrEqualTo: moveToStatementLabel.trailingAnchor, constant: Metrics.spacing3),
+
+      moveToStatementChevron.trailingAnchor.constraint(
+        equalTo: moveToStatementContainer.trailingAnchor, constant: -Metrics.spacing4),
+      moveToStatementChevron.centerYAnchor.constraint(equalTo: moveToStatementContainer.centerYAnchor),
+      moveToStatementChevron.widthAnchor.constraint(equalToConstant: 12),
+      moveToStatementChevron.heightAnchor.constraint(equalToConstant: 12),
     ])
-
-    // Set up dynamic bottom constraint
-    contentBottomConstraint = transactionDetailsContentView.bottomAnchor.constraint(
-      equalTo: contentView.bottomAnchor, constant: -Metrics.spacing4)
-    contentBottomConstraint?.isActive = true
-
-    // TODO: Commented out installments table height constraint for now
-    // installmentsTableHeightConstraint = installmentsTableView.heightAnchor.constraint(
-    //   equalToConstant: 0)
 
     NSLayoutConstraint.activate([
       // Action buttons container at bottom
+      // Action buttons container - extend to bottom of screen
       actionButtonsContainerView.leadingAnchor.constraint(equalTo: leadingAnchor),
       actionButtonsContainerView.trailingAnchor.constraint(equalTo: trailingAnchor),
-      actionButtonsContainerView.bottomAnchor.constraint(equalTo: safeAreaLayoutGuide.bottomAnchor),
+      actionButtonsContainerView.bottomAnchor.constraint(equalTo: bottomAnchor),
 
-      // Gradient overlay
-      gradientOverlayView.topAnchor.constraint(equalTo: actionButtonsContainerView.topAnchor),
-      gradientOverlayView.leadingAnchor.constraint(
-        equalTo: actionButtonsContainerView.leadingAnchor),
-      gradientOverlayView.trailingAnchor.constraint(
-        equalTo: actionButtonsContainerView.trailingAnchor),
-      gradientOverlayView.heightAnchor.constraint(equalToConstant: Metrics.spacing6),
+      // Footer border (top border like header has bottom border)
+      footerBorderView.topAnchor.constraint(equalTo: actionButtonsContainerView.topAnchor),
+      footerBorderView.leadingAnchor.constraint(equalTo: actionButtonsContainerView.leadingAnchor),
+      footerBorderView.trailingAnchor.constraint(equalTo: actionButtonsContainerView.trailingAnchor),
+      footerBorderView.heightAnchor.constraint(equalToConstant: 1),
 
-      // Action buttons stack view
-      actionButtonsStackView.topAnchor.constraint(equalTo: actionButtonsContainerView.topAnchor),
+      // Action buttons stack view - bottom respects safe area
+      actionButtonsStackView.topAnchor.constraint(equalTo: footerBorderView.bottomAnchor),
       actionButtonsStackView.leadingAnchor.constraint(
         equalTo: actionButtonsContainerView.leadingAnchor),
       actionButtonsStackView.trailingAnchor.constraint(
         equalTo: actionButtonsContainerView.trailingAnchor),
       actionButtonsStackView.bottomAnchor.constraint(
-        equalTo: actionButtonsContainerView.bottomAnchor),
+        equalTo: safeAreaLayoutGuide.bottomAnchor),
     ])
+  }
+
+  private func setupBackButtonGlassEffect() {
+    backButtonGlassContainer.applyClearGlass(cornerRadius: 18)
   }
 
   private func createDetailRow(
     title: String, value: String, isDate: Bool = false, isCreatedAt: Bool = false,
-    isUpdatedAt: Bool = false, isTotalValue: Bool = false, isLastInstallmentDate: Bool = false
+    isUpdatedAt: Bool = false, isTotalValue: Bool = false, isLastInstallmentDate: Bool = false,
+    isPaymentMethod: Bool = false, isRemaining: Bool = false
   ) -> UIView {
     let container = UIView()
     container.translatesAutoresizingMaskIntoConstraints = false
@@ -563,6 +804,10 @@ final class TransactionDetailsView: UIView {
       totalValueLabel = valueLabel
     } else if isLastInstallmentDate {
       lastInstallmentDateLabel = valueLabel
+    } else if isPaymentMethod {
+      paymentMethodValueLabel = valueLabel
+    } else if isRemaining {
+      remainingValueLabel = valueLabel
     } else {
       typeValueLabel = valueLabel
     }
@@ -595,43 +840,46 @@ final class TransactionDetailsView: UIView {
     transactionDetailsContentView.addArrangedSubview(
       createDetailRow(title: "transactionDetails.label.type".localized, value: ""))
 
+    // Add payment method row if transaction has a credit card
+    if viewModel.transaction.creditCardId != nil {
+      transactionDetailsContentView.addArrangedSubview(
+        createDetailRow(
+          title: "transactionDetails.label.paymentMethod".localized, value: "",
+          isPaymentMethod: true))
+    }
+
     // Add installment-specific rows if this is an installment transaction
     if viewModel.transaction.mode == .installments {
+      remainingValueLabel = nil
       transactionDetailsContentView.addArrangedSubview(
         createDetailRow(
           title: "transactionDetails.label.totalValue".localized, value: "", isTotalValue: true))
+      // Only shown once part of the series has been paid early — otherwise "remaining" is the same
+      // number as the total sitting directly above it.
+      if viewModel.hasEarlyPaidInstallments() {
+        transactionDetailsContentView.addArrangedSubview(
+          createDetailRow(
+            title: "earlyPayment.label.remaining".localized, value: "", isRemaining: true))
+      }
       transactionDetailsContentView.addArrangedSubview(
         createDetailRow(
           title: "transactionDetails.label.lastInstallmentDate".localized, value: "",
           isLastInstallmentDate: true))
     }
-
-    // Add standard rows
-    // Removed createdAt and updatedAt fields as requested
-  }
-
-  override func layoutSubviews() {
-    super.layoutSubviews()
-
-    // Setup gradient overlay if not already set
-    if gradientLayer == nil {
-      gradientLayer = CAGradientLayer()
-      gradientLayer?.colors = [
-        UIColor.clear.cgColor,
-        Colors.gray200.cgColor,
-      ]
-      gradientLayer?.locations = [0.0, 1.0]
-      gradientLayer?.startPoint = CGPoint(x: 0.5, y: 0.0)
-      gradientLayer?.endPoint = CGPoint(x: 0.5, y: 1.0)
-      gradientOverlayView.layer.insertSublayer(gradientLayer!, at: 0)
-    }
-
-    // Always update frame in layoutSubviews
-    gradientLayer?.frame = gradientOverlayView.bounds
   }
 
   // MARK: - Configuration
   func configure(with viewModel: TransactionDetailsViewModel) {
+    currentViewModel = viewModel
+    if visibilityObservation == nil {
+      visibilityObservation = ValueVisibilityStore.shared.observe { [weak self] _ in
+        guard let self, let viewModel = self.currentViewModel else { return }
+        // Re-runs the whole configure pass rather than patching individual labels: the masked
+        // amounts are spread across the hero row, the installment rows and the refund row.
+        self.configure(with: viewModel)
+      }
+    }
+
     // Remove amount from header subtitle - just use default subtitle
     headerSubtitleLabel.text = "transactionDetails.header.subtitle".localized
 
@@ -643,9 +891,12 @@ final class TransactionDetailsView: UIView {
 
     // Configure amount with currency attributed string (bold) like table cells
     let symbolFont = Fonts.textXS.font
-    amountLabel.attributedText = viewModel.transaction.amount.currencyAttributedString(
-      symbolFont: symbolFont, font: Fonts.titleMD)
-    amountLabel.accessibilityLabel = viewModel.getFormattedAmount()
+    let isValueHidden = ValueMask.isActive
+    amountLabel.attributedText = viewModel.transaction.amount.maskedCurrencyAttributedString(
+      symbolFont: symbolFont, font: Fonts.titleMD, hidden: isValueHidden)
+    amountLabel.accessibilityLabel = isValueHidden
+      ? ValueMask.accessibilityLabel
+      : viewModel.getFormattedAmount()
 
     // Configure transaction type icon like table cells
     if viewModel.transaction.type == .income {
@@ -688,83 +939,185 @@ final class TransactionDetailsView: UIView {
       viewModel.transaction.type == .income
       ? "transactionDetails.type.income".localized : "transactionDetails.type.expense".localized
 
+    // Configure payment method
+    if let card = viewModel.getCreditCard() {
+      paymentMethodValueLabel?.text = "\(card.name) ****\(card.lastFourDigits)"
+    }
+
     // Configure installment-specific details
     if viewModel.transaction.mode == .installments {
       let relatedInstallments = viewModel.getRelatedInstallments()
       if !relatedInstallments.isEmpty {
-        // Calculate total value from all installments
+        // The purchase total stays the full amount — paying installments early changes WHEN the money
+        // leaves, not what was bought. What is still owed goes in the separate "Remaining" row below.
         let totalValue = relatedInstallments.reduce(0) { $0 + $1.amount }
-        totalValueLabel.text = totalValue.currencyString
+        totalValueLabel.text = totalValue.maskedCurrencyString()
 
-        // Get last installment date
-        let lastInstallment = relatedInstallments.max { $0.date < $1.date }
+        // Remaining and "last installment" both read from the unsettled installments only: an
+        // installment already paid early is neither still owed nor the series' last outstanding date.
+        let outstanding = viewModel.getOutstandingInstallments()
+        remainingValueLabel?.text =
+          outstanding.reduce(0) { $0 + $1.amount }.maskedCurrencyString()
+
+        let lastInstallment = (outstanding.isEmpty ? relatedInstallments : outstanding)
+          .max { $0.date < $1.date }
         lastInstallmentDateLabel.text =
           lastInstallment.map { DateFormatter.fullDateFormatter.string(from: $0.date) } ?? "N/A"
       } else {
         totalValueLabel.text = "N/A"
+        remainingValueLabel?.text = "N/A"
         lastInstallmentDateLabel.text = "N/A"
       }
     }
 
-    // Format created at date (assuming this represents creation timestamp)
-    // Removed createdAt field as requested
+    // Configure move-to-statement row (only for CC transactions)
+    let isCCTransaction = viewModel.isCreditCardTransaction()
+    moveToStatementContainer.isHidden = !isCCTransaction
+    if isCCTransaction, let stmt = viewModel.getCurrentStatement() {
+      moveToStatementLabel.text = "transactionDetails.moveToStatement".localized
+      let formatter = DateFormatter.monthYearFormatter
+      moveToStatementValueLabel.text = formatter.string(from: stmt.dueDate)
+    }
 
-    // Set updated at to current time (as placeholder - would be from actual update timestamp in real app)
-    // Removed updatedAt field as requested
-
-    // TODO: Commented out installments section for now
-    // Show installments section if this is an installment transaction
-    // if viewModel.transaction.mode == .installments {
-    //   // Load related installments
-    //   installmentTransactions = viewModel.getRelatedInstallments()
-
-    //   if !installmentTransactions.isEmpty {
-    //     installmentsHeaderView.isHidden = false
-    //     installmentsTableView.isHidden = false
-
-    //     // Update constraints to include installments section
-    //     contentBottomConstraint?.isActive = false
-    //     contentBottomConstraint = installmentsTableView.bottomAnchor.constraint(
-    //       equalTo: contentView.bottomAnchor, constant: -Metrics.spacing4)
-    //     contentBottomConstraint?.isActive = true
-
-    //     // Calculate table height based on number of installments (including separators)
-    //     let cellHeight: CGFloat = 67  // Same as transaction table
-    //     let separatorHeight = CGFloat(max(0, installmentTransactions.count - 1)) * 1.0
-    //     let totalHeight = CGFloat(installmentTransactions.count) * cellHeight + separatorHeight
-    //     installmentsTableHeightConstraint?.constant = totalHeight
-    //     installmentsTableHeightConstraint?.isActive = true
-
-    //     // Reload table data
-    //     installmentsTableView.reloadData()
-    //   } else {
-    //     // No related installments found, hide section
-    //     installmentsHeaderView.isHidden = true
-    //     installmentsTableView.isHidden = true
-
-    //     contentBottomConstraint?.isActive = false
-    //     contentBottomConstraint = transactionDetailsContentView.bottomAnchor.constraint(
-    //       equalTo: contentView.bottomAnchor, constant: -Metrics.spacing4)
-    //     contentBottomConstraint?.isActive = true
-
-    //     installmentsTableHeightConstraint?.isActive = false
-    //   }
-    // } else {
-    //   installmentsHeaderView.isHidden = true
-    //   installmentsTableView.isHidden = true
-
-    //   // Update constraints to exclude installments section
-    //   contentBottomConstraint?.isActive = false
-    //   contentBottomConstraint = transactionDetailsContentView.bottomAnchor.constraint(
-    //     equalTo: contentView.bottomAnchor, constant: -Metrics.spacing4)
-    //   contentBottomConstraint?.isActive = true
-
-    //   installmentsTableHeightConstraint?.isActive = false
-    // }
-
-    // Always hide installments section for now
-    installmentsHeaderView.isHidden = true
+    configureEarlyPaymentSections(with: viewModel)
   }
+
+  /// The two faces of early payment on this screen: the entry point on an installment that still has
+  /// future siblings, and the breakdown + undo on the debit that paid some of them.
+  private func configureEarlyPaymentSections(with viewModel: TransactionDetailsViewModel) {
+    let payableCount = viewModel.getPayableInstallmentCount()
+    payEarlyRow.container.isHidden = payableCount == 0
+    payEarlyRow.label.text = "earlyPayment.entry.title".localized
+    payEarlyRow.value.text = String(
+      format: payableCount == 1
+        ? "earlyPayment.entry.count.singular".localized
+        : "earlyPayment.entry.count.plural".localized,
+      payableCount)
+
+    let included = viewModel.getIncludedInstallments()
+    let isEarlyPayment = viewModel.isEarlyPayment()
+
+    includedInstallmentsHeaderView.isHidden = !isEarlyPayment
+    includedInstallmentsCard.isHidden = !isEarlyPayment || included.isEmpty
+    undoEarlyPaymentRow.container.isHidden = !isEarlyPayment
+    undoEarlyPaymentRow.label.text = "earlyPayment.undo.title".localized
+
+    configureCancellationSections(with: viewModel)
+
+    guard isEarlyPayment else { return }
+
+    includedInstallmentsHeaderView.configure(
+      headerTitle: "earlyPayment.details.included.header".localized,
+      itemsQuantity: "\(included.count)"
+    )
+
+    includedInstallmentsCard.arrangedSubviews.forEach {
+      includedInstallmentsCard.removeArrangedSubview($0)
+      $0.removeFromSuperview()
+    }
+
+    for (index, installment) in included.enumerated() {
+      includedInstallmentsCard.addArrangedSubview(includedInstallmentRow(for: installment))
+      if index < included.count - 1 {
+        let separator = UIView()
+        separator.backgroundColor = Colors.gray300
+        separator.translatesAutoresizingMaskIntoConstraints = false
+        separator.heightAnchor.constraint(equalToConstant: 1).isActive = true
+        includedInstallmentsCard.addArrangedSubview(separator)
+      }
+    }
+  }
+
+  /// The two faces of cancellation: the entry point on a purchase that still has installments to
+  /// bill, and the breakdown + undo on the credit that refunded them.
+  private func configureCancellationSections(with viewModel: TransactionDetailsViewModel) {
+    let canCancel = viewModel.canCancelPurchase()
+    cancelPurchaseRow.container.isHidden = !canCancel
+    cancelPurchaseRow.label.text = "cancellation.entry.title".localized
+    if canCancel {
+      cancelPurchaseRow.value.text =
+        viewModel.getCancellationRefundAmount().maskedCurrencyString()
+    }
+
+    let refunded = viewModel.getRefundedInstallments()
+    let isRefund = viewModel.isCancellationRefund()
+
+    refundedInstallmentsHeaderView.isHidden = !isRefund
+    refundedInstallmentsCard.isHidden = !isRefund || refunded.isEmpty
+    cancellationNoteLabel.isHidden = !isRefund
+    undoCancellationRow.container.isHidden = !isRefund
+    undoCancellationRow.label.text = "cancellation.undo.title".localized
+
+    guard isRefund else { return }
+
+    refundedInstallmentsHeaderView.configure(
+      headerTitle: "cancellation.details.refunded.header".localized,
+      itemsQuantity: "\(refunded.count)"
+    )
+
+    refundedInstallmentsCard.arrangedSubviews.forEach {
+      refundedInstallmentsCard.removeArrangedSubview($0)
+      $0.removeFromSuperview()
+    }
+
+    for (index, installment) in refunded.enumerated() {
+      refundedInstallmentsCard.addArrangedSubview(includedInstallmentRow(for: installment))
+      if index < refunded.count - 1 {
+        let separator = UIView()
+        separator.backgroundColor = Colors.gray300
+        separator.translatesAutoresizingMaskIntoConstraints = false
+        separator.heightAnchor.constraint(equalToConstant: 1).isActive = true
+        refundedInstallmentsCard.addArrangedSubview(separator)
+      }
+    }
+  }
+
+  /// A read-only line naming one covered installment and the month it would have been billed in.
+  private func includedInstallmentRow(for transaction: Transaction) -> UIView {
+    let container = UIView()
+    container.translatesAutoresizingMaskIntoConstraints = false
+
+    let titleLabel = UILabel()
+    titleLabel.font = Fonts.textSMBold.font
+    titleLabel.textColor = Colors.gray700
+    titleLabel.translatesAutoresizingMaskIntoConstraints = false
+    if let number = transaction.installmentNumber, let total = transaction.totalInstallments {
+      titleLabel.text = String(
+        format: "earlyPayment.installmentRow".localized, number, total,
+        DateFormatter.monthYearShortFormatter.string(from: transaction.date))
+    } else {
+      titleLabel.text = transaction.title
+    }
+
+    let amountLabel = UILabel()
+    amountLabel.font = Fonts.textSM.font
+    amountLabel.textColor = Colors.gray500
+    amountLabel.textAlignment = .right
+    amountLabel.text = transaction.amount.maskedCurrencyString()
+    amountLabel.translatesAutoresizingMaskIntoConstraints = false
+    amountLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
+
+    container.addSubview(titleLabel)
+    container.addSubview(amountLabel)
+
+    NSLayoutConstraint.activate([
+      container.heightAnchor.constraint(equalToConstant: Metrics.buttonHeight),
+      titleLabel.leadingAnchor.constraint(
+        equalTo: container.leadingAnchor, constant: Metrics.spacing4),
+      titleLabel.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+      amountLabel.trailingAnchor.constraint(
+        equalTo: container.trailingAnchor, constant: -Metrics.spacing4),
+      amountLabel.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+      amountLabel.leadingAnchor.constraint(
+        greaterThanOrEqualTo: titleLabel.trailingAnchor, constant: Metrics.spacing3),
+    ])
+
+    return container
+  }
+
+  // MARK: - Loading State
+  func startDeleteLoading() { deleteButton.startLoading() }
+  func stopDeleteLoading() { deleteButton.stopLoading() }
 
   // MARK: - Actions
   @objc private func didTapEdit() {
@@ -778,44 +1131,24 @@ final class TransactionDetailsView: UIView {
   @objc private func didTapBack() {
     delegate?.didTapBack()
   }
-}
 
-// MARK: - UITableViewDataSource & UITableViewDelegate
-extension TransactionDetailsView: UITableViewDataSource, UITableViewDelegate {
-  func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-    return installmentTransactions.count
+  @objc private func didTapMoveToStatement() {
+    delegate?.didTapMoveToStatement()
   }
 
-  func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-    let cell =
-      tableView.dequeueReusableCell(withIdentifier: TransactionCell.reuseID, for: indexPath)
-      as! TransactionCell
-
-    let transaction = installmentTransactions[indexPath.row]
-
-    let configuration = TransactionCellConfiguration(
-      category: transaction.category,
-      title: transaction.title,
-      date: transaction.date,
-      value: transaction.amount,
-      transactionType: transaction.type,
-      transactionMode: transaction.mode,
-      installmentNumber: transaction.installmentNumber,
-      totalInstallments: transaction.totalInstallments
-    )
-
-    cell.configure(with: configuration)
-
-    // Add delete action for each installment
-    cell.onDelete = { [weak self] completion in
-      self?.delegate?.didTapDeleteInstallment(transaction)
-      completion(false)  // Let the delegate handle the deletion
-    }
-
-    return cell
+  @objc private func didTapPayInstallmentsEarly() {
+    delegate?.didTapPayInstallmentsEarly()
   }
 
-  func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
-    return 67  // Same height as transaction table cells
+  @objc private func didTapUndoEarlyPayment() {
+    delegate?.didTapUndoEarlyPayment()
+  }
+
+  @objc private func didTapCancelPurchase() {
+    delegate?.didTapCancelPurchase()
+  }
+
+  @objc private func didTapUndoCancellation() {
+    delegate?.didTapUndoCancellation()
   }
 }

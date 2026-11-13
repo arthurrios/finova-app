@@ -11,7 +11,7 @@ import UIKit
 final class AddTransactionModalView: UIView {
   weak var delegate: AddTransactionModalViewDelegate?
 
-  let categoryOptions = TransactionCategory.allCases
+  let categoryOptions = TransactionCategory.allCases.filter { $0 != .creditCard }
 
   // MARK: - Edit Mode Properties
   private var isEditMode = false
@@ -46,16 +46,29 @@ final class AddTransactionModalView: UIView {
   private var isAnimating = false
   private var pendingMode: TransactionMode?
 
+  private var contentHeightConstraint: NSLayoutConstraint?
+
+  private lazy var scrollView: UIScrollView = {
+    let sv = UIScrollView()
+    sv.showsVerticalScrollIndicator = false
+    sv.translatesAutoresizingMaskIntoConstraints = false
+    return sv
+  }()
+
   private lazy var contentStackView: UIStackView = {
     let sv = UIStackView(
       axis: .vertical, spacing: Metrics.spacing7, distribution: .fill,
       arrangedSubviews: [
-        headerStackView, inputStackView, transactionButtonsStackView, separator, saveButton,
+        headerStackView, inputStackView, paymentMethodSection,
+        transactionButtonsStackView, separator, saveButton,
       ])
     sv.directionalLayoutMargins = NSDirectionalEdgeInsets(
       top: Metrics.spacing10, leading: Metrics.spacing8, bottom: Metrics.spacing4,
       trailing: Metrics.spacing8)
     sv.isLayoutMarginsRelativeArrangement = true
+
+    // Bring payment method section closer to the value/date inputs
+    sv.setCustomSpacing(Metrics.spacing3, after: inputStackView)
 
     sv.setContentHuggingPriority(UILayoutPriority(251), for: .vertical)
     sv.setContentCompressionResistancePriority(UILayoutPriority(751), for: .vertical)
@@ -63,12 +76,12 @@ final class AddTransactionModalView: UIView {
     return sv
   }()
 
-  // Simplified content stack for edit mode (no transaction type buttons or mode controls)
+  // Simplified content stack for edit mode (no mode controls)
   private lazy var editModeContentStackView: UIStackView = {
     let sv = UIStackView(
       axis: .vertical, spacing: Metrics.spacing7, distribution: .fill,
       arrangedSubviews: [
-        headerStackView, editModeInputStackView, separator, saveButton,
+        headerStackView, editModeInputStackView, transactionButtonsStackView, separator, saveButton,
       ])
     sv.directionalLayoutMargins = NSDirectionalEdgeInsets(
       top: Metrics.spacing10, leading: Metrics.spacing8, bottom: Metrics.spacing4,
@@ -129,6 +142,78 @@ final class AddTransactionModalView: UIView {
     return label
   }()
 
+  // MARK: - Payment Method Section (Credit Card)
+  private var selectedPaymentMethod: PaymentMethod = .cashDebit
+  private var availableCards: [CreditCard] = []
+  private var selectedCard: CreditCard?
+
+  private lazy var paymentMethodSection: UIStackView = {
+    let stack = UIStackView(
+      axis: .vertical, spacing: Metrics.spacing3,
+      arrangedSubviews: [paymentMethodTitleLabel, paymentOptionsStack, cardSelectorContainer, statementInfoBanner])
+    stack.isHidden = true  // Only show for expenses
+    return stack
+  }()
+
+  private let paymentMethodTitleLabel: UILabel = {
+    let label = UILabel()
+    label.text = "addTransactionModal.paymentMethod.title".localized
+    label.font = Fonts.textSMBold.font
+    label.textColor = Colors.gray600
+    label.translatesAutoresizingMaskIntoConstraints = false
+    return label
+  }()
+
+  private lazy var paymentOptionsStack = UIStackView(
+    axis: .horizontal, spacing: Metrics.spacing3, distribution: .fillEqually,
+    arrangedSubviews: [cashDebitOption, creditCardOption])
+
+  private lazy var cashDebitOption: PaymentMethodOptionView = {
+    let view = PaymentMethodOptionView(
+      title: "addTransactionModal.paymentMethod.cashDebit".localized,
+      subtitle: "addTransactionModal.paymentMethod.cashDebit.subtitle".localized)
+    view.setSelected(true)
+    view.onTap = { [weak self] in self?.selectPaymentMethod(.cashDebit) }
+    return view
+  }()
+
+  private lazy var creditCardOption: PaymentMethodOptionView = {
+    let view = PaymentMethodOptionView(
+      title: "addTransactionModal.paymentMethod.creditCard".localized,
+      subtitle: "addTransactionModal.paymentMethod.creditCard.subtitle".localized)
+    view.onTap = { [weak self] in self?.selectPaymentMethod(.creditCard(cardId: 0)) }
+    return view
+  }()
+
+  private lazy var cardSelectorContainer: UIStackView = {
+    let stack = UIStackView(axis: .vertical, spacing: Metrics.spacing2,
+      arrangedSubviews: [cardPickerInput, createCardButton])
+    stack.isHidden = true
+    return stack
+  }()
+
+  private let cardPickerInput = Input(
+    type: .picker(values: []),
+    placeholder: "addTransactionModal.paymentMethod.selectCard".localized,
+    icon: UIImage(named: "lucide_iconCreditCard"), iconPosition: .left)
+
+  private lazy var createCardButton: Button = {
+    let button = Button(variant: .outlined, label: "addTransactionModal.paymentMethod.createCard".localized)
+    button.isHidden = true
+    button.addTarget(self, action: #selector(didTapCreateCard), for: .touchUpInside)
+    return button
+  }()
+
+  private let statementInfoBanner: UILabel = {
+    let label = UILabel()
+    label.font = Fonts.textXS.font
+    label.textColor = Colors.gray500
+    label.numberOfLines = 0
+    label.isHidden = true
+    label.translatesAutoresizingMaskIntoConstraints = false
+    return label
+  }()
+
   private lazy var transactionModeStackView = UIStackView(
     axis: .vertical,
     arrangedSubviews: [transactionModelControl, installmentsInputContainer])
@@ -164,9 +249,13 @@ final class AddTransactionModalView: UIView {
     return stackView
   }()
 
-  private lazy var horizontalInputsStackView = UIStackView(
-    axis: .horizontal, spacing: Metrics.spacing3, distribution: .fillEqually,
-    arrangedSubviews: [moneyTextField, dateTextField])
+  private lazy var horizontalInputsStackView: UIStackView = {
+    let stackView = UIStackView(
+      axis: .horizontal, spacing: Metrics.spacing3, distribution: .fillEqually,
+      arrangedSubviews: [moneyTextField, dateColumnStack])
+    stackView.alignment = .top
+    return stackView
+  }()
 
   private lazy var installmentsInputContainer: UIStackView = {
     let stackView = UIStackView(
@@ -213,7 +302,7 @@ final class AddTransactionModalView: UIView {
   private let transactionTitleTextField = Input(
     placeholder: "addTransactionModal.input.transactionTitle".localized)
   let categoryPickerView = Input(
-    type: .picker(values: TransactionCategory.allCases.map { $0.key }),
+    type: .picker(values: TransactionCategory.allCases.filter { $0 != .creditCard }.map { $0.key }),
     placeholder: "addTransactionModal.input.category".localized, icon: UIImage(named: "tag"),
     iconPosition: .left)
 
@@ -261,6 +350,39 @@ final class AddTransactionModalView: UIView {
   private let dateTextField = Input(
     type: .date(style: .fullDate), placeholder: "00/00/0000", icon: UIImage(named: "calendar"))
 
+  /// The business-day rule for this transaction. Pre-filled from the global default for a new one,
+  /// and from the transaction itself when editing.
+  private(set) var selectedBusinessDayRule: BusinessDayRule =
+    UserDefaultsManager.getDefaultBusinessDayRule() {
+    didSet { updateBusinessDayUI() }
+  }
+
+  private lazy var businessDayRuleButton: UIButton = {
+    let button = UIButton(type: .system)
+    button.translatesAutoresizingMaskIntoConstraints = false
+    button.contentHorizontalAlignment = .leading
+    button.titleLabel?.font = Fonts.textXS.font
+    button.setTitleColor(Colors.gray500, for: .normal)
+    button.addTarget(self, action: #selector(businessDayRuleTapped), for: .touchUpInside)
+    return button
+  }()
+
+  /// Shows the date the transaction will actually land on, but only when the rule moves it. A rule
+  /// that silently changed the saved date with nothing on screen would look like a bug.
+  private lazy var effectiveDateHintLabel: UILabel = {
+    let label = UILabel()
+    label.translatesAutoresizingMaskIntoConstraints = false
+    label.font = Fonts.textXS.font
+    label.textColor = Colors.gray500
+    label.numberOfLines = 1
+    label.isHidden = true
+    return label
+  }()
+
+  private lazy var dateColumnStack = UIStackView(
+    axis: .vertical, spacing: Metrics.spacing1,
+    arrangedSubviews: [dateTextField, businessDayRuleButton, effectiveDateHintLabel])
+
   var incomeSelectorButton = TransactionTypeSelector()
 
   var expenseSelectorButton = TransactionTypeSelector(transactionType: .expense)
@@ -273,11 +395,14 @@ final class AddTransactionModalView: UIView {
     return view
   }()
 
-  private let saveButton = Button(label: "addTransactionModal.button.save".localized)
+  let saveButton = Button(label: "addTransactionModal.button.save".localized)
 
   override init(frame: CGRect) {
     super.init(frame: frame)
     setupViews()
+    // `selectedBusinessDayRule`'s `didSet` only fires on a change, so the selector needs its title
+    // filling in once up front or it renders blank until the user touches something.
+    updateBusinessDayUI()
   }
 
   required init?(coder: NSCoder) {
@@ -288,14 +413,25 @@ final class AddTransactionModalView: UIView {
     backgroundColor = Colors.gray100
     layer.cornerRadius = CornerRadius.bottomSheet
 
-    // Add the default content stack view (for add mode)
-    addSubview(contentStackView)
+    // Add the default content stack view (for add mode) inside scroll view
+    addSubview(scrollView)
+    scrollView.addSubview(contentStackView)
     closeIconButton.addTarget(self, action: #selector(didTapClose), for: .touchUpInside)
+
+    contentStackView.setCustomSpacing(Metrics.spacing3, after: headerStackView)
 
     saveButton.addTarget(self, action: #selector(didTapSaveTransaction), for: .touchUpInside)
 
+    // Add Done button toolbar to inputs that need it
+    transactionTitleTextField.addDoneButtonToolbar()
+    moneyTextField.addDoneButtonToolbar()
+    totalValueTextField.addDoneButtonToolbar()
+    installmentsInputWithSuffix.addDoneButtonToolbar()
+
     setupTransactionModeControl()
     setupInstallmentsConstraints()
+    setupDateChangeListener()
+    setupCoachMarkTargets()
 
     setupConstraints()
   }
@@ -311,16 +447,52 @@ final class AddTransactionModalView: UIView {
     let currentContentStackView = isEditMode ? editModeContentStackView : contentStackView
 
     NSLayoutConstraint.activate([
-      currentContentStackView.topAnchor.constraint(equalTo: topAnchor),
-      currentContentStackView.leadingAnchor.constraint(equalTo: leadingAnchor),
-      currentContentStackView.trailingAnchor.constraint(equalTo: trailingAnchor),
-      currentContentStackView.bottomAnchor.constraint(equalTo: bottomAnchor),
+      scrollView.topAnchor.constraint(equalTo: topAnchor),
+      scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
+      scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
+      scrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
+
+      currentContentStackView.topAnchor.constraint(equalTo: scrollView.topAnchor),
+      currentContentStackView.leadingAnchor.constraint(equalTo: scrollView.leadingAnchor),
+      currentContentStackView.trailingAnchor.constraint(equalTo: scrollView.trailingAnchor),
+      currentContentStackView.bottomAnchor.constraint(equalTo: scrollView.bottomAnchor),
+      currentContentStackView.widthAnchor.constraint(equalTo: scrollView.widthAnchor),
     ])
+
+    // Self-sizing: scroll view prefers to match content height so the modal grows.
+    // Only scrolls when content exceeds the VC's max height cap.
+    contentHeightConstraint?.isActive = false
+    let heightC = scrollView.heightAnchor.constraint(equalTo: currentContentStackView.heightAnchor)
+    heightC.priority = .defaultHigh
+    heightC.isActive = true
+    contentHeightConstraint = heightC
+  }
+
+  private func setupCoachMarkTargets() {
+    let fields: [(Input, CoachMarkTarget)] = [
+      (transactionTitleTextField, .transactionTitle), (categoryPickerView, .transactionCategory),
+      (moneyTextField, .transactionAmount), (dateTextField, .transactionDate),
+    ]
+    fields.forEach { field, target in field.reportCoachMarkFill(as: target) }
+    businessDayRuleButton.accessibilityIdentifier = CoachMarkTarget.transactionDateRule.rawValue
+    transactionButtonsStackView.accessibilityIdentifier = CoachMarkTarget.transactionType.rawValue
+    saveButton.accessibilityIdentifier = CoachMarkTarget.transactionSave.rawValue
+  }
+
+  private func setupDateChangeListener() {
+    dateTextField.textField.addTarget(self, action: #selector(dateDidChange), for: .editingChanged)
+  }
+
+  @objc private func dateDidChange() {
+    // Refreshes the business-day hint too — see `updateStatementInfoBanner`.
+    updateStatementInfoBanner()
   }
 
   private func setupTransactionModeControl() {
+    transactionModelControl.accessibilityIdentifier = CoachMarkTarget.transactionMode.rawValue
     transactionModelControl.onSelectionChanged = { [weak self] mode in
       self?.handleTransactionModeChange(mode)
+      if mode == .recurring { CoachMarkCenter.shared.post(.transactionModeRecurring) }
     }
   }
 
@@ -341,6 +513,20 @@ final class AddTransactionModalView: UIView {
 
     let targetHeight: CGFloat = shouldShowInstallments ? Metrics.inputHeight : 0
 
+    // The constraint and the stack spacing change outside the animation block, and only the
+    // top-most view is laid out inside it. The other order hung the app. The scroll view
+    // sizes itself from its own content, so laying out this view and then its view
+    // controller's view inside the block re-entered the layout pass, and every pass attached
+    // one more animation to each layer it touched. -[CALayer animationForKey:] then had a
+    // longer list to walk on the next pass, layout never settled, and the main thread spun
+    // at 100% with the whole app unresponsive - only killing it recovered.
+    // Repro: expense -> credit card -> installments -> recurring.
+    installmentsHeightConstraint?.constant = targetHeight
+    transactionModeStackView.spacing = shouldShowInstallments ? Metrics.spacing3 : 0
+
+    let layoutRoot = findViewController()?.view ?? self
+    layoutRoot.setNeedsLayout()
+
     UIView.animate(
       withDuration: 0.3,
       delay: 0,
@@ -349,14 +535,7 @@ final class AddTransactionModalView: UIView {
       options: [.beginFromCurrentState, .allowUserInteraction],
       animations: {
         self.installmentsInputContainer.alpha = shouldShowInstallments ? 1.0 : 0.0
-        self.installmentsHeightConstraint?.constant = targetHeight
-        self.transactionModeStackView.spacing = shouldShowInstallments ? Metrics.spacing3 : 0
-
-        self.layoutIfNeeded()
-
-        if let viewController = self.findViewController() {
-          viewController.view.layoutIfNeeded()
-        }
+        layoutRoot.layoutIfNeeded()
       },
       completion: { [weak self] _ in
         guard let self = self else { return }
@@ -373,6 +552,10 @@ final class AddTransactionModalView: UIView {
 
   @objc private func didTapClose() {
     delegate?.closeModal()
+  }
+
+  @objc private func didTapCreateCard() {
+    delegate?.didTapCreateCreditCard()
   }
 
   // MARK: - Validation Helper
@@ -393,19 +576,10 @@ final class AddTransactionModalView: UIView {
     } else if input === dateTextField {
       // Date input: check if a valid date is selected or if text exists (for populated fields)
       // In edit mode, we populate the text but dateValue might not be set, so we accept text
-      print("🔍 UI VALIDATION: Date field validation")
-      print("   - dateValue: \(input.dateValue?.description ?? "nil")")
-      print("   - text: '\(text)'")
-      print("   - isEditMode: \(isEditMode)")
-
       // More lenient validation: check if dateValue exists OR if text is not empty and matches date format
       let hasDateValue = input.dateValue != nil
       let hasValidText = !text.isEmpty && text.count >= 8  // Basic check for "dd/mm/yyyy" format
       let isValid = hasDateValue || hasValidText || (isEditMode && !text.isEmpty)
-
-      print("   - hasDateValue: \(hasDateValue)")
-      print("   - hasValidText: \(hasValidText) (text length: \(text.count))")
-      print("   - validation result: \(isValid)")
 
       return isValid
     } else if input === installmentsTextField || input === installmentsInputWithSuffix {
@@ -433,10 +607,9 @@ final class AddTransactionModalView: UIView {
     }
   }
 
-  private func setDateRestrictionsForInstallment(transaction: Transaction) {
-    // For installment transactions, restrict date picker to the current month only
+  private func setDateRestrictionsForInstallment(around transactionDate: Date) {
+    // For installment transactions, restrict date picker to the series' start month only
     let calendar = Calendar.current
-    let transactionDate = transaction.date
 
     // Get the first day of the current transaction's month
     let startOfMonth =
@@ -455,21 +628,22 @@ final class AddTransactionModalView: UIView {
 
     let endOfMonth = calendar.date(from: dateComponents) ?? transactionDate
 
-    print("🔍 DATE RESTRICTION DEBUG:")
-    print("   - Transaction date: \(transactionDate)")
-    print("   - Start of month: \(startOfMonth)")
-    print("   - End of month: \(endOfMonth)")
-    print("   - Year: \(year), Month: \(month), Last day: \(lastDayOfMonth - 1)")
-
     // Set date restrictions to only allow dates within the current month
     initialDateTextField.setDateRestrictions(minimumDate: startOfMonth, maximumDate: endOfMonth)
+  }
+
+  /// The date the series STARTED, which is what the rebuild on save re-derives every installment
+  /// from. The row being edited is one installment, and its own date is its statement's due date:
+  /// pre-filling that restarted the whole series at that installment, so the earlier ones vanished.
+  func setInitialDateForInstallment(_ startDate: Date) {
+    initialDateTextField.text = DateFormatter.fullDateFormatter.string(from: startDate)
+    setDateRestrictionsForInstallment(around: startDate)
   }
 
   func setTotalAmountForInstallment(_ totalAmount: Int) {
     // Set the total amount for installment transactions
     totalValueTextField.text = String(totalAmount)
     totalValueTextField.textField.sendActions(for: .editingChanged)
-    print("🔍 INSTALLMENT EDIT: Set total amount to \(totalAmount)")
   }
 
   private func setupEditModeContent(for transaction: Transaction) {
@@ -480,19 +654,10 @@ final class AddTransactionModalView: UIView {
     editModeInputStackView.addArrangedSubview(transactionTitleTextField)
     editModeInputStackView.addArrangedSubview(categoryPickerView)
 
-    print("🔍 EDIT MODE: Transaction mode = \(transaction.mode)")
-    print("🔍 EDIT MODE: Transaction hasInstallments = \(transaction.hasInstallments ?? false)")
-    print("🔍 EDIT MODE: Transaction totalInstallments = \(transaction.totalInstallments ?? 0)")
-    print("🔍 EDIT MODE: Transaction parentTransactionId = \(transaction.parentTransactionId ?? 0)")
-    print("🔍 EDIT MODE: Transaction installmentNumber = \(transaction.installmentNumber ?? 0)")
-    print("🔍 EDIT MODE: Transaction isRecurring = \(transaction.isRecurring ?? false)")
-
     // Check if this is an installment transaction (either by mode or by properties)
     let isInstallmentTransaction =
       transaction.mode == .installments
       || (transaction.parentTransactionId != nil && transaction.installmentNumber != nil)
-
-    print("🔍 EDIT MODE: isInstallmentTransaction = \(isInstallmentTransaction)")
 
     if isInstallmentTransaction {
       // For installment transactions, show installment-specific fields (like add transaction modal structure)
@@ -510,8 +675,6 @@ final class AddTransactionModalView: UIView {
 
       // Update height constraint to show the installments field
       installmentsHeightConstraint?.constant = Metrics.inputHeight
-
-      print("🔍 INSTALLMENT EDIT: Set up installment-specific fields")
     } else {
       // For normal/recurring transactions, show basic fields only
       editModeInputStackView.addArrangedSubview(horizontalInputsStackView)
@@ -522,9 +685,57 @@ final class AddTransactionModalView: UIView {
 
       // Reset height constraint for non-installment transactions
       installmentsHeightConstraint?.constant = 0
-
-      print("🔍 NORMAL EDIT: Set up basic fields only")
     }
+  }
+
+  @objc
+  private func businessDayRuleTapped() {
+    delegate?.didRequestBusinessDayRulePicker(current: selectedBusinessDayRule) { [weak self] rule in
+      self?.selectedBusinessDayRule = rule
+    }
+  }
+
+  /// Keeps the selector title and the "effective date" hint in step with the rule, the picked date
+  /// and the payment method.
+  func updateBusinessDayUI() {
+    // A card purchase's effective date is the statement due date, which the card owns — so the rule
+    // has nothing to act on and the selector would be misleading.
+    let isCreditCard = getSelectedCreditCardId() != nil
+    businessDayRuleButton.isHidden = isCreditCard
+
+    if isCreditCard {
+      effectiveDateHintLabel.text = "addTransactionModal.businessDay.creditCardHint".localized
+      effectiveDateHintLabel.isHidden = false
+      return
+    }
+
+    businessDayRuleButton.setTitle("\(selectedBusinessDayRule.title) ▾", for: .normal)
+
+    guard selectedBusinessDayRule.shiftsDates, let picked = currentlyPickedDate() else {
+      effectiveDateHintLabel.isHidden = true
+      return
+    }
+
+    var calendar = Calendar.current
+    calendar.timeZone = .current
+    let adjusted = BusinessDayAdjuster.adjust(
+      picked, rule: selectedBusinessDayRule, calendar: calendar)
+
+    // Nothing to say when the picked date is already a business day.
+    guard adjusted != picked else {
+      effectiveDateHintLabel.isHidden = true
+      return
+    }
+
+    effectiveDateHintLabel.text = "addTransactionModal.businessDay.effective".localized(
+      DateFormatter.fullDateFormatter.string(from: adjusted))
+    effectiveDateHintLabel.isHidden = false
+  }
+
+  private func currentlyPickedDate() -> Date? {
+    if let value = dateTextField.dateValue { return value }
+    guard let text = dateTextField.textField.text, !text.isEmpty else { return nil }
+    return DateFormatter.fullDateFormatter.date(from: text)
   }
 
   @objc
@@ -556,24 +767,13 @@ final class AddTransactionModalView: UIView {
         return allInputs
       }()
 
-    print("🔍 VALIDATION: Starting validation for \(inputsToValidate.count) inputs")
     let invalids = inputsToValidate.filter { input in
-      let isValid = isInputValid(input)
-      if !isValid {
-        let inputName = getInputName(input)
-        print("❌ VALIDATION: \(inputName) is invalid")
-      }
-      return !isValid
+      return !isInputValid(input)
     }
 
-    // Only validate transaction type in add mode
     let isTransactionTypeError =
-      !isEditMode
-      && (incomeSelectorButton.superview != nil && incomeSelectorButton.variant != .selected
-        && expenseSelectorButton.superview != nil && expenseSelectorButton.variant != .selected)
-
-    print("🔍 VALIDATION: Found \(invalids.count) invalid inputs")
-    print("🔍 VALIDATION: Transaction type error: \(isTransactionTypeError)")
+      incomeSelectorButton.superview != nil && incomeSelectorButton.variant != .selected
+        && expenseSelectorButton.superview != nil && expenseSelectorButton.variant != .selected
 
     invalids.forEach { $0.setError(true) }
 
@@ -590,11 +790,6 @@ final class AddTransactionModalView: UIView {
     let rawValues = categoryPickerView.pickerValues ?? []
     let selectedRow = categoryPickerView.selectedPickerIndex
     let categoryKey = rawValues.indices.contains(selectedRow) ? rawValues[selectedRow] : ""
-
-    // Debug form field values
-    print(
-      "🔍 DEBUG: Form field values - title: '\(title)', categoryKey: '\(categoryKey)', selectedRow: \(selectedRow), rawValues: \(rawValues)"
-    )
 
     // Get amount and date based on transaction mode
     let amount: Int
@@ -617,18 +812,14 @@ final class AddTransactionModalView: UIView {
     let typeKey: String
     let selectedMode: TransactionMode
 
+    // Always get type from UI controls (selectors are now visible in edit mode too)
+    typeEnum = incomeSelectorButton.variant == .selected ? .income : .expense
+    typeKey = String(describing: typeEnum)
+
     if isEditMode, let editingTransaction = editingTransaction {
-      // In edit mode, use existing transaction data
-      typeEnum = editingTransaction.type
-      typeKey = String(describing: typeEnum)
       selectedMode = editingTransaction.mode
-      print("🔍 DEBUG: Edit mode - typeEnum: \(typeEnum), typeKey: '\(typeKey)'")
     } else {
-      // In add mode, get from UI controls
-      typeEnum = incomeSelectorButton.variant == .selected ? .income : .expense
-      typeKey = String(describing: typeEnum)
       selectedMode = transactionModelControl.getSelectedMode()
-      print("🔍 DEBUG: Add mode - typeEnum: \(typeEnum), typeKey: '\(typeKey)'")
     }
 
     // Determine if this is add or edit mode
@@ -641,7 +832,8 @@ final class AddTransactionModalView: UIView {
         let installmentData = InstallmentTransactionData(
           title: title, totalAmount: amount, date: date, category: categoryKey,
           transactionType: typeKey,
-          installments: Int(installmentsInputWithSuffix.textField.text ?? "1") ?? 1)
+          installments: Int(installmentsInputWithSuffix.textField.text ?? "1") ?? 1,
+          creditCardId: getSelectedCreditCardId(), businessDayRule: selectedBusinessDayRule)
         delegate?.updateInstallmentTransactionData(id: transactionId, installmentData)
       } else if editingTransaction.mode == .recurring {
         // For recurring transactions, show alert with options
@@ -649,41 +841,190 @@ final class AddTransactionModalView: UIView {
           transactionId: transactionId,
           transactionData: AddTransactionData(
             title: title, amount: amount, date: date, category: categoryKey,
-            transactionType: typeKey),
+            transactionType: typeKey, creditCardId: getSelectedCreditCardId(), businessDayRule: selectedBusinessDayRule),
           installmentData: nil,
           mode: selectedMode
         )
       } else {
-        // Normal transaction - proceed with edit
+        // Normal transaction - proceed with edit (include payment method change)
         delegate?.updateTransactionData(
           id: transactionId,
           AddTransactionData(
             title: title, amount: amount, date: date, category: categoryKey,
-            transactionType: typeKey)
+            transactionType: typeKey, creditCardId: getSelectedCreditCardId(), businessDayRule: selectedBusinessDayRule)
         )
       }
     } else {
       // Add mode
+      let creditCardId = getSelectedCreditCardId()
+
       switch selectedMode {
       case .normal:
         delegate?.sendTransactionData(
           AddTransactionData(
             title: title, amount: amount, date: date, category: categoryKey,
-            transactionType: typeKey)
+            transactionType: typeKey, creditCardId: creditCardId,
+            businessDayRule: selectedBusinessDayRule)
         )
       case .recurring:
         delegate?.sendRecurringTransactionData(
           AddTransactionData(
             title: title, amount: amount, date: date, category: categoryKey,
-            transactionType: typeKey)
+            transactionType: typeKey, creditCardId: creditCardId,
+            businessDayRule: selectedBusinessDayRule)
         )
       case .installments:
         let installmentsCount = Int(installmentsInputWithSuffix.textField.text ?? "1") ?? 1
         delegate?.sendInstallmentTransactionData(
           InstallmentTransactionData(
             title: title, totalAmount: amount, date: date, category: categoryKey,
-            transactionType: typeKey, installments: installmentsCount))
+            transactionType: typeKey, installments: installmentsCount, creditCardId: creditCardId,
+            businessDayRule: selectedBusinessDayRule))
       }
+    }
+  }
+
+  // MARK: - Payment Method Logic
+
+  private func selectPaymentMethod(_ method: PaymentMethod) {
+    cashDebitOption.setSelected(method == .cashDebit)
+    creditCardOption.setSelected(method != .cashDebit)
+
+    let showCardSelector = method != .cashDebit
+
+    // Update state before animating so layoutIfNeeded reflects all changes
+    if case .creditCard = method {
+      if let defaultCard = availableCards.first(where: { $0.isDefault }) {
+        selectedPaymentMethod = .creditCard(cardId: defaultCard.id ?? 0)
+        selectedCard = defaultCard
+        if let index = availableCards.firstIndex(where: { $0.id == defaultCard.id }) {
+          cardPickerInput.selectPickerValue(at: index)
+        }
+      } else if let firstCard = availableCards.first, let cardId = firstCard.id {
+        // No default card — auto-select the first available card so the picker
+        // doesn't stay at cardId 0 when the user taps Done without scrolling
+        selectedPaymentMethod = .creditCard(cardId: cardId)
+        selectedCard = firstCard
+        cardPickerInput.selectPickerValue(at: 0)
+      } else {
+        selectedPaymentMethod = .creditCard(cardId: 0)
+        selectedCard = nil
+      }
+    } else {
+      selectedPaymentMethod = .cashDebit
+      selectedCard = nil
+    }
+
+    UIView.animate(withDuration: 0.25) {
+      self.cardSelectorContainer.isHidden = !showCardSelector
+      self.cardSelectorContainer.alpha = showCardSelector ? 1 : 0
+      self.updateStatementInfoBanner()
+      self.layoutIfNeeded()
+      if let vc = self.findViewController() { vc.view.layoutIfNeeded() }
+    }
+  }
+
+  func loadAvailableCards(_ cards: [CreditCard]) {
+    availableCards = cards
+    let names = cards.map { "\($0.name) ****\($0.lastFourDigits)" }
+
+    cardPickerInput.updatePickerValues(names)
+
+    if cards.isEmpty {
+      cardPickerInput.textField.text = "addTransactionModal.paymentMethod.noCards".localized
+      cardPickerInput.isUserInteractionEnabled = false
+      createCardButton.isHidden = false
+    } else {
+      cardPickerInput.isUserInteractionEnabled = true
+      createCardButton.isHidden = true
+    }
+
+    cardPickerInput.onPickerSelectionChanged = { [weak self] index in
+      guard let self, index < self.availableCards.count else { return }
+      let card = self.availableCards[index]
+      self.selectedPaymentMethod = .creditCard(cardId: card.id ?? 0)
+      self.selectedCard = card
+      self.updateStatementInfoBanner()
+    }
+
+    // Pre-select payment method for edit mode
+    if isEditMode, let editTx = editingTransaction, editTx.type == .expense {
+      if let cardId = editTx.creditCardId, cardId > 0 {
+        cashDebitOption.setSelected(false)
+        creditCardOption.setSelected(true)
+        cardSelectorContainer.isHidden = false
+        cardSelectorContainer.alpha = 1
+
+        if let cardIndex = availableCards.firstIndex(where: { $0.id == cardId }) {
+          cardPickerInput.selectPickerValue(at: cardIndex)
+          selectedCard = availableCards[cardIndex]
+          selectedPaymentMethod = .creditCard(cardId: cardId)
+          updateStatementInfoBanner()
+        }
+      } else {
+        cashDebitOption.setSelected(true)
+        creditCardOption.setSelected(false)
+        selectedPaymentMethod = .cashDebit
+      }
+    }
+  }
+
+  private func updateStatementInfoBanner() {
+    // Every payment-method change funnels through here, so the business-day selector hides and shows
+    // with the card without each assignment site having to remember.
+    updateBusinessDayUI()
+
+    guard let card = selectedCard else {
+      statementInfoBanner.isHidden = true
+      return
+    }
+
+    // Use the selected transaction date instead of today's date
+    let transactionDate: Date
+    if let selectedDate = dateTextField.dateValue {
+      transactionDate = selectedDate
+    } else if let dateText = dateTextField.textField.text,
+              !dateText.isEmpty,
+              let parsedDate = DateFormatter.fullDateFormatter.date(from: dateText) {
+      transactionDate = parsedDate
+    } else {
+      transactionDate = Date()
+    }
+
+    let service = CreditCardService()
+    let closingDate = service.calculateClosingDate(card: card, transactionDate: transactionDate)
+    let dueDate = service.calculateDueDate(closingDate: closingDate, card: card)
+    let monthName = DateFormatter.monthFormatter.string(from: closingDate)
+    let dueDateStr = DateFormatter.fullDateFormatter.string(from: dueDate)
+    statementInfoBanner.text = String(format: "addTransactionModal.paymentMethod.statementInfo".localized, monthName, dueDateStr)
+    statementInfoBanner.isHidden = false
+  }
+
+  func getSelectedCreditCardId() -> Int? {
+    if case .creditCard(let cardId) = selectedPaymentMethod, cardId > 0 {
+      return cardId
+    }
+    return nil
+  }
+
+  func showPaymentMethodSection(_ show: Bool) {
+    if show && isEditMode && paymentMethodSection.superview == nil {
+      // Insert after editModeInputStackView in the edit mode stack
+      if let inputIndex = editModeContentStackView.arrangedSubviews.firstIndex(of: editModeInputStackView) {
+        editModeContentStackView.insertArrangedSubview(paymentMethodSection, at: inputIndex + 1)
+        editModeContentStackView.setCustomSpacing(Metrics.spacing3, after: editModeInputStackView)
+      }
+    }
+
+    UIView.animate(withDuration: 0.25) {
+      self.paymentMethodSection.isHidden = !show
+      self.paymentMethodSection.alpha = show ? 1 : 0
+      self.layoutIfNeeded()
+      if let vc = self.findViewController() { vc.view.layoutIfNeeded() }
+    }
+
+    if !show {
+      selectPaymentMethod(.cashDebit)
     }
   }
 
@@ -693,9 +1034,13 @@ final class AddTransactionModalView: UIView {
     editingTransaction = transaction
     currentEditMode = .edit(transaction: transaction)
 
+    // The row's own rule, not the global default: editing a transaction must not silently re-rule it
+    // to whatever the user has since chosen for new ones.
+    selectedBusinessDayRule = transaction.businessDayRule
+
     // Switch to simplified layout for edit mode
     contentStackView.removeFromSuperview()
-    addSubview(editModeContentStackView)
+    scrollView.addSubview(editModeContentStackView)
     setupConstraints()
 
     // Update UI for edit mode
@@ -706,12 +1051,21 @@ final class AddTransactionModalView: UIView {
     // Set up edit mode content based on transaction type
     setupEditModeContent(for: transaction)
 
+    // Show payment method section for expense transactions in edit mode
+    if transaction.type == .expense {
+      paymentMethodSection.isHidden = false
+      editModeContentStackView.insertArrangedSubview(paymentMethodSection, at: 3)
+      editModeContentStackView.setCustomSpacing(Metrics.spacing3, after: editModeInputStackView)
+    } else {
+      paymentMethodSection.isHidden = true
+    }
+
     // Populate fields with transaction data
     populateFields(with: transaction)
 
     // Set date restrictions for installment transactions
     if transaction.mode == .installments {
-      setDateRestrictionsForInstallment(transaction: transaction)
+      setDateRestrictionsForInstallment(around: transaction.date)
     }
 
     // Configure date picker for recurring transactions
@@ -742,7 +1096,6 @@ final class AddTransactionModalView: UIView {
       // For installment transactions, we need to calculate the total amount
       // This will be handled by the view controller when calling configureForEdit
       amountInCents = transaction.amount  // This will be overridden by the view controller
-      print("🔍 INSTALLMENT EDIT: Individual amount \(amountInCents) - will be replaced with total")
     } else {
       amountInCents = transaction.amount
     }
@@ -751,8 +1104,10 @@ final class AddTransactionModalView: UIView {
     // Trigger currency formatting
     moneyTextField.textField.sendActions(for: .editingChanged)
 
-    // Populate date
-    let dateString = DateFormatter.fullDateFormatter.string(from: transaction.date)
+    // Populate date with the date the user originally PICKED, not the one a business-day rule moved
+    // it to. Showing the shifted date would re-adjust it on every save, walking the transaction a few
+    // days further each time. The shifted date is shown separately by the "effective" hint.
+    let dateString = DateFormatter.fullDateFormatter.string(from: transaction.unadjustedDate)
     dateTextField.text = dateString
 
     // Populate installment-specific fields for installment transactions
@@ -768,22 +1123,20 @@ final class AddTransactionModalView: UIView {
       // Populate installments field
       if let totalInstallments = transaction.totalInstallments {
         installmentsInputWithSuffix.text = String(totalInstallments)
-        print("🔍 INSTALLMENT EDIT: Set installments to \(totalInstallments)")
       }
     }
 
-    // Only populate non-editable fields if not in edit mode
-    if !isEditMode {
-      // Populate transaction type
-      if transaction.type == .income {
-        incomeSelectorButton.variant = .selected
-        expenseSelectorButton.variant = .normal
-      } else {
-        incomeSelectorButton.variant = .normal
-        expenseSelectorButton.variant = .selected
-      }
+    // Populate transaction type (both add and edit mode)
+    if transaction.type == .income {
+      incomeSelectorButton.variant = .selected
+      expenseSelectorButton.variant = .normal
+    } else {
+      incomeSelectorButton.variant = .normal
+      expenseSelectorButton.variant = .selected
+    }
 
-      // Populate transaction mode
+    if !isEditMode {
+      // Populate transaction mode (only in add mode)
       transactionModelControl.setSelectedMode(transaction.mode)
       if transaction.mode == .installments, let totalInstallments = transaction.totalInstallments {
         installmentsInputWithSuffix.text = String(totalInstallments)

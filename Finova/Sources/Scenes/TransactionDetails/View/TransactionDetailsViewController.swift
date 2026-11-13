@@ -51,12 +51,6 @@ final class TransactionDetailsViewController: UIViewController {
   }
 
   private func setup() {
-    // 🔒 Authenticate SecureLocalDataManager for UID-isolated data access
-    if let user = UserDefaultsManager.getUser(), let firebaseUID = user.firebaseUID {
-      SecureLocalDataManager.shared.authenticateUser(firebaseUID: firebaseUID)
-      print("🔒 TransactionDetails: SecureLocalDataManager authenticated for user: \(firebaseUID)")
-    }
-
     view.addSubview(contentView)
     buildHierarchy()
     setupDelegates()
@@ -79,23 +73,7 @@ extension TransactionDetailsViewController: TransactionDetailsViewDelegate {
   }
 
   func didTapDelete() {
-    // Get transaction type to determine deletion options
     let transactionType = viewModel.getTransactionType(for: viewModel.transaction)
-
-    print(
-      "🔍 TRANSACTION DETAILS DELETE DEBUG: Transaction '\(viewModel.transaction.title)' (ID: \(viewModel.transaction.id ?? 0))"
-    )
-    print("🔍 TRANSACTION DETAILS DELETE DEBUG: Transaction mode: \(viewModel.transaction.mode)")
-    print(
-      "🔍 TRANSACTION DETAILS DELETE DEBUG: Is recurring: \(viewModel.transaction.isRecurring ?? false)"
-    )
-    print(
-      "🔍 TRANSACTION DETAILS DELETE DEBUG: Has installments: \(viewModel.transaction.hasInstallments ?? false)"
-    )
-    print(
-      "🔍 TRANSACTION DETAILS DELETE DEBUG: Parent ID: \(viewModel.transaction.parentTransactionId ?? 0)"
-    )
-    print("🔍 TRANSACTION DETAILS DELETE DEBUG: Detected type: \(transactionType)")
 
     if transactionType == .simple {
       // Handle simple transactions with basic confirmation
@@ -118,31 +96,103 @@ extension TransactionDetailsViewController: TransactionDetailsViewDelegate {
     flowDelegate?.dismissTransactionDetails()
   }
 
-  func didTapDeleteInstallment(_ transaction: Transaction) {
-    // Get transaction type to determine deletion options
-    let transactionType = viewModel.getTransactionType(for: transaction)
+  func didTapMoveToStatement() {
+    // Already leaves out the option that lands on the current statement.
+    let monthOptions = viewModel.getMonthOptionsForMove()
 
-    if transactionType == .simple {
-      // Handle simple transactions with basic confirmation
-      showConfirmation(
-        title: "transaction.delete.title".localized,
-        message: "delete.confirmation".localized,
-        okTitle: "alert.delete".localized
-      ) { [weak self] in
-        self?.deleteInstallmentTransaction(transaction)
+    guard !monthOptions.isEmpty else { return }
+
+    let alert = UIAlertController(
+      title: "transactionDetails.moveToStatement.title".localized,
+      message: "transactionDetails.moveToStatement.message".localized,
+      preferredStyle: .actionSheet
+    )
+
+    for option in monthOptions {
+      alert.addAction(UIAlertAction(title: option.label, style: .default) { [weak self] _ in
+        self?.viewModel.moveToStatementForMonth(option.firstOfMonth)
+        self?.contentView.configure(with: self!.viewModel)
+      })
+    }
+
+    alert.addAction(UIAlertAction(title: "alert.cancel".localized, style: .cancel))
+    present(alert, animated: true)
+  }
+
+  func didTapPayInstallmentsEarly() {
+    flowDelegate?.payInstallmentsEarly(for: viewModel.transaction)
+  }
+
+  func didTapUndoEarlyPayment() {
+    showConfirmation(
+      title: "earlyPayment.undo.title".localized,
+      message: "earlyPayment.undo.message".localized,
+      okTitle: "earlyPayment.undo.action".localized
+    ) { [weak self] in
+      guard let self = self else { return }
+      switch self.viewModel.undoEarlyPayment() {
+      case .success:
+        // The debit no longer exists, so this screen has nothing left to show.
+        self.flowDelegate?.didDeleteTransaction()
+      case .failure(let error):
+        self.showErrorAlert(message: error.localizedDescription)
       }
-    } else {
-      // Handle complex transactions with user choice (current/future/all)
-      showInstallmentDeletionOptions(transaction: transaction, transactionType: transactionType)
+    }
+  }
+
+  func didTapCancelPurchase() {
+    let count = viewModel.getRefundableInstallmentCount()
+    let amount = viewModel.getCancellationRefundAmount()
+
+    // The message states the net effect explicitly. "You get R$ X back" on its own would read as a
+    // windfall, when in fact the remaining installments keep being charged and the two offset.
+    showConfirmation(
+      title: "cancellation.confirm.title".localized,
+      message: String(
+        format: count == 1
+          ? "cancellation.confirm.message.singular".localized
+          : "cancellation.confirm.message.plural".localized,
+        count, amount.currencyString),
+      okTitle: "cancellation.confirm.action".localized
+    ) { [weak self] in
+      guard let self = self else { return }
+      switch self.viewModel.cancelPurchase() {
+      case .success(let refundId):
+        self.flowDelegate?.didCancelInstallmentPurchase(refundId: refundId)
+      case .failure(let error):
+        self.showErrorAlert(message: "cancellation.error.generic".localized)
+        logError("Cancelling installment purchase failed: \(error)")
+      }
+    }
+  }
+
+  func didTapUndoCancellation() {
+    showConfirmation(
+      title: "cancellation.undo.title".localized,
+      message: "cancellation.undo.message".localized,
+      okTitle: "cancellation.undo.action".localized
+    ) { [weak self] in
+      guard let self = self else { return }
+      switch self.viewModel.undoCancellation() {
+      case .success:
+        // The credit is gone, so this screen has nothing left to show.
+        self.flowDelegate?.didDeleteTransaction()
+      case .failure(let error):
+        self.showErrorAlert(message: error.localizedDescription)
+      }
     }
   }
 
   private func deleteTransaction() {
-    switch viewModel.deleteTransaction() {
-    case .success:
-      flowDelegate?.didDeleteTransaction()
-    case .failure(let error):
-      showErrorAlert(message: error.localizedDescription)
+    contentView.startDeleteLoading()
+    viewModel.deleteTransactionAsync { [weak self] result in
+      self?.contentView.stopDeleteLoading()
+      switch result {
+      case .success:
+        self?.flowDelegate?.didDeleteTransaction()
+      case .failure(let error):
+        self?.showErrorAlert(message: error.localizedDescription)
+      }
     }
   }
 
@@ -154,23 +204,6 @@ extension TransactionDetailsViewController: TransactionDetailsViewDelegate {
       cancelTitle: "",
       onOk: {}
     )
-  }
-
-  private func deleteInstallmentTransaction(_ transaction: Transaction) {
-    guard let transactionId = transaction.id else {
-      showErrorAlert(message: "Invalid transaction ID")
-      return
-    }
-
-    // For now, use the same deletion logic as the main transaction
-    // In a full implementation, this would use the transaction repository directly
-    switch viewModel.deleteTransaction() {
-    case .success:
-      // Refresh the installments table
-      contentView.configure(with: viewModel)
-    case .failure(let error):
-      showErrorAlert(message: error.localizedDescription)
-    }
   }
 
   private func showInstallmentDeletionOptions(
@@ -226,15 +259,17 @@ extension TransactionDetailsViewController: TransactionDetailsViewDelegate {
       return
     }
 
-    // Use the new deletion method with specific cleanup option
-    switch viewModel.deleteTransactionWithOption(
-      transactionId: transactionId, option: cleanupOption)
-    {
-    case .success:
-      // Notify the flow delegate that the transaction was deleted
-      flowDelegate?.didDeleteTransaction()
-    case .failure(let error):
-      showErrorAlert(message: error.localizedDescription)
+    contentView.startDeleteLoading()
+    viewModel.deleteTransactionWithOptionAsync(
+      transactionId: transactionId, option: cleanupOption
+    ) { [weak self] result in
+      self?.contentView.stopDeleteLoading()
+      switch result {
+      case .success:
+        self?.flowDelegate?.didDeleteTransaction()
+      case .failure(let error):
+        self?.showErrorAlert(message: error.localizedDescription)
+      }
     }
   }
 

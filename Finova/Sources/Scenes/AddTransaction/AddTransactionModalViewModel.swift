@@ -6,22 +6,25 @@
 //
 
 import Foundation
-import UserNotifications
 
 final class AddTransactionModalViewModel {
   private let transactionRepo: TransactionRepository
   private let recurringManager: RecurringTransactionManager
-  private let carouselRange: ClosedRange<Int> = -12...24
   private var calendar: Calendar = {
     var cal = Calendar.current
     cal.timeZone = TimeZone.current  // Ensure we use local timezone
     return cal
   }()
-  private let notificationCenter = UNUserNotificationCenter.current()
+  private let creditCardService = CreditCardService()
+  private let creditCardRepo = CreditCardRepository()
 
   init(transactionRepo: TransactionRepository = TransactionRepository()) {
     self.transactionRepo = transactionRepo
-    self.recurringManager = RecurringTransactionManager(transactionRepo: transactionRepo)
+    self.recurringManager = RecurringTransactionManager(
+      transactionRepo: transactionRepo,
+      creditCardService: creditCardService,
+      creditCardRepo: creditCardRepo
+    )
   }
 
   func addTransaction(
@@ -30,40 +33,21 @@ final class AddTransactionModalViewModel {
     dateString: String,
     categoryKey: String,
     typeRaw: String,
-    isRecurring: Bool? = nil
+    isRecurring: Bool? = nil,
+    creditCardId: Int? = nil,
+    businessDayRule: BusinessDayRule = .exact
   ) -> Result<Void, Error> {
 
-    print("🔍 DEBUG: Attempting to parse date string: '\(dateString)'")
-    print(
-      "🔍 DEBUG: Using formatter with pattern: '\(DateFormatter.fullDateFormatter.dateFormat ?? "nil")'"
-    )
-    print(
-      "🔍 DEBUG: Formatter locale: \(DateFormatter.fullDateFormatter.locale?.identifier ?? "nil")")
-
     guard let date = DateFormatter.fullDateFormatter.date(from: dateString) else {
-      print("❌ ERROR: Failed to parse date string '\(dateString)' with dd/MM/yyyy format")
-
-      // Try alternative formats for debugging
-      let altFormatter1 = DateFormatter()
-      altFormatter1.dateFormat = "MM/dd/yyyy"
-      altFormatter1.locale = Locale(identifier: "en_US_POSIX")
-      if let altDate1 = altFormatter1.date(from: dateString) {
-        print("⚠️ DEBUG: Date string matches MM/dd/yyyy format instead")
-      }
-
-      let altFormatter2 = DateFormatter()
-      altFormatter2.dateFormat = "yyyy/MM/dd"
-      altFormatter2.locale = Locale(identifier: "en_US_POSIX")
-      if let altDate2 = altFormatter2.date(from: dateString) {
-        print("⚠️ DEBUG: Date string matches yyyy/MM/dd format instead")
-      }
-
       return .failure(TransactionError.invalidDateFormat)
     }
 
-    print("✅ DEBUG: Successfully parsed date: \(date)")
-
-    let timestamp = Int(date.timeIntervalSince1970)
+    // `date` is the canonical value the user picked; `effectiveDate` is it passed through the rule.
+    // The month anchor below is always derived from `date`, never from `effectiveDate`, so a shift
+    // across a month boundary still counts in the month the user chose.
+    let effectiveDate = BusinessDayAdjuster.adjust(
+      date, rule: businessDayRule, calendar: calendar)
+    let timestamp = Int(effectiveDate.timeIntervalSince1970)
 
     guard
       let category = TransactionCategory.allCases
@@ -79,7 +63,9 @@ final class AddTransactionModalViewModel {
       return .failure(TransactionError.invalidType)
     }
 
-    let anchor = date.monthAnchor
+    // A series counts in the month it is scheduled for (one occurrence per month); a one-off counts
+    // in the month it actually lands, where there is no such invariant to protect.
+    let anchor = (isRecurring == true) ? date.monthAnchor : effectiveDate.monthAnchor
 
     if let isRecurring = isRecurring, isRecurring {
 
@@ -90,61 +76,51 @@ final class AddTransactionModalViewModel {
         type: type.key,
         dateTimestamp: timestamp,
         budgetMonthDate: anchor,
-        isRecurring: true
+        isRecurring: true,
+        businessDayRule: businessDayRule,
+        unadjustedDateTimestamp: Int(date.timeIntervalSince1970),
+        seriesPeriod: date.monthAnchor
       )
 
       do {
         let insertedId = try transactionRepo.insertTransactionAndGetId(model)
 
-        // Check for similar existing recurring transactions
+        // Pre-generate CK record name so the notification includes it
+        let ckRecordName = "transaction-\(UUID().uuidString)"
+        transactionRepo.setCKRecordId(for: insertedId, ckRecordName: ckRecordName)
+
+        // Assign to group if in group context
+
+        // THE SERIES this row belongs to — which is NOT always the row just inserted. When it links
+        // into an existing series, the new row becomes a CHILD, and generation only ever runs for
+        // parents. Materializing `insertedId` in that case produced nothing at all (the classic
+        // "created a recurring transaction and got one stray row").
+        let seriesParentId: Int
         if let existingSimilar = recurringManager.findSimilarRecurringTransaction(
           title: title,
           category: category.key,
           amount: amount,
-          type: type.key
+          type: type.key,
+          anchorDay: calendar.component(.day, from: date)
         ), let existingId = existingSimilar.id {
-          // Link to existing recurring transaction instead of creating a new parent
           try recurringManager.linkToExistingRecurringTransaction(
             newTransactionId: insertedId,
             existingParentId: existingId
           )
-          print("🔗 Linked to existing recurring transaction: \(existingSimilar.title)")
+          seriesParentId = existingId
         } else {
-          // No similar transaction found, make this a new parent
+          // No similar series found, make this a new parent
           try transactionRepo.updateParentTransactionId(
             transactionId: insertedId, parentId: insertedId)
+          seriesParentId = insertedId
         }
 
-        // Get the newly created transaction for efficient instance generation
-        let allTransactions = transactionRepo.fetchAllTransactions()
-        guard let newlyCreatedTransaction = allTransactions.first(where: { $0.id == insertedId })
-        else {
-          print("⚠️ Could not find newly created recurring transaction")
-          return .success(())
-        }
-
-        // Generate recurring instances for future months only (excluding the parent transaction's month)
-        let startMonthOffset = 1
-        let endMonthOffset = 24
-        let futureRange = startMonthOffset...endMonthOffset
-
-        // Use the optimized method for new recurring transactions
-        recurringManager.generateInstancesForNewRecurringTransaction(
-          newlyCreatedTransaction,
-          in: futureRange,
-          referenceDate: date,  // Use the parent transaction date as reference
-          transactionStartDate: nil  // Let the manager use the parent's date as start
-        ) { [weak self] in
-          // These operations run after instance generation completes
-          self?.scheduleNotificationsForRecurringTransactions()
-          self?.monitorNegativeBalance()
-          self?.invalidateLedgerCache()
-
-          // Debug: Check for duplicate transactions
-          DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            self?.transactionRepo.debugDuplicateTransactions()
-          }
-        }
+        // EAGER GENERATION: materialize the whole series now. Series-anchored, so it fills from the
+        // series' own start month through the horizon regardless of whether that start is in the
+        // past, present or future.
+        let created = recurringManager.materializeSeries(parentId: seriesParentId)
+        logWarning("[RecurringCreate] '\(title)' series \(seriesParentId) materialized \(created) occurrence(s)")
+        invalidateLedgerCache()
 
         return .success(())
       } catch {
@@ -158,17 +134,40 @@ final class AddTransactionModalViewModel {
         type: type.key,
         dateTimestamp: timestamp,
         budgetMonthDate: anchor,
-        isRecurring: false
+        isRecurring: false,
+        creditCardId: creditCardId,
+        businessDayRule: businessDayRule,
+        unadjustedDateTimestamp: Int(date.timeIntervalSince1970),
+        seriesPeriod: date.monthAnchor
       )
 
       do {
         let insertedId = try transactionRepo.insertTransactionAndGetId(model)
 
-        // Schedule notification for the new transaction with its ID
-        scheduleNotificationForNewTransaction(insertedId, model)
+        // Pre-generate CK record name so the notification includes it
+        let ckRecordName = "transaction-\(UUID().uuidString)"
+        transactionRepo.setCKRecordId(for: insertedId, ckRecordName: ckRecordName)
 
-        // Monitorar saldo negativo após adicionar transação simples
-        monitorNegativeBalance()
+        // Assign to group if in group context
+
+        // Handle credit card statement assignment
+        if let cardId = creditCardId, let card = creditCardRepo.fetchCard(byId: cardId) {
+          guard let uid = AuthenticationManager.shared.currentUser?.uid else {
+            return .success(())
+          }
+          if let statement = creditCardService.getOrCreateStatement(for: card, transactionDate: date, userId: uid) {
+            try transactionRepo.updateCreditCardFields(
+              transactionId: insertedId,
+              creditCardId: cardId,
+              statementId: statement.id!,
+              isCreditCardStatement: false
+            )
+            creditCardService.recalculateStatementTotal(statementId: statement.id!)
+          }
+        }
+
+        // Schedule notification for the new transaction with its ID
+        TransactionNotificationManager.shared.scheduleNotification(transactionId: insertedId, model: model)
 
         // Invalidate ledger cache since transactions changed
         invalidateLedgerCache()
@@ -177,6 +176,143 @@ final class AddTransactionModalViewModel {
       } catch {
         return .failure(error)
       }
+    }
+  }
+
+  /// Async version for recurring transaction creation that waits for instance generation
+  func addRecurringTransactionAsync(
+    title: String,
+    amount: Int,
+    dateString: String,
+    categoryKey: String,
+    typeRaw: String,
+    creditCardId: Int? = nil,
+    businessDayRule: BusinessDayRule = .exact,
+    completion: @escaping (Result<Void, Error>) -> Void
+  ) {
+    guard let date = DateFormatter.fullDateFormatter.date(from: dateString) else {
+      completion(.failure(TransactionError.invalidDateFormat))
+      return
+    }
+
+    guard
+      let category = TransactionCategory.allCases
+        .first(where: { $0.key == categoryKey })
+    else {
+      completion(.failure(TransactionError.invalidCategory))
+      return
+    }
+
+    guard
+      let type = TransactionType.allCases
+        .first(where: { String(describing: $0) == typeRaw })
+    else {
+      completion(.failure(TransactionError.invalidType))
+      return
+    }
+
+    // Anchor from the picked (UNADJUSTED) date, timestamp from the adjusted one — see
+    // `addTransaction`, which this must agree with. Anchoring on the adjusted date instead meant a
+    // rule that pushed the first occurrence across a month boundary put the parent in one month and
+    // its slot (`seriesPeriod`, below) in another, so the series generated from the wrong start.
+    let effectiveDate = BusinessDayAdjuster.adjust(date, rule: businessDayRule, calendar: calendar)
+    let timestamp = Int(effectiveDate.timeIntervalSince1970)
+    let anchor = date.monthAnchor
+
+    let model = TransactionModel(
+      title: title,
+      category: category.key,
+      amount: amount,
+      type: type.key,
+      dateTimestamp: timestamp,
+      budgetMonthDate: anchor,
+      isRecurring: true,
+      creditCardId: creditCardId,
+      businessDayRule: businessDayRule,
+      unadjustedDateTimestamp: Int(date.timeIntervalSince1970),
+      seriesPeriod: date.monthAnchor
+    )
+
+    do {
+      let insertedId = try transactionRepo.insertTransactionAndGetId(model)
+
+      // Pre-generate CK record name so the notification includes it
+      let ckRecordName = "transaction-\(UUID().uuidString)"
+      transactionRepo.setCKRecordId(for: insertedId, ckRecordName: ckRecordName)
+
+      // Assign to group if in group context or mirror mode
+
+      // THE SERIES this row belongs to — see the same block in `addTransaction`. When it links into
+      // an existing series the new row becomes a CHILD, and generation only ever runs for parents,
+      // so materializing `insertedId` here produced nothing and left a single stray row.
+      let seriesParentId: Int
+      if let existingSimilar = recurringManager.findSimilarRecurringTransaction(
+        title: title,
+        category: category.key,
+        amount: amount,
+        type: type.key,
+        anchorDay: calendar.component(.day, from: date)
+      ), let existingId = existingSimilar.id {
+        logWarning("[RecurringCreate] '\(title)' LINKED to existing series parent=\(existingId) — future months belong to that series")
+        try recurringManager.linkToExistingRecurringTransaction(
+          newTransactionId: insertedId,
+          existingParentId: existingId
+        )
+        seriesParentId = existingId
+      } else {
+        logWarning("[RecurringCreate] '\(title)' created as NEW series parent=\(insertedId)")
+        try transactionRepo.updateParentTransactionId(
+          transactionId: insertedId, parentId: insertedId)
+        seriesParentId = insertedId
+      }
+
+      // Assign parent recurring transaction to credit card statement
+      if let cardId = creditCardId, let card = creditCardRepo.fetchCard(byId: cardId) {
+        guard let uid = AuthenticationManager.shared.currentUser?.uid else {
+          completion(.success(()))
+          return
+        }
+        if let statement = creditCardService.getOrCreateStatement(for: card, transactionDate: date, userId: uid) {
+          try transactionRepo.updateCreditCardFields(
+            transactionId: insertedId,
+            creditCardId: cardId,
+            statementId: statement.id!,
+            isCreditCardStatement: false
+          )
+          creditCardService.recalculateStatementTotal(statementId: statement.id!)
+        }
+      }
+
+      // EAGER GENERATION: relink any orphaned occurrence of an identical earlier series, then
+      // materialize this series in full — from its own start month through the horizon — and only
+      // then answer. The completion is what dismisses the modal and refreshes the dashboard, so
+      // anything still in flight here would be rendered as a gap.
+      recurringManager.linkAndMaterializeSeries(parentId: seriesParentId) { [weak self] created in
+        let seriesMonths = self?.transactionRepo
+          .fetchTransactionInstancesForRecurring(seriesParentId)
+          .map { $0.seriesPeriod }.sorted() ?? []
+        logWarning(
+          "[RecurringCreate] '\(title)' series \(seriesParentId) now spans \(seriesMonths.count) month(s); \(created) created this pass"
+        )
+
+        guard let self = self else {
+          DispatchQueue.main.async {
+            completion(.success(()))
+          }
+          return
+        }
+
+        // Cache invalidation before the completion, so the refresh the caller triggers reads the
+        // rows we just wrote rather than a stale ledger snapshot.
+        self.invalidateLedgerCache()
+
+        DispatchQueue.main.async {
+          completion(.success(()))
+        }
+      }
+
+    } catch {
+      completion(.failure(error))
     }
   }
 
@@ -226,27 +362,34 @@ final class AddTransactionModalViewModel {
 
       let parentId = try transactionRepo.insertTransactionAndGetId(parentModel)
 
-      // Coletar todas as parcelas para agendar notificações otimizadas
-      var allInstallments: [TransactionModel] = []
+      // Pre-generate CK record name so the notification includes it
+      let ckRecordName = "transaction-\(UUID().uuidString)"
+      transactionRepo.setCKRecordId(for: parentId, ckRecordName: ckRecordName)
 
-      for installmentNumber in 1...totalInstallments {
+      // Assign parent to group if in group context or mirror mode
+
+      // UPFRONT GENERATION: Create ALL installments at once for cloud sync consistency
+      let immediateInstallmentCount = totalInstallments
+
+      var allInstallments: [TransactionModel] = []
+      // Track the previous installment's statement so installment N+1 lands in the
+      // billing cycle right after N, regardless of date-based routing rules.
+      var previousStatement: CreditCardStatement? = nil
+
+      for installmentNumber in 1...immediateInstallmentCount {
         // Calcular a data da parcela usando a função de geração de datas válidas
         let targetDate =
           calendar.date(byAdding: .month, value: installmentNumber - 1, to: startDate) ?? startDate
         let targetYear = calendar.component(.year, from: targetDate)
         let targetMonth = calendar.component(.month, from: targetDate)
 
-        print(
-          "🔄 Creating installment \(installmentNumber)/\(totalInstallments) for month \(targetMonth)/\(targetYear)"
-        )
-
-        let installmentDate = generateValidDateForMonth(
-          originalDate: startDate,
+        let installment = OccurrenceDateCalculator.occurrencePair(
+          from: startDate,
           targetMonth: targetMonth,
-          targetYear: targetYear
+          targetYear: targetYear,
+          rule: data.businessDayRule,
+          calendar: calendar
         )
-
-        print("📅 Installment \(installmentNumber) date: \(installmentDate)")
 
         let installmentAmount =
           installmentNumber == 1 ? amountPerInstallment + remainder : amountPerInstallment
@@ -256,26 +399,64 @@ final class AddTransactionModalViewModel {
           category: category.key,
           amount: installmentAmount,
           type: type.key,
-          dateTimestamp: Int(installmentDate.timeIntervalSince1970),
-          budgetMonthDate: installmentDate.monthAnchor,
+          dateTimestamp: Int(installment.adjusted.timeIntervalSince1970),
+          budgetMonthDate: installment.unadjusted.monthAnchor,
           parentTransactionId: parentId,
           originalAmount: data.totalAmount,
           installmentNumber: installmentNumber,
-          totalInstallments: totalInstallments
+          totalInstallments: totalInstallments,
+          businessDayRule: data.businessDayRule,
+          unadjustedDateTimestamp: Int(installment.unadjusted.timeIntervalSince1970),
+          seriesPeriod: installment.unadjusted.monthAnchor
         )
 
         let installmentId = try transactionRepo.insertTransactionAndGetId(installmentModel)
-        print("✅ Created installment \(installmentNumber): \(data.title) for \(installmentDate)")
+
+        // Assign installment to group
+
+        // Assign installment to correct credit card statement + remap date to due date
+        if let cardId = data.creditCardId, let card = creditCardRepo.fetchCard(byId: cardId) {
+          if let uid = AuthenticationManager.shared.currentUser?.uid {
+            let statement: CreditCardStatement?
+            if let prev = previousStatement {
+              statement = creditCardService.nextStatement(after: prev, for: card, userId: uid)
+            } else {
+              statement = creditCardService.getOrCreateStatement(for: card, transactionDate: installment.unadjusted, userId: uid)
+            }
+            if let statement = statement {
+              try transactionRepo.updateCreditCardFields(
+                transactionId: installmentId,
+                creditCardId: cardId,
+                statementId: statement.id!,
+                isCreditCardStatement: false
+              )
+              creditCardService.recalculateStatementTotal(statementId: statement.id!)
+
+              // Remap the installment onto the statement due date, BOTH columns. An installment is
+              // charged when its invoice falls due, and that is also the month whose allocation it
+              // consumes: a purchase split into twelve spends one month's plan per invoice, not
+              // twelve months of the month it was bought in.
+              let dueDateTimestamp = Int(statement.dueDate.timeIntervalSince1970)
+              transactionRepo.updateDateAndBudgetMonth(
+                transactionId: installmentId,
+                newDateTimestamp: dueDateTimestamp,
+                newBudgetMonthDate: statement.dueDate.monthAnchor
+              )
+
+              previousStatement = statement
+            }
+          }
+        }
 
         // Adicionar à lista para notificações otimizadas
         allInstallments.append(installmentModel)
       }
 
-      // Agendar notificações otimizadas para todas as parcelas
-      scheduleOptimizedNotificationsForInstallments(allInstallments)
+      // Agendar notificações otimizadas para as parcelas criadas
+      InstallmentNotificationManager.shared.scheduleNotifications(for: allInstallments)
 
-      // Monitorar saldo negativo após adicionar transação parcelada
-      monitorNegativeBalance()
+      // Invalidate ledger cache since transactions changed
+      invalidateLedgerCache()
 
       return .success(())
     } catch {
@@ -283,422 +464,165 @@ final class AddTransactionModalViewModel {
     }
   }
 
-  // MARK: - Notification Scheduling
-
-  private func scheduleNotificationForNewTransaction(
-    _ transactionId: Int, _ model: TransactionModel
+  /// Async version for installment transaction creation
+  func addTransactionWithInstallmentsAsync(
+    _ data: InstallmentTransactionData,
+    completion: @escaping (Result<Void, Error>) -> Void
   ) {
-    // Check if we have notification permission first
-    notificationCenter.getNotificationSettings { settings in
-      guard settings.authorizationStatus == .authorized else {
-        print("🔔 ❌ Notification permission not granted")
+    let totalInstallments = data.installments
+    guard totalInstallments > 1 else {
+      completion(.failure(TransactionError.invalidInstallmentCount))
+      return
+    }
+
+    guard let startDate = DateFormatter.fullDateFormatter.date(from: data.date) else {
+      completion(.failure(TransactionError.invalidDateFormat))
+      return
+    }
+
+    guard
+      let category = TransactionCategory.allCases
+        .first(where: { $0.key == data.category })
+    else {
+      completion(.failure(TransactionError.invalidCategory))
+      return
+    }
+
+    guard
+      let type = TransactionType.allCases
+        .first(where: { String(describing: $0) == data.transactionType })
+    else {
+      completion(.failure(TransactionError.invalidType))
+      return
+    }
+
+    let amountPerInstallment = data.totalAmount / totalInstallments
+    let remainder = data.totalAmount % totalInstallments
+
+    DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+      guard let self = self else {
+        DispatchQueue.main.async { completion(.failure(TransactionError.repositoryUnavailable)) }
         return
       }
 
-      DispatchQueue.main.async { [weak self] in
-        self?.scheduleNotification(for: transactionId, model: model)
-      }
-    }
-  }
-
-  /// Sistema otimizado para agendar notificações de parcelas
-  private func scheduleOptimizedNotificationsForInstallments(_ installments: [TransactionModel]) {
-    print("🔔 📦 Scheduling optimized notifications for \(installments.count) installments")
-
-    // Agrupar parcelas por mês
-    var installmentsByMonth: [String: [TransactionModel]] = [:]
-
-    for installment in installments {
-      let date = Date(timeIntervalSince1970: TimeInterval(installment.data.dateTimestamp))
-      let monthKey =
-        "\(calendar.component(.year, from: date))-\(calendar.component(.month, from: date))"
-
-      if installmentsByMonth[monthKey] == nil {
-        installmentsByMonth[monthKey] = []
-      }
-      installmentsByMonth[monthKey]?.append(installment)
-    }
-
-    print("🔔 📅 Grouped installments into \(installmentsByMonth.count) months")
-
-    // Agendar notificação para cada mês (máximo 1 por mês)
-    for (monthKey, monthInstallments) in installmentsByMonth {
-      scheduleMonthlyInstallmentNotification(monthKey: monthKey, installments: monthInstallments)
-    }
-  }
-
-  /// Agenda uma notificação mensal para todas as parcelas do mês
-  private func scheduleMonthlyInstallmentNotification(
-    monthKey: String, installments: [TransactionModel]
-  ) {
-    guard let firstInstallment = installments.first else { return }
-
-    let date = Date(timeIntervalSince1970: TimeInterval(firstInstallment.data.dateTimestamp))
-
-    // Verificar se a data é muito no futuro (mais de 1 ano)
-    let oneYearFromNow = Calendar.current.date(byAdding: .year, value: 1, to: Date()) ?? Date()
-    if date > oneYearFromNow {
-      print(
-        "🔔 ⚠️ Installment month \(monthKey) is more than 1 year in the future, skipping notification"
-      )
-      return
-    }
-
-    // Create notification time (8 AM) in local timezone
-    var notificationDate = calendar.startOfDay(for: date)
-    notificationDate =
-      calendar.date(byAdding: .hour, value: 8, to: notificationDate) ?? notificationDate
-
-    // Only schedule if notification time is in the future
-    guard notificationDate > Date() else {
-      print("🔔 ⚠️ Installment notification time is in the past, skipping")
-      return
-    }
-
-    let timeInterval = notificationDate.timeIntervalSinceNow
-
-    // Verificar se o intervalo é muito grande (mais de 30 dias)
-    let thirtyDaysInSeconds: TimeInterval = 30 * 24 * 60 * 60
-    if timeInterval > thirtyDaysInSeconds {
-      print("🔔 ⚠️ Installment month \(monthKey) is more than 30 days away, scheduling reminder")
-      scheduleReminderNotification(for: monthKey, installments: installments)
-      return
-    }
-
-    // Criar notificação mensal consolidada
-    let totalAmount = installments.reduce(0) { $0 + $1.data.amount }
-    let installmentCount = installments.count
-
-    let title = "notification.installment.title".localized
-    let bodyKey =
-      installmentCount == 1
-      ? "notification.installment.body.singular" : "notification.installment.body.plural"
-    let body =
-      installmentCount == 1
-      ? String(format: bodyKey.localized, totalAmount.currencyString)
-      : String(format: bodyKey.localized, installmentCount, totalAmount.currencyString)
-
-    let content = UNMutableNotificationContent()
-    content.title = title
-    content.body = body
-    content.sound = .default
-    content.categoryIdentifier = "TRANSACTION_REMINDER"
-    content.userInfo = [
-      "type": "installment_month",
-      "monthKey": monthKey,
-      "installmentCount": installmentCount,
-      "totalAmount": totalAmount,
-    ]
-
-    let trigger = UNTimeIntervalNotificationTrigger(timeInterval: timeInterval, repeats: false)
-    let request = UNNotificationRequest(
-      identifier: "installment_month_\(monthKey)", content: content, trigger: trigger)
-
-    notificationCenter.add(request) { error in
-      if let error = error {
-        print("🔔 ❌ Error scheduling installment notification for month \(monthKey): \(error)")
-      } else {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd HH:mm"
-        print(
-          "🔔 ✅ Scheduled installment notification for month \(monthKey) at \(formatter.string(from: notificationDate))"
+      do {
+        // Create parent transaction
+        let parentModel = TransactionModel(
+          title: "\(data.title) - Installment Parent",
+          category: category.key,
+          amount: 0,
+          type: type.key,
+          dateTimestamp: Int(startDate.timeIntervalSince1970),
+          budgetMonthDate: startDate.monthAnchor,
+          hasInstallments: true,
+          originalAmount: data.totalAmount,
+          totalInstallments: totalInstallments
         )
-      }
-    }
-  }
 
-  /// Agenda uma notificação de lembrete para parcelas distantes (mais de 30 dias)
-  private func scheduleReminderNotification(for monthKey: String, installments: [TransactionModel])
-  {
-    // For installments more than 30 days away, schedule a reminder for 30 days from now
-    // This reminder will trigger the app to reschedule the actual notifications when closer
-    let thirtyDaysInSeconds: TimeInterval = 30 * 24 * 60 * 60
-    let trigger = UNTimeIntervalNotificationTrigger(
-      timeInterval: thirtyDaysInSeconds, repeats: false)
+        let parentId = try self.transactionRepo.insertTransactionAndGetId(parentModel)
 
-    let content = UNMutableNotificationContent()
-    content.title = "notification.installment.reminder.title".localized
-    content.body = "notification.installment.reminder.body".localized
-    content.sound = .default
-    content.categoryIdentifier = "TRANSACTION_REMINDER"
-    content.userInfo = ["type": "installment_reminder", "monthKey": monthKey]
+        // Pre-generate CK record name so the notification includes it
+        let ckRecordName = "transaction-\(UUID().uuidString)"
+        self.transactionRepo.setCKRecordId(for: parentId, ckRecordName: ckRecordName)
 
-    let request = UNNotificationRequest(
-      identifier: "installment_reminder_\(monthKey)", content: content, trigger: trigger)
+        // Assign parent to group if in group context or mirror mode
 
-    notificationCenter.add(request) { error in
-      if let error = error {
-        print("🔔 ❌ Error scheduling installment reminder for month \(monthKey): \(error)")
-      } else {
-        print("🔔 ✅ Scheduled installment reminder for month \(monthKey)")
-      }
-    }
-  }
+        // UPFRONT GENERATION: Create ALL installments at once for cloud sync consistency
+        let immediateInstallmentCount = totalInstallments
+        var allInstallments: [TransactionModel] = []
+        // Track previous installment's statement so each installment lands in the
+        // billing cycle right after the previous one (consecutive cycles).
+        var previousStatement: CreditCardStatement? = nil
 
-  private func scheduleNotification(for transactionId: Int, model: TransactionModel) {
-    let date = Date(timeIntervalSince1970: TimeInterval(model.data.dateTimestamp))
+        for installmentNumber in 1...immediateInstallmentCount {
+          let targetDate =
+            self.calendar.date(byAdding: .month, value: installmentNumber - 1, to: startDate)
+            ?? startDate
+          let targetYear = self.calendar.component(.year, from: targetDate)
+          let targetMonth = self.calendar.component(.month, from: targetDate)
 
-    print("🔔 Scheduling notification for transaction: \(model.data.title)")
-    print("📅 Transaction date: \(date)")
+          let installment = OccurrenceDateCalculator.occurrencePair(
+            from: startDate,
+            targetMonth: targetMonth,
+            targetYear: targetYear,
+            rule: data.businessDayRule,
+            calendar: self.calendar
+          )
 
-    // Verificar se a data é muito no futuro (mais de 1 ano)
-    let oneYearFromNow = Calendar.current.date(byAdding: .year, value: 1, to: Date()) ?? Date()
-    if date > oneYearFromNow {
-      print("🔔 ⚠️ Transaction date is more than 1 year in the future, skipping notification")
-      return
-    }
+          let installmentAmount =
+            installmentNumber == 1 ? amountPerInstallment + remainder : amountPerInstallment
 
-    // Create notification time (8 AM) in local timezone
-    var notificationDate = calendar.startOfDay(for: date)
-    notificationDate =
-      calendar.date(byAdding: .hour, value: 8, to: notificationDate) ?? notificationDate
+          let installmentModel = TransactionModel(
+            title: data.title,
+            category: category.key,
+            amount: installmentAmount,
+            type: type.key,
+            dateTimestamp: Int(installment.adjusted.timeIntervalSince1970),
+            budgetMonthDate: installment.unadjusted.monthAnchor,
+            parentTransactionId: parentId,
+            originalAmount: data.totalAmount,
+            installmentNumber: installmentNumber,
+            totalInstallments: totalInstallments,
+            businessDayRule: data.businessDayRule,
+            unadjustedDateTimestamp: Int(installment.unadjusted.timeIntervalSince1970),
+            seriesPeriod: installment.unadjusted.monthAnchor
+          )
 
-    // Only schedule if notification time is in the future
-    guard notificationDate > Date() else {
-      print("🔔 ⚠️ Notification time is in the past, skipping")
-      return
-    }
+          let insertedInstallmentId = try self.transactionRepo.insertTransactionAndGetId(installmentModel)
+          allInstallments.append(installmentModel)
 
-    // Verificar se já existe uma notificação para este dia
-    let dayIdentifier = "day_\(calendar.startOfDay(for: date).timeIntervalSince1970)"
+          // Assign installment to group
 
-    // Limpar notificações antigas para este dia se existirem
-    notificationCenter.removePendingNotificationRequests(withIdentifiers: [dayIdentifier])
+          // Assign installment to correct credit card statement + remap date to due date
+          if let cardId = data.creditCardId, let card = self.creditCardRepo.fetchCard(byId: cardId) {
+            guard let uid = AuthenticationManager.shared.currentUser?.uid else { break }
+            let statement: CreditCardStatement?
+            if let prev = previousStatement {
+              statement = self.creditCardService.nextStatement(after: prev, for: card, userId: uid)
+            } else {
+              statement = self.creditCardService.getOrCreateStatement(for: card, transactionDate: installment.unadjusted, userId: uid)
+            }
+            if let statement = statement {
+              try self.transactionRepo.updateCreditCardFields(
+                transactionId: insertedInstallmentId,
+                creditCardId: cardId,
+                statementId: statement.id!,
+                isCreditCardStatement: false
+              )
+              self.creditCardService.recalculateStatementTotal(statementId: statement.id!)
 
-    let id = "transaction_\(transactionId)"
-    let timeInterval = notificationDate.timeIntervalSinceNow
+              // Date and budget month together — see the note on the sync path above.
+              let dueDateTimestamp = Int(statement.dueDate.timeIntervalSince1970)
+              self.transactionRepo.updateDateAndBudgetMonth(
+                transactionId: insertedInstallmentId,
+                newDateTimestamp: dueDateTimestamp,
+                newBudgetMonthDate: statement.dueDate.monthAnchor
+              )
 
-    // Verificar se o intervalo é muito grande (mais de 30 dias)
-    let thirtyDaysInSeconds: TimeInterval = 30 * 24 * 60 * 60
-    if timeInterval > thirtyDaysInSeconds {
-      print(
-        "🔔 ⚠️ Notification interval is more than 30 days (\(timeInterval/86400) days), scheduling for 30 days"
-      )
-      // Agendar para 30 dias e depois reagendar quando chegar mais perto
-      let adjustedInterval = thirtyDaysInSeconds
-      let trigger = UNTimeIntervalNotificationTrigger(
-        timeInterval: adjustedInterval, repeats: false)
-
-      let content = UNMutableNotificationContent()
-      content.title = "notification.transaction.reminder.title".localized
-      content.body = "notification.transaction.reminder.body".localized
-      content.sound = .default
-      content.categoryIdentifier = "TRANSACTION_REMINDER"
-      content.userInfo = ["type": "reminder", "transactionId": transactionId]
-
-      let request = UNNotificationRequest(
-        identifier: dayIdentifier, content: content, trigger: trigger)
-      notificationCenter.add(request) { error in
-        if let error = error {
-          print("🔔 ❌ Error scheduling reminder notification: \(error)")
-        } else {
-          print("🔔 ✅ Scheduled reminder notification for 30 days from now")
-        }
-      }
-      return
-    }
-
-    let trigger = UNTimeIntervalNotificationTrigger(timeInterval: timeInterval, repeats: false)
-
-    let titleKey =
-      model.data.type == "income"
-      ? "notification.transaction.title.income"
-      : "notification.transaction.title.expense"
-    let bodyKey =
-      model.data.type == "income"
-      ? "notification.transaction.body.income"
-      : "notification.transaction.body.expense"
-
-    let amountString = model.data.amount.currencyString
-    let title = titleKey.localized
-    let body = bodyKey.localized(amountString, model.data.title)
-
-    let content = UNMutableNotificationContent()
-    content.title = title
-    content.body = body
-    content.sound = .default
-    content.categoryIdentifier = "TRANSACTION_REMINDER"
-    content.userInfo = ["transactionId": transactionId, "date": date.timeIntervalSince1970]
-
-    let request = UNNotificationRequest(identifier: id, content: content, trigger: trigger)
-    notificationCenter.add(request) { error in
-      if let error = error {
-        print("🔔 ❌ Error scheduling notification for \(model.data.title): \(error)")
-      } else {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd HH:mm"
-        print(
-          "🔔 ✅ Scheduled notification for \(model.data.title) at \(formatter.string(from: notificationDate))"
-        )
-      }
-    }
-  }
-
-  private func scheduleNotificationsForRecurringTransactions() {
-    // This will schedule notifications for newly created recurring transactions
-    notificationCenter.getNotificationSettings { settings in
-      guard settings.authorizationStatus == .authorized else {
-        return
-      }
-
-      DispatchQueue.main.async { [weak self] in
-        // Get all transactions and schedule notifications for future ones only
-        let allTxs = self?.transactionRepo.fetchTransactions() ?? []
-        let now = Date()
-
-        // Only schedule for future transactions and don't clear existing ones
-        let futureTxs = allTxs.filter { tx in
-          // Create notification time (8 AM) in local timezone
-          var notificationDate = self?.calendar.startOfDay(for: tx.date) ?? tx.date
-          notificationDate =
-            self?.calendar.date(byAdding: .hour, value: 8, to: notificationDate) ?? notificationDate
-          return notificationDate > now
+              previousStatement = statement
+            }
+          }
         }
 
-        futureTxs.forEach { tx in
-          self?.scheduleNotificationForTransaction(tx)
+        // Schedule notifications
+        InstallmentNotificationManager.shared.scheduleNotifications(for: allInstallments)
+
+        DispatchQueue.main.async {
+          self.invalidateLedgerCache()
+          completion(.success(()))
         }
-      }
-    }
-  }
 
-  private func scheduleNotificationForTransaction(_ tx: Transaction) {
-    guard let transactionId = tx.id else {
-      return
-    }
-
-    let id = "transaction_\(transactionId)"
-
-    // Create notification time (8 AM) in local timezone
-    var notificationDate = calendar.startOfDay(for: tx.date)
-    notificationDate =
-      calendar.date(byAdding: .hour, value: 8, to: notificationDate) ?? notificationDate
-
-    // Only schedule if notification time is in the future
-    guard notificationDate > Date() else {
-      return
-    }
-
-    let timeInterval = notificationDate.timeIntervalSinceNow
-    let trigger = UNTimeIntervalNotificationTrigger(timeInterval: timeInterval, repeats: false)
-
-    let titleKey =
-      tx.type == .income
-      ? "notification.transaction.title.income"
-      : "notification.transaction.title.expense"
-    let bodyKey =
-      tx.type == .income
-      ? "notification.transaction.body.income"
-      : "notification.transaction.body.expense"
-
-    let amountString = tx.amount.currencyString
-    let title = titleKey.localized
-    let body = bodyKey.localized(amountString, tx.title)
-
-    let content = UNMutableNotificationContent()
-    content.title = title
-    content.body = body
-    content.sound = .default
-    content.categoryIdentifier = "TRANSACTION_REMINDER"
-
-    let request = UNNotificationRequest(identifier: id, content: content, trigger: trigger)
-    notificationCenter.add(request) { error in
-      if let error = error {
-        print("🔔 ❌ Error scheduling notification for \(tx.title): \(error)")
+      } catch {
+        DispatchQueue.main.async {
+          completion(.failure(error))
+        }
       }
     }
   }
 
   // MARK: - Helper Methods
 
-  /// Gera uma data válida para o mês especificado, lidando com dias que não existem
-  /// - Parameters:
-  ///   - originalDate: Data original da transação
-  ///   - targetMonth: Mês para o qual gerar a data
-  ///   - targetYear: Ano para o qual gerar a data
-  /// - Returns: Data válida para o mês especificado
-  private func generateValidDateForMonth(
-    originalDate: Date,
-    targetMonth: Int,
-    targetYear: Int
-  ) -> Date {
-    let originalDay = calendar.component(.day, from: originalDate)
-
-    print(
-      "🔧 generateValidDateForMonth (installments): originalDay=\(originalDay), targetMonth=\(targetMonth), targetYear=\(targetYear)"
-    )
-
-    // Calcular o último dia do mês específico primeiro
-    let lastDayOfMonth: Int
-
-    switch targetMonth {
-    case 2:  // Fevereiro
-      let isLeapYear = (targetYear % 4 == 0 && targetYear % 100 != 0) || (targetYear % 400 == 0)
-      lastDayOfMonth = isLeapYear ? 29 : 28
-    case 4, 6, 9, 11:  // Abril, Junho, Setembro, Novembro
-      lastDayOfMonth = 30
-    default:  // Janeiro, Março, Maio, Julho, Agosto, Outubro, Dezembro
-      lastDayOfMonth = 31
-    }
-
-    print("📅 Last day of month \(targetMonth)/\(targetYear): \(lastDayOfMonth)")
-
-    // Determinar o dia a usar
-    let dayToUse = min(originalDay, lastDayOfMonth)
-    print("📅 Using day: \(dayToUse) (original: \(originalDay), last day: \(lastDayOfMonth))")
-
-    // Criar a data com o dia determinado
-    var dateComponents = DateComponents()
-    dateComponents.year = targetYear
-    dateComponents.month = targetMonth
-    dateComponents.day = dayToUse
-    dateComponents.hour = 12  // Usar meio-dia para evitar problemas de fuso horário
-    dateComponents.minute = 0
-    dateComponents.second = 0
-
-    // Criar a data
-    guard let validDate = calendar.date(from: dateComponents) else {
-      print("❌ Failed to create date for \(dayToUse)/\(targetMonth)/\(targetYear), using fallback")
-      // Fallback: usar o primeiro dia do mês
-      dateComponents.day = 1
-      let fallbackDate = calendar.date(from: dateComponents) ?? Date()
-      print("⚠️ Using fallback date (1st day) for installment month \(targetMonth)/\(targetYear)")
-      return fallbackDate
-    }
-
-    if dayToUse != originalDay {
-      print(
-        "📅 Adjusted installment date for month \(targetMonth)/\(targetYear): original day \(originalDay) → adjusted day \(dayToUse)"
-      )
-    } else {
-      print(
-        "✅ Original day \(originalDay) works for installment month \(targetMonth)/\(targetYear)")
-    }
-
-    return validDate
-  }
-
-  // MARK: - Balance Monitoring
-
-  /// Monitora o saldo negativo do mês atual
-  private func monitorNegativeBalance() {
-    // Check if user is authenticated first
-    guard let user = UserDefaultsManager.getUser(),
-      let firebaseUID = user.firebaseUID
-    else {
-      print("🔔 ❌ Cannot monitor balance: User not authenticated")
-      return
-    }
-
-    // Authenticate SecureLocalDataManager
-    SecureLocalDataManager.shared.authenticateUser(firebaseUID: firebaseUID)
-
-    // Create balance monitor and check current month
-    let balanceMonitor = BalanceMonitorManager()
-    balanceMonitor.monitorCurrentMonthBalance()
-
-    print("🔔 💰 Balance monitoring completed after transaction addition")
-  }
+  // Occurrence dates come from `OccurrenceDateCalculator`, which this file used to duplicate.
 
   // MARK: - Update Transaction Methods
 
@@ -709,7 +633,9 @@ final class AddTransactionModalViewModel {
     dateString: String,
     categoryKey: String,
     typeRaw: String,
-    isRecurring: Bool = false
+    isRecurring: Bool = false,
+    creditCardId: Int? = nil,
+    businessDayRule: BusinessDayRule = .exact
   ) -> Result<Void, Error> {
 
     guard
@@ -731,33 +657,105 @@ final class AddTransactionModalViewModel {
     }
 
     do {
+      // Look up original transaction to preserve CC fields and recalculate statement
+      let originalTransaction = transactionRepo.fetchAllTransactions().first(where: { $0.id == id })
+      let originalCreditCardId = originalTransaction?.creditCardId
+      let originalStatementId = originalTransaction?.statementId
+
+      // Determine new credit card and statement assignment
+      var newCreditCardId: Int? = creditCardId
+      var newStatementId: Int? = originalStatementId
+
+      let creditCardChanged = creditCardId != originalCreditCardId
+
+      if creditCardChanged {
+        if let cardId = creditCardId, let card = creditCardRepo.fetchCard(byId: cardId) {
+          // Assigned to a credit card (new or changed)
+          guard let uid = AuthenticationManager.shared.currentUser?.uid else {
+            return .failure(TransactionError.repositoryUnavailable)
+          }
+          if let statement = creditCardService.getOrCreateStatement(for: card, transactionDate: dateObj, userId: uid) {
+            newStatementId = statement.id
+            newCreditCardId = cardId
+          }
+        } else {
+          // Removed from credit card → cash/debit
+          newCreditCardId = nil
+          newStatementId = nil
+        }
+      } else if let cardId = creditCardId, let card = creditCardRepo.fetchCard(byId: cardId) {
+        // Same card but date might have changed → recalculate statement
+        guard let uid = AuthenticationManager.shared.currentUser?.uid else {
+          return .failure(TransactionError.repositoryUnavailable)
+        }
+        if let statement = creditCardService.getOrCreateStatement(for: card, transactionDate: dateObj, userId: uid) {
+          newStatementId = statement.id
+        }
+      }
+
+      let effectiveDate = BusinessDayAdjuster.adjust(
+        dateObj, rule: businessDayRule, calendar: calendar)
+
       let updatedTransaction = TransactionModel(
         id: id,
         title: title,
         category: transactionCategory.key,
         amount: amount,
         type: String(describing: transactionType),
-        dateTimestamp: Int(dateObj.timeIntervalSince1970),
-        budgetMonthDate: dateObj.monthAnchor,
+        dateTimestamp: Int(effectiveDate.timeIntervalSince1970),
+        budgetMonthDate: isRecurring ? dateObj.monthAnchor : effectiveDate.monthAnchor,
         isRecurring: isRecurring,
         hasInstallments: false,
         parentTransactionId: nil,
         originalAmount: amount,
         installmentNumber: nil,
-        totalInstallments: nil
+        totalInstallments: nil,
+        creditCardId: newCreditCardId,
+        statementId: newStatementId,
+        isCreditCardStatement: newCreditCardId != nil ? false : nil,
+        businessDayRule: businessDayRule,
+        unadjustedDateTimestamp: Int(dateObj.timeIntervalSince1970),
+        seriesPeriod: dateObj.monthAnchor
       )
 
-      print(
-        "🔧 DEBUG ViewModel: Created TransactionModel - title: '\(updatedTransaction.data.title)', category: '\(updatedTransaction.data.category)', type: '\(updatedTransaction.data.type)'"
-      )
-
+      // Carries the business-day columns itself; a second write here would leave the row stuck
+      // `pending` (see the note in `DBHelper.updateTransaction`).
       try transactionRepo.updateTransaction(updatedTransaction)
+
+      // Recalculate old statement if transaction moved away from it
+      if let oldStmtId = originalStatementId, oldStmtId != newStatementId {
+        creditCardService.recalculateStatementTotal(statementId: oldStmtId)
+      }
+
+      // Recalculate new statement
+      if let newStmtId = newStatementId {
+        creditCardService.recalculateStatementTotal(statementId: newStmtId)
+      }
+
       invalidateLedgerCache()
       return .success(())
 
     } catch {
       return .failure(error)
     }
+  }
+
+  /// The date an installment series STARTED — what the edit sheet shows and what a rebuild
+  /// re-derives every installment from.
+  ///
+  /// The parent placeholder holds the date the user picked. Without one (a synced series whose
+  /// parent id is not on this device), walk back from the earliest installment's own date.
+  static func installmentSeriesStartDate(groupId: Int?, related: [Transaction]) -> Date? {
+    if let parent = related.first(where: { $0.id == groupId && $0.hasInstallments == true }) {
+      return parent.unadjustedDate
+    }
+    guard
+      let first = related
+        .filter({ $0.installmentNumber != nil })
+        .min(by: { ($0.installmentNumber ?? 0) < ($1.installmentNumber ?? 0) }),
+      let number = first.installmentNumber
+    else { return nil }
+    return Calendar.current.date(byAdding: .month, value: -(number - 1), to: first.unadjustedDate)
   }
 
   func updateTransactionWithInstallments(id: Int, _ data: InstallmentTransactionData) -> Result<
@@ -791,30 +789,46 @@ final class AddTransactionModalViewModel {
       // Find the existing transaction to get its parent ID
       let existingTransactions = transactionRepo.fetchAllTransactions()
       guard let existingTransaction = existingTransactions.first(where: { $0.id == id }) else {
-        print("❌ Could not find transaction with ID: \(id)")
+        logError("Could not find transaction with ID: \(id)")
         return .failure(TransactionError.transactionNotFound)
       }
 
-      print(
-        "🔍 Found existing transaction: ID=\(existingTransaction.id ?? 0), parentID=\(existingTransaction.parentTransactionId ?? 0), hasInstallments=\(existingTransaction.hasInstallments ?? false)"
-      )
+      // Nothing that shapes the series changed — only its title, category or type. Rewrite those on
+      // every row in place. The rebuild below re-derives every installment from the start date and
+      // re-routes each one through today's card rules, so a category change used to move the whole
+      // series — past, paid installments included — and could drop it out of the statement the user
+      // was looking at.
+      let seriesId = existingTransaction.parentTransactionId ?? id
+      let series = existingTransactions.filter { $0.id == seriesId || $0.parentTransactionId == seriesId }
+      let children = series.filter { $0.parentTransactionId == seriesId }
+      // No parent row required: many synced series have children pointing at a parent id this
+      // device does not hold, and those are exactly the ones the rebuild path mangles worst.
+      if !children.isEmpty,
+        let seriesStart = Self.installmentSeriesStartDate(groupId: seriesId, related: series),
+        children.reduce(0, { $0 + $1.amount }) == data.totalAmount,
+        (existingTransaction.totalInstallments ?? children.count) == data.installments,
+        calendar.isDate(seriesStart, inSameDayAs: dateObj),
+        data.creditCardId == children.first(where: { $0.creditCardId != nil })?.creditCardId,
+        data.businessDayRule == existingTransaction.businessDayRule
+      {
+        for row in series {
+          guard let rowId = row.id else { continue }
+          transactionRepo.updateDescriptors(
+            transactionId: rowId, title: data.title, category: transactionCategory.key,
+            type: String(describing: transactionType))
+        }
+        // The reminders carry the title.
+        InstallmentNotificationManager.shared.rescheduleNotifications(parentTransactionId: seriesId)
+
+        invalidateLedgerCache()
+        return .success(())
+      }
 
       // For installment transactions, we need to find the main installment transaction
       // (the one with hasInstallments=true and parentTransactionId=nil)
       let mainInstallmentTransaction: Transaction
       if let parentId = existingTransaction.parentTransactionId {
         // This is an individual installment, find the main installment transaction
-        print("🔍 Looking for main installment transaction with ID: \(parentId)")
-
-        // Debug: List all transactions to see what we have
-        print("🔍 All transactions in database:")
-        for tx in existingTransactions {
-          if tx.hasInstallments == true {
-            print(
-              "   - ID: \(tx.id ?? 0), parentID: \(tx.parentTransactionId ?? 0), hasInstallments: \(tx.hasInstallments ?? false)"
-            )
-          }
-        }
 
         // The main installment transaction has hasInstallments=true and parentTransactionId=nil
         // First try to find by exact ID match
@@ -822,20 +836,15 @@ final class AddTransactionModalViewModel {
           $0.hasInstallments == true && $0.parentTransactionId == nil && $0.id == parentId
         }) {
           mainInstallmentTransaction = mainTransaction
-          print("✅ Found main installment transaction: ID=\(mainTransaction.id ?? 0)")
         } else {
           // Try to find the main installment transaction by looking for any transaction
           // with hasInstallments=true and parentTransactionId=nil in the same month
-          print("⚠️ Main installment transaction not found by exact ID, trying fallback...")
 
           let individualInstallmentMonth = existingTransaction.budgetMonthDate
           if let fallbackMainTransaction = existingTransactions.first(where: {
             $0.hasInstallments == true && $0.parentTransactionId == nil
               && $0.budgetMonthDate == individualInstallmentMonth && $0.amount == 0  // Main installment transactions typically have amount 0
           }) {
-            print(
-              "✅ Found main installment transaction via fallback: ID=\(fallbackMainTransaction.id ?? 0)"
-            )
 
             // Update all individual installments to point to the correct main transaction
             let individualInstallments = existingTransactions.filter {
@@ -852,17 +861,12 @@ final class AddTransactionModalViewModel {
                 amount: installment.amount,
                 date: installment.date
               )
-
-              print(
-                "✅ Updated individual installment ID: \(installment.id ?? 0) to point to main transaction ID: \(fallbackMainTransaction.id ?? 0)"
-              )
             }
 
             mainInstallmentTransaction = fallbackMainTransaction
           } else {
             // Main installment transaction is missing - this is a data inconsistency
             // We'll create a new main installment transaction to fix this
-            print("⚠️ Main installment transaction missing, creating new one...")
 
             // Find the first individual installment to get the basic info
             guard
@@ -870,7 +874,7 @@ final class AddTransactionModalViewModel {
                 $0.parentTransactionId == parentId
               })
             else {
-              print("❌ Could not find any individual installments for parent ID: \(parentId)")
+              logError("Could not find any individual installments for parent ID: \(parentId)")
               return .failure(TransactionError.transactionNotFound)
             }
 
@@ -896,7 +900,6 @@ final class AddTransactionModalViewModel {
             do {
               newMainTransactionId = try transactionRepo.insertTransactionAndGetId(
                 newMainTransaction)
-              print("✅ Created new main installment transaction with ID: \(newMainTransactionId)")
 
               // Delete the old main installment transaction if it exists
               if let oldMainTransaction = existingTransactions.first(where: {
@@ -905,9 +908,6 @@ final class AddTransactionModalViewModel {
                   && $0.id != parentId  // Don't delete the one we just created
               }) {
                 try transactionRepo.delete(id: oldMainTransaction.id ?? 0)
-                print(
-                  "✅ Deleted old main installment transaction with ID: \(oldMainTransaction.id ?? 0)"
-                )
               }
 
               // Update all individual installments to point to the new main transaction
@@ -921,14 +921,10 @@ final class AddTransactionModalViewModel {
                   transactionId: installment.id ?? 0,
                   parentId: newMainTransactionId
                 )
-
-                print(
-                  "✅ Updated individual installment ID: \(installment.id ?? 0) to point to new main transaction ID: \(newMainTransactionId)"
-                )
               }
 
             } catch {
-              print("❌ Failed to create main installment transaction: \(error)")
+              logError("Failed to create main installment transaction: \(error)")
               return .failure(error)
             }
 
@@ -966,9 +962,6 @@ final class AddTransactionModalViewModel {
             amount: existingTransaction.amount,
             date: existingTransaction.date
           )
-          print(
-            "✅ Updated current individual installment ID: \(currentInstallmentId) to point to main transaction ID: \(mainInstallmentTransaction.id ?? 0)"
-          )
         }
       } else {
         // This is already the main installment transaction
@@ -988,21 +981,23 @@ final class AddTransactionModalViewModel {
         parentTransactionId: nil,
         originalAmount: data.totalAmount,
         installmentNumber: nil,
-        totalInstallments: data.installments
+        totalInstallments: data.installments,
+        creditCardId: data.creditCardId,
+        isCreditCardStatement: data.creditCardId != nil ? false : nil,
+        // This model IS the template `updateAllInstallmentTransactions` rebuilds every child from,
+        // so the rule has to be on it or the rebuilt series comes back `.exact`.
+        businessDayRule: data.businessDayRule,
+        unadjustedDateTimestamp: Int(dateObj.timeIntervalSince1970),
+        seriesPeriod: dateObj.monthAnchor
       )
-
-      print(
-        "🔄 INSTALLMENT UPDATE: Updating transaction \(mainInstallmentTransaction.id ?? 0) with:")
-      print("   - Total Amount: \(data.totalAmount)")
-      print("   - Number of Installments: \(data.installments)")
-      print("   - Initial Date: \(dateObj)")
 
       do {
         try transactionRepo.updateTransaction(updatedTransaction)
+
         invalidateLedgerCache()
         return .success(())
       } catch {
-        print("❌ INSTALLMENT UPDATE ERROR: \(error)")
+        logError("Installment update error: \(error)")
         return .failure(error)
       }
 
@@ -1017,7 +1012,9 @@ final class AddTransactionModalViewModel {
     amount: Int,
     dateString: String,
     categoryKey: String,
-    typeRaw: String
+    typeRaw: String,
+    creditCardId: Int? = nil,
+    businessDayRule: BusinessDayRule = .exact
   ) -> Result<Void, Error> {
 
     guard
@@ -1039,14 +1036,75 @@ final class AddTransactionModalViewModel {
     }
 
     do {
+      // Look up original transaction to check CC fields
+      let originalTransaction = transactionRepo.fetchAllTransactions().first(where: { $0.id == id })
+      let originalCreditCardId = originalTransaction?.creditCardId
+      let originalStatementId = originalTransaction?.statementId
+
       try transactionRepo.updateSingleTransactionOnly(
         id: id,
         title: title,
         category: transactionCategory,
         type: transactionType,
         amount: amount,
-        date: dateObj
+        date: BusinessDayAdjuster.adjust(dateObj, rule: businessDayRule, calendar: calendar)
       )
+      DBHelper.shared.setBusinessDayRule(
+        transactionId: id, rule: businessDayRule,
+        unadjustedDateTimestamp: Int(dateObj.timeIntervalSince1970))
+
+      // Handle credit card statement assignment
+      let creditCardChanged = creditCardId != originalCreditCardId
+      var newStatementId: Int? = originalStatementId
+
+      if creditCardChanged {
+        if let cardId = creditCardId, let card = creditCardRepo.fetchCard(byId: cardId) {
+          // Assigned to a credit card (new or changed)
+          guard let uid = AuthenticationManager.shared.currentUser?.uid else {
+            invalidateLedgerCache()
+            return .success(())
+          }
+          if let statement = creditCardService.getOrCreateStatement(for: card, transactionDate: dateObj, userId: uid) {
+            try transactionRepo.updateCreditCardFields(
+              transactionId: id,
+              creditCardId: cardId,
+              statementId: statement.id!,
+              isCreditCardStatement: false
+            )
+            newStatementId = statement.id
+          }
+        } else {
+          // Removed from credit card
+          try transactionRepo.clearCreditCardFields(transactionId: id)
+          newStatementId = nil
+        }
+      } else if let cardId = creditCardId, let card = creditCardRepo.fetchCard(byId: cardId) {
+        // Same card but date might have changed → recalculate statement
+        guard let uid = AuthenticationManager.shared.currentUser?.uid else {
+          invalidateLedgerCache()
+          return .success(())
+        }
+        if let statement = creditCardService.getOrCreateStatement(for: card, transactionDate: dateObj, userId: uid) {
+          try transactionRepo.updateCreditCardFields(
+            transactionId: id,
+            creditCardId: cardId,
+            statementId: statement.id!,
+            isCreditCardStatement: false
+          )
+          newStatementId = statement.id
+        }
+      }
+
+      // Recalculate old statement if transaction moved away from it
+      if let oldStmtId = originalStatementId, oldStmtId != newStatementId {
+        creditCardService.recalculateStatementTotal(statementId: oldStmtId)
+      }
+
+      // Recalculate new statement
+      if let newStmtId = newStatementId {
+        creditCardService.recalculateStatementTotal(statementId: newStmtId)
+      }
+
       invalidateLedgerCache()
       return .success(())
 
@@ -1087,6 +1145,28 @@ final class AddTransactionModalViewModel {
         amount: data.totalAmount,
         date: dateObj
       )
+
+      // Re-assign CC statement and remap date to due date for CC installments
+      if let cardId = data.creditCardId, let card = creditCardRepo.fetchCard(byId: cardId) {
+        if let uid = AuthenticationManager.shared.currentUser?.uid,
+           let statement = creditCardService.getOrCreateStatement(for: card, transactionDate: dateObj, userId: uid) {
+          try transactionRepo.updateCreditCardFields(
+            transactionId: id,
+            creditCardId: cardId,
+            statementId: statement.id!,
+            isCreditCardStatement: false
+          )
+          creditCardService.recalculateStatementTotal(statementId: statement.id!)
+
+          let dueDateTimestamp = Int(statement.dueDate.timeIntervalSince1970)
+          transactionRepo.updateDateAndBudgetMonth(
+            transactionId: id,
+            newDateTimestamp: dueDateTimestamp,
+            newBudgetMonthDate: statement.dueDate.monthAnchor
+          )
+        }
+      }
+
       invalidateLedgerCache()
       return .success(())
 
@@ -1105,7 +1185,8 @@ final class AddTransactionModalViewModel {
     dateString: String,
     categoryKey: String,
     typeRaw: String,
-    editOption: RecurringEditOption
+    editOption: RecurringEditOption,
+    businessDayRule: BusinessDayRule = .exact
   ) -> Result<Void, Error> {
 
     guard
@@ -1122,20 +1203,15 @@ final class AddTransactionModalViewModel {
       return .failure(TransactionError.invalidType)
     }
 
-    print("✏️ DEBUG ViewModel: Parsing date string: '\(dateString)'")
     guard let dateObj = DateFormatter.fullDateFormatter.date(from: dateString) else {
       return .failure(TransactionError.invalidDateFormat)
     }
-    print("✏️ DEBUG ViewModel: Parsed date object: \(dateObj)")
-    print(
-      "✏️ DEBUG ViewModel: Date components - Day: \(Calendar.current.component(.day, from: dateObj)), Month: \(Calendar.current.component(.month, from: dateObj)), Year: \(Calendar.current.component(.year, from: dateObj))"
-    )
 
     do {
       // Find the existing transaction to get its parent ID and determine if it's a recurring transaction
       let existingTransactions = transactionRepo.fetchAllTransactions()
       guard let existingTransaction = existingTransactions.first(where: { $0.id == id }) else {
-        print("❌ Could not find transaction with ID: \(id)")
+        logError("Could not find transaction with ID: \(id)")
         return .failure(TransactionError.transactionNotFound)
       }
 
@@ -1144,14 +1220,11 @@ final class AddTransactionModalViewModel {
       if let parentId = existingTransaction.parentTransactionId {
         // This is a recurring instance, use the parent ID
         parentTransactionId = parentId
-        print("✏️ DEBUG ViewModel: Found recurring instance with parent ID: \(parentId)")
       } else if existingTransaction.isRecurring == true {
         // This is the parent recurring transaction
         parentTransactionId = id
-        print("✏️ DEBUG ViewModel: Found parent recurring transaction with ID: \(id)")
       } else {
         // Not a recurring transaction, use regular update
-        print("✏️ DEBUG ViewModel: Not a recurring transaction, using regular update")
         return updateTransaction(
           id: id,
           title: title,
@@ -1162,8 +1235,6 @@ final class AddTransactionModalViewModel {
           isRecurring: true
         )
       }
-
-      print("✏️ DEBUG ViewModel: Using parent transaction ID: \(parentTransactionId)")
 
       // Create the new transaction data
       let newTransactionData = TransactionModel(
@@ -1179,7 +1250,10 @@ final class AddTransactionModalViewModel {
         parentTransactionId: parentTransactionId,
         originalAmount: amount,
         installmentNumber: nil,
-        totalInstallments: nil
+        totalInstallments: nil,
+        businessDayRule: businessDayRule,
+        unadjustedDateTimestamp: Int(dateObj.timeIntervalSince1970),
+        seriesPeriod: dateObj.monthAnchor
       )
 
       // Use the recurring transaction manager to handle the edit with the specified option
@@ -1198,9 +1272,126 @@ final class AddTransactionModalViewModel {
     }
   }
 
+  /// Async version that doesn't block the UI
+  func updateRecurringTransactionWithOptionAsync(
+    id: Int,
+    title: String,
+    amount: Int,
+    dateString: String,
+    categoryKey: String,
+    typeRaw: String,
+    creditCardId: Int? = nil,
+    editOption: RecurringEditOption,
+    businessDayRule: BusinessDayRule = .exact,
+    completion: @escaping (Result<Void, Error>) -> Void
+  ) {
+    guard
+      let transactionCategory = TransactionCategory.allCases.first(where: { $0.key == categoryKey })
+    else {
+      completion(.failure(TransactionError.invalidCategory))
+      return
+    }
+
+    guard
+      let transactionType = TransactionType.allCases.first(where: {
+        String(describing: $0) == typeRaw
+      })
+    else {
+      completion(.failure(TransactionError.invalidType))
+      return
+    }
+
+    guard let dateObj = DateFormatter.fullDateFormatter.date(from: dateString) else {
+      completion(.failure(TransactionError.invalidDateFormat))
+      return
+    }
+
+    // Run heavy work on background queue
+    DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+      guard let self = self else {
+        DispatchQueue.main.async { completion(.failure(TransactionError.repositoryUnavailable)) }
+        return
+      }
+
+      // Find the existing transaction to get its parent ID
+      let existingTransactions = self.transactionRepo.fetchAllTransactions()
+      guard let existingTransaction = existingTransactions.first(where: { $0.id == id }) else {
+        DispatchQueue.main.async { completion(.failure(TransactionError.transactionNotFound)) }
+        return
+      }
+
+      // Determine the parent transaction ID for recurring transactions
+      let parentTransactionId: Int
+      if let parentId = existingTransaction.parentTransactionId {
+        parentTransactionId = parentId
+      } else if existingTransaction.isRecurring == true {
+        parentTransactionId = id
+      } else {
+        // Not a recurring transaction - fallback to sync update
+        DispatchQueue.main.async {
+          let result = self.updateTransaction(
+            id: id,
+            title: title,
+            amount: amount,
+            dateString: dateString,
+            categoryKey: categoryKey,
+            typeRaw: typeRaw,
+            isRecurring: true,
+            creditCardId: creditCardId
+          )
+          completion(result)
+        }
+        return
+      }
+
+      // Create the new transaction data
+      let newTransactionData = TransactionModel(
+        id: id,
+        title: title,
+        category: transactionCategory.key,
+        amount: amount,
+        type: String(describing: transactionType),
+        dateTimestamp: Int(dateObj.timeIntervalSince1970),
+        budgetMonthDate: dateObj.monthAnchor,
+        isRecurring: true,
+        hasInstallments: false,
+        parentTransactionId: parentTransactionId,
+        originalAmount: amount,
+        installmentNumber: nil,
+        totalInstallments: nil,
+        creditCardId: creditCardId,
+        businessDayRule: businessDayRule,
+        unadjustedDateTimestamp: Int(dateObj.timeIntervalSince1970),
+        seriesPeriod: dateObj.monthAnchor
+      )
+
+      // Use async editing method
+      self.recurringManager.editRecurringTransactionsFromDateAsync(
+        parentTransactionId: parentTransactionId,
+        selectedTransactionDate: dateObj,
+        editOption: editOption,
+        newData: newTransactionData
+      ) { [weak self] result in
+        if case .success = result {
+          self?.invalidateLedgerCache()
+        }
+        completion(result)
+      }
+    }
+  }
+
+  /// Invalidates the ledger cache and tells the UI to refresh.
+  ///
+  /// Always posted on MAIN. `.transactionDataChanged` observers (DashboardViewController, the
+  /// carousel cells) reload UIKit directly, and every write path now runs on a background queue — so
+  /// posting inline delivered a UIKit reload on whatever queue happened to be doing the writing.
   private func invalidateLedgerCache() {
-    // Post notification to invalidate ledger cache
-    NotificationCenter.default.post(name: .transactionDataChanged, object: nil)
-    print("🗑️ Ledger cache invalidation requested after transaction addition")
+    if Thread.isMainThread {
+      NotificationCenter.default.post(name: .transactionDataChanged, object: nil)
+    } else {
+      DispatchQueue.main.async {
+        NotificationCenter.default.post(name: .transactionDataChanged, object: nil)
+      }
+    }
   }
 }

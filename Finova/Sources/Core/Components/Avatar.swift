@@ -11,7 +11,10 @@ import UIKit
 class Avatar: UIView {
 
   var userImage: UIImage? {
-    didSet { updateAvatarView() }
+    didSet {
+      guard userImage !== oldValue else { return }
+      updateAvatarView()
+    }
   }
 
   let userImageView: UIImageView = {

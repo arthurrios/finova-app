@@ -1,11 +1,14 @@
 platform :ios, '15.0'
 
+# `Demo` is the Finova Demo app variant (separate bundle ID, no iCloud) — build its pods as release.
+project 'Finova', 'Demo' => :release
+
 target 'Finova' do
   use_frameworks!
 
-  # Core Dependencies - Authentication Only
+  # Core Dependencies
   pod 'Firebase/Auth'
-  # Removed Firebase/Firestore - not being used, may trigger privacy concerns
+  pod 'Firebase/Messaging'  # For push notifications (app updates, etc.)
 
   pod 'GoogleSignIn'
 

@@ -13,11 +13,11 @@ final class AddTransactionModalViewController: UIViewController {
   let contentView: AddTransactionModalView
   weak var flowDelegate: AddTransactionModalFlowDelegate?
 
-  // Height constraint for dynamic modal sizing
-  private var heightConstraint: NSLayoutConstraint?
-
   // Track if we're in edit mode for keyboard handling
   private var isEditMode = false
+
+  // Used to cancel the hide-reset when the user switches directly between fields
+  private var keyboardHideWorkItem: DispatchWorkItem?
 
   init(
     contentView: AddTransactionModalView, flowDelegate: AddTransactionModalFlowDelegate,
@@ -48,22 +48,7 @@ final class AddTransactionModalViewController: UIViewController {
 
     // Set edit mode with transaction data
     viewController.configureForEdit(with: transaction)
-    // Adjust height for edit mode (smaller modal)
-    viewController.adjustHeightForEditMode()
     return viewController
-  }
-
-  // MARK: - Height Adjustment
-  private func adjustHeightForEditMode() {
-    // Update height constraint for edit mode (smaller modal)
-    heightConstraint?.isActive = false
-    heightConstraint = contentView.heightAnchor.constraint(
-      equalTo: view.heightAnchor, multiplier: 0.42)  // Reduced from 0.56 to 0.42
-    heightConstraint?.priority = UILayoutPriority(999)
-    heightConstraint?.isActive = true
-
-    // Update minimum height for edit mode
-    contentView.heightAnchor.constraint(greaterThanOrEqualToConstant: 320).isActive = true
   }
 
   private func configureForEdit(with transaction: Transaction) {
@@ -73,7 +58,7 @@ final class AddTransactionModalViewController: UIViewController {
     // For installment transactions, set the total amount instead of individual amount
     if transaction.mode == .installments {
       // Calculate total amount from all related installments
-      let allTransactions = SecureLocalDataManager.shared.loadTransactions()
+      let allTransactions = TransactionRepository().fetchAllTransactions()
       let installmentGroupId = transaction.parentTransactionId ?? transaction.id
       let relatedTransactions = allTransactions.filter { t in
         t.id == installmentGroupId || t.parentTransactionId == installmentGroupId
@@ -82,9 +67,12 @@ final class AddTransactionModalViewController: UIViewController {
       if !relatedTransactions.isEmpty {
         let totalAmount = relatedTransactions.reduce(0) { $0 + $1.amount }
         contentView.setTotalAmountForInstallment(totalAmount)
-        print(
-          "🔍 INSTALLMENT EDIT: Calculated total amount \(totalAmount) from \(relatedTransactions.count) installments"
-        )
+      }
+
+      if let startDate = AddTransactionModalViewModel.installmentSeriesStartDate(
+        groupId: installmentGroupId, related: relatedTransactions)
+      {
+        contentView.setInitialDateForInstallment(startDate)
       }
     }
   }
@@ -92,17 +80,19 @@ final class AddTransactionModalViewController: UIViewController {
   override func viewDidLoad() {
     super.viewDidLoad()
 
-    // 🔒 Authenticate SecureLocalDataManager for UID-isolated data access
-    if let user = UserDefaultsManager.getUser(), let firebaseUID = user.firebaseUID {
-      SecureLocalDataManager.shared.authenticateUser(firebaseUID: firebaseUID)
-      print("🔒 AddTransactionModal: SecureLocalDataManager authenticated for user: \(firebaseUID)")
-    }
-
     contentView.delegate = self
     contentView.incomeSelectorButton.delegate = self
     contentView.expenseSelectorButton.delegate = self
 
     setupView()
+    loadCreditCards()
+  }
+
+  private func loadCreditCards() {
+    let cardRepo = CreditCardRepository()
+    guard let uid = AuthenticationManager.shared.currentUser?.uid else { return }
+    let cards = cardRepo.fetchAllCards(userId: uid)
+    contentView.loadAvailableCards(cards)
   }
 
   override func viewWillAppear(_ animated: Bool) {
@@ -117,7 +107,6 @@ final class AddTransactionModalViewController: UIViewController {
 
   override func viewDidLayoutSubviews() {
     super.viewDidLayoutSubviews()
-    print("🔍 KEYBOARD: viewDidLayoutSubviews - contentView frame: \(contentView.frame)")
   }
 
   private func setupView() {
@@ -131,6 +120,7 @@ final class AddTransactionModalViewController: UIViewController {
     view.addSubview(blurEffectView)
     view.addSubview(contentView)
     contentView.translatesAutoresizingMaskIntoConstraints = false
+    contentView.accessibilityIdentifier = CoachMarkTarget.transactionSheet.rawValue
 
     setupConstraints()
   }
@@ -142,17 +132,13 @@ final class AddTransactionModalViewController: UIViewController {
       contentView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
     ])
 
-    // Use a priority-based approach for flexible height
-    heightConstraint = contentView.heightAnchor.constraint(
-      equalTo: view.heightAnchor, multiplier: 0.56)
-    heightConstraint?.priority = UILayoutPriority(999)
-    heightConstraint?.isActive = true
-
-    // Add a minimum height constraint to ensure content is always visible
-    contentView.heightAnchor.constraint(greaterThanOrEqualToConstant: 400).isActive = true
-
-    // Add a maximum height constraint to prevent oversizing
-    contentView.heightAnchor.constraint(lessThanOrEqualTo: view.heightAnchor, multiplier: 0.75)
+    // Modal auto-sizes to fit content (driven by self-sizing scroll view).
+    // Only cap with a max height — scroll kicks in if content exceeds it.
+    // 0.92, not 0.85: an expense paid by card and split into installments is the tallest the
+    // form gets — 759pt of content plus the 34pt home-indicator inset on a 874pt screen. At
+    // 0.85 that did not fit, so Save opened below the safe area, half under the home bar, and
+    // you had to scroll to reach it. 0.92 still leaves the sheet clearly short of full screen.
+    contentView.heightAnchor.constraint(lessThanOrEqualTo: view.heightAnchor, multiplier: 0.92)
       .isActive = true
   }
 
@@ -183,8 +169,61 @@ extension AddTransactionModalViewController: AddTransactionModalViewDelegate,
 {
 
   func sendInstallmentTransactionData(_ data: InstallmentTransactionData) {
-    let result = viewModel.addTransactionWithInstallments(data)
-    handleTransactionResult(result)
+    // Show loading state
+    contentView.saveButton.startLoading()
+
+    // Use async version
+    viewModel.addTransactionWithInstallmentsAsync(data) { [weak self] result in
+      DispatchQueue.main.async {
+        self?.contentView.saveButton.stopLoading()
+
+        switch result {
+        case .success:
+          self?.dismissModal()
+          self?.flowDelegate?.didAddTransaction()
+        case .failure(let error):
+          let message: String
+          switch error {
+          case TransactionError.invalidDateFormat:
+            message = "alert.error.invalidDateFormat".localized
+          case TransactionError.invalidCategory:
+            message = "alert.error.invalidCategory".localized
+          case TransactionError.invalidType:
+            message = "alert.error.invalidTransactionType".localized
+          case TransactionError.invalidInstallmentCount:
+            message = "alert.error.invalidInstallmentCount".localized
+          default:
+            message = "alert.error.defaultMessage".localized
+          }
+          self?.handleError(title: "alert.error.title".localized, message: message)
+        }
+      }
+    }
+  }
+
+  func didRequestBusinessDayRulePicker(
+    current: BusinessDayRule, completion: @escaping (BusinessDayRule) -> Void
+  ) {
+    let alert = UIAlertController(
+      title: "addTransactionModal.businessDay.label".localized,
+      // No region argument: the rule moves dates off WEEKENDS only. Holidays were dropped because a
+      // national table is wrong for anyone whose bank or country differs from the device locale,
+      // and because updating it would silently re-date occurrences already stored.
+      message: "settings.businessDay.picker.message".localized,
+      preferredStyle: .actionSheet)
+
+    for rule in BusinessDayRule.allCases {
+      let action = UIAlertAction(title: rule.title, style: .default) { _ in completion(rule) }
+      if rule == current { action.setValue(true, forKey: "checked") }
+      alert.addAction(action)
+    }
+    alert.addAction(UIAlertAction(title: "alert.cancel".localized, style: .cancel))
+
+    if let popover = alert.popoverPresentationController {
+      popover.sourceView = contentView
+      popover.sourceRect = contentView.bounds
+    }
+    present(alert, animated: true)
   }
 
   func handleError(title: String, message: String) {
@@ -194,89 +233,207 @@ extension AddTransactionModalViewController: AddTransactionModalViewDelegate,
     self.present(alertController, animated: true)
   }
 
-  func sendTransactionData(_ data: AddTransactionData) {
-    let result = viewModel.addTransaction(
-      title: data.title,
-      amount: data.amount,
-      dateString: data.date,
-      categoryKey: data.category,
-      typeRaw: data.transactionType)
+  /// Runs the write off the main thread and only dismisses once it has fully landed.
+  ///
+  /// Every save/update path goes through here. They used to call the view model synchronously on
+  /// main, which both blocked the UI and — because statement recalculation and notification
+  /// reconciliation happen inside those calls — meant the dashboard could be told to refresh while
+  /// the work was still in flight.
+  private func performWrite(
+    _ work: @escaping () -> Result<Void, Error>,
+    onSuccess: @escaping () -> Void
+  ) {
+    contentView.saveButton.startLoading()
+    DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+      let result = work()
+      DispatchQueue.main.async {
+        guard let self = self else { return }
+        self.contentView.saveButton.stopLoading()
+        switch result {
+        case .success:
+          onSuccess()
+        case .failure(let error):
+          self.handleError(
+            title: "alert.error.title".localized, message: Self.message(for: error))
+        }
+      }
+    }
+  }
 
-    handleTransactionResult(result)
+  private static func message(for error: Error) -> String {
+    switch error {
+    case TransactionError.invalidDateFormat:
+      return "alert.error.invalidDateFormat".localized
+    case TransactionError.invalidCategory:
+      return "alert.error.invalidCategory".localized
+    case TransactionError.invalidType:
+      return "alert.error.invalidTransactionType".localized
+    case TransactionError.invalidInstallmentCount:
+      return "alert.error.invalidInstallmentCount".localized
+    default:
+      return "alert.error.defaultMessage".localized
+    }
+  }
+
+  func sendTransactionData(_ data: AddTransactionData) {
+    performWrite({ [viewModel] in
+      viewModel.addTransaction(
+        title: data.title,
+        amount: data.amount,
+        dateString: data.date,
+        categoryKey: data.category,
+        typeRaw: data.transactionType,
+        creditCardId: data.creditCardId,
+        businessDayRule: data.businessDayRule)
+    }) { [weak self] in
+      self?.dismissModal()
+      self?.flowDelegate?.didAddTransaction()
+    }
   }
 
   func sendRecurringTransactionData(_ data: AddTransactionData) {
-    let result = viewModel.addTransaction(
+    // Recurring generation now dedupes by title + month + DAY, so a same-title series on a
+    // different day coexists and generates its full horizon — no confirmation needed.
+    performRecurringCreate(data)
+  }
+
+  private func performRecurringCreate(_ data: AddTransactionData) {
+    // Show loading state
+    contentView.saveButton.startLoading()
+
+    // Use async version that waits for instance generation
+    viewModel.addRecurringTransactionAsync(
       title: data.title,
       amount: data.amount,
       dateString: data.date,
       categoryKey: data.category,
       typeRaw: data.transactionType,
-      isRecurring: true
-    )
+      creditCardId: data.creditCardId,
+      businessDayRule: data.businessDayRule
+    ) { [weak self] result in
+      DispatchQueue.main.async {
+        self?.contentView.saveButton.stopLoading()
 
-    handleTransactionResult(result)
+        switch result {
+        case .success:
+          self?.dismissModal()
+          self?.flowDelegate?.didAddTransaction()
+        case .failure(let error):
+          let message: String
+          switch error {
+          case TransactionError.invalidDateFormat:
+            message = "alert.error.invalidDateFormat".localized
+          case TransactionError.invalidCategory:
+            message = "alert.error.invalidCategory".localized
+          case TransactionError.invalidType:
+            message = "alert.error.invalidTransactionType".localized
+          default:
+            message = "alert.error.defaultMessage".localized
+          }
+          self?.handleError(title: "alert.error.title".localized, message: message)
+        }
+      }
+    }
   }
 
   func updateTransactionData(id: Int, _ data: AddTransactionData) {
-    let result = viewModel.updateTransaction(
-      id: id,
-      title: data.title,
-      amount: data.amount,
-      dateString: data.date,
-      categoryKey: data.category,
-      typeRaw: data.transactionType
-    )
-    handleUpdateResult(result)
+    performWrite({ [viewModel] in
+      viewModel.updateTransaction(
+        id: id,
+        title: data.title,
+        amount: data.amount,
+        dateString: data.date,
+        categoryKey: data.category,
+        typeRaw: data.transactionType,
+        creditCardId: data.creditCardId,
+        businessDayRule: data.businessDayRule
+      )
+    }) { [weak self] in
+      self?.dismissModal()
+      self?.flowDelegate?.didUpdateTransaction()
+    }
   }
 
+  /// Scoped recurring edits go through `updateRecurringTransactionDataWithOption`; this delegate
+  /// method is unreachable from the edit sheet (see `AddTransactionModalView`, which routes only to
+  /// single / `.futureOnly` / `.all`). Kept as a conformance stub that behaves like "edit all"
+  /// rather than the legacy whole-series rewrite it used to call, which rebuilt every occurrence's
+  /// date from the ALREADY-ADJUSTED timestamp and so walked a business-day series forward a few days
+  /// on every edit.
   func updateRecurringTransactionData(id: Int, _ data: AddTransactionData) {
-    let result = viewModel.updateTransaction(
-      id: id,
-      title: data.title,
-      amount: data.amount,
-      dateString: data.date,
-      categoryKey: data.category,
-      typeRaw: data.transactionType
-    )
-    handleUpdateResult(result)
+    updateRecurringTransactionDataWithOption(id: id, data, editOption: .all)
   }
 
   func updateInstallmentTransactionData(id: Int, _ data: InstallmentTransactionData) {
-    let result = viewModel.updateTransactionWithInstallments(id: id, data)
-    handleUpdateResult(result)
+    performWrite({ [viewModel] in
+      viewModel.updateTransactionWithInstallments(id: id, data)
+    }) { [weak self] in
+      self?.dismissModal()
+      self?.flowDelegate?.didUpdateTransaction()
+    }
   }
 
   func updateSingleRecurringTransactionData(id: Int, _ data: AddTransactionData) {
-    let result = viewModel.updateSingleTransaction(
-      id: id,
-      title: data.title,
-      amount: data.amount,
-      dateString: data.date,
-      categoryKey: data.category,
-      typeRaw: data.transactionType
-    )
-    handleUpdateResult(result)
+    performWrite({ [viewModel] in
+      viewModel.updateSingleTransaction(
+        id: id,
+        title: data.title,
+        amount: data.amount,
+        dateString: data.date,
+        categoryKey: data.category,
+        typeRaw: data.transactionType,
+        creditCardId: data.creditCardId,
+        businessDayRule: data.businessDayRule
+      )
+    }) { [weak self] in
+      self?.dismissModal()
+      self?.flowDelegate?.didUpdateTransaction()
+    }
   }
 
   func updateSingleInstallmentTransactionData(id: Int, _ data: InstallmentTransactionData) {
-    let result = viewModel.updateSingleTransactionWithInstallments(id: id, data)
-    handleUpdateResult(result)
+    performWrite({ [viewModel] in
+      viewModel.updateSingleTransactionWithInstallments(id: id, data)
+    }) { [weak self] in
+      self?.dismissModal()
+      self?.flowDelegate?.didUpdateTransaction()
+    }
   }
 
   func updateRecurringTransactionDataWithOption(
     id: Int, _ data: AddTransactionData, editOption: RecurringEditOption
   ) {
-    let result = viewModel.updateRecurringTransactionWithOption(
+    // Show loading state
+    contentView.saveButton.startLoading()
+
+    // Run editing in background
+    viewModel.updateRecurringTransactionWithOptionAsync(
       id: id,
       title: data.title,
       amount: data.amount,
       dateString: data.date,
       categoryKey: data.category,
       typeRaw: data.transactionType,
-      editOption: editOption
-    )
-    handleUpdateResult(result)
+      creditCardId: data.creditCardId,
+      editOption: editOption,
+      businessDayRule: data.businessDayRule
+    ) { [weak self] result in
+      DispatchQueue.main.async {
+        self?.contentView.saveButton.stopLoading()
+
+        switch result {
+        case .success:
+          self?.dismissModal()
+          self?.flowDelegate?.didUpdateTransaction()
+        case .failure(let error):
+          // Show error alert, keep modal open for retry
+          self?.handleError(
+            title: "alert.error.title".localized,
+            message: "alert.error.defaultMessage".localized
+          )
+        }
+      }
+    }
   }
 
   private func handleTransactionResult(_ result: Result<Void, Error>) {
@@ -326,6 +483,7 @@ extension AddTransactionModalViewController: AddTransactionModalViewDelegate,
   }
 
   func transactionTypeSelectorDidSelect(_ selector: TransactionTypeSelector) {
+    defer { CoachMarkCenter.shared.post(.fieldFilled(.transactionType)) }
     if selector.variant == .selected {
       contentView.incomeSelectorButton.variant = .normal
       contentView.expenseSelectorButton.variant = .normal
@@ -338,6 +496,15 @@ extension AddTransactionModalViewController: AddTransactionModalViewDelegate,
         contentView.incomeSelectorButton.variant = .unselected
       }
     }
+
+    // Show payment method section only for expenses
+    let isExpense = contentView.expenseSelectorButton.variant == .selected
+    contentView.showPaymentMethodSection(isExpense)
+  }
+
+  func didTapCreateCreditCard() {
+    dismissModal()
+    flowDelegate?.didTapCreateCreditCard()
   }
 
   func closeModal() {
@@ -346,7 +513,6 @@ extension AddTransactionModalViewController: AddTransactionModalViewDelegate,
 
   // MARK: - Custom Keyboard Handling
   private func startCustomKeyboardObservers() {
-    print("🔍 KEYBOARD: Setting up keyboard observers, isEditMode: \(isEditMode)")
     NotificationCenter.default.addObserver(
       self,
       selector: #selector(modalKeyboardWillShow(notification:)),
@@ -369,7 +535,10 @@ extension AddTransactionModalViewController: AddTransactionModalViewDelegate,
   }
 
   @objc private func modalKeyboardWillShow(notification: Notification) {
-    print("🔍 KEYBOARD: modalKeyboardWillShow called, isEditMode: \(isEditMode)")
+    // If the user switched directly from one field to another, cancel the pending
+    // hide-reset so the modal doesn't jump down then back up.
+    keyboardHideWorkItem?.cancel()
+    keyboardHideWorkItem = nil
 
     guard
       let keyboardFrame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey]
@@ -377,39 +546,24 @@ extension AddTransactionModalViewController: AddTransactionModalViewDelegate,
       let animationDuration = notification.userInfo?[
         UIResponder.keyboardAnimationDurationUserInfoKey] as? Double
     else {
-      print("🔍 KEYBOARD: Failed to get keyboard frame or animation duration")
       return
     }
 
-    // Calculate the available space above the keyboard
-    let keyboardHeight = keyboardFrame.height
-    let viewHeight = view.frame.height
-    let keyboardTopY = viewHeight - keyboardHeight
+    // Convert keyboard frame to this view's coordinate space so the math is correct
+    // even when the VC is presented as a sheet on iPad (not necessarily full-screen).
+    let keyboardTopY = view.convert(keyboardFrame, from: nil).minY
 
-    // Get the modal's current position and height
-    let modalHeight = contentView.frame.height
-    let modalTopY = contentView.frame.minY
-    let modalBottomY = contentView.frame.maxY
+    // Shift exactly enough so the active input clears the keyboard with 16pt padding.
+    // Using the precise field position avoids under-shifting (which lets the keyboard
+    // overlap the input and intercept touches) and over-shifting.
+    let fieldOriginalBottom = activeInputOriginalBottomY()
+    let targetY = keyboardTopY - 16
 
-    print("🔍 KEYBOARD: keyboardHeight: \(keyboardHeight), viewHeight: \(viewHeight)")
-    print(
-      "🔍 KEYBOARD: keyboardTopY: \(keyboardTopY), modalTopY: \(modalTopY), modalBottomY: \(modalBottomY)"
-    )
-
-    // Check if the modal is being covered by the keyboard
-    if modalBottomY > keyboardTopY {
-      // Modal is being covered - calculate how much to shift up
-      let overlap = modalBottomY - keyboardTopY
-      // Shift by more of the overlap to ensure keyboard clearance
-      let shiftAmount = min(overlap * 0.7, 200)  // Max 200px shift, or 70% of overlap
-
-      print("🔍 KEYBOARD: Modal is covered by keyboard, shifting up by: \(shiftAmount)")
-
+    if fieldOriginalBottom > targetY {
+      let shiftAmount = fieldOriginalBottom - targetY
       UIView.animate(withDuration: animationDuration, delay: 0, options: [.curveEaseInOut]) {
         self.contentView.transform = CGAffineTransform(translationX: 0, y: -shiftAmount)
       }
-    } else {
-      print("🔍 KEYBOARD: Modal is not covered by keyboard")
     }
   }
 
@@ -419,8 +573,40 @@ extension AddTransactionModalViewController: AddTransactionModalViewDelegate,
         UIResponder.keyboardAnimationDurationUserInfoKey] as? Double
     else { return }
 
-    UIView.animate(withDuration: animationDuration, delay: 0, options: [.curveEaseInOut]) {
-      self.contentView.transform = .identity
+    // Delay the reset slightly. If another keyboardWillShow arrives within that window
+    // (user switched fields), the work item is cancelled and the modal stays put.
+    let workItem = DispatchWorkItem { [weak self] in
+      UIView.animate(withDuration: animationDuration, delay: 0, options: [.curveEaseInOut]) {
+        self?.contentView.transform = .identity
+      }
     }
+    keyboardHideWorkItem = workItem
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.05, execute: workItem)
+  }
+
+  /// Returns the original (pre-transform) bottom Y of the currently focused input
+  /// in the view controller's view coordinate space.
+  private func activeInputOriginalBottomY() -> CGFloat {
+    func findFirstResponder(in searchView: UIView) -> UIView? {
+      if searchView.isFirstResponder { return searchView }
+      for sub in searchView.subviews {
+        if let found = findFirstResponder(in: sub) { return found }
+      }
+      return nil
+    }
+
+    guard let responder = findFirstResponder(in: contentView) else {
+      // No active input — fall back to the modal's natural bottom edge.
+      return view.bounds.height
+    }
+
+    // Convert the responder's frame into contentView-local coordinates.
+    // This is unaffected by contentView's own transform, so it gives us
+    // the original layout position.
+    let frameInContentView = responder.convert(responder.bounds, to: contentView)
+
+    // contentView is bottom-anchored to view, so its original top = view.height - contentView.height.
+    let originalContentTopY = view.bounds.height - contentView.bounds.height
+    return originalContentTopY + frameInContentView.maxY
   }
 }

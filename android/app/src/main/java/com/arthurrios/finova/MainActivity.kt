@@ -1,0 +1,74 @@
+package com.arthurrios.finova
+
+import android.content.pm.ApplicationInfo
+import android.os.Bundle
+import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
+import androidx.fragment.app.FragmentActivity
+import androidx.lifecycle.lifecycleScope
+import com.arthurrios.finova.debug.DebugEntry
+import com.arthurrios.finova.debug.DebugSeeder
+import kotlinx.coroutines.launch
+import com.arthurrios.finova.ui.navigation.FinovaNavHost
+import com.arthurrios.finova.ui.theme.FinovaTheme
+
+/** A FragmentActivity because BiometricPrompt needs one. */
+class MainActivity : FragmentActivity() {
+    /** What a tapped notification asked to open; the nav host opens it once signed in. */
+    private val notificationTarget = androidx.compose.runtime.mutableStateOf<String?>(null)
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        // Drop the system launch screen the moment the app draws, with no fade: the Compose
+        // splash shows the same picture, and a fade would dim the logo for a moment.
+        installSplashScreen().setOnExitAnimationListener { it.remove() }
+        super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
+        if (isDebuggable() && savedInstanceState == null) DebugEntry.applyLaunchExtras(intent, appContainer)
+        if (isDebuggable() && intent.getBooleanExtra("finova.debug.seed", false)) {
+            lifecycleScope.launch { DebugSeeder.seedIfEmpty(appContainer.financeRepository(), appContainer.allocationRepository()) }
+        }
+        // `--ez finova.debug.notify true` runs the morning reminder job now (debug builds).
+        if (isDebuggable() && intent.getBooleanExtra("finova.debug.notify", false)) {
+            androidx.work.WorkManager.getInstance(this).enqueue(
+                androidx.work.OneTimeWorkRequestBuilder<com.arthurrios.finova.notifications.DailyNotificationWorker>().build(),
+            )
+        }
+        if (savedInstanceState == null) readNotificationTap(intent)
+        setContent {
+            FinovaTheme {
+                FinovaNavHost(
+                    startRoute = debugStartRoute(),
+                    notificationTarget = notificationTarget.value,
+                    onNotificationTargetOpened = { notificationTarget.value = null },
+                )
+            }
+        }
+    }
+
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        readNotificationTap(intent)
+    }
+
+    /** A tapped notification is read, and its target (a transaction or statement) opens. */
+    private fun readNotificationTap(intent: android.content.Intent) {
+        intent.getStringExtra(com.arthurrios.finova.notifications.FinovaNotifier.EXTRA_NOTIFICATION_ID)?.let {
+            appContainer.notificationHistory().markRead(it)
+        }
+        notificationTarget.value = intent.getStringExtra(com.arthurrios.finova.notifications.FinovaNotifier.EXTRA_TARGET)
+    }
+
+    /**
+     * Debug builds only: `adb shell am start -n com.arthurrios.finova/.MainActivity
+     * --es finova.debug.route dashboard` opens a screen directly, for checking screens on the
+     * emulator without signing in.
+     */
+    private fun debugStartRoute(): String? =
+        if (isDebuggable()) intent.getStringExtra("finova.debug.route") else null
+
+    /** `--ez finova.debug.seed true` fills an empty database with sample data (debug builds). */
+    private fun isDebuggable(): Boolean =
+        DebugEntry.ENABLED && applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
+}

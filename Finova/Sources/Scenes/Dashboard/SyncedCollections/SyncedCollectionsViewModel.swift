@@ -27,7 +27,7 @@ final class SyncedCollectionsViewModel: ObservableObject {
   // MARK: - Initialization
   init(
     monthData: [MonthBudgetCardType] = [], transactions: [Transaction] = [], initialIndex: Int = 0,
-    monthRange: ClosedRange<Int> = -12...24
+    monthRange: ClosedRange<Int> = SeriesMonths.carouselRange
   ) {
     self.monthData = monthData
     self.allTransactions = transactions

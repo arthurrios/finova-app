@@ -17,6 +17,16 @@ struct TransactionCellConfiguration {
   let transactionMode: TransactionMode
   let installmentNumber: Int?
   let totalInstallments: Int?
+  let isCreditCardStatement: Bool
+  let statementTransactionCount: Int?
+  let creditCardId: Int?
+  /// An installment already paid ahead of schedule.
+  ///
+  /// It stays in every list it belongs to — hiding it would make the month look like the purchase
+  /// never had an installment there — but it is dimmed, because it no longer counts toward that
+  /// month's totals. Carried on the configuration rather than applied ad-hoc by each table so the
+  /// dashboard, allocation details and statement details cannot drift apart on how it looks.
+  var isSettledEarly: Bool = false
 }
 
 public final class TransactionCell: UITableViewCell {
@@ -49,6 +59,7 @@ public final class TransactionCell: UITableViewCell {
   private let titleStackView: UIStackView = {
     let stackView = UIStackView()
     stackView.axis = .vertical
+    stackView.alignment = .leading
     stackView.spacing = Metrics.spacing1
     stackView.translatesAutoresizingMaskIntoConstraints = false
     return stackView
@@ -64,12 +75,33 @@ public final class TransactionCell: UITableViewCell {
     return label
   }()
 
+  private let dateStackView: UIStackView = {
+    let stack = UIStackView()
+    stack.axis = .horizontal
+    stack.spacing = Metrics.spacing1
+    stack.alignment = .center
+    stack.translatesAutoresizingMaskIntoConstraints = false
+    return stack
+  }()
+
   private let dateLabel: UILabel = {
     let label = UILabel()
     label.font = Fonts.textXS.font
     label.textColor = Colors.gray500
     label.translatesAutoresizingMaskIntoConstraints = false
     return label
+  }()
+
+  private let creditCardIndicator: UIImageView = {
+    let imageView = UIImageView()
+    imageView.image = UIImage(named: "lucide_iconCreditCard")
+    imageView.contentMode = .scaleAspectFit
+    imageView.tintColor = Colors.mainMagenta
+    imageView.isHidden = true
+    imageView.translatesAutoresizingMaskIntoConstraints = false
+    imageView.heightAnchor.constraint(equalToConstant: 16).isActive = true
+    imageView.widthAnchor.constraint(equalToConstant: 16).isActive = true
+    return imageView
   }()
 
   private let valueStackView: UIStackView = {
@@ -165,6 +197,8 @@ public final class TransactionCell: UITableViewCell {
   }()
 
   private var actionWidthConstraint: NSLayoutConstraint!
+  private var valueTrailingToTrash: NSLayoutConstraint!
+  private var valueTrailingToEdge: NSLayoutConstraint!
   private var panStartX: CGFloat = 0
 
   private lazy var panGR: UIPanGestureRecognizer = {
@@ -190,6 +224,11 @@ public final class TransactionCell: UITableViewCell {
     isDeletionInProgress = false
     contentView.alpha = 1.0
     isUserInteractionEnabled = true
+    trashIconView.isHidden = false
+    creditCardIndicator.isHidden = true
+    panGR.isEnabled = true
+    valueTrailingToTrash.isActive = true
+    valueTrailingToEdge.isActive = false
   }
 
   required init?(coder: NSCoder) {
@@ -203,7 +242,9 @@ public final class TransactionCell: UITableViewCell {
     iconContainerView.addSubview(iconView)
     contentView.addSubview(titleStackView)
     titleStackView.addArrangedSubview(titleLabel)
-    titleStackView.addArrangedSubview(dateLabel)
+    dateStackView.addArrangedSubview(dateLabel)
+    dateStackView.addArrangedSubview(creditCardIndicator)
+    titleStackView.addArrangedSubview(dateStackView)
     contentView.addSubview(valueRowStackView)
     valueRowStackView.addArrangedSubview(recurringIcon)
     valueRowStackView.addArrangedSubview(valueStackView)
@@ -244,9 +285,9 @@ public final class TransactionCell: UITableViewCell {
 
     dateLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
     dateLabel.setContentHuggingPriority(.required, for: .horizontal)
-    titleLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
+    titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
     titleLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
-    titleStackView.setContentCompressionResistancePriority(.required, for: .horizontal)
+    titleStackView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
     titleStackView.setContentHuggingPriority(.defaultLow, for: .horizontal)
 
     let titleToValue = titleStackView.trailingAnchor
@@ -260,6 +301,12 @@ public final class TransactionCell: UITableViewCell {
         equalTo: valueRowStackView.leadingAnchor,
         constant: -Metrics.spacing4)
     titleExpansion.priority = .defaultLow
+
+    valueTrailingToTrash = valueRowStackView.trailingAnchor.constraint(
+      equalTo: trashIconView.leadingAnchor, constant: -Metrics.spacing3)
+    valueTrailingToEdge = valueRowStackView.trailingAnchor.constraint(
+      equalTo: contentView.trailingAnchor, constant: -Metrics.spacing5)
+    valueTrailingToEdge.isActive = false
 
     NSLayoutConstraint.activate([
       iconContainerView.leadingAnchor.constraint(
@@ -282,8 +329,7 @@ public final class TransactionCell: UITableViewCell {
       trashIconView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
       trashIconView.widthAnchor.constraint(equalToConstant: Metrics.spacing4),
 
-      valueRowStackView.trailingAnchor.constraint(
-        equalTo: trashIconView.leadingAnchor, constant: -Metrics.spacing3),
+      valueTrailingToTrash,
       valueRowStackView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
 
       valueRowStackView.leadingAnchor.constraint(
@@ -313,13 +359,43 @@ public final class TransactionCell: UITableViewCell {
     self.titleLabel.text = configuration.title
     self.dateLabel.text = DateFormatter.fullDateFormatter.string(from: configuration.date)
 
-    let symbolFont = Fonts.textXS.font
-    self.valueLabel.attributedText = configuration.value.currencyAttributedString(
-      symbolFont: symbolFont, font: Fonts.titleMD)
-    self.valueLabel.accessibilityLabel = configuration.value.currencyString
+    // Dimmed, and reset explicitly on the other branch — cells are reused, so a settled row would
+    // otherwise leave the next transaction that lands in this cell looking settled too.
+    self.contentView.alpha = configuration.isSettledEarly ? 0.45 : 1.0
+    self.accessibilityLabel = configuration.isSettledEarly
+      ? "\(configuration.title), \("earlyPayment.badge.settled".localized)"
+      : nil
 
-    let iconName = configuration.category.iconName(for: configuration.transactionType)
-    self.iconView.image = UIImage(named: iconName)
+    // This cell is shared by the dashboard, statement details and allocation details, so masking
+    // here covers all three. The visibility flag is read at render time rather than threaded
+    // through `TransactionCellConfiguration`, which would push it onto all three call sites.
+    let symbolFont = Fonts.textXS.font
+    let isValueHidden = ValueMask.isActive
+    self.valueLabel.attributedText = configuration.value.maskedCurrencyAttributedString(
+      symbolFont: symbolFont, font: Fonts.titleMD, hidden: isValueHidden)
+    // Spoken, not bulleted: VoiceOver reading the real amount would defeat the feature, and reading
+    // six bullets aloud says nothing.
+    self.valueLabel.accessibilityLabel = isValueHidden
+      ? ValueMask.accessibilityLabel
+      : configuration.value.currencyString
+
+    // Credit card statement uses special icon and compact title
+    if configuration.isCreditCardStatement {
+      self.iconView.image = UIImage(named: "lucide_iconCreditCard")
+      self.titleLabel.font = Fonts.textSM.font
+
+      // Show transaction count as subtitle
+      if let count = configuration.statementTransactionCount {
+        let key = count == 1
+          ? "creditCard.statement.subtitle.singular"
+          : "creditCard.statement.subtitle"
+        self.dateLabel.text = String(format: key.localized, count)
+      }
+    } else {
+      let iconName = configuration.category.iconName(for: configuration.transactionType)
+      self.iconView.image = UIImage(named: iconName)
+      self.titleLabel.font = Fonts.textSMBold.font
+    }
 
     if configuration.transactionType == .income {
       self.transactionTypeIconView.image = UIImage(named: "arrowUp")
@@ -351,6 +427,18 @@ public final class TransactionCell: UITableViewCell {
       self.installmentLabel.text = installmentText
       self.installmentLabel.isHidden = false
     }
+
+    // Show credit card indicator for transactions linked to a card (but not statement rows themselves)
+    let hasCard = configuration.creditCardId != nil && !configuration.isCreditCardStatement
+    creditCardIndicator.isHidden = !hasCard
+
+    // Hide trash icon and disable swipe for credit card statement rows
+    // Move value stack to the edge when trash is hidden
+    let isStatement = configuration.isCreditCardStatement
+    trashIconView.isHidden = isStatement
+    panGR.isEnabled = !isStatement
+    valueTrailingToTrash.isActive = !isStatement
+    valueTrailingToEdge.isActive = isStatement
   }
 
   @objc

@@ -91,7 +91,13 @@ class LoadingManager {
             activityIndicator.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 20),
             activityIndicator.centerXAnchor.constraint(equalTo: contentView.centerXAnchor)
         ])
-        
+
+        contentView.layoutIfNeeded()
+        contentView.layer.shadowPath = UIBezierPath(
+            roundedRect: contentView.bounds,
+            cornerRadius: contentView.layer.cornerRadius
+        ).cgPath
+
         return containerView
     }
 }

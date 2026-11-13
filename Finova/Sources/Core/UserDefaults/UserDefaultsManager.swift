@@ -13,12 +13,17 @@ class UserDefaultsManager {
   private static let balanceDisplayModeKey = "BalanceDisplayMode"
   private static let biometricEnabledKey = "biometricEnabled"
   private static let hideValuesKey = "hideValues"
+  private static let currencyCodeKey = "currencyCode"
+  private static let defaultBusinessDayRuleKey = "defaultBusinessDayRule"
+  private static let tagTranslationEnabledKey = "allocationTagTranslationEnabled"
+
+  /// Special value indicating the app should use device locale currency
+  static let currencyAutoValue = "auto"
 
   static func saveUser(user: User) {
     let encoder = JSONEncoder()
     if let data = try? encoder.encode(user) {
       UserDefaults.standard.set(data, forKey: userKey)
-      UserDefaults.standard.synchronize()
     }
   }
 
@@ -34,7 +39,6 @@ class UserDefaultsManager {
 
   static func removeUser() {
     UserDefaults.standard.removeObject(forKey: userKey)
-    UserDefaults.standard.synchronize()
   }
 
   static func getCurrentMonthIndex() -> Int {
@@ -66,7 +70,6 @@ class UserDefaultsManager {
 
   static func setBiometricEnabled(_ isEnabled: Bool) {
     UserDefaults.standard.set(isEnabled, forKey: biometricEnabledKey)
-    UserDefaults.standard.synchronize()
   }
 
   static func getBiometricEnabled() -> Bool {
@@ -75,11 +78,51 @@ class UserDefaultsManager {
 
   static func setHideValues(_ isHidden: Bool) {
     UserDefaults.standard.set(isHidden, forKey: hideValuesKey)
-    UserDefaults.standard.synchronize()
   }
 
   static func getHideValues() -> Bool {
     return UserDefaults.standard.bool(forKey: hideValuesKey)
+  }
+
+  // MARK: - Currency Settings
+
+  /// Sets the currency code. Use `currencyAutoValue` ("auto") to use device locale.
+  static func setCurrencyCode(_ code: String) {
+    UserDefaults.standard.set(code, forKey: currencyCodeKey)
+  }
+
+  /// Gets the currency code. Returns "auto" if using device locale (default).
+  static func getCurrencyCode() -> String {
+    return UserDefaults.standard.string(forKey: currencyCodeKey) ?? currencyAutoValue
+  }
+
+  /// Returns true if using device locale for currency (auto mode)
+  static func isUsingAutoCurrency() -> Bool {
+    return getCurrencyCode() == currencyAutoValue
+  }
+
+  // MARK: - Tag Translation
+
+  /// Defaults to on: it degrades to the typed name whenever a translation is unavailable, so there is
+  /// nothing to protect the user from by starting it off.
+  static func isTagNameTranslationEnabled() -> Bool {
+    UserDefaults.standard.object(forKey: tagTranslationEnabledKey) as? Bool ?? true
+  }
+
+  static func setTagNameTranslationEnabled(_ enabled: Bool) {
+    UserDefaults.standard.set(enabled, forKey: tagTranslationEnabledKey)
+  }
+
+  // MARK: - Business Day
+
+  /// The rule pre-filled for NEW transactions. Only a default: each transaction stores its own rule,
+  /// so changing this never rewrites anything that already exists.
+  static func setDefaultBusinessDayRule(_ rule: BusinessDayRule) {
+    UserDefaults.standard.set(rule.rawValue, forKey: defaultBusinessDayRuleKey)
+  }
+
+  static func getDefaultBusinessDayRule() -> BusinessDayRule {
+    BusinessDayRule.fromStored(UserDefaults.standard.string(forKey: defaultBusinessDayRuleKey))
   }
 
   // MARK: - Clear All Settings
@@ -88,14 +131,15 @@ class UserDefaultsManager {
     UserDefaults.standard.removeObject(forKey: biometricEnabledKey)
     UserDefaults.standard.removeObject(forKey: currentMonthIndex)
     UserDefaults.standard.removeObject(forKey: balanceDisplayModeKey)
-    UserDefaults.standard.synchronize()
+    // hideValuesKey is intentionally left alone: clearing it would reveal the user's balances,
+    // and a settings reset should never fail open on a privacy setting.
   }
 
   // MARK: - UID-Based User Management
 
   static func saveUserWithUID(user: User) {
     guard let uid = user.firebaseUID else {
-      print("❌ Cannot save user: No Firebase UID")
+      logError("Cannot save user: No Firebase UID")
       // Fallback to global save for non-Firebase users
       saveUser(user: user)
       return
@@ -144,7 +188,7 @@ class UserDefaultsManager {
 
   static func updateCurrentUserFaceID(enabled: Bool) {
     guard let uid = UIDUserDefaultsManager.shared.currentUserUID else {
-      print("❌ Cannot update Face ID: No current user UID")
+      logError("Cannot update Face ID: No current user UID")
       return
     }
 
@@ -153,7 +197,7 @@ class UserDefaultsManager {
 
     if settings == nil {
       // Create new settings for this user
-      print("🆕 Creating new user settings for Face ID update, UID: \(uid)")
+      logInfo("Creating new user settings for Face ID update, UID: \(uid)")
 
       // Try to get user info from Firebase or global settings
       var userName = "User"
@@ -181,7 +225,7 @@ class UserDefaultsManager {
     }
 
     guard var userSettings = settings else {
-      print("❌ Failed to create or retrieve user settings for Face ID update")
+      logError("Failed to create or retrieve user settings for Face ID update")
       return
     }
 
@@ -201,12 +245,12 @@ class UserDefaultsManager {
       saveUser(user: updatedUser)
     }
 
-    print("✅ Updated Face ID setting for user: \(uid) to \(enabled)")
+    logInfo("Updated Face ID setting for user: \(uid) to \(enabled)")
   }
 
   static func updateCurrentUserSavedStatus(saved: Bool) {
     guard let uid = UIDUserDefaultsManager.shared.currentUserUID else {
-      print("❌ Cannot update saved status: No current user UID")
+      logError("Cannot update saved status: No current user UID")
       return
     }
 
@@ -215,7 +259,7 @@ class UserDefaultsManager {
 
     if settings == nil {
       // Create new settings for this user
-      print("🆕 Creating new user settings for UID: \(uid)")
+      logInfo("Creating new user settings for UID: \(uid)")
 
       // Try to get user info from Firebase or global settings
       var userName = "User"
@@ -240,7 +284,7 @@ class UserDefaultsManager {
     }
 
     guard var userSettings = settings else {
-      print("❌ Failed to create or retrieve user settings")
+      logError("Failed to create or retrieve user settings")
       return
     }
 
@@ -260,7 +304,7 @@ class UserDefaultsManager {
       saveUser(user: updatedUser)
     }
 
-    print("✅ Updated saved status for user: \(uid) to \(saved)")
+    logInfo("Updated saved status for user: \(uid) to \(saved)")
   }
 
   static func getCurrentUserFaceIDSetting() -> Bool {

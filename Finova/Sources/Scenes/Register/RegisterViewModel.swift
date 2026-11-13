@@ -59,36 +59,22 @@ final class RegisterViewModel {
 
 extension RegisterViewModel: AuthenticationManagerDelegate {
     func authenticationDidComplete(user: User) {
-        print(
-            "🎯 RegisterViewModel received user: '\(user.name)' with UID: '\(user.firebaseUID ?? "nil")'")
+        logInfo("RegisterViewModel received user: '\(user.name)' with UID: '\(user.firebaseUID ?? "nil")'")
         
-        // Migrate old data if this is first Firebase registration
         if let firebaseUID = user.firebaseUID {
-            DataMigrationManager.shared.checkAndPerformMigration(for: firebaseUID, userEmail: user.email) { success in
-                if success {
-                    print("✅ Data migration completed for new user")
-                    
-                    // Get migration statistics for logging
-                    let stats = DataMigrationManager.shared.getMigrationStatistics(for: firebaseUID)
-                    print("📊 Migration Statistics:\n\(stats.summary)")
-                } else {
-                    print("❌ Data migration failed for new user")
-                }
-            }
-            
-            // Authenticate with secure data manager
-            SecureLocalDataManager.shared.authenticateUser(firebaseUID: firebaseUID)
+            UIDUserDefaultsManager.shared.currentUserUID = firebaseUID
+            DBHelper.shared.backfillUserIds(uid: firebaseUID)
         }
         
         // Save user locally
-        print("💾 Saving user to UserDefaults: '\(user.name)'")
+        logInfo("Saving user to UserDefaults: '\(user.name)'")
         UserDefaultsManager.saveUser(user: user)
         
         // Verify saved user
         if let savedUser = UserDefaultsManager.getUser() {
-            print("✅ Verified saved user: '\(savedUser.name)'")
+            logInfo("Verified saved user: '\(savedUser.name)'")
         } else {
-            print("❌ Failed to save/retrieve user from UserDefaults")
+            logError("Failed to save/retrieve user from UserDefaults")
         }
         
         DispatchQueue.main.async {

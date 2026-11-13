@@ -27,6 +27,7 @@ final class TransactionDetailsViewModel {
 
     do {
       try transactionRepository.deleteTransactionAndRelated(id: transactionId)
+
       return .success(())
     } catch {
       return .failure(error)
@@ -48,24 +49,38 @@ final class TransactionDetailsViewModel {
         && transaction.hasInstallments != true
       {
         try transactionRepository.delete(id: transactionId)
-        return .success(())
+      } else {
+        // For complex transactions, use the repository method that handles cleanup properly
+        try transactionRepository.deleteTransactionWithOption(id: transactionId, option: option)
       }
 
-      // For complex transactions, use the repository method that handles cleanup properly
-      try transactionRepository.deleteTransactionWithOption(id: transactionId, option: option)
       return .success(())
     } catch {
       return .failure(error)
     }
   }
 
-  func getFormattedAmount() -> String {
-    let formatter = NumberFormatter()
-    formatter.numberStyle = .currency
-    formatter.locale = Locale.current
+  func deleteTransactionAsync(completion: @escaping (Result<Void, Error>) -> Void) {
+    DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+      guard let self = self else { return }
+      let result = self.deleteTransaction()
+      DispatchQueue.main.async { completion(result) }
+    }
+  }
 
-    let amount = Double(transaction.amount) / 100.0
-    return formatter.string(from: NSNumber(value: amount)) ?? "$0.00"
+  func deleteTransactionWithOptionAsync(
+    transactionId: Int, option: RecurringCleanupOption,
+    completion: @escaping (Result<Void, Error>) -> Void
+  ) {
+    DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+      guard let self = self else { return }
+      let result = self.deleteTransactionWithOption(transactionId: transactionId, option: option)
+      DispatchQueue.main.async { completion(result) }
+    }
+  }
+
+  func getFormattedAmount() -> String {
+    return transaction.amount.currencyString
   }
 
   func getFormattedDate() -> String {
@@ -78,6 +93,106 @@ final class TransactionDetailsViewModel {
 
   func getTransactionTypeColor() -> UIColor {
     return transaction.type == .income ? Colors.mainGreen : Colors.mainRed
+  }
+
+  func getCreditCard() -> CreditCard? {
+    guard let cardId = transaction.creditCardId else { return nil }
+    return CreditCardRepository().fetchCard(byId: cardId)
+  }
+
+  // MARK: - Statement Move
+
+  func isCreditCardTransaction() -> Bool {
+    return transaction.creditCardId != nil && transaction.isCreditCardStatement != true
+  }
+
+  func getCurrentStatement() -> CreditCardStatement? {
+    guard let stmtId = transaction.statementId else { return nil }
+    guard let cardId = transaction.creditCardId else { return nil }
+    let statements = StatementRepository().fetchStatements(forCardId: cardId)
+    return statements.first(where: { $0.id == stmtId })
+  }
+
+  func getAvailableStatements() -> [CreditCardStatement] {
+    guard let cardId = transaction.creditCardId else { return [] }
+    let statements = StatementRepository().fetchStatements(forCardId: cardId)
+    return statements.sorted { $0.closingDate < $1.closingDate }
+  }
+
+  /// Returns month options (past 6 through future 2) for the move-to-statement picker.
+  /// Each entry is a `(label, Date)` where `Date` is the 1st of that month.
+  ///
+  /// Each option is named by the DUE month of the statement it moves to, as the details row names
+  /// the current one. Naming it by the month itself (the closing month) gave two statements the
+  /// same name on a card due on or before its closing day (closes the 25th, due the 5th): the row
+  /// said "November" while "November" in the list meant the invoice due in December. The option
+  /// that lands on the current statement is left out, since it moves nothing.
+  func getMonthOptionsForMove() -> [(label: String, firstOfMonth: Date)] {
+    let calendar = Calendar.current
+    let now = Date()
+    let formatter = DateFormatter.monthYearFormatter
+    let card = getCreditCard()
+    let service = CreditCardService()
+    var options: [(label: String, firstOfMonth: Date)] = []
+
+    for offset in -6...2 {
+      guard let refDate = calendar.date(byAdding: .month, value: offset, to: now) else { continue }
+      let components = calendar.dateComponents([.year, .month], from: refDate)
+      guard let firstOfMonth = calendar.date(from: components) else { continue }
+
+      var labelDate = firstOfMonth
+      let routingDate = service.routingDate(forStatementMonthOf: firstOfMonth)
+      if let card = card {
+        // Looked up, never created: the target is only created once the user picks it.
+        if let target = service.getExistingStatement(for: card, transactionDate: routingDate) {
+          if target.id == transaction.statementId { continue }
+          labelDate = target.dueDate
+        } else {
+          labelDate = service.calculateDueDate(
+            closingDate: service.calculateClosingDate(card: card, transactionDate: routingDate),
+            card: card)
+        }
+      }
+      options.append((label: formatter.string(from: labelDate), firstOfMonth: firstOfMonth))
+    }
+
+    return options
+  }
+
+  /// Moves a transaction to a statement for the given month, creating the statement if needed.
+  func moveToStatementForMonth(_ firstOfMonth: Date) {
+    guard let cardId = transaction.creditCardId else { return }
+    guard let userId = AuthenticationManager.shared.currentUser?.uid else { return }
+    let cardRepo = CreditCardRepository()
+    guard let card = cardRepo.fetchCard(byId: cardId) else { return }
+
+    let ccService = CreditCardService()
+    guard let targetStatement = ccService.getOrCreateStatement(
+      for: card, transactionDate: CreditCardService().routingDate(forStatementMonthOf: firstOfMonth), userId: userId
+    ) else { return }
+
+    moveToStatement(targetStatement)
+  }
+
+  func moveToStatement(_ targetStatement: CreditCardStatement) {
+    guard let txId = transaction.id,
+          let cardId = transaction.creditCardId,
+          let targetId = targetStatement.id else { return }
+
+    let creditCardService = CreditCardService()
+    let repo = transactionRepository as? TransactionRepository ?? TransactionRepository()
+
+    creditCardService.moveTransactionToStatement(
+      transactionId: txId,
+      creditCardId: cardId,
+      toStatementId: targetId,
+      fromStatementId: transaction.statementId,
+      transactionRepo: repo
+    )
+
+    // Refresh transaction from DB to pick up the new statementId
+    refreshTransaction()
+
   }
 
   func getTransactionModeDescription() -> String {
@@ -124,21 +239,11 @@ final class TransactionDetailsViewModel {
     // If no installments found with the current parent ID, try to find by title and date
     // This handles cases where the parent ID changed after an update
     if relatedInstallments.isEmpty {
-      print(
-        "🔄 INSTALLMENT LOOKUP: No installments found with parent ID \(targetParentId), trying fallback lookup"
-      )
-
       // Look for installments with the same title and total installments count
       if let totalInstallments = transaction.totalInstallments {
         relatedInstallments = allTransactions.filter { tx in
           return tx.title == transaction.title && tx.totalInstallments == totalInstallments
             && tx.installmentNumber != nil && tx.mode == .installments
-        }
-
-        if !relatedInstallments.isEmpty {
-          print(
-            "🔄 INSTALLMENT LOOKUP: Found \(relatedInstallments.count) installments using fallback lookup"
-          )
         }
       }
     }
@@ -151,6 +256,99 @@ final class TransactionDetailsViewModel {
         return false
       }
       return firstInstallment < secondInstallment
+    }
+  }
+
+  // MARK: - Early Installment Payment
+
+  private let earlyPaymentService = EarlyPaymentService()
+
+  /// How many installments of this series could still be brought forward. Zero hides the entry point.
+  func getPayableInstallmentCount() -> Int {
+    earlyPaymentService.payableInstallments(for: transaction).count
+  }
+
+  /// True when this transaction is itself the debit created by an early payment.
+  func isEarlyPayment() -> Bool {
+    earlyPaymentService.isEarlyPayment(transaction)
+  }
+
+  /// The installments this debit paid for, in installment order. Empty unless it is an early payment.
+  func getIncludedInstallments() -> [Transaction] {
+    guard let id = transaction.id, isEarlyPayment() else { return [] }
+    return earlyPaymentService.settledInstallments(forPayment: id)
+  }
+
+  /// Installments of this series that are still owed — everything not paid early.
+  func getOutstandingInstallments() -> [Transaction] {
+    getRelatedInstallments().excludingEarlyPaidInstallments()
+  }
+
+  func hasEarlyPaidInstallments() -> Bool {
+    getOutstandingInstallments().count != getRelatedInstallments().count
+  }
+
+  /// Undoes an early payment: the installments return to their own statements and the debit is
+  /// deleted. Reported as a `Result` so the screen can distinguish "done, pop back" from a failure.
+  func undoEarlyPayment() -> Result<Void, Error> {
+    guard let id = transaction.id else { return .failure(TransactionError.transactionNotFound) }
+    do {
+      try earlyPaymentService.cancelEarlyPayment(paymentId: id)
+      return .success(())
+    } catch {
+      return .failure(error)
+    }
+  }
+
+  // MARK: - Installment Purchase Cancellation
+
+  private let cancellationService = InstallmentCancellationService()
+
+  /// Whether the remainder of this purchase can still be cancelled.
+  func canCancelPurchase() -> Bool {
+    cancellationService.canCancel(transaction)
+  }
+
+  /// What would be credited back: the total of everything still to be billed.
+  func getCancellationRefundAmount() -> Int {
+    cancellationService.refundAmount(for: transaction)
+  }
+
+  func getRefundableInstallmentCount() -> Int {
+    cancellationService.refundableInstallments(for: transaction).count
+  }
+
+  /// True when this transaction is the credit produced by cancelling a purchase.
+  func isCancellationRefund() -> Bool {
+    cancellationService.isCancellationRefund(transaction)
+  }
+
+  /// The installments this credit refunds, in installment order.
+  func getRefundedInstallments() -> [Transaction] {
+    guard let id = transaction.id, isCancellationRefund() else { return [] }
+    return cancellationService.refundedInstallments(forRefund: id)
+  }
+
+  /// Whether the purchase this installment belongs to has already been cancelled.
+  func isPurchaseCancelled() -> Bool {
+    cancellationService.isCancelled(transaction)
+  }
+
+  func cancelPurchase() -> Result<Int, Error> {
+    do {
+      return .success(try cancellationService.cancelPurchase(for: transaction))
+    } catch {
+      return .failure(error)
+    }
+  }
+
+  func undoCancellation() -> Result<Void, Error> {
+    guard let id = transaction.id else { return .failure(TransactionError.transactionNotFound) }
+    do {
+      try cancellationService.undoCancellation(refundId: id)
+      return .success(())
+    } catch {
+      return .failure(error)
     }
   }
 
@@ -208,9 +406,6 @@ final class TransactionDetailsViewModel {
       if let updatedTransaction = allTransactions.first(where: {
         $0.parentTransactionId == parentId && $0.installmentNumber == installmentNumber
       }) {
-        print(
-          "🔄 REFRESH: Found updated installment transaction with new ID: \(updatedTransaction.id ?? 0)"
-        )
         self.transaction = updatedTransaction
         return
       }
@@ -221,21 +416,13 @@ final class TransactionDetailsViewModel {
           && $0.mode == .installments
           && Calendar.current.isDate($0.date, inSameDayAs: transaction.date)
       }) {
-        print(
-          "🔄 REFRESH: Found updated installment transaction by title/date with new ID: \(updatedTransaction.id ?? 0)"
-        )
         self.transaction = updatedTransaction
         return
       }
-
-      print("⚠️ REFRESH: Could not find updated installment transaction")
     } else {
       // For normal and recurring transactions, find by ID
       if let updatedTransaction = allTransactions.first(where: { $0.id == transactionId }) {
-        print("🔄 REFRESH: Found updated transaction with same ID: \(transactionId)")
         self.transaction = updatedTransaction
-      } else {
-        print("⚠️ REFRESH: Could not find updated transaction with ID: \(transactionId)")
       }
     }
   }
@@ -244,12 +431,7 @@ final class TransactionDetailsViewModel {
     // Force refresh of related installments data
     // This is called after updating installment transactions to ensure the additional details are correct
     if transaction.mode == .installments {
-      let relatedInstallments = getRelatedInstallments()
-      print("🔄 REFRESH: Found \(relatedInstallments.count) related installments after update")
-
-      // Log the parent ID being used for lookup
-      let parentId = transaction.parentTransactionId ?? transaction.id
-      print("🔄 REFRESH: Using parent ID: \(parentId ?? 0) for installment lookup")
+      _ = getRelatedInstallments()
     }
   }
 }

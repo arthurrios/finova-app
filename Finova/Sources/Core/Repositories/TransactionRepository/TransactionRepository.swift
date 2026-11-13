@@ -6,23 +6,38 @@
 //
 
 import Foundation
-import UserNotifications
 
 final class TransactionRepository: TransactionRepositoryProtocol {
-  private let db = DBHelper.shared
+  /// Injectable so tests can point two repositories at two genuinely separate databases.
+  /// Production always uses `.shared`.
+  private let db: DBHelper
+
+  init(db: DBHelper = .shared) { self.db = db }
+
+  // MARK: - In-Memory Cache
+  private static var cachedTransactions: [Transaction]?
+  private static var cacheUserUID: String?
+
+  static func invalidateCache() {
+    cachedTransactions = nil
+    cacheUserUID = nil
+  }
+
+  /// The debits that paid a statement, in this repository's database. See
+  /// `excludingStatementPayments`.
+  func statementPaymentDebitIds() -> Set<Int> {
+    db.statementPaymentDebitIds()
+  }
 
   func fetchTransactions() -> [Transaction] {
-    // Return all transactions that should be visible in the UI
     let allTransactions = fetchAllTransactions()
 
     let filteredTransactions = allTransactions.filter { transaction in
-      // Show all transaction instances (including recurring instances)
-      // Hide only the parent recurring/installment transactions
       if transaction.isRecurring == true && transaction.parentTransactionId == nil {
-        return false  // Hide parent recurring transaction
+        return false
       }
       if transaction.hasInstallments == true && transaction.parentTransactionId == nil {
-        return false  // Hide parent installment transaction
+        return false
       }
       return true
     }
@@ -31,65 +46,204 @@ final class TransactionRepository: TransactionRepositoryProtocol {
   }
 
   func insertTransaction(_ transaction: TransactionModel) throws {
-    // Insert to SQLite first
-    let insertedId = try db.insertTransaction(transaction)
-
-    // 🔒 Also save to SecureLocalDataManager for UID-isolated storage
-    var secureTransactions = SecureLocalDataManager.shared.loadTransactions()
-
-    // Convert TransactionModel to Transaction for secure storage
-    let dbData = transaction.data
-    let uiData = try UITransactionData(from: dbData)
-    var newTransaction = Transaction(data: uiData)
-
-    // Set the ID from SQLite insertion
-    let updatedData = UITransactionData(
-      id: insertedId,
-      title: newTransaction.title,
-      amount: newTransaction.amount,
-      dateTimestamp: newTransaction.dateTimestamp,
-      budgetMonthDate: newTransaction.budgetMonthDate,
-      isRecurring: newTransaction.isRecurring,
-      hasInstallments: newTransaction.hasInstallments,
-      parentTransactionId: newTransaction.parentTransactionId,
-      installmentNumber: newTransaction.installmentNumber,
-      totalInstallments: newTransaction.totalInstallments,
-      originalAmount: newTransaction.originalAmount,
-      category: newTransaction.category,
-      type: newTransaction.type
-    )
-
-    secureTransactions.append(Transaction(data: updatedData))
-    SecureLocalDataManager.shared.saveTransactions(secureTransactions)
-
-    // Notify that data has changed (for cache invalidation)
+    Self.invalidateCache()
+    try db.insertTransaction(transaction)
     NotificationCenter.default.post(name: .transactionDataChanged, object: nil)
+  }
+
+  /// What an import batch actually wrote.
+  struct ImportInsertOutcome {
+    let inserted: [(localId: Int, uuid: String)]
+    /// True if the caller cancelled partway. Whatever had already committed is still in `inserted`,
+    /// so the caller can undo exactly that much.
+    let cancelled: Bool
+  }
+
+  /// Writes an imported batch: chunked, one transaction per chunk, one notification for the lot.
+  ///
+  /// `insertTransaction` is the wrong tool at this size for three separate reasons, all of which
+  /// this method fixes: it posts `.transactionDataChanged` per row (a thousand full ledger re-reads
+  /// on the main thread), it prepares and finalizes a statement per row, and it calls
+  /// `SyncChangeTracker.markDirty()` per row from inside whatever transaction is open. See
+  /// `DBHelper.insertTransactionsBatch` for why that last one is the dangerous one.
+  ///
+  /// Every row is stamped with one identical `appliedAt`, which is what lets a later rollback
+  /// distinguish "untouched since the import" from "the user has edited this" by exact equality.
+  ///
+  /// Chunked rather than run as a single transaction so that cancelling, or crashing, leaves a whole
+  /// number of committed chunks rather than an all-or-nothing outcome on a long operation. The
+  /// cancellation check sits BETWEEN chunks only — a chunk is one transaction, and interrupting it
+  /// midway is what `inTransaction`'s ROLLBACK already handles.
+  func insertImportedBatch(
+    _ rows: [TransactionModel],
+    batchUuid: String,
+    appliedAt: Date,
+    chunkSize: Int = 200,
+    isCancelled: () -> Bool = { false },
+    progress: (_ done: Int, _ total: Int) -> Void = { _, _ in }
+  ) throws -> ImportInsertOutcome {
+    guard !rows.isEmpty else { return ImportInsertOutcome(inserted: [], cancelled: false) }
+
+    Self.invalidateCache()
+
+    let stampedAt = Int(appliedAt.timeIntervalSince1970)
+    var inserted: [(localId: Int, uuid: String)] = []
+    inserted.reserveCapacity(rows.count)
+    var cancelled = false
+
+    var offset = 0
+    while offset < rows.count {
+      if isCancelled() { cancelled = true; break }
+
+      let chunk = Array(rows[offset..<min(offset + chunkSize, rows.count)])
+      // Minted here rather than left to the SQL backstop trigger so the caller gets the uuids back
+      // and can record batch membership without a second read.
+      let uuids = chunk.map { _ in UUID().uuidString }
+
+      var chunkResult: [(localId: Int, uuid: String)] = []
+      try db.inTransaction {
+        chunkResult = try db.insertTransactionsBatch(
+          chunk, uuids: uuids, importBatchUuid: batchUuid, stampedAt: stampedAt)
+      }
+      inserted.append(contentsOf: chunkResult)
+
+      offset += chunk.count
+      progress(inserted.count, rows.count)
+    }
+
+    Self.invalidateCache()
+
+    // One notification for the whole batch, posted once every chunk has committed.
+    if !inserted.isEmpty {
+      NotificationCenter.default.post(name: .transactionDataChanged, object: nil)
+    }
+
+    return ImportInsertOutcome(inserted: inserted, cancelled: cancelled)
   }
 
   func delete(id: Int) throws {
-    // Delete from SQLite
-    try db.deleteTransaction(id: id)
+    try deleteBatch(ids: [id])
+  }
 
-    // 🔒 Also delete from SecureLocalDataManager
-    var secureTransactions = SecureLocalDataManager.shared.loadTransactions()
-    secureTransactions.removeAll { $0.id == id }
-    SecureLocalDataManager.shared.saveTransactions(secureTransactions)
+  /// Deletes several transactions as one unit.
+  ///
+  /// Series deletions ("this and remaining", "all occurrences") remove tens of rows at once. Doing
+  /// that through repeated single deletes meant one cache invalidation, one statement recalculation
+  /// and one `transactionDataChanged` broadcast *per row* — so a 36-month series fired 36 UI
+  /// refreshes, each re-reading the whole ledger, and left the screen showing a half-deleted series
+  /// in between.
+  ///
+  /// The per-row work is identical to `delete(id:)`; only the shared aftermath is hoisted out and run
+  /// once.
+  ///
+  /// Deliberately NOT wrapped in `db.inTransaction`. That was the obvious next step — a partial
+  /// failure would roll the whole batch back — but it silently lost deletes: rows that had been
+  /// removed reappeared. The per-row writes go through `executeSyncUpdate`, which pokes
+  /// `SyncChangeTracker` and wakes the sync engine on another thread mid-transaction, so an outer
+  /// BEGIN/COMMIT around them is not currently safe. Losing a delete is far worse than not having
+  /// atomicity here, so this stays a plain loop until that interaction is untangled.
+  func deleteBatch(ids: [Int]) throws {
+    guard !ids.isEmpty else { return }
+    Self.invalidateCache()
 
-    // Notify that data has changed (for cache invalidation)
+    // Statement links have to be read before the rows go.
+    let doomed = Set(ids)
+    let affectedStatementIds = Set(
+      fetchAllTransactions()
+        .filter { $0.id.map(doomed.contains) ?? false }
+        .compactMap { $0.statementId }
+    )
+
+    // Hoisted out of the loop for the same reason as everything else here, but with sharper teeth:
+    // `removePendingNotificationRequests` makes a synchronous mach round-trip despite its
+    // documentation, so one call per row is one XPC round-trip per row. At a few hundred rows — a
+    // rolled-back CSV import, a long series — that saturates the connection and blocks indefinitely
+    // on any host where the notification daemon is not answering.
+    TransactionNotificationManager.shared.cancelNotifications(for: ids)
+
+    for id in ids {
+      try deleteRow(id: id)
+    }
+
+    Self.invalidateCache()
+
+    for stmtId in affectedStatementIds {
+      CreditCardService().recalculateStatementTotal(statementId: stmtId)
+    }
+
     NotificationCenter.default.post(name: .transactionDataChanged, object: nil)
   }
 
-  func fetchAllTransactions() -> [Transaction] {
-    // Returns ALL transactions including parent transactions (for internal operations)
-    // 🔒 Use SecureLocalDataManager for UID-isolated data access ONLY
-    let secureTransactions = SecureLocalDataManager.shared.loadTransactions()
+  /// Removes one row and the bookkeeping that belongs to it alone. Callers are responsible for the
+  /// shared aftermath — see `deleteBatch`.
+  private func deleteRow(id: Int) throws {
+    logDebug("TransactionRepository: Deleting transaction with id \(id)")
 
-    // NO fallback to SQLite - each user should only see their own data
-    return secureTransactions
+    // If this row is an early-payment debit, put the installments it covered back on their own
+    // statements FIRST. Deleting it while their `settled_by_transaction_id` still pointed here would
+    // erase the amount from the ledger entirely — the installments stay excluded from every total,
+    // and nothing charges for them any more. Done here rather than in each caller so removal by any
+    // route (details screen, statement list, swipe-to-delete, cleanup option) is covered.
+    if db.isEarlyPayment(transactionId: id) {
+      EarlyPaymentService(transactionRepo: self).releaseInstallments(settledBy: id)
+    }
+
+    // Same reasoning for a cancellation credit: deleting it while the installments still pointed at it
+    // would leave the purchase permanently flagged as cancelled with no refund backing it, and the
+    // user could never cancel it again.
+    if db.isCancellationRefund(transactionId: id) {
+      InstallmentCancellationService(transactionRepo: self).releaseInstallments(cancelledBy: id)
+    }
+
+    // A statement payment is a pair — the debit that moved the money and the credit that reduced the
+    // invoice — and neither half makes sense alone. Deleting the debit while its credit stood would
+    // leave the invoice discounted by a payment nobody made; deleting the credit while its debit stood
+    // would charge for a payment the invoice no longer records. Either half taken removes the other,
+    // and the statement is reopened if it owes money again. The service holds a cascade guard so the
+    // partner's own delete does not come back round here.
+    if db.isStatementPayment(transactionId: id) || db.statementPaymentId(transactionId: id) != nil {
+      StatementPaymentService(transactionRepo: self).handleDeletion(of: id)
+    }
+
+    // Notification cancellation is NOT done here — see `deleteBatch`, which cancels the whole set in
+    // one call. Per-row it is one synchronous XPC round-trip each, which a few hundred rows will
+    // block on.
+
+    // Check if this record has been synced to CloudKit
+    let ckName = fetchCKRecordName(for: id)
+    if ckName != nil {
+      // Soft-delete: mark as deleted and pendingDelete so SyncEngine can delete from CK
+      db.executeSyncUpdate(
+        "UPDATE Transactions SET is_deleted = 1, sync_status = 'pendingDelete' WHERE id = ?;",
+        intBindings: [id]
+      )
+    } else {
+      // Not synced — safe to hard-delete
+      try db.deleteTransaction(id: id)
+    }
+  }
+
+  func fetchAllTransactions() -> [Transaction] {
+    let currentUID = UIDUserDefaultsManager.shared.currentUserUID
+
+    if let cached = Self.cachedTransactions, Self.cacheUserUID == currentUID {
+      return cached
+    }
+
+    let transactions: [Transaction]
+    if let uid = currentUID {
+      transactions = (try? db.getTransactions(forUser: uid)) ?? []
+    } else {
+      transactions = (try? db.getTransactions()) ?? []
+    }
+
+    Self.cachedTransactions = transactions
+    Self.cacheUserUID = currentUID
+    return transactions
   }
 
   func fetchParentInstallmentTransactions() -> [Transaction] {
-    return ((try? db.getTransactions()) ?? [])
+    return fetchAllTransactions()
       .filter { $0.hasInstallments == true }
   }
 
@@ -107,244 +261,99 @@ final class TransactionRepository: TransactionRepositoryProtocol {
     return fetchAllTransactions().filter { $0.parentTransactionId != nil }
   }
 
+  // MARK: - Credit Card Fields
+
+  func updateCreditCardFields(transactionId: Int, creditCardId: Int, statementId: Int, isCreditCardStatement: Bool) throws {
+    Self.invalidateCache()
+    try db.updateTransactionCreditCardFields(
+      transactionId: transactionId,
+      creditCardId: creditCardId,
+      statementId: statementId,
+      isCreditCardStatement: isCreditCardStatement
+    )
+  }
+
+  func clearCreditCardFields(transactionId: Int) throws {
+    Self.invalidateCache()
+    try db.clearTransactionCreditCardFields(transactionId: transactionId)
+  }
+
   // MARK: - Debug Methods
 
-  /// Debug method to check for duplicate transactions in the same month
   func debugDuplicateTransactions() {
-    let allTransactions = fetchAllTransactions()
-    let transactionsByMonth = Dictionary(grouping: allTransactions) { $0.budgetMonthDate }
-
-    print("🔍 Debug: Checking for duplicate transactions by month...")
-
-    for (monthAnchor, transactions) in transactionsByMonth {
-      if transactions.count > 1 {
-        let date = Date(timeIntervalSince1970: TimeInterval(monthAnchor))
-        print("⚠️ Month \(date): Found \(transactions.count) transactions:")
-
-        for tx in transactions {
-          let isParent = tx.isRecurring == true && tx.parentTransactionId == nil
-          let isInstance = tx.parentTransactionId != nil
-          let type = isParent ? "PARENT" : (isInstance ? "INSTANCE" : "REGULAR")
-
-          print("   - \(tx.title) (ID: \(tx.id ?? -1), Type: \(type), Amount: \(tx.amount))")
-        }
-      }
-    }
+    // No-op in production
   }
 
   func insertTransactionAndGetId(_ transaction: TransactionModel) throws -> Int {
-    // Insert to SQLite first
-    let insertedId = try db.insertTransaction(transaction)
-
-    // 🔒 Also save to SecureLocalDataManager for UID-isolated storage
-    var secureTransactions = SecureLocalDataManager.shared.loadTransactions()
-
-    // Convert TransactionModel to Transaction for secure storage
-    let dbData = transaction.data
-    let uiData = try UITransactionData(from: dbData)
-
-    // Set the ID from SQLite insertion
-    let updatedData = UITransactionData(
-      id: insertedId,
-      title: uiData.title,
-      amount: uiData.amount,
-      dateTimestamp: uiData.dateTimestamp,
-      budgetMonthDate: uiData.budgetMonthDate,
-      isRecurring: uiData.isRecurring,
-      hasInstallments: uiData.hasInstallments,
-      parentTransactionId: uiData.parentTransactionId,
-      installmentNumber: uiData.installmentNumber,
-      totalInstallments: uiData.totalInstallments,
-      originalAmount: uiData.originalAmount,
-      category: uiData.category,
-      type: uiData.type
-    )
-
-    secureTransactions.append(Transaction(data: updatedData))
-    SecureLocalDataManager.shared.saveTransactions(secureTransactions)
-
-    return insertedId
+    Self.invalidateCache()
+    return try db.insertTransaction(transaction)
   }
 
   func updateTransactionDirectly(_ transaction: TransactionModel) throws {
-    print("🔧 DEBUG: updateTransactionDirectly called for transaction \(transaction.data.id ?? -1)")
-    print(
-      "🔧 DEBUG: Transaction data - title: '\(transaction.data.title)', amount: \(transaction.data.amount), dateTimestamp: \(transaction.data.dateTimestamp), budgetMonthDate: \(transaction.data.budgetMonthDate)"
-    )
-    print("🔧 DEBUG: Call stack: \(Thread.callStackSymbols.prefix(5).joined(separator: "\n"))")
-
-    // Update SQLite directly
+    Self.invalidateCache()
     try db.updateTransaction(transaction)
-    print("🔧 DEBUG: SQLite update completed")
 
-    // Also update SecureLocalDataManager to keep it in sync
-    var secureTransactions = SecureLocalDataManager.shared.loadTransactions()
-    print("🔧 DEBUG: Loaded \(secureTransactions.count) transactions from SecureLocalDataManager")
-
-    // Debug: Log all transactions to see what we have
-    for (idx, tx) in secureTransactions.enumerated() {
-      if idx < 5 {  // Only log first 5 to avoid spam
-        print(
-          "🔧 DEBUG: Transaction \(idx): ID=\(tx.id ?? -1), Title='\(tx.title)', Category=\(tx.category)"
-        )
-      }
+    if let txId = transaction.data.id {
+      TransactionNotificationManager.shared.rescheduleNotification(for: txId)
     }
-
-    if let index = secureTransactions.firstIndex(where: { $0.id == transaction.data.id }) {
-      let existingTransaction = secureTransactions[index]
-      print("🔧 DEBUG: Found existing transaction at index \(index)")
-      print(
-        "🔧 DEBUG: Existing transaction - ID: \(existingTransaction.id ?? -1), Title: '\(existingTransaction.title)', Category: \(existingTransaction.category)"
-      )
-
-      // Debug the input values
-      print(
-        "🔧 DEBUG: Input values - title: '\(transaction.data.title)', category: '\(transaction.data.category)', type: '\(transaction.data.type)'"
-      )
-
-      // Convert string category and type to enum values
-      let categoryEnum =
-        TransactionCategory.allCases.first(where: { $0.key == transaction.data.category })
-        ?? .miscellaneous
-      let typeEnum =
-        TransactionType.allCases.first(where: { String(describing: $0) == transaction.data.type })
-        ?? .expense
-
-      print("🔧 DEBUG: About to create updatedData with:")
-      print("🔧 DEBUG: - id: \(existingTransaction.id ?? -1)")
-      print("🔧 DEBUG: - title:  '\(transaction.data.title)'")
-      print("🔧 DEBUG: - amount: \(transaction.data.amount)")
-      print("🔧 DEBUG: - dateTimestamp: \(transaction.data.dateTimestamp)")
-      print("🔧 DEBUG: - budgetMonthDate: \(transaction.data.budgetMonthDate)")
-      print("🔧 DEBUG: - category: \(categoryEnum)")
-      print("🔧 DEBUG: - type: \(typeEnum)")
-
-      let updatedData = UITransactionData(
-        id: existingTransaction.id,
-        title: transaction.data.title,
-        amount: transaction.data.amount,
-        dateTimestamp: transaction.data.dateTimestamp,
-        budgetMonthDate: transaction.data.budgetMonthDate,
-        isRecurring: existingTransaction.isRecurring,
-        hasInstallments: existingTransaction.hasInstallments,
-        parentTransactionId: existingTransaction.parentTransactionId,
-        installmentNumber: existingTransaction.installmentNumber,
-        totalInstallments: existingTransaction.totalInstallments,
-        originalAmount: existingTransaction.originalAmount,
-        category: categoryEnum,
-        type: typeEnum
-      )
-
-      print(
-        "🔧 DEBUG: Created UITransactionData - title: '\(updatedData.title)', category: \(updatedData.category), type: \(updatedData.type)"
-      )
-
-      // Debug: Check what we're about to save
-      let transactionToSave = Transaction(data: updatedData)
-      print(
-        "🔧 DEBUG: Transaction to save - title: '\(transactionToSave.title)', category: \(transactionToSave.category), type: \(transactionToSave.type)"
-      )
-
-      secureTransactions[index] = transactionToSave
-      print("🔧 DEBUG: Updated transaction at index \(index)")
-      print(
-        "🔧 DEBUG: Updated transaction - ID: \(secureTransactions[index].id ?? -1), Title: '\(secureTransactions[index].title)', Category: \(secureTransactions[index].category)"
-      )
-      print(
-        "🔧 DEBUG: About to save \(secureTransactions.count) transactions to SecureLocalDataManager")
-
-      SecureLocalDataManager.shared.saveTransactions(secureTransactions)
-      print("🔧 DEBUG: SecureLocalDataManager update completed")
-    } else {
-      print(
-        "❌ DEBUG: Transaction \(transaction.data.id ?? -1) NOT FOUND in SecureLocalDataManager!")
-    }
-
-    // Reschedule notification for the updated transaction
-    rescheduleNotificationForTransaction(transactionId: transaction.data.id)
-
-    // Notify that data has changed (for cache invalidation)
     NotificationCenter.default.post(name: .transactionDataChanged, object: nil)
-    print("🔧 DEBUG: Cache invalidation notification sent")
   }
 
   func updateParentTransactionId(transactionId: Int, parentId: Int) throws {
-    // Update SQLite first
+    Self.invalidateCache()
     try db.updateTransactionParentId(transactionId: transactionId, parentId: parentId)
+  }
 
-    // 🔒 Also update SecureLocalDataManager for UID-isolated storage
-    var secureTransactions = SecureLocalDataManager.shared.loadTransactions()
+  func updateDescriptors(transactionId: Int, title: String, category: String, type: String) {
+    Self.invalidateCache()
+    db.updateTransactionDescriptors(
+      transactionId: transactionId, title: title, category: category, type: type)
+  }
 
-    // Find and update the specific transaction
-    if let index = secureTransactions.firstIndex(where: { $0.id == transactionId }) {
-      let existingTransaction = secureTransactions[index]
+  func updateDateAndBudgetMonth(transactionId: Int, newDateTimestamp: Int, newBudgetMonthDate: Int) {
+    Self.invalidateCache()
+    db.updateTransactionDateAndBudgetMonth(
+      transactionId: transactionId,
+      newDateTimestamp: newDateTimestamp,
+      newBudgetMonthDate: newBudgetMonthDate
+    )
+  }
 
-      // Create updated transaction data with new parent ID
-      let updatedData = UITransactionData(
-        id: existingTransaction.id,
-        title: existingTransaction.title,
-        amount: existingTransaction.amount,
-        dateTimestamp: existingTransaction.dateTimestamp,
-        budgetMonthDate: existingTransaction.budgetMonthDate,
-        isRecurring: existingTransaction.isRecurring,
-        hasInstallments: existingTransaction.hasInstallments,
-        parentTransactionId: parentId,  // ✅ Update the parent ID here
-        installmentNumber: existingTransaction.installmentNumber,
-        totalInstallments: existingTransaction.totalInstallments,
-        originalAmount: existingTransaction.originalAmount,
-        category: existingTransaction.category,
-        type: existingTransaction.type
-      )
+  /// Puts a card transaction's ledger date on its statement's due date WITHOUT touching the month it
+  /// is budgeted against. Every statement remap goes through here rather than
+  /// `updateDateAndBudgetMonth`, so no path can silently move an expense out of the month it was
+  /// spent in — see `DBHelper.updateTransactionDate`.
+  func updateStatementDueDate(transactionId: Int, newDateTimestamp: Int) {
+    Self.invalidateCache()
+    db.updateTransactionDate(
+      transactionId: transactionId,
+      newDateTimestamp: newDateTimestamp
+    )
+  }
 
-      // Replace the transaction in the array
-      secureTransactions[index] = Transaction(data: updatedData)
-
-      // Save back to secure storage
-      SecureLocalDataManager.shared.saveTransactions(secureTransactions)
-
-      print(
-        "🔒 Updated parent transaction ID in secure storage: \(transactionId) -> parent: \(parentId)"
-      )
-    } else {
-      print("⚠️ Could not find transaction \(transactionId) in secure storage to update parent ID")
-    }
+  func updateBudgetMonthDate(transactionId: Int, newBudgetMonthDate: Int) {
+    Self.invalidateCache()
+    db.updateTransactionBudgetMonthDate(
+      transactionId: transactionId,
+      newBudgetMonthDate: newBudgetMonthDate
+    )
   }
 
   func updateTransaction(_ transaction: TransactionModel) throws {
-    print("🔧 DEBUG: updateTransaction called for transaction \(transaction.data.id ?? -1)")
-    print(
-      "🔧 DEBUG: Transaction data - title: '\(transaction.data.title)', category: '\(transaction.data.category)', type: '\(transaction.data.type)'"
-    )
-    print("🔧 DEBUG: Call stack: \(Thread.callStackSymbols.prefix(5).joined(separator: "\n"))")
-
-    // Update all related transactions (for recurring/installments)
-
-    // First, find the transaction to determine its type
-    let existingTransactions = SecureLocalDataManager.shared.loadTransactions()
+    let allTransactions = fetchAllTransactions()
     guard
-      let existingTransaction = existingTransactions.first(where: { $0.id == transaction.data.id })
+      let existingTransaction = allTransactions.first(where: { $0.id == transaction.data.id })
     else {
-      print("❌ DEBUG: Transaction not found in SecureLocalDataManager")
       throw TransactionError.transactionNotFound
     }
 
-    print(
-      "🔧 DEBUG: Found existing transaction - isRecurring: \(existingTransaction.isRecurring ?? false), hasInstallments: \(existingTransaction.hasInstallments ?? false)"
-    )
-
     if existingTransaction.isRecurring == true {
-      print("🔧 DEBUG: Taking recurring path")
-      // Update all recurring instances
       try updateAllRecurringTransactions(
         templateTransaction: transaction, existingTransaction: existingTransaction)
     } else if existingTransaction.hasInstallments == true {
-      print("🔧 DEBUG: Taking installment path")
-      // Update all installment instances
       try updateAllInstallmentTransactions(
         templateTransaction: transaction, existingTransaction: existingTransaction)
     } else {
-      print("🔧 DEBUG: Taking normal transaction path - calling updateTransactionDirectly")
-      // Normal transaction - use updateTransactionDirectly to avoid conflicts
       try updateTransactionDirectly(transaction)
     }
   }
@@ -352,51 +361,35 @@ final class TransactionRepository: TransactionRepositoryProtocol {
   private func updateAllRecurringTransactions(
     templateTransaction: TransactionModel, existingTransaction: Transaction
   ) throws {
-    // Find all transactions with the same recurring group
     let recurringGroupId = existingTransaction.parentTransactionId ?? existingTransaction.id
-    let allTransactions = SecureLocalDataManager.shared.loadTransactions()
+    let allTransactions = fetchAllTransactions()
     let relatedTransactions = allTransactions.filter { transaction in
       transaction.id == recurringGroupId || transaction.parentTransactionId == recurringGroupId
     }
 
-    // Get the new date from the template (this represents the new recurring day)
+    let calendar = Calendar.current
     let newDate = Date(timeIntervalSince1970: TimeInterval(templateTransaction.data.dateTimestamp))
-    let newDay = Calendar.current.component(.day, from: newDate)
+    let newDay = calendar.component(.day, from: newDate)
 
-    print("🔄 RECURRING UPDATE: Updating all recurring transactions to day \(newDay) of each month")
-
-    // Update each related transaction
     for relatedTransaction in relatedTransactions {
-      // Calculate the correct date for this transaction's month
       let originalDate = Date(timeIntervalSince1970: TimeInterval(relatedTransaction.dateTimestamp))
-      let originalMonth = Calendar.current.component(.month, from: originalDate)
-      let originalYear = Calendar.current.component(.year, from: originalDate)
+      let originalMonth = calendar.component(.month, from: originalDate)
+      let originalYear = calendar.component(.year, from: originalDate)
 
-      // Create a new date with the same month/year but the new day
       var dateComponents = DateComponents()
       dateComponents.year = originalYear
       dateComponents.month = originalMonth
       dateComponents.day = newDay
 
-      // Handle cases where the new day doesn't exist in the month (e.g., Feb 30)
-      let calendar = Calendar.current
       let adjustedDate: Date
       if let newDateForMonth = calendar.date(from: dateComponents) {
         adjustedDate = newDateForMonth
       } else {
-        // If the day doesn't exist in this month, use the last day of the month
         let lastDayOfMonth =
           calendar.range(of: .day, in: .month, for: originalDate)?.upperBound ?? 1
         dateComponents.day = lastDayOfMonth - 1
         adjustedDate = calendar.date(from: dateComponents) ?? originalDate
-        print(
-          "⚠️ Day \(newDay) doesn't exist in month \(originalMonth), using day \(lastDayOfMonth - 1)"
-        )
       }
-
-      print(
-        "🔄 Updating transaction \(relatedTransaction.id ?? 0) from \(originalDate) to \(adjustedDate)"
-      )
 
       try updateSingleTransactionOnly(
         id: relatedTransaction.id!,
@@ -411,39 +404,34 @@ final class TransactionRepository: TransactionRepositoryProtocol {
         date: adjustedDate
       )
 
-      // Reschedule notification for this updated transaction
-      rescheduleNotificationForTransaction(transactionId: relatedTransaction.id)
+      if let txId = relatedTransaction.id {
+        TransactionNotificationManager.shared.rescheduleNotification(for: txId)
+      }
     }
   }
 
   private func updateAllInstallmentTransactions(
     templateTransaction: TransactionModel, existingTransaction: Transaction
   ) throws {
-    // HYBRID APPROACH: Recreate entire installment series with new parameters
-    // This ensures data integrity and provides intuitive UX
-
-    let newDate = Date(timeIntervalSince1970: TimeInterval(templateTransaction.data.dateTimestamp))
+    let calendar = Calendar.current
+    // The template's UNADJUSTED date. Rebuilding from the stored (already shifted) one would move the
+    // whole series a few days further on every edit that touches the amount or the count.
+    let newDate = Date(
+      timeIntervalSince1970: TimeInterval(
+        templateTransaction.data.unadjustedDateTimestamp
+          ?? templateTransaction.data.dateTimestamp))
     let newTotalAmount = templateTransaction.data.amount
     let newNumberOfInstallments = templateTransaction.data.totalInstallments ?? 1
 
-    print("🔄 INSTALLMENT UPDATE: Recreating series with:")
-    print("   - Total Amount: \(newTotalAmount)")
-    print("   - Number of Installments: \(newNumberOfInstallments)")
-    print("   - Initial Date: \(newDate)")
+    let allTransactions = fetchAllTransactions()
 
-    // Find the main installment transaction (the one being edited)
-    let allTransactions = SecureLocalDataManager.shared.loadTransactions()
-
-    // Determine the correct main installment transaction ID
     let mainInstallmentTransactionId: Int
     if let parentId = existingTransaction.parentTransactionId {
-      // This is an individual installment, find the main installment transaction
-      if let mainTransaction = allTransactions.first(where: {
+      if allTransactions.first(where: {
         $0.hasInstallments == true && $0.parentTransactionId == nil && $0.id == parentId
-      }) {
+      }) != nil {
         mainInstallmentTransactionId = parentId
       } else {
-        // Try fallback: find any main installment transaction in the same month
         let individualInstallmentMonth = existingTransaction.budgetMonthDate
         if let fallbackMainTransaction = allTransactions.first(where: {
           $0.hasInstallments == true && $0.parentTransactionId == nil
@@ -451,94 +439,159 @@ final class TransactionRepository: TransactionRepositoryProtocol {
         }) {
           mainInstallmentTransactionId = fallbackMainTransaction.id ?? 0
         } else {
-          mainInstallmentTransactionId = parentId  // Use original parent ID as fallback
+          mainInstallmentTransactionId = parentId
         }
       }
     } else {
-      // This is already the main installment transaction
       mainInstallmentTransactionId = existingTransaction.id ?? 0
     }
-
-    print("   - Main installment transaction ID: \(mainInstallmentTransactionId)")
 
     let relatedTransactions = allTransactions.filter { transaction in
       transaction.id == mainInstallmentTransactionId
         || transaction.parentTransactionId == mainInstallmentTransactionId
     }
 
-    // Calculate individual installment amount (total divided by number of installments)
-    let individualAmount = newTotalAmount / newNumberOfInstallments
+    // Even split with the remainder added to installment #1, matching the creation
+    // path (AddTransactionModalViewModel). A plain `total / count` silently dropped
+    // the remainder, which made installment #1 change while the rest looked untouched.
+    let baseAmount = newTotalAmount / newNumberOfInstallments
+    let remainder = newTotalAmount % newNumberOfInstallments
 
-    print("   - Individual Amount: \(individualAmount)")
+    let originalCreditCardId = relatedTransactions.first(where: { $0.creditCardId != nil })?.creditCardId
+    let finalCreditCardId = templateTransaction.data.creditCardId ?? originalCreditCardId
+    let oldStatementIds = Set(relatedTransactions.compactMap { $0.statementId })
 
-    // Delete all existing related transactions first
+    // Update the parent placeholder in place (never delete it — children would then
+    // point at a soft-deleted parent). Keep its amount at 0 so it never affects totals,
+    // matching how the parent is created.
+    let parentModel = TransactionModel(
+      id: mainInstallmentTransactionId,
+      title: templateTransaction.data.title,
+      category: templateTransaction.data.category,
+      amount: 0,
+      type: templateTransaction.data.type,
+      dateTimestamp: Int(newDate.timeIntervalSince1970),
+      budgetMonthDate: newDate.monthAnchor,
+      isRecurring: false,
+      hasInstallments: true,
+      parentTransactionId: nil,
+      originalAmount: newTotalAmount,
+      installmentNumber: nil,
+      totalInstallments: newNumberOfInstallments,
+      creditCardId: finalCreditCardId,
+      isCreditCardStatement: finalCreditCardId != nil ? false : nil
+    )
+    try updateTransactionDirectly(parentModel)
+    markSyncPending(for: mainInstallmentTransactionId)
+
+    let startDate = newDate
+    let creditCardService = CreditCardService()
+    let creditCardRepo = CreditCardRepository()
+    let uid = AuthenticationManager.shared.currentUser?.uid
+
+    // Build & insert ALL new children FIRST. Only after every child is created do we
+    // delete the old ones — so a mid-loop failure can be rolled back, never leaving a
+    // half-rebuilt series (the old "delete all, then recreate one-by-one" order left a
+    // partial set when any insert/statement step threw).
+    var insertedChildIds: [Int] = []
+    var newStatementIds: Set<Int> = []
+    // Track the previous installment's statement so each installment lands in the
+    // billing cycle right after the previous one (consecutive cycles), matching the
+    // creation path. Per-installment date routing could collapse two into one cycle.
+    var previousStatement: CreditCardStatement? = nil
+
+    do {
+      for i in 0..<newNumberOfInstallments {
+        // Through `OccurrenceDateCalculator` rather than raw `byAdding: .month`, so a rebuilt series
+        // lands on the same dates a freshly created one would: same day clamping for months that are
+        // too short, and the same noon anchoring that keeps a date from drifting across midnight.
+        let targetDate = calendar.date(byAdding: .month, value: i, to: startDate) ?? startDate
+        // The template's rule is carried into every rebuilt child. Without this a rebuild - changing
+        // the amount, say - would silently reset the whole series to `.exact`.
+        let installment = OccurrenceDateCalculator.occurrencePair(
+          from: startDate,
+          targetMonth: calendar.component(.month, from: targetDate),
+          targetYear: calendar.component(.year, from: targetDate),
+          rule: templateTransaction.data.businessDayRule,
+          calendar: calendar
+        )
+        let installmentAmount = i == 0 ? baseAmount + remainder : baseAmount
+
+        let installmentModel = TransactionModel(
+          id: nil,
+          title: templateTransaction.data.title,
+          category: templateTransaction.data.category,
+          amount: installmentAmount,
+          type: templateTransaction.data.type,
+          dateTimestamp: Int(installment.adjusted.timeIntervalSince1970),
+          budgetMonthDate: installment.unadjusted.monthAnchor,
+          isRecurring: false,
+          hasInstallments: false,
+          parentTransactionId: mainInstallmentTransactionId,
+          originalAmount: newTotalAmount,
+          installmentNumber: i + 1,
+          totalInstallments: newNumberOfInstallments,
+          businessDayRule: templateTransaction.data.businessDayRule,
+          unadjustedDateTimestamp: Int(installment.unadjusted.timeIntervalSince1970),
+          seriesPeriod: installment.unadjusted.monthAnchor
+        )
+
+        let insertedId = try insertTransactionAndGetId(installmentModel)
+        insertedChildIds.append(insertedId)
+
+        if let cardId = finalCreditCardId, let card = creditCardRepo.fetchCard(byId: cardId), let uid = uid {
+          let statement: CreditCardStatement?
+          if let prev = previousStatement {
+            statement = creditCardService.nextStatement(after: prev, for: card, userId: uid)
+          } else {
+            statement = creditCardService.getOrCreateStatement(for: card, transactionDate: installment.unadjusted, userId: uid)
+          }
+          if let statement = statement, let stmtId = statement.id {
+            try updateCreditCardFields(
+              transactionId: insertedId,
+              creditCardId: cardId,
+              statementId: stmtId,
+              isCreditCardStatement: false
+            )
+            newStatementIds.insert(stmtId)
+
+            // Remap the installment onto the statement due date, BOTH columns: the month it is
+            // billed in is also the month whose allocation it consumes.
+            let dueDateTimestamp = Int(statement.dueDate.timeIntervalSince1970)
+            updateDateAndBudgetMonth(
+              transactionId: insertedId,
+              newDateTimestamp: dueDateTimestamp,
+              newBudgetMonthDate: statement.dueDate.monthAnchor
+            )
+
+            previousStatement = statement
+          }
+        }
+      }
+    } catch {
+      // Roll back the children we just created so the original series stays intact.
+      for newId in insertedChildIds {
+        try? delete(id: newId)
+      }
+      logError("Failed to rebuild installments, rolled back \(insertedChildIds.count) new children: \(error)")
+      throw error
+    }
+
+    // All new children created successfully — now remove the old individual children.
     for relatedTransaction in relatedTransactions {
+      guard relatedTransaction.parentTransactionId != nil else { continue }
       if let id = relatedTransaction.id {
-        print("   - Deleting old installment: \(id)")
         try delete(id: id)
       }
     }
 
-    // Create new installment series
-    let calendar = Calendar.current
-    let startDate = newDate
-
-    for i in 0..<newNumberOfInstallments {
-      // Calculate date for this installment (add i months to start date)
-      let installmentDate = calendar.date(byAdding: .month, value: i, to: startDate) ?? startDate
-
-      // Create new installment transaction
-      let installmentData = UITransactionData(
-        id: nil,  // Will be assigned by database
-        title: templateTransaction.data.title,
-        amount: individualAmount,
-        dateTimestamp: Int(installmentDate.timeIntervalSince1970),
-        budgetMonthDate: installmentDate.monthAnchor,
-        isRecurring: false,
-        hasInstallments: true,
-        parentTransactionId: mainInstallmentTransactionId,
-        installmentNumber: i + 1,
-        totalInstallments: newNumberOfInstallments,
-        originalAmount: nil,
-        category: TransactionCategory.allCases.first(where: {
-          $0.key == templateTransaction.data.category
-        }) ?? .miscellaneous,
-        type: TransactionType.allCases.first(where: {
-          String(describing: $0) == templateTransaction.data.type
-        }) ?? .expense
-      )
-
-      let installmentTransaction = Transaction(data: installmentData)
-
-      // Save the new installment
-      let installmentModel = TransactionModel(
-        id: nil,
-        title: installmentTransaction.title,
-        category: installmentTransaction.category.key,
-        amount: installmentTransaction.amount,
-        type: String(describing: installmentTransaction.type),
-        dateTimestamp: Int(installmentTransaction.date.timeIntervalSince1970),
-        budgetMonthDate: installmentTransaction.budgetMonthDate,
-        isRecurring: false,
-        hasInstallments: true,
-        parentTransactionId: mainInstallmentTransactionId,
-        originalAmount: nil,
-        installmentNumber: i + 1,
-        totalInstallments: newNumberOfInstallments
-      )
-
-      do {
-        try insertTransaction(installmentModel)
-        print(
-          "   - Created installment \(i + 1)/\(newNumberOfInstallments): \(installmentDate) - \(individualAmount) - monthAnchor: \(installmentDate.monthAnchor)"
-        )
-      } catch {
-        print("❌ Failed to create installment \(i + 1): \(error)")
-        throw error
-      }
+    // Recalculate totals for every affected statement (old that lost children + new).
+    for stmtId in oldStatementIds.union(newStatementIds) {
+      creditCardService.recalculateStatementTotal(statementId: stmtId)
     }
 
-    print("✅ INSTALLMENT UPDATE: Series recreated successfully")
+    // Reschedule consolidated installment notifications after editing
+    InstallmentNotificationManager.shared.rescheduleNotifications(parentTransactionId: mainInstallmentTransactionId)
   }
 
   func updateSingleTransactionOnly(
@@ -549,7 +602,7 @@ final class TransactionRepository: TransactionRepositoryProtocol {
     amount: Int,
     date: Date
   ) throws {
-    // Create a transaction model with only the fields we want to update
+    Self.invalidateCache()
     let updatedTransaction = TransactionModel(
       id: id,
       title: title,
@@ -558,90 +611,27 @@ final class TransactionRepository: TransactionRepositoryProtocol {
       type: String(describing: type),
       dateTimestamp: Int(date.timeIntervalSince1970),
       budgetMonthDate: date.monthAnchor,
-      isRecurring: false,  // Keep existing values - this will be handled by DB
-      hasInstallments: false,  // Keep existing values - this will be handled by DB
-      parentTransactionId: nil,  // Keep existing values
+      isRecurring: false,
+      hasInstallments: false,
+      parentTransactionId: nil,
       originalAmount: amount,
-      installmentNumber: nil,  // Keep existing values
-      totalInstallments: nil  // Keep existing values
+      installmentNumber: nil,
+      totalInstallments: nil
     )
 
-    // Update SQLite with partial update
     try db.updateSingleTransaction(updatedTransaction)
-
-    // 🔒 Also update SecureLocalDataManager for UID-isolated storage
-    var secureTransactions = SecureLocalDataManager.shared.loadTransactions()
-
-    // Find and update only the specific transaction
-    if let index = secureTransactions.firstIndex(where: { $0.id == id }) {
-      let existingTransaction = secureTransactions[index]
-
-      // Create new UITransactionData with updated fields
-      let updatedData = UITransactionData(
-        id: existingTransaction.id,
-        title: title,
-        amount: amount,
-        dateTimestamp: Int(date.timeIntervalSince1970),
-        budgetMonthDate: date.monthAnchor,
-        isRecurring: existingTransaction.isRecurring,
-        hasInstallments: existingTransaction.hasInstallments,
-        parentTransactionId: existingTransaction.parentTransactionId,
-        installmentNumber: existingTransaction.installmentNumber,
-        totalInstallments: existingTransaction.totalInstallments,
-        originalAmount: existingTransaction.originalAmount,
-        category: category,
-        type: type
-      )
-
-      // Create new Transaction instance
-      let updatedTransaction = Transaction(data: updatedData)
-      secureTransactions[index] = updatedTransaction
-      SecureLocalDataManager.shared.saveTransactions(secureTransactions)
-
-      print("🔒 Updated single transaction in secure storage: \(title)")
-
-      // Reschedule notification for the updated transaction
-      rescheduleNotificationForTransaction(transactionId: id)
-    } else {
-      print("⚠️ Could not find transaction \(id) in secure storage to update")
-    }
+    TransactionNotificationManager.shared.rescheduleNotification(for: id)
   }
 
   func updateTransactionParentId(transactionId: Int, parentId: Int) throws {
+    Self.invalidateCache()
     try db.updateTransactionParentId(transactionId: transactionId, parentId: parentId)
+  }
 
-    // Also update SecureLocalDataManager for UID-isolated storage
-    var secureTransactions = SecureLocalDataManager.shared.loadTransactions()
-
-    if let index = secureTransactions.firstIndex(where: { $0.id == transactionId }) {
-      let existingTransaction = secureTransactions[index]
-
-      // Create new UITransactionData with updated parent ID
-      let updatedData = UITransactionData(
-        id: existingTransaction.id,
-        title: existingTransaction.title,
-        amount: existingTransaction.amount,
-        dateTimestamp: existingTransaction.dateTimestamp,
-        budgetMonthDate: existingTransaction.budgetMonthDate,
-        isRecurring: existingTransaction.isRecurring,
-        hasInstallments: existingTransaction.hasInstallments,
-        parentTransactionId: parentId,
-        installmentNumber: existingTransaction.installmentNumber,
-        totalInstallments: existingTransaction.totalInstallments,
-        originalAmount: existingTransaction.originalAmount,
-        category: existingTransaction.category,
-        type: existingTransaction.type
-      )
-
-      // Create new Transaction instance
-      let updatedTransaction = Transaction(data: updatedData)
-      secureTransactions[index] = updatedTransaction
-      SecureLocalDataManager.shared.saveTransactions(secureTransactions)
-
-      print("🔒 Updated transaction \(transactionId) parent ID to \(parentId) in secure storage")
-    } else {
-      print("⚠️ Could not find transaction \(transactionId) in secure storage to update parent ID")
-    }
+  func updateIsRecurring(transactionId: Int, isRecurring: Bool) throws {
+    Self.invalidateCache()
+    try db.updateIsRecurring(transactionId: transactionId, isRecurring: isRecurring)
+    NotificationCenter.default.post(name: .transactionDataChanged, object: nil)
   }
 
   func deleteTransactionAndRelated(id: Int) throws {
@@ -650,16 +640,12 @@ final class TransactionRepository: TransactionRepositoryProtocol {
       throw TransactionError.transactionNotFound
     }
 
-    // Use mode property to correctly identify transaction type
-    // This handles both parent transactions AND their instances
     switch transaction.mode {
     case .recurring:
-      // For recurring transactions (parent or instance), delete only this instance
       try deleteRecurringTransactionAndInstances(transactionId: id)
       return
 
     case .installments:
-      // For installment transactions, delete all siblings
       let parentId = transaction.parentTransactionId ?? id
       try deleteInstallmentTransactionAndSiblings(parentId: parentId)
       return
@@ -676,37 +662,41 @@ final class TransactionRepository: TransactionRepositoryProtocol {
       throw TransactionError.transactionNotFound
     }
 
-    // Use mode property to correctly identify recurring transactions
-    // (both parent transactions with isRecurring=true AND instances with parentTransactionId)
     let isRecurringTransaction = transaction.mode == .recurring
-
-    print(
-      "🔄 DELETE DEBUG: Transaction \(id) - isRecurring: \(transaction.isRecurring ?? false), parentId: \(transaction.parentTransactionId ?? 0), mode: \(transaction.mode), isRecurringTransaction: \(isRecurringTransaction)"
-    )
 
     switch option {
     case .currentSelection:
-      // Delete only the current transaction instance
+      // Deleting only a series' first occurrence: hand the series to the next one first, or
+      // deleting the parent row would end the whole series.
+      if isRecurringTransaction, transaction.isRecurring == true,
+        transaction.parentTransactionId == nil || transaction.parentTransactionId == id
+      {
+        RecurringTransactionManager(transactionRepo: self)
+          .promoteNextOccurrenceBeforeDeletingParent(id)
+      }
       try delete(id: id)
+      // For a recurring instance, record the deleted month so lazy generation
+      // doesn't immediately recreate it.
+      if isRecurringTransaction {
+        let parentId = transaction.parentTransactionId ?? id
+        // The occurrence SLOT, matching what regeneration checks against.
+        RecurringTransactionManager.trackDeletedInstance(
+          parentId: parentId, monthAnchor: transaction.seriesPeriod)
+      }
 
     case .futureOnly:
-      // For recurring transactions, delete future instances only (including current)
       if isRecurringTransaction {
         try deleteFutureRecurringInstances(transactionId: id)
       } else if transaction.mode == .installments {
-        // For installment transactions, delete future installments
         try deleteFutureInstallmentInstances(transactionId: id)
       } else {
-        // For non-recurring, just delete current
         try delete(id: id)
       }
 
     case .all:
-      // Delete all related transactions
       if isRecurringTransaction {
         try deleteAllRecurringTransactionOccurrences(transactionId: id)
       } else if transaction.mode == .installments {
-        // For installment transactions, get the correct parent ID
         let parentId = transaction.parentTransactionId ?? id
         try deleteInstallmentTransactionAndSiblings(parentId: parentId)
       } else {
@@ -715,14 +705,71 @@ final class TransactionRepository: TransactionRepositoryProtocol {
     }
   }
 
+  /// Removes a recurring transaction together with every occurrence of its series.
+  ///
+  /// This used to delete the single row it was handed, despite the name and despite being the branch
+  /// `deleteTransactionAndRelated` routes recurring transactions to — so "delete" from the details,
+  /// statement and allocation screens removed one month and silently left the rest of the series
+  /// behind.
   private func deleteRecurringTransactionAndInstances(transactionId: Int) throws {
-    // For recurring transactions, only delete the current instance
-    // Do not delete all future instances as that would be destructive
-    try delete(id: transactionId)
+    try deleteAllRecurringTransactionOccurrences(transactionId: transactionId)
+  }
+
+  /// Every row of `transaction`'s recurring series, resilient to a parent that has gone missing.
+  ///
+  /// A series is normally found through `parentTransactionId`. But instances are regenerated (their
+  /// ids change), parents get deleted or soft-deleted, and cross-device sync can land instances whose
+  /// parent row never arrived — leaving siblings that point at an id nothing else shares. Filtering on
+  /// that id then matches only the row the user opened, so "this and remaining" removed exactly one
+  /// occurrence and looked like it had done nothing.
+  ///
+  /// The broadened match is deliberately narrow: same title, amount AND category, and recurring. For a
+  /// delete, matching too much is far worse than matching too little, so it only kicks in when the
+  /// parent row genuinely is not there.
+  private func recurringSeriesMembers(of transaction: Transaction, in all: [Transaction])
+    -> [Transaction]
+  {
+    let groupId = transaction.parentTransactionId ?? transaction.id
+    let byParent = all.filter { tx in
+      guard let txId = tx.id else { return false }
+      return txId == groupId || tx.parentTransactionId == groupId
+    }
+
+    let parentExists = all.contains { $0.id == groupId }
+    guard !parentExists else { return byParent }
+
+    // Scope and anchor day join the predicate so this can never reach across ledgers, and never
+    // sweep up a same-title series anchored on a different day of the month. Both are components of
+    // series identity everywhere else (see `SeriesFingerprint`); leaving them out here meant a delete
+    // could take more than the series the user was looking at.
+    let scopeById = fetchSharedGroupIds()
+    let ownScope = transaction.id.flatMap { scopeById[$0] } ?? ""
+    let ownDay = SeriesDay.anchorDay(of: transaction)
+
+    let siblings = all.filter { tx in
+      guard let txId = tx.id else { return false }
+      guard tx.mode == .recurring, tx.title == transaction.title,
+        tx.amount == transaction.amount, tx.category == transaction.category
+      else { return false }
+      guard (scopeById[txId] ?? "") == ownScope else { return false }
+      return SeriesDay.matches(
+        SeriesDay.anchorDay(of: tx), inMonthOf: tx.unadjustedDate,
+        ownDay, inMonthOf: transaction.unadjustedDate)
+    }
+
+    var byId: [Int: Transaction] = [:]
+    for tx in byParent + siblings {
+      if let id = tx.id { byId[id] = tx }
+    }
+
+    logDebug(
+      "TransactionRepository: recurring parent \(groupId.map(String.init) ?? "nil") is missing — "
+        + "resolved \(byId.count) series row(s) by title+amount+category instead of \(byParent.count)")
+
+    return Array(byId.values)
   }
 
   private func deleteAllRecurringTransactionOccurrences(transactionId: Int) throws {
-    // Find all transactions with the same recurring group
     let allTransactions = fetchAllTransactions()
     let currentTransaction = allTransactions.first { $0.id == transactionId }
 
@@ -730,31 +777,30 @@ final class TransactionRepository: TransactionRepositoryProtocol {
       throw TransactionError.transactionNotFound
     }
 
-    // Get the recurring group ID (either the transaction's own ID or its parentTransactionId)
     let recurringGroupId = current.parentTransactionId ?? current.id
 
-    // Find all related transactions in this recurring group
-    let relatedTransactions = allTransactions.filter { transaction in
-      transaction.id == recurringGroupId || transaction.parentTransactionId == recurringGroupId
+    logDebug("TransactionRepository: Deleting all recurring occurrences for transaction \(transactionId), recurringGroupId: \(String(describing: recurringGroupId))")
+
+    // Re-attach orphaned occurrences first, so "delete all" genuinely takes the whole series instead
+    // of leaving behind rows whose parent pointer is broken.
+    if let groupId = recurringGroupId {
+      RecurringSeriesLinker(transactionRepo: self).repairTransactionSeries(around: groupId)
     }
 
-    print(
-      "🔄 RECURRING DELETE: Deleting \(relatedTransactions.count) occurrences of recurring transaction group \(recurringGroupId ?? 0)"
-    )
+    let relatedTransactions = recurringSeriesMembers(of: current, in: fetchAllTransactions())
 
-    // Delete all related transactions
-    for relatedTransaction in relatedTransactions {
-      if let id = relatedTransaction.id {
-        try delete(id: id)
-        print("   - Deleted transaction \(id): \(relatedTransaction.title)")
-      }
+    logDebug("TransactionRepository: Found \(relatedTransactions.count) transactions to delete")
+
+    try deleteBatch(ids: relatedTransactions.compactMap { $0.id })
+
+    // The whole series is gone — clear its consolidated recurring reminders (per-tx cancels
+    // above don't touch the month-bucketed notifications).
+    if let gid = recurringGroupId {
+      RecurringNotificationManager.shared.cancelNotifications(forParent: gid)
     }
-
-    print("✅ RECURRING DELETE: All occurrences deleted successfully")
   }
 
   private func deleteFutureRecurringInstances(transactionId: Int) throws {
-    // Find all transactions with the same recurring group
     let allTransactions = fetchAllTransactions()
     let currentTransaction = allTransactions.first { $0.id == transactionId }
 
@@ -762,55 +808,70 @@ final class TransactionRepository: TransactionRepositoryProtocol {
       throw TransactionError.transactionNotFound
     }
 
-    // Get the recurring group ID (either the transaction's own ID or its parentTransactionId)
     let recurringGroupId = current.parentTransactionId ?? current.id
-    let currentDate = current.date
+    // The occurrence SLOT, matching the EDIT path (`editRecurringTransactionsFromDateSync`) exactly.
+    //
+    // This used to compare `budgetMonthDate`, which agrees with the slot only while the business-day
+    // rule is `.exact`. Under `.previous`/`.next` an occurrence can be pushed across a month boundary,
+    // and then the two disagree — so "delete this and future" and "edit this and future" selected
+    // DIFFERENT sets of rows for the same series, and an occurrence at the boundary was either
+    // deleted a month early or left behind.
+    let currentAnchor = current.seriesPeriod
 
-    // Find all related transactions in this recurring group that are in the future (including current)
-    let relatedTransactions = allTransactions.filter { transaction in
-      let isInGroup =
-        transaction.id == recurringGroupId || transaction.parentTransactionId == recurringGroupId
-      // Include current transaction and all future ones (>= instead of >)
-      let isFutureOrCurrent = transaction.date >= currentDate
-      return isInGroup && isFutureOrCurrent
+    logDebug("TransactionRepository: Deleting future recurring instances for transaction \(transactionId), recurringGroupId: \(String(describing: recurringGroupId)), currentAnchor: \(currentAnchor)")
+
+    // Re-attach orphaned occurrences BEFORE selecting what to delete, or a row whose parent pointer
+    // is broken survives the delete and reappears as a stray.
+    if let groupId = recurringGroupId {
+      RecurringSeriesLinker(transactionRepo: self).repairTransactionSeries(around: groupId)
     }
 
-    print(
-      "🔄 RECURRING DELETE: Deleting \(relatedTransactions.count) future occurrences of recurring transaction group \(recurringGroupId ?? 0)"
-    )
-
-    // Delete all future related transactions (including current)
-    for relatedTransaction in relatedTransactions {
-      if let id = relatedTransaction.id {
-        try delete(id: id)
-        print("   - Deleted future transaction \(id): \(relatedTransaction.title)")
-      }
+    // Before we stop the parent's recurrence below, materialize any months between the
+    // parent and the cutoff that were never materialized — otherwise disabling
+    // recurrence would prevent those (legitimately pre-cutoff) months from ever existing.
+    if let groupId = recurringGroupId {
+      RecurringTransactionManager().backfillRecurringMonths(
+        parentTransactionId: groupId, cutoffAnchor: currentAnchor)
     }
 
-    // After deleting future instances, check if the parent is now orphaned (no instances left)
-    // If so, delete the parent to prevent resurrection bugs
-    if let parentId = recurringGroupId {
+    let relatedTransactions = recurringSeriesMembers(of: current, in: fetchAllTransactions())
+      .filter { $0.seriesPeriod >= currentAnchor }
+
+    logDebug("TransactionRepository: Found \(relatedTransactions.count) future transactions to delete")
+
+    try deleteBatch(ids: relatedTransactions.compactMap { $0.id })
+
+    // Stop recurrence on EVERY parent the deleted rows belonged to, not just the group id the user's
+    // instance happened to point at. Future months are generated lazily from the parent, so a parent
+    // left with `is_recurring = 1` simply recreates the months that were just deleted — which is what
+    // made this look like nothing had been deleted at all. A drifted series has more than one parent,
+    // so stopping only one of them leaves the rest generating.
+    let parentIds = Set(
+      relatedTransactions.compactMap { $0.parentTransactionId ?? $0.id }
+        + [recurringGroupId].compactMap { $0 })
+
+    for parentId in parentIds {
       let remainingInstances = fetchTransactionInstancesForRecurring(parentId)
+
       if remainingInstances.isEmpty {
-        // Check if parent still exists and is orphaned
         let updatedTransactions = fetchAllTransactions()
-        if let orphanedParent = updatedTransactions.first(where: {
-          $0.id == parentId && $0.isRecurring == true
-        }) {
-          print(
-            "🧹 RECURRING DELETE: Parent \(parentId) has no remaining instances, cleaning up orphaned parent"
-          )
+        if updatedTransactions.first(where: { $0.id == parentId && $0.isRecurring == true }) != nil {
+          logDebug("TransactionRepository: Deleting orphaned parent \(parentId)")
           try delete(id: parentId)
-          print("   - Deleted orphaned parent transaction \(parentId): \(orphanedParent.title)")
         }
+      } else if fetchAllTransactions().contains(where: { $0.id == parentId }) {
+        logDebug("TransactionRepository: Stopping future recurrence for parent \(parentId)")
+        try updateIsRecurring(transactionId: parentId, isRecurring: false)
       }
     }
 
-    print("✅ RECURRING DELETE: Future occurrences deleted successfully")
+    // Recompute the recurring series' consolidated reminders from the REMAINING instances.
+    if let gid = recurringGroupId {
+      RecurringNotificationManager.shared.rescheduleNotifications(parentTransactionId: gid)
+    }
   }
 
   private func deleteFutureInstallmentInstances(transactionId: Int) throws {
-    // Find all transactions with the same installment group
     let allTransactions = fetchAllTransactions()
     let currentTransaction = allTransactions.first { $0.id == transactionId }
 
@@ -818,47 +879,57 @@ final class TransactionRepository: TransactionRepositoryProtocol {
       throw TransactionError.transactionNotFound
     }
 
-    // Get the installment group ID (either the transaction's own ID or its parentTransactionId)
     let installmentGroupId = current.parentTransactionId ?? current.id
     let currentInstallmentNumber = current.installmentNumber ?? 1
 
-    // Find all related transactions in this installment group that are current or future
+    logDebug("TransactionRepository: Deleting future installment instances for transaction \(transactionId), installmentGroupId: \(String(describing: installmentGroupId)), currentInstallment: \(currentInstallmentNumber)")
+
     let relatedTransactions = allTransactions.filter { transaction in
-      let isInGroup =
-        transaction.id == installmentGroupId
-        || transaction.parentTransactionId == installmentGroupId
-      // Include current installment and all future ones
+      guard let txId = transaction.id else { return false }
+      let isInGroup = txId == installmentGroupId || transaction.parentTransactionId == installmentGroupId
       let isFutureOrCurrent = (transaction.installmentNumber ?? 0) >= currentInstallmentNumber
       return isInGroup && isFutureOrCurrent
     }
 
-    print(
-      "🔄 INSTALLMENT DELETE: Deleting \(relatedTransactions.count) future installments of group \(installmentGroupId ?? 0)"
-    )
+    logDebug("TransactionRepository: Found \(relatedTransactions.count) future installments to delete")
 
-    // Delete all future related transactions (including current)
-    for relatedTransaction in relatedTransactions {
-      if let id = relatedTransaction.id {
-        try delete(id: id)
-        print("   - Deleted installment \(id): \(relatedTransaction.title)")
+    try deleteBatch(ids: relatedTransactions.compactMap { $0.id })
+
+    // If no installment children remain, remove the orphaned parent placeholder so it
+    // doesn't linger invisibly (the parent has installmentNumber == nil, so the loop
+    // above never covers it).
+    if let groupId = installmentGroupId {
+      let remainingChildren = fetchAllTransactions().filter {
+        $0.parentTransactionId == groupId && $0.installmentNumber != nil
       }
+      if remainingChildren.isEmpty,
+         fetchAllTransactions().first(where: { $0.id == groupId && $0.hasInstallments == true }) != nil {
+        logDebug("TransactionRepository: Deleting orphaned installment parent \(groupId)")
+        try delete(id: groupId)
+      }
+      // Recompute the installment series' consolidated reminders from the REMAINING children.
+      InstallmentNotificationManager.shared.rescheduleNotifications(parentTransactionId: groupId)
     }
-
-    print("✅ INSTALLMENT DELETE: Future installments deleted successfully")
   }
 
   private func deleteInstallmentTransactionAndSiblings(parentId: Int) throws {
     let allTransactions = fetchAllTransactions()
 
-    let installments = allTransactions.filter { $0.parentTransactionId == parentId }
+    logDebug("TransactionRepository: Deleting installment transaction and siblings for parentId \(parentId)")
 
-    for installment in installments {
-      if let installmentId = installment.id {
-        try delete(id: installmentId)
-      }
+    let installments = allTransactions.filter { transaction in
+      guard let txParentId = transaction.parentTransactionId else { return false }
+      return txParentId == parentId
     }
 
-    try delete(id: parentId)
+    logDebug("TransactionRepository: Found \(installments.count) installments to delete")
+
+    // Children and the parent placeholder go together, in one batch — a partial series deletion
+    // leaves orphaned children pointing at a parent that no longer exists.
+    try deleteBatch(ids: installments.compactMap { $0.id } + [parentId])
+
+    // The whole installment series is gone — clear its consolidated reminders.
+    InstallmentNotificationManager.shared.cancelNotifications(forParent: parentId)
   }
 
   func fetchInstallmentTransactions(parentId: Int) -> [Transaction] {
@@ -867,10 +938,7 @@ final class TransactionRepository: TransactionRepositoryProtocol {
 
   // MARK: - Test Helper Methods
   func clearAllTransactionsForTesting() {
-    let allTransactions = fetchAllTransactions()
-
-    // Delete in multiple passes to handle parent/child relationships
-    for _ in 0..<10 {  // Try up to 10 times
+    for _ in 0..<10 {
       let remainingTransactions = fetchAllTransactions()
       if remainingTransactions.isEmpty { break }
 
@@ -882,102 +950,499 @@ final class TransactionRepository: TransactionRepositoryProtocol {
     }
   }
 
-  // MARK: - Notification Management
-
-  /// Reschedules notification for a specific transaction after it has been updated
-  private func rescheduleNotificationForTransaction(transactionId: Int?) {
-    guard let transactionId = transactionId else { return }
-
-    print("🔔 Rescheduling notification for transaction \(transactionId)")
-
-    // Remove existing notification for this transaction
-    let notificationId = "transaction_\(transactionId)"
-    UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: [
-      notificationId
-    ])
-    print("🔔 🧹 Removed existing notification for transaction \(transactionId)")
-
-    // Get the updated transaction data
-    let allTransactions = fetchAllTransactions()
-    guard let updatedTransaction = allTransactions.first(where: { $0.id == transactionId }) else {
-      print("🔔 ❌ Could not find updated transaction \(transactionId) for notification rescheduling")
-      return
-    }
-
-    // Schedule new notification using the same logic as AppDelegate
-    scheduleNotificationForTransaction(updatedTransaction)
+  func fetchSharedGroupId(for transactionId: Int) -> String? {
+    return db.fetchSingleString(
+      "SELECT shared_group_id FROM Transactions WHERE id = ?;",
+      intBinding: transactionId
+    )
   }
 
-  /// Schedules a notification for a single transaction (reused from AppDelegate logic)
-  private func scheduleNotificationForTransaction(_ tx: Transaction) {
-    guard let transactionId = tx.id else { return }
+  /// Every row's ledger scope in one query, as `id -> sharedGroupId`. Rows absent from the result are
+  /// personal.
+  ///
+  /// Materialization and series relinking both need scope for EVERY row they consider — scope is a
+  /// required component of series identity, or a personal series and a group series that look alike
+  /// merge. Asking `fetchSharedGroupId(for:)` per row made that a full table's worth of queries
+  /// inside an already-serialized write pass.
+  func fetchSharedGroupIds() -> [Int: String] {
+    return db.fetchSharedGroupIdsForTransactions()
+  }
 
-    let id = "transaction_\(transactionId)"
-    let now = Date()
-    var calendar = Calendar.current
-    calendar.timeZone = TimeZone.current
+  // MARK: - CloudKit Sync Methods
 
-    // Create notification time (8 AM) in local timezone
-    var notificationDate = calendar.startOfDay(for: tx.date)
-    notificationDate =
-      calendar.date(byAdding: .hour, value: 8, to: notificationDate) ?? notificationDate
+  /// Rows awaiting a CloudKit push.
+  ///
+  /// `updated_at` MUST be selected here: it is the ordering key for conflict resolution on the
+  /// receiving device. Without it `Transaction.updatedAt` was nil and the CK adapter stamped every
+  /// pushed record with `Date()` — the *push* time — while the receiving device compared that
+  /// against its own real *edit* time. Any bulk re-push that doesn't represent a user edit (mirror
+  /// reconcile, credit-card repair, force re-push, group-zone migration) therefore looked newer
+  /// than a genuine edit on the other device and silently reverted it.
+  func fetchPendingSync() -> [Transaction] {
+    if let uid = UIDUserDefaultsManager.shared.currentUserUID {
+      let query = """
+        SELECT id, title, category, type, amount, date, budget_month_date,
+               is_recurring, has_installments, parent_transaction_id,
+               installment_number, total_installments, original_amount,
+               credit_card_id, statement_id, is_credit_card_statement, created_by_uid,
+               updated_at,
+               business_day_rule, unadjusted_date, series_period
+        FROM Transactions WHERE sync_status = 'pending' AND user_id = ? AND (is_deleted IS NULL OR is_deleted = 0);
+        """
+      return (try? db.executeTransactionQueryPublicText(query, textBindings: [uid])) ?? []
+    }
+    let query = """
+      SELECT id, title, category, type, amount, date, budget_month_date,
+             is_recurring, has_installments, parent_transaction_id,
+             installment_number, total_installments, original_amount,
+             credit_card_id, statement_id, is_credit_card_statement, created_by_uid,
+             updated_at,
+             business_day_rule, unadjusted_date, series_period
+      FROM Transactions WHERE sync_status = 'pending' AND (is_deleted IS NULL OR is_deleted = 0);
+      """
+    return (try? db.executeTransactionQueryPublic(query)) ?? []
+  }
 
-    // Only schedule if notification time is in the future
-    guard notificationDate > now else {
-      print("🔔 ⚠️ Skipping notification for \(tx.title) - date is in the past")
+  /// Clears the pending flag after a successful push.
+  ///
+  /// `pushedUpdatedAt` is the `updated_at` of the snapshot that was actually sent. If the row has
+  /// been edited since (its `updated_at` is now newer), the flag is LEFT pending so the newer
+  /// version is pushed on the next cycle. Clearing unconditionally — the old behaviour — silently
+  /// destroyed any edit the user made while the push was in flight: the row was marked 'synced'
+  /// while holding values CloudKit had never seen, so it was never pushed again.
+  func markAsSynced(ckRecordName: String, pushedUpdatedAt: Date? = nil) {
+    Self.invalidateCache()
+    // Phase 3C: CK record name is pre-stored before push, so matching by ck_record_id is sufficient
+    guard let pushedUpdatedAt = pushedUpdatedAt else {
+      db.executeSyncUpdate(
+        "UPDATE Transactions SET sync_status = 'synced' WHERE ck_record_id = ?;",
+        textBindings: [ckRecordName]
+      )
       return
     }
+    // COALESCE so legacy rows with no updated_at still settle instead of looping forever.
+    db.executeSyncUpdate(
+      "UPDATE Transactions SET sync_status = 'synced' WHERE ck_record_id = ? AND COALESCE(updated_at, 0) <= ?;",
+      textBindings: [ckRecordName],
+      intBindings: [Int(pushedUpdatedAt.timeIntervalSince1970)]
+    )
+  }
 
-    // Check if date is too far in the future (more than 1 year)
-    let oneYearFromNow = Calendar.current.date(byAdding: .year, value: 1, to: Date()) ?? Date()
-    if tx.date > oneYearFromNow {
-      print("🔔 ⚠️ Skipping notification for \(tx.title) - date too far in future")
-      return
-    }
+  func setCKRecordId(for localId: Int, ckRecordName: String) {
+    db.executeSyncUpdate(
+      "UPDATE Transactions SET ck_record_id = ? WHERE id = ? AND ck_record_id IS NULL;",
+      textBindings: [ckRecordName],
+      intBindings: [localId]
+    )
+  }
 
-    // Calculate time interval from now to notification date
-    let timeInterval = notificationDate.timeIntervalSinceNow
+  func overwriteCKRecordId(for localId: Int, ckRecordName: String) {
+    db.executeSyncUpdate(
+      "UPDATE Transactions SET ck_record_id = ? WHERE id = ?;",
+      textBindings: [ckRecordName],
+      intBindings: [localId]
+    )
+  }
 
-    // Check if interval is too large (more than 30 days)
-    let thirtyDaysInSeconds: TimeInterval = 30 * 24 * 60 * 60
-    if timeInterval > thirtyDaysInSeconds {
-      print("🔔 ⚠️ Skipping notification for \(tx.title) - more than 30 days away")
-      return
-    }
+  /// Deletes only soft-deleted rows (is_deleted=1) with the given CK record name.
+  /// Used before re-linking a live record to a group-zone CK name, to avoid
+  /// two rows sharing the same ck_record_id (stale duplicate + live re-linked).
+  func deleteSoftDeletedByCKRecordName(_ recordName: String) {
+    Self.invalidateCache()
+    db.executeSyncUpdate(
+      "DELETE FROM Transactions WHERE ck_record_id = ? AND is_deleted = 1;",
+      textBindings: [recordName]
+    )
+  }
 
-    let trigger = UNTimeIntervalNotificationTrigger(timeInterval: timeInterval, repeats: false)
+  func insertFromCloud(_ transaction: Transaction, ckRecordName: String, parentCKRecordName: String? = nil, sharedGroupId: String? = nil) {
+    Self.invalidateCache()
+    let category = transaction.category.key
+    let type = String(describing: transaction.type)
 
-    let titleKey =
-      tx.type == .income
-      ? "notification.transaction.title.income"
-      : "notification.transaction.title.expense"
-    let bodyKey =
-      tx.type == .income
-      ? "notification.transaction.body.income"
-      : "notification.transaction.body.expense"
+    // Remove any existing row with this ck_record_id to prevent duplicates
+    db.executeSyncUpdate(
+      "DELETE FROM Transactions WHERE ck_record_id = ?;",
+      textBindings: [ckRecordName]
+    )
 
-    let amountString = tx.amount.currencyString
-    let title = titleKey.localized
-    let body = String(format: bodyKey.localized, amountString, tx.title)
+    let query = """
+      INSERT INTO Transactions
+        (title, category, type, amount, date, budget_month_date,
+         is_recurring, has_installments, parent_transaction_id,
+         installment_number, total_installments, original_amount,
+         credit_card_id, statement_id, is_credit_card_statement,
+         ck_record_id, sync_status, user_id, ck_modified_at, ck_parent_record_name,
+         shared_group_id, updated_at, created_by_uid)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced', ?, ?, ?, ?, ?, ?);
+      """
 
-    let content = UNMutableNotificationContent()
-    content.title = title
-    content.body = body
-    content.sound = .default
-    content.categoryIdentifier = "TRANSACTION_REMINDER"
-    content.userInfo = ["transactionId": transactionId, "date": tx.date.timeIntervalSince1970]
+    db.executeCloudInsert(
+      query,
+      transaction: transaction,
+      category: category,
+      type: type,
+      ckRecordName: ckRecordName,
+      parentCKRecordName: parentCKRecordName,
+      sharedGroupId: sharedGroupId,
+      updatedAt: transaction.updatedAt,
+      createdByUid: transaction.createdByUid
+    )
 
-    let request = UNNotificationRequest(identifier: id, content: content, trigger: trigger)
-    UNUserNotificationCenter.current().add(request) { error in
-      if let error = error {
-        print("🔔 ❌ Error rescheduling notification for \(tx.title): \(error)")
-      } else {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd HH:mm"
-        print(
-          "🔔 ✅ Rescheduled notification for \(tx.title) at \(formatter.string(from: notificationDate))"
+    // Phase 4D: Remap parent ID via CK record name
+    if let parentCKName = parentCKRecordName,
+       let localParent = fetchTransaction(byCKRecordName: parentCKName) {
+      // Find the newly inserted row by ck_record_id and update its parent_transaction_id
+      if let insertedRow = fetchTransaction(byCKRecordName: ckRecordName),
+         let insertedId = insertedRow.id,
+         let parentId = localParent.id {
+        db.executeSyncUpdate(
+          "UPDATE Transactions SET parent_transaction_id = ? WHERE id = ?;",
+          intBindings: [parentId, insertedId]
         )
       }
+    }
+
+    // A transaction created on another device must get a local notification here — the
+    // inbound sync path previously scheduled nothing, so cross-device additions never reminded.
+    if let inserted = fetchTransaction(byCKRecordName: ckRecordName), let insertedId = inserted.id {
+      reconcileNotifications(forLocalId: insertedId)
+    }
+  }
+
+  func updateFromCloud(_ transaction: Transaction, ckRecordName: String, sharedGroupId: String? = nil) {
+    Self.invalidateCache()
+    let category = transaction.category.key
+    let type = String(describing: transaction.type)
+
+    // Preserve a non-null local `shared_group_id` when the inbound value is nil (COALESCE):
+    // an inbound pull with mirror mode off (or a record read from the plain private zone without
+    // zone-name tag injection) must NOT strip a record's group tag — that hides it from the group
+    // view. A real re-tag/un-share still arrives as a non-null value and overwrites correctly.
+    let query = """
+      UPDATE Transactions SET
+        title = ?, category = ?, type = ?, amount = ?, date = ?,
+        budget_month_date = ?, is_recurring = ?, has_installments = ?,
+        parent_transaction_id = ?, installment_number = ?,
+        total_installments = ?, original_amount = ?,
+        credit_card_id = ?, statement_id = ?, is_credit_card_statement = ?,
+        sync_status = 'synced', ck_modified_at = ?,
+        shared_group_id = COALESCE(?, shared_group_id),
+        updated_at = ?,
+        created_by_uid = COALESCE(?, created_by_uid)
+      WHERE ck_record_id = ?;
+      """
+
+    db.executeCloudUpdate(
+      query,
+      transaction: transaction,
+      category: category,
+      type: type,
+      ckRecordName: ckRecordName,
+      sharedGroupId: sharedGroupId,
+      updatedAt: transaction.updatedAt,
+      createdByUid: transaction.createdByUid
+    )
+
+    // A transaction edited on another device (amount/date/title) must update its local
+    // notification content and fire date, instead of firing stale.
+    if let updated = fetchTransaction(byCKRecordName: ckRecordName), let updatedId = updated.id {
+      reconcileNotifications(forLocalId: updatedId)
+    }
+  }
+
+  func markSyncPending(for id: Int) {
+    let now = Int(Date().timeIntervalSince1970)
+    db.executeSyncUpdate(
+      "UPDATE Transactions SET sync_status = 'pending', ck_modified_at = ? WHERE id = ?;",
+      intBindings: [now, id]
+    )
+  }
+
+  /// Single entry point to (re)schedule the correct notification(s) for a transaction after it
+  /// was created or changed — including changes arriving FROM the cloud (another device). Routes
+  /// to the right manager by the transaction's kind so the identifier scheme stays consistent:
+  /// installment/recurring children recompute their parent's consolidated notification (so an
+  /// edited/added/removed item is reflected), one-off transactions reschedule their own, and
+  /// parent placeholders (which never carry a user-facing notification) are skipped.
+  func reconcileNotifications(forLocalId id: Int) {
+    guard let tx = fetchTransaction(byId: id) else { return }
+    if let parentId = tx.parentTransactionId, tx.installmentNumber != nil {
+      InstallmentNotificationManager.shared.rescheduleNotifications(parentTransactionId: parentId)
+    } else if let parentId = tx.parentTransactionId, tx.isRecurring == true {
+      RecurringNotificationManager.shared.rescheduleNotifications(parentTransactionId: parentId)
+    } else if tx.hasInstallments == true || tx.isRecurring == true {
+      // Parent placeholder — no standalone notification of its own.
+      return
+    } else {
+      TransactionNotificationManager.shared.rescheduleNotification(for: id)
+    }
+  }
+
+  func deleteFromCloud(ckRecordName recordName: String) {
+    Self.invalidateCache()
+    // Capture the row (and its parent, if a child) BEFORE deleting so we can update the right
+    // notification afterward — a transaction deleted on another device must clear/recompute its
+    // reminder here (the inbound path previously only cancelled a per-tx id, missing the
+    // consolidated installment/recurring month buckets).
+    let doomed = fetchTransaction(byCKRecordName: recordName)
+
+    // RECREATION-WINS — the delete-vs-edit policy, applied identically in all five repositories.
+    //
+    // If the local row has unpushed edits (sync_status = 'pending'), do NOT apply the remote delete:
+    // the local change re-pushes and the record comes back. 'pendingDelete' still deletes (we agreed
+    // to delete it too); 'synced' deletes normally.
+    //
+    // Why this is not ordered by `rev` like every other conflict: a CloudKit deletion carries no
+    // record. `recordDeletedBlock` hands over a record ID and nothing else, so there is no version to
+    // compare an edit against. Ordering the two would require tombstones on the wire — `isDeleted`
+    // pushed as a field update instead of a delete — which only CreditCard currently has.
+    //
+    // So the choice is made under genuine ambiguity, on which failure is recoverable: a resurrected
+    // row is visible and the user can delete it again, whereas a swallowed edit is money that
+    // silently is not there. DeleteVsEditTests pins the behaviour AND that it converges — a rule that
+    // kept the row on one device and dropped it on the other would be worse than either answer.
+    if let localId = doomed?.id,
+       db.fetchSingleString("SELECT sync_status FROM Transactions WHERE id = ?;", intBinding: localId) == "pending" {
+      logWarning("[Sync] Skipping inbound delete of transaction \(localId) — unpushed local edit exists (recreation wins)")
+      return
+    }
+
+    if let localId = doomed?.id {
+      TransactionNotificationManager.shared.cancelNotification(for: localId)
+    }
+    db.executeSyncUpdate(
+      "DELETE FROM Transactions WHERE ck_record_id = ?;",
+      textBindings: [recordName]
+    )
+    // Recompute the parent's consolidated notification from the REMAINING children.
+    if let parentId = doomed?.parentTransactionId {
+      if doomed?.installmentNumber != nil {
+        InstallmentNotificationManager.shared.rescheduleNotifications(parentTransactionId: parentId)
+      } else if doomed?.isRecurring == true {
+        RecurringNotificationManager.shared.rescheduleNotifications(parentTransactionId: parentId)
+      }
+    }
+  }
+
+  func fetchPendingDeletes() -> [(ckRecordName: String, localId: Int)] {
+    var results: [(ckRecordName: String, localId: Int)] = []
+    let query = "SELECT id, ck_record_id FROM Transactions WHERE sync_status = 'pendingDelete' AND ck_record_id IS NOT NULL;"
+    if let rows = db.fetchIdAndCKRecordName(query) {
+      results = rows
+    }
+    return results
+  }
+
+  func hardDeleteByCKRecordName(_ recordName: String) {
+    Self.invalidateCache()
+    // Cancel any scheduled notification before deleting the row
+    if let localId = db.fetchSingleInt(
+      "SELECT id FROM Transactions WHERE ck_record_id = ?;",
+      textBinding: recordName
+    ) {
+      TransactionNotificationManager.shared.cancelNotification(for: localId)
+    }
+    db.executeSyncUpdate(
+      "DELETE FROM Transactions WHERE ck_record_id = ?;",
+      textBindings: [recordName]
+    )
+  }
+
+  func fetchTransaction(byId id: Int) -> Transaction? {
+    let query = """
+      SELECT id, title, category, type, amount, date, budget_month_date,
+             is_recurring, has_installments, parent_transaction_id,
+             installment_number, total_installments, original_amount,
+             credit_card_id, statement_id, is_credit_card_statement, created_by_uid,
+      business_day_rule, unadjusted_date, series_period
+      FROM Transactions WHERE id = ?;
+      """
+    return (try? db.executeTransactionQueryPublic(query, bindValues: [id]))?.first
+  }
+
+  func fetchCKRecordName(for id: Int) -> String? {
+    return db.fetchSingleString(
+      "SELECT ck_record_id FROM Transactions WHERE id = ?;",
+      intBinding: id
+    )
+  }
+
+  func fetchMatchingRecurringInstance(title: String, amount: Int, budgetMonthDate: Int) -> Transaction? {
+    let query = """
+      SELECT id, title, category, type, amount, date, budget_month_date,
+             is_recurring, has_installments, parent_transaction_id,
+             installment_number, total_installments, original_amount,
+             credit_card_id, statement_id, is_credit_card_statement, created_by_uid,
+      business_day_rule, unadjusted_date, series_period
+      FROM Transactions
+      WHERE title = ? AND amount = ? AND budget_month_date = ?
+        AND parent_transaction_id IS NOT NULL AND is_deleted = 0
+      LIMIT 1;
+      """
+    return (try? db.executeTransactionQueryMixed(
+      query, textBindings: [title], intBindings: [amount, budgetMonthDate]
+    ))?.first
+  }
+
+  /// Matches any transaction (parent, instance, or normal) by title + amount + budget_month_date.
+  /// Used as a last-resort fallback in ConflictResolver to prevent duplicate inserts.
+  func fetchMatchingTransaction(title: String, amount: Int, budgetMonthDate: Int) -> Transaction? {
+    let query = """
+      SELECT id, title, category, type, amount, date, budget_month_date,
+             is_recurring, has_installments, parent_transaction_id,
+             installment_number, total_installments, original_amount,
+             credit_card_id, statement_id, is_credit_card_statement, created_by_uid,
+      business_day_rule, unadjusted_date, series_period
+      FROM Transactions
+      WHERE title = ? AND amount = ? AND budget_month_date = ?
+        AND (is_deleted IS NULL OR is_deleted = 0)
+      LIMIT 1;
+      """
+    return (try? db.executeTransactionQueryMixed(
+      query, textBindings: [title], intBindings: [amount, budgetMonthDate]
+    ))?.first
+  }
+
+  func fetchRecurringInstance(parentId: Int, budgetMonthDate: Int) -> Transaction? {
+    let query = """
+      SELECT id, title, category, type, amount, date, budget_month_date,
+             is_recurring, has_installments, parent_transaction_id,
+             installment_number, total_installments, original_amount,
+             credit_card_id, statement_id, is_credit_card_statement, created_by_uid,
+      business_day_rule, unadjusted_date, series_period
+      FROM Transactions
+      WHERE parent_transaction_id = ? AND budget_month_date = ? AND is_deleted = 0
+      LIMIT 1;
+      """
+    return (try? db.executeTransactionQueryPublic(query, bindValues: [parentId, budgetMonthDate]))?.first
+  }
+
+  func fetchTransaction(byCKRecordName recordName: String) -> Transaction? {
+    let query = """
+      SELECT id, title, category, type, amount, date, budget_month_date,
+             is_recurring, has_installments, parent_transaction_id,
+             installment_number, total_installments, original_amount,
+             credit_card_id, statement_id, is_credit_card_statement, created_by_uid,
+      business_day_rule, unadjusted_date, series_period
+      FROM Transactions WHERE ck_record_id = ? AND (is_deleted IS NULL OR is_deleted = 0);
+      """
+    return (try? db.executeTransactionQueryPublicText(query, textBindings: [recordName]))?.first
+  }
+
+  /// Returns a mapping of parentTransactionId → Set<budgetMonthDate> for all soft-deleted
+  /// (is_deleted=1) installment and recurring instances.
+  /// Used by lazy generation to prevent recreating instances the user intentionally deleted.
+  func fetchDeletedChildAnchors() -> [Int: Set<Int>] {
+    let pairs = db.fetchIntIntPairs(
+      // The tombstone's SLOT, not its accounting month: regeneration asks "is this occurrence
+      // missing?", and a deleted occurrence whose date had been shifted into another month would
+      // otherwise look like a different one and be recreated.
+      "SELECT parent_transaction_id, COALESCE(series_period, budget_month_date) FROM Transactions WHERE is_deleted = 1 AND parent_transaction_id IS NOT NULL;"
+    )
+    var result: [Int: Set<Int>] = [:]
+    for (parentId, anchor) in pairs {
+      result[parentId, default: []].insert(anchor)
+    }
+    return result
+  }
+
+  /// If a soft-deleted record with this CK name exists (is_deleted=1), restores its sync_status
+  /// to 'pendingDelete' so the next push cycle will remove it from CloudKit.
+  /// Returns true if such a record was found (caller should skip re-insertion).
+  func restorePendingDeleteIfNeeded(ckRecordName: String) -> Bool {
+    let check = "SELECT id FROM Transactions WHERE ck_record_id = ? AND is_deleted = 1;"
+    guard db.fetchSingleInt(check, textBinding: ckRecordName) != nil else { return false }
+    db.executeSyncUpdate(
+      "UPDATE Transactions SET sync_status = 'pendingDelete' WHERE ck_record_id = ? AND is_deleted = 1;",
+      textBindings: [ckRecordName]
+    )
+    return true
+  }
+
+  /// If a tombstone (is_deleted=1, ck_record_id=NULL) exists for this parent+month,
+  /// re-links it to the incoming CK record name and re-queues it as pendingDelete.
+  /// Called by ConflictResolver when CloudKit re-sends a record whose local row was
+  /// tombstoned by hardDeleteLocal (ck_record_id cleared), preventing re-insertion.
+  func restoreTombstoneForInstance(parentId: Int, budgetMonthDate: Int, ckRecordName: String) -> Bool {
+    let check = """
+      SELECT id FROM Transactions
+      WHERE parent_transaction_id = ? AND budget_month_date = ? AND is_deleted = 1
+      LIMIT 1;
+      """
+    guard db.fetchSingleInt(check, intBindings: [parentId, budgetMonthDate]) != nil else { return false }
+    // Do NOT re-link the tombstone (i.e. don't assign ck_record_id or mark pendingDelete).
+    // Re-linking caused an infinite delete loop: after a successful CK delete hardDeleteLocal
+    // clears ck_record_id, a stale-token pull re-delivers the live record, this function
+    // re-queues it as pendingDelete, the next push deletes it again, and so on forever.
+    // Returning true is enough: it prevents insertFromCloud from resurrecting the instance.
+    // The tombstone remains (is_deleted=1, ck_record_id=NULL) to block lazy regeneration.
+    // When CK's change token advances past our delete, the next pull will deliver it as a
+    // deletion and processDeletedRecord will confirm the tombstone state.
+    return true
+  }
+
+  func lastModifiedDate(for id: Int) -> Date? {
+    let query = "SELECT updated_at FROM Transactions WHERE id = ?;"
+    guard let timestamp = db.fetchSingleInt(query, intBinding: id), timestamp > 0 else {
+      return nil
+    }
+    return Date(timeIntervalSince1970: TimeInterval(timestamp))
+  }
+
+  func fetchTransactionsForGroup(groupId: String) -> [Transaction] {
+    let query = """
+      SELECT id, title, category, type, amount, date, budget_month_date,
+             is_recurring, has_installments, parent_transaction_id,
+             installment_number, total_installments, original_amount,
+             credit_card_id, statement_id, is_credit_card_statement, created_by_uid,
+      business_day_rule, unadjusted_date, series_period
+      FROM Transactions WHERE shared_group_id = ? AND (is_deleted IS NULL OR is_deleted = 0);
+      """
+    return (try? db.executeTransactionQueryPublicText(query, textBindings: [groupId])) ?? []
+  }
+
+  /// Fetches group transactions filtered for display — hides parent recurring/installment templates.
+  /// Matches the same filtering as fetchTransactions() for personal view.
+  func fetchDisplayTransactionsForGroup(groupId: String) -> [Transaction] {
+    return fetchTransactionsForGroup(groupId: groupId).filter { tx in
+      if tx.isRecurring == true && tx.parentTransactionId == nil { return false }
+      if tx.hasInstallments == true && tx.parentTransactionId == nil { return false }
+      return true
+    }
+  }
+
+  /// DISABLED (data-safety): this deleted every cloud-linked transaction and stripped
+  /// `ck_record_id` from the survivors, which destroyed data on a freshly-synced device and
+  /// caused survivors to re-upload as duplicates. It is intentionally a no-op now — removing
+  /// cloud-linked rows or detaching their CK identity can never be safe as a blanket operation.
+  /// (No caller remains; kept neutered as a guard against reintroduction.)
+  func removeCloudInsertedRecords() {
+    logWarning("[TransactionRepository] removeCloudInsertedRecords is disabled (non-destructive)")
+  }
+
+  /// Fixes orphaned parent_transaction_id references, then deduplicates recurring instances.
+  /// Must be called after processing all incoming CloudKit records.
+  func fixAndDeduplicateAfterSync() {
+    Self.invalidateCache()
+    db.fixOrphanedParentTransactionIds()
+    db.deduplicateRecurringTransactions()
+    Self.invalidateCache()
+  }
+
+  func updateSharedGroupId(transactionId: Int, groupId: String?) {
+    Self.invalidateCache()
+    if let groupId = groupId {
+      db.executeSyncUpdate(
+        "UPDATE Transactions SET shared_group_id = ?, sync_status = 'pending' WHERE id = ?;",
+        textBindings: [groupId],
+        intBindings: [transactionId]
+      )
+    } else {
+      db.executeSyncUpdate(
+        "UPDATE Transactions SET shared_group_id = NULL, sync_status = 'pending' WHERE id = ?;",
+        intBindings: [transactionId]
+      )
     }
   }
 }

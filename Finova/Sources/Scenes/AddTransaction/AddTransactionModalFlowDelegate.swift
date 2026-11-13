@@ -10,4 +10,5 @@ import Foundation
 public protocol AddTransactionModalFlowDelegate: AnyObject {
   func didAddTransaction()
   func didUpdateTransaction()
+  func didTapCreateCreditCard()
 }

@@ -8,4 +8,7 @@
 public protocol SettingsFlowDelegate: AnyObject {
     func dismissSettings()
     func logout()
+    func navigateToNotificationSettings()
+    func navigateToImportData()
+    func navigateToGuides()
 }

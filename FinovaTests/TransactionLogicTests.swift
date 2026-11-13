@@ -19,10 +19,10 @@ class TransactionLogicTests: XCTestCase {
     override func setUp() {
         super.setUp()
         
-        // Authenticate a test user for secure data access
+        // Set up a test user UID for data access
         let testUID = "test_user_transaction_logic_\(UUID().uuidString)"
-        SecureLocalDataManager.shared.authenticateUser(firebaseUID: testUID)
-        print("🧪 Authenticated test user: \(testUID)")
+        UIDUserDefaultsManager.shared.currentUserUID = testUID
+        print("🧪 Set test user UID: \(testUID)")
         
         transactionRepo = TransactionRepository()
         recurringManager = RecurringTransactionManager(transactionRepo: transactionRepo)
@@ -58,9 +58,9 @@ class TransactionLogicTests: XCTestCase {
     override func tearDown() {
         clearTestData()
         
-        // Clear secure data and sign out test user
-        SecureLocalDataManager.shared.signOut()
-        print("🧪 Signed out test user and cleared secure data")
+        // Clear test user UID
+        UIDUserDefaultsManager.shared.signOut()
+        print("🧪 Cleared test user UID")
         
         super.tearDown()
     }
@@ -69,17 +69,15 @@ class TransactionLogicTests: XCTestCase {
     
     private func authenticateUniqueTestUser(testName: String = #function) {
         let testUID = "test_\(testName)_\(UUID().uuidString.prefix(8))"
-        SecureLocalDataManager.shared.authenticateUser(firebaseUID: testUID)
-        print("🧪 \(testName): Authenticated unique test user: \(testUID)")
+        UIDUserDefaultsManager.shared.currentUserUID = testUID
+        print("🧪 \(testName): Set unique test user UID: \(testUID)")
     }
     
     private func clearTestData() {
         // Clear SQLite data using the dedicated test cleanup method
         transactionRepo.clearAllTransactionsForTesting()
         
-        // Clear secure user data (encrypted storage)
-        SecureLocalDataManager.shared.clearUserData()
-        print("🧪 Cleared both SQLite and secure user data")
+        print("🧪 Cleared SQLite test data")
         
         // Verify SQLite cleanup worked
         let remainingTransactions = transactionRepo.fetchAllTransactions()
@@ -93,11 +91,6 @@ class TransactionLogicTests: XCTestCase {
             }
         }
         
-        // Verify secure data cleanup
-        let secureTransactions = SecureLocalDataManager.shared.loadTransactions()
-        if !secureTransactions.isEmpty {
-            print("⚠️ Still have \(secureTransactions.count) transactions in secure storage")
-        }
     }
     
     // MARK: - Recurring Transaction Creation Tests
@@ -320,8 +313,111 @@ class TransactionLogicTests: XCTestCase {
         }
     }
     
+    // MARK: - Recurring Transaction Editing Tests
+
+    /// Regression test: editing "this and future occurrences" must also affect future
+    /// instances that are materialized lazily *after* the edit. Previously those were
+    /// regenerated from the original parent template and reverted to the old amount.
+    func testRecurringEditFutureOnlyPropagatesToLaterGeneratedInstances() {
+        authenticateUniqueTestUser()
+
+        let calendar = Calendar.current
+        let startDate = DateFormatter.fullDateFormatter.date(from: "15/01/2025")!
+
+        // Create the parent recurring transaction at $1000.00 (deterministic — no async path).
+        let parentModel = TransactionModel(
+            title: "Apartment Rent",
+            category: "utilities",
+            amount: 100000,
+            type: "expense",
+            dateTimestamp: Int(startDate.timeIntervalSince1970),
+            budgetMonthDate: startDate.monthAnchor,
+            isRecurring: true
+        )
+        guard let parentId = try? transactionRepo.insertTransactionAndGetId(parentModel) else {
+            XCTFail("Should insert parent recurring transaction"); return
+        }
+        try? transactionRepo.updateParentTransactionId(transactionId: parentId, parentId: parentId)
+
+        // Materialize the first two years of instances (Feb 2025 … Jan 2027).
+        var earlyAnchors = Set<Int>()
+        for offset in 1...24 {
+            if let d = calendar.date(byAdding: .month, value: offset, to: startDate) {
+                earlyAnchors.insert(d.monthAnchor)
+            }
+        }
+        let genExp = XCTestExpectation(description: "materialize early window")
+        recurringManager.materializeOccurrences(for: earlyAnchors) { _ in genExp.fulfill() }
+        wait(for: [genExp], timeout: 5.0)
+
+        let marchDate = DateFormatter.fullDateFormatter.date(from: "15/03/2025")!
+        let marchAnchor = marchDate.monthAnchor
+        let created = transactionRepo.fetchAllTransactions()
+        guard let marchInstance = created.first(where: {
+            $0.parentTransactionId == parentId && $0.date.monthAnchor == marchAnchor
+        }) else {
+            XCTFail("Should have materialized a March 2025 instance"); return
+        }
+
+        // Edit "this and future occurrences" from March 2025 → new amount $1200.00.
+        let newData = TransactionModel(
+            id: marchInstance.id,
+            title: "Apartment Rent",
+            category: "utilities",
+            amount: 120000,
+            type: "expense",
+            dateTimestamp: Int(marchDate.timeIntervalSince1970),
+            budgetMonthDate: marchAnchor,
+            isRecurring: true,
+            hasInstallments: false,
+            parentTransactionId: parentId,
+            originalAmount: 120000
+        )
+        do {
+            try recurringManager.editRecurringTransactionsFromDate(
+                parentTransactionId: parentId,
+                selectedTransactionDate: marchDate,
+                editOption: .futureOnly,
+                newData: newData
+            )
+        } catch {
+            XCTFail("Future-only edit should succeed: \(error)"); return
+        }
+
+        // Instances from March onward reflect the edit; earlier ones don't.
+        let afterEdit = transactionRepo.fetchAllTransactions()
+        for inst in afterEdit where inst.parentTransactionId == parentId {
+            if inst.seriesPeriod >= marchAnchor {
+                XCTAssertEqual(inst.amount, 120000,
+                    "Instances at/after the edit month should use the new amount")
+            } else {
+                XCTAssertEqual(inst.amount, 100000,
+                    "Instances before the edit month should keep the original amount")
+            }
+        }
+
+        // The edit materializes the WHOLE series before applying its scope, so months beyond the
+        // window that was pre-materialized above exist too — and carry the edited amount.
+        //
+        // This used to be the reverse: a far-future month stayed unmaterialized until something
+        // asked for it, and was then regenerated from the stale parent template. With nothing
+        // generating on demand any more, an edit that did not materialize first would simply never
+        // reach those months.
+        let horizonAnchor = SeriesMonths.horizonAnchor(start: startDate.monthAnchor)
+        let seriesAfterEdit = afterEdit.filter { $0.parentTransactionId == parentId }
+        XCTAssertEqual(
+            seriesAfterEdit.map { $0.seriesPeriod }.max(), horizonAnchor,
+            "The edit should have materialized the series through its full horizon")
+
+        let farAnchor = Date().monthAnchor(offsetByMonths: 30)
+        let farInstance = seriesAfterEdit.first { $0.seriesPeriod == farAnchor }
+        XCTAssertNotNil(farInstance, "Far-future month should be materialized by the edit itself")
+        XCTAssertEqual(farInstance?.amount, 120000,
+            "A month materialized by the edit must inherit the future-only amount, not the stale parent amount")
+    }
+
     // MARK: - Installment Transaction Tests
-    
+
     func testInstallmentCreation() {
         authenticateUniqueTestUser()
         

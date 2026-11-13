@@ -33,6 +33,7 @@ final class BudgetsViewController: UIViewController {
         super.viewDidLoad()
         hideKeyboardWhenTappedAround()
         contentView.delegate = self
+        contentView.suggestedAmount = { [weak self] in self?.viewModel.suggestedBudget(monthYearDate: $0) ?? 0 }
         setup()
     }
     
@@ -46,12 +47,6 @@ final class BudgetsViewController: UIViewController {
     }
     
     private func loadData() {
-        // 🔒 Authenticate SecureLocalDataManager for UID-isolated data access
-        if let user = UserDefaultsManager.getUser(), let firebaseUID = user.firebaseUID {
-            SecureLocalDataManager.shared.authenticateUser(firebaseUID: firebaseUID)
-            print("🔒 BudgetsViewController: SecureLocalDataManager authenticated for user: \(firebaseUID)")
-        }
-        
         budgetsData = viewModel.loadMonthTableViewData()
         
         contentView.updateUI(with: budgetsData, selectedDate: viewModel.selectedDate)
@@ -142,6 +137,7 @@ extension BudgetsViewController: BudgetsViewDelegate {
             loadData()
             contentView.budgetsTableView.reloadData()
             contentView.clearTextFields()
+            CoachMarkCenter.shared.post(.budgetSaved)
         case .failure(let error):
             
             switch error {
@@ -162,6 +158,7 @@ extension BudgetsViewController: BudgetsViewDelegate {
                         self.loadData()
                         self.contentView.budgetsTableView.reloadData()
                         self.contentView.clearTextFields()
+                        CoachMarkCenter.shared.post(.budgetSaved)
                     case .failure(let updateError):
                         self.showErrorAlert(error: updateError)
                     }
@@ -184,6 +181,10 @@ extension BudgetsViewController: BudgetsViewDelegate {
     
     func didTapBackButton() {
         flowDelegate?.navBackToDashboard()
+    }
+
+    func didTapManageTags() {
+        flowDelegate?.navigateToAllocationTags()
     }
 }
 

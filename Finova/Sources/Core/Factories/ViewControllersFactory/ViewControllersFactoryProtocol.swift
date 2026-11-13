@@ -21,9 +21,34 @@ protocol ViewControllersFactoryProtocol: AnyObject {
     flowDelegate: AddTransactionModalFlowDelegate
   ) -> AddTransactionModalViewController
   func makeRegisterViewController(flowDelegate: RegisterFlowDelegate) -> RegisterViewController
+  func makeProfileViewController(flowDelegate: ProfileFlowDelegate) -> ProfileViewController
   func makeSettingsViewController(flowDelegate: SettingsFlowDelegate) -> SettingsViewController
   func makeTransactionDetailsViewController(
     flowDelegate: TransactionDetailsFlowDelegate,
     transaction: Transaction
   ) -> TransactionDetailsViewController
+  func makeEarlyPaymentViewController(
+    flowDelegate: EarlyPaymentFlowDelegate,
+    transaction: Transaction
+  ) -> EarlyPaymentViewController
+  func makeNotificationSettingsViewController(
+    flowDelegate: NotificationSettingsFlowDelegate
+  ) -> NotificationSettingsViewController
+  func makeNotificationHistoryViewController(
+    flowDelegate: NotificationHistoryFlowDelegate
+  ) -> NotificationHistoryViewController
+  func makeCreditCardsViewController(flowDelegate: CreditCardsFlowDelegate) -> CreditCardsViewController
+  func makeAddCreditCardViewController(flowDelegate: AddCreditCardFlowDelegate, cardToEdit: CreditCard?) -> AddCreditCardViewController
+  func makeStatementDetailsViewController(flowDelegate: StatementDetailsFlowDelegate, statement: CreditCardStatement, card: CreditCard) -> StatementDetailsViewController
+  func makeStatementPaymentViewController(flowDelegate: StatementPaymentFlowDelegate, statement: CreditCardStatement, card: CreditCard) -> StatementPaymentViewController
+  func makeAllocationTagsViewController(flowDelegate: AllocationTagsFlowDelegate) -> AllocationTagsViewController
+  func makeAllocationTagEditViewController(flowDelegate: AllocationTagEditFlowDelegate, tag: AllocationTag) -> AllocationTagEditViewController
+  func makeAllocationTagCategoriesViewController(flowDelegate: AllocationTagCategoriesFlowDelegate, tag: AllocationTag) -> AllocationTagCategoriesViewController
+  func makeImportHistoryViewController(flowDelegate: ImportFlowDelegate) -> ImportHistoryViewController
+  func makeImportReviewViewController(
+    flowDelegate: ImportFlowDelegate, file: LoadedFile, plan: ImportPlan
+  ) -> ImportReviewViewController
+  func makeImportMappingViewController(
+    flowDelegate: ImportFlowDelegate, file: LoadedFile, plan: ImportPlan
+  ) -> ImportMappingViewController
 }

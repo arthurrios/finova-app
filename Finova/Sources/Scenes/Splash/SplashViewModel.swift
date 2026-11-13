@@ -11,7 +11,7 @@ final class SplashViewModel {
     private let calendar = Calendar.current
     private let monthRange: ClosedRange<Int>
     
-    init(monthRange: ClosedRange<Int> = -12...24) { // 3 years
+    init(monthRange: ClosedRange<Int> = SeriesMonths.carouselRange) {
         self.monthRange = monthRange
     }
     

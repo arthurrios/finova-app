@@ -6,12 +6,15 @@
 //
 
 import Firebase
+import FirebaseMessaging
 import GoogleSignIn
 import UIKit
 import UserNotifications
 
 @main
-class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterDelegate {
+class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterDelegate,
+  MessagingDelegate
+{
 
   func application(
     _ application: UIApplication,
@@ -35,6 +38,14 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
       // 🔔 Check if this is first time opening app in new month and schedule notifications
       self?.checkAndScheduleMonthlyNotificationsOnFirstLaunch()
 
+      // 🔔 Refresh credit card statement reminders.
+      // `scheduleNotificationsOnLaunch()`, which used to be the only thing that scheduled them, is
+      // not reachable from the real launch path — it is called only from NotificationDebugManager
+      // and the tests. So on any launch that was not the first of the month, statement reminders
+      // were never (re)created: new statements got none, and paid or re-dated ones kept stale
+      // reminders. Statements close monthly, so this has to run on every launch, not once a month.
+      self?.refreshStatementNotifications()
+
       #if DEBUG
         // 🧪 Debug: Show data status on app launch (only in debug mode)
         DebugDataManager.shared.showDataStatus()
@@ -53,6 +64,10 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
 
     // Monitorar saldo negativo quando o app voltar ao foreground
     monitorNegativeBalance()
+
+    // Reagendar lembretes de fatura — `applicationWillEnterForeground` is not called on a cold
+    // launch, so this and the launch-time call are both needed to cover every way the app comes up.
+    refreshStatementNotifications()
 
     // Note: SceneDelegate will handle the appDidEnterForeground notification posting
     // to avoid duplicate notifications and ensure proper timing
@@ -79,19 +94,29 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
   }
 
   func applicationWillTerminate(_ application: UIApplication) {
-    // Called when the application is about to terminate.
-    // Save data if appropriate.
-
     // Mark that app is terminating gracefully
     UserDefaults.standard.set(false, forKey: "appWasTerminatedGracefully")
   }
 
   private func configureFirebase() {
     guard let path = Bundle.main.path(forResource: "GoogleService-Info", ofType: "plist") else {
-      logWarning(
-        "GoogleService-Info.plist not found - Firebase configuration skipped (likely in test environment)"
-      )
-      return
+      // A shipped app without this file cannot work: the first `Auth.auth()` traps inside
+      // FirebaseAuth, on whatever background thread happened to touch a singleton first, roughly a
+      // second after launch. Logging a warning and carrying on turned a missing build input into a
+      // crash with no visible connection to its cause — the plist is gitignored, so an archive
+      // built anywhere other than a machine that already has it produced exactly that.
+      //
+      // Tests legitimately run without it, so they stay on the warning path. Anything else stops
+      // here, where the message names the actual problem.
+      #if DEBUG
+        logWarning("GoogleService-Info.plist not found - skipping Firebase (test environment)")
+        return
+      #else
+        fatalError(
+          "GoogleService-Info.plist is missing from the app bundle. It is gitignored, so a CI build "
+            + "must provide it — see ci_scripts/ci_post_clone.sh and the GOOGLE_SERVICE_INFO_PLIST_BASE64 "
+            + "environment variable in the Xcode Cloud workflow.")
+      #endif
     }
 
     if FileManager.default.fileExists(atPath: path) {
@@ -138,6 +163,8 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
       DispatchQueue.main.async {
         if granted {
           print("✅ User granted permission for notifications")
+          // Register for remote notifications (required for FCM)
+          UIApplication.shared.registerForRemoteNotifications()
         } else if let error = error {
           print("❌ \(error) - User did not grant permission for notifications")
         } else {
@@ -145,228 +172,92 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
         }
       }
     }
+
+    // Set FCM messaging delegate
+    Messaging.messaging().delegate = self
+  }
+
+  // MARK: - APNs Token Handling
+
+  func application(
+    _ application: UIApplication,
+    didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data
+  ) {
+    // Pass device token to Firebase
+    Messaging.messaging().apnsToken = deviceToken
+    let tokenString = deviceToken.map { String(format: "%02.2hhx", $0) }.joined()
+    print("📱 APNs device token: \(tokenString)")
+
+    // Now that we have APNs token, subscribe to topics
+    // This ensures the subscription happens after APNs token is available
+    subscribeToAppUpdatesTopic()
+  }
+
+  func application(
+    _ application: UIApplication,
+    didFailToRegisterForRemoteNotificationsWithError error: Error
+  ) {
+    print("❌ Failed to register for remote notifications: \(error.localizedDescription)")
+  }
+
+  // MARK: - MessagingDelegate
+
+  func messaging(_ messaging: Messaging, didReceiveRegistrationToken fcmToken: String?) {
+    guard let fcmToken = fcmToken else { return }
+    print("📱 FCM registration token: \(fcmToken)")
+
+    // Note: Topic subscription is now done in didRegisterForRemoteNotificationsWithDeviceToken
+    // to ensure APNs token is available before subscribing
+    // If APNs token is already available, subscribe now (handles token refresh scenarios)
+    if Messaging.messaging().apnsToken != nil {
+      subscribeToAppUpdatesTopic()
+    }
+  }
+
+  /// Subscribe to the app_updates topic for push notifications about new versions
+  private func subscribeToAppUpdatesTopic() {
+    Messaging.messaging().subscribe(toTopic: "app_updates") { error in
+      if let error = error {
+        print("❌ Failed to subscribe to app_updates topic: \(error.localizedDescription)")
+      } else {
+        print("✅ Subscribed to app_updates topic for version notifications")
+      }
+    }
   }
 
   // MARK: - Notification Scheduling on Launch
 
   func scheduleNotificationsOnLaunch() {
-    // Only schedule notifications if we have permission
     UNUserNotificationCenter.current().getNotificationSettings { settings in
-      guard settings.authorizationStatus == .authorized else {
-        return
-      }
+      guard settings.authorizationStatus == .authorized else { return }
 
-      // Schedule notifications for all future transactions
-      // This will be called once on app launch to ensure notifications are set up
-      DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {  // Delay to ensure data is loaded
-        self.scheduleAllTransactionNotifications()
+      DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+        guard UserDefaultsManager.getUser()?.firebaseUID != nil else { return }
+
+        let transactionRepo = TransactionRepository()
+        let allTxs = transactionRepo.fetchAllTransactions()
+        TransactionNotificationManager.shared.scheduleAllTransactionNotifications(transactions: allTxs)
+        // Statement-total recalculation and budget-month repair moved to the explicit
+        // "Repair data" action (DataRepairService) — both rewrite rows and mark them pending,
+        // which on launch meant every cold start queued a push the other device had to absorb.
+        StatementNotificationManager.shared.scheduleAllStatementNotifications()
         self.monitorNegativeBalance()
       }
     }
   }
 
-  private func scheduleAllTransactionNotifications() {
-    // Check if user is authenticated first
-    guard let user = UserDefaultsManager.getUser(),
-      let firebaseUID = user.firebaseUID
-    else {
-      print("🔔 ❌ Cannot schedule notifications: User not authenticated")
-      print("🔔 ❌ Cannot schedule notifications: User not authenticated")
-      return
-    }
-
-    // Authenticate SecureLocalDataManager
-    SecureLocalDataManager.shared.authenticateUser(firebaseUID: firebaseUID)
-
-    let transactionRepo = TransactionRepository()
-    let allTxs = transactionRepo.fetchAllTransactions()
-    let now = Date()
-    var calendar = Calendar.current
-    calendar.timeZone = TimeZone.current
-
-    print("🔔 📡 Scheduling notifications for \(allTxs.count) transactions")
-
-    // Clear existing notifications first
-    UNUserNotificationCenter.current().removeAllPendingNotificationRequests()
-    print("🔔 🧹 Cleared existing notifications")
-
-    // Schedule notifications for all future transactions (excluding hidden parent transactions)
-    let futureTxs = allTxs.filter { tx in
-      // Skip parent transactions that are not visible in UI
-      if tx.hasInstallments == true && tx.amount == 0 {
-        return false
-      }
-
-      if tx.isRecurring == true && tx.parentTransactionId == nil && tx.amount == 0 {
-        return false
-      }
-
-      // Create notification time (8 AM) in local timezone
-      var notificationDate = calendar.startOfDay(for: tx.date)
-      notificationDate =
-        calendar.date(byAdding: .hour, value: 8, to: notificationDate) ?? notificationDate
-
-      return notificationDate > now
-    }
-
-    print("🔔 📅 Found \(futureTxs.count) future transactions to schedule")
-
-    // Sort by date to prioritize closest transactions first
-    let sortedTxs = futureTxs.sorted { tx1, tx2 in
-      tx1.date < tx2.date
-    }
-
-    // Prioritize transactions in the next 30 days
-    let thirtyDaysFromNow = calendar.date(byAdding: .day, value: 30, to: now) ?? now
-    let next30DaysTxs = sortedTxs.filter { tx in
-      tx.date <= thirtyDaysFromNow
-    }
-    let remainingTxs = sortedTxs.filter { tx in
-      tx.date > thirtyDaysFromNow
-    }
-
-    print("🔔 📅 Next 30 days: \(next30DaysTxs.count) transactions")
-    print("🔔 📅 Beyond 30 days: \(remainingTxs.count) transactions")
-
-    // Combine arrays: prioritize next 30 days, then remaining sorted by date
-    let prioritizedTxs = next30DaysTxs + remainingTxs
-
-    // Limitar a 50 notificações para evitar problemas com limite do iOS
-    let limitedTxs = Array(prioritizedTxs.prefix(50))
-    if limitedTxs.count < prioritizedTxs.count {
-      let skippedInNext30Days = max(0, next30DaysTxs.count - min(50, next30DaysTxs.count))
-      print(
-        "🔔 ⚠️ Limited notifications to 50 (iOS limit). \(prioritizedTxs.count - limitedTxs.count) transactions will not have notifications"
-      )
-      if skippedInNext30Days > 0 {
-        print(
-          "🔔 ⚠️ WARNING: \(skippedInNext30Days) transactions in the next 30 days will NOT have notifications!"
-        )
-      } else {
-        print(
-          "🔔 ✅ All \(next30DaysTxs.count) transactions in the next 30 days will have notifications")
-      }
-    } else {
-      print(
-        "🔔 ✅ All \(next30DaysTxs.count) transactions in the next 30 days will have notifications")
-    }
-
-    limitedTxs.forEach { tx in
-      scheduleNotification(for: tx, calendar: calendar)
-    }
+  /// Rebuilds every `statement_due_*` / `statement_pay_*` reminder from the current DB state.
+  private func refreshStatementNotifications() {
+    guard UserDefaultsManager.getUser()?.firebaseUID != nil else { return }
+    StatementNotificationManager.shared.rescheduleAllNotifications()
   }
 
-  private func scheduleNotification(for tx: Transaction, calendar: Calendar) {
-    guard let transactionId = tx.id else {
-      return
-    }
-
-    let id = "transaction_\(transactionId)"
-
-    // Create notification time (8 AM) in local timezone
-    var notificationDate = calendar.startOfDay(for: tx.date)
-    notificationDate =
-      calendar.date(byAdding: .hour, value: 8, to: notificationDate) ?? notificationDate
-
-    // Only schedule if notification time is in the future
-    guard notificationDate > Date() else {
-      return
-    }
-
-    // Verificar se a data é muito no futuro (mais de 1 ano)
-    let oneYearFromNow = Calendar.current.date(byAdding: .year, value: 1, to: Date()) ?? Date()
-    if tx.date > oneYearFromNow {
-      print("🔔 ⚠️ Skipping notification for \(tx.title) - date too far in future")
-      return
-    }
-
-    // Calculate time interval from now to notification date
-    let timeInterval = notificationDate.timeIntervalSinceNow
-
-    // Verificar se o intervalo é muito grande (mais de 30 dias)
-    let thirtyDaysInSeconds: TimeInterval = 30 * 24 * 60 * 60
-    if timeInterval > thirtyDaysInSeconds {
-      print("🔔 ⚠️ Skipping notification for \(tx.title) - more than 30 days away")
-      return
-    }
-
-    let trigger = UNTimeIntervalNotificationTrigger(timeInterval: timeInterval, repeats: false)
-
-    let titleKey =
-      tx.type == .income
-      ? "notification.transaction.title.income"
-      : "notification.transaction.title.expense"
-    let bodyKey =
-      tx.type == .income
-      ? "notification.transaction.body.income"
-      : "notification.transaction.body.expense"
-
-    let amountString = tx.amount.currencyString
-    let title = titleKey.localized
-    let body = String(format: bodyKey.localized, amountString, tx.title)
-
-    let content = UNMutableNotificationContent()
-    content.title = title
-    content.body = body
-    content.sound = .default
-    content.categoryIdentifier = "TRANSACTION_REMINDER"
-    content.userInfo = ["transactionId": transactionId, "date": tx.date.timeIntervalSince1970]
-
-    let request = UNNotificationRequest(identifier: id, content: content, trigger: trigger)
-    UNUserNotificationCenter.current().add(request) { error in
-      if let error = error {
-        print("🔔 ❌ Error scheduling notification for \(tx.title): \(error)")
-      } else {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd HH:mm"
-        print(
-          "🔔 ✅ Scheduled notification for \(tx.title) at \(formatter.string(from: notificationDate))"
-        )
-      }
-    }
-  }
-
-  // MARK: - Notification Management
-
-  /// Reagenda notificações para transações que estão próximas (dentro de 30 dias)
   private func rescheduleNearbyNotifications() {
-    guard let user = UserDefaultsManager.getUser(),
-      let firebaseUID = user.firebaseUID
-    else {
-      return
-    }
-
-    SecureLocalDataManager.shared.authenticateUser(firebaseUID: firebaseUID)
+    guard UserDefaultsManager.getUser()?.firebaseUID != nil else { return }
 
     let transactionRepo = TransactionRepository()
     let allTxs = transactionRepo.fetchAllTransactions()
-    let now = Date()
-    var calendar = Calendar.current
-    calendar.timeZone = TimeZone.current
-
-    // Encontrar transações que estão entre 30 e 60 dias no futuro
-    let thirtyDaysFromNow = calendar.date(byAdding: .day, value: 30, to: now) ?? now
-    let sixtyDaysFromNow = calendar.date(byAdding: .day, value: 60, to: now) ?? now
-
-    let nearbyTxs = allTxs.filter { tx in
-      // Skip parent transactions that are not visible in UI
-      if tx.hasInstallments == true && tx.amount == 0 {
-        return false
-      }
-
-      if tx.isRecurring == true && tx.parentTransactionId == nil && tx.amount == 0 {
-        return false
-      }
-
-      return tx.date >= thirtyDaysFromNow && tx.date <= sixtyDaysFromNow
-    }
-
-    if !nearbyTxs.isEmpty {
-      print("🔔 🔄 Rescheduling notifications for \(nearbyTxs.count) nearby transactions")
-      nearbyTxs.forEach { tx in
-        scheduleNotification(for: tx, calendar: calendar)
-      }
-    }
+    TransactionNotificationManager.shared.rescheduleNearbyTransactions(transactions: allTxs)
   }
 
   // MARK: - UNUserNotificationCenterDelegate
@@ -376,6 +267,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     willPresent notification: UNNotification,
     withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
   ) {
+    // Track notification in history
+    NotificationHistoryManager.shared.handleDeliveredLocalNotification(notification)
+
     // Show notification even when app is in foreground
     completionHandler([.alert, .sound, .badge])
   }
@@ -386,8 +280,49 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     withCompletionHandler completionHandler: @escaping () -> Void
   ) {
     // Handle notification tap
-    let userInfo = response.notification.request.content.userInfo
+    let notification = response.notification
+    let userInfo = notification.request.content.userInfo
     print("📱 User tapped notification: \(userInfo)")
+
+    // Add notification to history if it's not already there (handles background/killed app cases)
+    // This ensures push notifications that bypassed willPresent are tracked
+    NotificationHistoryManager.shared.handleDeliveredLocalNotification(notification)
+
+    // Mark notification as read when tapped
+    let notificationId = notification.request.identifier
+    NotificationHistoryManager.shared.markAsRead(id: notificationId)
+
+    // Check if this is a transaction notification (has transactionId in userInfo)
+    if let transactionId = userInfo["transactionId"] as? Int {
+      print("🔔 📱 Transaction notification tapped - navigating to transaction \(transactionId)")
+      // Post notification to navigate to transaction details
+      DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+        NotificationCenter.default.post(
+          name: .navigateToTransactionDetails,
+          object: nil,
+          userInfo: ["transactionId": transactionId]
+        )
+      }
+      completionHandler()
+      return
+    }
+
+    // Check if this is a credit card statement notification
+    if let notificationType = userInfo["type"] as? String,
+       notificationType == "credit_card_statement",
+       let statementId = userInfo["statementId"] as? Int,
+       let cardId = userInfo["cardId"] as? Int {
+      print("🔔 💳 Statement notification tapped - navigating to statement \(statementId)")
+      DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+        NotificationCenter.default.post(
+          name: .navigateToStatementDetails,
+          object: nil,
+          userInfo: ["statementId": statementId, "cardId": cardId]
+        )
+      }
+      completionHandler()
+      return
+    }
 
     // Check if this is a monthly notification that should trigger success alert
     if let notificationType = userInfo["type"] as? String {
@@ -397,26 +332,11 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
 
         // Schedule monthly notifications without showing alert immediately
         // The alert will be shown when the dashboard appears
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {  // Delay to ensure app is fully loaded
-          let monthlyManager = MonthlyNotificationManager()
-          let success = monthlyManager.scheduleAllMonthlyNotifications(showAlert: false)
-
-          if success {
-            // Update the last scheduled month key since we just scheduled notifications
-            let currentDate = Date()
-            let calendar = Calendar.current
-            let currentMonth = calendar.component(.month, from: currentDate)
-            let currentYear = calendar.component(.year, from: currentDate)
-            let currentMonthKey = "\(currentYear)-\(currentMonth)"
-            UserDefaults.standard.set(currentMonthKey, forKey: "lastScheduledMonthKey")
-            // Mark that we should show the rescheduled alert on dashboard
-            UserDefaults.standard.set(true, forKey: "shouldShowNotificationSuccessAlert")
-            UserDefaults.standard.set("rescheduled", forKey: "notificationAlertType")
-          } else {
-            // Mark that we should show the failure alert on dashboard
-            UserDefaults.standard.set(true, forKey: "shouldShowNotificationSuccessAlert")
-            UserDefaults.standard.set("failure", forKey: "notificationAlertType")
-          }
+        // `scheduleAllMonthlyNotifications` blocks its caller on the notification centre and reads
+        // the whole ledger, so it must not run on the main queue. It records the scheduled month
+        // itself — see MonthlyNotificationManager.markCurrentMonthAsScheduled.
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 1.0) {
+          Self.rescheduleMonthlyNotificationsAndFlagAlert()
         }
 
       case "recurring_reminder", "installment_reminder":
@@ -425,20 +345,14 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
 
         // Schedule monthly notifications without showing alert immediately
         // The alert will be shown when the dashboard appears
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {  // Delay to ensure app is fully loaded
-          let monthlyManager = MonthlyNotificationManager()
-          let success = monthlyManager.scheduleAllMonthlyNotifications(showAlert: false)
-
-          if success {
-            // Mark that we should show the rescheduled alert on dashboard
-            UserDefaults.standard.set(true, forKey: "shouldShowNotificationSuccessAlert")
-            UserDefaults.standard.set("rescheduled", forKey: "notificationAlertType")
-          } else {
-            // Mark that we should show the failure alert on dashboard
-            UserDefaults.standard.set(true, forKey: "shouldShowNotificationSuccessAlert")
-            UserDefaults.standard.set("failure", forKey: "notificationAlertType")
-          }
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 1.0) {
+          Self.rescheduleMonthlyNotificationsAndFlagAlert()
         }
+
+      case "app_update":
+        print("🔔 📲 App update notification tapped - opening App Store")
+        // Open App Store to update the app
+        UpdateToastManager.shared.openAppStore()
 
       default:
         print("🔔 📱 Other notification type tapped: \(notificationType)")
@@ -452,22 +366,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
 
   /// Monitora o saldo negativo do mês atual
   private func monitorNegativeBalance() {
-    // Check if user is authenticated first
-    guard let user = UserDefaultsManager.getUser(),
-      let firebaseUID = user.firebaseUID
-    else {
-      print("🔔 ❌ Cannot monitor balance: User not authenticated")
-      return
-    }
-
-    // Authenticate SecureLocalDataManager
-    SecureLocalDataManager.shared.authenticateUser(firebaseUID: firebaseUID)
-
-    // Create balance monitor and check current month
-    let balanceMonitor = BalanceMonitorManager()
-    balanceMonitor.monitorCurrentMonthBalance()
-
-    print("🔔 💰 Balance monitoring completed")
+    BalanceMonitorManager.shared.forceTriggerBalanceMonitoring()
   }
 
   // MARK: - Monthly Notification System
@@ -476,14 +375,11 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
   private func setupMonthlyNotificationSystem() {
     // Check if user is authenticated first
     guard let user = UserDefaultsManager.getUser(),
-      let firebaseUID = user.firebaseUID
+      user.firebaseUID != nil
     else {
       print("🔔 ❌ Cannot setup monthly notifications: User not authenticated")
       return
     }
-
-    // Authenticate SecureLocalDataManager
-    SecureLocalDataManager.shared.authenticateUser(firebaseUID: firebaseUID)
 
     // Create monthly notification manager and setup system
     let monthlyManager = MonthlyNotificationManager()
@@ -496,51 +392,63 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
   private func checkAndScheduleMonthlyNotificationsOnFirstLaunch() {
     // Check if user is authenticated first
     guard let user = UserDefaultsManager.getUser(),
-      let firebaseUID = user.firebaseUID
+      user.firebaseUID != nil
     else {
       print("🔔 ❌ Cannot check monthly notifications: User not authenticated")
       return
     }
 
-    // Authenticate SecureLocalDataManager
-    SecureLocalDataManager.shared.authenticateUser(firebaseUID: firebaseUID)
+    let monthlyManager = MonthlyNotificationManager()
+    let currentMonthKey = MonthlyNotificationManager.monthKey(for: Date())
 
-    let currentDate = Date()
-    let calendar = Calendar.current
-    let currentMonth = calendar.component(.month, from: currentDate)
-    let currentYear = calendar.component(.year, from: currentDate)
-
-    // Create a key for the current month
-    let currentMonthKey = "\(currentYear)-\(currentMonth)"
-
-    // Check if we've already scheduled notifications for this month
-    let lastScheduledMonthKey = UserDefaults.standard.string(forKey: "lastScheduledMonthKey")
-
-    if lastScheduledMonthKey != currentMonthKey {
-      print("🔔 📅 First time opening app in month \(currentMonthKey) - scheduling notifications")
-
-      // Schedule monthly notifications without showing alert immediately
-      // The alert will be shown when the dashboard appears
-      DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {  // Delay to ensure app is fully loaded
-        let monthlyManager = MonthlyNotificationManager()
-        let success = monthlyManager.scheduleAllMonthlyNotifications(showAlert: false)
-
-        if success {
-          // Save that we've scheduled notifications for this month
-          UserDefaults.standard.set(currentMonthKey, forKey: "lastScheduledMonthKey")
-          // Mark that we should show the success alert on dashboard
-          UserDefaults.standard.set(true, forKey: "shouldShowNotificationSuccessAlert")
-          UserDefaults.standard.set("success", forKey: "notificationAlertType")
-          print("🔔 ✅ Monthly notifications scheduled for \(currentMonthKey)")
-        } else {
-          // Mark that we should show the failure alert on dashboard
-          UserDefaults.standard.set(true, forKey: "shouldShowNotificationSuccessAlert")
-          UserDefaults.standard.set("failure", forKey: "notificationAlertType")
-          print("🔔 ❌ Failed to schedule monthly notifications for \(currentMonthKey)")
-        }
-      }
-    } else {
+    guard !monthlyManager.areNotificationsScheduledForCurrentMonth() else {
       print("🔔 📅 Already scheduled notifications for month \(currentMonthKey)")
+      return
+    }
+
+    print("🔔 📅 First time opening app in month \(currentMonthKey) - scheduling notifications")
+
+    // Schedule monthly notifications without showing alert immediately.
+    // The alert will be shown when the dashboard appears.
+    // Runs off the main queue: the call blocks on the notification centre and reads the ledger.
+    DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 2.0) {
+      Self.rescheduleMonthlyNotificationsAndFlagAlert(successAlertType: "success")
+    }
+  }
+
+  /// Reschedules this month's notifications and leaves a flag for the dashboard to surface the
+  /// resulting alert. `MonthlyNotificationManager` records the month itself on success, which is
+  /// what retires the "notifications not configured" prompt for the same month.
+  /// The month the "notifications are off" notice was last shown for.
+  private static let permissionNoticeMonthKey = "notificationPermissionNoticeMonth"
+
+  private static func rescheduleMonthlyNotificationsAndFlagAlert(
+    successAlertType: String = "rescheduled"
+  ) {
+    let monthlyManager = MonthlyNotificationManager()
+    let success = monthlyManager.scheduleAllMonthlyNotifications(showAlert: false)
+
+    // Notifications switched off is the user's choice, not a failure. Reporting it as "Notification
+    // Setup Failed" came back on every launch, because a month without permission is never recorded
+    // as scheduled. Say why instead, once a month; the month stays unrecorded so scheduling runs as
+    // soon as permission is granted.
+    if !success && !monthlyManager.hasNotificationPermission() {
+      let monthKey = MonthlyNotificationManager.monthKey(for: Date())
+      guard UserDefaults.standard.string(forKey: permissionNoticeMonthKey) != monthKey else { return }
+      UserDefaults.standard.set(monthKey, forKey: permissionNoticeMonthKey)
+      UserDefaults.standard.set(true, forKey: "shouldShowNotificationSuccessAlert")
+      UserDefaults.standard.set("permission", forKey: "notificationAlertType")
+      return
+    }
+
+    UserDefaults.standard.set(true, forKey: "shouldShowNotificationSuccessAlert")
+    UserDefaults.standard.set(
+      success ? successAlertType : "failure", forKey: "notificationAlertType")
+
+    if success {
+      print("🔔 ✅ Monthly notifications scheduled for \(MonthlyNotificationManager.monthKey(for: Date()))")
+    } else {
+      print("🔔 ❌ Failed to schedule monthly notifications")
     }
   }
 }

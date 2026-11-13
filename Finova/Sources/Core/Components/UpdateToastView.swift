@@ -268,6 +268,14 @@ final class UpdateToastView: UIView {
 
   // MARK: - Layout
 
+  override func layoutSubviews() {
+    super.layoutSubviews()
+    layer.shadowPath = UIBezierPath(
+      roundedRect: bounds,
+      cornerRadius: backgroundView.layer.cornerRadius
+    ).cgPath
+  }
+
   // MARK: - Actions
 
   @objc private func updateButtonTapped() {

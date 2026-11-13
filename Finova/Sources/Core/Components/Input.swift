@@ -109,6 +109,26 @@ class Input: UIView {
     self.isError = hasError
   }
 
+  func setCentsValue(_ cents: Int) {
+    guard type == .currency else { return }
+
+    centsValue = cents
+
+    let code = AppConfig.currencyCode
+    let frac = CurrencyUtils.fractionDigits(for: code)
+    let divisor = pow(Decimal(10), frac)
+    let amountDecimal = Decimal(cents) / divisor
+    let amountNumber = NSDecimalNumber(decimal: amountDecimal)
+
+    let decFmt = NumberFormatter()
+    decFmt.numberStyle = .decimal
+    decFmt.minimumFractionDigits = frac
+    decFmt.maximumFractionDigits = frac
+    decFmt.locale = Locale.current
+
+    textField.text = decFmt.string(from: amountNumber) ?? ""
+  }
+
   // MARK: - Setup Defaults
   private func setupDefaults() {
     textField.isSecureTextEntry = false
@@ -416,6 +436,7 @@ class Input: UIView {
   private var selectedMonth = Calendar.current.component(.month, from: Date())
   var pickerValues: [String]?
   var selectedPickerIndex: Int = 0
+  var onPickerSelectionChanged: ((Int) -> Void)?
   private var selectedYear = Calendar.current.component(.year, from: Date())
 
   private func monthOptionsCount() -> Int {
@@ -525,6 +546,43 @@ class Input: UIView {
 
     textField.inputAccessoryView = toolbar
     textField.tintColor = .clear
+  }
+
+  /// Updates the picker values for picker-type inputs
+  func updatePickerValues(_ values: [String]) {
+    self.pickerValues = values
+    self.selectedPickerIndex = 0
+    self.textField.text = nil
+    if let picker = textField.inputView as? UIPickerView {
+      picker.reloadAllComponents()
+    }
+  }
+
+  /// Programmatically selects a picker value at the given index
+  func selectPickerValue(at index: Int) {
+    guard let rawValues = pickerValues, index >= 0, index < rawValues.count else { return }
+
+    selectedPickerIndex = index
+
+    // Update the text field with the selected value
+    let key = rawValues[index]
+    if let categoryEnum = TransactionCategory.allCases.first(where: { $0.key == key }) {
+      textField.text = categoryEnum.description
+    } else {
+      let human = key
+        .replacingOccurrences(
+          of: "(?<=[a-z])([A-Z])",
+          with: " $1",
+          options: .regularExpression
+        )
+        .capitalized
+      textField.text = human
+    }
+
+    // Update the picker view to show the selected row
+    if let picker = textField.inputView as? UIPickerView {
+      picker.selectRow(index, inComponent: 0, animated: false)
+    }
   }
 
   @objc private func pickerDoneTapped() {
@@ -688,6 +746,7 @@ extension Input: UIPickerViewDataSource, UIPickerViewDelegate {
           .capitalized
         textField.text = human
       }
+      onPickerSelectionChanged?(row)
       return
     }
 
@@ -773,5 +832,27 @@ extension Input: UITextFieldDelegate {
 
   @objc private func dateFieldDidBeginEditing() {
     setInitialDateFromTextField()
+  }
+
+  // MARK: - Done Button Toolbar
+
+  /// Adds a toolbar with a Done button to dismiss the keyboard.
+  /// Useful for number pad and default keyboards that don't have a return key.
+  func addDoneButtonToolbar() {
+    let toolbar = UIToolbar()
+    toolbar.sizeToFit()
+
+    let doneButton = UIBarButtonItem(
+      barButtonSystemItem: .done,
+      target: self,
+      action: #selector(doneButtonTapped)
+    )
+    toolbar.setItems([.flexibleSpace(), doneButton], animated: false)
+
+    textField.inputAccessoryView = toolbar
+  }
+
+  @objc private func doneButtonTapped() {
+    textField.resignFirstResponder()
   }
 }

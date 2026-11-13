@@ -10,89 +10,273 @@ import UIKit
 
 final class ViewControllersFactory: ViewControllersFactoryProtocol {
 
-  func makeRegisterViewController(flowDelegate: any RegisterFlowDelegate) -> RegisterViewController
-  {
-    let contentView = RegisterView()
-    let viewModel = RegisterViewModel()
-    let viewController = RegisterViewController(
-      contentView: contentView, viewModel: viewModel, flowDelegate: flowDelegate)
-    return viewController
-  }
+    // MARK: - Shared Repository Instances
+    let transactionRepository = TransactionRepository()
 
-  func makeAddTransactionModalViewController(flowDelegate: any AddTransactionModalFlowDelegate)
+    func makeRegisterViewController(flowDelegate: any RegisterFlowDelegate) -> RegisterViewController
+    {
+        let contentView = RegisterView()
+        let viewModel = RegisterViewModel()
+        let viewController = RegisterViewController(
+            contentView: contentView, viewModel: viewModel, flowDelegate: flowDelegate)
+        return viewController
+    }
+    
+    func makeAddTransactionModalViewController(flowDelegate: any AddTransactionModalFlowDelegate)
     -> AddTransactionModalViewController
-  {
-    let contentView = AddTransactionModalView()
-    let viewModel = AddTransactionModalViewModel()
-    let viewController = AddTransactionModalViewController(
-      contentView: contentView, flowDelegate: flowDelegate, viewModel: viewModel)
-    return viewController
-  }
-
-  func makeEditTransactionModalViewController(
-    transaction: Transaction,
-    flowDelegate: AddTransactionModalFlowDelegate
-  ) -> AddTransactionModalViewController {
-    return AddTransactionModalViewController.forEdit(
-      transaction: transaction,
-      flowDelegate: flowDelegate
-    )
-  }
-
-  func makeSplashViewController(flowDelegate: SplashFlowDelegate) -> SplashViewController {
-    let contentView = SplashView()
-    let viewController = SplashViewController(contentView: contentView, flowDelegate: flowDelegate)
-    return viewController
-  }
-
-  func makeLoginViewController(flowDelegate: LoginFlowDelegate) -> LoginViewController {
-    let contentView = LoginView()
-    let viewModel = LoginViewModel()
-    let viewController = LoginViewController(
-      contentView: contentView, viewModel: viewModel, flowDelegate: flowDelegate)
-    return viewController
-  }
-
-  func makeDashboardViewController(flowDelegate: DashboardFlowDelegate) -> DashboardViewController {
-    let contentView = DashboardView()
-    let viewModel = DashboardViewModel()
-    let viewController = DashboardViewController(
-      contentView: contentView, viewModel: viewModel, flowDelegate: flowDelegate)
-    return viewController
-  }
-
-  func makeBudgetsViewController(flowDelegate: BudgetsFlowDelegate, date: Date?)
+    {
+        let contentView = AddTransactionModalView()
+        let viewModel = AddTransactionModalViewModel()
+        let viewController = AddTransactionModalViewController(
+            contentView: contentView, flowDelegate: flowDelegate, viewModel: viewModel)
+        return viewController
+    }
+    
+    func makeEditTransactionModalViewController(
+        transaction: Transaction,
+        flowDelegate: AddTransactionModalFlowDelegate
+    ) -> AddTransactionModalViewController {
+        return AddTransactionModalViewController.forEdit(
+            transaction: transaction,
+            flowDelegate: flowDelegate
+        )
+    }
+    
+    func makeSplashViewController(flowDelegate: SplashFlowDelegate) -> SplashViewController {
+        let contentView = SplashView()
+        let viewController = SplashViewController(contentView: contentView, flowDelegate: flowDelegate)
+        return viewController
+    }
+    
+    func makeLoginViewController(flowDelegate: LoginFlowDelegate) -> LoginViewController {
+        let contentView = LoginView()
+        let viewModel = LoginViewModel()
+        let viewController = LoginViewController(
+            contentView: contentView, viewModel: viewModel, flowDelegate: flowDelegate)
+        return viewController
+    }
+    
+    func makeDashboardViewController(flowDelegate: DashboardFlowDelegate) -> DashboardViewController {
+        let contentView = DashboardView()
+        let viewModel = DashboardViewModel()
+        let viewController = DashboardViewController(
+            contentView: contentView, viewModel: viewModel, flowDelegate: flowDelegate)
+        return viewController
+    }
+    
+    func makeBudgetsViewController(flowDelegate: BudgetsFlowDelegate, date: Date?)
     -> BudgetsViewController
-  {
-    let contentView = BudgetsView()
-    let viewModel = BudgetsViewModel(initialDate: date)
-    let viewController = BudgetsViewController(
-      contentView: contentView, viewModel: viewModel, flowDelegate: flowDelegate)
-    return viewController
-  }
+    {
+        let contentView = BudgetsView()
+        let viewModel = BudgetsViewModel(initialDate: date)
+        let viewController = BudgetsViewController(
+            contentView: contentView, viewModel: viewModel, flowDelegate: flowDelegate)
+        return viewController
+    }
+    
+    func makeProfileViewController(flowDelegate: ProfileFlowDelegate) -> ProfileViewController {
+        let contentView = ProfileView()
+        let viewModel = ProfileViewModel()
+        let viewController = ProfileViewController(
+            contentView: contentView, viewModel: viewModel, flowDelegate: flowDelegate)
+        return viewController
+    }
 
-  func makeSettingsViewController(flowDelegate: SettingsFlowDelegate) -> SettingsViewController {
-    let contentView = SettingsView()
-    let viewModel = SettingsViewModel()
-    let viewController = SettingsViewController(
-      contentView: contentView, viewModel: viewModel, flowDelegate: flowDelegate)
-    return viewController
-  }
+    func makeSettingsViewController(flowDelegate: SettingsFlowDelegate) -> SettingsViewController {
+        let contentView = SettingsView()
+        let viewModel = SettingsViewModel()
+        let viewController = SettingsViewController(
+            contentView: contentView, viewModel: viewModel, flowDelegate: flowDelegate)
+        return viewController
+    }
+    
+    func makeTransactionDetailsViewController(
+        flowDelegate: TransactionDetailsFlowDelegate,
+        transaction: Transaction
+    ) -> TransactionDetailsViewController {
+        let contentView = TransactionDetailsView()
+        let viewModel = TransactionDetailsViewModel(
+            transactionRepository: transactionRepository,
+            transaction: transaction
+        )
+        let viewController = TransactionDetailsViewController(
+            contentView: contentView,
+            viewModel: viewModel,
+            flowDelegate: flowDelegate
+        )
+        return viewController
+    }
+    
+    func makeEarlyPaymentViewController(
+        flowDelegate: EarlyPaymentFlowDelegate,
+        transaction: Transaction
+    ) -> EarlyPaymentViewController {
+        let contentView = EarlyPaymentView()
+        let viewModel = EarlyPaymentViewModel(transaction: transaction)
+        let viewController = EarlyPaymentViewController(
+            contentView: contentView,
+            viewModel: viewModel,
+            flowDelegate: flowDelegate
+        )
+        return viewController
+    }
 
-  func makeTransactionDetailsViewController(
-    flowDelegate: TransactionDetailsFlowDelegate,
-    transaction: Transaction
-  ) -> TransactionDetailsViewController {
-    let contentView = TransactionDetailsView()
-    let viewModel = TransactionDetailsViewModel(
-      transactionRepository: TransactionRepository(),
-      transaction: transaction
-    )
-    let viewController = TransactionDetailsViewController(
-      contentView: contentView,
-      viewModel: viewModel,
-      flowDelegate: flowDelegate
-    )
-    return viewController
-  }
+    func makeNotificationSettingsViewController(
+        flowDelegate: NotificationSettingsFlowDelegate
+    ) -> NotificationSettingsViewController {
+        let contentView = NotificationSettingsView()
+        let viewModel = NotificationSettingsViewModel()
+        let viewController = NotificationSettingsViewController(
+            contentView: contentView,
+            viewModel: viewModel,
+            flowDelegate: flowDelegate
+        )
+        return viewController
+    }
+    
+    func makeNotificationHistoryViewController(
+        flowDelegate: NotificationHistoryFlowDelegate
+    ) -> NotificationHistoryViewController {
+        let contentView = NotificationHistoryView()
+        let viewModel = NotificationHistoryViewModel()
+        let viewController = NotificationHistoryViewController(
+            contentView: contentView,
+            viewModel: viewModel,
+            flowDelegate: flowDelegate
+        )
+        return viewController
+    }
+    
+    func makeCreditCardsViewController(flowDelegate: CreditCardsFlowDelegate) -> CreditCardsViewController {
+        let contentView = CreditCardsView()
+        let viewModel = CreditCardsViewModel()
+        let viewController = CreditCardsViewController(
+            contentView: contentView, viewModel: viewModel, flowDelegate: flowDelegate)
+        return viewController
+    }
+
+    func makeAddCreditCardViewController(flowDelegate: AddCreditCardFlowDelegate, cardToEdit: CreditCard? = nil) -> AddCreditCardViewController {
+        let contentView = AddCreditCardView()
+        let viewModel = AddCreditCardViewModel()
+        viewModel.cardToEdit = cardToEdit
+        let viewController = AddCreditCardViewController(
+            contentView: contentView, viewModel: viewModel, flowDelegate: flowDelegate)
+        return viewController
+    }
+
+    func makeStatementDetailsViewController(flowDelegate: StatementDetailsFlowDelegate, statement: CreditCardStatement, card: CreditCard) -> StatementDetailsViewController {
+        let contentView = StatementDetailsView()
+        let viewModel = StatementDetailsViewModel(card: card, statement: statement)
+        let viewController = StatementDetailsViewController(
+            contentView: contentView, viewModel: viewModel, flowDelegate: flowDelegate)
+        return viewController
+    }
+
+    func makeStatementPaymentViewController(flowDelegate: StatementPaymentFlowDelegate, statement: CreditCardStatement, card: CreditCard) -> StatementPaymentViewController {
+        let contentView = StatementPaymentView()
+        let viewModel = StatementPaymentViewModel(card: card, statement: statement)
+        let viewController = StatementPaymentViewController(
+            contentView: contentView, viewModel: viewModel, flowDelegate: flowDelegate)
+        return viewController
+    }
+
+    func makeAllocationTagsViewController(flowDelegate: AllocationTagsFlowDelegate) -> AllocationTagsViewController {
+        let contentView = AllocationTagsView()
+        let viewModel = AllocationTagsViewModel()
+        let viewController = AllocationTagsViewController(
+            contentView: contentView, viewModel: viewModel, flowDelegate: flowDelegate)
+        return viewController
+    }
+
+    func makeAllocationTagEditViewController(flowDelegate: AllocationTagEditFlowDelegate, tag: AllocationTag) -> AllocationTagEditViewController {
+        let contentView = AllocationTagEditView()
+        let viewController = AllocationTagEditViewController(
+            contentView: contentView, tag: tag, flowDelegate: flowDelegate)
+        return viewController
+    }
+
+    func makeAllocationTagCategoriesViewController(flowDelegate: AllocationTagCategoriesFlowDelegate, tag: AllocationTag) -> AllocationTagCategoriesViewController {
+        let contentView = AllocationTagCategoriesView()
+        let viewController = AllocationTagCategoriesViewController(
+            contentView: contentView, tag: tag, flowDelegate: flowDelegate)
+        return viewController
+    }
+
+    func makeImportHistoryViewController(flowDelegate: ImportFlowDelegate) -> ImportHistoryViewController {
+        let contentView = ImportHistoryView()
+        let viewModel = ImportHistoryViewModel()
+        return ImportHistoryViewController(
+            contentView: contentView, viewModel: viewModel, flowDelegate: flowDelegate)
+    }
+
+    func makeImportReviewViewController(
+        flowDelegate: ImportFlowDelegate, file: LoadedFile, plan: ImportPlan
+    ) -> ImportReviewViewController {
+        let contentView = ImportReviewView()
+        let viewModel = ImportReviewViewModel(file: file, plan: plan)
+        return ImportReviewViewController(
+            contentView: contentView, viewModel: viewModel, flowDelegate: flowDelegate)
+    }
+
+    func makeImportMappingViewController(
+        flowDelegate: ImportFlowDelegate, file: LoadedFile, plan: ImportPlan
+    ) -> ImportMappingViewController {
+        let contentView = ImportMappingView()
+        let viewModel = ImportMappingViewModel(file: file, plan: plan)
+        return ImportMappingViewController(
+            contentView: contentView, viewModel: viewModel, flowDelegate: flowDelegate)
+    }
+
+    // MARK: - Budget Allocation Details
+
+    static func makeBudgetAllocationDetailsViewController(
+        allocation: BudgetAllocation
+    ) -> BudgetAllocationDetailsViewController {
+        return BudgetAllocationDetailsViewController(allocation: allocation)
+    }
+
+    static func makeBudgetAllocationDetailsViewController(
+        unallocatedSpending: UnallocatedCategorySpending
+    ) -> BudgetAllocationDetailsViewController {
+        return BudgetAllocationDetailsViewController(unallocatedSpending: unallocatedSpending)
+    }
+
+    // MARK: - Budget History
+
+    /// - Parameters:
+    ///   - filter: the chip the screen opens on.
+    ///   - monthAnchor: the month to select first - the card or allocation the user came from.
+    ///   - contextName: the ledger's name, shown under the title so a group's history is never
+    ///     mistaken for the personal one.
+    static func makeBudgetHistoryViewController(
+        ledgerScope: LedgerScope,
+        filter: BudgetHistoryFilter,
+        monthAnchor: Int?,
+        contextName: String
+    ) -> BudgetHistoryViewController {
+        let viewModel = BudgetHistoryViewModel(
+            ledgerScope: ledgerScope, filter: filter, monthAnchor: monthAnchor)
+        return BudgetHistoryViewController(viewModel: viewModel, subtitle: contextName)
+    }
+
+    // MARK: - Projection Explainer
+
+    /// Takes the projection rather than the inputs to build one: the card has already computed it, and
+    /// a second construction site for that formula would drift from the first.
+    static func makeProjectionExplainerViewController(
+        projection: AllocationBalanceProjection,
+        balanceDay: Int,
+        allocations: [BudgetAllocation],
+        monthAnchor: Int,
+        ledgerScope: LedgerScope
+    ) -> ProjectionExplainerViewController {
+        return ProjectionExplainerViewController(
+            contentView: ProjectionExplainerView(),
+            viewModel: ProjectionExplainerViewModel(
+                projection: projection,
+                balanceDay: balanceDay,
+                allocations: allocations,
+                monthAnchor: monthAnchor,
+                ledgerScope: ledgerScope))
+    }
 }

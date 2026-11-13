@@ -5,6 +5,7 @@
 //  Created by Arthur Rios on 07/05/25.
 //
 
+import Firebase
 import Foundation
 import LocalAuthentication
 import UIKit
@@ -15,6 +16,31 @@ final class SplashViewController: UIViewController {
   public weak var flowDelegate: SplashFlowDelegate?
 
   private let gradientLayer = Colors.gradientBlack
+
+  #if DEBUG || DEMO
+  /// Set to `true` to skip login and go straight to Dashboard with test credentials.
+  /// Disable this (or set to `false`) when you want to test the normal auth flow.
+  private let autoLoginEnabled = false
+  /// Set to `true` to clear and repopulate demo data on every auto-login.
+  /// Set to `false` to keep existing data untouched.
+  private let seedDemoData = false
+  private let debugEmail = "jack@email.com"
+  private let debugPassword = "Test@123"
+  #endif
+
+  #if DEMO
+  /// Finova Demo always signs in as the demo account and seeds it, whatever the two switches above
+  /// say. Safe only because that build has its own bundle ID (its own sandbox) and no iCloud.
+  /// Seeds on first launch, when the month turns and when the currency changes (`DemoSeedGenerator`).
+  private var shouldAutoLogin: Bool { true }
+  private var shouldSeedDemoData: Bool {
+    DemoSeedGenerator.applyDemoDefaultsIfNeeded()
+    return DemoSeedGenerator.needsSeed
+  }
+  #elseif DEBUG
+  private var shouldAutoLogin: Bool { autoLoginEnabled }
+  private var shouldSeedDemoData: Bool { seedDemoData }
+  #endif
 
   init(contentView: SplashView, flowDelegate: SplashFlowDelegate) {
     self.contentView = contentView
@@ -38,14 +64,42 @@ final class SplashViewController: UIViewController {
   }
 
   private func decideNavigationFlow() {
+    #if DEBUG || DEMO
+    if shouldAutoLogin {
+      performDebugAutoLogin()
+      return
+    }
+    #endif
+
     if let firebaseUser = AuthenticationManager.shared.currentUser {
-      print("✅ Firebase user found: \(firebaseUser.email ?? "No email")")
-
-      // Authenticate local data manager with Firebase UID
-      SecureLocalDataManager.shared.authenticateUser(firebaseUID: firebaseUser.uid)
-
-      // Set current user UID for settings lookup
       UIDUserDefaultsManager.shared.currentUserUID = firebaseUser.uid
+      DBHelper.shared.backfillUserIds(uid: firebaseUser.uid)
+
+      BudgetAllocationRepository.migrateFromUserDefaultsIfNeeded()
+
+      // One-time: migrate existing CC installment dates to statement due dates
+      let ccTransactionRepo = TransactionRepository()
+      let ccService = CreditCardService()
+      ccService.migrateInstallmentDatesToStatementDueDates(transactionRepo: ccTransactionRepo)
+
+      // One-time: undo the statement-due month that the remap above (and the manual
+      // move-to-statement action) used to stamp onto `budget_month_date`, putting each card
+      // expense back in the month it was actually spent. Runs after the date migration so it sees
+      // the final ledger dates. Ordered, deterministic, and skipped on an unhydrated device.
+      ccService.repairBudgetMonthToSpendingMonthIfNeeded(transactionRepo: ccTransactionRepo)
+
+      // One-time: re-link installments whose parent id points at a row this device does not hold.
+      // Before the card passes below, so they see whole series.
+      InstallmentParentRepair.runIfNeeded(transactionRepo: ccTransactionRepo, userId: firebaseUser.uid)
+
+      // One-time: collapse the ghost statements a closing/due-day change left behind, and move the
+      // installments still showing the old due date onto their statement's new one.
+      ccService.repairCardCycleChangeIfNeeded(userId: firebaseUser.uid, transactionRepo: ccTransactionRepo)
+
+      // One-time: put installments back on their invoice's due month. The repair above used to
+      // cover them too, which left the first installment in the purchase month while its own date
+      // and its statement both said the month after. Runs last so it sees the final statement links.
+      ccService.repairInstallmentBudgetMonthToDueMonthIfNeeded(transactionRepo: ccTransactionRepo)
 
       // Check if this user has existing settings
       let existingSettings = UIDUserDefaultsManager.shared.getUserSettings(for: firebaseUser.uid)
@@ -53,8 +107,6 @@ final class SplashViewController: UIViewController {
 
       if let settings = existingSettings {
         // Returning user - use their saved settings
-        print("🔄 Loading existing user settings for: \(settings.name)")
-
         // Smart name preservation: if Firebase has a better name, use it
         var bestName = settings.name
         let firebaseName = firebaseUser.displayName ?? ""
@@ -62,7 +114,6 @@ final class SplashViewController: UIViewController {
           && (settings.name.isEmpty || settings.name == "User")
         {
           bestName = firebaseName
-          print("📝 Updating saved name from '\(settings.name)' to '\(firebaseName)' from Firebase")
         } else if settings.name.isEmpty || settings.name == "User" {
           bestName = firebaseName.isEmpty ? "User" : firebaseName
         }
@@ -80,18 +131,11 @@ final class SplashViewController: UIViewController {
           isUserSaved: settings.isUserSaved,
           hasFaceIdEnabled: settings.hasFaceIdEnabled  // Use saved Face ID setting
         )
-
-        print("✅ Restored user: '\(bestName)', faceId: \(settings.hasFaceIdEnabled)")
       } else {
-        print("🔄 Syncing new Firebase user to UserDefaults...")
-
         // Smart name preservation logic for new users
         var finalName = firebaseUser.displayName ?? ""
         if finalName.isEmpty {
           finalName = "User"
-          print("⚠️ No name available, falling back to 'User'")
-        } else {
-          print("📝 Using Firebase display name: '\(finalName)'")
         }
 
         localUser = User(
@@ -101,13 +145,10 @@ final class SplashViewController: UIViewController {
           isUserSaved: true,  // Mark as saved since they're authenticated with Firebase
           hasFaceIdEnabled: false  // New users start with Face ID disabled
         )
-
-        print("✅ Created new user: '\(finalName)', faceId: false")
       }
 
       if let user = localUser {
         UserDefaultsManager.saveUserWithUID(user: user)
-        print("✅ User data synced with UID-based system")
 
         // Ensure user settings are properly created
         UserDefaultsManager.updateCurrentUserSavedStatus(saved: user.isUserSaved)
@@ -122,35 +163,26 @@ final class SplashViewController: UIViewController {
         if user.isUserSaved && UserDefaultsManager.getBiometricEnabled() {
           // Existing user with biometric enabled - authenticate with Face ID
           if FaceIDManager.shared.isFaceIDAvailable {
-            print("🔒 Biometric enabled globally - requesting biometric authentication")
             authenticateWithFaceID()
           } else {
-            print("ℹ️ Biometric not available - proceeding to dashboard")
             flowDelegate?.navigateDirectlyToDashboard()
           }
         } else {
           // New user or user without biometric enabled - go to login
-          print("ℹ️ New user or biometric not enabled - showing login")
           animateLogoUp()
         }
       } else {
-        print("⚠️ Failed to create local user - showing login")
         animateLogoUp()
       }
     } else {
-      print("ℹ️ No Firebase user found, checking local user...")
-
       // Check for legacy local users (pre-Firebase)
       if let localUser = UserDefaultsManager.getUser(), localUser.isUserSaved {
         if UserDefaultsManager.getBiometricEnabled() {
-          print("🔒 Biometric enabled globally - requesting authentication")
           authenticateWithFaceID()
         } else {
-          print("ℹ️ Biometric not enabled globally - asking if they want to enable it")
           askToEnableFaceID(for: localUser)
         }
       } else {
-        print("ℹ️ No user found - showing login")
         // No user found - show login
         animateLogoUp()
       }
@@ -233,7 +265,7 @@ extension SplashViewController {
   private func authenticateWithFaceID() {
     // Check if Face ID is available
     guard FaceIDManager.shared.isFaceIDAvailable else {
-      print("❌ Face ID not available on this device")
+      logError("Face ID not available on this device")
       handleFaceIDFailure()
       return
     }
@@ -244,42 +276,36 @@ extension SplashViewController {
       guard let self = self else { return }
 
       if success {
-        print("✅ Face ID authentication successful")
         // Since Face ID authentication was successful, ensure global biometric setting is enabled
         UserDefaultsManager.setBiometricEnabled(true)
-        print("✅ Global biometric setting enabled after successful authentication")
 
         // Ensure Firebase user is still available before navigating
         if let firebaseUser = AuthenticationManager.shared.currentUser {
-          print("✅ Firebase user still available: \(firebaseUser.uid)")
-          // Re-authenticate SecureLocalDataManager to ensure it's properly set
-          SecureLocalDataManager.shared.authenticateUser(firebaseUID: firebaseUser.uid)
-
           // Final safety check before navigation
           DispatchQueue.main.async {
             self.flowDelegate?.navigateDirectlyToDashboard()
           }
         } else {
-          print("❌ Firebase user lost after Face ID authentication - going to login")
+          logError("Firebase user lost after Face ID authentication")
           self.handleFaceIDFailure()
         }
       } else {
-        print("❌ Face ID authentication failed: \(error?.localizedDescription ?? "Unknown error")")
+        if let errorDescription = error?.localizedDescription {
+          logError("Face ID authentication failed: \(errorDescription)")
+        }
 
         // Check if it's a failed authentication (not user cancellation)
         if let laError = error as? LAError {
           switch laError.code {
           case .authenticationFailed:
             // Face ID doesn't match - logout immediately
-            print("🚨 Face ID authentication failed - logging out user")
             self.logoutUser()
             return
           case .userCancel, .systemCancel:
             // User cancelled - just go to login
-            print("ℹ️ User cancelled Face ID authentication")
+            break
           case .biometryLockout:
             // Too many failed attempts - logout for security
-            print("🚨 Biometry locked out - logging out user")
             self.logoutUser()
             return
           default:
@@ -306,7 +332,6 @@ extension SplashViewController {
     // Sign out from Firebase and clear local data
     AuthenticationManager.shared.signOut()
     UserDefaultsManager.removeUser()
-    SecureLocalDataManager.shared.signOut()
 
     // Navigate to login
     gradientLayer.removeFromSuperlayer()
@@ -320,7 +345,6 @@ extension SplashViewController {
   private func askToEnableFaceID(for user: User) {
     // Check if Face ID is available on this device
     guard FaceIDManager.shared.isFaceIDAvailable else {
-      print("ℹ️ Face ID not available on this device - going to dashboard")
       flowDelegate?.navigateDirectlyToDashboard()
       return
     }
@@ -341,21 +365,13 @@ extension SplashViewController {
 
       // Enable biometric globally for the app
       UserDefaultsManager.setBiometricEnabled(true)
-      print("✅ \(biometricType) enabled globally for app - proceeding to authentication")
-
-      // Verify the save worked
-      let isBiometricEnabled = UserDefaultsManager.getBiometricEnabled()
-      print("🔍 VERIFICATION: Global biometric enabled: \(isBiometricEnabled)")
 
       // Ensure Firebase user is still available
       if let firebaseUser = AuthenticationManager.shared.currentUser {
-        print("✅ Firebase user available for Face ID setup: \(firebaseUser.uid)")
-        // Ensure SecureLocalDataManager is authenticated
-        SecureLocalDataManager.shared.authenticateUser(firebaseUID: firebaseUser.uid)
         // Now authenticate with the newly enabled Face ID
         self.authenticateWithFaceID()
       } else {
-        print("❌ Firebase user lost during Face ID setup - going to login")
+        logError("Firebase user lost during Face ID setup")
         self.handleFaceIDFailure()
       }
     }
@@ -364,20 +380,15 @@ extension SplashViewController {
       // User chose to skip Face ID setup
       UserDefaultsManager.updateCurrentUserSavedStatus(saved: true)
       // Don't change global biometric setting when user skips
-      print("⏭️ User skipped \(biometricType) setup")
 
       // Ensure Firebase user is still available before navigating
       if let firebaseUser = AuthenticationManager.shared.currentUser {
-        print("✅ Firebase user available for dashboard navigation: \(firebaseUser.uid)")
-        // Ensure SecureLocalDataManager is authenticated
-        SecureLocalDataManager.shared.authenticateUser(firebaseUID: firebaseUser.uid)
-
         // Final safety check before navigation
         DispatchQueue.main.async {
           self.flowDelegate?.navigateDirectlyToDashboard()
         }
       } else {
-        print("❌ Firebase user lost during Face ID skip - going to login")
+        logError("Firebase user lost during Face ID skip")
         self.handleFaceIDFailure()
       }
     }
@@ -404,3 +415,157 @@ extension SplashViewController {
     present(alertController, animated: true)
   }
 }
+
+// MARK: - DEBUG Auto-Login
+#if DEBUG || DEMO
+extension SplashViewController {
+  /// Signs in with test credentials and navigates directly to Dashboard,
+  /// skipping splash animations, Face ID prompts, and the login screen entirely.
+  private func performDebugAutoLogin() {
+    #if DEMO
+    DemoSeedGenerator.startWatchingCurrencyChanges()
+    // Reuse the saved demo session: no network round-trip, and the demo still opens offline.
+    if let firebaseUser = Auth.auth().currentUser, firebaseUser.email == debugEmail {
+      finishDebugAutoLogin(
+        uid: firebaseUser.uid, email: firebaseUser.email, displayName: firebaseUser.displayName)
+      return
+    }
+    #endif
+    logInfo("[DEBUG] Auto-login: signing in with \(debugEmail)")
+
+    Auth.auth().signIn(withEmail: debugEmail, password: debugPassword) { [weak self] result, error in
+      guard let self = self else { return }
+
+      if let error = error {
+        logError("[DEBUG] Auto-login failed: \(error.localizedDescription). Falling back to normal flow.")
+        DispatchQueue.main.async {
+          self.animateLogoUp()
+        }
+        return
+      }
+
+      guard let firebaseUser = result?.user else {
+        logError("[DEBUG] Auto-login: no user returned. Falling back to normal flow.")
+        DispatchQueue.main.async {
+          self.animateLogoUp()
+        }
+        return
+      }
+
+      logInfo("[DEBUG] Auto-login succeeded for UID: \(firebaseUser.uid)")
+      self.finishDebugAutoLogin(
+        uid: firebaseUser.uid, email: firebaseUser.email, displayName: firebaseUser.displayName)
+    }
+  }
+
+  private func finishDebugAutoLogin(uid: String, email: String?, displayName: String?) {
+    // Replicate the same setup that LoginViewModel.authenticationDidComplete performs
+    UIDUserDefaultsManager.shared.currentUserUID = uid
+    DBHelper.shared.backfillUserIds(uid: uid)
+
+    let existingSettings = UIDUserDefaultsManager.shared.getUserSettings(for: uid)
+
+    let user: User
+    if let settings = existingSettings {
+      var updatedSettings = settings
+      updatedSettings.lastSignIn = Date()
+      UIDUserDefaultsManager.shared.saveUserSettings(for: uid, settings: updatedSettings)
+
+      user = User(
+        firebaseUID: uid,
+        name: settings.name,
+        email: settings.email,
+        isUserSaved: settings.isUserSaved,
+        hasFaceIdEnabled: settings.hasFaceIdEnabled
+      )
+    } else {
+      user = User(
+        firebaseUID: uid,
+        name: displayName ?? "User",
+        email: email ?? "",
+        isUserSaved: true,
+        hasFaceIdEnabled: false
+      )
+    }
+
+    UserDefaultsManager.saveUserWithUID(user: user)
+    UserDefaultsManager.updateCurrentUserSavedStatus(saved: true)
+
+    let navigate: () -> Void = {
+      #if DEMO
+      // Finova Demo gets handed to other people: straight in, no Face ID offer.
+      self.flowDelegate?.navigateDirectlyToDashboard()
+      #else
+      if FaceIDManager.shared.deviceSupportsBiometrics && !UserDefaultsManager.getBiometricEnabled() {
+        self.askToEnableFaceIDAfterAutoLogin(for: user)
+      } else {
+        self.flowDelegate?.navigateDirectlyToDashboard()
+      }
+      #endif
+    }
+
+    if self.shouldSeedDemoData {
+      // Seeds off the main queue and answers on it.
+      DemoSeedGenerator.seed(for: uid, completion: navigate)
+    } else {
+      DispatchQueue.main.async(execute: navigate)
+    }
+  }
+
+  private func askToEnableFaceIDAfterAutoLogin(for user: User) {
+    guard FaceIDManager.shared.deviceSupportsBiometrics else {
+      flowDelegate?.navigateDirectlyToDashboard()
+      return
+    }
+
+    let biometricType = FaceIDManager.shared.biometricTypeString
+    let alertController = UIAlertController(
+      title: String(format: "faceid.enable.title".localized, biometricType),
+      message: String(format: "faceid.enable.message".localized, biometricType),
+      preferredStyle: .alert
+    )
+
+    let yesAction = UIAlertAction(
+      title: String(format: "faceid.enable.button".localized, biometricType), style: .default
+    ) { _ in
+      if FaceIDManager.shared.isFaceIDAvailable {
+        UserDefaultsManager.setBiometricEnabled(true)
+        logInfo("[DEBUG] \(biometricType) enabled globally for app")
+        self.flowDelegate?.navigateDirectlyToDashboard()
+      } else {
+        let settingsAlert = UIAlertController(
+          title: biometricType,
+          message: String(
+            format: "settings.biometric.notEnrolled.message".localized,
+            biometricType
+          ),
+          preferredStyle: .alert
+        )
+        let openAction = UIAlertAction(
+          title: "settings.biometric.openSettings".localized,
+          style: .default
+        ) { _ in
+          if let url = URL(string: UIApplication.openSettingsURLString) {
+            UIApplication.shared.open(url)
+          }
+          self.flowDelegate?.navigateDirectlyToDashboard()
+        }
+        let cancelAction = UIAlertAction(title: "skip".localized, style: .cancel) { _ in
+          self.flowDelegate?.navigateDirectlyToDashboard()
+        }
+        settingsAlert.addAction(openAction)
+        settingsAlert.addAction(cancelAction)
+        self.present(settingsAlert, animated: true)
+      }
+    }
+
+    let noAction = UIAlertAction(title: "skip".localized, style: .cancel) { _ in
+      self.flowDelegate?.navigateDirectlyToDashboard()
+    }
+
+    alertController.addAction(yesAction)
+    alertController.addAction(noAction)
+    present(alertController, animated: true)
+  }
+}
+#endif
