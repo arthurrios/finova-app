@@ -144,11 +144,21 @@ final class BudgetFollowsIncomeService {
         recomputeIfEnabled()
     }
 
-    /// Whether this month's budget is set from income right now.
-    func follows(month: Int) -> Bool {
+    /// Whether this month's budget is set from income right now. A past month with no income keeps
+    /// its old budget, so it does not count as following.
+    func follows(month: Int, today: Date = Date()) -> Bool {
         let s = settings
-        return s.isEnabled && month >= s.startMonth && !s.optedOutMonths.contains(month)
+        guard s.isEnabled, month >= s.startMonth, !s.optedOutMonths.contains(month) else { return false }
+        if month < today.monthAnchor {
+            lock.lock()
+            defer { lock.unlock() }
+            return (lastIncomeByMonth[month] ?? 0) > 0
+        }
+        return true
     }
+
+    /// Income per month from the last recompute, for `follows(month:)`.
+    private var lastIncomeByMonth: [Int: Int] = [:]
 
     // MARK: - Recompute
 
@@ -166,6 +176,7 @@ final class BudgetFollowsIncomeService {
         // The repository caches rows across the process; read what was just written.
         TransactionRepository.invalidateCache()
         let income = countedIncome()
+        lastIncomeByMonth = Self.incomeByMonth(income)
         let existing = Dictionary(
             budgetRepo.fetchBudgets().map { ($0.monthDate, $0.amount) }, uniquingKeysWith: { a, _ in a })
         let targets = Self.targets(
@@ -210,7 +221,8 @@ final class BudgetFollowsIncomeService {
 
     /// The budget each following month must have, only for months whose stored value differs.
     /// Covers every month from the start through the later of this month and the last month with
-    /// income; a month with no income gets 0.
+    /// income. A current or future month with no income gets 0; a PAST month with no income is
+    /// left as it is (its old budget stays, or it stays empty).
     static func targets(
         income rows: [Transaction], settings s: Settings, existing: [Int: Int], currentMonth: Int
     ) -> [Int: Int] {
@@ -221,7 +233,9 @@ final class BudgetFollowsIncomeService {
         var out: [Int: Int] = [:]
         for month in BudgetsViewModel.monthAnchors(from: start, through: lastMonth)
         where !s.optedOutMonths.contains(month) {
-            let target = budget(income: byMonth[month] ?? 0, percent: s.percent)
+            let income = byMonth[month] ?? 0
+            if month < currentMonth, income <= 0 { continue }
+            let target = budget(income: income, percent: s.percent)
             if existing[month] != target { out[month] = target }
         }
         return out
