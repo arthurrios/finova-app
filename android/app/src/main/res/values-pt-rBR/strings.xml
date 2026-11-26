@@ -793,11 +793,6 @@
 
     <!-- Guides (coach marks). Same text as Localizable.xcstrings on iOS. -->
     <string name="budgets_suggestion_income">Sua renda neste mês: %s. Usar este valor</string>
-    <string name="budgets_repeat_this_month_only">Só este mês</string>
-    <string name="budgets_multi_conflict_title">Alguns meses já têm orçamento</string>
-    <string name="budgets_multi_conflict_message">Estes meses já têm orçamento: %1$s.</string>
-    <string name="budgets_multi_conflict_replace">Substituir</string>
-    <string name="budgets_multi_conflict_keep">Manter os atuais</string>
     <string name="coach_marks_allocations_add">Toque em + para adicionar um limite a uma categoria.</string>
     <string name="coach_marks_allocations_all_set">Tudo pronto. Para ver um guia de novo, vá em Minha Conta, Configurações, Guias do app.</string>
     <string name="coach_marks_allocations_amount">Digite o máximo que quer gastar nela por mês.</string>

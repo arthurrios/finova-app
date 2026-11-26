@@ -1,6 +1,5 @@
 package com.arthurrios.finova.ui.budgets
 
-import com.arthurrios.finova.domain.budget.BudgetRange
 import com.arthurrios.finova.domain.coachmarks.BudgetSuggestion
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -59,43 +58,6 @@ class BudgetsViewModel(
 
     fun cancelOverwrite() {
         _pendingOverwrite.value = null
-    }
-
-    /** A many-month save that meets months with a budget, waiting for "Replace" or "Keep". */
-    data class PendingRange(val start: YearMonth, val end: YearMonth, val amount: Long, val existing: List<YearMonth>)
-
-    private val _pendingRange = MutableStateFlow<PendingRange?>(null)
-    val pendingRange: StateFlow<PendingRange?> = _pendingRange.asStateFlow()
-
-    /**
-     * Saves [amount] for every month from [start] through [end]. Returns true when saved straight
-     * away (the form can clear); false when some months already have a budget and the user must
-     * pick "Replace them" or "Keep existing" first.
-     */
-    fun saveRange(start: YearMonth, end: YearMonth, amount: Long): Boolean {
-        val existing = BudgetRange.existingIn(budgets.value.map { it.month }, start, end)
-        if (existing.isNotEmpty()) {
-            _pendingRange.value = PendingRange(start, end, amount, existing)
-            return false
-        }
-        writeRange(start, end, amount, replaceExisting = true)
-        return true
-    }
-
-    /** Answers the conflict question: true replaces those months, false fills only the empty ones. */
-    fun resolveRange(replaceExisting: Boolean) {
-        val pending = _pendingRange.value ?: return
-        _pendingRange.value = null
-        writeRange(pending.start, pending.end, pending.amount, replaceExisting)
-    }
-
-    fun cancelRange() {
-        _pendingRange.value = null
-    }
-
-    private fun writeRange(start: YearMonth, end: YearMonth, amount: Long, replaceExisting: Boolean) {
-        val months = BudgetRange.monthsToWrite(budgets.value.map { it.month }, start, end, replaceExisting)
-        viewModelScope.launch { repository.setBudgets(months, amount) }
     }
 
     /** What comes in during a month, which the guide offers as its budget. Zero with no month. */

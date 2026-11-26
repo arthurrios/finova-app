@@ -798,11 +798,6 @@
 
     <!-- Guides (coach marks). Same text as Localizable.xcstrings on iOS. -->
     <string name="budgets_suggestion_income">Your income this month: %s. Use this amount</string>
-    <string name="budgets_repeat_this_month_only">This month only</string>
-    <string name="budgets_multi_conflict_title">Some months already have a budget</string>
-    <string name="budgets_multi_conflict_message">These months already have a budget: %1$s.</string>
-    <string name="budgets_multi_conflict_replace">Replace them</string>
-    <string name="budgets_multi_conflict_keep">Keep existing</string>
     <string name="coach_marks_allocations_add">Tap + to add a limit for a category.</string>
     <string name="coach_marks_allocations_all_set">You are all set. To see any guide again, go to My Account, Settings, App guides.</string>
     <string name="coach_marks_allocations_amount">Type the most you want to spend on it each month.</string>
