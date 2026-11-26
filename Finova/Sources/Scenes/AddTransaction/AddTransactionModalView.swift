@@ -1015,13 +1015,14 @@ final class AddTransactionModalView: UIView {
 
   @objc private func fxInputsChanged() { updateFxHint() }
 
-  /// The rate to convert with now: the newest cached one, or the one typed by hand.
-  private func currentRateMicros() -> (micros: Int, date: Int?)? {
-    if let manual = manualRateMicros { return (manual, Int(Date().timeIntervalSince1970)) }
+  /// The rate to convert with now: the newest cached one, or the one typed by hand. `date` is the
+  /// market's quote time (or the ECB day for the fallback).
+  private func currentRateMicros() -> (micros: Int, date: Int?, quote: FxQuote?)? {
+    if let manual = manualRateMicros { return (manual, Int(Date().timeIntervalSince1970), nil) }
     guard let quote = ForeignCurrencyService.shared.cachedLatest(for: selectedCurrency) else {
       return nil
     }
-    return (quote.rateMicros, FxDay.epoch(of: quote.date))
+    return (quote.rateMicros, quote.quotedAt ?? FxDay.epoch(of: quote.date), quote)
   }
 
   /// `≈ R$ 28.825,50` over `US$ 1 = R$ 5,7651 · ECB, 26/11`. Locked rows show their locked rate.
@@ -1063,9 +1064,7 @@ final class AddTransactionModalView: UIView {
     fxApproxLabel.attributedText = approxText(converted)
     let rateText = ForeignCurrencyService.rateText(
       rateMicros: rate.micros, currency: selectedCurrency, appCurrency: app)
-    let source = manualRateMicros != nil
-      ? "fx.hint.manual".localized
-      : "fx.hint.ecb".localized(rate.date.map { ForeignCurrencyService.shortDate(epoch: $0) } ?? "")
+    let source = rate.quote.map(ForeignCurrencyService.sourceText) ?? "fx.hint.manual".localized
     fxRateButton.setTitle("\(rateText) · \(source)", for: .normal)
     fxRateButton.setTitleColor(Colors.gray500, for: .normal)
     fxRateButton.isEnabled = true

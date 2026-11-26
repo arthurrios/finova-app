@@ -213,7 +213,9 @@ private struct Writer {
         guard dataset.currency == "BRL" else { return }
         let today = FxDay.string(from: now, calendar: cal)
         let entryDay = cal.date(byAdding: .day, value: -14, to: now) ?? now
-        let latest = FxQuote(base: "USD", quote: "BRL", date: today, rateMicros: 5_765_100)
+        let latest = FxQuote(
+            base: "USD", quote: "BRL", date: today, rateMicros: 5_765_100,
+            source: .market, quotedAt: Int(now.timeIntervalSince1970))
         DBHelper.shared.storeFxRate(
             latest, requested: "latest", fetchedAt: Int(now.timeIntervalSince1970))
         let foreign = ForeignAmount(

@@ -30,13 +30,16 @@ struct ForeignAmount: Codable, Equatable {
   /// The user typed the R$ actually received after the lock ("Enter amount received").
   /// Then `rateMicros` holds the implied rate and Details says "Amount received".
   var isReceivedAmount: Bool = false
+  /// "market" or "ecb": where the locked rate came from (`FxSource.rawValue`). For a market rate
+  /// `rateDate` is the exact quote time, not midnight.
+  var rateSource: String? = nil
 
   var isLocked: Bool { lockedAt != nil }
 
   init(
     currency: String, amount: Int, rateMicros: Int? = nil, rateDate: Int? = nil,
     lockedAt: Int? = nil, entryRateMicros: Int? = nil, entryRateDate: Int? = nil,
-    isReceivedAmount: Bool = false
+    isReceivedAmount: Bool = false, rateSource: String? = nil
   ) {
     self.currency = currency
     self.amount = amount
@@ -46,6 +49,7 @@ struct ForeignAmount: Codable, Equatable {
     self.entryRateMicros = entryRateMicros
     self.entryRateDate = entryRateDate
     self.isReceivedAmount = isReceivedAmount
+    self.rateSource = rateSource
   }
 
   /// A copy for a NEW occurrence of a recurring series: same money and the series' entry rate,

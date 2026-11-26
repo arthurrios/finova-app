@@ -21777,6 +21777,42 @@
           }
         }
       }
+    },
+    "fx.source.market": {
+      "comment": "Live rate source in the Add hint. %@ = time, e.g. 18:59.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Market rate · %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cotação de mercado · %@"
+          }
+        }
+      }
+    },
+    "fx.details.market": {
+      "comment": "Rate source in transaction details.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Market rate"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cotação de mercado"
+          }
+        }
+      }
     }
   },
   "version": "1.1"

@@ -2,8 +2,9 @@
 //  FxRateProvider.swift
 //  Finova
 //
-//  Rates come from Frankfurter (European Central Bank reference rates): no API key, HTTPS,
-//  historical rates by date. Only currency codes and dates are sent. See docs/fx-salary-plan.md §4.
+//  Live rates come from AwesomeAPI (market rate, the same number iOS Stocks shows), with
+//  Frankfurter (European Central Bank reference rates) as the fallback. Neither needs an API key;
+//  only currency codes and dates are sent. See docs/fx-salary-plan.md §4.
 //
 
 import Foundation
@@ -15,6 +16,17 @@ struct FxQuote: Equatable {
   let quote: String
   let date: String
   let rateMicros: Int
+  /// Where it came from. The UI says "Market rate · 18:59" or "ECB, 26/11".
+  var source: FxSource = .ecb
+  /// When the market quoted it, epoch seconds. Nil for ECB reference rates (one per day).
+  var quotedAt: Int? = nil
+}
+
+enum FxSource: String, Equatable {
+  /// Live commercial rate (AwesomeAPI `bid`).
+  case market
+  /// European Central Bank daily reference rate (Frankfurter), the fallback.
+  case ecb
 }
 
 protocol FxRateProvider {
@@ -80,7 +92,8 @@ final class FrankfurterRateProvider: FxRateProvider {
     guard let rate = rawNumber(after: "\"\(quote)\"", in: text) else {
       throw FxProviderError.missingRate
     }
-    return FxQuote(base: base, quote: quote, date: date, rateMicros: FxMath.micros(fromRate: rate))
+    return FxQuote(
+      base: base, quote: quote, date: date, rateMicros: FxMath.micros(fromRate: rate), source: .ecb)
   }
 
   private static func rawNumber(after key: String, in text: String) -> Decimal? {
@@ -90,6 +103,103 @@ final class FrankfurterRateProvider: FxRateProvider {
     let tail = text[text.index(after: colon)...].drop(while: { $0 == " " })
     let number = tail.prefix(while: { "0123456789.eE+-".contains($0) })
     return Decimal(string: String(number), locale: Locale(identifier: "en_US_POSIX"))
+  }
+}
+
+/// The live market rate (AwesomeAPI): `bid` of the pair, updated every few minutes.
+final class AwesomeRateProvider: FxRateProvider {
+  private let session: URLSession
+  private let baseURL: URL
+  private let calendar: Calendar
+
+  init(
+    session: URLSession = FrankfurterRateProvider.defaultSession,
+    baseURL: URL = URL(string: "https://economia.awesomeapi.com.br/json/")!,
+    calendar: Calendar = .current
+  ) {
+    self.session = session
+    self.baseURL = baseURL
+    self.calendar = calendar
+  }
+
+  /// `GET /json/last/USD-BRL` → `{"USDBRL":{"bid":"5.6513","timestamp":"1795728610",...}}`
+  func latest(base: String, quote: String) async throws -> FxQuote {
+    let url = baseURL.appendingPathComponent("last/\(base)-\(quote)")
+    let data = try await get(url)
+    guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+      let entry = object["\(base)\(quote)"] as? [String: Any]
+    else { throw FxProviderError.missingRate }
+    return try Self.quote(from: entry, base: base, quote: quote, calendar: calendar)
+  }
+
+  /// The day's closing rate: the newest quote on or before `day`. Asks for the week up to `day`,
+  /// because a weekend or holiday has no quote of its own.
+  func historical(base: String, quote: String, day: String) async throws -> FxQuote {
+    guard let dayEpoch = FxDay.epoch(of: day, calendar: calendar) else {
+      throw FxProviderError.badResponse
+    }
+    let dayDate = Date(timeIntervalSince1970: TimeInterval(dayEpoch))
+    let start = calendar.date(byAdding: .day, value: -6, to: dayDate) ?? dayDate
+    func compact(_ date: Date) -> String { FxDay.string(from: date, calendar: calendar).replacingOccurrences(of: "-", with: "") }
+    var components = URLComponents(
+      url: baseURL.appendingPathComponent("daily/\(base)-\(quote)/10"), resolvingAgainstBaseURL: false)!
+    components.queryItems = [
+      URLQueryItem(name: "start_date", value: compact(start)),
+      URLQueryItem(name: "end_date", value: compact(dayDate)),
+    ]
+    let data = try await get(components.url!)
+    guard let entries = try JSONSerialization.jsonObject(with: data) as? [[String: Any]] else {
+      throw FxProviderError.badResponse
+    }
+    let quotes = entries.compactMap { try? Self.quote(from: $0, base: base, quote: quote, calendar: calendar) }
+      .filter { $0.date <= day }
+    guard let newest = quotes.max(by: { ($0.quotedAt ?? 0) < ($1.quotedAt ?? 0) }) else {
+      throw FxProviderError.missingRate
+    }
+    return newest
+  }
+
+  private func get(_ url: URL) async throws -> Data {
+    let (data, response) = try await session.data(from: url)
+    guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+      throw FxProviderError.badResponse
+    }
+    return data
+  }
+
+  /// Numbers arrive as strings ("5.6513"), so `Decimal` reads them exactly.
+  static func quote(from entry: [String: Any], base: String, quote: String, calendar: Calendar) throws -> FxQuote {
+    guard let bidText = entry["bid"] as? String,
+      let bid = Decimal(string: bidText, locale: Locale(identifier: "en_US_POSIX")), bid > 0,
+      let stampText = entry["timestamp"] as? String, let stamp = Int(stampText)
+    else { throw FxProviderError.missingRate }
+    let day = FxDay.string(from: Date(timeIntervalSince1970: TimeInterval(stamp)), calendar: calendar)
+    return FxQuote(
+      base: base, quote: quote, date: day, rateMicros: FxMath.micros(fromRate: bid),
+      source: .market, quotedAt: stamp)
+  }
+}
+
+/// Tries the market first and falls back to the ECB, so the app never shows nothing.
+final class FallbackRateProvider: FxRateProvider {
+  private let primary: FxRateProvider
+  private let fallback: FxRateProvider
+
+  init(primary: FxRateProvider, fallback: FxRateProvider) {
+    self.primary = primary
+    self.fallback = fallback
+  }
+
+  func latest(base: String, quote: String) async throws -> FxQuote {
+    do { return try await primary.latest(base: base, quote: quote) } catch {
+      return try await fallback.latest(base: base, quote: quote)
+    }
+  }
+
+  func historical(base: String, quote: String, day: String) async throws -> FxQuote {
+    do { return try await primary.historical(base: base, quote: quote, day: day) } catch {
+      return try await fallback.historical(base: base, quote: quote, day: day)
+    }
   }
 }
 
@@ -122,7 +232,7 @@ enum FxLockRule {
   enum Decision: Equatable {
     /// Payday has not come yet: keep following the live rate.
     case live
-    /// Payday's own rate is not published yet. Keep the row live and try again later.
+    /// No rate could be fetched (offline). Keep the row live and try again later.
     case wait
     /// Freeze with this rate, forever.
     case lock(FxQuote)
@@ -131,16 +241,14 @@ enum FxLockRule {
   /// - Parameters:
   ///   - payday: the row's date ("yyyy-MM-dd", local).
   ///   - today: the local day now.
-  ///   - answer: the provider's answer to "rate dated payday" (nil before payday).
+  ///   - answer: on payday, the live market rate; after payday (the app was closed that day), that
+  ///     day's closing rate. Nil before payday or when offline.
+  ///
+  /// The market rate always exists, so there is no "wait for the noon publication" step: the first
+  /// pass on or after payday locks.
   static func decide(payday: String, today: String, answer: FxQuote?) -> Decision {
     guard payday <= today else { return .live }
     guard let answer = answer else { return .wait }
-    // On payday itself, a weekday answer dated earlier means ECB has not published today's rate
-    // yet (~16:00 CET, ~12:00 in Brasília). Waiting makes the locked rate "the official rate for
-    // payday" no matter when the phone opens the app.
-    if answer.date < payday, payday == today, FxDay.isWeekday(payday) {
-      return .wait
-    }
     return .lock(answer)
   }
 }
