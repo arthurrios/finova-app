@@ -100,6 +100,7 @@ final class DashboardViewController: UIViewController {
         setupUpdateToast()
         setupPullToRefresh()
         setupKeyboardObservers()
+        setupFxRateHint()
         
 #if DEBUG
         setupDebugGesture()
@@ -1959,7 +1960,8 @@ extension DashboardViewController: UITableViewDataSource, UITableViewDelegate {
             // A primary-key lookup per visible cell. Only the cells on screen are configured, and the
             // column is indexed, so this is cheaper than threading a settled-id set through the
             // carousel's data plumbing — and it cannot go stale between a reload and a scroll.
-            isSettledEarly: tx.id.map { DBHelper.shared.settledByTransactionId(transactionId: $0) != nil } ?? false
+            isSettledEarly: tx.id.map { DBHelper.shared.settledByTransactionId(transactionId: $0) != nil } ?? false,
+            foreign: tx.foreign
         )
         cell.configure(with: configuration)
 
@@ -2776,5 +2778,49 @@ extension DashboardViewController: TransactionFilterModalDelegate {
     private func findSelectedCell() -> MonthCarouselCell? {
         let visibleCells = contentView.monthCarousel.visibleCells as? [MonthCarouselCell]
         return visibleCells?.first(where: { $0.tag == syncedViewModel.selectedIndex })
+    }
+}
+
+// MARK: - Foreign-currency income
+
+extension DashboardViewController {
+    /// "Rate updated: US$ 1 = R$ 5,77" — once, only when a refresh really moved live income.
+    fileprivate func setupFxRateHint() {
+        NotificationCenter.default.addObserver(
+            forName: .fxRateUpdated, object: nil, queue: .main
+        ) { [weak self] note in
+            guard let message = note.userInfo?["message"] as? String else { return }
+            self?.showFxRateHint(message)
+        }
+    }
+
+    private func showFxRateHint(_ message: String) {
+        guard viewIfLoaded?.window != nil else { return }
+        let label = FxBadgeLabel()
+        label.font = Fonts.textXS.font
+        label.text = message
+        label.textColor = Colors.gray100
+        label.backgroundColor = Colors.gray700.withAlphaComponent(0.92)
+        label.layer.cornerRadius = CornerRadius.large
+        label.insets = UIEdgeInsets(
+            top: Metrics.spacing2, left: Metrics.spacing3, bottom: Metrics.spacing2, right: Metrics.spacing3)
+        label.numberOfLines = 1
+        label.alpha = 0
+        label.accessibilityLabel = message
+        label.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(label)
+        NSLayoutConstraint.activate([
+            label.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            label.bottomAnchor.constraint(
+                equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -Metrics.spacing17 - Metrics.spacing4),
+            label.heightAnchor.constraint(greaterThanOrEqualToConstant: 32),
+            label.leadingAnchor.constraint(greaterThanOrEqualTo: view.leadingAnchor, constant: Metrics.spacing4),
+        ])
+        UIAccessibility.post(notification: .announcement, argument: message)
+        UIView.animate(withDuration: 0.25, animations: { label.alpha = 1 }) { _ in
+            UIView.animate(withDuration: 0.25, delay: 3, options: [], animations: { label.alpha = 0 }) { _ in
+                label.removeFromSuperview()
+            }
+        }
     }
 }

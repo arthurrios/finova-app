@@ -936,7 +936,8 @@ extension BudgetAllocationDetailsView: UITableViewDataSource, UITableViewDelegat
             creditCardId: transaction.creditCardId,
             isSettledEarly: transaction.id.map {
                 DBHelper.shared.settledByTransactionId(transactionId: $0) != nil
-            } ?? false
+            } ?? false,
+            foreign: transaction.foreign
         )
 
         cell.configure(with: configuration)

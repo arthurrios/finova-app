@@ -312,3 +312,50 @@ private struct DeletionPromptContent {
   let futureTitle: String
   let allTitle: String?  // Optional - not all transaction types have "delete all" option
 }
+
+// MARK: - Foreign-currency income
+
+extension TransactionDetailsViewController {
+  /// "Enter amount received": only after the lock. Saves the typed R$ as `amount`, keeps the foreign
+  /// amount and stores the implied rate, so the badge then includes spread, IOF and fees.
+  func didTapEnterAmountReceived() {
+    guard let id = viewModel.transaction.id, let fx = viewModel.transaction.foreign, fx.isLocked
+    else { return }
+    let app = AppConfig.currencyCode
+    let alert = UIAlertController(
+      title: "fx.received.title".localized,
+      message: "fx.received.message".localized(
+        ForeignCurrencyService.format(amountMinor: fx.amount, currency: fx.currency)),
+      preferredStyle: .alert)
+    alert.addTextField { field in
+      field.keyboardType = .decimalPad
+      field.placeholder = self.viewModel.transaction.amount.currencyString
+    }
+    alert.addAction(UIAlertAction(title: "fx.cancel".localized, style: .cancel))
+    alert.addAction(UIAlertAction(title: "fx.received.save".localized, style: .default) { [weak self] _ in
+      guard let self = self else { return }
+      let text = alert.textFields?.first?.text ?? ""
+      guard let typed = Self.minorUnits(from: text, currency: app),
+        let result = FxEditPlanner.received(old: fx, typedAmount: typed, appCurrency: app)
+      else { return }
+      ForeignCurrencyService.shared.save(result, transactionId: id)
+      self.refreshTransactionData()
+    })
+    present(alert, animated: true)
+  }
+
+  /// "28.900,00" / "28900" / "28,900.00" → minor units of `currency`.
+  static func minorUnits(from text: String, currency: String) -> Int? {
+    let digits = CurrencyUtils.fractionDigits(for: currency)
+    let formatter = NumberFormatter()
+    formatter.numberStyle = .decimal
+    formatter.locale = .autoupdatingCurrent
+    let cleaned = text.trimmingCharacters(in: .whitespaces)
+    guard let number = formatter.number(from: cleaned)
+      ?? Decimal(string: cleaned.replacingOccurrences(of: ",", with: ".")).map({ NSDecimalNumber(decimal: $0) })
+    else { return nil }
+    let value = number.decimalValue * pow(10, digits)
+    let minor = FxMath.roundHalfEven(value)
+    return minor > 0 ? minor : nil
+  }
+}

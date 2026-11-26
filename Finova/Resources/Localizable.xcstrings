@@ -21489,6 +21489,600 @@
           }
         }
       }
+    },
+    "fx.rateUpdated": {
+      "comment": "Short hint after a refresh moved foreign-currency income. %@ = 'US$ 1 = R$ 5,77'.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rate updated: %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cotação atualizada: %@"
+          }
+        }
+      }
+    },
+    "fx.picker.accessibility": {
+      "comment": "Accessibility name of the currency pull-down in the amount field.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Currency"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Moeda"
+          }
+        }
+      }
+    },
+    "fx.picker.title": {
+      "comment": "Title of the currency menu for an income.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Received in"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recebido em"
+          }
+        }
+      }
+    },
+    "fx.picker.more": {
+      "comment": "Submenu with every supported currency.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "More currencies"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Outras moedas"
+          }
+        }
+      }
+    },
+    "fx.hint.locked": {
+      "comment": "Under the amount of a locked foreign income. %1$@ = date, %2$@ = rate.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Locked on %1$@ · %2$@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Travado em %1$@ · %2$@"
+          }
+        }
+      }
+    },
+    "fx.hint.noRate": {
+      "comment": "Shown when no exchange rate is cached.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No rate yet (offline)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sem cotação ainda (offline)"
+          }
+        }
+      }
+    },
+    "fx.hint.typeRate": {
+      "comment": "Button to type an exchange rate by hand.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Type the rate"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Digitar a cotação"
+          }
+        }
+      }
+    },
+    "fx.hint.manual": {
+      "comment": "Source of an exchange rate typed by hand.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "typed by you"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "digitada por você"
+          }
+        }
+      }
+    },
+    "fx.hint.ecb": {
+      "comment": "Rate source and date. ECB = European Central Bank. %@ = short date.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ECB, %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "BCE, %@"
+          }
+        }
+      }
+    },
+    "fx.manualRate.title": {
+      "comment": "Alert title to type a rate by hand.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exchange rate"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cotação"
+          }
+        }
+      }
+    },
+    "fx.manualRate.message": {
+      "comment": "Alert message. %1$@ = foreign symbol, %2$@ = app currency symbol.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "How much is %1$@ 1 in %2$@?"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quanto vale %1$@ 1 em %2$@?"
+          }
+        }
+      }
+    },
+    "fx.manualRate.save": {
+      "comment": "Alert button.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use rate"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usar cotação"
+          }
+        }
+      }
+    },
+    "fx.cancel": {
+      "comment": "Alert cancel button.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancelar"
+          }
+        }
+      }
+    },
+    "fx.badge.a11y.up": {
+      "comment": "VoiceOver for the % badge.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Up %@ percent since added"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subiu %@ por cento desde que foi adicionado"
+          }
+        }
+      }
+    },
+    "fx.badge.a11y.down": {
+      "comment": "VoiceOver for the % badge.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Down %@ percent since added"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Caiu %@ por cento desde que foi adicionado"
+          }
+        }
+      }
+    },
+    "fx.badge.a11y.flat": {
+      "comment": "VoiceOver for a 0.0% badge.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No change since added"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sem variação desde que foi adicionado"
+          }
+        }
+      }
+    },
+    "fx.details.header": {
+      "comment": "Card title on transaction details.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exchange rate"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Câmbio"
+          }
+        }
+      }
+    },
+    "fx.details.receivedIn": {
+      "comment": "Row title; value is the foreign amount.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Received in"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recebido em"
+          }
+        }
+      }
+    },
+    "fx.details.rate": {
+      "comment": "Row title.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rate"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cotação"
+          }
+        }
+      }
+    },
+    "fx.details.impliedRate": {
+      "comment": "Row title when the user typed the amount received.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rate received"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cotação recebida"
+          }
+        }
+      }
+    },
+    "fx.details.rateDate": {
+      "comment": "Row title.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rate date"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Data da cotação"
+          }
+        }
+      }
+    },
+    "fx.details.ecb": {
+      "comment": "European Central Bank.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ECB"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "BCE"
+          }
+        }
+      }
+    },
+    "fx.details.change": {
+      "comment": "Row title for the % badge.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Change"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Variação"
+          }
+        }
+      }
+    },
+    "fx.details.sinceAdded": {
+      "comment": "After the % in the details badge.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "since added"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "desde que adicionou"
+          }
+        }
+      }
+    },
+    "fx.details.was": {
+      "comment": "%1$@ = entry rate, %2$@ = short date.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Was %1$@ on %2$@."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Era %1$@ em %2$@."
+          }
+        }
+      }
+    },
+    "fx.details.locksOnPayday": {
+      "comment": "Footnote for a live rate.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Locks on payday."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trava no dia do pagamento."
+          }
+        }
+      }
+    },
+    "fx.details.lockedOn": {
+      "comment": "Footnote for a locked rate.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Locked on %@."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Travado em %@."
+          }
+        }
+      }
+    },
+    "fx.details.estimate": {
+      "comment": "Footnote: the converted value is an estimate.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estimate: your bank's spread, IOF and fees can change it."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estimativa: spread, IOF e taxas do banco podem mudar o valor."
+          }
+        }
+      }
+    },
+    "fx.details.receivedNote": {
+      "comment": "Footnote after 'Enter amount received'.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Amount received, typed by you."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Valor recebido, digitado por você."
+          }
+        }
+      }
+    },
+    "fx.details.enterReceived": {
+      "comment": "Action row, shown after the lock.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enter amount received"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Informar valor recebido"
+          }
+        }
+      }
+    },
+    "fx.received.title": {
+      "comment": "Alert title.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Amount received"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Valor recebido"
+          }
+        }
+      }
+    },
+    "fx.received.message": {
+      "comment": "%@ = the foreign amount.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "How much arrived in your account for %@?"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quanto caiu na sua conta pelos %@?"
+          }
+        }
+      }
+    },
+    "fx.received.save": {
+      "comment": "Alert button.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Save"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Salvar"
+          }
+        }
+      }
     }
   },
   "version": "1.1"
