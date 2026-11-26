@@ -203,7 +203,9 @@ final class ForeignCurrencyService {
 
   // MARK: Network
 
-  /// Newest rate for `currency` → app currency. Uses the cache unless it is older than six hours.
+  /// Newest rate for `currency` → app currency. Uses the cache unless it is older than
+  /// `latestMaxAge` (5 minutes). Offline, it returns the saved quote however old: good enough to
+  /// show a live value, never good enough to lock (see `lockableLatest`).
   @discardableResult
   func latest(for currency: String, force: Bool = false) async -> FxQuote? {
     let base = currency, quote = appCurrency
@@ -223,18 +225,31 @@ final class ForeignCurrencyService {
     }
   }
 
+  /// A live quote that may freeze a payday row: fetched (or confirmed) within `latestMaxAge` and
+  /// dated `payday` itself. A stale offline quote, or yesterday's ECB rate given by the fallback
+  /// before the noon publication, returns nil, so the row stays live and locks on a later pass.
+  func lockableLatest(for currency: String, payday: String) -> FxQuote? {
+    guard let cached = db.cachedFxRate(base: currency, quote: appCurrency, requested: "latest"),
+      now().timeIntervalSince1970 - TimeInterval(cached.fetchedAt) < Self.latestMaxAge,
+      cached.quote.date == payday
+    else { return nil }
+    return cached.quote
+  }
+
   /// The closing rate of `day` (the newest quote on or before it). Only past days are cached:
-  /// today's "close" keeps moving.
+  /// today's "close" keeps moving. Cached under "close:<day>": the earlier build stored ECB
+  /// answers under the bare day, and those must not be reused now that the market rate rules.
   func historical(for currency: String, day: String) async -> FxQuote? {
     let base = currency, quote = appCurrency
-    if let cached = db.cachedFxRate(base: base, quote: quote, requested: day) {
+    let key = "close:" + day
+    if let cached = db.cachedFxRate(base: base, quote: quote, requested: key) {
       return cached.quote
     }
     do {
       let answer = try await provider.historical(base: base, quote: quote, day: day)
       let today = FxDay.string(from: now(), calendar: calendar)
       if day < today {
-        db.storeFxRate(answer, requested: day, fetchedAt: Int(now().timeIntervalSince1970))
+        db.storeFxRate(answer, requested: key, fetchedAt: Int(now().timeIntervalSince1970))
       }
       return answer
     } catch {
@@ -273,8 +288,9 @@ final class ForeignCurrencyService {
       let key = "\(row.foreign.currency)|\(payday)"
       guard historicalByKey[key] == nil else { continue }
       if payday == today {
-        // Payday, app open: lock with the live market rate right now.
-        historicalByKey[key] = latestByCurrency[row.foreign.currency]
+        // Payday, app open: lock with the live market rate right now, but only a fresh one dated
+        // today. Otherwise nil: the row stays live and locks on the next pass with a real rate.
+        historicalByKey[key] = lockableLatest(for: row.foreign.currency, payday: payday)
       } else if let answer = await historical(for: row.foreign.currency, day: payday) {
         // The app was closed on payday: that day's closing rate.
         historicalByKey[key] = answer
