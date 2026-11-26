@@ -1259,9 +1259,10 @@ extension TransactionDetailsView {
       lines.append(fx.isLocked
         ? "fx.details.lockedOn".localized(ForeignCurrencyService.shortDate(epoch: fx.lockedAt ?? 0))
         : "fx.details.locksOnPayday".localized)
-      lines.append("fx.details.estimate".localized)
     }
-    note.text = lines.joined(separator: " ")
+    var noteText = lines.joined(separator: " ")
+    if !fx.isReceivedAmount { noteText += "\n" + "fx.details.estimate".localized }
+    note.text = noteText
     exchangeRateCard.addArrangedSubview(note)
 
     exchangeRateHeaderView.isHidden = false

@@ -94,11 +94,11 @@ enum FxMath {
     return n >= 0 ? (2 * n + d) / (2 * d) : -((-2 * n + d) / (2 * d))
   }
 
-  /// `+8.0%`, `−2.3%`, `0.0%` (never `−0.0%`). Uses the locale's decimal sign and a real minus.
-  static func formatChange(tenths: Int, locale: Locale = .autoupdatingCurrent) -> String {
-    let separator = locale.decimalSeparator ?? "."
+  /// `+8.0%`, `−2.3%`, `0.0%` (never `−0.0%`), with a real minus. Always a point, like the
+  /// Stocks app and like compact amounts in this app ("R$28.3k"), whatever the phone's format.
+  static func formatChange(tenths: Int) -> String {
     let magnitude = abs(tenths)
-    let body = "\(magnitude / 10)\(separator)\(magnitude % 10)%"
+    let body = "\(magnitude / 10).\(magnitude % 10)%"
     if tenths > 0 { return "+" + body }
     if tenths < 0 { return "\u{2212}" + body }
     return body

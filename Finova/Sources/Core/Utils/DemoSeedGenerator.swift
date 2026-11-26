@@ -35,7 +35,8 @@ struct DemoSeedGenerator {
     private static let seedVersionKey = "demoSeedVersion"
     /// 4: five months of budgets ahead, a sixth left without one, and recurring bills outside allocations,
     /// for the forecast on budget history.
-    private static let seedVersion = 4
+    /// 5: a US$ salary two days ahead (foreign-currency income, 1.7.0).
+    private static let seedVersion = 5
     private static let seedQueue = DispatchQueue(label: "com.finova.demoseed", qos: .userInitiated)
     private static let lock = NSLock()
     private static var _isSeeding = false
@@ -203,6 +204,31 @@ private struct Writer {
         cancelPurchase()
         payPastStatements(cards: cards)
         insertAllocationsAndBudgets()
+        insertForeignSalary(viewModel: viewModel)
+    }
+
+    /// One US$ income two days ahead, so it is live and shows the % badge. Rates are seeded too, so
+    /// the screenshot needs no network: entry 5.3381, newest 5.7651 (+8.0%). BRL datasets only.
+    private func insertForeignSalary(viewModel: AddTransactionModalViewModel) {
+        guard dataset.currency == "BRL" else { return }
+        let today = FxDay.string(from: now, calendar: cal)
+        let entryDay = cal.date(byAdding: .day, value: -14, to: now) ?? now
+        let latest = FxQuote(base: "USD", quote: "BRL", date: today, rateMicros: 5_765_100)
+        DBHelper.shared.storeFxRate(
+            latest, requested: "latest", fetchedAt: Int(now.timeIntervalSince1970))
+        let foreign = ForeignAmount(
+            currency: "USD", amount: 500_000, entryRateMicros: 5_338_100,
+            entryRateDate: FxDay.epoch(of: FxDay.string(from: entryDay, calendar: cal), calendar: cal))
+        let payday = cal.date(byAdding: .day, value: 2, to: now) ?? now
+        let result = viewModel.addTransaction(
+            title: "Salary – Acme Inc.",
+            amount: FxConversion.convert(
+                fxAmount: 500_000, currency: "USD", rateMicros: latest.rateMicros, appCurrency: "BRL"),
+            dateString: dateString(payday), categoryKey: TransactionCategory.salary.key,
+            typeRaw: String(describing: TransactionType.income), foreign: foreign)
+        if case .failure(let error) = result {
+            logError("[DemoSeed] foreign salary failed: \(error)")
+        }
     }
 
     // MARK: Dates

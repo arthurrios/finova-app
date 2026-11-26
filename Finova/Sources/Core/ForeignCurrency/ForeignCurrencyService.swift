@@ -369,18 +369,22 @@ final class ForeignCurrencyService {
     return formatter.currencySymbol ?? currency
   }
 
-  /// `US$ 5,000.00` in the phone's format.
+  /// `US$ 5,000.00`: the phone's symbol for the currency, the digits in the money's own style
+  /// (1,000.00), so a dollar amount never reads like a reais one next to it.
   static func format(amountMinor: Int, currency: String) -> String {
     let digits = CurrencyUtils.fractionDigits(for: currency)
     let formatter = NumberFormatter()
-    formatter.numberStyle = .currency
-    formatter.locale = .autoupdatingCurrent
-    formatter.currencyCode = currency
+    formatter.numberStyle = .decimal
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.usesGroupingSeparator = true
+    formatter.groupingSeparator = ","
+    formatter.decimalSeparator = "."
+    formatter.groupingSize = 3
     formatter.minimumFractionDigits = digits
     formatter.maximumFractionDigits = digits
     let value = NSDecimalNumber(value: amountMinor).dividing(
       by: NSDecimalNumber(decimal: pow(10, digits)))
-    return formatter.string(from: value) ?? "\(currency) \(value)"
+    return "\(symbol(for: currency)) " + (formatter.string(from: value) ?? "\(value)")
   }
 
   /// Short date for rate labels: 26/11.
