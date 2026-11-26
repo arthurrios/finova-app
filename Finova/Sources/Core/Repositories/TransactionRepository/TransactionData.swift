@@ -41,6 +41,9 @@ struct TransactionData<C, T>: Codable where C: Codable, T: Codable {
     /// when a business-day rule pushed the date across a month boundary. `nil` on rows written before
     /// the column existed, and read as `budgetMonthDate` in that case.
     var seriesPeriod: Int? = nil
+    /// Set when the income was received in another currency (1.7.0). `amount` stays in the app
+    /// currency; this only says where it came from. `nil` on every other row.
+    var foreign: ForeignAmount? = nil
 
     let category: C
     let type: T

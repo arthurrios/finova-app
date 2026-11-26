@@ -1,0 +1,393 @@
+//
+//  ForeignCurrencyService.swift
+//  Finova
+//
+//  Keeps foreign-currency income converted: live before payday, locked on payday.
+//  See docs/fx-salary-plan.md §3.
+//
+
+import Foundation
+
+extension Notification.Name {
+  /// Posted on the main thread when a refresh moved the converted value of live foreign income.
+  /// `userInfo["message"]` is the one-line hint the dashboard shows.
+  static let fxRateUpdated = Notification.Name("fxRateUpdated")
+}
+
+/// What the lock/refresh pass decided for one row. Pure: no database, no network.
+enum FxRowPlanner {
+  struct Row: Equatable {
+    let id: Int
+    let dateTimestamp: Int
+    let amount: Int
+    let foreign: ForeignAmount
+  }
+
+  struct Change: Equatable {
+    let id: Int
+    let foreign: ForeignAmount?
+    let amount: Int
+    /// True when this change only follows a new live rate (drives the "rate updated" hint).
+    let isLiveMove: Bool
+  }
+
+  static func plan(
+    row: Row, appCurrency: String, today: String, latest: FxQuote?, historical: FxQuote?,
+    now: Int, calendar: Calendar = .current
+  ) -> Change? {
+    let fx = row.foreign
+    // The app currency changed to the income's own currency: it is an ordinary row now.
+    if fx.currency == appCurrency {
+      return Change(id: row.id, foreign: nil, amount: fx.amount, isLiveMove: false)
+    }
+    guard !fx.isLocked else { return nil }  // Frozen forever.
+
+    let payday = FxDay.string(
+      from: Date(timeIntervalSince1970: TimeInterval(row.dateTimestamp)), calendar: calendar)
+    switch FxLockRule.decide(payday: payday, today: today, answer: historical) {
+    case .lock(let quote):
+      var locked = fx
+      locked.rateMicros = quote.rateMicros
+      locked.rateDate = FxDay.epoch(of: quote.date, calendar: calendar)
+      locked.lockedAt = now
+      let amount = FxConversion.convert(
+        fxAmount: fx.amount, currency: fx.currency, rateMicros: quote.rateMicros,
+        appCurrency: appCurrency)
+      return Change(id: row.id, foreign: locked, amount: amount, isLiveMove: false)
+    case .live, .wait:
+      guard let latest = latest else { return nil }  // Offline: keep the last known amount.
+      let amount = FxConversion.convert(
+        fxAmount: fx.amount, currency: fx.currency, rateMicros: latest.rateMicros,
+        appCurrency: appCurrency)
+      guard amount != row.amount else { return nil }  // Write only rows that really change.
+      return Change(id: row.id, foreign: fx, amount: amount, isLiveMove: true)
+    }
+  }
+}
+
+/// Editing a foreign income (docs/fx-salary-plan.md §3, "Editing a locked income"). Pure.
+enum FxEditPlanner {
+  struct Result: Equatable {
+    let foreign: ForeignAmount?
+    let amount: Int
+  }
+
+  /// - Parameters:
+  ///   - old: the row's conversion before the edit (nil for an ordinary row).
+  ///   - oldDate / newDate: epoch seconds of the row's date before and after.
+  ///   - currency: the currency picked in the form (the app currency means "no conversion").
+  ///   - typedAmount: the amount typed in the form, in `currency`'s minor units.
+  ///   - liveRateMicros: newest cached rate for `currency`, or a rate typed by hand.
+  /// - Returns: nil when a foreign currency has no rate at all (the caller must ask for one).
+  static func apply(
+    old: ForeignAmount?, oldDate: Int, newDate: Int, currency: String, typedAmount: Int,
+    appCurrency: String, liveRateMicros: Int?, liveRateDate: Int?, calendar: Calendar = .current
+  ) -> Result? {
+    // Set back to the app currency: an ordinary row; `amount` is what was typed.
+    if currency == appCurrency { return Result(foreign: nil, amount: typedAmount) }
+
+    if let old = old, old.currency == currency, old.isLocked {
+      let sameDay =
+        FxDay.string(from: Date(timeIntervalSince1970: TimeInterval(oldDate)), calendar: calendar)
+        == FxDay.string(from: Date(timeIntervalSince1970: TimeInterval(newDate)), calendar: calendar)
+      if sameDay, let locked = old.rateMicros {
+        // New foreign amount × the LOCKED rate. The rate stays.
+        var kept = old
+        kept.amount = typedAmount
+        return Result(
+          foreign: kept,
+          amount: FxConversion.convert(
+            fxAmount: typedAmount, currency: currency, rateMicros: locked, appCurrency: appCurrency))
+      }
+      // Moved to another day: unlock. The next pass locks it again with that day's rate (past)
+      // or keeps it live (future). The entry rate stays: only a new currency resets it.
+      guard let live = liveRateMicros ?? old.rateMicros else { return nil }
+      let unlocked = ForeignAmount(
+        currency: currency, amount: typedAmount,
+        entryRateMicros: old.entryRateMicros, entryRateDate: old.entryRateDate)
+      return Result(
+        foreign: unlocked,
+        amount: FxConversion.convert(
+          fxAmount: typedAmount, currency: currency, rateMicros: live, appCurrency: appCurrency))
+    }
+
+    guard let live = liveRateMicros else { return nil }
+    let keepsEntry = old?.currency == currency
+    let foreign = ForeignAmount(
+      currency: currency, amount: typedAmount,
+      entryRateMicros: keepsEntry ? (old?.entryRateMicros ?? live) : live,
+      entryRateDate: keepsEntry ? (old?.entryRateDate ?? liveRateDate) : liveRateDate)
+    return Result(
+      foreign: foreign,
+      amount: FxConversion.convert(
+        fxAmount: typedAmount, currency: currency, rateMicros: live, appCurrency: appCurrency))
+  }
+
+  /// "Enter amount received": allowed only after the lock. Stores the implied rate; the badge then
+  /// compares the entry rate with it, so it includes the bank's spread, IOF and fees.
+  static func received(old: ForeignAmount, typedAmount: Int, appCurrency: String) -> Result? {
+    guard old.isLocked, typedAmount > 0,
+      let implied = FxMath.impliedRateMicros(
+        typedAmount: typedAmount, fxAmount: old.amount,
+        fxDigits: CurrencyUtils.fractionDigits(for: old.currency),
+        baseDigits: CurrencyUtils.fractionDigits(for: appCurrency))
+    else { return nil }
+    var updated = old
+    updated.rateMicros = implied
+    updated.isReceivedAmount = true
+    return Result(foreign: updated, amount: typedAmount)
+  }
+}
+
+enum FxConversion {
+  static func convert(fxAmount: Int, currency: String, rateMicros: Int, appCurrency: String) -> Int {
+    FxMath.convert(
+      fxAmount: fxAmount, rateMicros: rateMicros,
+      fxDigits: CurrencyUtils.fractionDigits(for: currency),
+      baseDigits: CurrencyUtils.fractionDigits(for: appCurrency))
+  }
+}
+
+/// The IO side: rate cache, network, database writes, notifications.
+final class ForeignCurrencyService {
+  static let shared = ForeignCurrencyService()
+
+  /// "latest" is refreshed at most this often. ECB publishes once a working day.
+  static let latestMaxAge: TimeInterval = 6 * 60 * 60
+
+  /// Currencies offered first in the picker. The full list is the provider's (`allCurrencies`).
+  static let commonCurrencies = ["USD", "EUR", "GBP"]
+  /// Frankfurter's ECB set. Built in, so the picker works offline.
+  static let allCurrencies = [
+    "AUD", "BGN", "BRL", "CAD", "CHF", "CNY", "CZK", "DKK", "EUR", "GBP", "HKD", "HUF", "IDR",
+    "ILS", "INR", "ISK", "JPY", "KRW", "MXN", "MYR", "NOK", "NZD", "PHP", "PLN", "RON", "SEK",
+    "SGD", "THB", "TRY", "USD", "ZAR",
+  ]
+
+  private let provider: FxRateProvider
+  private let db: DBHelper
+  private let now: () -> Date
+  private let calendar: Calendar
+  private var isRunning = false
+
+  init(
+    provider: FxRateProvider = FrankfurterRateProvider(), db: DBHelper = .shared,
+    now: @escaping () -> Date = Date.init, calendar: Calendar = .current
+  ) {
+    self.provider = provider
+    self.db = db
+    self.now = now
+    self.calendar = calendar
+  }
+
+  var appCurrency: String { AppConfig.currencyCode }
+
+  /// Whether the app currency is one the provider can convert into.
+  var isAvailable: Bool { Self.allCurrencies.contains(appCurrency) }
+
+  // MARK: Cache (synchronous)
+
+  func cachedLatest(for currency: String) -> FxQuote? {
+    db.cachedFxRate(base: currency, quote: appCurrency, requested: "latest")?.quote
+  }
+
+  // MARK: Network
+
+  /// Newest rate for `currency` → app currency. Uses the cache unless it is older than six hours.
+  @discardableResult
+  func latest(for currency: String, force: Bool = false) async -> FxQuote? {
+    let base = currency, quote = appCurrency
+    guard base != quote else { return nil }
+    if !force, let cached = db.cachedFxRate(base: base, quote: quote, requested: "latest"),
+      now().timeIntervalSince1970 - TimeInterval(cached.fetchedAt) < Self.latestMaxAge
+    {
+      return cached.quote
+    }
+    do {
+      let fresh = try await provider.latest(base: base, quote: quote)
+      db.storeFxRate(fresh, requested: "latest", fetchedAt: Int(now().timeIntervalSince1970))
+      return fresh
+    } catch {
+      logWarning("[FX] latest \(base)->\(quote) failed: \(error)")
+      return db.cachedFxRate(base: base, quote: quote, requested: "latest")?.quote
+    }
+  }
+
+  /// The rate dated `day` (or the last one before it). Answers that can still change (asked for
+  /// today, answered with an earlier day) are not cached.
+  func historical(for currency: String, day: String) async -> FxQuote? {
+    let base = currency, quote = appCurrency
+    if let cached = db.cachedFxRate(base: base, quote: quote, requested: day) {
+      return cached.quote
+    }
+    do {
+      let answer = try await provider.historical(base: base, quote: quote, day: day)
+      let today = FxDay.string(from: now(), calendar: calendar)
+      if day < today || answer.date == day {
+        db.storeFxRate(answer, requested: day, fetchedAt: Int(now().timeIntervalSince1970))
+      }
+      return answer
+    } catch {
+      logWarning("[FX] historical \(base)->\(quote) \(day) failed: \(error)")
+      return nil
+    }
+  }
+
+  // MARK: The pass
+
+  /// Locks every due row and moves every live row to the newest rate. Runs at launch, on return to
+  /// the foreground, and after a foreign income is saved.
+  func refresh(force: Bool = false) async {
+    let rows: [FxRowPlanner.Row] = await MainActor.run {
+      guard !isRunning else { return [] }
+      isRunning = true
+      return pendingRows()
+    }
+    guard !rows.isEmpty else {
+      await MainActor.run { isRunning = false }
+      return
+    }
+    defer { Task { @MainActor in self.isRunning = false } }
+
+    let today = FxDay.string(from: now(), calendar: calendar)
+    let app = appCurrency
+    var latestByCurrency: [String: FxQuote] = [:]
+    for currency in Set(rows.map { $0.foreign.currency }) where currency != app {
+      if let quote = await latest(for: currency, force: force) { latestByCurrency[currency] = quote }
+    }
+    var historicalByKey: [String: FxQuote] = [:]
+    for row in rows where row.foreign.currency != app {
+      let payday = FxDay.string(
+        from: Date(timeIntervalSince1970: TimeInterval(row.dateTimestamp)), calendar: calendar)
+      guard payday <= today else { continue }
+      let key = "\(row.foreign.currency)|\(payday)"
+      if historicalByKey[key] == nil,
+        let answer = await historical(for: row.foreign.currency, day: payday)
+      {
+        historicalByKey[key] = answer
+      }
+    }
+
+    let stamp = Int(now().timeIntervalSince1970)
+    let changes = rows.compactMap { row -> FxRowPlanner.Change? in
+      let payday = FxDay.string(
+        from: Date(timeIntervalSince1970: TimeInterval(row.dateTimestamp)), calendar: calendar)
+      return FxRowPlanner.plan(
+        row: row, appCurrency: app, today: today,
+        latest: latestByCurrency[row.foreign.currency],
+        historical: historicalByKey["\(row.foreign.currency)|\(payday)"],
+        now: stamp, calendar: calendar)
+    }
+    guard !changes.isEmpty else { return }
+    await MainActor.run { self.apply(changes, latest: latestByCurrency) }
+  }
+
+  /// Foreign rows the pass may still change: live ones, plus any whose currency now equals the app's.
+  private func pendingRows() -> [FxRowPlanner.Row] {
+    let app = appCurrency
+    let transactions = TransactionRepository().fetchAllTransactions()
+    return transactions.compactMap { tx in
+      guard let id = tx.id, let fx = tx.foreign, !fx.isLocked || fx.currency == app else {
+        return nil
+      }
+      return FxRowPlanner.Row(id: id, dateTimestamp: tx.dateTimestamp, amount: tx.amount, foreign: fx)
+    }
+  }
+
+  @MainActor
+  private func apply(_ changes: [FxRowPlanner.Change], latest: [String: FxQuote]) {
+    var written: [Int] = []
+    try? db.inTransaction {
+      for change in changes
+      where db.updateForeign(transactionId: change.id, foreign: change.foreign, amount: change.amount) {
+        written.append(change.id)
+      }
+    }
+    guard !written.isEmpty else { return }
+    TransactionRepository.invalidateCache()
+    reconcileNotifications(for: written)
+    NotificationCenter.default.post(name: .transactionDataChanged, object: nil)
+
+    let moved = changes.filter { $0.isLiveMove && written.contains($0.id) }
+    if let currency = moved.first?.foreign?.currency, let quote = latest[currency] {
+      NotificationCenter.default.post(
+        name: .fxRateUpdated, object: nil,
+        userInfo: ["message": Self.rateUpdatedMessage(quote)])
+    }
+  }
+
+  /// One reconcile per series, not one per row: recurring reminders are month-bucketed per parent,
+  /// and per-row cancel calls block bulk changes.
+  func reconcileNotifications(for ids: [Int]) {
+    let repo = TransactionRepository()
+    var seenParents = Set<Int>()
+    for id in ids {
+      if let parent = repo.fetchTransaction(byId: id)?.parentTransactionId {
+        guard seenParents.insert(parent).inserted else { continue }
+      }
+      repo.reconcileNotifications(forLocalId: id)
+    }
+  }
+
+  // MARK: Writes from the UI
+
+  /// Saves an edit's conversion on one row and reconciles its notification.
+  @MainActor
+  func save(_ result: FxEditPlanner.Result, transactionId: Int) {
+    db.updateForeign(transactionId: transactionId, foreign: result.foreign, amount: result.amount)
+    TransactionRepository.invalidateCache()
+    reconcileNotifications(for: [transactionId])
+    NotificationCenter.default.post(name: .transactionDataChanged, object: nil)
+  }
+
+  // MARK: Text
+
+  static func rateUpdatedMessage(_ quote: FxQuote) -> String {
+    String(
+      format: "fx.rateUpdated".localized,
+      rateText(rateMicros: quote.rateMicros, currency: quote.base, appCurrency: quote.quote))
+  }
+
+  /// `US$ 1 = R$ 5,7651`
+  static func rateText(rateMicros: Int, currency: String, appCurrency: String) -> String {
+    let formatter = NumberFormatter()
+    formatter.numberStyle = .currency
+    formatter.locale = .autoupdatingCurrent
+    formatter.currencyCode = appCurrency
+    formatter.minimumFractionDigits = 4
+    formatter.maximumFractionDigits = 4
+    let rate = Decimal(rateMicros) / Decimal(FxMath.microsPerUnit)
+    let right = formatter.string(from: NSDecimalNumber(decimal: rate)) ?? "\(rate)"
+    return "\(symbol(for: currency)) 1 = \(right)"
+  }
+
+  static func symbol(for currency: String) -> String {
+    let formatter = NumberFormatter()
+    formatter.numberStyle = .currency
+    formatter.locale = .autoupdatingCurrent
+    formatter.currencyCode = currency
+    return formatter.currencySymbol ?? currency
+  }
+
+  /// `US$ 5,000.00` in the phone's format.
+  static func format(amountMinor: Int, currency: String) -> String {
+    let digits = CurrencyUtils.fractionDigits(for: currency)
+    let formatter = NumberFormatter()
+    formatter.numberStyle = .currency
+    formatter.locale = .autoupdatingCurrent
+    formatter.currencyCode = currency
+    formatter.minimumFractionDigits = digits
+    formatter.maximumFractionDigits = digits
+    let value = NSDecimalNumber(value: amountMinor).dividing(
+      by: NSDecimalNumber(decimal: pow(10, digits)))
+    return formatter.string(from: value) ?? "\(currency) \(value)"
+  }
+
+  /// Short date for rate labels: 26/11.
+  static func shortDate(epoch: Int) -> String {
+    let formatter = DateFormatter()
+    formatter.locale = .autoupdatingCurrent
+    formatter.setLocalizedDateFormatFromTemplate("ddMM")
+    return formatter.string(from: Date(timeIntervalSince1970: TimeInterval(epoch)))
+  }
+}

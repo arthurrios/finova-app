@@ -63,6 +63,8 @@ struct Transaction: Codable {
     var unadjustedDateTimestamp: Int? { data.unadjustedDateTimestamp }
     /// The occurrence slot this row occupies, falling back to its accounting month.
     var seriesPeriod: Int { data.seriesPeriod ?? data.budgetMonthDate }
+    /// Received in another currency; `nil` for every ordinary row.
+    var foreign: ForeignAmount? { data.foreign }
 
     /// The occurrence date before the business-day rule moved it, falling back to the stored date for
     /// rows written before the column existed. Regeneration derives from this, never from `date`.
@@ -82,6 +84,7 @@ struct Transaction: Codable {
         case creditCardId, statementId, isCreditCardStatement
         case category, type, updatedAt, createdByUid
         case businessDayRule, unadjustedDateTimestamp, seriesPeriod
+        case foreign
     }
     
     init(from decoder: Decoder) throws {
@@ -110,6 +113,7 @@ struct Transaction: Codable {
         let unadjustedDateTimestamp = try container.decodeIfPresent(
             Int.self, forKey: .unadjustedDateTimestamp)
         let seriesPeriod = try container.decodeIfPresent(Int.self, forKey: .seriesPeriod)
+        let foreign = try container.decodeIfPresent(ForeignAmount.self, forKey: .foreign)
 
         // Decode category and type as strings, then convert to enums
         let categoryString = try container.decode(String.self, forKey: .category)
@@ -148,6 +152,7 @@ struct Transaction: Codable {
             businessDayRule: businessDayRule,
             unadjustedDateTimestamp: unadjustedDateTimestamp,
             seriesPeriod: seriesPeriod,
+            foreign: foreign,
             category: category,
             type: type
         )
@@ -178,6 +183,7 @@ struct Transaction: Codable {
         try container.encodeIfPresent(
             data.unadjustedDateTimestamp, forKey: .unadjustedDateTimestamp)
         try container.encodeIfPresent(data.seriesPeriod, forKey: .seriesPeriod)
+        try container.encodeIfPresent(data.foreign, forKey: .foreign)
 
         // Encode category and type as strings
         try container.encode(data.category.key, forKey: .category)
@@ -211,7 +217,8 @@ struct TransactionModel {
         // Appended, and defaulted, so the several dozen existing labelled call sites are unchanged.
         businessDayRule: BusinessDayRule = .exact,
         unadjustedDateTimestamp: Int? = nil,
-        seriesPeriod: Int? = nil
+        seriesPeriod: Int? = nil,
+        foreign: ForeignAmount? = nil
     ) {
         self.data = DBTransactionData(
             id: id,
@@ -232,9 +239,19 @@ struct TransactionModel {
             businessDayRule: businessDayRule,
             unadjustedDateTimestamp: unadjustedDateTimestamp,
             seriesPeriod: seriesPeriod,
+            foreign: foreign,
             category: category,
             type: type
         )
+    }
+}
+
+extension Transaction {
+    /// The same row with its foreign-currency conversion attached (see `DBHelper.attachForeign`).
+    func withForeign(_ foreign: ForeignAmount?) -> Transaction {
+        var copy = data
+        copy.foreign = foreign
+        return Transaction(data: copy)
     }
 }
 
@@ -300,6 +317,7 @@ extension UITransactionData {
             businessDayRule: db.businessDayRule,
             unadjustedDateTimestamp: db.unadjustedDateTimestamp,
             seriesPeriod: db.seriesPeriod,
+            foreign: db.foreign,
             category: finalCategory,
             type: finalType
         )

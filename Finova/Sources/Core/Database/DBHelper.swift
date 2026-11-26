@@ -97,6 +97,7 @@ class DBHelper {
             try migrateStatementPaymentColumns()
             try migrateBusinessDayColumns()
             try migrateImportColumns()
+            try migrateForeignCurrencyColumns()
             createMissingIndexes()
             isInitialized = true
             performUuidBackfillV1()
@@ -511,8 +512,11 @@ class DBHelper {
               created_by_uid,
               business_day_rule,
               unadjusted_date,
-              series_period
-              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+              series_period,
+              fx_currency, fx_amount, fx_rate_micros, fx_rate_date, fx_locked_at,
+              fx_entry_rate_micros, fx_entry_rate_date, fx_is_received
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                        ?, ?, ?, ?, ?, ?, ?, ?);
       """
         
         var statement: OpaquePointer?
@@ -614,6 +618,9 @@ class DBHelper {
         sqlite3_bind_int64(
             statement, 22,
             Int64(transaction.data.seriesPeriod ?? transaction.data.budgetMonthDate))
+        // Foreign-currency income: bound here so a recurring occurrence copied from a foreign
+        // template keeps its currency without every generation site knowing the columns.
+        bindForeign(transaction.data.foreign, to: statement, from: 23)
 
         guard sqlite3_step(statement) == SQLITE_DONE else {
             let msg = String(cString: sqlite3_errmsg(db))
@@ -768,7 +775,7 @@ class DBHelper {
                 continue
             }
         }
-        return results
+        return attachForeign(results)
     }
     
     /// Rewrites only what a transaction is CALLED and FILED UNDER — title, category, type — and
@@ -984,7 +991,7 @@ class DBHelper {
             }
         }
 
-        return results
+        return attachForeign(results)
     }
     
     func updateTransactionParentId(transactionId: Int, parentId: Int) throws {
@@ -3996,7 +4003,7 @@ class DBHelper {
             }
         }
 
-        return results
+        return attachForeign(results)
     }
 
     func executeTransactionQueryMixed(
@@ -4108,7 +4115,7 @@ class DBHelper {
             }
         }
 
-        return results
+        return attachForeign(results)
     }
 
     func executeSyncUpdate(_ query: String, textBindings: [String] = [], intBindings: [Int] = []) {
@@ -6092,6 +6099,167 @@ class DBHelper {
             TransactionRepository.invalidateCache()
         }
         return removed
+    }
+
+    // MARK: - Foreign-currency income (1.7.0)
+
+    /// Foreign-currency income. All nullable, no backfill: a NULL `fx_currency` is a normal row,
+    /// exactly what every existing row already is. `amount` stays in the app currency, so no reader
+    /// changes. Not gated on `user_version`, like `migrateBusinessDayColumns`.
+    private func migrateForeignCurrencyColumns() throws {
+        try addColumnIfNotExists(table: "Transactions", column: "fx_currency", definition: "TEXT")
+        try addColumnIfNotExists(table: "Transactions", column: "fx_amount", definition: "INTEGER")
+        try addColumnIfNotExists(table: "Transactions", column: "fx_rate_micros", definition: "INTEGER")
+        try addColumnIfNotExists(table: "Transactions", column: "fx_rate_date", definition: "INTEGER")
+        try addColumnIfNotExists(table: "Transactions", column: "fx_locked_at", definition: "INTEGER")
+        try addColumnIfNotExists(table: "Transactions", column: "fx_entry_rate_micros", definition: "INTEGER")
+        try addColumnIfNotExists(table: "Transactions", column: "fx_entry_rate_date", definition: "INTEGER")
+        try addColumnIfNotExists(table: "Transactions", column: "fx_is_received", definition: "INTEGER")
+        // The refresh and the lock pass both look for "foreign and not locked". Partial, so it is
+        // one empty page for users who never use the feature.
+        sqlite3_exec(db, """
+            CREATE INDEX IF NOT EXISTS idx_tx_fx_unlocked
+                ON Transactions(date) WHERE fx_currency IS NOT NULL AND fx_locked_at IS NULL;
+            """, nil, nil, nil)
+        // Local-only rate cache. Never synced: a rate is public data any device can fetch again.
+        // `requested` is the day asked for ('latest' for the newest); `rate_date` is the provider's
+        // answer date, which can be earlier.
+        sqlite3_exec(db, """
+            CREATE TABLE IF NOT EXISTS FxRates (
+                base        TEXT    NOT NULL,
+                quote       TEXT    NOT NULL,
+                requested   TEXT    NOT NULL,
+                rate_date   TEXT    NOT NULL,
+                rate_micros INTEGER NOT NULL,
+                fetched_at  INTEGER NOT NULL,
+                PRIMARY KEY (base, quote, requested)
+            );
+            """, nil, nil, nil)
+    }
+
+    private func bindForeign(_ foreign: ForeignAmount?, to statement: OpaquePointer?, from start: Int32) {
+        func bindInt(_ index: Int32, _ value: Int?) {
+            if let value = value { sqlite3_bind_int64(statement, index, Int64(value)) }
+            else { sqlite3_bind_null(statement, index) }
+        }
+        guard let fx = foreign else {
+            for offset in 0..<8 { sqlite3_bind_null(statement, start + Int32(offset)) }
+            return
+        }
+        sqlite3_bind_text(statement, start, fx.currency, -1, SQLITE_TRANSIENT)
+        bindInt(start + 1, fx.amount)
+        bindInt(start + 2, fx.rateMicros)
+        bindInt(start + 3, fx.rateDate)
+        bindInt(start + 4, fx.lockedAt)
+        bindInt(start + 5, fx.entryRateMicros)
+        bindInt(start + 6, fx.entryRateDate)
+        bindInt(start + 7, fx.isReceivedAmount ? 1 : nil)
+    }
+
+    /// Every foreign row, keyed by local id. Small by construction: only income the user entered in
+    /// another currency.
+    func fetchForeignAmounts() -> [Int: ForeignAmount] {
+        guard isInitialized else { return [:] }
+        let query = """
+            SELECT id, fx_currency, fx_amount, fx_rate_micros, fx_rate_date, fx_locked_at,
+                   fx_entry_rate_micros, fx_entry_rate_date, fx_is_received
+            FROM Transactions WHERE fx_currency IS NOT NULL;
+            """
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK else { return [:] }
+        defer { sqlite3_finalize(statement) }
+        func int(_ i: Int32) -> Int? {
+            sqlite3_column_type(statement, i) == SQLITE_NULL ? nil : Int(sqlite3_column_int64(statement, i))
+        }
+        var result: [Int: ForeignAmount] = [:]
+        while sqlite3_step(statement) == SQLITE_ROW {
+            guard let text = sqlite3_column_text(statement, 1), let amount = int(2) else { continue }
+            result[Int(sqlite3_column_int64(statement, 0))] = ForeignAmount(
+                currency: String(cString: text), amount: amount,
+                rateMicros: int(3), rateDate: int(4), lockedAt: int(5),
+                entryRateMicros: int(6), entryRateDate: int(7),
+                isReceivedAmount: int(8) == 1)
+        }
+        return result
+    }
+
+    /// Fills `Transaction.foreign` after any transaction query. One extra read of the (usually empty)
+    /// foreign set, instead of adding eight columns to every SELECT in this file.
+    func attachForeign(_ transactions: [Transaction]) -> [Transaction] {
+        guard !transactions.isEmpty else { return transactions }
+        let foreign = fetchForeignAmounts()
+        guard !foreign.isEmpty else { return transactions }
+        return transactions.map { tx in
+            guard let id = tx.id, let fx = foreign[id] else { return tx }
+            return tx.withForeign(fx)
+        }
+    }
+
+    /// Writes the conversion of one row: its foreign columns and its app-currency `amount`, together.
+    /// `foreign == nil` clears the columns (the row becomes an ordinary one).
+    @discardableResult
+    func updateForeign(transactionId: Int, foreign: ForeignAmount?, amount: Int) -> Bool {
+        guard isInitialized else { return false }
+        let query = """
+            UPDATE Transactions
+               SET fx_currency = ?, fx_amount = ?, fx_rate_micros = ?, fx_rate_date = ?,
+                   fx_locked_at = ?, fx_entry_rate_micros = ?, fx_entry_rate_date = ?,
+                   fx_is_received = ?, amount = ?, updated_at = ?, sync_status = 'pending'
+             WHERE id = ?;
+            """
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK else {
+            logError("[FX] prepare failed: \(String(cString: sqlite3_errmsg(db)))")
+            return false
+        }
+        defer { sqlite3_finalize(statement) }
+        bindForeign(foreign, to: statement, from: 1)
+        sqlite3_bind_int64(statement, 9, Int64(amount))
+        sqlite3_bind_int64(statement, 10, Int64(Date().timeIntervalSince1970))
+        sqlite3_bind_int64(statement, 11, Int64(transactionId))
+        guard sqlite3_step(statement) == SQLITE_DONE else {
+            logError("[FX] update failed: \(String(cString: sqlite3_errmsg(db)))")
+            return false
+        }
+        return true
+    }
+
+    func cachedFxRate(base: String, quote: String, requested: String) -> (quote: FxQuote, fetchedAt: Int)? {
+        guard isInitialized else { return nil }
+        let query = """
+            SELECT rate_date, rate_micros, fetched_at FROM FxRates
+             WHERE base = ? AND quote = ? AND requested = ?;
+            """
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK else { return nil }
+        defer { sqlite3_finalize(statement) }
+        sqlite3_bind_text(statement, 1, base, -1, SQLITE_TRANSIENT)
+        sqlite3_bind_text(statement, 2, quote, -1, SQLITE_TRANSIENT)
+        sqlite3_bind_text(statement, 3, requested, -1, SQLITE_TRANSIENT)
+        guard sqlite3_step(statement) == SQLITE_ROW, let date = sqlite3_column_text(statement, 0)
+        else { return nil }
+        return (
+            FxQuote(base: base, quote: quote, date: String(cString: date),
+                    rateMicros: Int(sqlite3_column_int64(statement, 1))),
+            Int(sqlite3_column_int64(statement, 2)))
+    }
+
+    func storeFxRate(_ quote: FxQuote, requested: String, fetchedAt: Int) {
+        guard isInitialized else { return }
+        let query = """
+            INSERT OR REPLACE INTO FxRates (base, quote, requested, rate_date, rate_micros, fetched_at)
+            VALUES (?, ?, ?, ?, ?, ?);
+            """
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK else { return }
+        defer { sqlite3_finalize(statement) }
+        sqlite3_bind_text(statement, 1, quote.base, -1, SQLITE_TRANSIENT)
+        sqlite3_bind_text(statement, 2, quote.quote, -1, SQLITE_TRANSIENT)
+        sqlite3_bind_text(statement, 3, requested, -1, SQLITE_TRANSIENT)
+        sqlite3_bind_text(statement, 4, quote.date, -1, SQLITE_TRANSIENT)
+        sqlite3_bind_int64(statement, 5, Int64(quote.rateMicros))
+        sqlite3_bind_int64(statement, 6, Int64(fetchedAt))
+        sqlite3_step(statement)
     }
 
     private func addColumnIfNotExists(table: String, column: String, definition: String) throws {

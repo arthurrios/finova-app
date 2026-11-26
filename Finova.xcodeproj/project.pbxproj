@@ -8,8 +8,11 @@
 
 /* Begin PBXBuildFile section */
 		25DA072F8ABE7A92867D08F4 /* Pods_Finova.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 4C1213A9FB6A1739B3AE0F31 /* Pods_Finova.framework */; };
+		53BFFF0951D0D04B6EC82067 /* ForeignCurrencyService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F972D02DD9FC1F81259B07EE /* ForeignCurrencyService.swift */; };
+		73D78B56DD4BAFB8DF6A4C1F /* ForeignAmount.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAF044CAE359F4FEA020087B /* ForeignAmount.swift */; };
 		8FAE205B38ADF97E127A6C1A /* Pods_FinovaTests.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 368924A4C493636AE9030A68 /* Pods_FinovaTests.framework */; };
 		C6D36C652DCCFCE700A9AB2E /* SwiftEmailValidator in Frameworks */ = {isa = PBXBuildFile; productRef = C6D36C642DCCFCE700A9AB2E /* SwiftEmailValidator */; };
+		D424FF60D0FAB38A53F61EC3 /* FxRateProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85D628B9216318D0A18B43B2 /* FxRateProvider.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -29,13 +32,16 @@
 		4BC265732368314ECCB7ED77 /* Pods-FinovaTests.demo.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-FinovaTests.demo.xcconfig"; path = "Target Support Files/Pods-FinovaTests/Pods-FinovaTests.demo.xcconfig"; sourceTree = "<group>"; };
 		4C1213A9FB6A1739B3AE0F31 /* Pods_Finova.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_Finova.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		66D82F0427A82D78DFC8E245 /* Pods-FinanceAppTests.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-FinanceAppTests.release.xcconfig"; path = "Target Support Files/Pods-FinanceAppTests/Pods-FinanceAppTests.release.xcconfig"; sourceTree = "<group>"; };
+		85D628B9216318D0A18B43B2 /* FxRateProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FxRateProvider.swift; sourceTree = "<group>"; };
 		861F0E47F80E55F2555B81A9 /* Pods-FinanceApp.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-FinanceApp.debug.xcconfig"; path = "Target Support Files/Pods-FinanceApp/Pods-FinanceApp.debug.xcconfig"; sourceTree = "<group>"; };
 		AE5010FD60FF3E18931A3CCF /* Pods-FinovaTests.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-FinovaTests.release.xcconfig"; path = "Target Support Files/Pods-FinovaTests/Pods-FinovaTests.release.xcconfig"; sourceTree = "<group>"; };
 		C667CFAC2DFC7D0500B864E8 /* FinovaTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = FinovaTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		C6D36BDA2DCB81B700A9AB2E /* Finova.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Finova.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		D38E272691170F3575D37E35 /* Pods-FinanceAppTests.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-FinanceAppTests.debug.xcconfig"; path = "Target Support Files/Pods-FinanceAppTests/Pods-FinanceAppTests.debug.xcconfig"; sourceTree = "<group>"; };
+		DAF044CAE359F4FEA020087B /* ForeignAmount.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ForeignAmount.swift; sourceTree = "<group>"; };
 		DE2275E28ECACAB848FAEB8E /* Pods-Finova.demo.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Finova.demo.xcconfig"; path = "Target Support Files/Pods-Finova/Pods-Finova.demo.xcconfig"; sourceTree = "<group>"; };
 		E06A0D849F7051DD83F9FED9 /* Pods-Finova.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Finova.debug.xcconfig"; path = "Target Support Files/Pods-Finova/Pods-Finova.debug.xcconfig"; sourceTree = "<group>"; };
+		F972D02DD9FC1F81259B07EE /* ForeignCurrencyService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ForeignCurrencyService.swift; sourceTree = "<group>"; };
 		FDA435C47F3140359216EC08 /* Pods-FinanceApp.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-FinanceApp.release.xcconfig"; path = "Target Support Files/Pods-FinanceApp/Pods-FinanceApp.release.xcconfig"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -52,6 +58,8 @@
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		C667CFAD2DFC7D0500B864E8 /* FinovaTests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+			);
 			path = FinovaTests;
 			sourceTree = "<group>";
 		};
@@ -86,6 +94,15 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		15615424E1F5648B21AE8722 /* Core */ = {
+			isa = PBXGroup;
+			children = (
+				7802D9C5FFC4BB8896478321 /* ForeignCurrency */,
+			);
+			name = Core;
+			path = Core;
+			sourceTree = "<group>";
+		};
 		3C7D365F56378FE2A0877202 /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
@@ -98,8 +115,29 @@
 		5A853876C9D032AA4BD919A8 /* Finova */ = {
 			isa = PBXGroup;
 			children = (
+				9D9D6E67D6CEA5EB05674CA5 /* Sources */,
 			);
 			path = Finova;
+			sourceTree = "<group>";
+		};
+		7802D9C5FFC4BB8896478321 /* ForeignCurrency */ = {
+			isa = PBXGroup;
+			children = (
+				DAF044CAE359F4FEA020087B /* ForeignAmount.swift */,
+				85D628B9216318D0A18B43B2 /* FxRateProvider.swift */,
+				F972D02DD9FC1F81259B07EE /* ForeignCurrencyService.swift */,
+			);
+			name = ForeignCurrency;
+			path = ForeignCurrency;
+			sourceTree = "<group>";
+		};
+		9D9D6E67D6CEA5EB05674CA5 /* Sources */ = {
+			isa = PBXGroup;
+			children = (
+				15615424E1F5648B21AE8722 /* Core */,
+			);
+			name = Sources;
+			path = Sources;
 			sourceTree = "<group>";
 		};
 		B6EF22C3E549CEB7DB518A3F /* Pods */ = {
@@ -331,6 +369,9 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				73D78B56DD4BAFB8DF6A4C1F /* ForeignAmount.swift in Sources */,
+				D424FF60D0FAB38A53F61EC3 /* FxRateProvider.swift in Sources */,
+				53BFFF0951D0D04B6EC82067 /* ForeignCurrencyService.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
