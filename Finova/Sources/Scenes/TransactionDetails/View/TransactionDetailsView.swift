@@ -1213,7 +1213,26 @@ extension TransactionDetailsView {
 
     let live = ForeignCurrencyService.shared.cachedLatest(for: fx.currency)
     let rateMicros = fx.isLocked ? fx.rateMicros : live?.rateMicros
-    let rateDate = fx.isLocked ? fx.rateDate : live.flatMap { FxDay.epoch(of: $0.date) }
+    // Locked: the saved quote time and source. Live: the cached market quote (or ECB fallback).
+    let rateDateText: String? = {
+      if fx.isLocked {
+        guard let date = fx.rateDate else { return nil }
+        let when = Date(timeIntervalSince1970: TimeInterval(date))
+        if fx.rateSource == FxSource.market.rawValue {
+          return DateFormatter.fullDateFormatter.string(from: when) + " "
+            + ForeignCurrencyService.shortTime(epoch: date) + " · " + "fx.details.market".localized
+        }
+        return DateFormatter.fullDateFormatter.string(from: when) + " · " + "fx.details.ecb".localized
+      }
+      guard let quote = live else { return nil }
+      if quote.source == .market, let at = quote.quotedAt {
+        return DateFormatter.fullDateFormatter.string(from: Date(timeIntervalSince1970: TimeInterval(at)))
+          + " " + ForeignCurrencyService.shortTime(epoch: at) + " · " + "fx.details.market".localized
+      }
+      return FxDay.epoch(of: quote.date).map {
+        DateFormatter.fullDateFormatter.string(from: Date(timeIntervalSince1970: TimeInterval($0)))
+      }.map { $0 + " · " + "fx.details.ecb".localized }
+    }()
 
     exchangeRateCard.arrangedSubviews.forEach { $0.removeFromSuperview() }
     exchangeRateCard.addArrangedSubview(row("fx.details.receivedIn".localized, receivedShown))
@@ -1222,11 +1241,12 @@ extension TransactionDetailsView {
         fx.isReceivedAmount ? "fx.details.impliedRate".localized : "fx.details.rate".localized,
         ForeignCurrencyService.rateText(rateMicros: micros, currency: fx.currency, appCurrency: app)))
     }
-    if let date = rateDate, !fx.isReceivedAmount {
+    if let text = rateDateText, !fx.isReceivedAmount {
+      exchangeRateCard.addArrangedSubview(row("fx.details.rateDate".localized, text))
+    }
+    if let fee = fx.feeBps, fee > 0, !fx.isReceivedAmount {
       exchangeRateCard.addArrangedSubview(row(
-        "fx.details.rateDate".localized,
-        DateFormatter.fullDateFormatter.string(from: Date(timeIntervalSince1970: TimeInterval(date)))
-          + " · " + "fx.details.ecb".localized))
+        "fx.details.fee".localized, FxMath.feeText(bps: fee) + "%"))
     }
     if let tenths = fx.changeTenths(liveRateMicros: live?.rateMicros) {
       let badge = FxBadgeLabel()

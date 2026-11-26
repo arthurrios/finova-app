@@ -48,17 +48,19 @@ enum FxRowPlanner {
     case .lock(let quote):
       var locked = fx
       locked.rateMicros = quote.rateMicros
-      locked.rateDate = FxDay.epoch(of: quote.date, calendar: calendar)
+      // A market quote keeps its exact time ("20/11/2026 15:18"); an ECB rate is a whole day.
+      locked.rateDate = quote.quotedAt ?? FxDay.epoch(of: quote.date, calendar: calendar)
+      locked.rateSource = quote.source.rawValue
       locked.lockedAt = now
       let amount = FxConversion.convert(
         fxAmount: fx.amount, currency: fx.currency, rateMicros: quote.rateMicros,
-        appCurrency: appCurrency)
+        appCurrency: appCurrency, feeBps: fx.feeBps)
       return Change(id: row.id, foreign: locked, amount: amount, isLiveMove: false)
     case .live, .wait:
       guard let latest = latest else { return nil }  // Offline: keep the last known amount.
       let amount = FxConversion.convert(
         fxAmount: fx.amount, currency: fx.currency, rateMicros: latest.rateMicros,
-        appCurrency: appCurrency)
+        appCurrency: appCurrency, feeBps: fx.feeBps)
       guard amount != row.amount else { return nil }  // Write only rows that really change.
       return Change(id: row.id, foreign: fx, amount: amount, isLiveMove: true)
     }
@@ -78,11 +80,14 @@ enum FxEditPlanner {
   ///   - currency: the currency picked in the form (the app currency means "no conversion").
   ///   - typedAmount: the amount typed in the form, in `currency`'s minor units.
   ///   - liveRateMicros: newest cached rate for `currency`, or a rate typed by hand.
+  ///   - feeBps: the fee typed in the form (nil or 0 = none).
   /// - Returns: nil when a foreign currency has no rate at all (the caller must ask for one).
   static func apply(
     old: ForeignAmount?, oldDate: Int, newDate: Int, currency: String, typedAmount: Int,
-    appCurrency: String, liveRateMicros: Int?, liveRateDate: Int?, calendar: Calendar = .current
+    appCurrency: String, liveRateMicros: Int?, liveRateDate: Int?, feeBps: Int? = nil,
+    calendar: Calendar = .current
   ) -> Result? {
+    let fee = (feeBps ?? 0) > 0 ? feeBps : nil
     // Set back to the app currency: an ordinary row; `amount` is what was typed.
     if currency == appCurrency { return Result(foreign: nil, amount: typedAmount) }
 
@@ -94,21 +99,24 @@ enum FxEditPlanner {
         // New foreign amount × the LOCKED rate. The rate stays.
         var kept = old
         kept.amount = typedAmount
+        kept.feeBps = fee
         return Result(
           foreign: kept,
           amount: FxConversion.convert(
-            fxAmount: typedAmount, currency: currency, rateMicros: locked, appCurrency: appCurrency))
+            fxAmount: typedAmount, currency: currency, rateMicros: locked, appCurrency: appCurrency,
+            feeBps: fee))
       }
       // Moved to another day: unlock. The next pass locks it again with that day's rate (past)
       // or keeps it live (future). The entry rate stays: only a new currency resets it.
       guard let live = liveRateMicros ?? old.rateMicros else { return nil }
       let unlocked = ForeignAmount(
         currency: currency, amount: typedAmount,
-        entryRateMicros: old.entryRateMicros, entryRateDate: old.entryRateDate)
+        entryRateMicros: old.entryRateMicros, entryRateDate: old.entryRateDate, feeBps: fee)
       return Result(
         foreign: unlocked,
         amount: FxConversion.convert(
-          fxAmount: typedAmount, currency: currency, rateMicros: live, appCurrency: appCurrency))
+          fxAmount: typedAmount, currency: currency, rateMicros: live, appCurrency: appCurrency,
+          feeBps: fee))
     }
 
     guard let live = liveRateMicros else { return nil }
@@ -116,11 +124,13 @@ enum FxEditPlanner {
     let foreign = ForeignAmount(
       currency: currency, amount: typedAmount,
       entryRateMicros: keepsEntry ? (old?.entryRateMicros ?? live) : live,
-      entryRateDate: keepsEntry ? (old?.entryRateDate ?? liveRateDate) : liveRateDate)
+      entryRateDate: keepsEntry ? (old?.entryRateDate ?? liveRateDate) : liveRateDate,
+      feeBps: fee)
     return Result(
       foreign: foreign,
       amount: FxConversion.convert(
-        fxAmount: typedAmount, currency: currency, rateMicros: live, appCurrency: appCurrency))
+        fxAmount: typedAmount, currency: currency, rateMicros: live, appCurrency: appCurrency,
+        feeBps: fee))
   }
 
   /// "Enter amount received": allowed only after the lock. Stores the implied rate; the badge then
@@ -140,11 +150,13 @@ enum FxEditPlanner {
 }
 
 enum FxConversion {
-  static func convert(fxAmount: Int, currency: String, rateMicros: Int, appCurrency: String) -> Int {
+  static func convert(
+    fxAmount: Int, currency: String, rateMicros: Int, appCurrency: String, feeBps: Int? = nil
+  ) -> Int {
     FxMath.convert(
       fxAmount: fxAmount, rateMicros: rateMicros,
       fxDigits: CurrencyUtils.fractionDigits(for: currency),
-      baseDigits: CurrencyUtils.fractionDigits(for: appCurrency))
+      baseDigits: CurrencyUtils.fractionDigits(for: appCurrency), feeBps: feeBps ?? 0)
   }
 }
 
@@ -152,12 +164,18 @@ enum FxConversion {
 final class ForeignCurrencyService {
   static let shared = ForeignCurrencyService()
 
-  /// "latest" is refreshed at most this often. ECB publishes once a working day.
-  static let latestMaxAge: TimeInterval = 6 * 60 * 60
+  /// The live market quote is refreshed at most this often (and on every return to the
+  /// foreground). Before payday the converted value follows the market; the saved quote is the
+  /// offline backup.
+  static let latestMaxAge: TimeInterval = 5 * 60
+  /// The "Rate updated" hint shows at most once an hour: the market moves all day.
+  static let rateHintMinInterval: TimeInterval = 60 * 60
+  private static let lastRateHintKey = "fxLastRateHintAt"
 
   /// Currencies offered first in the picker. The full list is the provider's (`allCurrencies`).
   static let commonCurrencies = ["USD", "EUR", "GBP"]
-  /// Frankfurter's ECB set. Built in, so the picker works offline.
+  /// Frankfurter's ECB set (the fallback must cover every offered pair). Built in, so the picker
+  /// works offline.
   static let allCurrencies = [
     "AUD", "BGN", "BRL", "CAD", "CHF", "CNY", "CZK", "DKK", "EUR", "GBP", "HKD", "HUF", "IDR",
     "ILS", "INR", "ISK", "JPY", "KRW", "MXN", "MYR", "NOK", "NZD", "PHP", "PLN", "RON", "SEK",
@@ -171,7 +189,9 @@ final class ForeignCurrencyService {
   private var isRunning = false
 
   init(
-    provider: FxRateProvider = FrankfurterRateProvider(), db: DBHelper = .shared,
+    provider: FxRateProvider = FallbackRateProvider(
+      primary: AwesomeRateProvider(), fallback: FrankfurterRateProvider()),
+    db: DBHelper = .shared,
     now: @escaping () -> Date = Date.init, calendar: Calendar = .current
   ) {
     self.provider = provider
@@ -193,7 +213,9 @@ final class ForeignCurrencyService {
 
   // MARK: Network
 
-  /// Newest rate for `currency` → app currency. Uses the cache unless it is older than six hours.
+  /// Newest rate for `currency` → app currency. Uses the cache unless it is older than
+  /// `latestMaxAge` (5 minutes). Offline, it returns the saved quote however old: good enough to
+  /// show a live value, never good enough to lock (see `lockableLatest`).
   @discardableResult
   func latest(for currency: String, force: Bool = false) async -> FxQuote? {
     let base = currency, quote = appCurrency
@@ -213,18 +235,31 @@ final class ForeignCurrencyService {
     }
   }
 
-  /// The rate dated `day` (or the last one before it). Answers that can still change (asked for
-  /// today, answered with an earlier day) are not cached.
+  /// A live quote that may freeze a payday row: fetched (or confirmed) within `latestMaxAge` and
+  /// dated `payday` itself. A stale offline quote, or yesterday's ECB rate given by the fallback
+  /// before the noon publication, returns nil, so the row stays live and locks on a later pass.
+  func lockableLatest(for currency: String, payday: String) -> FxQuote? {
+    guard let cached = db.cachedFxRate(base: currency, quote: appCurrency, requested: "latest"),
+      now().timeIntervalSince1970 - TimeInterval(cached.fetchedAt) < Self.latestMaxAge,
+      cached.quote.date == payday
+    else { return nil }
+    return cached.quote
+  }
+
+  /// The closing rate of `day` (the newest quote on or before it). Only past days are cached:
+  /// today's "close" keeps moving. Cached under "close:<day>": the earlier build stored ECB
+  /// answers under the bare day, and those must not be reused now that the market rate rules.
   func historical(for currency: String, day: String) async -> FxQuote? {
     let base = currency, quote = appCurrency
-    if let cached = db.cachedFxRate(base: base, quote: quote, requested: day) {
+    let key = "close:" + day
+    if let cached = db.cachedFxRate(base: base, quote: quote, requested: key) {
       return cached.quote
     }
     do {
       let answer = try await provider.historical(base: base, quote: quote, day: day)
       let today = FxDay.string(from: now(), calendar: calendar)
-      if day < today || answer.date == day {
-        db.storeFxRate(answer, requested: day, fetchedAt: Int(now().timeIntervalSince1970))
+      if day < today {
+        db.storeFxRate(answer, requested: key, fetchedAt: Int(now().timeIntervalSince1970))
       }
       return answer
     } catch {
@@ -261,9 +296,13 @@ final class ForeignCurrencyService {
         from: Date(timeIntervalSince1970: TimeInterval(row.dateTimestamp)), calendar: calendar)
       guard payday <= today else { continue }
       let key = "\(row.foreign.currency)|\(payday)"
-      if historicalByKey[key] == nil,
-        let answer = await historical(for: row.foreign.currency, day: payday)
-      {
+      guard historicalByKey[key] == nil else { continue }
+      if payday == today {
+        // Payday, app open: lock with the live market rate right now, but only a fresh one dated
+        // today. Otherwise nil: the row stays live and locks on the next pass with a real rate.
+        historicalByKey[key] = lockableLatest(for: row.foreign.currency, payday: payday)
+      } else if let answer = await historical(for: row.foreign.currency, day: payday) {
+        // The app was closed on payday: that day's closing rate.
         historicalByKey[key] = answer
       }
     }
@@ -309,7 +348,11 @@ final class ForeignCurrencyService {
     NotificationCenter.default.post(name: .transactionDataChanged, object: nil)
 
     let moved = changes.filter { $0.isLiveMove && written.contains($0.id) }
-    if let currency = moved.first?.foreign?.currency, let quote = latest[currency] {
+    let lastHint = UserDefaults.standard.double(forKey: Self.lastRateHintKey)
+    if let currency = moved.first?.foreign?.currency, let quote = latest[currency],
+      now().timeIntervalSince1970 - lastHint >= Self.rateHintMinInterval
+    {
+      UserDefaults.standard.set(now().timeIntervalSince1970, forKey: Self.lastRateHintKey)
       NotificationCenter.default.post(
         name: .fxRateUpdated, object: nil,
         userInfo: ["message": Self.rateUpdatedMessage(quote)])
@@ -385,6 +428,22 @@ final class ForeignCurrencyService {
     let value = NSDecimalNumber(value: amountMinor).dividing(
       by: NSDecimalNumber(decimal: pow(10, digits)))
     return "\(symbol(for: currency)) " + (formatter.string(from: value) ?? "\(value)")
+  }
+
+  /// "Market rate · 18:59" for a live quote, "ECB, 26/11" for the fallback.
+  static func sourceText(_ quote: FxQuote) -> String {
+    if quote.source == .market, let at = quote.quotedAt {
+      return "fx.source.market".localized(shortTime(epoch: at))
+    }
+    return "fx.hint.ecb".localized(FxDay.epoch(of: quote.date).map { shortDate(epoch: $0) } ?? quote.date)
+  }
+
+  static func shortTime(epoch: Int) -> String {
+    let formatter = DateFormatter()
+    formatter.locale = .autoupdatingCurrent
+    formatter.timeStyle = .short
+    formatter.dateStyle = .none
+    return formatter.string(from: Date(timeIntervalSince1970: TimeInterval(epoch)))
   }
 
   /// Short date for rate labels: 26/11.

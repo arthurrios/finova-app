@@ -22083,6 +22083,96 @@
           }
         }
       }
+    },
+    "fx.source.market": {
+      "comment": "Live rate source in the Add hint. %@ = time, e.g. 18:59.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Market rate · %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cotação de mercado · %@"
+          }
+        }
+      }
+    },
+    "fx.details.market": {
+      "comment": "Rate source in transaction details.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Market rate"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cotação de mercado"
+          }
+        }
+      }
+    },
+    "fx.fee.placeholder": {
+      "comment": "Placeholder of the optional fee % field next to the converted estimate.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fee"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Taxa"
+          }
+        }
+      }
+    },
+    "fx.fee.accessibility": {
+      "comment": "VoiceOver name of the fee % field.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fee percent"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Taxa em porcentagem"
+          }
+        }
+      }
+    },
+    "fx.details.fee": {
+      "comment": "Details row for the conversion fee, value like 0.20%.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fee"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Taxa"
+          }
+        }
+      }
     }
   },
   "version": "1.1"

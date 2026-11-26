@@ -514,9 +514,9 @@ class DBHelper {
               unadjusted_date,
               series_period,
               fx_currency, fx_amount, fx_rate_micros, fx_rate_date, fx_locked_at,
-              fx_entry_rate_micros, fx_entry_rate_date, fx_is_received
+              fx_entry_rate_micros, fx_entry_rate_date, fx_is_received, fx_rate_source, fx_fee_bps
               ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                        ?, ?, ?, ?, ?, ?, ?, ?);
+                        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
       """
         
         var statement: OpaquePointer?
@@ -6115,6 +6115,9 @@ class DBHelper {
         try addColumnIfNotExists(table: "Transactions", column: "fx_entry_rate_micros", definition: "INTEGER")
         try addColumnIfNotExists(table: "Transactions", column: "fx_entry_rate_date", definition: "INTEGER")
         try addColumnIfNotExists(table: "Transactions", column: "fx_is_received", definition: "INTEGER")
+        try addColumnIfNotExists(table: "Transactions", column: "fx_rate_source", definition: "TEXT")
+        // Optional conversion fee in basis points (20 = 0.20%). NULL = none.
+        try addColumnIfNotExists(table: "Transactions", column: "fx_fee_bps", definition: "INTEGER")
         // The refresh and the lock pass both look for "foreign and not locked". Partial, so it is
         // one empty page for users who never use the feature.
         sqlite3_exec(db, """
@@ -6135,6 +6138,9 @@ class DBHelper {
                 PRIMARY KEY (base, quote, requested)
             );
             """, nil, nil, nil)
+        // 'market' (AwesomeAPI) or 'ecb' (Frankfurter fallback), and the market's quote time.
+        try addColumnIfNotExists(table: "FxRates", column: "source", definition: "TEXT")
+        try addColumnIfNotExists(table: "FxRates", column: "quoted_at", definition: "INTEGER")
     }
 
     private func bindForeign(_ foreign: ForeignAmount?, to statement: OpaquePointer?, from start: Int32) {
@@ -6143,7 +6149,7 @@ class DBHelper {
             else { sqlite3_bind_null(statement, index) }
         }
         guard let fx = foreign else {
-            for offset in 0..<8 { sqlite3_bind_null(statement, start + Int32(offset)) }
+            for offset in 0..<10 { sqlite3_bind_null(statement, start + Int32(offset)) }
             return
         }
         sqlite3_bind_text(statement, start, fx.currency, -1, SQLITE_TRANSIENT)
@@ -6154,6 +6160,12 @@ class DBHelper {
         bindInt(start + 5, fx.entryRateMicros)
         bindInt(start + 6, fx.entryRateDate)
         bindInt(start + 7, fx.isReceivedAmount ? 1 : nil)
+        if let source = fx.rateSource {
+            sqlite3_bind_text(statement, start + 8, source, -1, SQLITE_TRANSIENT)
+        } else {
+            sqlite3_bind_null(statement, start + 8)
+        }
+        bindInt(start + 9, (fx.feeBps ?? 0) > 0 ? fx.feeBps : nil)
     }
 
     /// Every foreign row, keyed by local id. Small by construction: only income the user entered in
@@ -6162,7 +6174,8 @@ class DBHelper {
         guard isInitialized else { return [:] }
         let query = """
             SELECT id, fx_currency, fx_amount, fx_rate_micros, fx_rate_date, fx_locked_at,
-                   fx_entry_rate_micros, fx_entry_rate_date, fx_is_received
+                   fx_entry_rate_micros, fx_entry_rate_date, fx_is_received, fx_rate_source,
+                   fx_fee_bps
             FROM Transactions WHERE fx_currency IS NOT NULL;
             """
         var statement: OpaquePointer?
@@ -6178,7 +6191,9 @@ class DBHelper {
                 currency: String(cString: text), amount: amount,
                 rateMicros: int(3), rateDate: int(4), lockedAt: int(5),
                 entryRateMicros: int(6), entryRateDate: int(7),
-                isReceivedAmount: int(8) == 1)
+                isReceivedAmount: int(8) == 1,
+                rateSource: sqlite3_column_text(statement, 9).map { String(cString: $0) },
+                feeBps: int(10))
         }
         return result
     }
@@ -6204,7 +6219,8 @@ class DBHelper {
             UPDATE Transactions
                SET fx_currency = ?, fx_amount = ?, fx_rate_micros = ?, fx_rate_date = ?,
                    fx_locked_at = ?, fx_entry_rate_micros = ?, fx_entry_rate_date = ?,
-                   fx_is_received = ?, amount = ?, updated_at = ?, sync_status = 'pending'
+                   fx_is_received = ?, fx_rate_source = ?, fx_fee_bps = ?, amount = ?, updated_at = ?,
+                   sync_status = 'pending'
              WHERE id = ?;
             """
         var statement: OpaquePointer?
@@ -6214,9 +6230,9 @@ class DBHelper {
         }
         defer { sqlite3_finalize(statement) }
         bindForeign(foreign, to: statement, from: 1)
-        sqlite3_bind_int64(statement, 9, Int64(amount))
-        sqlite3_bind_int64(statement, 10, Int64(Date().timeIntervalSince1970))
-        sqlite3_bind_int64(statement, 11, Int64(transactionId))
+        sqlite3_bind_int64(statement, 11, Int64(amount))
+        sqlite3_bind_int64(statement, 12, Int64(Date().timeIntervalSince1970))
+        sqlite3_bind_int64(statement, 13, Int64(transactionId))
         guard sqlite3_step(statement) == SQLITE_DONE else {
             logError("[FX] update failed: \(String(cString: sqlite3_errmsg(db)))")
             return false
@@ -6227,7 +6243,7 @@ class DBHelper {
     func cachedFxRate(base: String, quote: String, requested: String) -> (quote: FxQuote, fetchedAt: Int)? {
         guard isInitialized else { return nil }
         let query = """
-            SELECT rate_date, rate_micros, fetched_at FROM FxRates
+            SELECT rate_date, rate_micros, fetched_at, source, quoted_at FROM FxRates
              WHERE base = ? AND quote = ? AND requested = ?;
             """
         var statement: OpaquePointer?
@@ -6238,17 +6254,23 @@ class DBHelper {
         sqlite3_bind_text(statement, 3, requested, -1, SQLITE_TRANSIENT)
         guard sqlite3_step(statement) == SQLITE_ROW, let date = sqlite3_column_text(statement, 0)
         else { return nil }
+        let source = sqlite3_column_text(statement, 3)
+            .flatMap { FxSource(rawValue: String(cString: $0)) } ?? .ecb
+        let quotedAt = sqlite3_column_type(statement, 4) == SQLITE_NULL
+            ? nil : Int(sqlite3_column_int64(statement, 4))
         return (
             FxQuote(base: base, quote: quote, date: String(cString: date),
-                    rateMicros: Int(sqlite3_column_int64(statement, 1))),
+                    rateMicros: Int(sqlite3_column_int64(statement, 1)),
+                    source: source, quotedAt: quotedAt),
             Int(sqlite3_column_int64(statement, 2)))
     }
 
     func storeFxRate(_ quote: FxQuote, requested: String, fetchedAt: Int) {
         guard isInitialized else { return }
         let query = """
-            INSERT OR REPLACE INTO FxRates (base, quote, requested, rate_date, rate_micros, fetched_at)
-            VALUES (?, ?, ?, ?, ?, ?);
+            INSERT OR REPLACE INTO FxRates
+                (base, quote, requested, rate_date, rate_micros, fetched_at, source, quoted_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?);
             """
         var statement: OpaquePointer?
         guard sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK else { return }
@@ -6259,6 +6281,12 @@ class DBHelper {
         sqlite3_bind_text(statement, 4, quote.date, -1, SQLITE_TRANSIENT)
         sqlite3_bind_int64(statement, 5, Int64(quote.rateMicros))
         sqlite3_bind_int64(statement, 6, Int64(fetchedAt))
+        sqlite3_bind_text(statement, 7, quote.source.rawValue, -1, SQLITE_TRANSIENT)
+        if let quotedAt = quote.quotedAt {
+            sqlite3_bind_int64(statement, 8, Int64(quotedAt))
+        } else {
+            sqlite3_bind_null(statement, 8)
+        }
         sqlite3_step(statement)
     }
 
