@@ -21,6 +21,11 @@ public struct AddTransactionData {
   let creditCardId: Int?
   /// Defaulted so every existing construction site compiles unchanged.
   let businessDayRule: BusinessDayRule
+  /// Foreign-currency income: the conversion to save. `amount` is then already in the app currency.
+  var foreign: ForeignAmount? = nil
+  /// True when the save must write the foreign columns: the row is foreign now, or was before
+  /// (set back to the app currency clears them).
+  var foreignTouched = false
 
   init(title: String, amount: Int, date: String, category: String, transactionType: String, creditCardId: Int? = nil, businessDayRule: BusinessDayRule = .exact) {
     self.title = title
@@ -72,4 +77,7 @@ protocol AddTransactionModalViewDelegate: AnyObject {
     current: BusinessDayRule, completion: @escaping (BusinessDayRule) -> Void)
   func didTapCreateCreditCard()
   func closeModal()
+  /// No rate is cached for `currency` (offline, first use). Asks the user to type one; the
+  /// completion gets the rate in micros, or nil when cancelled.
+  func didRequestManualRate(currency: String, completion: @escaping (Int?) -> Void)
 }

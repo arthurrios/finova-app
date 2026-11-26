@@ -35,7 +35,8 @@ final class AddTransactionModalViewModel {
     typeRaw: String,
     isRecurring: Bool? = nil,
     creditCardId: Int? = nil,
-    businessDayRule: BusinessDayRule = .exact
+    businessDayRule: BusinessDayRule = .exact,
+    foreign: ForeignAmount? = nil
   ) -> Result<Void, Error> {
 
     guard let date = DateFormatter.fullDateFormatter.date(from: dateString) else {
@@ -79,7 +80,8 @@ final class AddTransactionModalViewModel {
         isRecurring: true,
         businessDayRule: businessDayRule,
         unadjustedDateTimestamp: Int(date.timeIntervalSince1970),
-        seriesPeriod: date.monthAnchor
+        seriesPeriod: date.monthAnchor,
+        foreign: foreign
       )
 
       do {
@@ -138,7 +140,8 @@ final class AddTransactionModalViewModel {
         creditCardId: creditCardId,
         businessDayRule: businessDayRule,
         unadjustedDateTimestamp: Int(date.timeIntervalSince1970),
-        seriesPeriod: date.monthAnchor
+        seriesPeriod: date.monthAnchor,
+        foreign: foreign
       )
 
       do {
@@ -188,6 +191,7 @@ final class AddTransactionModalViewModel {
     typeRaw: String,
     creditCardId: Int? = nil,
     businessDayRule: BusinessDayRule = .exact,
+    foreign: ForeignAmount? = nil,
     completion: @escaping (Result<Void, Error>) -> Void
   ) {
     guard let date = DateFormatter.fullDateFormatter.date(from: dateString) else {
@@ -230,7 +234,8 @@ final class AddTransactionModalViewModel {
       creditCardId: creditCardId,
       businessDayRule: businessDayRule,
       unadjustedDateTimestamp: Int(date.timeIntervalSince1970),
-      seriesPeriod: date.monthAnchor
+      seriesPeriod: date.monthAnchor,
+      foreign: foreign
     )
 
     do {
@@ -1283,6 +1288,7 @@ final class AddTransactionModalViewModel {
     creditCardId: Int? = nil,
     editOption: RecurringEditOption,
     businessDayRule: BusinessDayRule = .exact,
+    foreign: ForeignAmount? = nil,
     completion: @escaping (Result<Void, Error>) -> Void
   ) {
     guard
@@ -1362,7 +1368,8 @@ final class AddTransactionModalViewModel {
         creditCardId: creditCardId,
         businessDayRule: businessDayRule,
         unadjustedDateTimestamp: Int(dateObj.timeIntervalSince1970),
-        seriesPeriod: dateObj.monthAnchor
+        seriesPeriod: dateObj.monthAnchor,
+        foreign: foreign
       )
 
       // Use async editing method

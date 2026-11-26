@@ -74,6 +74,11 @@ class Input: UIView {
   public private(set) var dateValue: Date?
   private var textFieldLeadingConstraint: NSLayoutConstraint?
   public private(set) var centsValue: Int = 0
+  /// The currency this field types in. The app currency unless `setCurrency` picked another one
+  /// (foreign-currency income).
+  public private(set) var currencyCode: String = AppConfig.currencyCode
+  /// A pull-down on the currency symbol (foreign-currency income). Nil hides it.
+  private var currencyMenuButton: UIButton?
 
   init(
     type: InputTextFieldType? = .normal, placeholder: String, icon: UIImage? = nil,
@@ -114,7 +119,7 @@ class Input: UIView {
 
     centsValue = cents
 
-    let code = AppConfig.currencyCode
+    let code = currencyCode
     let frac = CurrencyUtils.fractionDigits(for: code)
     let divisor = pow(Decimal(10), frac)
     let amountDecimal = Decimal(cents) / divisor
@@ -635,7 +640,7 @@ class Input: UIView {
     let intValue = Int(digits) ?? 0
     centsValue = intValue
 
-    let code = AppConfig.currencyCode
+    let code = currencyCode
     let frac = CurrencyUtils.fractionDigits(for: code)
 
     let divisor = pow(Decimal(10), frac)
@@ -782,7 +787,7 @@ extension Input: UITextFieldDelegate {
   // MARK: - Currency
 
   private func configureCurrencyInput() {
-    let code = AppConfig.currencyCode
+    let code = currencyCode
     let fmt = NumberFormatter()
     fmt.numberStyle = .currency
     fmt.currencyCode = code
@@ -854,5 +859,59 @@ extension Input: UITextFieldDelegate {
 
   @objc private func doneButtonTapped() {
     textField.resignFirstResponder()
+  }
+}
+
+
+// MARK: - Foreign-currency income
+
+extension Input {
+  /// Types in `code` from now on. The digits typed so far are kept and re-read in the new currency,
+  /// so switching BRL ↔ USD does not wipe the field.
+  func setCurrency(_ code: String) {
+    guard type == .currency, code != currencyCode else { return }
+    currencyCode = code
+    configurePrefix()
+    let cents = centsValue
+    if !(textField.text ?? "").isEmpty { setCentsValue(cents) }
+  }
+
+  /// A pull-down menu on the currency symbol (`US$ ▾`). Pass nil to remove it.
+  func setCurrencyMenu(_ menu: UIMenu?) {
+    guard type == .currency else { return }
+    if let menu = menu {
+      let button = currencyMenuButton ?? makeCurrencyMenuButton()
+      button.menu = menu
+      button.isHidden = false
+    } else {
+      currencyMenuButton?.isHidden = true
+    }
+    configurePrefix()
+  }
+
+  private func configurePrefix() {
+    let fmt = NumberFormatter()
+    fmt.numberStyle = .currency
+    fmt.currencyCode = currencyCode
+    let symbol = fmt.currencySymbol ?? currencyCode
+    let hasMenu = currencyMenuButton.map { !$0.isHidden } ?? false
+    prefixLabel.text = hasMenu ? symbol + " \u{25BE}" : symbol
+    prefixLabel.accessibilityLabel = currencyCode
+  }
+
+  private func makeCurrencyMenuButton() -> UIButton {
+    let button = UIButton(type: .custom)
+    button.translatesAutoresizingMaskIntoConstraints = false
+    button.showsMenuAsPrimaryAction = true
+    button.accessibilityLabel = "fx.picker.accessibility".localized
+    addSubview(button)
+    NSLayoutConstraint.activate([
+      button.leadingAnchor.constraint(equalTo: leadingAnchor),
+      button.topAnchor.constraint(equalTo: topAnchor),
+      button.bottomAnchor.constraint(equalTo: bottomAnchor),
+      button.trailingAnchor.constraint(equalTo: prefixLabel.trailingAnchor, constant: Metrics.spacing1),
+    ])
+    currencyMenuButton = button
+    return button
   }
 }

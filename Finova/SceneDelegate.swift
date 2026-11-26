@@ -61,6 +61,9 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     // Use this method to undo the changes made on entering the background.
     logInfo("Scene will enter foreground - triggering app refresh")
     triggerAppRefresh()
+    // Foreign-currency income: lock what reached payday (with that day's rate, even after days
+    // closed) and move live rows to the newest rate. Also runs on a cold launch.
+    Task { await ForeignCurrencyService.shared.refresh() }
   }
 
   func sceneDidEnterBackground(_ scene: UIScene) {

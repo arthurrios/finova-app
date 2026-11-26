@@ -284,8 +284,10 @@ extension AddTransactionModalViewController: AddTransactionModalViewDelegate,
         categoryKey: data.category,
         typeRaw: data.transactionType,
         creditCardId: data.creditCardId,
-        businessDayRule: data.businessDayRule)
+        businessDayRule: data.businessDayRule,
+        foreign: data.foreign)
     }) { [weak self] in
+      Self.refreshForeignIfNeeded(data)
       self?.dismissModal()
       self?.flowDelegate?.didAddTransaction()
     }
@@ -309,13 +311,15 @@ extension AddTransactionModalViewController: AddTransactionModalViewDelegate,
       categoryKey: data.category,
       typeRaw: data.transactionType,
       creditCardId: data.creditCardId,
-      businessDayRule: data.businessDayRule
+      businessDayRule: data.businessDayRule,
+      foreign: data.foreign
     ) { [weak self] result in
       DispatchQueue.main.async {
         self?.contentView.saveButton.stopLoading()
 
         switch result {
         case .success:
+          Self.refreshForeignIfNeeded(data)
           self?.dismissModal()
           self?.flowDelegate?.didAddTransaction()
         case .failure(let error):
@@ -338,7 +342,7 @@ extension AddTransactionModalViewController: AddTransactionModalViewDelegate,
 
   func updateTransactionData(id: Int, _ data: AddTransactionData) {
     performWrite({ [viewModel] in
-      viewModel.updateTransaction(
+      let result = viewModel.updateTransaction(
         id: id,
         title: data.title,
         amount: data.amount,
@@ -348,7 +352,10 @@ extension AddTransactionModalViewController: AddTransactionModalViewDelegate,
         creditCardId: data.creditCardId,
         businessDayRule: data.businessDayRule
       )
+      Self.saveForeignIfNeeded(result, id: id, data: data)
+      return result
     }) { [weak self] in
+      Self.refreshForeignIfNeeded(data)
       self?.dismissModal()
       self?.flowDelegate?.didUpdateTransaction()
     }
@@ -375,7 +382,7 @@ extension AddTransactionModalViewController: AddTransactionModalViewDelegate,
 
   func updateSingleRecurringTransactionData(id: Int, _ data: AddTransactionData) {
     performWrite({ [viewModel] in
-      viewModel.updateSingleTransaction(
+      let result = viewModel.updateSingleTransaction(
         id: id,
         title: data.title,
         amount: data.amount,
@@ -385,7 +392,10 @@ extension AddTransactionModalViewController: AddTransactionModalViewDelegate,
         creditCardId: data.creditCardId,
         businessDayRule: data.businessDayRule
       )
+      Self.saveForeignIfNeeded(result, id: id, data: data)
+      return result
     }) { [weak self] in
+      Self.refreshForeignIfNeeded(data)
       self?.dismissModal()
       self?.flowDelegate?.didUpdateTransaction()
     }
@@ -416,13 +426,15 @@ extension AddTransactionModalViewController: AddTransactionModalViewDelegate,
       typeRaw: data.transactionType,
       creditCardId: data.creditCardId,
       editOption: editOption,
-      businessDayRule: data.businessDayRule
+      businessDayRule: data.businessDayRule,
+      foreign: data.foreign
     ) { [weak self] result in
       DispatchQueue.main.async {
         self?.contentView.saveButton.stopLoading()
 
         switch result {
         case .success:
+          Self.refreshForeignIfNeeded(data)
           self?.dismissModal()
           self?.flowDelegate?.didUpdateTransaction()
         case .failure(let error):
@@ -500,6 +512,47 @@ extension AddTransactionModalViewController: AddTransactionModalViewDelegate,
     // Show payment method section only for expenses
     let isExpense = contentView.expenseSelectorButton.variant == .selected
     contentView.showPaymentMethodSection(isExpense)
+    // The currency picker is for income only.
+    contentView.updateCurrencyAvailability()
+  }
+
+  // MARK: - Foreign-currency income
+
+  /// Writes the foreign columns after a single-row edit. `updateTransaction` leaves them alone.
+  private static func saveForeignIfNeeded(_ result: Result<Void, Error>, id: Int, data: AddTransactionData) {
+    guard case .success = result, data.foreignTouched else { return }
+    DBHelper.shared.updateForeign(transactionId: id, foreign: data.foreign, amount: data.amount)
+    TransactionRepository.invalidateCache()
+    ForeignCurrencyService.shared.reconcileNotifications(for: [id])
+  }
+
+  /// A foreign income dated today or earlier locks right away, not at the next launch.
+  private static func refreshForeignIfNeeded(_ data: AddTransactionData) {
+    guard data.foreign != nil else { return }
+    Task { await ForeignCurrencyService.shared.refresh() }
+  }
+
+  func didRequestManualRate(currency: String, completion: @escaping (Int?) -> Void) {
+    let app = AppConfig.currencyCode
+    let alert = UIAlertController(
+      title: "fx.manualRate.title".localized,
+      message: "fx.manualRate.message".localized(
+        ForeignCurrencyService.symbol(for: currency), ForeignCurrencyService.symbol(for: app)),
+      preferredStyle: .alert)
+    alert.addTextField { field in
+      field.keyboardType = .decimalPad
+      field.placeholder = "5\(Locale.current.decimalSeparator ?? ".")7651"
+    }
+    alert.addAction(UIAlertAction(title: "fx.cancel".localized, style: .cancel) { _ in completion(nil) })
+    alert.addAction(
+      UIAlertAction(title: "fx.manualRate.save".localized, style: .default) { _ in
+        let text = alert.textFields?.first?.text ?? ""
+        let rate = Decimal(string: text, locale: Locale.current)
+          ?? Decimal(string: text.replacingOccurrences(of: ",", with: "."), locale: Locale(identifier: "en_US_POSIX"))
+        guard let rate = rate, rate > 0 else { return completion(nil) }
+        completion(FxMath.micros(fromRate: rate))
+      })
+    present(alert, animated: true)
   }
 
   func didTapCreateCreditCard() {

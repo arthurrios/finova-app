@@ -252,7 +252,7 @@ final class AddTransactionModalView: UIView {
   private lazy var horizontalInputsStackView: UIStackView = {
     let stackView = UIStackView(
       axis: .horizontal, spacing: Metrics.spacing3, distribution: .fillEqually,
-      arrangedSubviews: [moneyTextField, dateColumnStack])
+      arrangedSubviews: [moneyColumnStack, dateColumnStack])
     stackView.alignment = .top
     return stackView
   }()
@@ -379,6 +379,46 @@ final class AddTransactionModalView: UIView {
     return label
   }()
 
+  // MARK: Foreign-currency income
+
+  /// The currency the amount is typed in. The app currency unless the user picked another one
+  /// (income only, not installments).
+  private(set) var selectedCurrency: String = AppConfig.currencyCode
+  /// A rate typed by hand when none is cached (offline), in micros.
+  private var manualRateMicros: Int?
+
+  /// `≈ R$ 28.825,50`
+  private lazy var fxApproxLabel: UILabel = {
+    let label = UILabel()
+    label.translatesAutoresizingMaskIntoConstraints = false
+    label.font = Fonts.textXS.font
+    label.textColor = Colors.gray700
+    label.numberOfLines = 1
+    label.adjustsFontSizeToFitWidth = true
+    label.minimumScaleFactor = 0.8
+    label.isHidden = true
+    return label
+  }()
+
+  /// `US$ 1 = R$ 5,7651 · ECB, 26/11`, or "Type the rate" when there is none.
+  private lazy var fxRateButton: UIButton = {
+    let button = UIButton(type: .system)
+    button.translatesAutoresizingMaskIntoConstraints = false
+    button.contentHorizontalAlignment = .leading
+    button.titleLabel?.font = Fonts.textXS.font
+    button.titleLabel?.numberOfLines = 1
+    button.titleLabel?.adjustsFontSizeToFitWidth = true
+    button.titleLabel?.minimumScaleFactor = 0.8
+    button.setTitleColor(Colors.gray500, for: .normal)
+    button.isHidden = true
+    button.addTarget(self, action: #selector(fxRateTapped), for: .touchUpInside)
+    return button
+  }()
+
+  private lazy var moneyColumnStack = UIStackView(
+    axis: .vertical, spacing: Metrics.spacing1,
+    arrangedSubviews: [moneyTextField, fxApproxLabel, fxRateButton])
+
   private lazy var dateColumnStack = UIStackView(
     axis: .vertical, spacing: Metrics.spacing1,
     arrangedSubviews: [dateTextField, businessDayRuleButton, effectiveDateHintLabel])
@@ -432,6 +472,7 @@ final class AddTransactionModalView: UIView {
     setupInstallmentsConstraints()
     setupDateChangeListener()
     setupCoachMarkTargets()
+    setupCurrencyPicker()
 
     setupConstraints()
   }
@@ -497,6 +538,7 @@ final class AddTransactionModalView: UIView {
   }
 
   private func handleTransactionModeChange(_ mode: TransactionMode) {
+    updateCurrencyAvailability()
     if isAnimating {
       pendingMode = mode
       return
@@ -807,6 +849,34 @@ final class AddTransactionModalView: UIView {
       date = dateTextField.textField.text ?? ""
     }
 
+    // Foreign-currency income: convert now, so `amount` is in the app currency everywhere below.
+    let fx: FxEditPlanner.Result?
+    let fxTouched = selectedCurrency != AppConfig.currencyCode || editingTransaction?.foreign != nil
+    if fxTouched, editingTransaction?.mode != .installments {
+      let pickedDate = DateFormatter.fullDateFormatter.date(from: date) ?? Date()
+      let old = editingTransaction?.foreign
+      let live = currentRateMicros()
+      fx = FxEditPlanner.apply(
+        old: old, oldDate: editingTransaction?.dateTimestamp ?? Int(pickedDate.timeIntervalSince1970),
+        newDate: Int(pickedDate.timeIntervalSince1970), currency: selectedCurrency,
+        typedAmount: amount, appCurrency: AppConfig.currencyCode,
+        liveRateMicros: live?.micros, liveRateDate: live?.date)
+      if fx == nil {
+        // No rate anywhere: ask for one, then the user taps Save again.
+        fxRateTapped()
+        return
+      }
+    } else {
+      fx = nil
+    }
+    let amountToSave = fx?.amount ?? amount
+    func withForeign(_ data: AddTransactionData) -> AddTransactionData {
+      var data = data
+      data.foreign = fx?.foreign
+      data.foreignTouched = fx != nil
+      return data
+    }
+
     // Get transaction type and mode based on current mode
     let typeEnum: TransactionType
     let typeKey: String
@@ -839,9 +909,9 @@ final class AddTransactionModalView: UIView {
         // For recurring transactions, show alert with options
         showEditScopeAlert(
           transactionId: transactionId,
-          transactionData: AddTransactionData(
-            title: title, amount: amount, date: date, category: categoryKey,
-            transactionType: typeKey, creditCardId: getSelectedCreditCardId(), businessDayRule: selectedBusinessDayRule),
+          transactionData: withForeign(AddTransactionData(
+            title: title, amount: amountToSave, date: date, category: categoryKey,
+            transactionType: typeKey, creditCardId: getSelectedCreditCardId(), businessDayRule: selectedBusinessDayRule)),
           installmentData: nil,
           mode: selectedMode
         )
@@ -849,9 +919,9 @@ final class AddTransactionModalView: UIView {
         // Normal transaction - proceed with edit (include payment method change)
         delegate?.updateTransactionData(
           id: transactionId,
-          AddTransactionData(
-            title: title, amount: amount, date: date, category: categoryKey,
-            transactionType: typeKey, creditCardId: getSelectedCreditCardId(), businessDayRule: selectedBusinessDayRule)
+          withForeign(AddTransactionData(
+            title: title, amount: amountToSave, date: date, category: categoryKey,
+            transactionType: typeKey, creditCardId: getSelectedCreditCardId(), businessDayRule: selectedBusinessDayRule))
         )
       }
     } else {
@@ -861,17 +931,17 @@ final class AddTransactionModalView: UIView {
       switch selectedMode {
       case .normal:
         delegate?.sendTransactionData(
-          AddTransactionData(
-            title: title, amount: amount, date: date, category: categoryKey,
+          withForeign(AddTransactionData(
+            title: title, amount: amountToSave, date: date, category: categoryKey,
             transactionType: typeKey, creditCardId: creditCardId,
-            businessDayRule: selectedBusinessDayRule)
+            businessDayRule: selectedBusinessDayRule))
         )
       case .recurring:
         delegate?.sendRecurringTransactionData(
-          AddTransactionData(
-            title: title, amount: amount, date: date, category: categoryKey,
+          withForeign(AddTransactionData(
+            title: title, amount: amountToSave, date: date, category: categoryKey,
             transactionType: typeKey, creditCardId: creditCardId,
-            businessDayRule: selectedBusinessDayRule)
+            businessDayRule: selectedBusinessDayRule))
         )
       case .installments:
         let installmentsCount = Int(installmentsInputWithSuffix.textField.text ?? "1") ?? 1
@@ -881,6 +951,136 @@ final class AddTransactionModalView: UIView {
             transactionType: typeKey, installments: installmentsCount, creditCardId: creditCardId,
             businessDayRule: selectedBusinessDayRule))
       }
+    }
+  }
+
+  // MARK: - Foreign-currency income
+
+  private func setupCurrencyPicker() {
+    moneyTextField.textField.addTarget(
+      self, action: #selector(fxInputsChanged), for: .editingChanged)
+    dateTextField.textField.addTarget(self, action: #selector(fxInputsChanged), for: .editingChanged)
+    updateCurrencyAvailability()
+  }
+
+  /// The picker exists only for income, never for installments, and only when the app currency is
+  /// one the rate provider covers. Anything else resets the field to the app currency.
+  func updateCurrencyAvailability() {
+    let isIncome = incomeSelectorButton.variant == .selected
+    let mode = isEditMode ? (editingTransaction?.mode ?? .normal) : transactionModelControl.getSelectedMode()
+    let available = isIncome && mode != .installments && ForeignCurrencyService.shared.isAvailable
+    if available {
+      moneyTextField.setCurrencyMenu(makeCurrencyMenu())
+    } else {
+      moneyTextField.setCurrencyMenu(nil)
+      if selectedCurrency != AppConfig.currencyCode { selectCurrency(AppConfig.currencyCode) }
+    }
+    updateFxHint()
+  }
+
+  private func makeCurrencyMenu() -> UIMenu {
+    let app = AppConfig.currencyCode
+    func action(_ code: String) -> UIAction {
+      UIAction(
+        title: "\(code) · \(ForeignCurrencyService.symbol(for: code))",
+        state: code == selectedCurrency ? .on : .off
+      ) { [weak self] _ in self?.selectCurrency(code) }
+    }
+    let common = ([app] + ForeignCurrencyService.commonCurrencies.filter { $0 != app }).map(action)
+    let rest = ForeignCurrencyService.allCurrencies
+      .filter { $0 != app && !ForeignCurrencyService.commonCurrencies.contains($0) }
+      .map(action)
+    return UIMenu(
+      title: "fx.picker.title".localized,
+      children: [
+        UIMenu(options: .displayInline, children: common),
+        UIMenu(title: "fx.picker.more".localized, children: rest),
+      ])
+  }
+
+  private func selectCurrency(_ code: String) {
+    selectedCurrency = code
+    manualRateMicros = nil
+    moneyTextField.setCurrency(code)
+    if moneyTextField.currencyCode != code { return }
+    // Rebuild so the checkmark follows the choice.
+    if incomeSelectorButton.variant == .selected { moneyTextField.setCurrencyMenu(makeCurrencyMenu()) }
+    updateFxHint()
+    guard code != AppConfig.currencyCode else { return }
+    Task { [weak self] in
+      await ForeignCurrencyService.shared.latest(for: code)
+      await MainActor.run { self?.updateFxHint() }
+    }
+  }
+
+  @objc private func fxInputsChanged() { updateFxHint() }
+
+  /// The rate to convert with now: the newest cached one, or the one typed by hand.
+  private func currentRateMicros() -> (micros: Int, date: Int?)? {
+    if let manual = manualRateMicros { return (manual, Int(Date().timeIntervalSince1970)) }
+    guard let quote = ForeignCurrencyService.shared.cachedLatest(for: selectedCurrency) else {
+      return nil
+    }
+    return (quote.rateMicros, FxDay.epoch(of: quote.date))
+  }
+
+  /// `≈ R$ 28.825,50` over `US$ 1 = R$ 5,7651 · ECB, 26/11`. Locked rows show their locked rate.
+  func updateFxHint() {
+    let app = AppConfig.currencyCode
+    guard selectedCurrency != app else {
+      fxApproxLabel.isHidden = true
+      fxRateButton.isHidden = true
+      return
+    }
+    fxApproxLabel.isHidden = false
+    fxRateButton.isHidden = false
+
+    if let fx = editingTransaction?.foreign, fx.isLocked, fx.currency == selectedCurrency,
+      let locked = fx.rateMicros
+    {
+      let converted = FxConversion.convert(
+        fxAmount: moneyTextField.centsValue, currency: selectedCurrency, rateMicros: locked,
+        appCurrency: app)
+      fxApproxLabel.attributedText = approxText(converted)
+      let rate = ForeignCurrencyService.rateText(
+        rateMicros: locked, currency: selectedCurrency, appCurrency: app)
+      let day = fx.lockedAt.map { ForeignCurrencyService.shortDate(epoch: $0) } ?? ""
+      fxRateButton.setTitle("fx.hint.locked".localized(day, rate), for: .normal)
+      fxRateButton.isEnabled = false
+      return
+    }
+
+    guard let rate = currentRateMicros() else {
+      fxApproxLabel.text = "fx.hint.noRate".localized
+      fxRateButton.setTitle("fx.hint.typeRate".localized, for: .normal)
+      fxRateButton.setTitleColor(Colors.mainMagenta, for: .normal)
+      fxRateButton.isEnabled = true
+      return
+    }
+    let converted = FxConversion.convert(
+      fxAmount: moneyTextField.centsValue, currency: selectedCurrency, rateMicros: rate.micros,
+      appCurrency: app)
+    fxApproxLabel.attributedText = approxText(converted)
+    let rateText = ForeignCurrencyService.rateText(
+      rateMicros: rate.micros, currency: selectedCurrency, appCurrency: app)
+    let source = manualRateMicros != nil
+      ? "fx.hint.manual".localized
+      : "fx.hint.ecb".localized(rate.date.map { ForeignCurrencyService.shortDate(epoch: $0) } ?? "")
+    fxRateButton.setTitle("\(rateText) · \(source)", for: .normal)
+    fxRateButton.setTitleColor(Colors.gray500, for: .normal)
+    fxRateButton.isEnabled = true
+  }
+
+  private func approxText(_ amountMinor: Int) -> NSAttributedString {
+    let text = "≈ " + amountMinor.currencyString
+    return NSAttributedString(string: text, attributes: [.font: Fonts(size: 12, weight: .bold).font])
+  }
+
+  @objc private func fxRateTapped() {
+    delegate?.didRequestManualRate(currency: selectedCurrency) { [weak self] micros in
+      guard let self = self, let micros = micros else { return }
+      self.manualRateMicros = micros
+      self.updateFxHint()
     }
   }
 
@@ -1100,7 +1300,14 @@ final class AddTransactionModalView: UIView {
       amountInCents = transaction.amount
     }
 
-    moneyTextField.text = String(amountInCents)
+    if let fx = transaction.foreign, transaction.mode != .installments {
+      // Foreign income is edited in the money it was received in.
+      selectedCurrency = fx.currency
+      moneyTextField.setCurrency(fx.currency)
+      moneyTextField.text = String(fx.amount)
+    } else {
+      moneyTextField.text = String(amountInCents)
+    }
     // Trigger currency formatting
     moneyTextField.textField.sendActions(for: .editingChanged)
 
@@ -1134,6 +1341,7 @@ final class AddTransactionModalView: UIView {
       incomeSelectorButton.variant = .normal
       expenseSelectorButton.variant = .selected
     }
+    updateCurrencyAvailability()
 
     if !isEditMode {
       // Populate transaction mode (only in add mode)

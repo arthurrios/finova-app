@@ -532,6 +532,11 @@ final class RecurringTransactionManager {
 
     guard !instancesToUpdate.isEmpty else { return }
 
+    // Foreign-currency state before the edit, per row. A locked month keeps its money whatever the
+    // edit says (docs/fx-salary-plan.md §3: "edit this and future" changes only unlocked rows).
+    let beforeById = Dictionary(
+      relatedInstances.compactMap { tx in tx.id.map { ($0, tx) } }, uniquingKeysWith: { a, _ in a })
+
     // Get the new day from the selected transaction date using local calendar
     var localCalendar = Calendar(identifier: .gregorian)
     localCalendar.timeZone = TimeZone.current
@@ -647,6 +652,8 @@ final class RecurringTransactionManager {
       // later `updated_at` than the snapshot the sync engine pushes, and the row would never clear
       // `pending`.
       try transactionRepo.updateTransactionDirectly(updatedTransaction)
+      applyForeignEdit(
+        instanceId: instanceId, before: beforeById[instanceId], newData: newData)
 
       // Handle credit card field changes
       if creditCardRemoved {
@@ -677,6 +684,41 @@ final class RecurringTransactionManager {
     // Recompute the recurring series' consolidated notifications so an "edit this/future"
     // change to amount/day is reflected (this bulk edit previously rescheduled nothing).
     RecurringNotificationManager.shared.rescheduleNotifications(parentTransactionId: parentTransactionId)
+  }
+
+  /// The foreign-currency half of a series edit. `updateTransaction` leaves the fx_ columns alone,
+  /// so this writes them (and the matching amount) after it.
+  private func applyForeignEdit(instanceId: Int, before: Transaction?, newData: TransactionModel) {
+    let old = before?.foreign
+    let new = newData.data.foreign
+    guard old != nil || new != nil else { return }
+    let fxService = ForeignCurrencyService.shared
+
+    if let old = old, old.isLocked, let before = before {
+      // Locked: frozen forever. Put back its money; title, category and the rest keep the edit.
+      db.updateForeign(transactionId: instanceId, foreign: old, amount: before.amount)
+      TransactionRepository.invalidateCache()
+      return
+    }
+    guard let new = new else {
+      // Set back to the app currency: an ordinary row with the typed amount.
+      db.updateForeign(transactionId: instanceId, foreign: nil, amount: newData.data.amount)
+      TransactionRepository.invalidateCache()
+      return
+    }
+    var fx = new.unlockedCopy()
+    if let old = old, old.currency == new.currency {
+      // Same currency: the series keeps its entry rate. Only a new currency resets it.
+      fx.entryRateMicros = old.entryRateMicros ?? new.entryRateMicros
+      fx.entryRateDate = old.entryRateDate ?? new.entryRateDate
+    }
+    let amount = fxService.cachedLatest(for: fx.currency).map {
+      FxConversion.convert(
+        fxAmount: fx.amount, currency: fx.currency, rateMicros: $0.rateMicros,
+        appCurrency: fxService.appCurrency)
+    } ?? newData.data.amount
+    db.updateForeign(transactionId: instanceId, foreign: fx, amount: amount)
+    TransactionRepository.invalidateCache()
   }
 
   // MARK: - Recurring Transaction Linking
@@ -970,10 +1012,23 @@ final class RecurringTransactionManager {
             calendar: self.calendar
           )
 
+          // Foreign-currency income: the new month keeps the currency, the foreign amount and the
+          // SERIES' entry rate, but never the template's lock (the template is often an earlier,
+          // already-locked month). Its amount follows the newest cached rate; the lock pass freezes
+          // it on its own payday.
+          let instanceForeign = template.foreign?.unlockedCopy()
+          let instanceAmount = instanceForeign.flatMap { fx in
+            ForeignCurrencyService.shared.cachedLatest(for: fx.currency).map {
+              FxConversion.convert(
+                fxAmount: fx.amount, currency: fx.currency, rateMicros: $0.rateMicros,
+                appCurrency: ForeignCurrencyService.shared.appCurrency)
+            }
+          } ?? template.amount
+
           let instanceModel = TransactionModel(
             title: template.title,
             category: template.category.key,
-            amount: template.amount,
+            amount: instanceAmount,
             type: template.type.key,
             dateTimestamp: Int(occurrence.adjusted.timeIntervalSince1970),
             budgetMonthDate: targetAnchor,
@@ -981,7 +1036,8 @@ final class RecurringTransactionManager {
             creditCardId: template.creditCardId,
             businessDayRule: template.businessDayRule,
             unadjustedDateTimestamp: Int(occurrence.unadjusted.timeIntervalSince1970),
-            seriesPeriod: targetAnchor
+            seriesPeriod: targetAnchor,
+            foreign: instanceForeign
           )
 
           do {
