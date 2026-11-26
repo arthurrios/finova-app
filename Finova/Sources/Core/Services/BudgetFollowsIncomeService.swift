@@ -39,6 +39,7 @@ final class BudgetFollowsIncomeService {
     private let defaults: UserDefaults
     private let budgetRepo: BudgetRepository
     private let transactionRepo: TransactionRepository
+    private let db: DBHelper
     /// Which user's settings to read; injectable for tests.
     private let userKey: () -> String
 
@@ -46,11 +47,13 @@ final class BudgetFollowsIncomeService {
         defaults: UserDefaults = .standard,
         budgetRepo: BudgetRepository = BudgetRepository(),
         transactionRepo: TransactionRepository = TransactionRepository(),
+        db: DBHelper = .shared,
         userKey: @escaping () -> String = { UIDUserDefaultsManager.shared.currentUserUID ?? "local" }
     ) {
         self.defaults = defaults
         self.budgetRepo = budgetRepo
         self.transactionRepo = transactionRepo
+        self.db = db
         self.userKey = userKey
     }
 
@@ -88,6 +91,12 @@ final class BudgetFollowsIncomeService {
         isObserving = true
         NotificationCenter.default.addObserver(
             self, selector: #selector(transactionsChanged), name: .transactionDataChanged, object: nil)
+    }
+
+    /// Stops observing (tests use their own instance).
+    func stop() {
+        NotificationCenter.default.removeObserver(self, name: .transactionDataChanged, object: nil)
+        isObserving = false
     }
 
     @objc private func transactionsChanged() {
@@ -196,7 +205,7 @@ final class BudgetFollowsIncomeService {
         return targets.keys.sorted()
     }
 
-    // MARK: - Pure rules (static, so tests can call them; tests still to write)
+    // MARK: - Pure rules (unit tested in BudgetFollowsIncomeTests)
 
     /// `income × percent`, rounded half up to whole minor units.
     static func budget(income: Int, percent: Int) -> Int {
@@ -246,8 +255,9 @@ final class BudgetFollowsIncomeService {
     /// The rows that count as income, the same set the ledger reads (early-paid installments
     /// already removed), minus card rows and balancing rows.
     func countedIncome() -> [Transaction] {
-        let excluded = Self.balancingRowIds(db: DBHelper.shared)
-        return transactionRepo.fetchAllTransactions().excludingEarlyPaidInstallments()
+        let excluded = Self.balancingRowIds(db: db)
+        return transactionRepo.fetchAllTransactions()
+            .excludingEarlyPaidInstallments(settled: db.settledInstallmentIds())
             .filter { Self.isCountedIncome($0, excludedIds: excluded) }
     }
 
