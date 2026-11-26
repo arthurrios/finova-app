@@ -20624,6 +20624,91 @@
         }
       }
     },
+    "budgets.multi.conflict.keep": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep existing"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manter os atuais"
+          }
+        }
+      }
+    },
+    "budgets.multi.conflict.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "These months already have a budget: %@."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estes meses já têm orçamento: %@."
+          }
+        }
+      }
+    },
+    "budgets.multi.conflict.replace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Replace them"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Substituir"
+          }
+        }
+      }
+    },
+    "budgets.multi.conflict.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Some months already have a budget"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alguns meses já têm orçamento"
+          }
+        }
+      }
+    },
+    "budgets.repeat.thisMonthOnly": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This month only"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Só este mês"
+          }
+        }
+      }
+    },
     "coachMarks.budgetHistory.chart": {
       "localizations": {
         "en": {

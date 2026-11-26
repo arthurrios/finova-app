@@ -26,6 +26,43 @@ final class BudgetRepository: BudgetRepositoryProtocol {
     NotificationCenter.default.post(name: .budgetDataChanged, object: nil)
   }
 
+  /// Writes the same amount to several months at once, in ONE database transaction: if any month
+  /// fails, none of them is written. Months that already have a budget are overwritten when
+  /// `replaceExisting` is true and left alone otherwise (only the empty months are filled).
+  ///
+  /// - Returns: the month anchors that were written.
+  @discardableResult
+  func upsertBudgets(
+    monthDates: [Int], amount: Int, sharedGroupId: String? = nil, replaceExisting: Bool
+  ) throws -> [Int] {
+    let existing = Set(fetchBudgets().map(\.monthDate))
+    var written: [Int] = []
+    try db.inTransaction {
+      for monthDate in monthDates {
+        if existing.contains(monthDate) {
+          guard replaceExisting else { continue }
+          // `updateBudget` already marks the row 'pending' in the same statement.
+          try db.updateBudget(monthDate: monthDate, amount: amount)
+        } else {
+          try db.insertBudget(monthDate: monthDate, amount: amount, sharedGroupId: sharedGroupId)
+          // Checked (throwing) on purpose: a failed write here must roll the whole range back too.
+          try db.executeGroupWriteChecked(
+            """
+            UPDATE Budgets SET sync_status = 'pending', ck_modified_at = ?
+             WHERE month_date = ? AND COALESCE(shared_group_id, '') = ?;
+            """,
+            orderedBindings: [Int(Date().timeIntervalSince1970), monthDate, sharedGroupId ?? ""]
+          )
+        }
+        written.append(monthDate)
+      }
+    }
+    if !written.isEmpty {
+      NotificationCenter.default.post(name: .budgetDataChanged, object: nil)
+    }
+    return written
+  }
+
   func update(budget: BudgetModel) throws {
     try db.updateBudget(monthDate: budget.monthDate, amount: budget.amount)
     db.executeSyncUpdate(

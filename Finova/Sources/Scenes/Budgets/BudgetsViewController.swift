@@ -179,6 +179,57 @@ extension BudgetsViewController: BudgetsViewDelegate {
         }
     }
     
+    func didTapAddBudgets(monthYearDate: String, budgetAmount: Int, endMonth: Int) {
+        let conflicts = viewModel.existingBudgetMonths(monthYearDate: monthYearDate, endMonth: endMonth)
+        guard !conflicts.isEmpty else {
+            saveBudgets(amount: budgetAmount, monthYearDate: monthYearDate, endMonth: endMonth, replaceExisting: true)
+            return
+        }
+
+        // Same shape as the allocation conflict alert: the first three months, then "+N".
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMMM yyyy"
+        let names = conflicts.map { formatter.string(from: Date(timeIntervalSince1970: TimeInterval($0))) }
+        let monthsList = names.prefix(3).joined(separator: ", ")
+        let additionalCount = names.count > 3 ? " (+\(names.count - 3))" : ""
+
+        let alert = UIAlertController(
+            title: "budgets.multi.conflict.title".localized,
+            message: String(format: "budgets.multi.conflict.message".localized, monthsList + additionalCount),
+            preferredStyle: .alert
+        )
+        alert.addAction(UIAlertAction(
+            title: "budgets.multi.conflict.replace".localized, style: .destructive
+        ) { [weak self] _ in
+            self?.saveBudgets(
+                amount: budgetAmount, monthYearDate: monthYearDate, endMonth: endMonth, replaceExisting: true)
+        })
+        alert.addAction(UIAlertAction(
+            title: "budgets.multi.conflict.keep".localized, style: .default
+        ) { [weak self] _ in
+            self?.saveBudgets(
+                amount: budgetAmount, monthYearDate: monthYearDate, endMonth: endMonth, replaceExisting: false)
+        })
+        alert.addAction(UIAlertAction(title: "alert.cancel".localized, style: .cancel))
+        present(alert, animated: true)
+    }
+
+    private func saveBudgets(amount: Int, monthYearDate: String, endMonth: Int, replaceExisting: Bool) {
+        switch viewModel.addBudgets(
+            amount: amount, monthYearDate: monthYearDate, endMonth: endMonth, replaceExisting: replaceExisting)
+        {
+        case .success:
+            loadData()
+            contentView.budgetsTableView.reloadData()
+            contentView.clearTextFields()
+            // Budgets feed the negative-balance warnings, so re-check them now for every month.
+            BalanceMonitorManager.shared.forceTriggerBalanceMonitoring()
+            CoachMarkCenter.shared.post(.budgetSaved)
+        case .failure(let error):
+            showErrorAlert(error: error)
+        }
+    }
+
     func didTapBackButton() {
         flowDelegate?.navBackToDashboard()
     }
