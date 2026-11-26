@@ -23,7 +23,7 @@ struct FxQuote: Equatable {
 }
 
 enum FxSource: String, Equatable {
-  /// Live commercial rate (AwesomeAPI `bid`).
+  /// Live market rate: AwesomeAPI's mid price, (bid + ask) / 2.
   case market
   /// European Central Bank daily reference rate (Frankfurter), the fallback.
   case ecb
@@ -122,7 +122,7 @@ final class AwesomeRateProvider: FxRateProvider {
     self.calendar = calendar
   }
 
-  /// `GET /json/last/USD-BRL` → `{"USDBRL":{"bid":"5.6513","timestamp":"1795728610",...}}`
+  /// `GET /json/last/USD-BRL` → `{"USDBRL":{"bid":"5.6513","ask":"5.6518","timestamp":"1795728610",...}}`
   func latest(base: String, quote: String) async throws -> FxQuote {
     let url = baseURL.appendingPathComponent("last/\(base)-\(quote)")
     let data = try await get(url)
@@ -167,15 +167,20 @@ final class AwesomeRateProvider: FxRateProvider {
     return data
   }
 
-  /// Numbers arrive as strings ("5.6513"), so `Decimal` reads them exactly.
+  /// Numbers arrive as strings ("5.6513"), so `Decimal` reads them exactly. The rate is the mid
+  /// price, (bid + ask) / 2, which sits closer to what iOS Stocks shows than `bid` alone. Without
+  /// an `ask` (the daily history sometimes omits it) `bid` is used.
   static func quote(from entry: [String: Any], base: String, quote: String, calendar: Calendar) throws -> FxQuote {
+    let posix = Locale(identifier: "en_US_POSIX")
     guard let bidText = entry["bid"] as? String,
-      let bid = Decimal(string: bidText, locale: Locale(identifier: "en_US_POSIX")), bid > 0,
+      let bid = Decimal(string: bidText, locale: posix), bid > 0,
       let stampText = entry["timestamp"] as? String, let stamp = Int(stampText)
     else { throw FxProviderError.missingRate }
+    let ask = (entry["ask"] as? String).flatMap { Decimal(string: $0, locale: posix) }.flatMap { $0 > 0 ? $0 : nil }
+    let mid = ask.map { (bid + $0) / 2 } ?? bid
     let day = FxDay.string(from: Date(timeIntervalSince1970: TimeInterval(stamp)), calendar: calendar)
     return FxQuote(
-      base: base, quote: quote, date: day, rateMicros: FxMath.micros(fromRate: bid),
+      base: base, quote: quote, date: day, rateMicros: FxMath.micros(fromRate: mid),
       source: .market, quotedAt: stamp)
   }
 }
