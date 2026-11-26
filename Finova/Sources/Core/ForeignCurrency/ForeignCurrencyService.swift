@@ -54,13 +54,13 @@ enum FxRowPlanner {
       locked.lockedAt = now
       let amount = FxConversion.convert(
         fxAmount: fx.amount, currency: fx.currency, rateMicros: quote.rateMicros,
-        appCurrency: appCurrency)
+        appCurrency: appCurrency, feeBps: fx.feeBps)
       return Change(id: row.id, foreign: locked, amount: amount, isLiveMove: false)
     case .live, .wait:
       guard let latest = latest else { return nil }  // Offline: keep the last known amount.
       let amount = FxConversion.convert(
         fxAmount: fx.amount, currency: fx.currency, rateMicros: latest.rateMicros,
-        appCurrency: appCurrency)
+        appCurrency: appCurrency, feeBps: fx.feeBps)
       guard amount != row.amount else { return nil }  // Write only rows that really change.
       return Change(id: row.id, foreign: fx, amount: amount, isLiveMove: true)
     }
@@ -80,11 +80,14 @@ enum FxEditPlanner {
   ///   - currency: the currency picked in the form (the app currency means "no conversion").
   ///   - typedAmount: the amount typed in the form, in `currency`'s minor units.
   ///   - liveRateMicros: newest cached rate for `currency`, or a rate typed by hand.
+  ///   - feeBps: the fee typed in the form (nil or 0 = none).
   /// - Returns: nil when a foreign currency has no rate at all (the caller must ask for one).
   static func apply(
     old: ForeignAmount?, oldDate: Int, newDate: Int, currency: String, typedAmount: Int,
-    appCurrency: String, liveRateMicros: Int?, liveRateDate: Int?, calendar: Calendar = .current
+    appCurrency: String, liveRateMicros: Int?, liveRateDate: Int?, feeBps: Int? = nil,
+    calendar: Calendar = .current
   ) -> Result? {
+    let fee = (feeBps ?? 0) > 0 ? feeBps : nil
     // Set back to the app currency: an ordinary row; `amount` is what was typed.
     if currency == appCurrency { return Result(foreign: nil, amount: typedAmount) }
 
@@ -96,21 +99,24 @@ enum FxEditPlanner {
         // New foreign amount × the LOCKED rate. The rate stays.
         var kept = old
         kept.amount = typedAmount
+        kept.feeBps = fee
         return Result(
           foreign: kept,
           amount: FxConversion.convert(
-            fxAmount: typedAmount, currency: currency, rateMicros: locked, appCurrency: appCurrency))
+            fxAmount: typedAmount, currency: currency, rateMicros: locked, appCurrency: appCurrency,
+            feeBps: fee))
       }
       // Moved to another day: unlock. The next pass locks it again with that day's rate (past)
       // or keeps it live (future). The entry rate stays: only a new currency resets it.
       guard let live = liveRateMicros ?? old.rateMicros else { return nil }
       let unlocked = ForeignAmount(
         currency: currency, amount: typedAmount,
-        entryRateMicros: old.entryRateMicros, entryRateDate: old.entryRateDate)
+        entryRateMicros: old.entryRateMicros, entryRateDate: old.entryRateDate, feeBps: fee)
       return Result(
         foreign: unlocked,
         amount: FxConversion.convert(
-          fxAmount: typedAmount, currency: currency, rateMicros: live, appCurrency: appCurrency))
+          fxAmount: typedAmount, currency: currency, rateMicros: live, appCurrency: appCurrency,
+          feeBps: fee))
     }
 
     guard let live = liveRateMicros else { return nil }
@@ -118,11 +124,13 @@ enum FxEditPlanner {
     let foreign = ForeignAmount(
       currency: currency, amount: typedAmount,
       entryRateMicros: keepsEntry ? (old?.entryRateMicros ?? live) : live,
-      entryRateDate: keepsEntry ? (old?.entryRateDate ?? liveRateDate) : liveRateDate)
+      entryRateDate: keepsEntry ? (old?.entryRateDate ?? liveRateDate) : liveRateDate,
+      feeBps: fee)
     return Result(
       foreign: foreign,
       amount: FxConversion.convert(
-        fxAmount: typedAmount, currency: currency, rateMicros: live, appCurrency: appCurrency))
+        fxAmount: typedAmount, currency: currency, rateMicros: live, appCurrency: appCurrency,
+        feeBps: fee))
   }
 
   /// "Enter amount received": allowed only after the lock. Stores the implied rate; the badge then
@@ -142,11 +150,13 @@ enum FxEditPlanner {
 }
 
 enum FxConversion {
-  static func convert(fxAmount: Int, currency: String, rateMicros: Int, appCurrency: String) -> Int {
+  static func convert(
+    fxAmount: Int, currency: String, rateMicros: Int, appCurrency: String, feeBps: Int? = nil
+  ) -> Int {
     FxMath.convert(
       fxAmount: fxAmount, rateMicros: rateMicros,
       fxDigits: CurrencyUtils.fractionDigits(for: currency),
-      baseDigits: CurrencyUtils.fractionDigits(for: appCurrency))
+      baseDigits: CurrencyUtils.fractionDigits(for: appCurrency), feeBps: feeBps ?? 0)
   }
 }
 

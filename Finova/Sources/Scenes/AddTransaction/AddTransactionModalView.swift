@@ -386,6 +386,47 @@ final class AddTransactionModalView: UIView {
   private(set) var selectedCurrency: String = AppConfig.currencyCode
   /// A rate typed by hand when none is cached (offline), in micros.
   private var manualRateMicros: Int?
+  /// The last fee typed, used to prefill a new foreign income.
+  private static let lastFeeKey = "fxLastFeeBps"
+
+  /// Optional "Fee %" next to the estimate (0.20 = 0.20%). Lowers the converted amount only.
+  private lazy var fxFeeField: UITextField = {
+    let field = UITextField()
+    field.translatesAutoresizingMaskIntoConstraints = false
+    field.font = Fonts.textXS.font
+    field.textColor = Colors.gray700
+    field.keyboardType = .decimalPad
+    field.textAlignment = .right
+    field.placeholder = "fx.fee.placeholder".localized
+    field.accessibilityLabel = "fx.fee.accessibility".localized
+    field.layer.borderWidth = 1
+    field.layer.borderColor = Colors.gray300.cgColor
+    field.layer.cornerRadius = CornerRadius.small
+    field.backgroundColor = Colors.gray100
+    let suffix = UILabel()
+    suffix.text = "% "
+    suffix.font = Fonts.textXS.font
+    suffix.textColor = Colors.gray500
+    suffix.sizeToFit()
+    field.rightView = suffix
+    field.rightViewMode = .always
+    field.isHidden = true
+    field.addTarget(self, action: #selector(fxInputsChanged), for: .editingChanged)
+    field.widthAnchor.constraint(equalToConstant: 64).isActive = true
+    field.heightAnchor.constraint(equalToConstant: 22).isActive = true
+    field.setContentCompressionResistancePriority(.required, for: .horizontal)
+    return field
+  }()
+
+  private lazy var fxApproxRow: UIStackView = {
+    let stack = UIStackView(
+      axis: .horizontal, spacing: Metrics.spacing2, arrangedSubviews: [fxApproxLabel, fxFeeField])
+    stack.alignment = .center
+    return stack
+  }()
+
+  /// The typed fee in basis points; 0 when empty or not a valid percent.
+  private var typedFeeBps: Int { FxMath.feeBps(fromText: fxFeeField.text ?? "") ?? 0 }
 
   /// `≈ R$ 28.825,50`
   private lazy var fxApproxLabel: UILabel = {
@@ -417,7 +458,7 @@ final class AddTransactionModalView: UIView {
 
   private lazy var moneyColumnStack = UIStackView(
     axis: .vertical, spacing: Metrics.spacing1,
-    arrangedSubviews: [moneyTextField, fxApproxLabel, fxRateButton])
+    arrangedSubviews: [moneyTextField, fxApproxRow, fxRateButton])
 
   private lazy var dateColumnStack = UIStackView(
     axis: .vertical, spacing: Metrics.spacing1,
@@ -860,7 +901,8 @@ final class AddTransactionModalView: UIView {
         old: old, oldDate: editingTransaction?.dateTimestamp ?? Int(pickedDate.timeIntervalSince1970),
         newDate: Int(pickedDate.timeIntervalSince1970), currency: selectedCurrency,
         typedAmount: amount, appCurrency: AppConfig.currencyCode,
-        liveRateMicros: live?.micros, liveRateDate: live?.date)
+        liveRateMicros: live?.micros, liveRateDate: live?.date, feeBps: typedFeeBps)
+      if fx != nil { UserDefaults.standard.set(typedFeeBps, forKey: Self.lastFeeKey) }
       if fx == nil {
         // No rate anywhere: ask for one, then the user taps Save again.
         fxRateTapped()
@@ -960,7 +1002,21 @@ final class AddTransactionModalView: UIView {
     moneyTextField.textField.addTarget(
       self, action: #selector(fxInputsChanged), for: .editingChanged)
     dateTextField.textField.addTarget(self, action: #selector(fxInputsChanged), for: .editingChanged)
+    let toolbar = UIToolbar()
+    toolbar.sizeToFit()
+    toolbar.items = [
+      UIBarButtonItem(barButtonSystemItem: .flexibleSpace, target: nil, action: nil),
+      UIBarButtonItem(barButtonSystemItem: .done, target: fxFeeField, action: #selector(UIResponder.resignFirstResponder)),
+    ]
+    fxFeeField.inputAccessoryView = toolbar
+    prefillFee(nil)
     updateCurrencyAvailability()
+  }
+
+  /// A row's own fee when editing; otherwise the last fee the user typed.
+  private func prefillFee(_ foreign: ForeignAmount?) {
+    let bps = foreign.map { $0.feeBps ?? 0 } ?? UserDefaults.standard.integer(forKey: Self.lastFeeKey)
+    fxFeeField.text = bps > 0 ? FxMath.feeText(bps: bps) : nil
   }
 
   /// The picker exists only for income, never for installments, and only when the app currency is
@@ -1030,10 +1086,12 @@ final class AddTransactionModalView: UIView {
     let app = AppConfig.currencyCode
     guard selectedCurrency != app else {
       fxApproxLabel.isHidden = true
+      fxFeeField.isHidden = true
       fxRateButton.isHidden = true
       return
     }
     fxApproxLabel.isHidden = false
+    fxFeeField.isHidden = false
     fxRateButton.isHidden = false
 
     if let fx = editingTransaction?.foreign, fx.isLocked, fx.currency == selectedCurrency,
@@ -1041,7 +1099,7 @@ final class AddTransactionModalView: UIView {
     {
       let converted = FxConversion.convert(
         fxAmount: moneyTextField.centsValue, currency: selectedCurrency, rateMicros: locked,
-        appCurrency: app)
+        appCurrency: app, feeBps: typedFeeBps)
       fxApproxLabel.attributedText = approxText(converted)
       let rate = ForeignCurrencyService.rateText(
         rateMicros: locked, currency: selectedCurrency, appCurrency: app)
@@ -1060,7 +1118,7 @@ final class AddTransactionModalView: UIView {
     }
     let converted = FxConversion.convert(
       fxAmount: moneyTextField.centsValue, currency: selectedCurrency, rateMicros: rate.micros,
-      appCurrency: app)
+      appCurrency: app, feeBps: typedFeeBps)
     fxApproxLabel.attributedText = approxText(converted)
     let rateText = ForeignCurrencyService.rateText(
       rateMicros: rate.micros, currency: selectedCurrency, appCurrency: app)
@@ -1304,6 +1362,7 @@ final class AddTransactionModalView: UIView {
       selectedCurrency = fx.currency
       moneyTextField.setCurrency(fx.currency)
       moneyTextField.text = String(fx.amount)
+      prefillFee(fx)
     } else {
       moneyTextField.text = String(amountInCents)
     }

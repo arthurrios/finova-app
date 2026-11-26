@@ -514,9 +514,9 @@ class DBHelper {
               unadjusted_date,
               series_period,
               fx_currency, fx_amount, fx_rate_micros, fx_rate_date, fx_locked_at,
-              fx_entry_rate_micros, fx_entry_rate_date, fx_is_received, fx_rate_source
+              fx_entry_rate_micros, fx_entry_rate_date, fx_is_received, fx_rate_source, fx_fee_bps
               ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                        ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
       """
         
         var statement: OpaquePointer?
@@ -6116,6 +6116,8 @@ class DBHelper {
         try addColumnIfNotExists(table: "Transactions", column: "fx_entry_rate_date", definition: "INTEGER")
         try addColumnIfNotExists(table: "Transactions", column: "fx_is_received", definition: "INTEGER")
         try addColumnIfNotExists(table: "Transactions", column: "fx_rate_source", definition: "TEXT")
+        // Optional conversion fee in basis points (20 = 0.20%). NULL = none.
+        try addColumnIfNotExists(table: "Transactions", column: "fx_fee_bps", definition: "INTEGER")
         // The refresh and the lock pass both look for "foreign and not locked". Partial, so it is
         // one empty page for users who never use the feature.
         sqlite3_exec(db, """
@@ -6147,7 +6149,7 @@ class DBHelper {
             else { sqlite3_bind_null(statement, index) }
         }
         guard let fx = foreign else {
-            for offset in 0..<9 { sqlite3_bind_null(statement, start + Int32(offset)) }
+            for offset in 0..<10 { sqlite3_bind_null(statement, start + Int32(offset)) }
             return
         }
         sqlite3_bind_text(statement, start, fx.currency, -1, SQLITE_TRANSIENT)
@@ -6163,6 +6165,7 @@ class DBHelper {
         } else {
             sqlite3_bind_null(statement, start + 8)
         }
+        bindInt(start + 9, (fx.feeBps ?? 0) > 0 ? fx.feeBps : nil)
     }
 
     /// Every foreign row, keyed by local id. Small by construction: only income the user entered in
@@ -6171,7 +6174,8 @@ class DBHelper {
         guard isInitialized else { return [:] }
         let query = """
             SELECT id, fx_currency, fx_amount, fx_rate_micros, fx_rate_date, fx_locked_at,
-                   fx_entry_rate_micros, fx_entry_rate_date, fx_is_received, fx_rate_source
+                   fx_entry_rate_micros, fx_entry_rate_date, fx_is_received, fx_rate_source,
+                   fx_fee_bps
             FROM Transactions WHERE fx_currency IS NOT NULL;
             """
         var statement: OpaquePointer?
@@ -6188,7 +6192,8 @@ class DBHelper {
                 rateMicros: int(3), rateDate: int(4), lockedAt: int(5),
                 entryRateMicros: int(6), entryRateDate: int(7),
                 isReceivedAmount: int(8) == 1,
-                rateSource: sqlite3_column_text(statement, 9).map { String(cString: $0) })
+                rateSource: sqlite3_column_text(statement, 9).map { String(cString: $0) },
+                feeBps: int(10))
         }
         return result
     }
@@ -6214,7 +6219,7 @@ class DBHelper {
             UPDATE Transactions
                SET fx_currency = ?, fx_amount = ?, fx_rate_micros = ?, fx_rate_date = ?,
                    fx_locked_at = ?, fx_entry_rate_micros = ?, fx_entry_rate_date = ?,
-                   fx_is_received = ?, fx_rate_source = ?, amount = ?, updated_at = ?,
+                   fx_is_received = ?, fx_rate_source = ?, fx_fee_bps = ?, amount = ?, updated_at = ?,
                    sync_status = 'pending'
              WHERE id = ?;
             """
@@ -6225,9 +6230,9 @@ class DBHelper {
         }
         defer { sqlite3_finalize(statement) }
         bindForeign(foreign, to: statement, from: 1)
-        sqlite3_bind_int64(statement, 10, Int64(amount))
-        sqlite3_bind_int64(statement, 11, Int64(Date().timeIntervalSince1970))
-        sqlite3_bind_int64(statement, 12, Int64(transactionId))
+        sqlite3_bind_int64(statement, 11, Int64(amount))
+        sqlite3_bind_int64(statement, 12, Int64(Date().timeIntervalSince1970))
+        sqlite3_bind_int64(statement, 13, Int64(transactionId))
         guard sqlite3_step(statement) == SQLITE_DONE else {
             logError("[FX] update failed: \(String(cString: sqlite3_errmsg(db)))")
             return false

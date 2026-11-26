@@ -33,13 +33,17 @@ struct ForeignAmount: Codable, Equatable {
   /// "market" or "ecb": where the locked rate came from (`FxSource.rawValue`). For a market rate
   /// `rateDate` is the exact quote time, not midnight.
   var rateSource: String? = nil
+  /// Optional fee the user expects on the conversion, in basis points (20 = 0.20%). Lowers the
+  /// converted amount; never touches the rates, so the % badge ignores it. Ignored once the user
+  /// types the amount received (that number already includes every fee).
+  var feeBps: Int? = nil
 
   var isLocked: Bool { lockedAt != nil }
 
   init(
     currency: String, amount: Int, rateMicros: Int? = nil, rateDate: Int? = nil,
     lockedAt: Int? = nil, entryRateMicros: Int? = nil, entryRateDate: Int? = nil,
-    isReceivedAmount: Bool = false, rateSource: String? = nil
+    isReceivedAmount: Bool = false, rateSource: String? = nil, feeBps: Int? = nil
   ) {
     self.currency = currency
     self.amount = amount
@@ -50,6 +54,7 @@ struct ForeignAmount: Codable, Equatable {
     self.entryRateDate = entryRateDate
     self.isReceivedAmount = isReceivedAmount
     self.rateSource = rateSource
+    self.feeBps = feeBps
   }
 
   /// A copy for a NEW occurrence of a recurring series: same money and the series' entry rate,
@@ -57,7 +62,7 @@ struct ForeignAmount: Codable, Equatable {
   func unlockedCopy() -> ForeignAmount {
     ForeignAmount(
       currency: currency, amount: amount,
-      entryRateMicros: entryRateMicros, entryRateDate: entryRateDate)
+      entryRateMicros: entryRateMicros, entryRateDate: entryRateDate, feeBps: feeBps)
   }
 }
 
@@ -65,13 +70,32 @@ struct ForeignAmount: Codable, Equatable {
 enum FxMath {
   static let microsPerUnit: Int = 1_000_000
 
-  /// `amount = round_half_even(fxAmount × rate × 10^(baseDigits − fxDigits))`, rate in micros.
+  /// `amount = round_half_even(fxAmount × rate × (1 − fee) × 10^(baseDigits − fxDigits))`, rate in
+  /// micros, fee in basis points (20 = 0.20%).
   static func convert(
-    fxAmount: Int, rateMicros: Int, fxDigits: Int, baseDigits: Int
+    fxAmount: Int, rateMicros: Int, fxDigits: Int, baseDigits: Int, feeBps: Int = 0
   ) -> Int {
     var value = Decimal(fxAmount) * Decimal(rateMicros) / Decimal(microsPerUnit)
     value *= pow10(baseDigits - fxDigits)
+    let fee = min(max(feeBps, 0), 9_999)
+    if fee > 0 { value = value * Decimal(10_000 - fee) / Decimal(10_000) }
     return roundHalfEven(value)
+  }
+
+  /// "0,20" / "0.2" / "" → basis points (20). Nil for text that is not a percent from 0 to 99.99.
+  static func feeBps(fromText text: String) -> Int? {
+    let cleaned = text.trimmingCharacters(in: .whitespaces)
+      .replacingOccurrences(of: "%", with: "").replacingOccurrences(of: ",", with: ".")
+    if cleaned.isEmpty { return 0 }
+    guard let value = Decimal(string: cleaned, locale: Locale(identifier: "en_US_POSIX")),
+      value >= 0, value < 100
+    else { return nil }
+    return roundHalfEven(value * 100)
+  }
+
+  /// 20 → "0.20" (no % sign), always a point, like the badge.
+  static func feeText(bps: Int) -> String {
+    String(format: "%d.%02d", bps / 100, bps % 100)
   }
 
   /// The rate implied by an amount typed by hand: `typed / fxAmount`, in micros.
