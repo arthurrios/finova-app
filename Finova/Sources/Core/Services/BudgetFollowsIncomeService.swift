@@ -39,6 +39,7 @@ final class BudgetFollowsIncomeService {
     private let defaults: UserDefaults
     private let budgetRepo: BudgetRepository
     private let transactionRepo: TransactionRepository
+    private let db: DBHelper
     /// Which user's settings to read; injectable for tests.
     private let userKey: () -> String
 
@@ -46,11 +47,13 @@ final class BudgetFollowsIncomeService {
         defaults: UserDefaults = .standard,
         budgetRepo: BudgetRepository = BudgetRepository(),
         transactionRepo: TransactionRepository = TransactionRepository(),
+        db: DBHelper = .shared,
         userKey: @escaping () -> String = { UIDUserDefaultsManager.shared.currentUserUID ?? "local" }
     ) {
         self.defaults = defaults
         self.budgetRepo = budgetRepo
         self.transactionRepo = transactionRepo
+        self.db = db
         self.userKey = userKey
     }
 
@@ -88,6 +91,12 @@ final class BudgetFollowsIncomeService {
         isObserving = true
         NotificationCenter.default.addObserver(
             self, selector: #selector(transactionsChanged), name: .transactionDataChanged, object: nil)
+    }
+
+    /// Stops observing (tests use their own instance).
+    func stop() {
+        NotificationCenter.default.removeObserver(self, name: .transactionDataChanged, object: nil)
+        isObserving = false
     }
 
     @objc private func transactionsChanged() {
@@ -144,11 +153,21 @@ final class BudgetFollowsIncomeService {
         recomputeIfEnabled()
     }
 
-    /// Whether this month's budget is set from income right now.
-    func follows(month: Int) -> Bool {
+    /// Whether this month's budget is set from income right now. A past month with no income keeps
+    /// its old budget, so it does not count as following.
+    func follows(month: Int, today: Date = Date()) -> Bool {
         let s = settings
-        return s.isEnabled && month >= s.startMonth && !s.optedOutMonths.contains(month)
+        guard s.isEnabled, month >= s.startMonth, !s.optedOutMonths.contains(month) else { return false }
+        if month < today.monthAnchor {
+            lock.lock()
+            defer { lock.unlock() }
+            return (lastIncomeByMonth[month] ?? 0) > 0
+        }
+        return true
     }
+
+    /// Income per month from the last recompute, for `follows(month:)`.
+    private var lastIncomeByMonth: [Int: Int] = [:]
 
     // MARK: - Recompute
 
@@ -166,6 +185,7 @@ final class BudgetFollowsIncomeService {
         // The repository caches rows across the process; read what was just written.
         TransactionRepository.invalidateCache()
         let income = countedIncome()
+        lastIncomeByMonth = Self.incomeByMonth(income)
         let existing = Dictionary(
             budgetRepo.fetchBudgets().map { ($0.monthDate, $0.amount) }, uniquingKeysWith: { a, _ in a })
         let targets = Self.targets(
@@ -185,7 +205,7 @@ final class BudgetFollowsIncomeService {
         return targets.keys.sorted()
     }
 
-    // MARK: - Pure rules (unit tested)
+    // MARK: - Pure rules (unit tested in BudgetFollowsIncomeTests)
 
     /// `income × percent`, rounded half up to whole minor units.
     static func budget(income: Int, percent: Int) -> Int {
@@ -210,7 +230,8 @@ final class BudgetFollowsIncomeService {
 
     /// The budget each following month must have, only for months whose stored value differs.
     /// Covers every month from the start through the later of this month and the last month with
-    /// income; a month with no income gets 0.
+    /// income. A current or future month with no income gets 0; a PAST month with no income is
+    /// left as it is (its old budget stays, or it stays empty).
     static func targets(
         income rows: [Transaction], settings s: Settings, existing: [Int: Int], currentMonth: Int
     ) -> [Int: Int] {
@@ -221,7 +242,9 @@ final class BudgetFollowsIncomeService {
         var out: [Int: Int] = [:]
         for month in BudgetsViewModel.monthAnchors(from: start, through: lastMonth)
         where !s.optedOutMonths.contains(month) {
-            let target = budget(income: byMonth[month] ?? 0, percent: s.percent)
+            let income = byMonth[month] ?? 0
+            if month < currentMonth, income <= 0 { continue }
+            let target = budget(income: income, percent: s.percent)
             if existing[month] != target { out[month] = target }
         }
         return out
@@ -232,8 +255,9 @@ final class BudgetFollowsIncomeService {
     /// The rows that count as income, the same set the ledger reads (early-paid installments
     /// already removed), minus card rows and balancing rows.
     func countedIncome() -> [Transaction] {
-        let excluded = Self.balancingRowIds(db: DBHelper.shared)
-        return transactionRepo.fetchAllTransactions().excludingEarlyPaidInstallments()
+        let excluded = Self.balancingRowIds(db: db)
+        return transactionRepo.fetchAllTransactions()
+            .excludingEarlyPaidInstallments(settled: db.settledInstallmentIds())
             .filter { Self.isCountedIncome($0, excludedIds: excluded) }
     }
 
