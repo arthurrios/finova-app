@@ -16,9 +16,31 @@ final class BudgetsViewModel {
         case budgetAlreadyExists
     }
     
-    init(budgetRepo: BudgetRepository = BudgetRepository(), initialDate: Date? = nil) {
+    let followIncome: BudgetFollowsIncomeService
+
+    init(
+        budgetRepo: BudgetRepository = BudgetRepository(), initialDate: Date? = nil,
+        followIncome: BudgetFollowsIncomeService = .shared
+    ) {
         self.budgetRepo = budgetRepo
         selectedDate = initialDate
+        self.followIncome = followIncome
+    }
+
+    /// The note under a month in the list: its percent of income, or the hint when it has none.
+    func note(forMonth anchor: Int, amount: Int) -> String? {
+        guard followIncome.follows(month: anchor) else { return nil }
+        if amount == 0 { return "budgets.followIncome.noIncome".localized }
+        return String(format: "budgets.followIncome.rowNote".localized, followIncome.settings.percent)
+    }
+
+    /// A budget typed by hand while the switch is on keeps that month fixed.
+    func keepFixed(months: [Int]) {
+        months.forEach { followIncome.optOut(month: $0) }
+    }
+
+    static func monthAnchor(of monthYearDate: String) -> Int? {
+        DateFormatter.monthYearFormatter.date(from: monthYearDate)?.monthAnchor
     }
     
     /// What comes in during a month: the amount a budget is suggested to match. Card rows are left
@@ -100,15 +122,15 @@ final class BudgetsViewModel {
     /// `replaceExisting` false keeps the months that already have a budget.
     func addBudgets(
         amount: Int, monthYearDate: String, endMonth: Int, replaceExisting: Bool
-    ) -> Result<Void, Error> {
+    ) -> Result<[Int], Error> {
         guard let date = DateFormatter.monthYearFormatter.date(from: monthYearDate) else {
             return .failure(BudgetError.invalidDateFormat)
         }
         let months = Self.monthAnchors(from: date.monthAnchor, through: endMonth)
         do {
-            try budgetRepo.upsertBudgets(
+            let written = try budgetRepo.upsertBudgets(
                 monthDates: months, amount: amount, replaceExisting: replaceExisting)
-            return .success(())
+            return .success(written)
         } catch {
             return .failure(error)
         }

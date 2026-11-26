@@ -91,6 +91,8 @@ final class DashboardViewController: UIViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         setup()
+        // First load of the session: bring "follows income" budgets up to date before reading them.
+        BudgetFollowsIncomeService.shared.recomputeIfEnabled()
         loadData()
         setupCollectionViews()
         syncedViewModel.selectMonth(at: todayMonthIndex, animated: false)
@@ -197,6 +199,10 @@ final class DashboardViewController: UIViewController {
         // Invalidate caches so we get fresh data
         viewModel.transactionLedger.invalidateCache()
         TransactionRepository.invalidateCache()
+        // Months that follow income get their budget from the income just read (no-op when off).
+        if !BudgetFollowsIncomeService.shared.recomputeIfEnabled().isEmpty {
+            viewModel.transactionLedger.invalidateCache()
+        }
 
         // Load fresh data from repositories
         let monthData = viewModel.loadMonthlyCards()

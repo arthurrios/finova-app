@@ -93,7 +93,10 @@ final class BudgetsView: UIView {
     private lazy var cardContentView: UIStackView = {
         let stackView = UIStackView(
             axis: .vertical, spacing: Metrics.spacing4,
-            arrangedSubviews: [inputStackView, suggestionButton, repeatRowStackView, repeatResolvedLabel, addButton])
+            arrangedSubviews: [
+                followIncomeRowStackView, followIncomePercentRowStackView, followIncomeHintLabel,
+                inputStackView, suggestionButton, repeatRowStackView, repeatResolvedLabel, addButton,
+            ])
         stackView.layoutMargins = UIEdgeInsets(
             top: Metrics.spacing5, left: Metrics.spacing5, bottom: Metrics.spacing5,
             right: Metrics.spacing5)
@@ -137,6 +140,98 @@ final class BudgetsView: UIView {
         button.heightAnchor.constraint(greaterThanOrEqualToConstant: 44).isActive = true
         return button
     }()
+
+    // MARK: - Budget follows income
+    //
+    // One switch for every month and one percent. Months typed below stay fixed.
+
+    static let followIncomePercentPresets = [50, 60, 70, 80, 90, 100]
+
+    private lazy var followIncomeRowStackView: UIStackView = {
+        let stack = UIStackView(arrangedSubviews: [followIncomeLabel, followIncomeSwitch])
+        stack.axis = .horizontal
+        stack.alignment = .center
+        stack.distribution = .equalSpacing
+        stack.setContentCompressionResistancePriority(.required, for: .vertical)
+        return stack
+    }()
+
+    private let followIncomeLabel: UILabel = {
+        let label = UILabel()
+        label.font = Fonts.textSM.font
+        label.textColor = Colors.gray700
+        label.numberOfLines = 0
+        label.text = "budgets.followIncome.title".localized
+        label.setContentCompressionResistancePriority(.required, for: .vertical)
+        return label
+    }()
+
+    let followIncomeSwitch: UISwitch = {
+        let toggle = UISwitch()
+        toggle.onTintColor = Colors.mainMagenta
+        toggle.accessibilityIdentifier = "budgets.followIncome.switch"
+        return toggle
+    }()
+
+    private lazy var followIncomePercentRowStackView: UIStackView = {
+        let stack = UIStackView(arrangedSubviews: [followIncomePercentLabel, followIncomePercentButton])
+        stack.axis = .horizontal
+        stack.alignment = .center
+        stack.distribution = .equalSpacing
+        stack.isHidden = true
+        return stack
+    }()
+
+    private let followIncomePercentLabel: UILabel = {
+        let label = UILabel()
+        label.font = Fonts.textSM.font
+        label.textColor = Colors.gray700
+        label.text = "budgets.followIncome.percent".localized
+        return label
+    }()
+
+    private lazy var followIncomePercentButton: UIButton = {
+        let button = UIButton(type: .system)
+        button.titleLabel?.font = Fonts.textSM.font
+        button.setTitleColor(Colors.mainMagenta, for: .normal)
+        button.showsMenuAsPrimaryAction = true
+        button.heightAnchor.constraint(greaterThanOrEqualToConstant: 32).isActive = true
+        button.accessibilityIdentifier = "budgets.followIncome.percent"
+        return button
+    }()
+
+    private let followIncomeHintLabel: UILabel = {
+        let label = UILabel()
+        label.font = Fonts.textXS.font
+        label.textColor = Colors.gray500
+        label.numberOfLines = 0
+        label.isHidden = true
+        label.setContentCompressionResistancePriority(.required, for: .vertical)
+        return label
+    }()
+
+    /// Shows the switch state and percent. Called by the view controller.
+    func setFollowIncome(enabled: Bool, percent: Int) {
+        followIncomeSwitch.isOn = enabled
+        followIncomePercentRowStackView.isHidden = !enabled
+        followIncomeHintLabel.isHidden = !enabled
+        followIncomeHintLabel.text = String(format: "budgets.followIncome.hint".localized, percent)
+        followIncomePercentButton.setTitle("\(percent)%  ⌄", for: .normal)
+
+        var actions: [UIMenuElement] = Self.followIncomePercentPresets.map { preset in
+            UIAction(title: "\(preset)%", state: preset == percent ? .on : .off) { [weak self] _ in
+                self?.delegate?.didPickFollowIncomePercent(preset)
+            }
+        }
+        actions.append(UIAction(title: "budgets.followIncome.percent.other".localized) { [weak self] _ in
+            self?.delegate?.didTapCustomFollowIncomePercent()
+        })
+        followIncomePercentButton.menu = UIMenu(title: "", children: actions)
+    }
+
+    @objc private func followIncomeSwitchChanged() {
+        delegate?.didToggleFollowIncome(isOn: followIncomeSwitch.isOn)
+    }
 
     // MARK: - Repeat for (many months at once)
     //
@@ -402,6 +497,7 @@ final class BudgetsView: UIView {
         suggestionButton.addTarget(self, action: #selector(didTapSuggestion), for: .touchUpInside)
         manageTagsButton.addTarget(self, action: #selector(didTapManageTags), for: .touchUpInside)
         refreshRepeatRow()
+        followIncomeSwitch.addTarget(self, action: #selector(followIncomeSwitchChanged), for: .valueChanged)
         
         setupConstraints()
     }
