@@ -185,7 +185,7 @@ final class BudgetFollowsIncomeService {
         return targets.keys.sorted()
     }
 
-    // MARK: - Pure rules (unit tested)
+    // MARK: - Pure rules (static, so tests can call them; tests still to write)
 
     /// `income × percent`, rounded half up to whole minor units.
     static func budget(income: Int, percent: Int) -> Int {
