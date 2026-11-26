@@ -49,6 +49,20 @@ public class BudgetsCell: UITableViewCell {
     return label
   }()
 
+  /// "80% of income", or the hint for a following month with no income yet. Hidden otherwise.
+  private let noteLabel: UILabel = {
+    let label = UILabel()
+    label.font = Fonts.textXS.font
+    label.textColor = Colors.gray500
+    label.lineBreakMode = .byTruncatingTail
+    label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+    label.isHidden = true
+    label.translatesAutoresizingMaskIntoConstraints = false
+    return label
+  }()
+
+  private var titleCenterYConstraint: NSLayoutConstraint!
+
   private let valueStackView: UIStackView = {
     let stackView = UIStackView()
     stackView.axis = .horizontal
@@ -132,6 +146,7 @@ public class BudgetsCell: UITableViewCell {
     contentView.addSubview(titleStackView)
     titleStackView.addArrangedSubview(monthLabel)
     titleStackView.addArrangedSubview(yearLabel)
+    contentView.addSubview(noteLabel)
     contentView.addSubview(valueStackView)
     valueStackView.addArrangedSubview(valueLabel)
 
@@ -144,7 +159,14 @@ public class BudgetsCell: UITableViewCell {
   }
 
   private func setupConstraints() {
+    titleCenterYConstraint = titleStackView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor)
     NSLayoutConstraint.activate([
+      titleCenterYConstraint,
+      noteLabel.leadingAnchor.constraint(equalTo: titleStackView.leadingAnchor),
+      noteLabel.topAnchor.constraint(equalTo: titleStackView.bottomAnchor, constant: 1),
+      noteLabel.trailingAnchor.constraint(
+        lessThanOrEqualTo: valueStackView.leadingAnchor, constant: -Metrics.spacing3),
+
       iconView.leadingAnchor.constraint(
         equalTo: contentView.leadingAnchor, constant: Metrics.spacing5),
       iconView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
@@ -153,7 +175,6 @@ public class BudgetsCell: UITableViewCell {
 
       titleStackView.leadingAnchor.constraint(
         equalTo: iconView.trailingAnchor, constant: Metrics.spacing3),
-      titleStackView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
 
       trashIconView.trailingAnchor.constraint(
         equalTo: contentView.trailingAnchor, constant: -Metrics.spacing5),
@@ -183,7 +204,11 @@ public class BudgetsCell: UITableViewCell {
     actionContainerWidthConstraint.isActive = true
   }
 
-  func configure(date: Date, value: Int) {
+  func configure(date: Date, value: Int, note: String? = nil) {
+    noteLabel.text = note
+    noteLabel.isHidden = note == nil
+    titleCenterYConstraint.constant = note == nil ? 0 : -8
+
     let month = DateFormatter.monthFormatter.string(from: date)
     let year = DateFormatter.yearFormatter.string(from: date)
 

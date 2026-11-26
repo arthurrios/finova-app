@@ -93,7 +93,10 @@ final class BudgetsView: UIView {
     private lazy var cardContentView: UIStackView = {
         let stackView = UIStackView(
             axis: .vertical, spacing: Metrics.spacing4,
-            arrangedSubviews: [inputStackView, suggestionButton, addButton])
+            arrangedSubviews: [
+                followIncomeRowStackView, followIncomePercentRowStackView, followIncomeHintLabel,
+                inputStackView, suggestionButton, repeatRowStackView, repeatResolvedLabel, addButton,
+            ])
         stackView.layoutMargins = UIEdgeInsets(
             top: Metrics.spacing5, left: Metrics.spacing5, bottom: Metrics.spacing5,
             right: Metrics.spacing5)
@@ -137,6 +140,233 @@ final class BudgetsView: UIView {
         button.heightAnchor.constraint(greaterThanOrEqualToConstant: 44).isActive = true
         return button
     }()
+
+    // MARK: - Budget follows income
+    //
+    // One switch for every month and one percent. Months typed below stay fixed.
+
+    static let followIncomePercentPresets = [50, 60, 70, 80, 90, 100]
+
+    private lazy var followIncomeRowStackView: UIStackView = {
+        let stack = UIStackView(arrangedSubviews: [followIncomeLabel, followIncomeSwitch])
+        stack.axis = .horizontal
+        stack.alignment = .center
+        stack.distribution = .equalSpacing
+        stack.setContentCompressionResistancePriority(.required, for: .vertical)
+        return stack
+    }()
+
+    private let followIncomeLabel: UILabel = {
+        let label = UILabel()
+        label.font = Fonts.textSM.font
+        label.textColor = Colors.gray700
+        label.numberOfLines = 0
+        label.text = "budgets.followIncome.title".localized
+        label.setContentCompressionResistancePriority(.required, for: .vertical)
+        return label
+    }()
+
+    let followIncomeSwitch: UISwitch = {
+        let toggle = UISwitch()
+        toggle.onTintColor = Colors.mainMagenta
+        toggle.accessibilityIdentifier = "budgets.followIncome.switch"
+        return toggle
+    }()
+
+    private lazy var followIncomePercentRowStackView: UIStackView = {
+        let stack = UIStackView(arrangedSubviews: [followIncomePercentLabel, followIncomePercentButton])
+        stack.axis = .horizontal
+        stack.alignment = .center
+        stack.distribution = .equalSpacing
+        stack.isHidden = true
+        return stack
+    }()
+
+    private let followIncomePercentLabel: UILabel = {
+        let label = UILabel()
+        label.font = Fonts.textSM.font
+        label.textColor = Colors.gray700
+        label.text = "budgets.followIncome.percent".localized
+        return label
+    }()
+
+    private lazy var followIncomePercentButton: UIButton = {
+        let button = UIButton(type: .system)
+        button.titleLabel?.font = Fonts.textSM.font
+        button.setTitleColor(Colors.mainMagenta, for: .normal)
+        button.showsMenuAsPrimaryAction = true
+        button.heightAnchor.constraint(greaterThanOrEqualToConstant: 32).isActive = true
+        button.accessibilityIdentifier = "budgets.followIncome.percent"
+        return button
+    }()
+
+    private let followIncomeHintLabel: UILabel = {
+        let label = UILabel()
+        label.font = Fonts.textXS.font
+        label.textColor = Colors.gray500
+        label.numberOfLines = 0
+        label.isHidden = true
+        label.setContentCompressionResistancePriority(.required, for: .vertical)
+        return label
+    }()
+
+    /// Shows the switch state and percent. Called by the view controller.
+    func setFollowIncome(enabled: Bool, percent: Int) {
+        followIncomeSwitch.isOn = enabled
+        followIncomePercentRowStackView.isHidden = !enabled
+        followIncomeHintLabel.isHidden = !enabled
+        followIncomeHintLabel.text = String(format: "budgets.followIncome.hint".localized, percent)
+        followIncomePercentButton.setTitle("\(percent)%  ⌄", for: .normal)
+
+        var actions: [UIMenuElement] = Self.followIncomePercentPresets.map { preset in
+            UIAction(title: "\(preset)%", state: preset == percent ? .on : .off) { [weak self] _ in
+                self?.delegate?.didPickFollowIncomePercent(preset)
+            }
+        }
+        actions.append(UIAction(title: "budgets.followIncome.percent.other".localized) { [weak self] _ in
+            self?.delegate?.didTapCustomFollowIncomePercent()
+        })
+        followIncomePercentButton.menu = UIMenu(title: "", children: actions)
+    }
+
+    @objc private func followIncomeSwitchChanged() {
+        delegate?.didToggleFollowIncome(isOn: followIncomeSwitch.isOn)
+    }
+
+    // MARK: - Repeat for (many months at once)
+    //
+    // Same presets and look as the allocation form's "Repeat for" row. The default is this month
+    // only, so a plain save behaves exactly as before.
+
+    enum RepeatChoice: Equatable {
+        case thisMonthOnly
+        /// N months counting the start month.
+        case months(Int)
+        /// Through this month anchor.
+        case until(Int)
+    }
+
+    static let repeatPresets = [3, 6, 12, 24]
+    private(set) var repeatChoice: RepeatChoice = .thisMonthOnly
+
+    private lazy var repeatRowStackView: UIStackView = {
+        let stack = UIStackView(arrangedSubviews: [repeatLabel, repeatButton])
+        stack.axis = .horizontal
+        stack.alignment = .center
+        stack.distribution = .equalSpacing
+        stack.setContentCompressionResistancePriority(.required, for: .vertical)
+        stack.setContentHuggingPriority(.required, for: .vertical)
+        return stack
+    }()
+
+    private let repeatLabel: UILabel = {
+        let label = UILabel()
+        label.font = Fonts.textSM.font
+        label.textColor = Colors.gray700
+        label.text = "allocation.recurrence.duration".localized
+        label.setContentHuggingPriority(.required, for: .horizontal)
+        label.setContentCompressionResistancePriority(.required, for: .horizontal)
+        return label
+    }()
+
+    private lazy var repeatButton: UIButton = {
+        let button = UIButton(type: .system)
+        button.titleLabel?.font = Fonts.textSM.font
+        button.setTitleColor(Colors.mainMagenta, for: .normal)
+        button.showsMenuAsPrimaryAction = true
+        button.setContentHuggingPriority(.required, for: .horizontal)
+        button.setContentCompressionResistancePriority(.required, for: .vertical)
+        button.heightAnchor.constraint(greaterThanOrEqualToConstant: 32).isActive = true
+        button.accessibilityIdentifier = "budgets.repeat.button"
+        return button
+    }()
+
+    /// Spells out the last month ("Until Dec 2026") for whatever is chosen.
+    private let repeatResolvedLabel: UILabel = {
+        let label = UILabel()
+        label.font = Fonts.textXS.font
+        label.textColor = Colors.gray500
+        label.textAlignment = .right
+        label.isHidden = true
+        return label
+    }()
+
+    /// The month typed in the form, or this month when the field is empty.
+    private var repeatBaseAnchor: Int {
+        dateInput.textField.text
+            .flatMap { DateFormatter.monthYearFormatter.date(from: $0) }?.monthAnchor
+            ?? Date().monthAnchor
+    }
+
+    /// The last month to write, or `nil` for this month only.
+    var repeatEndMonth: Int? {
+        let base = repeatBaseAnchor
+        switch repeatChoice {
+        case .thisMonthOnly:
+            return nil
+        case .months(let count):
+            return BudgetsViewModel.monthAnchor(base, plusMonths: count - 1)
+        case .until(let anchor):
+            return anchor > base ? anchor : nil
+        }
+    }
+
+    private func setRepeatChoice(_ choice: RepeatChoice) {
+        repeatChoice = choice
+        refreshRepeatRow()
+    }
+
+    private func repeatMonthName(_ anchor: Int) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale.current
+        formatter.dateFormat = "MMM yyyy"
+        return formatter.string(from: Date(timeIntervalSince1970: TimeInterval(anchor)))
+    }
+
+    private func refreshRepeatRow() {
+        let base = repeatBaseAnchor
+        // An end month chosen for an older start can fall before a new start: drop it.
+        if case .until(let anchor) = repeatChoice, anchor <= base { repeatChoice = .thisMonthOnly }
+
+        var actions: [UIMenuElement] = [
+            UIAction(
+                title: "budgets.repeat.thisMonthOnly".localized,
+                state: repeatChoice == .thisMonthOnly ? .on : .off
+            ) { [weak self] _ in self?.setRepeatChoice(.thisMonthOnly) }
+        ]
+        for preset in Self.repeatPresets {
+            actions.append(UIAction(
+                title: String(format: "allocation.recurrence.months".localized, preset),
+                state: repeatChoice == .months(preset) ? .on : .off
+            ) { [weak self] _ in self?.setRepeatChoice(.months(preset)) })
+        }
+        var monthActions: [UIAction] = []
+        for offset in 1...RecurringTransactionManager.horizonMonths {
+            let anchor = BudgetsViewModel.monthAnchor(base, plusMonths: offset)
+            monthActions.append(UIAction(
+                title: repeatMonthName(anchor),
+                state: repeatChoice == .until(anchor) ? .on : .off
+            ) { [weak self] _ in self?.setRepeatChoice(.until(anchor)) })
+        }
+        actions.append(UIMenu(title: "allocation.recurrence.chooseEnd".localized, children: monthActions))
+        repeatButton.menu = UIMenu(title: "", children: actions)
+
+        let title: String
+        switch repeatChoice {
+        case .thisMonthOnly: title = "budgets.repeat.thisMonthOnly".localized
+        case .months(let count): title = String(format: "allocation.recurrence.months".localized, count)
+        case .until(let anchor): title = repeatMonthName(anchor)
+        }
+        repeatButton.setTitle("\(title)  ⌄", for: .normal)
+
+        if let end = repeatEndMonth {
+            repeatResolvedLabel.text = String(
+                format: "allocation.recurrence.until".localized, repeatMonthName(end))
+            repeatResolvedLabel.isHidden = false
+        } else {
+            repeatResolvedLabel.isHidden = true
+        }
+    }
 
     /// The income of the month typed in the form, from the view controller.
     var suggestedAmount: ((String) -> Int)?
@@ -266,6 +496,8 @@ final class BudgetsView: UIView {
         addButton.addTarget(self, action: #selector(didTapAddBudgetButton), for: .touchUpInside)
         suggestionButton.addTarget(self, action: #selector(didTapSuggestion), for: .touchUpInside)
         manageTagsButton.addTarget(self, action: #selector(didTapManageTags), for: .touchUpInside)
+        refreshRepeatRow()
+        followIncomeSwitch.addTarget(self, action: #selector(followIncomeSwitchChanged), for: .valueChanged)
         
         setupConstraints()
     }
@@ -374,6 +606,7 @@ final class BudgetsView: UIView {
     func clearTextFields() {
         dateInput.textField.text = ""
         budgetValueInput.textField.text = ""
+        repeatChoice = .thisMonthOnly
         refreshSuggestion()
     }
 
@@ -385,6 +618,7 @@ final class BudgetsView: UIView {
                 format: "budgets.suggestion.income".localized,
                 suggestedCents.maskedCurrencyString()),
             for: .normal)
+        refreshRepeatRow()
     }
 
     @objc
@@ -419,7 +653,11 @@ final class BudgetsView: UIView {
         
         let date = dateInput.textField.text ?? ""
         let budget = budgetValueInput.centsValue
-        delegate?.didTapAddBudgetButton(monthYearDate: date, budgetAmount: budget)
+        if let endMonth = repeatEndMonth {
+            delegate?.didTapAddBudgets(monthYearDate: date, budgetAmount: budget, endMonth: endMonth)
+        } else {
+            delegate?.didTapAddBudgetButton(monthYearDate: date, budgetAmount: budget)
+        }
     }
 }
 

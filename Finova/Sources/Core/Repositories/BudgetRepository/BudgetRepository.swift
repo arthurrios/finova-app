@@ -26,6 +26,56 @@ final class BudgetRepository: BudgetRepositoryProtocol {
     NotificationCenter.default.post(name: .budgetDataChanged, object: nil)
   }
 
+  /// Writes the same amount to several months at once, in ONE database transaction: if any month
+  /// fails, none of them is written. Months that already have a budget are overwritten when
+  /// `replaceExisting` is true and left alone otherwise (only the empty months are filled).
+  ///
+  /// - Returns: the month anchors that were written.
+  @discardableResult
+  func upsertBudgets(
+    monthDates: [Int], amount: Int, sharedGroupId: String? = nil, replaceExisting: Bool
+  ) throws -> [Int] {
+    try writeBudgets(
+      monthDates.map { ($0, amount) }, sharedGroupId: sharedGroupId, replaceExisting: replaceExisting)
+  }
+
+  /// A different amount per month (used by "budget follows income"), same all-or-nothing write.
+  func setBudgetAmounts(_ amounts: [Int: Int]) throws {
+    try writeBudgets(amounts.sorted { $0.key < $1.key }.map { ($0.key, $0.value) }, replaceExisting: true)
+  }
+
+  @discardableResult
+  private func writeBudgets(
+    _ entries: [(monthDate: Int, amount: Int)], sharedGroupId: String? = nil, replaceExisting: Bool
+  ) throws -> [Int] {
+    let existing = Set(fetchBudgets().map(\.monthDate))
+    var written: [Int] = []
+    try db.inTransaction {
+      for (monthDate, amount) in entries {
+        if existing.contains(monthDate) {
+          guard replaceExisting else { continue }
+          // `updateBudget` already marks the row 'pending' in the same statement.
+          try db.updateBudget(monthDate: monthDate, amount: amount)
+        } else {
+          try db.insertBudget(monthDate: monthDate, amount: amount, sharedGroupId: sharedGroupId)
+          // Checked (throwing) on purpose: a failed write here must roll the whole range back too.
+          try db.executeGroupWriteChecked(
+            """
+            UPDATE Budgets SET sync_status = 'pending', ck_modified_at = ?
+             WHERE month_date = ? AND COALESCE(shared_group_id, '') = ?;
+            """,
+            orderedBindings: [Int(Date().timeIntervalSince1970), monthDate, sharedGroupId ?? ""]
+          )
+        }
+        written.append(monthDate)
+      }
+    }
+    if !written.isEmpty {
+      NotificationCenter.default.post(name: .budgetDataChanged, object: nil)
+    }
+    return written
+  }
+
   func update(budget: BudgetModel) throws {
     try db.updateBudget(monthDate: budget.monthDate, amount: budget.amount)
     db.executeSyncUpdate(

@@ -6228,6 +6228,227 @@
         }
       }
     },
+    "budgets.followIncome.enable.fromNow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "From this month on"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A partir deste mês"
+          }
+        }
+      }
+    },
+    "budgets.followIncome.enable.includePast": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Include past months"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Incluir meses anteriores"
+          }
+        }
+      }
+    },
+    "budgets.followIncome.enable.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Each month's budget will be %d%% of its income. Start this month, or include past months too?"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O orçamento de cada mês será %d%% da renda dele. Começar neste mês ou incluir os meses anteriores também?"
+          }
+        }
+      }
+    },
+    "budgets.followIncome.enable.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Budget follows income"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Orçamento segue a renda"
+          }
+        }
+      }
+    },
+    "budgets.followIncome.fixedMonth.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This month has a fixed budget. Make it follow your income again, or delete it?"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este mês tem um orçamento fixo. Quer que ele volte a seguir a renda ou excluí-lo?"
+          }
+        }
+      }
+    },
+    "budgets.followIncome.fixedMonth.rejoin": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Follow income again"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Voltar a seguir a renda"
+          }
+        }
+      }
+    },
+    "budgets.followIncome.hint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Each month's budget is %d%% of its income. A budget you save below stays fixed for that month."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O orçamento de cada mês é %d%% da renda dele. Um orçamento salvo abaixo fica fixo naquele mês."
+          }
+        }
+      }
+    },
+    "budgets.followIncome.noIncome": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add your income to set this budget"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adicione sua renda para definir este orçamento"
+          }
+        }
+      }
+    },
+    "budgets.followIncome.percent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Percent of income"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Percentual da renda"
+          }
+        }
+      }
+    },
+    "budgets.followIncome.percent.other": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Other…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Outro…"
+          }
+        }
+      }
+    },
+    "budgets.followIncome.percent.range": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Type a whole number from %d to %d."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Digite um número inteiro de %d a %d."
+          }
+        }
+      }
+    },
+    "budgets.followIncome.rowNote": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d%% of income"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d%% da renda"
+          }
+        }
+      }
+    },
+    "budgets.followIncome.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Budget follows income"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Orçamento segue a renda"
+          }
+        }
+      }
+    },
     "budgets.header.subtitle": {
       "extractionState": "manual",
       "localizations": {
@@ -20620,6 +20841,91 @@
           "stringUnit": {
             "state": "translated",
             "value": "Sua renda neste mês: %@. Usar este valor"
+          }
+        }
+      }
+    },
+    "budgets.multi.conflict.keep": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep existing"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manter os atuais"
+          }
+        }
+      }
+    },
+    "budgets.multi.conflict.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "These months already have a budget: %@."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estes meses já têm orçamento: %@."
+          }
+        }
+      }
+    },
+    "budgets.multi.conflict.replace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Replace them"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Substituir"
+          }
+        }
+      }
+    },
+    "budgets.multi.conflict.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Some months already have a budget"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alguns meses já têm orçamento"
+          }
+        }
+      }
+    },
+    "budgets.repeat.thisMonthOnly": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This month only"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Só este mês"
           }
         }
       }

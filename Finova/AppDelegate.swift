@@ -23,6 +23,8 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     // Only perform essential synchronous operations on main thread
     configureFirebase()
     registerForNotifications()
+    // "Budget follows income": recompute budgets whenever income changes.
+    BudgetFollowsIncomeService.shared.start()
 
     // Move heavy operations to background thread for better performance
     DispatchQueue.global(qos: .background).async { [weak self] in
