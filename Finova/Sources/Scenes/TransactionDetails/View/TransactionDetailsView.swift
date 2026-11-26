@@ -21,6 +21,8 @@ protocol TransactionDetailsViewDelegate: AnyObject {
   func didTapCancelPurchase()
   /// Undo a cancellation, removing the credit and un-cancelling the purchase.
   func didTapUndoCancellation()
+  /// Type the amount actually received for a locked foreign-currency income.
+  func didTapEnterAmountReceived()
 }
 
 final class TransactionDetailsView: UIView {
@@ -442,6 +444,27 @@ final class TransactionDetailsView: UIView {
   private lazy var undoCancellationRow = Self.makeActionRow(
     systemIcon: "arrow.uturn.backward", tintColor: Colors.mainRed, labelColor: Colors.mainRed)
 
+  // MARK: - Exchange rate (foreign-currency income)
+  private let exchangeRateHeaderView = CardHeader(headerTitle: "fx.details.header".localized)
+
+  private lazy var exchangeRateCard: UIStackView = {
+    let stack = UIStackView(axis: .vertical, spacing: Metrics.spacing4)
+    stack.layoutMargins = UIEdgeInsets(
+      top: Metrics.spacing5, left: Metrics.spacing5, bottom: Metrics.spacing5,
+      right: Metrics.spacing5)
+    stack.isLayoutMarginsRelativeArrangement = true
+    stack.backgroundColor = Colors.gray100
+    stack.layer.borderWidth = 1
+    stack.layer.borderColor = Colors.gray300.cgColor
+    stack.layer.cornerRadius = CornerRadius.extraLarge
+    stack.layer.maskedCorners = [.layerMinXMaxYCorner, .layerMaxXMaxYCorner]
+    stack.clipsToBounds = true
+    stack.translatesAutoresizingMaskIntoConstraints = false
+    return stack
+  }()
+
+  private lazy var enterReceivedRow = Self.makeActionRow(systemIcon: "pencil.and.list.clipboard")
+
   // MARK: - Refunded Installments (for cancellation credits)
   private let refundedInstallmentsHeaderView = CardHeader(
     headerTitle: "cancellation.details.refunded.header".localized)
@@ -568,6 +591,16 @@ final class TransactionDetailsView: UIView {
     moveToStatementContainer.addSubview(moveToStatementChevron)
     moveToStatementContainer.isHidden = true
     tailStackView.addArrangedSubview(moveToStatementContainer)
+
+    exchangeRateHeaderView.isHidden = true
+    exchangeRateCard.isHidden = true
+    enterReceivedRow.container.isHidden = true
+    tailStackView.addArrangedSubview(exchangeRateHeaderView)
+    tailStackView.addArrangedSubview(exchangeRateCard)
+    tailStackView.setCustomSpacing(0, after: exchangeRateHeaderView)
+    enterReceivedRow.container.addGestureRecognizer(
+      UITapGestureRecognizer(target: self, action: #selector(didTapEnterAmountReceived)))
+    tailStackView.addArrangedSubview(enterReceivedRow.container)
 
     payEarlyRow.container.isHidden = true
     payEarlyRow.container.addGestureRecognizer(
@@ -980,6 +1013,7 @@ final class TransactionDetailsView: UIView {
     }
 
     configureEarlyPaymentSections(with: viewModel)
+    configureExchangeRate(with: viewModel.transaction, valueHidden: isValueHidden)
   }
 
   /// The two faces of early payment on this screen: the entry point on an installment that still has
@@ -1150,5 +1184,124 @@ final class TransactionDetailsView: UIView {
 
   @objc private func didTapUndoCancellation() {
     delegate?.didTapUndoCancellation()
+  }
+}
+
+// MARK: - Foreign-currency income
+
+extension TransactionDetailsView {
+  @objc fileprivate func didTapEnterAmountReceived() {
+    delegate?.didTapEnterAmountReceived()
+  }
+
+  /// The EXCHANGE RATE card: received in, rate, rate date, change since added, and a footnote. The
+  /// "Enter amount received" row shows only after the lock.
+  fileprivate func configureExchangeRate(with transaction: Transaction, valueHidden: Bool) {
+    guard let fx = transaction.foreign else {
+      exchangeRateHeaderView.isHidden = true
+      exchangeRateCard.isHidden = true
+      enterReceivedRow.container.isHidden = true
+      return
+    }
+    let app = AppConfig.currencyCode
+    let received = ForeignCurrencyService.format(amountMinor: fx.amount, currency: fx.currency)
+    let receivedShown = valueHidden
+      ? "\(ForeignCurrencyService.symbol(for: fx.currency)) \(ValueMask.placeholder)" : received
+
+    // "One-time transaction · US$ 5,000.00", like the row.
+    transactionModeLabel.text = (transactionModeLabel.text ?? "") + " · " + receivedShown
+
+    let live = ForeignCurrencyService.shared.cachedLatest(for: fx.currency)
+    let rateMicros = fx.isLocked ? fx.rateMicros : live?.rateMicros
+    let rateDate = fx.isLocked ? fx.rateDate : live.flatMap { FxDay.epoch(of: $0.date) }
+
+    exchangeRateCard.arrangedSubviews.forEach { $0.removeFromSuperview() }
+    exchangeRateCard.addArrangedSubview(row("fx.details.receivedIn".localized, receivedShown))
+    if let micros = rateMicros {
+      exchangeRateCard.addArrangedSubview(row(
+        fx.isReceivedAmount ? "fx.details.impliedRate".localized : "fx.details.rate".localized,
+        ForeignCurrencyService.rateText(rateMicros: micros, currency: fx.currency, appCurrency: app)))
+    }
+    if let date = rateDate, !fx.isReceivedAmount {
+      exchangeRateCard.addArrangedSubview(row(
+        "fx.details.rateDate".localized,
+        DateFormatter.fullDateFormatter.string(from: Date(timeIntervalSince1970: TimeInterval(date)))
+          + " · " + "fx.details.ecb".localized))
+    }
+    if let tenths = fx.changeTenths(liveRateMicros: live?.rateMicros) {
+      let badge = FxBadgeLabel()
+      badge.configure(
+        tenths: tenths, isIncome: transaction.type == .income, isLocked: fx.isLocked)
+      let base = badge.attributedText.map(NSMutableAttributedString.init) ?? NSMutableAttributedString()
+      base.append(NSAttributedString(string: " " + "fx.details.sinceAdded".localized))
+      badge.attributedText = base
+      exchangeRateCard.addArrangedSubview(row("fx.details.change".localized, nil, trailing: badge))
+    }
+
+    let note = UILabel()
+    note.font = Fonts.textXS.font
+    note.textColor = Colors.gray500
+    note.numberOfLines = 0
+    var lines: [String] = []
+    if let entry = fx.entryRateMicros, let entryDate = fx.entryRateDate {
+      let was = Decimal(entry) / Decimal(FxMath.microsPerUnit)
+      let formatter = NumberFormatter()
+      formatter.numberStyle = .currency
+      formatter.currencyCode = app
+      formatter.minimumFractionDigits = 4
+      formatter.maximumFractionDigits = 4
+      let wasText = formatter.string(from: NSDecimalNumber(decimal: was)) ?? "\(was)"
+      lines.append("fx.details.was".localized(wasText, ForeignCurrencyService.shortDate(epoch: entryDate)))
+    }
+    if fx.isReceivedAmount {
+      lines.append("fx.details.receivedNote".localized)
+    } else {
+      lines.append(fx.isLocked
+        ? "fx.details.lockedOn".localized(ForeignCurrencyService.shortDate(epoch: fx.lockedAt ?? 0))
+        : "fx.details.locksOnPayday".localized)
+      lines.append("fx.details.estimate".localized)
+    }
+    note.text = lines.joined(separator: " ")
+    exchangeRateCard.addArrangedSubview(note)
+
+    exchangeRateHeaderView.isHidden = false
+    exchangeRateCard.isHidden = false
+    enterReceivedRow.container.isHidden = !fx.isLocked
+    enterReceivedRow.label.text = "fx.details.enterReceived".localized
+    enterReceivedRow.value.text = nil
+  }
+
+  private func row(_ title: String, _ value: String?, trailing: UIView? = nil) -> UIView {
+    let container = UIView()
+    container.translatesAutoresizingMaskIntoConstraints = false
+    let titleLabel = UILabel()
+    titleLabel.text = title
+    titleLabel.font = Fonts.textSM.font
+    titleLabel.textColor = Colors.gray600
+    titleLabel.translatesAutoresizingMaskIntoConstraints = false
+    titleLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
+    let right: UIView = trailing ?? {
+      let label = UILabel()
+      label.text = value
+      label.font = Fonts.textSM.font
+      label.textColor = Colors.gray700
+      label.textAlignment = .right
+      label.adjustsFontSizeToFitWidth = true
+      label.minimumScaleFactor = 0.8
+      return label
+    }()
+    right.translatesAutoresizingMaskIntoConstraints = false
+    container.addSubview(titleLabel)
+    container.addSubview(right)
+    NSLayoutConstraint.activate([
+      titleLabel.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+      titleLabel.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+      right.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+      right.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+      right.leadingAnchor.constraint(
+        greaterThanOrEqualTo: titleLabel.trailingAnchor, constant: Metrics.spacing3),
+      container.heightAnchor.constraint(equalToConstant: 24),
+    ])
+    return container
   }
 }

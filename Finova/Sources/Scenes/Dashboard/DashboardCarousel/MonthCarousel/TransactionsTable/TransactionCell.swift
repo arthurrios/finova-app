@@ -27,6 +27,8 @@ struct TransactionCellConfiguration {
   /// month's totals. Carried on the configuration rather than applied ad-hoc by each table so the
   /// dashboard, allocation details and statement details cannot drift apart on how it looks.
   var isSettledEarly: Bool = false
+  /// Received in another currency (1.7.0): shows the foreign amount and the % badge.
+  var foreign: ForeignAmount? = nil
 }
 
 public final class TransactionCell: UITableViewCell {
@@ -88,6 +90,27 @@ public final class TransactionCell: UITableViewCell {
     let label = UILabel()
     label.font = Fonts.textXS.font
     label.textColor = Colors.gray500
+    label.translatesAutoresizingMaskIntoConstraints = false
+    return label
+  }()
+
+  /// `· US$ 5,000.00` after the date. Its own label, never appended to `dateLabel`: that one is
+  /// `.required` and statement rows reuse it. This one is the first thing to cut on a narrow row.
+  private let fxAmountLabel: UILabel = {
+    let label = UILabel()
+    label.font = Fonts.textXS.font
+    label.textColor = Colors.gray500
+    label.numberOfLines = 1
+    label.lineBreakMode = .byTruncatingTail
+    label.isHidden = true
+    label.translatesAutoresizingMaskIntoConstraints = false
+    return label
+  }()
+
+  /// `+8.0%` under the value, Stocks-style. Colour means good or bad for the user, not up or down.
+  private let changeBadgeLabel: FxBadgeLabel = {
+    let label = FxBadgeLabel()
+    label.isHidden = true
     label.translatesAutoresizingMaskIntoConstraints = false
     return label
   }()
@@ -243,6 +266,7 @@ public final class TransactionCell: UITableViewCell {
     contentView.addSubview(titleStackView)
     titleStackView.addArrangedSubview(titleLabel)
     dateStackView.addArrangedSubview(dateLabel)
+    dateStackView.addArrangedSubview(fxAmountLabel)
     dateStackView.addArrangedSubview(creditCardIndicator)
     titleStackView.addArrangedSubview(dateStackView)
     contentView.addSubview(valueRowStackView)
@@ -251,6 +275,7 @@ public final class TransactionCell: UITableViewCell {
     valueRowStackView.addArrangedSubview(transactionTypeIconView)
     valueStackView.addArrangedSubview(valueLabel)
     valueStackView.addArrangedSubview(installmentLabel)
+    valueStackView.addArrangedSubview(changeBadgeLabel)
     contentView.addSubview(trashIconView)
 
     contentView.addSubview(actionContainerView)
@@ -285,6 +310,9 @@ public final class TransactionCell: UITableViewCell {
 
     dateLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
     dateLabel.setContentHuggingPriority(.required, for: .horizontal)
+    fxAmountLabel.setContentCompressionResistancePriority(.defaultLow - 1, for: .horizontal)
+    changeBadgeLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
+    changeBadgeLabel.setContentHuggingPriority(.required, for: .horizontal)
     titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
     titleLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
     titleStackView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
@@ -432,6 +460,8 @@ public final class TransactionCell: UITableViewCell {
     let hasCard = configuration.creditCardId != nil && !configuration.isCreditCardStatement
     creditCardIndicator.isHidden = !hasCard
 
+    configureForeign(configuration, valueHidden: isValueHidden)
+
     // Hide trash icon and disable swipe for credit card statement rows
     // Move value stack to the edge when trash is hidden
     let isStatement = configuration.isCreditCardStatement
@@ -575,5 +605,81 @@ extension TransactionCell {
     }
 
     return true
+  }
+}
+
+// MARK: - Foreign-currency income
+
+extension TransactionCell {
+  /// Reset on every configure: cells are reused, and a plain row must never keep a foreign row's
+  /// badge or amount.
+  fileprivate func configureForeign(_ configuration: TransactionCellConfiguration, valueHidden: Bool) {
+    guard let fx = configuration.foreign, !configuration.isCreditCardStatement else {
+      fxAmountLabel.isHidden = true
+      fxAmountLabel.text = nil
+      changeBadgeLabel.isHidden = true
+      return
+    }
+    let formatted = ForeignCurrencyService.format(amountMinor: fx.amount, currency: fx.currency)
+    // Hide values: the foreign amount is money too. The badge is a percent, so it stays.
+    let shown = valueHidden
+      ? "\(ForeignCurrencyService.symbol(for: fx.currency)) \(ValueMask.placeholder)" : formatted
+    fxAmountLabel.text = "· " + shown
+    fxAmountLabel.accessibilityLabel = valueHidden ? ValueMask.accessibilityLabel : formatted
+    fxAmountLabel.isHidden = false
+
+    let live = ForeignCurrencyService.shared.cachedLatest(for: fx.currency)?.rateMicros
+    guard let tenths = fx.changeTenths(liveRateMicros: live) else {
+      changeBadgeLabel.isHidden = true
+      return
+    }
+    changeBadgeLabel.configure(
+      tenths: tenths, isIncome: configuration.transactionType == .income, isLocked: fx.isLocked)
+    changeBadgeLabel.isHidden = false
+  }
+}
+
+/// The small Stocks-style pill: tinted background, coloured text, `+8.0%`.
+final class FxBadgeLabel: UILabel {
+  var insets = UIEdgeInsets(top: 1, left: Metrics.spacing1, bottom: 1, right: Metrics.spacing1)
+
+  override init(frame: CGRect) {
+    super.init(frame: frame)
+    font = Fonts(size: 10, weight: .bold).font
+    textAlignment = .center
+    layer.cornerRadius = CornerRadius.small
+    layer.masksToBounds = true
+  }
+
+  required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+  func configure(tenths: Int, isIncome: Bool, isLocked: Bool) {
+    let tone = FxBadgeTone.tone(isIncome: isIncome, changeTenths: tenths)
+    let color: UIColor
+    switch tone {
+    case .good: color = Colors.mainGreen
+    case .bad: color = Colors.mainRed
+    case .neutral: color = Colors.gray500
+    }
+    textColor = color
+    backgroundColor = color.withAlphaComponent(0.12)
+    let text = NSMutableAttributedString(string: FxMath.formatChange(tenths: tenths))
+    if isLocked, let lock = UIImage(systemName: "lock.fill")?.withTintColor(color, renderingMode: .alwaysOriginal) {
+      let attachment = NSTextAttachment(image: lock)
+      let side = (font?.capHeight ?? 7)
+      attachment.bounds = CGRect(x: 0, y: 0, width: side, height: side)
+      text.insert(NSAttributedString(string: " "), at: 0)
+      text.insert(NSAttributedString(attachment: attachment), at: 0)
+    }
+    attributedText = text
+    let direction = tenths > 0 ? "fx.badge.a11y.up" : (tenths < 0 ? "fx.badge.a11y.down" : "fx.badge.a11y.flat")
+    accessibilityLabel = direction.localized(String(format: "%.1f", Double(abs(tenths)) / 10))
+  }
+
+  override func drawText(in rect: CGRect) { super.drawText(in: rect.inset(by: insets)) }
+
+  override var intrinsicContentSize: CGSize {
+    let size = super.intrinsicContentSize
+    return CGSize(width: size.width + insets.left + insets.right, height: size.height + insets.top + insets.bottom)
   }
 }
