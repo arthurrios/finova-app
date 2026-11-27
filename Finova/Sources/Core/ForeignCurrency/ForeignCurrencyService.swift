@@ -54,13 +54,13 @@ enum FxRowPlanner {
       locked.lockedAt = now
       let amount = FxConversion.convert(
         fxAmount: fx.amount, currency: fx.currency, rateMicros: quote.rateMicros,
-        appCurrency: appCurrency, feeBps: fx.feeBps)
+        appCurrency: appCurrency, feeBps: fx.feeBps, spreadMicros: fx.spreadMicros)
       return Change(id: row.id, foreign: locked, amount: amount, isLiveMove: false)
     case .live, .wait:
       guard let latest = latest else { return nil }  // Offline: keep the last known amount.
       let amount = FxConversion.convert(
         fxAmount: fx.amount, currency: fx.currency, rateMicros: latest.rateMicros,
-        appCurrency: appCurrency, feeBps: fx.feeBps)
+        appCurrency: appCurrency, feeBps: fx.feeBps, spreadMicros: fx.spreadMicros)
       guard amount != row.amount else { return nil }  // Write only rows that really change.
       return Change(id: row.id, foreign: fx, amount: amount, isLiveMove: true)
     }
@@ -80,14 +80,16 @@ enum FxEditPlanner {
   ///   - currency: the currency picked in the form (the app currency means "no conversion").
   ///   - typedAmount: the amount typed in the form, in `currency`'s minor units.
   ///   - liveRateMicros: newest cached rate for `currency`, or a rate typed by hand.
-  ///   - feeBps: the fee typed in the form (nil or 0 = none).
+  ///   - feeBps: an old row's fee, kept as it was (new rows use the provider difference instead).
+  ///   - spreadMicros: the provider difference typed in the form (nil or 0 = none).
   /// - Returns: nil when a foreign currency has no rate at all (the caller must ask for one).
   static func apply(
     old: ForeignAmount?, oldDate: Int, newDate: Int, currency: String, typedAmount: Int,
     appCurrency: String, liveRateMicros: Int?, liveRateDate: Int?, feeBps: Int? = nil,
-    calendar: Calendar = .current
+    spreadMicros: Int? = nil, calendar: Calendar = .current
   ) -> Result? {
     let fee = (feeBps ?? 0) > 0 ? feeBps : nil
+    let spread = (spreadMicros ?? 0) > 0 ? spreadMicros : nil
     // Set back to the app currency: an ordinary row; `amount` is what was typed.
     if currency == appCurrency { return Result(foreign: nil, amount: typedAmount) }
 
@@ -96,27 +98,32 @@ enum FxEditPlanner {
         FxDay.string(from: Date(timeIntervalSince1970: TimeInterval(oldDate)), calendar: calendar)
         == FxDay.string(from: Date(timeIntervalSince1970: TimeInterval(newDate)), calendar: calendar)
       if sameDay, let locked = old.rateMicros {
-        // New foreign amount × the LOCKED rate. The rate stays.
+        // New foreign amount × the LOCKED rate. The rate stays. An "amount received" row's rate is
+        // already what arrived (every fee and difference inside), so nothing is taken off again.
+        let keptFee = old.isReceivedAmount ? nil : fee
+        let keptSpread = old.isReceivedAmount ? nil : spread
         var kept = old
         kept.amount = typedAmount
-        kept.feeBps = fee
+        kept.feeBps = keptFee
+        kept.spreadMicros = keptSpread
         return Result(
           foreign: kept,
           amount: FxConversion.convert(
             fxAmount: typedAmount, currency: currency, rateMicros: locked, appCurrency: appCurrency,
-            feeBps: fee))
+            feeBps: keptFee, spreadMicros: keptSpread))
       }
       // Moved to another day: unlock. The next pass locks it again with that day's rate (past)
       // or keeps it live (future). The entry rate stays: only a new currency resets it.
       guard let live = liveRateMicros ?? old.rateMicros else { return nil }
       let unlocked = ForeignAmount(
         currency: currency, amount: typedAmount,
-        entryRateMicros: old.entryRateMicros, entryRateDate: old.entryRateDate, feeBps: fee)
+        entryRateMicros: old.entryRateMicros, entryRateDate: old.entryRateDate, feeBps: fee,
+        spreadMicros: spread)
       return Result(
         foreign: unlocked,
         amount: FxConversion.convert(
           fxAmount: typedAmount, currency: currency, rateMicros: live, appCurrency: appCurrency,
-          feeBps: fee))
+          feeBps: fee, spreadMicros: spread))
     }
 
     guard let live = liveRateMicros else { return nil }
@@ -125,12 +132,12 @@ enum FxEditPlanner {
       currency: currency, amount: typedAmount,
       entryRateMicros: keepsEntry ? (old?.entryRateMicros ?? live) : live,
       entryRateDate: keepsEntry ? (old?.entryRateDate ?? liveRateDate) : liveRateDate,
-      feeBps: fee)
+      feeBps: fee, spreadMicros: spread)
     return Result(
       foreign: foreign,
       amount: FxConversion.convert(
         fxAmount: typedAmount, currency: currency, rateMicros: live, appCurrency: appCurrency,
-        feeBps: fee))
+        feeBps: fee, spreadMicros: spread))
   }
 
   /// "Enter amount received": allowed only after the lock. Stores the implied rate; the badge then
@@ -151,12 +158,14 @@ enum FxEditPlanner {
 
 enum FxConversion {
   static func convert(
-    fxAmount: Int, currency: String, rateMicros: Int, appCurrency: String, feeBps: Int? = nil
+    fxAmount: Int, currency: String, rateMicros: Int, appCurrency: String, feeBps: Int? = nil,
+    spreadMicros: Int? = nil
   ) -> Int {
     FxMath.convert(
       fxAmount: fxAmount, rateMicros: rateMicros,
       fxDigits: CurrencyUtils.fractionDigits(for: currency),
-      baseDigits: CurrencyUtils.fractionDigits(for: appCurrency), feeBps: feeBps ?? 0)
+      baseDigits: CurrencyUtils.fractionDigits(for: appCurrency), feeBps: feeBps ?? 0,
+      spreadMicros: spreadMicros ?? 0)
   }
 }
 

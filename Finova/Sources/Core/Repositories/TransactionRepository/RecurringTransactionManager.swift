@@ -715,7 +715,7 @@ final class RecurringTransactionManager {
     let amount = fxService.cachedLatest(for: fx.currency).map {
       FxConversion.convert(
         fxAmount: fx.amount, currency: fx.currency, rateMicros: $0.rateMicros,
-        appCurrency: fxService.appCurrency, feeBps: fx.feeBps)
+        appCurrency: fxService.appCurrency, feeBps: fx.feeBps, spreadMicros: fx.spreadMicros)
     } ?? newData.data.amount
     db.updateForeign(transactionId: instanceId, foreign: fx, amount: amount)
     TransactionRepository.invalidateCache()
@@ -1021,7 +1021,7 @@ final class RecurringTransactionManager {
             ForeignCurrencyService.shared.cachedLatest(for: fx.currency).map {
               FxConversion.convert(
                 fxAmount: fx.amount, currency: fx.currency, rateMicros: $0.rateMicros,
-                appCurrency: ForeignCurrencyService.shared.appCurrency, feeBps: fx.feeBps)
+                appCurrency: ForeignCurrencyService.shared.appCurrency, feeBps: fx.feeBps, spreadMicros: fx.spreadMicros)
             }
           } ?? template.amount
 

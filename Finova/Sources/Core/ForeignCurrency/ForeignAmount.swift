@@ -37,13 +37,19 @@ struct ForeignAmount: Codable, Equatable {
   /// converted amount; never touches the rates, so the % badge ignores it. Ignored once the user
   /// types the amount received (that number already includes every fee).
   var feeBps: Int? = nil
+  /// "Provider difference": how much less than the market the user's provider pays, in app
+  /// currency per 1 unit of `currency`, × 1,000,000 (R$ 0,05 per US$ 1 → 50000). The money is
+  /// converted at `max(0, rate − spread)`. The rates themselves stay market rates, so the % badge
+  /// ignores it, like the fee. Ignored once the user types the amount received.
+  var spreadMicros: Int? = nil
 
   var isLocked: Bool { lockedAt != nil }
 
   init(
     currency: String, amount: Int, rateMicros: Int? = nil, rateDate: Int? = nil,
     lockedAt: Int? = nil, entryRateMicros: Int? = nil, entryRateDate: Int? = nil,
-    isReceivedAmount: Bool = false, rateSource: String? = nil, feeBps: Int? = nil
+    isReceivedAmount: Bool = false, rateSource: String? = nil, feeBps: Int? = nil,
+    spreadMicros: Int? = nil
   ) {
     self.currency = currency
     self.amount = amount
@@ -55,6 +61,7 @@ struct ForeignAmount: Codable, Equatable {
     self.isReceivedAmount = isReceivedAmount
     self.rateSource = rateSource
     self.feeBps = feeBps
+    self.spreadMicros = spreadMicros
   }
 
   /// A copy for a NEW occurrence of a recurring series: same money and the series' entry rate,
@@ -62,7 +69,8 @@ struct ForeignAmount: Codable, Equatable {
   func unlockedCopy() -> ForeignAmount {
     ForeignAmount(
       currency: currency, amount: amount,
-      entryRateMicros: entryRateMicros, entryRateDate: entryRateDate, feeBps: feeBps)
+      entryRateMicros: entryRateMicros, entryRateDate: entryRateDate, feeBps: feeBps,
+      spreadMicros: spreadMicros)
   }
 }
 
@@ -71,15 +79,22 @@ enum FxMath {
   static let microsPerUnit: Int = 1_000_000
 
   /// `amount = round_half_even(fxAmount × rate × (1 − fee) × 10^(baseDigits − fxDigits))`, rate in
-  /// micros, fee in basis points (20 = 0.20%).
+  /// micros, fee in basis points (20 = 0.20%), rate first lowered by `spreadMicros` (never below 0).
   static func convert(
-    fxAmount: Int, rateMicros: Int, fxDigits: Int, baseDigits: Int, feeBps: Int = 0
+    fxAmount: Int, rateMicros: Int, fxDigits: Int, baseDigits: Int, feeBps: Int = 0,
+    spreadMicros: Int = 0
   ) -> Int {
-    var value = Decimal(fxAmount) * Decimal(rateMicros) / Decimal(microsPerUnit)
+    let rate = effectiveRateMicros(rateMicros: rateMicros, spreadMicros: spreadMicros)
+    var value = Decimal(fxAmount) * Decimal(rate) / Decimal(microsPerUnit)
     value *= pow10(baseDigits - fxDigits)
     let fee = min(max(feeBps, 0), 9_999)
     if fee > 0 { value = value * Decimal(10_000 - fee) / Decimal(10_000) }
     return roundHalfEven(value)
+  }
+
+  /// The rate the user's provider really pays: market minus the provider difference, never below 0.
+  static func effectiveRateMicros(rateMicros: Int, spreadMicros: Int) -> Int {
+    max(0, rateMicros - max(0, spreadMicros))
   }
 
   /// "0,20" / "0.2" / "" → basis points (20). Nil for text that is not a percent from 0 to 99.99.
