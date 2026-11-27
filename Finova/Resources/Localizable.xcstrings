@@ -21184,6 +21184,240 @@
         }
       }
     },
+    "fx.card.locked": {
+      "comment": "Rate line of a locked income. %@ = day.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rate locked on %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cotação travada em %@"
+          }
+        }
+      }
+    },
+    "fx.card.market": {
+      "comment": "Left side of the math line. %@ = market rate.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Market %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mercado %@"
+          }
+        }
+      }
+    },
+    "fx.card.marketOnly": {
+      "comment": "Math line with no provider difference. %@ = rate.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Market %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mercado %@"
+          }
+        }
+      }
+    },
+    "fx.card.title": {
+      "comment": "Foreign income card title.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "YOU RECEIVE"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VOCÊ RECEBE"
+          }
+        }
+      }
+    },
+    "fx.card.youGet": {
+      "comment": "Right side of the math line. %@ = rate after the provider difference.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You get %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Você recebe %@"
+          }
+        }
+      }
+    },
+    "fx.details.diff": {
+      "comment": "Details row title: the provider difference.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Provider difference"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diferença do provedor"
+          }
+        }
+      }
+    },
+    "fx.details.diffValue": {
+      "comment": "Details row value. %1$@ = R$ 0,05, %2$@ = US$ 1.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ per %2$@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ por %2$@"
+          }
+        }
+      }
+    },
+    "fx.details.yourRate": {
+      "comment": "Details row: the rate after the provider difference.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your rate"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sua cotação"
+          }
+        }
+      }
+    },
+    "fx.diff.hint": {
+      "comment": "Under an empty provider difference.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your bank or provider may pay a bit less than the market."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seu banco ou provedor pode pagar um pouco menos que o mercado."
+          }
+        }
+      }
+    },
+    "fx.diff.isDefault": {
+      "comment": "The typed difference is the saved default. %@ = currency code.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "✓ Your default for %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "✓ Seu padrão para %@"
+          }
+        }
+      }
+    },
+    "fx.diff.saveDefault": {
+      "comment": "Button: save the typed difference as the default. %@ = currency code.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Save as default for %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Salvar como padrão para %@"
+          }
+        }
+      }
+    },
+    "fx.diff.title": {
+      "comment": "Field: how much less than the market the user's provider pays.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Provider difference"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diferença do provedor"
+          }
+        }
+      }
+    },
+    "fx.diff.unit": {
+      "comment": "Under the provider difference. %@ = 'US$ 1'.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "per %@, below the market"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "por %@, abaixo do mercado"
+          }
+        }
+      }
+    },
     "fx.rateUpdated": {
       "comment": "Short hint after a refresh moved foreign-currency income. %@ = 'US$ 1 = R$ 5,77'.",
       "extractionState": "manual",

@@ -1248,6 +1248,26 @@ extension TransactionDetailsView {
       exchangeRateCard.addArrangedSubview(row(
         "fx.details.fee".localized, FxMath.feeText(bps: fee) + "%"))
     }
+    if let spread = fx.spreadMicros, spread > 0, !fx.isReceivedAmount {
+      // "R$ 0,05 per US$ 1", then the rate the provider really pays: market minus the difference.
+      let formatter = NumberFormatter()
+      formatter.numberStyle = .currency
+      formatter.locale = .autoupdatingCurrent
+      formatter.currencyCode = app
+      formatter.minimumFractionDigits = 2
+      formatter.maximumFractionDigits = 4
+      let diff = Decimal(spread) / Decimal(FxMath.microsPerUnit)
+      let diffText = formatter.string(from: NSDecimalNumber(decimal: diff)) ?? "\(diff)"
+      exchangeRateCard.addArrangedSubview(row(
+        "fx.details.diff".localized,
+        "fx.details.diffValue".localized(diffText, "\(ForeignCurrencyService.symbol(for: fx.currency)) 1")))
+      if let micros = rateMicros {
+        let effective = FxMath.effectiveRateMicros(rateMicros: micros, spreadMicros: spread)
+        exchangeRateCard.addArrangedSubview(row(
+          "fx.details.yourRate".localized,
+          ForeignCurrencyService.rateText(rateMicros: effective, currency: fx.currency, appCurrency: app)))
+      }
+    }
     if let tenths = fx.changeTenths(liveRateMicros: live?.rateMicros) {
       let badge = FxBadgeLabel()
       badge.configure(
