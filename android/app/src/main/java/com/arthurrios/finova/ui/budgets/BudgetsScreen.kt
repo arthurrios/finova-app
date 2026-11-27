@@ -48,6 +48,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.arthurrios.finova.R
 import com.arthurrios.finova.domain.model.Budget
+import com.arthurrios.finova.ui.budget.ChoiceDialog
+import com.arthurrios.finova.ui.budget.DurationPicker
 import com.arthurrios.finova.ui.components.CurrencyTextField
 import com.arthurrios.finova.ui.components.FinovaButton
 import com.arthurrios.finova.ui.components.FinovaTextField
@@ -71,10 +73,13 @@ fun BudgetsScreen(viewModel: BudgetsViewModel, onBack: () -> Unit, onManageTags:
     val budgets by viewModel.budgets.collectAsStateWithLifecycle()
     val hidden by viewModel.valuesHidden.collectAsStateWithLifecycle()
     val pending by viewModel.pendingOverwrite.collectAsStateWithLifecycle()
+    val pendingRange by viewModel.pendingRange.collectAsStateWithLifecycle()
     val focusManager = LocalFocusManager.current
 
     var month by rememberSaveable { mutableStateOf(viewModel.initialMonth) }
     var amount by rememberSaveable { mutableStateOf(0L) }
+    /** Last month a save covers; null is this month only (the single-month save, unchanged). */
+    var endMonth by rememberSaveable { mutableStateOf<YearMonth?>(null) }
     var showErrors by rememberSaveable { mutableStateOf(false) }
     var showPicker by rememberSaveable { mutableStateOf(false) }
     var pendingDelete by rememberSaveable { mutableStateOf<YearMonth?>(null) }
@@ -150,6 +155,16 @@ fun BudgetsScreen(viewModel: BudgetsViewModel, onBack: () -> Unit, onManageTags:
                             )
                         }
                     }
+                    // Same "Repeat for" row as the allocation sheet. An end month chosen for an
+                    // earlier start month that is no longer after the start falls back to one month.
+                    val repeatStart = month ?: YearMonth.now()
+                    if (endMonth?.let { it <= repeatStart } == true) endMonth = null
+                    DurationPicker(
+                        start = repeatStart,
+                        endMonth = endMonth,
+                        onChange = { endMonth = it },
+                        noEndLabel = stringResource(R.string.budgets_repeat_this_month_only),
+                    )
                     FinovaButton(
                         text = stringResource(R.string.budgets_save),
                         onClick = {
@@ -157,9 +172,13 @@ fun BudgetsScreen(viewModel: BudgetsViewModel, onBack: () -> Unit, onManageTags:
                             showErrors = true
                             val picked = month ?: return@FinovaButton
                             if (amount <= 0) return@FinovaButton
-                            if (viewModel.save(picked, amount)) {
+                            val end = endMonth
+                            val saved = if (end != null && end > picked) viewModel.saveRange(picked, end, amount)
+                                else viewModel.save(picked, amount)
+                            if (saved) {
                                 month = null
                                 amount = 0
+                                endMonth = null
                                 showErrors = false
                                 coachMarks?.post(CoachMarkEvent.BudgetSaved)
                             }
@@ -233,6 +252,28 @@ fun BudgetsScreen(viewModel: BudgetsViewModel, onBack: () -> Unit, onManageTags:
                 }) { Text(stringResource(R.string.alert_update)) }
             },
             dismissButton = { TextButton(onClick = viewModel::cancelOverwrite) { Text(stringResource(R.string.alert_cancel)) } },
+        )
+    }
+    pendingRange?.let { range ->
+        val names = stringArrayResource(R.array.month_long)
+        val shown = range.existing.map { "${names[it.monthValue - 1]} ${it.year}" }
+        val list = shown.take(3).joinToString(", ") + if (shown.size > 3) " (+${shown.size - 3})" else ""
+        fun resolved(replace: Boolean) {
+            viewModel.resolveRange(replace)
+            month = null
+            amount = 0
+            endMonth = null
+            showErrors = false
+            coachMarks?.post(CoachMarkEvent.BudgetSaved)
+        }
+        ChoiceDialog(
+            title = stringResource(R.string.budgets_multi_conflict_title),
+            message = stringResource(R.string.budgets_multi_conflict_message, list),
+            choices = listOf(
+                stringResource(R.string.budgets_multi_conflict_replace) to { resolved(true) },
+                stringResource(R.string.budgets_multi_conflict_keep) to { resolved(false) },
+            ),
+            onDismiss = viewModel::cancelRange,
         )
     }
     pendingDelete?.let { target ->

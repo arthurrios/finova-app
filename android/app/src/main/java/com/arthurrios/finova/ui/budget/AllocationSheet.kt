@@ -276,15 +276,23 @@ private fun CategoryPicker(selected: TransactionCategory?, options: List<Transac
     }
 }
 
-/** "Repeat for": always, a preset number of months, or an exact end month. */
+/**
+ * "Repeat for": always, a preset number of months, or an exact end month. Budgets reuse it with
+ * [noEndLabel] "This month only", since a budget has no ongoing series.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun DurationPicker(start: YearMonth, endMonth: YearMonth?, onChange: (YearMonth?) -> Unit) {
+fun DurationPicker(
+    start: YearMonth,
+    endMonth: YearMonth?,
+    noEndLabel: String = stringResource(R.string.alloc_always),
+    onChange: (YearMonth?) -> Unit,
+) {
     var expanded by remember { mutableStateOf(false) }
     var choosingMonth by remember { mutableStateOf(false) }
     val presetFor = { end: YearMonth? -> DurationPresets.firstOrNull { end == start.plusMonths(it - 1L) } }
     val title = when (endMonth) {
-        null -> stringResource(R.string.alloc_always)
+        null -> noEndLabel
         else -> presetFor(endMonth)?.let { stringResource(R.string.alloc_months, it) } ?: endMonth.label()
     }
     Column(verticalArrangement = Arrangement.spacedBy(Spacing.S1)) {
@@ -296,7 +304,7 @@ private fun DurationPicker(start: YearMonth, endMonth: YearMonth?, onChange: (Ye
                 }
                 ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }, containerColor = FinovaColors.Gray100,
                     modifier = Modifier.width(220.dp)) {
-                    DropdownMenuItem(text = { Text(stringResource(R.string.alloc_always)) }, onClick = { expanded = false; onChange(null) })
+                    DropdownMenuItem(text = { Text(noEndLabel) }, onClick = { expanded = false; onChange(null) })
                     DurationPresets.forEach { preset ->
                         // A preset of N is the starting month plus N-1 more.
                         DropdownMenuItem(text = { Text(stringResource(R.string.alloc_months, preset)) },

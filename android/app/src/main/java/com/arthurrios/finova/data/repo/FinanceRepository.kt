@@ -5,6 +5,7 @@ import com.arthurrios.finova.data.db.FinovaDatabase
 import com.arthurrios.finova.data.db.RecurringExclusionEntity
 import com.arthurrios.finova.data.db.StatementEntity
 import com.arthurrios.finova.data.db.UserSettingsEntity
+import com.arthurrios.finova.domain.budget.BudgetRange
 import com.arthurrios.finova.domain.card.CardCycle
 import com.arthurrios.finova.domain.card.CardCycleChange
 import com.arthurrios.finova.domain.card.Installments
@@ -383,6 +384,13 @@ class FinanceRepository(
     }
 
     suspend fun setBudget(budget: Budget) = db.budgets().upsert(budget.toEntity())
+
+    /** The same amount for several months, in one transaction: a failure writes none of them. */
+    suspend fun setBudgets(months: List<java.time.YearMonth>, amount: Long) = BudgetRange.write(
+        months, amount,
+        transaction = { block -> db.withTransaction { block() } },
+        upsert = { db.budgets().upsert(it.toEntity()) },
+    )
 
     suspend fun deleteBudget(month: java.time.YearMonth) = db.budgets().delete(month)
 
