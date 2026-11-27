@@ -203,6 +203,11 @@ fun TransactionRow(
     valuesHidden: Boolean,
     onClick: () -> Unit,
     onDelete: () -> Unit,
+    /**
+     * The dashboard shows the month and year above the list, so its rows show only the day. Other
+     * lists keep the full date, because a statement or an allocation can cross months.
+     */
+    showsFullDate: Boolean = true,
 ) {
     // Half the row, not Material's 56dp default, and the row never stays dismissed: a swipe only
     // asks the dashboard to confirm, then springs back, as the iOS delete action does.
@@ -223,7 +228,7 @@ fun TransactionRow(
             enableDismissFromEndToStart = canDelete,
             backgroundContent = { DeleteBackground() },
         ) {
-            RowContent(row, currencyCode, valuesHidden, canDelete, onClick, onDelete)
+            RowContent(row, currencyCode, valuesHidden, canDelete, showsFullDate, onClick, onDelete)
         }
     }
 }
@@ -234,6 +239,7 @@ private fun RowContent(
     currencyCode: String,
     valuesHidden: Boolean,
     canDelete: Boolean,
+    showsFullDate: Boolean,
     onClick: () -> Unit,
     onDelete: () -> Unit,
 ) {
@@ -272,7 +278,7 @@ private fun RowContent(
                         if (count == 1) R.string.credit_card_statement_subtitle_singular else R.string.credit_card_statement_subtitle,
                         count,
                     )
-                } ?: row.date.format(DateFormatter)
+                } ?: row.date.format(if (showsFullDate) DateFormatter else DayFormatter)
                 Text(subtitle, style = FinovaType.TextXS, color = FinovaColors.Gray500)
                 if (row.isCreditCard && !isStatement) {
                     Spacer(Modifier.width(Spacing.S1))
@@ -337,3 +343,6 @@ internal fun DeleteBackground() {
 
 /** iOS `DateFormatter.fullDateFormatter`: always dd/MM/yyyy, whatever the language. */
 private val DateFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy")
+
+/** iOS `DateFormatter.dayFormatter`: the day only ("26"), for the dashboard list. */
+private val DayFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("dd")
