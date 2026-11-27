@@ -1961,7 +1961,8 @@ extension DashboardViewController: UITableViewDataSource, UITableViewDelegate {
             // column is indexed, so this is cheaper than threading a settled-id set through the
             // carousel's data plumbing — and it cannot go stale between a reload and a scroll.
             isSettledEarly: tx.id.map { DBHelper.shared.settledByTransactionId(transactionId: $0) != nil } ?? false,
-            foreign: tx.foreign
+            foreign: tx.foreign,
+            showsFullDate: false
         )
         cell.configure(with: configuration)
 

@@ -29,6 +29,15 @@ extension DateFormatter {
     return fmt
   }()
 
+  /// Day only ("26"), for lists where the month and year are already on screen.
+  static let dayFormatter: DateFormatter = {
+    let formatter = DateFormatter()
+    formatter.dateFormat = "dd"
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.timeZone = TimeZone.current
+    return formatter
+  }()
+
   static let fullDateFormatter: DateFormatter = {
     let formatter = DateFormatter()
     formatter.dateFormat = "dd/MM/yyyy"

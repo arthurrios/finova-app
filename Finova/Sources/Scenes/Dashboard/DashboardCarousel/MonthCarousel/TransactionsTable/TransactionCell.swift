@@ -29,6 +29,9 @@ struct TransactionCellConfiguration {
   var isSettledEarly: Bool = false
   /// Received in another currency (1.7.0): shows the foreign amount and the % badge.
   var foreign: ForeignAmount? = nil
+  /// The dashboard shows the month and year above the list, so its rows show only the day.
+  /// Other lists keep the full date, because a statement or an allocation can cross months.
+  var showsFullDate: Bool = true
 }
 
 public final class TransactionCell: UITableViewCell {
@@ -385,7 +388,9 @@ public final class TransactionCell: UITableViewCell {
 
   func configure(with configuration: TransactionCellConfiguration) {
     self.titleLabel.text = configuration.title
-    self.dateLabel.text = DateFormatter.fullDateFormatter.string(from: configuration.date)
+    self.dateLabel.text = (configuration.showsFullDate
+      ? DateFormatter.fullDateFormatter
+      : DateFormatter.dayFormatter).string(from: configuration.date)
 
     // Dimmed, and reset explicitly on the other branch — cells are reused, so a settled row would
     // otherwise leave the next transaction that lands in this cell looking settled too.
