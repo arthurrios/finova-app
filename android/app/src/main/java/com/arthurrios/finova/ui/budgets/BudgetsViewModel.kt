@@ -82,9 +82,11 @@ class BudgetsViewModel(
         return true
     }
 
-    /** Answers the conflict question: true replaces those months, false fills only the empty ones. */
-    fun resolveRange(replaceExisting: Boolean) {
-        val pending = _pendingRange.value ?: return
+    /**
+     * Answers the conflict question: true replaces those months, false fills only the empty ones.
+     * Takes the question itself: the dialog dismisses (clearing [pendingRange]) before it answers.
+     */
+    fun resolveRange(pending: PendingRange, replaceExisting: Boolean) {
         _pendingRange.value = null
         writeRange(pending.start, pending.end, pending.amount, replaceExisting)
     }

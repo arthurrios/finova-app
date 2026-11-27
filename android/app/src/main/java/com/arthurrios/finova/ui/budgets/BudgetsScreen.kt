@@ -259,7 +259,7 @@ fun BudgetsScreen(viewModel: BudgetsViewModel, onBack: () -> Unit, onManageTags:
         val shown = range.existing.map { "${names[it.monthValue - 1]} ${it.year}" }
         val list = shown.take(3).joinToString(", ") + if (shown.size > 3) " (+${shown.size - 3})" else ""
         fun resolved(replace: Boolean) {
-            viewModel.resolveRange(replace)
+            viewModel.resolveRange(range, replace)
             month = null
             amount = 0
             endMonth = null
