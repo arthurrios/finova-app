@@ -56,6 +56,13 @@ data class TransactionDraft(
     val rule: BusinessDayRule = BusinessDayRule.Exact,
     /** Paid with this card; null means cash or debit. */
     val creditCardId: Long? = null,
+    /** Foreign-currency income: the conversion to save. [amount] is then already in the app currency. */
+    val foreign: com.arthurrios.finova.domain.fx.ForeignAmount? = null,
+    /**
+     * The save must write the foreign columns: the row is foreign now, or was before (set back to
+     * the app currency clears them). Untouched, an edit keeps the row's own conversion.
+     */
+    val foreignTouched: Boolean = false,
 )
 
 /**
@@ -97,6 +104,7 @@ object SeriesRules {
             businessDayRule = draft.rule,
             unadjustedDate = draft.date,
             seriesPeriod = month,
+            foreign = draft.foreign,
         )
     }
 
@@ -151,7 +159,16 @@ object SeriesRules {
      * `materializeMissingOccurrences`: a series only generates forward from its parent's slot, one
      * row per slot, skipping slots the user deleted and slots another identical series already fills.
      */
-    fun missingOccurrences(rows: List<Transaction>, exclusions: Set<SeriesExclusion>, today: LocalDate): List<Transaction> {
+    fun missingOccurrences(
+        rows: List<Transaction>,
+        exclusions: Set<SeriesExclusion>,
+        today: LocalDate,
+        /**
+         * A new month of a foreign income at the newest cached rate, or null offline (it then
+         * keeps the template's amount until the next rate pass).
+         */
+        convertForeign: (com.arthurrios.finova.domain.fx.ForeignAmount) -> Long? = { null },
+    ): List<Transaction> {
         val thisMonth = YearMonth.from(today)
         val parents = rows.filter { it.isRecurring && (it.parentTransactionId == null || it.parentTransactionId == it.id) }
         val slotsBySeries = rows.filter { it.parentTransactionId != null }
@@ -170,11 +187,16 @@ object SeriesRules {
                 .filterNot { SeriesExclusion(parent.id, it) in exclusions }
                 .map { slot ->
                     val unadjusted = OccurrenceDates.occurrence(anchorDay, slot)
+                    // A foreign income's new month keeps the currency, the foreign amount and the
+                    // series' entry rate, never the template's lock; the lock pass freezes it on
+                    // its own payday.
+                    val foreign = parent.foreign?.unlockedCopy()
                     Transaction(
                         title = parent.title,
                         category = parent.category,
                         type = parent.type,
-                        amount = parent.amount,
+                        amount = foreign?.let(convertForeign) ?: parent.amount,
+                        foreign = foreign,
                         date = BusinessDayAdjuster.adjust(unadjusted, parent.businessDayRule),
                         budgetMonth = slot,
                         parentTransactionId = parent.id,
@@ -212,6 +234,7 @@ object SeriesRules {
             unadjustedDate = draft.date,
             seriesPeriod = YearMonth.from(date),
             creditCardId = draft.creditCardId,
+            foreign = if (draft.foreignTouched) draft.foreign else row.foreign,
             statementId = keptStatement(row, draft.creditCardId, draft.date),
             isStatementOverridden = row.isStatementOverridden && draft.creditCardId == row.creditCardId,
         )

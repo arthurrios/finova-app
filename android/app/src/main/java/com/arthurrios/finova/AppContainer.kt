@@ -25,7 +25,21 @@ class AppContainer(private val context: Context) {
 
     /** The money data of whoever is signed in (or the local account in a build without Firebase). */
     fun financeRepository(): FinanceRepository =
-        FinanceRepository(currentDatabase()) { settings.defaultBusinessDayRule }
+        FinanceRepository(
+            currentDatabase(),
+            defaultRule = { settings.defaultBusinessDayRule },
+            fxLatestMicros = fx::cachedLatestMicros,
+            appCurrency = { settings.currencyCode },
+        )
+
+    /** Foreign-currency income: rates, the lock pass and the provider defaults (1.7.0). */
+    val fx: com.arthurrios.finova.data.fx.ForeignCurrencyService by lazy {
+        com.arthurrios.finova.data.fx.ForeignCurrencyService(
+            store = com.arthurrios.finova.data.fx.FxStore(context),
+            database = { currentDatabase() },
+            appCurrencyCode = { settings.currencyCode },
+        )
+    }
 
     fun cardRepository(): CardRepository = CardRepository(currentDatabase())
 

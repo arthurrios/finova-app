@@ -45,6 +45,8 @@ data class Transaction(
     val isStatementPayment: Boolean = false,
     /** Only true on the in-memory rows that stand for a whole card statement. */
     val isCreditCardStatement: Boolean = false,
+    /** Received in another currency (1.7.0); [amount] is then the converted value. */
+    val foreign: com.arthurrios.finova.domain.fx.ForeignAmount? = null,
 ) {
     val signedAmount: Long get() = if (type == TransactionType.Income) amount else -amount
     val slot: YearMonth get() = seriesPeriod ?: budgetMonth

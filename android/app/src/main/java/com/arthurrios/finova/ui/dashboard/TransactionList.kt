@@ -41,6 +41,13 @@ import androidx.compose.ui.unit.dp
 import com.arthurrios.finova.R
 import com.arthurrios.finova.ui.components.FinovaTextField
 import com.arthurrios.finova.ui.format.Money
+import com.arthurrios.finova.appContainer
+import com.arthurrios.finova.ui.format.HiddenValue
+import com.arthurrios.finova.ui.fx.FxBadge
+import com.arthurrios.finova.ui.fx.FxFormat
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalContext
 import com.arthurrios.finova.ui.theme.CornerRadius
 import com.arthurrios.finova.ui.theme.FinovaColors
 import com.arthurrios.finova.ui.theme.FinovaType
@@ -279,7 +286,20 @@ private fun RowContent(
                         count,
                     )
                 } ?: row.date.format(if (showsFullDate) DateFormatter else DayFormatter)
-                Text(subtitle, style = FinovaType.TextXS, color = FinovaColors.Gray500)
+                Text(subtitle, style = FinovaType.TextXS, color = FinovaColors.Gray500, maxLines = 1)
+                row.foreign?.let { fx ->
+                    // `· US$ 5,000.00`: the first thing to cut on a narrow row. Hidden values hide
+                    // it too; the badge is a percent, so it stays.
+                    val shown = if (valuesHidden) "${FxFormat.symbol(fx.currency)} $HiddenValue" else FxFormat.amount(fx.amount, fx.currency)
+                    Text(
+                        " · $shown",
+                        style = FinovaType.TextXS,
+                        color = FinovaColors.Gray500,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                }
                 if (row.isCreditCard && !isStatement) {
                     Spacer(Modifier.width(Spacing.S1))
                     Icon(
@@ -304,6 +324,13 @@ private fun RowContent(
             )
             if (row.mode == TransactionModeUi.Installments && row.installmentNumber != null) {
                 Text("(${row.installmentNumber}/${row.totalInstallments})", style = FinovaType.TextXS, color = FinovaColors.Gray500)
+            }
+            row.foreign?.let { fx ->
+                // `+8.0%` under the value, Stocks-style.
+                val service = LocalContext.current.appContainer.fx
+                val version by service.quotesVersion.collectAsState()
+                val tenths = remember(fx, version) { fx.changeTenths(service.cachedLatestMicros(fx.currency)) }
+                if (tenths != null) FxBadge(tenths, isIncome = row.isIncome, isLocked = fx.isLocked)
             }
         }
         Spacer(Modifier.width(Spacing.S1))

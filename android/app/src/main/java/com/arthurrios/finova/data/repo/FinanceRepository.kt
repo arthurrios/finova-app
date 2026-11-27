@@ -35,6 +35,9 @@ class FinanceRepository(
     private val db: FinovaDatabase,
     /** The account's weekend rule, which new statements' due dates follow. */
     private val defaultRule: () -> BusinessDayRule = { BusinessDayRule.Exact },
+    /** The newest saved rate of a currency into the app currency, for new months of a foreign income. */
+    private val fxLatestMicros: (String) -> Long? = { null },
+    private val appCurrency: () -> String = { "BRL" },
 ) {
 
     private val exclusions: Flow<Set<SeriesExclusion>> =
@@ -179,7 +182,9 @@ class FinanceRepository(
     suspend fun materializeRecurring(today: LocalDate = LocalDate.now()): Int = db.withTransaction {
         val rows = db.transactions().getAll().map { it.toDomain() }
         val excluded = db.recurringExclusions().getAll().map { SeriesExclusion(it.parentId, it.seriesPeriod) }.toSet()
-        val missing = SeriesRules.missingOccurrences(rows, excluded, today)
+        val missing = SeriesRules.missingOccurrences(rows, excluded, today) { fx ->
+            fxLatestMicros(fx.currency)?.let { com.arthurrios.finova.domain.fx.FxConversion.convert(fx, it, appCurrency()) }
+        }
         if (missing.isNotEmpty()) {
             db.transactions().insertAll(missing.map { it.toEntity() })
             settleCardRows()

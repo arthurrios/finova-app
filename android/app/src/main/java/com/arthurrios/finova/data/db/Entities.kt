@@ -56,6 +56,19 @@ data class TransactionEntity(
     @ColumnInfo(name = "unadjusted_date") val unadjustedDate: LocalDate? = null,
     @ColumnInfo(name = "series_period") val seriesPeriod: YearMonth? = null,
     @ColumnInfo(name = "created_at") val createdAt: Long = System.currentTimeMillis(),
+    // Foreign-currency income (1.7.0). All nullable: a null `fx_currency` is an ordinary row,
+    // which every row before 1.7.0 is. `amount` stays in the app currency, so no reader changes.
+    @ColumnInfo(name = "fx_currency") val fxCurrency: String? = null,
+    @ColumnInfo(name = "fx_amount") val fxAmount: Long? = null,
+    @ColumnInfo(name = "fx_rate_micros") val fxRateMicros: Long? = null,
+    @ColumnInfo(name = "fx_rate_date") val fxRateDate: Long? = null,
+    @ColumnInfo(name = "fx_locked_at") val fxLockedAt: Long? = null,
+    @ColumnInfo(name = "fx_entry_rate_micros") val fxEntryRateMicros: Long? = null,
+    @ColumnInfo(name = "fx_entry_rate_date") val fxEntryRateDate: Long? = null,
+    @ColumnInfo(name = "fx_is_received", defaultValue = "0") val fxIsReceived: Boolean = false,
+    @ColumnInfo(name = "fx_rate_source") val fxRateSource: String? = null,
+    @ColumnInfo(name = "fx_fee_bps") val fxFeeBps: Long? = null,
+    @ColumnInfo(name = "fx_spread_micros") val fxSpreadMicros: Long? = null,
 )
 
 /** The iOS `Budgets` table: one cap per month. */

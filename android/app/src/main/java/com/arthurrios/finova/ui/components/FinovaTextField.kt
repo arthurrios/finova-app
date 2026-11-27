@@ -83,6 +83,8 @@ fun FinovaTextField(
     visualTransformationOverride: VisualTransformation? = null,
     /** Makes the field a button that opens a picker (date, category) instead of the keyboard. */
     onClick: (() -> Unit)? = null,
+    /** Something tappable at the end of the field (the currency picker on the amount). */
+    trailing: (@Composable () -> Unit)? = null,
 ) {
     var passwordHidden by rememberSaveable { mutableStateOf(true) }
     val interactionSource = remember { MutableInteractionSource() }
@@ -181,7 +183,7 @@ fun FinovaTextField(
                             }
                         }
                     }
-                    else -> null
+                    else -> trailing
                 },
                 colors = colors,
                 contentPadding = PaddingValues(horizontal = Spacing.S4, vertical = Spacing.S3),

@@ -38,7 +38,13 @@ class DashboardViewModel(
     private val allocationRepository: AllocationRepository,
     private val tagRepository: com.arthurrios.finova.data.repo.TagRepository? = null,
     private val today: () -> LocalDate = LocalDate::now,
+    /** Foreign-currency income: the lock pass and the "rate updated" hint. */
+    private val fx: com.arthurrios.finova.data.fx.ForeignCurrencyService? = null,
 ) : ViewModel(), DashboardActions {
+
+    /** "Rate updated: US$ 1 = R$ 5,7651", at most once an hour. */
+    val rateHints: kotlinx.coroutines.flow.Flow<com.arthurrios.finova.domain.fx.FxQuote> =
+        fx?.rateHints ?: kotlinx.coroutines.flow.emptyFlow()
 
     private val selectedMonth = MutableStateFlow(SeriesMonths.todayIndex())
     private val valuesHidden = MutableStateFlow(settings.hideValues)
@@ -116,6 +122,7 @@ class DashboardViewModel(
             repository.materializeRecurring(today())
             // iOS also tops up repeating allocations after every dashboard load.
             allocationRepository.materializeAll(today())
+            fx?.refresh()
         }
     }
 
@@ -159,12 +166,15 @@ class DashboardViewModel(
                             businessDayRule = draft.rule,
                             unadjustedDate = draft.date,
                             creditCardId = draft.creditCardId,
+                            foreign = draft.foreign,
                         )
                     )
                 }
                 AddMode.Recurring -> repository.addRecurring(draft, today())
                 AddMode.Installments -> repository.addInstallments(draft, request.installments)
             }
+            // A foreign income dated today or earlier locks right away, not at the next launch.
+            if (draft.foreign != null) fx?.refresh()
             // Open the month the new transaction lands in, as iOS scrolls the carousel there.
             val index = SeriesMonths.carouselMonths(YearMonth.from(today())).indexOf(YearMonth.from(draft.date))
             if (index >= 0) selectedMonth.value = index

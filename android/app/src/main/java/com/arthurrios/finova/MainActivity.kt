@@ -26,7 +26,7 @@ class MainActivity : FragmentActivity() {
         enableEdgeToEdge()
         if (isDebuggable() && savedInstanceState == null) DebugEntry.applyLaunchExtras(intent, appContainer)
         if (isDebuggable() && intent.getBooleanExtra("finova.debug.seed", false)) {
-            lifecycleScope.launch { DebugSeeder.seedIfEmpty(appContainer.financeRepository(), appContainer.allocationRepository()) }
+            lifecycleScope.launch { DebugSeeder.seedIfEmpty(appContainer.financeRepository(), appContainer.allocationRepository(), fx = appContainer.fx) }
         }
         // `--ez finova.debug.notify true` runs the morning reminder job now (debug builds).
         if (isDebuggable() && intent.getBooleanExtra("finova.debug.notify", false)) {
@@ -44,6 +44,13 @@ class MainActivity : FragmentActivity() {
                 )
             }
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Foreign-currency income: lock what reached payday (with that day's rate, even after days
+        // closed) and move live rows to the newest rate. Also runs on a cold launch.
+        lifecycleScope.launch { appContainer.fx.refresh() }
     }
 
     override fun onNewIntent(intent: android.content.Intent) {
