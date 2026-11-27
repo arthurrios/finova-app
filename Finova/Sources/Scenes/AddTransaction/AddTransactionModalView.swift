@@ -389,6 +389,13 @@ final class AddTransactionModalView: UIView {
   /// The provider difference saved as the default for one currency, in micros. Key + currency.
   static let providerDiffKeyPrefix = "fxProviderDiffMicros."
 
+  /// The provider fee saved as the default for one currency, in basis points. Key + currency.
+  static let providerFeeKeyPrefix = "fxProviderFeeBps."
+
+  static func savedProviderFeeBps(for currency: String) -> Int {
+    UserDefaults.standard.integer(forKey: providerFeeKeyPrefix + currency)
+  }
+
   static func savedProviderDiffMicros(for currency: String) -> Int {
     UserDefaults.standard.integer(forKey: providerDiffKeyPrefix + currency)
   }
@@ -481,7 +488,64 @@ final class AddTransactionModalView: UIView {
     return input
   }()
 
-  /// "Save as default for USD", or "✓ Your default for USD" when the value is the default.
+  private lazy var fxFeeTitleLabel: UILabel = {
+    let label = UILabel()
+    label.font = Fonts.textSMBold.font
+    label.textColor = Colors.gray700
+    label.text = "fx.feeRow.title".localized
+    label.numberOfLines = 0
+    return label
+  }()
+
+  private lazy var fxFeeUnitLabel: UILabel = {
+    let label = UILabel()
+    label.font = Fonts.textXS.font
+    label.textColor = Colors.gray500
+    label.text = "fx.feeRow.unit".localized
+    label.numberOfLines = 0
+    return label
+  }()
+
+  /// 0,9 %: the provider's fee, taken from the converted total.
+  private lazy var fxFeeField: Input = {
+    let input = Input(type: .normal, placeholder: "0,00")
+    input.textField.keyboardType = .decimalPad
+    input.textField.textAlignment = .left
+    input.textField.accessibilityLabel = "fx.feeRow.title".localized
+    let suffix = UILabel()
+    suffix.text = "%"
+    suffix.font = Fonts.input.font
+    suffix.textColor = Colors.gray500
+    suffix.sizeToFit()
+    input.textField.rightView = suffix
+    input.textField.rightViewMode = .always
+    input.widthAnchor.constraint(equalToConstant: 128).isActive = true
+    input.setContentCompressionResistancePriority(.required, for: .horizontal)
+    input.setContentHuggingPriority(.required, for: .horizontal)
+    input.textField.addTarget(self, action: #selector(fxInputsChanged), for: .editingChanged)
+    return input
+  }()
+
+  private lazy var fxFeeRow: UIStackView = {
+    let texts = UIStackView(
+      axis: .vertical, spacing: Metrics.spacing1, arrangedSubviews: [fxFeeTitleLabel, fxFeeUnitLabel])
+    let row = UIStackView(
+      axis: .horizontal, spacing: Metrics.spacing3, arrangedSubviews: [texts, fxFeeField])
+    row.alignment = .center
+    return row
+  }()
+
+  /// `Fee 0,9% · −R$ 252,07`, under the math line, so the ≈ total adds up.
+  private lazy var fxFeeLineLabel: UILabel = {
+    let label = UILabel()
+    label.font = Fonts.textSM.font
+    label.textColor = Colors.gray600
+    label.numberOfLines = 0
+    label.isHidden = true
+    return label
+  }()
+
+  /// "Save as default for USD", or "✓ Your default for USD" when both values are the default.
   private lazy var fxDefaultButton: UIButton = {
     let button = UIButton(type: .system)
     button.contentHorizontalAlignment = .leading
@@ -504,12 +568,13 @@ final class AddTransactionModalView: UIView {
     let stack = UIStackView(
       axis: .vertical, spacing: Metrics.spacing1,
       arrangedSubviews: [
-        fxTitleLabel, fxApproxLabel, fxMathLabel, fxRateButton, fxDivider, fxDiffRow, fxDefaultButton,
+        fxTitleLabel, fxApproxLabel, fxMathLabel, fxFeeLineLabel, fxRateButton, fxDivider, fxDiffRow,
+        fxFeeRow, fxDefaultButton,
       ])
-    stack.setCustomSpacing(Metrics.spacing1, after: fxMathLabel)
     stack.setCustomSpacing(Metrics.spacing3, after: fxRateButton)
     stack.setCustomSpacing(Metrics.spacing3, after: fxDivider)
-    stack.setCustomSpacing(Metrics.spacing2, after: fxDiffRow)
+    stack.setCustomSpacing(Metrics.spacing4, after: fxDiffRow)
+    stack.setCustomSpacing(Metrics.spacing2, after: fxFeeRow)
     stack.translatesAutoresizingMaskIntoConstraints = false
     let card = UIView()
     card.layer.cornerRadius = CornerRadius.extraLarge
@@ -530,6 +595,19 @@ final class AddTransactionModalView: UIView {
   /// The amount + date row, then the FX card under it at full width.
   private lazy var moneyAndFxStack = UIStackView(
     axis: .vertical, spacing: Metrics.spacing3, arrangedSubviews: [horizontalInputsStackView, fxCard])
+
+  /// The provider fee typed, in basis points (0,9 → 90). 0 when empty or not a percent.
+  private var typedFeeBps: Int { FxMath.feeBps(fromText: fxFeeField.textField.text ?? "") ?? 0 }
+
+  /// 90 → "0,9" in the phone's format (up to 2 decimals).
+  static func feeDisplay(_ bps: Int) -> String {
+    let formatter = NumberFormatter()
+    formatter.numberStyle = .decimal
+    formatter.locale = .autoupdatingCurrent
+    formatter.minimumFractionDigits = 0
+    formatter.maximumFractionDigits = 2
+    return formatter.string(from: NSDecimalNumber(decimal: Decimal(bps) / 100)) ?? FxMath.feeText(bps: bps)
+  }
 
   /// The provider difference typed, in rate micros (R$ 0,05 → 50000).
   private var typedSpreadMicros: Int {
@@ -983,8 +1061,7 @@ final class AddTransactionModalView: UIView {
         newDate: Int(pickedDate.timeIntervalSince1970), currency: selectedCurrency,
         typedAmount: amount, appCurrency: AppConfig.currencyCode,
         liveRateMicros: live?.micros, liveRateDate: live?.date,
-        feeBps: old?.currency == selectedCurrency ? old?.feeBps : nil,
-        spreadMicros: typedSpreadMicros)
+        feeBps: typedFeeBps, spreadMicros: typedSpreadMicros)
       if fx == nil {
         // No rate anywhere: ask for one, then the user taps Save again.
         fxRateTapped()
@@ -1085,17 +1162,22 @@ final class AddTransactionModalView: UIView {
       self, action: #selector(fxInputsChanged), for: .editingChanged)
     dateTextField.textField.addTarget(self, action: #selector(fxInputsChanged), for: .editingChanged)
     fxDiffField.addDoneButtonToolbar()
+    fxFeeField.addDoneButtonToolbar()
     updateCurrencyAvailability()
   }
 
-  /// A row's own provider difference when editing it; otherwise the default saved for `currency`.
+  /// A row's own difference and fee when editing it; otherwise the defaults saved for `currency`.
   private func prefillProviderDiff(currency: String, foreign: ForeignAmount?) {
     let micros: Int
+    let fee: Int
     if let foreign = foreign, foreign.currency == currency {
       micros = foreign.spreadMicros ?? 0
+      fee = foreign.feeBps ?? 0
     } else {
       micros = Self.savedProviderDiffMicros(for: currency)
+      fee = Self.savedProviderFeeBps(for: currency)
     }
+    fxFeeField.textField.text = fee > 0 ? Self.feeDisplay(fee) : nil
     let digits = CurrencyUtils.fractionDigits(for: AppConfig.currencyCode)
     let unit = Int(truncating: NSDecimalNumber(decimal: pow(10, max(0, 6 - digits))))
     fxDiffField.setCentsValue(micros / unit)
@@ -1105,6 +1187,7 @@ final class AddTransactionModalView: UIView {
   @objc private func fxSaveDefaultTapped() {
     guard selectedCurrency != AppConfig.currencyCode else { return }
     UserDefaults.standard.set(typedSpreadMicros, forKey: Self.providerDiffKeyPrefix + selectedCurrency)
+    UserDefaults.standard.set(typedFeeBps, forKey: Self.providerFeeKeyPrefix + selectedCurrency)
     updateFxHint()
   }
 
@@ -1183,7 +1266,8 @@ final class AddTransactionModalView: UIView {
     fxDiffUnitLabel.text = "fx.diff.unit".localized("\(symbol) 1")
     updateDefaultButton()
 
-    let oldFee = editingTransaction?.foreign.flatMap { $0.currency == selectedCurrency ? $0.feeBps : nil }
+    let fee = typedFeeBps
+    fxFeeField.setError(FxMath.feeBps(fromText: fxFeeField.textField.text ?? "") == nil)
     let spread = typedSpreadMicros
 
     let rateMicros: Int
@@ -1206,17 +1290,25 @@ final class AddTransactionModalView: UIView {
       fxApproxLabel.text = "fx.hint.noRate".localized
       fxMathLabel.text = nil
       fxMathLabel.isHidden = true
+      fxFeeLineLabel.isHidden = true
       fxRateButton.setTitle("fx.hint.typeRate".localized, for: .normal)
       fxRateButton.setTitleColor(Colors.mainMagenta, for: .normal)
       fxRateButton.isEnabled = true
       return
     }
+    // Difference first (the rate), then the fee off the total: the same order FxMath uses.
+    let beforeFee = FxConversion.convert(
+      fxAmount: moneyTextField.centsValue, currency: selectedCurrency, rateMicros: rateMicros,
+      appCurrency: app, spreadMicros: spread)
     let converted = FxConversion.convert(
       fxAmount: moneyTextField.centsValue, currency: selectedCurrency, rateMicros: rateMicros,
-      appCurrency: app, feeBps: oldFee, spreadMicros: spread)
+      appCurrency: app, feeBps: fee, spreadMicros: spread)
     fxApproxLabel.text = "≈ " + converted.currencyString
     fxMathLabel.isHidden = false
     fxMathLabel.attributedText = mathText(marketMicros: rateMicros, spreadMicros: spread)
+    fxFeeLineLabel.isHidden = fee == 0
+    fxFeeLineLabel.text = fee == 0 ? nil : "fx.card.feeLine".localized(
+      Self.feeDisplay(fee) + "%", "\u{2212}" + (beforeFee - converted).currencyString)
   }
 
   /// `Market 5,6513 → You get 5,6013`, the second number bold. Just `Market 5,6513` with no difference.
@@ -1248,11 +1340,13 @@ final class AddTransactionModalView: UIView {
   }
 
   private func updateDefaultButton() {
-    let typed = typedSpreadMicros
-    let saved = Self.savedProviderDiffMicros(for: selectedCurrency)
+    let typed = (typedSpreadMicros, typedFeeBps)
+    let saved = (
+      Self.savedProviderDiffMicros(for: selectedCurrency), Self.savedProviderFeeBps(for: selectedCurrency))
     if typed == saved {
+      let hasAny = typed.0 > 0 || typed.1 > 0
       fxDefaultButton.setTitle(
-        typed > 0 ? "fx.diff.isDefault".localized(selectedCurrency) : "fx.diff.hint".localized,
+        hasAny ? "fx.diff.isDefault".localized(selectedCurrency) : "fx.diff.hint".localized,
         for: .normal)
       fxDefaultButton.setTitleColor(Colors.gray500, for: .normal)
       fxDefaultButton.setTitleColor(Colors.gray500, for: .disabled)

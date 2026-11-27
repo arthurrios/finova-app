@@ -1244,10 +1244,6 @@ extension TransactionDetailsView {
     if let text = rateDateText, !fx.isReceivedAmount {
       exchangeRateCard.addArrangedSubview(row("fx.details.rateDate".localized, text))
     }
-    if let fee = fx.feeBps, fee > 0, !fx.isReceivedAmount {
-      exchangeRateCard.addArrangedSubview(row(
-        "fx.details.fee".localized, FxMath.feeText(bps: fee) + "%"))
-    }
     if let spread = fx.spreadMicros, spread > 0, !fx.isReceivedAmount {
       // "R$ 0,05 per US$ 1", then the rate the provider really pays: market minus the difference.
       let formatter = NumberFormatter()
@@ -1267,6 +1263,10 @@ extension TransactionDetailsView {
           "fx.details.yourRate".localized,
           ForeignCurrencyService.rateText(rateMicros: effective, currency: fx.currency, appCurrency: app)))
       }
+    }
+    if let fee = fx.feeBps, fee > 0, !fx.isReceivedAmount {
+      exchangeRateCard.addArrangedSubview(row(
+        "fx.details.fee".localized, AddTransactionModalView.feeDisplay(fee) + "%"))
     }
     if let tenths = fx.changeTenths(liveRateMicros: live?.rateMicros) {
       let badge = FxBadgeLabel()

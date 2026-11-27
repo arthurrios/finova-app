@@ -21184,6 +21184,24 @@
         }
       }
     },
+    "fx.card.feeLine": {
+      "comment": "Card line. %1$@ = '0,9%', %2$@ = '−R$ 252,07'.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fee %1$@ · %2$@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Taxa %1$@ · %2$@"
+          }
+        }
+      }
+    },
     "fx.card.locked": {
       "comment": "Rate line of a locked income. %@ = day.",
       "extractionState": "manual",
@@ -21335,13 +21353,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Your bank or provider may pay a bit less than the market."
+            "value": "Your bank or provider may pay a bit less than the market, or take a fee."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Seu banco ou provedor pode pagar um pouco menos que o mercado."
+            "value": "Seu banco ou provedor pode pagar um pouco menos que o mercado, ou cobrar uma taxa."
           }
         }
       }
@@ -21414,6 +21432,42 @@
           "stringUnit": {
             "state": "translated",
             "value": "por %@, abaixo do mercado"
+          }
+        }
+      }
+    },
+    "fx.feeRow.title": {
+      "comment": "Field: the provider's fee in percent.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Provider fee"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Taxa do provedor"
+          }
+        }
+      }
+    },
+    "fx.feeRow.unit": {
+      "comment": "Under the provider fee field.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "% taken from the total"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "% descontado do total"
           }
         }
       }
@@ -22091,13 +22145,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fee"
+            "value": "Provider fee"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Taxa"
+            "value": "Taxa do provedor"
           }
         }
       }
