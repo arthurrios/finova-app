@@ -78,13 +78,16 @@ object BudgetFollowsIncome {
     }
 
     /**
-     * Whether [month]'s budget is set from income right now. A past month with no income keeps its
-     * old budget, so it does not count as following.
+     * Whether [month]'s budget is set from income right now. It matches the months [targets]
+     * writes: a past month with no income keeps its old budget, and so does a month after both this
+     * month and the last month with income. Neither counts as following.
      */
     fun follows(month: YearMonth, settings: Settings, incomeByMonth: Map<YearMonth, Long>, currentMonth: YearMonth): Boolean {
         val start = settings.startMonth ?: currentMonth
         if (!settings.isEnabled || month < start || month in settings.optedOutMonths) return false
-        return month >= currentMonth || (incomeByMonth[month] ?: 0) > 0
+        if (month < currentMonth) return (incomeByMonth[month] ?: 0) > 0
+        val lastMonth = maxOf(currentMonth, incomeByMonth.keys.maxOrNull() ?: currentMonth)
+        return month <= lastMonth
     }
 
     /** Turning it on: from this month, or from the first month with income when past months count. */

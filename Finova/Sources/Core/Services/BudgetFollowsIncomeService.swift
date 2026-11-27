@@ -153,17 +153,23 @@ final class BudgetFollowsIncomeService {
         recomputeIfEnabled()
     }
 
-    /// Whether this month's budget is set from income right now. A past month with no income keeps
-    /// its old budget, so it does not count as following.
+    /// Whether this month's budget is set from income right now. It matches the months `targets`
+    /// writes: a past month with no income keeps its old budget, and so does a month after both
+    /// this month and the last month with income. Neither counts as following.
     func follows(month: Int, today: Date = Date()) -> Bool {
         let s = settings
         guard s.isEnabled, month >= s.startMonth, !s.optedOutMonths.contains(month) else { return false }
-        if month < today.monthAnchor {
-            lock.lock()
-            defer { lock.unlock() }
-            return (lastIncomeByMonth[month] ?? 0) > 0
-        }
-        return true
+        lock.lock()
+        let byMonth = lastIncomeByMonth
+        lock.unlock()
+        return Self.follows(month: month, incomeByMonth: byMonth, currentMonth: today.monthAnchor)
+    }
+
+    /// The month-range part of `follows(month:)`, kept the same as the range `targets` covers.
+    static func follows(month: Int, incomeByMonth: [Int: Int], currentMonth: Int) -> Bool {
+        if month < currentMonth { return (incomeByMonth[month] ?? 0) > 0 }
+        let lastMonth = max(currentMonth, incomeByMonth.keys.max() ?? currentMonth)
+        return month <= lastMonth
     }
 
     /// Income per month from the last recompute, for `follows(month:)`.

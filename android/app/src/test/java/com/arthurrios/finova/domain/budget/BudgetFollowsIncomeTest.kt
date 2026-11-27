@@ -79,6 +79,17 @@ class BudgetFollowsIncomeTest {
         assertTrue(BudgetFollowsIncome.follows(nov, on, emptyMap(), nov))
     }
 
+    @Test fun aMonthAfterTheLastIncomeKeepsItsTypedBudgetAndDoesNotFollow() {
+        val dec = nov.plusMonths(1)
+        val jan = nov.plusMonths(2)
+        val rows = listOf(income(1_000_000), income(1_000_000, dec))
+        val targets = BudgetFollowsIncome.targets(rows, on, mapOf(jan to 600_000L), nov)
+        assertFalse(jan in targets)
+        val byMonth = BudgetFollowsIncome.incomeByMonth(rows)
+        assertTrue(BudgetFollowsIncome.follows(dec, on, byMonth, nov))
+        assertFalse(BudgetFollowsIncome.follows(jan, on, byMonth, nov))
+    }
+
     @Test fun aPastMonthWithNoIncomeKeepsItsBudgetOrStaysEmpty() {
         val s = on.copy(startMonth = oct)
         val targets = BudgetFollowsIncome.targets(emptyList(), s, mapOf(oct to 5_000L), nov)

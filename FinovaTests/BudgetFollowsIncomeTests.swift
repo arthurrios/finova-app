@@ -193,6 +193,17 @@ final class BudgetFollowsIncomeTests: XCTestCase {
         XCTAssertNil(budget(month(3)), "nothing is written past the last month with income")
     }
 
+    func testAMonthAfterTheLastIncomeKeepsItsTypedBudgetAndDoesNotFollow() throws {
+        try addIncome(500_000, month: month(1))
+        try budgetRepo.insert(budget: BudgetModel(monthDate: month(2), amount: 600_000))
+
+        service.enable(percent: 80, includePastMonths: false)
+
+        XCTAssertEqual(budget(month(2)), 600_000, "a month after the last income keeps its typed budget")
+        XCTAssertTrue(service.follows(month: month(1)))
+        XCTAssertFalse(service.follows(month: month(2)), "so it must not show the percent-of-income note")
+    }
+
     func testPastMonthWithNoIncomeKeepsItsBudgetOrStaysEmpty() throws {
         try addIncome(300_000, month: month(-3))
         try budgetRepo.insert(budget: BudgetModel(monthDate: month(-2), amount: 77_700))
