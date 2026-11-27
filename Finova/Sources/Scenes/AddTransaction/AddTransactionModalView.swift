@@ -596,6 +596,9 @@ final class AddTransactionModalView: UIView {
   private lazy var moneyAndFxStack = UIStackView(
     axis: .vertical, spacing: Metrics.spacing3, arrangedSubviews: [horizontalInputsStackView, fxCard])
 
+  /// False when the fee box holds text that is not a percent from 0 to 99,99 ("100", "1,2,3").
+  private var feeTextIsValid: Bool { FxMath.feeBps(fromText: fxFeeField.textField.text ?? "") != nil }
+
   /// The provider fee typed, in basis points (0,9 → 90). 0 when empty or not a percent.
   private var typedFeeBps: Int { FxMath.feeBps(fromText: fxFeeField.textField.text ?? "") ?? 0 }
 
@@ -1053,6 +1056,12 @@ final class AddTransactionModalView: UIView {
     let fx: FxEditPlanner.Result?
     let fxTouched = selectedCurrency != AppConfig.currencyCode || editingTransaction?.foreign != nil
     if fxTouched, editingTransaction?.mode != .installments {
+      // A fee that is not a percent from 0 to 99,99 must never be saved as 0: stop and show it.
+      guard feeTextIsValid else {
+        fxFeeField.setError(true)
+        fxFeeField.textField.becomeFirstResponder()
+        return
+      }
       let pickedDate = DateFormatter.fullDateFormatter.date(from: date) ?? Date()
       let old = editingTransaction?.foreign
       let live = currentRateMicros()
@@ -1186,6 +1195,10 @@ final class AddTransactionModalView: UIView {
 
   @objc private func fxSaveDefaultTapped() {
     guard selectedCurrency != AppConfig.currencyCode else { return }
+    guard feeTextIsValid else {
+      fxFeeField.setError(true)
+      return
+    }
     UserDefaults.standard.set(typedSpreadMicros, forKey: Self.providerDiffKeyPrefix + selectedCurrency)
     UserDefaults.standard.set(typedFeeBps, forKey: Self.providerFeeKeyPrefix + selectedCurrency)
     updateFxHint()
@@ -1267,7 +1280,7 @@ final class AddTransactionModalView: UIView {
     updateDefaultButton()
 
     let fee = typedFeeBps
-    fxFeeField.setError(FxMath.feeBps(fromText: fxFeeField.textField.text ?? "") == nil)
+    fxFeeField.setError(!feeTextIsValid)
     let spread = typedSpreadMicros
 
     let rateMicros: Int
@@ -1340,6 +1353,13 @@ final class AddTransactionModalView: UIView {
   }
 
   private func updateDefaultButton() {
+    guard feeTextIsValid else {
+      // Nothing to save until the fee is a real percent.
+      fxDefaultButton.setTitle("fx.diff.saveDefault".localized(selectedCurrency), for: .normal)
+      fxDefaultButton.setTitleColor(Colors.gray400, for: .disabled)
+      fxDefaultButton.isEnabled = false
+      return
+    }
     let typed = (typedSpreadMicros, typedFeeBps)
     let saved = (
       Self.savedProviderDiffMicros(for: selectedCurrency), Self.savedProviderFeeBps(for: selectedCurrency))
