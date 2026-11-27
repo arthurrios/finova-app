@@ -211,7 +211,7 @@ fun FinovaNavHost(
                 factory = viewModelFactory {
                     initializer {
                         val container = appContext.appContainer
-                        DashboardViewModel(container.financeRepository(), container.settings, container.cardRepository(), container.allocationRepository(), container.tagRepository())
+                        DashboardViewModel(container.financeRepository(), container.settings, container.cardRepository(), container.allocationRepository(), container.tagRepository(), fx = container.fx, followIncome = container.followIncome)
                     }
                 }
             )
@@ -257,7 +257,8 @@ fun FinovaNavHost(
                 onOpenHistory = { navController.navigate(Routes.history(it)) },
             )
             // The "App updates" switch also governs this in-app prompt (Android has no update push).
-            com.arthurrios.finova.ui.update.UpdatePrompt(enabled = notificationPrefs.appUpdates && !notificationPrefs.allDisabled)
+            com.arthurrios.finova.ui.update.UpdatePrompt(enabled = notificationPrefs.appUpdates && !notificationPrefs.allDisabled)            // "Rate updated: US$ 1 = R$ 5,7651", once, only when a refresh really moved live income.
+            com.arthurrios.finova.ui.fx.FxRateHintHost(viewModel.rateHints, Modifier.align(androidx.compose.ui.Alignment.BottomCenter))
             }
         }
         composable(Routes.TAGS) {
@@ -374,7 +375,7 @@ fun FinovaNavHost(
                 factory = viewModelFactory {
                     initializer {
                         val container = appContext.appContainer
-                        TransactionDetailsViewModel(container.financeRepository(), container.settings, id, container.cardRepository())
+                        TransactionDetailsViewModel(container.financeRepository(), container.settings, id, container.cardRepository(), fx = container.fx)
                     }
                 }
             )
@@ -416,7 +417,7 @@ fun FinovaNavHost(
                 factory = viewModelFactory {
                     initializer {
                         val container = appContext.appContainer
-                        BudgetsViewModel(container.financeRepository(), container.settings, month)
+                        BudgetsViewModel(container.financeRepository(), container.settings, month, container.followIncome)
                     }
                 }
             )

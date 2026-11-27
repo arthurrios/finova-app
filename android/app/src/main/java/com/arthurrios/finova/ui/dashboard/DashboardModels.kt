@@ -85,6 +85,8 @@ data class TransactionRowUi(
     val statementId: Long? = null,
     /** What the filter's category chips match against. */
     val category: TransactionCategory = TransactionCategory.Miscellaneous,
+    /** Received in another currency (1.7.0): the row shows the foreign amount and the % badge. */
+    val foreign: com.arthurrios.finova.domain.fx.ForeignAmount? = null,
 )
 
 /** How a stored (or statement) row shows in a list. Shared by the dashboard and statement details. */
@@ -108,4 +110,5 @@ fun Transaction.toRowUi() = TransactionRowUi(
     statementId = statementId,
     isSettledEarly = isSettledEarly,
     seriesKind = SeriesRules.kindOf(this),
+    foreign = foreign.takeUnless { isCreditCardStatement },
 )

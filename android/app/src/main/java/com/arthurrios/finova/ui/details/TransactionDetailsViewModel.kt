@@ -7,6 +7,7 @@ import com.arthurrios.finova.data.UserSettingsStore
 import com.arthurrios.finova.data.repo.CardRepository
 import com.arthurrios.finova.data.repo.FinanceRepository
 import com.arthurrios.finova.domain.card.Installments
+import com.arthurrios.finova.domain.fx.FxEditPlanner
 import com.arthurrios.finova.domain.card.StatementBook
 import com.arthurrios.finova.domain.model.CreditCardStatement
 import com.arthurrios.finova.domain.model.CreditCard
@@ -63,6 +64,8 @@ class TransactionDetailsViewModel(
     private val transactionId: Long,
     cardRepository: CardRepository,
     private val today: () -> LocalDate = LocalDate::now,
+    /** Foreign-currency income: saved quotes, the lock pass and "amount received". */
+    val fx: com.arthurrios.finova.data.fx.ForeignCurrencyService? = null,
 ) : ViewModel() {
 
     /** The cards the edit sheet offers. */
@@ -132,6 +135,7 @@ class TransactionDetailsViewModel(
                 draft = TransactionDraft(
                     row.title, row.category, row.type, row.amount, row.unadjusted, row.businessDayRule,
                     creditCardId = row.creditCardId,
+                    foreign = row.foreign,
                 ),
                 mode = if (kind == SeriesKind.Recurring) AddMode.Recurring else AddMode.Normal,
                 installments = 0,
@@ -202,12 +206,40 @@ class TransactionDetailsViewModel(
     /** A one-off saves straight away; series edits come through [saveRecurring] / [saveInstallments]. */
     fun saveOneOff(request: AddTransactionRequest) {
         val row = state.value.row ?: return
-        viewModelScope.launch { repository.update(SeriesRules.editOneOff(row, request.draft)) }
+        viewModelScope.launch {
+            repository.update(SeriesRules.editOneOff(row, request.draft))
+            if (request.draft.foreign != null) fx?.refresh()
+        }
     }
 
     fun saveRecurring(request: AddTransactionRequest, option: SeriesEditOption) {
         val row = state.value.row ?: return
-        viewModelScope.launch { repository.applyEdit(SeriesRules.editRecurring(row, request.draft, option, allRows)) }
+        val draft = request.draft
+        var edit = SeriesRules.editRecurring(row, draft, option, allRows)
+        if (draft.foreignTouched) {
+            // The foreign half of a series edit: a locked month keeps its money, the others take
+            // the new money at the newest saved rate.
+            val before = allRows.associateBy { it.id }
+            val app = settings.currencyCode
+            edit = edit.copy(
+                updates = edit.updates.map { updated ->
+                    val old = before[updated.id] ?: return@map updated
+                    FxEditPlanner.seriesRow(old, updated, draft.foreign, app) { fx?.cachedLatestMicros(it) }
+                },
+            )
+        }
+        viewModelScope.launch {
+            repository.applyEdit(edit)
+            if (draft.foreign != null) fx?.refresh()
+        }
+    }
+
+    /** Set while "Enter amount received" is open. */
+    fun saveReceived(typedAmount: Long) {
+        val row = state.value.row ?: return
+        val old = row.foreign ?: return
+        val result = FxEditPlanner.received(old, typedAmount, settings.currencyCode) ?: return
+        viewModelScope.launch { fx?.save(row.id, result.foreign, result.amount) }
     }
 
     fun saveInstallments(request: AddTransactionRequest) {

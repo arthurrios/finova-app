@@ -61,6 +61,10 @@ import com.arthurrios.finova.ui.dashboard.DeleteTransactionDialog
 import com.arthurrios.finova.ui.dashboard.icon
 import com.arthurrios.finova.ui.dashboard.label
 import com.arthurrios.finova.ui.format.Money
+import com.arthurrios.finova.ui.format.HiddenValue
+import com.arthurrios.finova.ui.fx.FxBadge
+import com.arthurrios.finova.ui.fx.FxFormat
+import androidx.compose.material.icons.outlined.Edit
 import com.arthurrios.finova.ui.theme.CornerRadius
 import com.arthurrios.finova.ui.theme.FinovaColors
 import com.arthurrios.finova.ui.theme.FinovaType
@@ -92,6 +96,7 @@ fun TransactionDetailsScreen(
     var confirmCancel by rememberSaveable { mutableStateOf(false) }
     var confirmUndo by rememberSaveable { mutableStateOf(false) }
     var movingStatement by rememberSaveable { mutableStateOf(false) }
+    var enteringReceived by rememberSaveable { mutableStateOf(false) }
     val cards by viewModel.cards.collectAsStateWithLifecycle()
     var showEdit by rememberSaveable { mutableStateOf(false) }
     var showDelete by rememberSaveable { mutableStateOf(false) }
@@ -124,6 +129,18 @@ fun TransactionDetailsScreen(
         ) {
             InfoCard(row, state)
             DetailsCard(row, state)
+            row.foreign?.let { fx ->
+                ExchangeRateCard(row, fx, state, viewModel.fx)
+                // Only after the lock: the amount that really arrived, with every fee inside.
+                if (fx.isLocked) {
+                    ActionRow(
+                        icon = Icons.Outlined.Edit,
+                        label = stringResource(R.string.fx_details_enter_received),
+                        value = null,
+                        onClick = { enteringReceived = true },
+                    )
+                }
+            }
             if (state.installments.isNotEmpty()) InstallmentsCard(row, state)
             state.statementDue?.let { due ->
                 ActionRow(
@@ -153,6 +170,19 @@ fun TransactionDetailsScreen(
             FinovaButton(text = stringResource(R.string.details_edit), onClick = { showEdit = true })
             FinovaAccentOutlinedButton(text = stringResource(R.string.details_delete), onClick = { showDelete = true })
         }
+    }
+
+    val receivedFor = state.row?.foreign
+    if (enteringReceived && receivedFor != null) {
+        ReceivedAmountDialog(
+            fxText = FxFormat.amount(receivedFor.amount, receivedFor.currency),
+            currencyCode = state.currencyCode,
+            onDismiss = { enteringReceived = false },
+            onSave = {
+                viewModel.saveReceived(it)
+                enteringReceived = false
+            },
+        )
     }
 
     if (showEdit && state.editRequest != null) {
@@ -316,6 +346,10 @@ private fun InfoCard(row: Transaction, state: TransactionDetailsUiState) {
             }
         }
         Text(row.title, style = FinovaType.Input, color = FinovaColors.Gray700)
+        // "One-time transaction · US$ 5,000.00", like the row.
+        val foreignText = row.foreign?.let { fx ->
+            " · " + if (state.valuesHidden) "${FxFormat.symbol(fx.currency)} $HiddenValue" else FxFormat.amount(fx.amount, fx.currency)
+        }.orEmpty()
         Text(
             stringResource(
                 when (state.kind) {
@@ -323,7 +357,7 @@ private fun InfoCard(row: Transaction, state: TransactionDetailsUiState) {
                     SeriesKind.Recurring -> R.string.transaction_mode_desc_recurring
                     SeriesKind.Installments -> R.string.transaction_mode_desc_installments
                 }
-            ),
+            ) + foreignText,
             style = FinovaType.TextSM,
             color = FinovaColors.Gray500,
         )
@@ -344,11 +378,121 @@ private fun DetailsCard(row: Transaction, state: TransactionDetailsUiState) {
     }
 }
 
+/**
+ * The EXCHANGE RATE card: received in, rate, rate date, provider difference and fee, change since
+ * added, and a footnote. Port of `configureExchangeRate` on iOS.
+ */
+@Composable
+private fun ExchangeRateCard(
+    row: Transaction,
+    fx: com.arthurrios.finova.domain.fx.ForeignAmount,
+    state: TransactionDetailsUiState,
+    service: com.arthurrios.finova.data.fx.ForeignCurrencyService?,
+) {
+    val app = state.currencyCode
+    val version = service?.quotesVersion?.collectAsStateWithLifecycle()?.value
+    val live = remember(fx.currency, version) { service?.cachedLatest(fx.currency) }
+    val rateMicros = if (fx.isLocked) fx.rateMicros else live?.rateMicros
+    val market = stringResource(R.string.fx_details_market)
+    val ecb = stringResource(R.string.fx_details_ecb)
+    // Locked: the saved quote time and source. Live: the saved market quote (or the ECB fallback).
+    val rateDateText: String? = when {
+        fx.isLocked -> fx.rateDate?.let { at ->
+            if (fx.rateSource == com.arthurrios.finova.domain.fx.FxSource.Market.key) "${FxFormat.fullDate(at)} ${FxFormat.shortTime(at)} · $market"
+            else "${FxFormat.fullDate(at)} · $ecb"
+        }
+        live == null -> null
+        live.source == com.arthurrios.finova.domain.fx.FxSource.Market && live.quotedAt != null ->
+            "${FxFormat.fullDate(live.quotedAt)} ${FxFormat.shortTime(live.quotedAt)} · $market"
+        else -> com.arthurrios.finova.domain.fx.FxDay.epoch(live.date)?.let { "${FxFormat.fullDate(it)} · $ecb" }
+    }
+    Card(stringResource(R.string.fx_details_header)) {
+        val received = if (state.valuesHidden) "${FxFormat.symbol(fx.currency)} $HiddenValue" else FxFormat.amount(fx.amount, fx.currency)
+        DetailRow(stringResource(R.string.fx_details_received_in), received)
+        rateMicros?.let {
+            DetailRow(
+                stringResource(if (fx.isReceivedAmount) R.string.fx_details_implied_rate else R.string.fx_details_rate),
+                FxFormat.rate(it, fx.currency, app),
+            )
+        }
+        if (rateDateText != null && !fx.isReceivedAmount) DetailRow(stringResource(R.string.fx_details_rate_date), rateDateText)
+        val spread = fx.spreadMicros
+        if (spread != null && spread > 0 && !fx.isReceivedAmount) {
+            DetailRow(
+                stringResource(R.string.fx_details_diff),
+                stringResource(R.string.fx_details_diff_value, FxFormat.smallMoney(spread, app), "${FxFormat.symbol(fx.currency)} 1"),
+            )
+            rateMicros?.let {
+                DetailRow(
+                    stringResource(R.string.fx_details_your_rate),
+                    FxFormat.rate(com.arthurrios.finova.domain.fx.FxMath.effectiveRateMicros(it, spread), fx.currency, app),
+                )
+            }
+        }
+        val fee = fx.feeBps
+        if (fee != null && fee > 0 && !fx.isReceivedAmount) DetailRow(stringResource(R.string.fx_details_fee), FxFormat.fee(fee) + "%")
+        fx.changeTenths(live?.rateMicros)?.let { tenths ->
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(stringResource(R.string.fx_details_change), style = FinovaType.Input, color = FinovaColors.Gray500, modifier = Modifier.weight(1f))
+                FxBadge(
+                    tenths, isIncome = row.type == TransactionType.Income, isLocked = fx.isLocked,
+                    trailingText = stringResource(R.string.fx_details_since_added),
+                )
+            }
+        }
+        val lines = buildList {
+            val entry = fx.entryRateMicros
+            val entryDate = fx.entryRateDate
+            if (entry != null && entryDate != null) {
+                add(stringResource(R.string.fx_details_was, FxFormat.smallMoney(entry, app, 4, 4), FxFormat.shortDate(entryDate)))
+            }
+            when {
+                fx.isReceivedAmount -> add(stringResource(R.string.fx_details_received_note))
+                fx.isLocked -> add(stringResource(R.string.fx_details_locked_on, FxFormat.shortDate(fx.lockedAt ?: 0)))
+                else -> add(stringResource(R.string.fx_details_locks_on_payday))
+            }
+        }
+        var note = lines.joinToString(" ")
+        if (!fx.isReceivedAmount) note += "\n" + stringResource(R.string.fx_details_estimate)
+        Text(note, style = FinovaType.TextXS, color = FinovaColors.Gray500)
+    }
+}
+
+/** "Amount received": how much arrived in the account, in the app currency. */
+@Composable
+private fun ReceivedAmountDialog(fxText: String, currencyCode: String, onDismiss: () -> Unit, onSave: (Long) -> Unit) {
+    var cents by remember { mutableStateOf(0L) }
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.fx_received_title)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(Spacing.S3)) {
+                Text(stringResource(R.string.fx_received_message, fxText))
+                com.arthurrios.finova.ui.components.CurrencyTextField(cents = cents, onCentsChange = { cents = it }, currencyCode = currencyCode)
+            }
+        },
+        confirmButton = {
+            androidx.compose.material3.TextButton(onClick = { if (cents > 0) onSave(cents) else onDismiss() }) {
+                Text(stringResource(R.string.fx_received_save))
+            }
+        },
+        dismissButton = { androidx.compose.material3.TextButton(onClick = onDismiss) { Text(stringResource(R.string.fx_cancel)) } },
+    )
+}
+
 @Composable
 private fun DetailRow(label: String, value: String) {
     Row {
         Text(label, style = FinovaType.Input, color = FinovaColors.Gray500, modifier = Modifier.weight(1f))
-        Text(value, style = FinovaType.Input, color = FinovaColors.Gray700)
+        Spacer(Modifier.width(Spacing.S3))
+        // A long value (a rate and its time) wraps under itself instead of squeezing the label.
+        Text(
+            value,
+            style = FinovaType.Input,
+            color = FinovaColors.Gray700,
+            textAlign = androidx.compose.ui.text.style.TextAlign.End,
+            modifier = Modifier.weight(1.4f, fill = false),
+        )
     }
 }
 

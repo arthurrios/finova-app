@@ -14,7 +14,8 @@ import java.security.MessageDigest
  *
  * Nothing is released yet, but a debug build may already hold data, so every schema change is a
  * real migration: version 2 adds the card tables, version 3 the budget allocations, version 4 the
- * statement import records (1.6.0).
+ * statement import records (1.6.0), version 5 the foreign-currency
+ * columns on transactions (1.7.0, nullable, no backfill).
  */
 @Database(
     entities = [
@@ -28,9 +29,9 @@ import java.security.MessageDigest
         ImportBatchEntity::class,
         ImportBatchRowEntity::class,
     ],
-    version = 4,
+    version = 5,
     exportSchema = true,
-    autoMigrations = [AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3), AutoMigration(from = 3, to = 4)],
+    autoMigrations = [AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3), AutoMigration(from = 3, to = 4), AutoMigration(from = 4, to = 5)],
 )
 @TypeConverters(Converters::class)
 abstract class FinovaDatabase : RoomDatabase() {

@@ -2,6 +2,11 @@ package com.arthurrios.finova.debug
 
 import com.arthurrios.finova.data.repo.AllocationRepository
 import com.arthurrios.finova.data.repo.FinanceRepository
+import com.arthurrios.finova.domain.fx.ForeignAmount
+import com.arthurrios.finova.domain.fx.FxConversion
+import com.arthurrios.finova.domain.fx.FxDay
+import com.arthurrios.finova.domain.fx.FxQuote
+import com.arthurrios.finova.domain.fx.FxSource
 import com.arthurrios.finova.domain.model.Budget
 import com.arthurrios.finova.domain.model.Transaction
 import com.arthurrios.finova.domain.model.TransactionCategory
@@ -21,6 +26,7 @@ object DebugSeeder {
         repository: FinanceRepository,
         allocations: AllocationRepository? = null,
         today: LocalDate = LocalDate.now(),
+        fx: com.arthurrios.finova.data.fx.ForeignCurrencyService? = null,
     ) {
         if (!repository.isEmpty()) return
         val thisMonth = YearMonth.from(today)
@@ -56,6 +62,38 @@ object DebugSeeder {
             repo.create(TransactionCategory.Utilities, 250_00, start, repeating = true, endMonth = null, today = today)
         }
         repository.setBalanceOffset(1_250_00)
+        fx?.let { seedForeignSalary(repository, it, today) }
+    }
+
+    /**
+     * One US$ income two days ahead, so it is live and shows the % badge. The rates are seeded too,
+     * so the screenshot needs no network: entry 5.3381, newest 5.7651 (+8.0%). BRL only, like iOS.
+     */
+    private suspend fun seedForeignSalary(
+        repository: FinanceRepository,
+        fx: com.arthurrios.finova.data.fx.ForeignCurrencyService,
+        today: LocalDate,
+    ) {
+        if (fx.appCurrency != "BRL") return
+        val now = System.currentTimeMillis() / 1000
+        val latest = FxQuote("USD", "BRL", today.toString(), 5_765_100, FxSource.Market, quotedAt = now)
+        fx.store.store(latest, "latest", fetchedAt = now)
+        val foreign = ForeignAmount(
+            currency = "USD", amount = 500_000, entryRateMicros = 5_338_100,
+            entryRateDate = FxDay.epoch(today.minusDays(14).toString()),
+        )
+        val payday = today.plusDays(2)
+        repository.add(
+            Transaction(
+                title = "Salary – Acme Inc.",
+                category = TransactionCategory.Salary,
+                type = TransactionType.Income,
+                amount = FxConversion.convert(foreign, latest.rateMicros, "BRL"),
+                date = payday,
+                budgetMonth = YearMonth.from(payday),
+                foreign = foreign,
+            )
+        )
     }
 
     private fun row(title: String, category: TransactionCategory, type: TransactionType, amount: Long, month: YearMonth, day: Int) =

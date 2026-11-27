@@ -40,6 +40,20 @@ interface TransactionDao {
     @Query("UPDATE transactions SET is_recurring = :recurring WHERE id IN (:ids)")
     suspend fun setRecurring(ids: List<Long>, recurring: Boolean)
 
+    /** Writes a row's conversion and the app-currency amount it gives, nothing else. */
+    @Query(
+        """UPDATE transactions SET amount = :amount, fx_currency = :currency, fx_amount = :fxAmount,
+        fx_rate_micros = :rateMicros, fx_rate_date = :rateDate, fx_locked_at = :lockedAt,
+        fx_entry_rate_micros = :entryRateMicros, fx_entry_rate_date = :entryRateDate,
+        fx_is_received = :isReceived, fx_rate_source = :rateSource, fx_fee_bps = :feeBps,
+        fx_spread_micros = :spreadMicros WHERE id = :id"""
+    )
+    suspend fun updateForeign(
+        id: Long, amount: Long, currency: String?, fxAmount: Long?, rateMicros: Long?, rateDate: Long?,
+        lockedAt: Long?, entryRateMicros: Long?, entryRateDate: Long?, isReceived: Boolean,
+        rateSource: String?, feeBps: Long?, spreadMicros: Long?,
+    ): Int
+
     @Query("SELECT COUNT(*) FROM transactions")
     suspend fun count(): Int
 }

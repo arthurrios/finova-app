@@ -65,6 +65,17 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.arthurrios.finova.R
 import com.arthurrios.finova.domain.card.CardCycle
+import com.arthurrios.finova.appContainer
+import com.arthurrios.finova.domain.fx.FxCurrency
+import com.arthurrios.finova.domain.fx.FxDay
+import com.arthurrios.finova.domain.fx.FxEditPlanner
+import com.arthurrios.finova.domain.fx.FxMath
+import com.arthurrios.finova.ui.fx.FxFormat
+import com.arthurrios.finova.ui.fx.fxSourceText
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.platform.LocalContext
 import com.arthurrios.finova.domain.model.BusinessDayRule
 import com.arthurrios.finova.domain.model.CreditCard
 import com.arthurrios.finova.domain.model.TransactionCategory
@@ -128,7 +139,9 @@ fun AddTransactionSheet(
     var category by rememberSaveable { mutableStateOf(editing?.draft?.category) }
     var mode by rememberSaveable { mutableStateOf(editing?.mode ?: AddMode.Normal) }
     var installments by rememberSaveable { mutableStateOf(editing?.installments?.takeIf { it > 0 }?.toString() ?: "") }
-    var amount by rememberSaveable { mutableStateOf(editing?.draft?.amount ?: 0L) }
+    // A foreign income is edited in its own money: the field shows the foreign amount.
+    val editingForeign = editing?.draft?.foreign
+    var amount by rememberSaveable { mutableStateOf(editingForeign?.amount ?: editing?.draft?.amount ?: 0L) }
     var date by rememberSaveable { mutableStateOf(editing?.draft?.date) }
     var rule by rememberSaveable { mutableStateOf(editing?.draft?.rule ?: defaultRule) }
     var type by rememberSaveable { mutableStateOf(editing?.draft?.type) }
@@ -139,6 +152,40 @@ fun AddTransactionSheet(
     var cardId by rememberSaveable { mutableStateOf(editing?.draft?.creditCardId) }
     // Only an expense can go on a card; the section hides (and stops counting) for income.
     val isExpense = type == TransactionType.Expense
+
+    // Foreign-currency income (1.7.0): the currency the amount is typed in. The app currency
+    // unless the user picked another one (income only, not installments).
+    val context = LocalContext.current
+    val fx = remember { context.appContainer.fx }
+    val scope = rememberCoroutineScope()
+    val quotesVersion by fx.quotesVersion.collectAsState()
+    var selectedCurrency by rememberSaveable { mutableStateOf(editingForeign?.currency ?: currencyCode) }
+    var manualRate by rememberSaveable { mutableStateOf<Long?>(null) }
+    var diffCentsValue by rememberSaveable {
+        mutableStateOf(editingForeign?.spreadMicros?.let { diffCents(it, currencyCode) } ?: 0L)
+    }
+    var feeText by rememberSaveable { mutableStateOf(editingForeign?.feeBps?.takeIf { it > 0 }?.let(FxFormat::fee) ?: "") }
+    var showManualRate by rememberSaveable { mutableStateOf(false) }
+    var defaultsVersion by remember { mutableStateOf(0) }
+    val isForeign = selectedCurrency != currencyCode
+    val fxAvailable = type == TransactionType.Income && mode != AddMode.Installments && FxCurrency.isAvailable(currencyCode)
+    /** A row's own difference and fee when editing it; otherwise the defaults saved for [code]. */
+    fun selectCurrency(code: String) {
+        selectedCurrency = code
+        manualRate = null
+        if (code == currencyCode) return
+        val own = editingForeign?.takeIf { it.currency == code }
+        val micros = own?.spreadMicros ?: if (own != null) 0 else fx.store.providerDiffMicros(code)
+        val fee = own?.feeBps ?: if (own != null) 0 else fx.store.providerFeeBps(code)
+        diffCentsValue = diffCents(micros, currencyCode)
+        feeText = if (fee > 0) FxFormat.fee(fee) else ""
+    }
+    LaunchedEffect(fxAvailable) {
+        if (!fxAvailable && selectedCurrency != currencyCode) selectCurrency(currencyCode)
+    }
+    LaunchedEffect(selectedCurrency) {
+        if (selectedCurrency != currencyCode) fx.latest(selectedCurrency)
+    }
     val card = cards.firstOrNull { it.id == cardId }?.takeIf { payWithCard && isExpense }
 
     val installmentCount = installments.toIntOrNull() ?: 0
@@ -231,7 +278,10 @@ fun AddTransactionSheet(
                     CurrencyTextField(
                         cents = amount,
                         onCentsChange = { amount = it },
-                        currencyCode = currencyCode,
+                        currencyCode = selectedCurrency,
+                        trailing = if (fxAvailable) {
+                            { CurrencyPickerButton(selectedCurrency, currencyCode) { selectCurrency(it) } }
+                        } else null,
                         isError = amountError,
                         keyboardActions = KeyboardActions(onDone = { closeKeyboard() }),
                         modifier = Modifier
@@ -283,6 +333,50 @@ fun AddTransactionSheet(
                 }
             }
 
+            AnimatedVisibility(visible = isForeign) {
+                quotesVersion // A new quote redraws the card.
+                val locked = editingForeign?.takeIf { it.isLocked && it.currency == selectedCurrency && it.rateMicros != null }
+                val cached = fx.cachedLatest(selectedCurrency)
+                val typedRate = manualRate
+                val rateMicros = locked?.rateMicros ?: typedRate ?: cached?.rateMicros
+                val rateLabel = when {
+                    locked != null -> stringResource(R.string.fx_card_locked, locked.lockedAt?.let(FxFormat::shortDate).orEmpty())
+                    typedRate != null -> stringResource(R.string.fx_hint_manual)
+                    cached != null -> fxSourceText(cached)
+                    else -> null
+                }
+                val feeBps = FxMath.feeBps(feeText)
+                defaultsVersion // Saving a default redraws the line.
+                val defaultState = when {
+                    feeBps == null -> FxDefaultState.Disabled
+                    spreadMicros(diffCentsValue, currencyCode) == fx.store.providerDiffMicros(selectedCurrency) &&
+                        feeBps == fx.store.providerFeeBps(selectedCurrency) ->
+                        if (diffCentsValue > 0 || feeBps > 0) FxDefaultState.IsDefault else FxDefaultState.Hint
+                    else -> FxDefaultState.CanSave
+                }
+                FxIncomeCard(
+                    currency = selectedCurrency,
+                    appCurrency = currencyCode,
+                    fxAmount = amount,
+                    rateMicros = rateMicros,
+                    rateLabel = rateLabel,
+                    rateTappable = locked == null,
+                    onRateTap = { showManualRate = true },
+                    diffCents = diffCentsValue,
+                    onDiffChange = { diffCentsValue = it },
+                    feeText = feeText,
+                    onFeeChange = { feeText = it },
+                    defaultState = defaultState,
+                    onSaveDefault = {
+                        FxMath.feeBps(feeText)?.let { fee ->
+                            fx.store.saveDefaults(selectedCurrency, spreadMicros(diffCentsValue, currencyCode), fee)
+                            defaultsVersion++
+                        }
+                    },
+                    onDone = { closeKeyboard() },
+                )
+            }
+
             TransactionTypeSelector(
                 selected = type,
                 onSelect = {
@@ -327,13 +421,41 @@ fun AddTransactionSheet(
                         showTypeAlert = true
                         return@FinovaButton
                     }
+                    // Foreign-currency income: convert now, so the draft's amount is in the app
+                    // currency everywhere after this.
+                    val fxTouched = (isForeign || editingForeign != null) && mode != AddMode.Installments
+                    val result = if (fxTouched) {
+                        // A fee that is not a percent from 0 to 99,99 must never be saved as 0.
+                        val fee = FxMath.feeBps(feeText) ?: return@FinovaButton
+                        val cached = fx.cachedLatest(selectedCurrency)
+                        val typedRate = manualRate
+                        FxEditPlanner.apply(
+                            old = editingForeign,
+                            oldDate = editing?.draft?.date ?: date!!,
+                            newDate = date!!,
+                            currency = selectedCurrency,
+                            typedAmount = amount,
+                            appCurrency = currencyCode,
+                            liveRateMicros = typedRate ?: cached?.rateMicros,
+                            liveRateDate = if (typedRate != null) System.currentTimeMillis() / 1000
+                            else cached?.let { it.quotedAt ?: FxDay.epoch(it.date) },
+                            feeBps = fee,
+                            spreadMicros = spreadMicros(diffCentsValue, currencyCode),
+                        ) ?: run {
+                            // No rate anywhere: ask for one, then the user taps Save again.
+                            showManualRate = true
+                            return@FinovaButton
+                        }
+                    } else null
                     onSave(
                         AddTransactionRequest(
                             draft = TransactionDraft(
-                                title.trim(), category!!, chosenType, amount, date!!, rule,
+                                title.trim(), category!!, chosenType, result?.amount ?: amount, date!!, rule,
                                 // The id, not the listed card: a transaction on a card deleted
                                 // since keeps its card when edited.
                                 creditCardId = cardId.takeIf { payWithCard && chosenType == TransactionType.Expense },
+                                foreign = result?.foreign,
+                                foreignTouched = result != null,
                             ),
                             mode = mode,
                             installments = installmentCount,
@@ -368,6 +490,18 @@ fun AddTransactionSheet(
                 }) { Text(stringResource(R.string.alert_cancel)) }
             },
         ) { DatePicker(state = pickerState) }
+    }
+
+    if (showManualRate) {
+        ManualRateDialog(
+            currency = selectedCurrency,
+            appCurrency = currencyCode,
+            onDismiss = { showManualRate = false },
+            onRate = {
+                manualRate = it
+                showManualRate = false
+            },
+        )
     }
 
     if (showTypeAlert) {

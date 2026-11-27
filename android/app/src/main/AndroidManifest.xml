@@ -2,6 +2,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Exchange rates for foreign-currency income (1.7.0). Only currency codes and dates are sent. -->
+    <uses-permission android:name="android.permission.INTERNET" />
 
     <application
         android:name=".FinovaApplication"

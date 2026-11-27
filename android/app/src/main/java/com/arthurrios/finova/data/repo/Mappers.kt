@@ -2,6 +2,7 @@ package com.arthurrios.finova.data.repo
 
 import com.arthurrios.finova.data.db.BudgetEntity
 import com.arthurrios.finova.data.db.TransactionEntity
+import com.arthurrios.finova.domain.fx.ForeignAmount
 import com.arthurrios.finova.domain.model.Budget
 import com.arthurrios.finova.domain.model.BusinessDayRule
 import com.arthurrios.finova.domain.model.Transaction
@@ -34,6 +35,21 @@ fun TransactionEntity.toDomain() = Transaction(
     isCancellationRefund = isCancellationRefund,
     statementPaymentId = statementPaymentId,
     isStatementPayment = isStatementPayment,
+    foreign = fxCurrency?.let { currency ->
+        ForeignAmount(
+            currency = currency,
+            amount = fxAmount ?: 0,
+            rateMicros = fxRateMicros,
+            rateDate = fxRateDate,
+            lockedAt = fxLockedAt,
+            entryRateMicros = fxEntryRateMicros,
+            entryRateDate = fxEntryRateDate,
+            isReceivedAmount = fxIsReceived,
+            rateSource = fxRateSource,
+            feeBps = fxFeeBps,
+            spreadMicros = fxSpreadMicros,
+        )
+    },
 )
 
 fun Transaction.toEntity() = TransactionEntity(
@@ -63,6 +79,17 @@ fun Transaction.toEntity() = TransactionEntity(
     // iOS writers always set these; readers treat null as "same as date / budget month".
     unadjustedDate = unadjustedDate ?: date,
     seriesPeriod = seriesPeriod ?: budgetMonth,
+    fxCurrency = foreign?.currency,
+    fxAmount = foreign?.amount,
+    fxRateMicros = foreign?.rateMicros,
+    fxRateDate = foreign?.rateDate,
+    fxLockedAt = foreign?.lockedAt,
+    fxEntryRateMicros = foreign?.entryRateMicros,
+    fxEntryRateDate = foreign?.entryRateDate,
+    fxIsReceived = foreign?.isReceivedAmount ?: false,
+    fxRateSource = foreign?.rateSource,
+    fxFeeBps = foreign?.feeBps,
+    fxSpreadMicros = foreign?.spreadMicros,
 )
 
 fun BudgetEntity.toDomain() = Budget(month, amount)

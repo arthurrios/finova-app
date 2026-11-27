@@ -366,6 +366,7 @@ private fun MonthPage(
                             row = row,
                             currencyCode = state.currencyCode,
                             valuesHidden = state.valuesHidden,
+                            showsFullDate = false,
                             onClick = {
                                 val statementId = row.statementId
                                 if (row.statementTransactionCount != null && statementId != null) onOpenStatement(statementId)

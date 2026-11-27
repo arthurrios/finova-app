@@ -5,6 +5,7 @@ import com.arthurrios.finova.data.db.FinovaDatabase
 import com.arthurrios.finova.data.db.RecurringExclusionEntity
 import com.arthurrios.finova.data.db.StatementEntity
 import com.arthurrios.finova.data.db.UserSettingsEntity
+import com.arthurrios.finova.domain.budget.BudgetRange
 import com.arthurrios.finova.domain.card.CardCycle
 import com.arthurrios.finova.domain.card.CardCycleChange
 import com.arthurrios.finova.domain.card.Installments
@@ -35,6 +36,9 @@ class FinanceRepository(
     private val db: FinovaDatabase,
     /** The account's weekend rule, which new statements' due dates follow. */
     private val defaultRule: () -> BusinessDayRule = { BusinessDayRule.Exact },
+    /** The newest saved rate of a currency into the app currency, for new months of a foreign income. */
+    private val fxLatestMicros: (String) -> Long? = { null },
+    private val appCurrency: () -> String = { "BRL" },
 ) {
 
     private val exclusions: Flow<Set<SeriesExclusion>> =
@@ -179,7 +183,9 @@ class FinanceRepository(
     suspend fun materializeRecurring(today: LocalDate = LocalDate.now()): Int = db.withTransaction {
         val rows = db.transactions().getAll().map { it.toDomain() }
         val excluded = db.recurringExclusions().getAll().map { SeriesExclusion(it.parentId, it.seriesPeriod) }.toSet()
-        val missing = SeriesRules.missingOccurrences(rows, excluded, today)
+        val missing = SeriesRules.missingOccurrences(rows, excluded, today) { fx ->
+            fxLatestMicros(fx.currency)?.let { com.arthurrios.finova.domain.fx.FxConversion.convert(fx, it, appCurrency()) }
+        }
         if (missing.isNotEmpty()) {
             db.transactions().insertAll(missing.map { it.toEntity() })
             settleCardRows()
@@ -378,6 +384,18 @@ class FinanceRepository(
     }
 
     suspend fun setBudget(budget: Budget) = db.budgets().upsert(budget.toEntity())
+
+    /** The same amount for several months, in one transaction: a failure writes none of them. */
+    suspend fun setBudgets(months: List<java.time.YearMonth>, amount: Long) = BudgetRange.write(
+        months, amount,
+        transaction = { block -> db.withTransaction { block() } },
+        upsert = { db.budgets().upsert(it.toEntity()) },
+    )
+
+    /** A different amount per month ("budget follows income"), all or nothing. */
+    suspend fun setBudgetAmounts(amounts: Map<java.time.YearMonth, Long>) = db.withTransaction {
+        amounts.forEach { (month, amount) -> db.budgets().upsert(Budget(month, amount).toEntity()) }
+    }
 
     suspend fun deleteBudget(month: java.time.YearMonth) = db.budgets().delete(month)
 

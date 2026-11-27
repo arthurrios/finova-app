@@ -29,6 +29,7 @@ fun CurrencyTextField(
     isError: Boolean = false,
     imeAction: ImeAction = ImeAction.Done,
     keyboardActions: KeyboardActions = KeyboardActions.Default,
+    trailing: (@Composable () -> Unit)? = null,
 ) {
     FinovaTextField(
         value = if (cents == 0L) "" else cents.toString(),
@@ -41,6 +42,7 @@ fun CurrencyTextField(
         visualTransformationOverride = CentsTransformation(currencyCode),
         imeAction = imeAction,
         keyboardActions = keyboardActions,
+        trailing = trailing,
     )
 }
 

@@ -18,5 +18,7 @@ object DebugEntry {
     fun applyLaunchExtras(intent: Intent, container: AppContainer) {
         if (intent.getBooleanExtra("finova.debug.freshUser", false)) container.clearLocalData(container.currentUid())
         CoachMarkGuideId.fromKey(intent.getStringExtra("finova.debug.guide"))?.let(container.coachMarks::queueReplay)
+        // `--es finova.debug.currency BRL` sets the app currency (the US$ salary seed needs BRL).
+        intent.getStringExtra("finova.debug.currency")?.let { container.settings.currencySetting = it }
     }
 }

@@ -41,6 +41,13 @@ import androidx.compose.ui.unit.dp
 import com.arthurrios.finova.R
 import com.arthurrios.finova.ui.components.FinovaTextField
 import com.arthurrios.finova.ui.format.Money
+import com.arthurrios.finova.appContainer
+import com.arthurrios.finova.ui.format.HiddenValue
+import com.arthurrios.finova.ui.fx.FxBadge
+import com.arthurrios.finova.ui.fx.FxFormat
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalContext
 import com.arthurrios.finova.ui.theme.CornerRadius
 import com.arthurrios.finova.ui.theme.FinovaColors
 import com.arthurrios.finova.ui.theme.FinovaType
@@ -203,6 +210,11 @@ fun TransactionRow(
     valuesHidden: Boolean,
     onClick: () -> Unit,
     onDelete: () -> Unit,
+    /**
+     * The dashboard shows the month and year above the list, so its rows show only the day. Other
+     * lists keep the full date, because a statement or an allocation can cross months.
+     */
+    showsFullDate: Boolean = true,
 ) {
     // Half the row, not Material's 56dp default, and the row never stays dismissed: a swipe only
     // asks the dashboard to confirm, then springs back, as the iOS delete action does.
@@ -223,7 +235,7 @@ fun TransactionRow(
             enableDismissFromEndToStart = canDelete,
             backgroundContent = { DeleteBackground() },
         ) {
-            RowContent(row, currencyCode, valuesHidden, canDelete, onClick, onDelete)
+            RowContent(row, currencyCode, valuesHidden, canDelete, showsFullDate, onClick, onDelete)
         }
     }
 }
@@ -234,6 +246,7 @@ private fun RowContent(
     currencyCode: String,
     valuesHidden: Boolean,
     canDelete: Boolean,
+    showsFullDate: Boolean,
     onClick: () -> Unit,
     onDelete: () -> Unit,
 ) {
@@ -272,8 +285,21 @@ private fun RowContent(
                         if (count == 1) R.string.credit_card_statement_subtitle_singular else R.string.credit_card_statement_subtitle,
                         count,
                     )
-                } ?: row.date.format(DateFormatter)
-                Text(subtitle, style = FinovaType.TextXS, color = FinovaColors.Gray500)
+                } ?: row.date.format(if (showsFullDate) DateFormatter else DayFormatter)
+                Text(subtitle, style = FinovaType.TextXS, color = FinovaColors.Gray500, maxLines = 1)
+                row.foreign?.let { fx ->
+                    // `· US$ 5,000.00`: the first thing to cut on a narrow row. Hidden values hide
+                    // it too; the badge is a percent, so it stays.
+                    val shown = if (valuesHidden) "${FxFormat.symbol(fx.currency)} $HiddenValue" else FxFormat.amount(fx.amount, fx.currency)
+                    Text(
+                        " · $shown",
+                        style = FinovaType.TextXS,
+                        color = FinovaColors.Gray500,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                }
                 if (row.isCreditCard && !isStatement) {
                     Spacer(Modifier.width(Spacing.S1))
                     Icon(
@@ -298,6 +324,13 @@ private fun RowContent(
             )
             if (row.mode == TransactionModeUi.Installments && row.installmentNumber != null) {
                 Text("(${row.installmentNumber}/${row.totalInstallments})", style = FinovaType.TextXS, color = FinovaColors.Gray500)
+            }
+            row.foreign?.let { fx ->
+                // `+8.0%` under the value, Stocks-style.
+                val service = LocalContext.current.appContainer.fx
+                val version by service.quotesVersion.collectAsState()
+                val tenths = remember(fx, version) { fx.changeTenths(service.cachedLatestMicros(fx.currency)) }
+                if (tenths != null) FxBadge(tenths, isIncome = row.isIncome, isLocked = fx.isLocked)
             }
         }
         Spacer(Modifier.width(Spacing.S1))
@@ -337,3 +370,6 @@ internal fun DeleteBackground() {
 
 /** iOS `DateFormatter.fullDateFormatter`: always dd/MM/yyyy, whatever the language. */
 private val DateFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy")
+
+/** iOS `DateFormatter.dayFormatter`: the day only ("26"), for the dashboard list. */
+private val DayFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("dd")
