@@ -32,6 +32,11 @@ class AppContainer(private val context: Context) {
             appCurrency = { settings.currencyCode },
         )
 
+    /** "Budget follows income" (1.7.0): settings per account and the recompute. */
+    val followIncome: com.arthurrios.finova.data.BudgetFollowsIncomeService by lazy {
+        com.arthurrios.finova.data.BudgetFollowsIncomeService(context, ::currentUid)
+    }
+
     /** Foreign-currency income: rates, the lock pass and the provider defaults (1.7.0). */
     val fx: com.arthurrios.finova.data.fx.ForeignCurrencyService by lazy {
         com.arthurrios.finova.data.fx.ForeignCurrencyService(

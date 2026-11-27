@@ -1,6 +1,7 @@
 package com.arthurrios.finova.ui.budgets
 
 import com.arthurrios.finova.domain.budget.BudgetRange
+import com.arthurrios.finova.domain.budget.BudgetFollowsIncome
 import com.arthurrios.finova.domain.coachmarks.BudgetSuggestion
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -21,7 +22,55 @@ class BudgetsViewModel(
     private val repository: FinanceRepository,
     private val settings: UserSettingsStore,
     initialMonth: YearMonth?,
+    /** "Budget follows income"; null in previews and tests. */
+    private val followIncome: com.arthurrios.finova.data.BudgetFollowsIncomeService? = null,
 ) : ViewModel() {
+
+    val followSettings: StateFlow<BudgetFollowsIncome.Settings> =
+        followIncome?.settings ?: MutableStateFlow(BudgetFollowsIncome.Settings())
+
+    /** Counted income per month, for each row's "80% of income" note. */
+    val incomeByMonth: StateFlow<Map<YearMonth, Long>> = repository.transactions
+        .map(BudgetFollowsIncome::incomeByMonth)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+
+    init {
+        followIncome?.reload()
+        viewModelScope.launch { followIncome?.recompute(repository) }
+    }
+
+    /** Whether [month]'s budget is set from income right now. */
+    fun follows(month: YearMonth): Boolean =
+        BudgetFollowsIncome.follows(month, followSettings.value, incomeByMonth.value, YearMonth.now())
+
+    fun enableFollow(includePastMonths: Boolean) {
+        val service = followIncome ?: return
+        viewModelScope.launch { service.enable(repository, followSettings.value.percent, includePastMonths) }
+    }
+
+    fun disableFollow() {
+        followIncome?.disable()
+    }
+
+    fun setFollowPercent(percent: Int) {
+        val service = followIncome ?: return
+        viewModelScope.launch { service.setPercent(repository, percent) }
+    }
+
+    /** A fixed month inside the range follows income again. */
+    fun rejoin(month: YearMonth) {
+        val service = followIncome ?: return
+        viewModelScope.launch { service.optIn(repository, month) }
+    }
+
+    /** A month opted out while the switch is on, inside its range: it can rejoin instead of being deleted. */
+    fun isFixedInRange(month: YearMonth): Boolean {
+        val s = followSettings.value
+        return s.isEnabled && month >= (s.startMonth ?: YearMonth.now()) && month in s.optedOutMonths
+    }
+
+    /** A budget typed by hand while the switch is on keeps that month fixed. */
+    private fun keepFixed(months: Collection<YearMonth>) = followIncome?.optOut(months)
 
     /** Newest month first, as the iOS table lists them. */
     val budgets: StateFlow<List<Budget>> = repository.budgets
@@ -47,6 +96,7 @@ class BudgetsViewModel(
             _pendingOverwrite.value = budget
             return false
         }
+        keepFixed(listOf(month))
         viewModelScope.launch { repository.setBudget(budget) }
         return true
     }
@@ -54,6 +104,7 @@ class BudgetsViewModel(
     fun confirmOverwrite() {
         val budget = _pendingOverwrite.value ?: return
         _pendingOverwrite.value = null
+        keepFixed(listOf(budget.month))
         viewModelScope.launch { repository.setBudget(budget) }
     }
 
@@ -97,6 +148,7 @@ class BudgetsViewModel(
 
     private fun writeRange(start: YearMonth, end: YearMonth, amount: Long, replaceExisting: Boolean) {
         val months = BudgetRange.monthsToWrite(budgets.value.map { it.month }, start, end, replaceExisting)
+        keepFixed(months)
         viewModelScope.launch { repository.setBudgets(months, amount) }
     }
 
@@ -105,6 +157,9 @@ class BudgetsViewModel(
         repository.transactions.map { rows -> month?.let { BudgetSuggestion.monthlyIncome(rows, it) } ?: 0L }
 
     fun delete(month: YearMonth) {
+        // Deleting a month that follows income keeps it empty: without the opt-out the next
+        // recompute would write it straight back.
+        if (follows(month)) keepFixed(listOf(month))
         viewModelScope.launch { repository.deleteBudget(month) }
     }
 

@@ -48,6 +48,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.arthurrios.finova.R
 import com.arthurrios.finova.domain.model.Budget
+import com.arthurrios.finova.domain.budget.BudgetFollowsIncome
+import androidx.compose.material.icons.filled.Check
 import com.arthurrios.finova.ui.budget.ChoiceDialog
 import com.arthurrios.finova.ui.budget.DurationPicker
 import com.arthurrios.finova.ui.components.CurrencyTextField
@@ -87,6 +89,10 @@ fun BudgetsScreen(viewModel: BudgetsViewModel, onBack: () -> Unit, onManageTags:
     val coachSession = coachMarks?.session?.collectAsStateWithLifecycle()
     val guideRuns = coachSession?.value?.guide == CoachMarkGuideId.FirstBudget
     val income by remember(month) { viewModel.incomeOf(month) }.collectAsStateWithLifecycle(0L)
+    val follow by viewModel.followSettings.collectAsStateWithLifecycle()
+    val incomeByMonth by viewModel.incomeByMonth.collectAsStateWithLifecycle()
+    var askEnable by rememberSaveable { mutableStateOf(false) }
+    var askPercent by rememberSaveable { mutableStateOf(false) }
 
     Column(Modifier.fillMaxSize().background(FinovaColors.Gray200)) {
         ScreenHeader(
@@ -124,6 +130,13 @@ fun BudgetsScreen(viewModel: BudgetsViewModel, onBack: () -> Unit, onManageTags:
                 CardHeader(stringResource(R.string.budgets_new_header_title))
                 HorizontalDivider(color = FinovaColors.Gray300)
                 Column(Modifier.padding(Spacing.S5), verticalArrangement = Arrangement.spacedBy(Spacing.S4)) {
+                    FollowIncomeSection(
+                        enabled = follow.isEnabled,
+                        percent = follow.percent,
+                        onToggle = { on -> if (on) askEnable = true else viewModel.disableFollow() },
+                        onPickPercent = viewModel::setFollowPercent,
+                        onOtherPercent = { askPercent = true },
+                    )
                     Row(horizontalArrangement = Arrangement.spacedBy(Spacing.S5)) {
                         FinovaTextField(
                             value = month?.format(MonthFormat).orEmpty(),
@@ -218,7 +231,12 @@ fun BudgetsScreen(viewModel: BudgetsViewModel, onBack: () -> Unit, onManageTags:
                         LazyColumn {
                             itemsIndexed(budgets, key = { _, it -> it.month.toString() }) { index, budget ->
                                 if (index > 0) HorizontalDivider(color = FinovaColors.Gray300)
-                                BudgetRow(budget, viewModel.currencyCode, hidden, onDelete = { pendingDelete = budget.month })
+                                // "80% of income", or the hint for a following month with no income yet.
+                                val note = if (BudgetFollowsIncome.follows(budget.month, follow, incomeByMonth, YearMonth.now())) {
+                                    if (budget.amount == 0L) stringResource(R.string.budgets_follow_income_no_income)
+                                    else stringResource(R.string.budgets_follow_income_row_note, follow.percent)
+                                } else null
+                                BudgetRow(budget, viewModel.currencyCode, hidden, note = note, onDelete = { pendingDelete = budget.month })
                             }
                         }
                     }
@@ -276,7 +294,40 @@ fun BudgetsScreen(viewModel: BudgetsViewModel, onBack: () -> Unit, onManageTags:
             onDismiss = viewModel::cancelRange,
         )
     }
-    pendingDelete?.let { target ->
+    if (askEnable) {
+        ChoiceDialog(
+            title = stringResource(R.string.budgets_follow_income_enable_title),
+            message = stringResource(R.string.budgets_follow_income_enable_message, follow.percent),
+            choices = listOf(
+                stringResource(R.string.budgets_follow_income_enable_from_now) to { viewModel.enableFollow(includePastMonths = false) },
+                stringResource(R.string.budgets_follow_income_enable_include_past) to { viewModel.enableFollow(includePastMonths = true) },
+            ),
+            onDismiss = { askEnable = false },
+        )
+    }
+    if (askPercent) {
+        CustomPercentDialog(
+            initial = follow.percent,
+            onPick = {
+                viewModel.setFollowPercent(it)
+                askPercent = false
+            },
+            onDismiss = { askPercent = false },
+        )
+    }
+    val fixedTarget = pendingDelete?.takeIf(viewModel::isFixedInRange)
+    if (fixedTarget != null) {
+        // A fixed month inside the "follows income" range can rejoin instead of being deleted.
+        ChoiceDialog(
+            title = stringResource(R.string.budget_delete_title),
+            message = stringResource(R.string.budgets_follow_income_fixed_month_message),
+            choices = listOf(
+                stringResource(R.string.budgets_follow_income_fixed_month_rejoin) to { viewModel.rejoin(fixedTarget) },
+                stringResource(R.string.alert_delete) to { viewModel.delete(fixedTarget) },
+            ),
+            onDismiss = { pendingDelete = null },
+        )
+    } else pendingDelete?.let { target ->
         AlertDialog(
             onDismissRequest = { pendingDelete = null },
             title = { Text(stringResource(R.string.budget_delete_title)) },
@@ -305,7 +356,7 @@ private fun CardHeader(title: String, trailing: (@Composable () -> Unit)? = null
  * happened against that limit).
  */
 @Composable
-private fun BudgetRow(budget: Budget, currencyCode: String, hidden: Boolean, onDelete: () -> Unit) {
+private fun BudgetRow(budget: Budget, currencyCode: String, hidden: Boolean, note: String? = null, onDelete: () -> Unit) {
     val names = stringArrayResource(R.array.month_long)
     val isPast = budget.month < YearMonth.now()
     Row(
@@ -318,10 +369,17 @@ private fun BudgetRow(budget: Budget, currencyCode: String, hidden: Boolean, onD
     ) {
         Icon(painterResource(R.drawable.ic_calendar), contentDescription = null, tint = FinovaColors.Gray700, modifier = Modifier.size(20.dp))
         Spacer(Modifier.width(Spacing.S4))
-        Text(names[budget.month.monthValue - 1], style = FinovaType.TitleMD, color = FinovaColors.Gray700)
-        Spacer(Modifier.width(Spacing.S2))
-        Text(budget.month.year.toString(), style = FinovaType.TextSM, color = FinovaColors.Gray500)
-        Spacer(Modifier.weight(1f))
+        Column(Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(names[budget.month.monthValue - 1], style = FinovaType.TitleMD, color = FinovaColors.Gray700)
+                Spacer(Modifier.width(Spacing.S2))
+                Text(budget.month.year.toString(), style = FinovaType.TextSM, color = FinovaColors.Gray500)
+            }
+            if (note != null) {
+                Text(note, style = FinovaType.TextXS, color = FinovaColors.Gray500, maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+            }
+        }
         Text(Money.annotated(budget.amount, currencyCode, FinovaType.TextXS, hidden), style = FinovaType.TitleMD, color = FinovaColors.Gray700)
         if (isPast) {
             Spacer(Modifier.width(48.dp))
@@ -332,4 +390,87 @@ private fun BudgetRow(budget: Budget, currencyCode: String, hidden: Boolean, onD
             }
         }
     }
+}
+
+/**
+ * "Budget follows income": one switch for every month and one percent. Months typed below stay
+ * fixed. iOS uses a UISwitch and a menu; this is the Material switch and dropdown.
+ */
+@Composable
+private fun FollowIncomeSection(
+    enabled: Boolean,
+    percent: Int,
+    onToggle: (Boolean) -> Unit,
+    onPickPercent: (Int) -> Unit,
+    onOtherPercent: () -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(Spacing.S2)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(stringResource(R.string.budgets_follow_income_title), style = FinovaType.TextSM, color = FinovaColors.Gray700, modifier = Modifier.weight(1f))
+            androidx.compose.material3.Switch(
+                checked = enabled,
+                onCheckedChange = onToggle,
+                colors = androidx.compose.material3.SwitchDefaults.colors(
+                    checkedTrackColor = FinovaColors.MainMagenta,
+                    checkedThumbColor = FinovaColors.Gray100,
+                ),
+            )
+        }
+        if (enabled) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(stringResource(R.string.budgets_follow_income_percent), style = FinovaType.TextSM, color = FinovaColors.Gray700, modifier = Modifier.weight(1f))
+                var open by remember { mutableStateOf(false) }
+                Box {
+                    TextButton(onClick = { open = true }) {
+                        Text("$percent%  ⌄", style = FinovaType.TextSM, color = FinovaColors.MainMagenta)
+                    }
+                    androidx.compose.material3.DropdownMenu(expanded = open, onDismissRequest = { open = false }, containerColor = FinovaColors.Gray100) {
+                        BudgetFollowsIncome.PERCENT_PRESETS.forEach { preset ->
+                            androidx.compose.material3.DropdownMenuItem(
+                                text = { Text("$preset%") },
+                                trailingIcon = if (preset == percent) {
+                                    { Icon(androidx.compose.material.icons.Icons.Filled.Check, contentDescription = null, tint = FinovaColors.MainMagenta) }
+                                } else null,
+                                onClick = { open = false; onPickPercent(preset) },
+                            )
+                        }
+                        androidx.compose.material3.DropdownMenuItem(
+                            text = { Text(stringResource(R.string.budgets_follow_income_percent_other)) },
+                            onClick = { open = false; onOtherPercent() },
+                        )
+                    }
+                }
+            }
+            Text(stringResource(R.string.budgets_follow_income_hint, percent), style = FinovaType.TextXS, color = FinovaColors.Gray500)
+        }
+    }
+}
+
+/** "Other…": a whole percent from 1 to 200. */
+@Composable
+private fun CustomPercentDialog(initial: Int, onPick: (Int) -> Unit, onDismiss: () -> Unit) {
+    var text by remember { mutableStateOf(initial.toString()) }
+    val range = BudgetFollowsIncome.PERCENT_RANGE
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.budgets_follow_income_percent)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(Spacing.S3)) {
+                Text(stringResource(R.string.budgets_follow_income_percent_range, range.first, range.last))
+                androidx.compose.material3.OutlinedTextField(
+                    value = text,
+                    onValueChange = { text = it.filter(Char::isDigit).take(3) },
+                    singleLine = true,
+                    suffix = { Text("%") },
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { text.toIntOrNull()?.takeIf { it in range }?.let(onPick) ?: onDismiss() }) {
+                Text(stringResource(R.string.alert_ok))
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.alert_cancel)) } },
+    )
 }

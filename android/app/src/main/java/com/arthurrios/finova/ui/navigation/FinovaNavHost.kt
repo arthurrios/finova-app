@@ -211,7 +211,7 @@ fun FinovaNavHost(
                 factory = viewModelFactory {
                     initializer {
                         val container = appContext.appContainer
-                        DashboardViewModel(container.financeRepository(), container.settings, container.cardRepository(), container.allocationRepository(), container.tagRepository(), fx = container.fx)
+                        DashboardViewModel(container.financeRepository(), container.settings, container.cardRepository(), container.allocationRepository(), container.tagRepository(), fx = container.fx, followIncome = container.followIncome)
                     }
                 }
             )
@@ -417,7 +417,7 @@ fun FinovaNavHost(
                 factory = viewModelFactory {
                     initializer {
                         val container = appContext.appContainer
-                        BudgetsViewModel(container.financeRepository(), container.settings, month)
+                        BudgetsViewModel(container.financeRepository(), container.settings, month, container.followIncome)
                     }
                 }
             )

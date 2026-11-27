@@ -953,4 +953,17 @@
     <string name="fx_fee_placeholder">Taxa</string>
     <string name="fx_fee_accessibility">Taxa em porcentagem</string>
     <string name="fx_details_fee">Taxa do provedor</string>
+    <string name="budgets_follow_income_enable_from_now">A partir deste mês</string>
+    <string name="budgets_follow_income_enable_include_past">Incluir meses anteriores</string>
+    <string name="budgets_follow_income_enable_message">O orçamento de cada mês será %d%% da renda dele. Começar neste mês ou incluir os meses anteriores também?</string>
+    <string name="budgets_follow_income_enable_title">Orçamento segue a renda</string>
+    <string name="budgets_follow_income_fixed_month_message">Este mês tem um orçamento fixo. Quer que ele volte a seguir a renda ou excluí-lo?</string>
+    <string name="budgets_follow_income_fixed_month_rejoin">Voltar a seguir a renda</string>
+    <string name="budgets_follow_income_hint">O orçamento de cada mês é %d%% da renda dele. Um orçamento salvo abaixo fica fixo naquele mês.</string>
+    <string name="budgets_follow_income_no_income">Adicione sua renda para definir este orçamento</string>
+    <string name="budgets_follow_income_percent">Percentual da renda</string>
+    <string name="budgets_follow_income_percent_other">Outro…</string>
+    <string name="budgets_follow_income_percent_range">Digite um número inteiro de %1$d a %2$d.</string>
+    <string name="budgets_follow_income_row_note">%d%% da renda</string>
+    <string name="budgets_follow_income_title">Orçamento segue a renda</string>
 </resources>

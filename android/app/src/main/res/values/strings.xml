@@ -958,4 +958,17 @@
     <string name="fx_fee_placeholder">Fee</string>
     <string name="fx_fee_accessibility">Fee percent</string>
     <string name="fx_details_fee">Provider fee</string>
+    <string name="budgets_follow_income_enable_from_now">From this month on</string>
+    <string name="budgets_follow_income_enable_include_past">Include past months</string>
+    <string name="budgets_follow_income_enable_message">Each month\'s budget will be %d%% of its income. Start this month, or include past months too?</string>
+    <string name="budgets_follow_income_enable_title">Budget follows income</string>
+    <string name="budgets_follow_income_fixed_month_message">This month has a fixed budget. Make it follow your income again, or delete it?</string>
+    <string name="budgets_follow_income_fixed_month_rejoin">Follow income again</string>
+    <string name="budgets_follow_income_hint">Each month\'s budget is %d%% of its income. A budget you save below stays fixed for that month.</string>
+    <string name="budgets_follow_income_no_income">Add your income to set this budget</string>
+    <string name="budgets_follow_income_percent">Percent of income</string>
+    <string name="budgets_follow_income_percent_other">Other…</string>
+    <string name="budgets_follow_income_percent_range">Type a whole number from %1$d to %2$d.</string>
+    <string name="budgets_follow_income_row_note">%d%% of income</string>
+    <string name="budgets_follow_income_title">Budget follows income</string>
 </resources>

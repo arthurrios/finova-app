@@ -392,6 +392,11 @@ class FinanceRepository(
         upsert = { db.budgets().upsert(it.toEntity()) },
     )
 
+    /** A different amount per month ("budget follows income"), all or nothing. */
+    suspend fun setBudgetAmounts(amounts: Map<java.time.YearMonth, Long>) = db.withTransaction {
+        amounts.forEach { (month, amount) -> db.budgets().upsert(Budget(month, amount).toEntity()) }
+    }
+
     suspend fun deleteBudget(month: java.time.YearMonth) = db.budgets().delete(month)
 
     suspend fun setBalanceOffset(value: Long) = db.userSettings().save(UserSettingsEntity(balanceOffset = value))

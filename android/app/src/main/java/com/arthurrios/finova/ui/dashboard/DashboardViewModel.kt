@@ -40,6 +40,8 @@ class DashboardViewModel(
     private val today: () -> LocalDate = LocalDate::now,
     /** Foreign-currency income: the lock pass and the "rate updated" hint. */
     private val fx: com.arthurrios.finova.data.fx.ForeignCurrencyService? = null,
+    /** Keeps "budget follows income" months in step with income after every change. */
+    private val followIncome: com.arthurrios.finova.data.BudgetFollowsIncomeService? = null,
 ) : ViewModel(), DashboardActions {
 
     /** "Rate updated: US$ 1 = R$ 5,7651", at most once an hour. */
@@ -123,6 +125,14 @@ class DashboardViewModel(
             // iOS also tops up repeating allocations after every dashboard load.
             allocationRepository.materializeAll(today())
             fx?.refresh()
+        }
+        // Every add, edit, delete, recurring top-up and rate move changes the stored rows; the
+        // months that follow income take their new budget from them (a no-op when it is off).
+        followIncome?.let { service ->
+            service.reload()
+            viewModelScope.launch {
+                repository.transactions.collect { service.recompute(repository, today()) }
+            }
         }
     }
 
